@@ -6,7 +6,14 @@ set -euo pipefail
 
 PANEL_HTTP="__PANEL_HTTP__"
 PANEL="" TOKEN="" CA="" DATA="/var/lib/polaris" MIRROR="" BIN="/usr/local/bin/polaris-agent"
-RELEASE_URL="${POLARIS_AGENT_URL:-https://github.com/cuijianzhuang/polaris/releases/latest/download}"
+PANEL_VERSION="__PANEL_VERSION__"
+SHA_amd64="__SHA_AMD64__"
+SHA_arm64="__SHA_ARM64__"
+if [ "$PANEL_VERSION" = "dev" ]; then
+  RELEASE_URL="${POLARIS_AGENT_URL:-https://github.com/cuijianzhuang/polaris/releases/latest/download}"
+else # same version as the panel
+  RELEASE_URL="${POLARIS_AGENT_URL:-https://github.com/cuijianzhuang/polaris/releases/download/$PANEL_VERSION}"
+fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,12 +40,25 @@ fetch() { # url dest
   if command -v curl >/dev/null; then curl -fsSL --retry 3 -o "$2" "$1"; else wget -qO "$2" "$1"; fi
 }
 
+command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 TMP="$(mktemp)"
-trap 'rm -f "$TMP"' EXIT
+SUMS="$(mktemp)"
+trap 'rm -f "$TMP" "$SUMS"' EXIT
+eval "WANT=\$SHA_$ARCH"
 echo "==> downloading polaris-agent ($ARCH)"
-if ! fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TMP" 2>/dev/null; then
+if [ -n "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TMP" 2>/dev/null; then
+  : # checksum published by the panel together with this script
+else
   fetch "$RELEASE_URL/polaris-agent-linux-$ARCH" "$TMP"
+  fetch "$RELEASE_URL/checksums.txt" "$SUMS"
+  WANT="$(awk -v f="polaris-agent-linux-$ARCH" '$2 == f || $2 == "*"f {print $1}' "$SUMS")"
 fi
+GOT="$(sha256sum "$TMP" | awk '{print $1}')"
+if [ -z "$WANT" ] || [ "$GOT" != "$WANT" ]; then
+  echo "checksum mismatch for polaris-agent-linux-$ARCH (want ${WANT:-none}, got $GOT); aborting" >&2
+  exit 1
+fi
+echo "==> sha256 verified ($GOT)"
 install -m 0755 "$TMP" "$BIN"
 mkdir -p "$DATA"
 chmod 700 "$DATA"

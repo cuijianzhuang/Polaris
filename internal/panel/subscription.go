@@ -1,11 +1,18 @@
 package panel
 
 import (
+	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -249,8 +256,43 @@ func (s *Server) installScript(c *gin.Context) {
 	if base == "" {
 		base = "http://" + c.Request.Host
 	}
-	script := strings.ReplaceAll(installSh, "__PANEL_HTTP__", base)
+	script := strings.NewReplacer("__PANEL_HTTP__", base, "__PANEL_VERSION__", Version,
+		"__SHA_AMD64__", s.agentSHA("amd64"), "__SHA_ARM64__", s.agentSHA("arm64")).Replace(installSh)
 	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(script))
 }
 
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
+
+type shaEntry struct {
+	mod  time.Time
+	size int64
+	sum  string
+}
+
+var agentSHACache sync.Map // path -> shaEntry
+
+// agentSHA returns the SHA-256 of a locally served agent binary ("" if absent).
+func (s *Server) agentSHA(arch string) string {
+	p := filepath.Join(s.cfg.DataDir, "downloads", "polaris-agent-linux-"+arch)
+	fi, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	if v, ok := agentSHACache.Load(p); ok {
+		if e := v.(shaEntry); e.mod.Equal(fi.ModTime()) && e.size == fi.Size() {
+			return e.sum
+		}
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	agentSHACache.Store(p, shaEntry{fi.ModTime(), fi.Size(), sum})
+	return sum
+}
