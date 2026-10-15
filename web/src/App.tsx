@@ -8,6 +8,7 @@ import type { Node } from './types'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Nodes from './pages/Nodes'
+import Cores from './pages/Cores'
 import Inbounds from './pages/Inbounds'
 import Chains from './pages/Chains'
 import Templates from './pages/Templates'
@@ -48,9 +49,14 @@ function NodesProvider({ children }: { children: ReactNode }) {
   return <NodesCtx.Provider value={{ nodes, refresh }}>{children}</NodesCtx.Provider>
 }
 
-const nav = [
+type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; children?: { to: string; label: string; icon: ReactNode }[] }
+
+const nav: NavItem[] = [
   { to: '/', label: '仪表盘', icon: <Icon.Dashboard />, end: true },
-  { to: '/nodes', label: '节点与内核', icon: <Icon.Nodes /> },
+  { to: '/nodes', label: '节点与内核', icon: <Icon.Nodes />, children: [
+    { to: '/nodes', label: '节点', icon: <Icon.Server /> },
+    { to: '/cores', label: '内核', icon: <Icon.Cpu /> },
+  ] },
   { to: '/inbounds', label: '入站', icon: <Icon.Inbound /> },
   { to: '/chains', label: '链路与 CDN', icon: <Icon.Chain /> },
   { to: '/templates', label: '入站模板', icon: <Icon.Template /> },
@@ -82,6 +88,25 @@ function TopProgress() {
   return <div className={'topbar' + (show ? ' on' : '')} aria-hidden="true" />
 }
 
+// NavGroup is a collapsible sidebar entry; it opens itself while one of its
+// pages is shown.
+function NavGroup({ item }: { item: NavItem }) {
+  const loc = useLocation()
+  const here = item.children!.some((c) => loc.pathname === c.to || loc.pathname.startsWith(c.to + '/'))
+  const [open, setOpen] = useState(here)
+  useEffect(() => { if (here) setOpen(true) }, [here])
+  return (
+    <div className={'navgroup' + (open ? ' open' : '')}>
+      <button type="button" className={'nav' + (here && !open ? ' active' : '')} aria-expanded={open} onClick={() => setOpen(!open)}>
+        {item.icon}{item.label}<span className="chev" aria-hidden="true"><Icon.Chevron /></span>
+      </button>
+      <div className="navsub">
+        {item.children!.map((c) => <NavLink key={c.to} to={c.to} className="nav">{c.icon}{c.label}</NavLink>)}
+      </div>
+    </div>
+  )
+}
+
 // ThemeToggle cycles light → dark → follow system; accents live in 设置.
 function ThemeToggle() {
   const [t, setT] = useTheme()
@@ -105,7 +130,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       <TopProgress />
       <nav className="side" aria-label="主导航">
         <div className="brand"><Icon.Logo />{title}</div>
-        {nav.map((n) => <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
+        {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
         <div className="navsec">系统</div>
         {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
         <div className="side-foot"><span>{user}</span><span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" onClick={onLogout}>退出</button></span></div>
@@ -138,6 +163,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/nodes" element={<Nodes />} />
+                  <Route path="/cores" element={<Cores />} />
                   <Route path="/inbounds" element={<Inbounds />} />
                   <Route path="/chains" element={<Chains />} />
                   <Route path="/templates" element={<Templates />} />

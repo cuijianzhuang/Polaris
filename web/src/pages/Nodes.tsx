@@ -4,6 +4,7 @@ import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
+import VersionPicker from '../components/VersionPicker'
 import type { CapSet, Core, CoreType, Node, Revision, User } from '../types'
 
 // useCoreDefaults returns the version each core type gets when added
@@ -32,14 +33,14 @@ function capsSummary(c?: CapSet): string[] {
 }
 
 const vparts = (v: string) => v.replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0)
-const versionLess = (a: string, b: string) => {
+export const versionLess = (a: string, b: string) => {
   const pa = vparts(a), pb = vparts(b)
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0)
   return false
 }
 
 /** Upgrade one core type on many nodes at once. */
-function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: Node[]; latest: Record<string, string>; onClose: () => void; onDone: () => void }) {
+export function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: Node[]; latest: Record<string, string>; onClose: () => void; onDone: () => void }) {
   const types = [...new Set(nodes.flatMap((n) => n.cores.map((c) => c.type)))] as CoreType[]
   const [type, setType] = useState<CoreType>(types[0] ?? 'xray')
   const [version, setVersion] = useState(latest[types[0] ?? 'xray'] ?? '')
@@ -64,9 +65,9 @@ function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: Node[]; l
       <Field label="内核">
         <div className="row">{types.map((t) => <button key={t} type="button" className={'chip' + (type === t ? ' on' : '')} onClick={() => pick(t)}>{coreLabel[t]}</button>)}</div>
       </Field>
-      <Field label="目标版本" hint={latest[type] ? `GitHub 最新稳定版 v${latest[type]}` : '未能获取最新版本，请手动填写'}>
-        <input className="input mono" value={version} onChange={(e) => setVersion(e.target.value.replace(/^v/, ''))} placeholder="26.3.27" />
-      </Field>
+      <VersionPicker type={type} value={version} onChange={setVersion}
+        current={withCore.map((n) => n.cores.find((c) => c.type === type)?.version ?? '')}
+        hint={latest[type] ? `GitHub 最新稳定版 v${latest[type]}` : undefined} />
       <Field label="节点">
         <div className="pick-list">
           {withCore.map((n) => {
@@ -275,21 +276,12 @@ const coreHint: Record<string, string> = {
   mihomo: 'listeners · 控制器热重载', caddy: 'CDN 443 端口共享回源（按需自动安装）', forwarder: 'L4 端口转发 · 中转链路',
 }
 
-function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
+export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
   const [type, setType] = useState<CoreType>(core?.type ?? (node.cores.find((c) => c.type === 'singbox') ? 'xray' : 'singbox'))
   const defaults = useCoreDefaults()
   const [version, setVersion] = useState(core?.version ?? '')
   useEffect(() => { if (!core && !version && defaults[type]) setVersion(defaults[type]) }, [defaults]) // eslint-disable-line react-hooks/exhaustive-deps
   const [isDefault, setDefault] = useState(core?.isDefault ?? false)
-  const [available, setAvailable] = useState<string[] | null>(null)
-  useEffect(() => {
-    let live = true
-    setAvailable(null)
-    get<{ versions: string[] }>('/core-versions?type=' + type)
-      .then((r) => { if (live) setAvailable(r.versions) })
-      .catch(() => { if (live) setAvailable([]) })
-    return () => { live = false }
-  }, [type])
   const installed = core?.installedVersions ?? []
   const { busy, run } = useAction()
   return (
@@ -312,19 +304,8 @@ function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; o
           </div>
         </Field>
       )}
-      <Field label="版本" htmlFor="c-ver" hint={core?.installedVersions?.length ? `已安装：${core.installedVersions.join('、')}（切回旧版本可秒级回滚）` : '从官方 GitHub Release 下载，并校验 SHA256'}>
-        <input id="c-ver" className="input mono" value={version} onChange={(e) => setVersion(e.target.value)} list="core-versions" />
-        <datalist id="core-versions">{[...new Set([...(available ?? []), ...installed])].map((v) => <option key={v} value={v} />)}</datalist>
-      </Field>
-      <div className="chips" style={{ marginBottom: 12 }} aria-label="可选版本">
-        {available === null && <span className="sub">正在获取官方版本列表…</span>}
-        {available?.length === 0 && <span className="sub">无法获取版本列表（可在设置中配置 GitHub 镜像），请手动填写版本号</span>}
-        {available?.slice(0, 10).map((v, i) => (
-          <button key={v} type="button" className={'chip' + (version === v ? ' on' : '')} onClick={() => setVersion(v)}>
-            v{v}{i === 0 ? ' · 最新' : ''}{installed.includes(v) ? ' · 已安装' : ''}{core?.version === v ? ' · 当前' : ''}
-          </button>
-        ))}
-      </div>
+      <VersionPicker type={type} value={version} onChange={setVersion} current={core?.version} installed={installed}
+        hint={installed.length ? `已安装：${installed.join('、')}（切回旧版本可秒级回滚）` : undefined} />
       <label className="chk"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />设为节点默认内核</label>
     </Modal>
   )
