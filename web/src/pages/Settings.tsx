@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
+import GeodataCard from '../components/GeodataCard'
 import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 
 export default function Settings() {
@@ -64,6 +65,7 @@ export default function Settings() {
           <Field label="CA 指纹（SHA-256）" hint="安装命令携带此指纹，Agent 首次接入时校验主控身份"><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
+        <GeodataCard />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>
           <Field label="原密码"><input className="input" type="password" autoComplete="current-password" value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>

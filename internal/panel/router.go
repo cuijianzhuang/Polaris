@@ -105,6 +105,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/nodes/:id", s.deleteNode)
 	p.POST("/nodes/:id/install-token", s.installToken)
 	p.POST("/nodes/:id/sync", s.syncNode)
+	p.POST("/nodes/:id/geodata-update", s.geodataUpdate)
 	p.POST("/tools/reality-scan", s.realityScan)
 	p.POST("/tools/vlessenc", s.genVLESSEnc)
 	p.POST("/tools/mldsa65", s.genMLDSA65)

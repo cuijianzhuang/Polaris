@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -143,4 +144,49 @@ func xrayVersion(bin string) string {
 		return f[1]
 	}
 	return ""
+}
+
+func TestRenderGeodata(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "xray")
+	if src := os.Getenv("POLARIS_XRAY_BIN"); src != "" {
+		b, err := os.ReadFile(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(bin, b, 0o755)
+		for _, f := range []string{"geoip.dat", "geosite.dat"} {
+			if d, err := os.ReadFile(filepath.Join(filepath.Dir(src), f)); err == nil {
+				os.WriteFile(filepath.Join(dir, f), d, 0o644)
+			}
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "geoip.dat"), mustRead(t, filepath.Join(dir, "geoip.dat")), 0o644)
+	g := &model.GeodataSpec{Cron: "0 4 * * *", Assets: append(model.StandardGeoAssets[:1:1],
+		model.GeoAsset{URL: "https://example.com/geosite_IR.dat", File: "geosite_IR.dat"})}
+	a := New(core.Options{Version: "26.10.10", WorkDir: t.TempDir(), BinPath: bin})
+	cfg, err := a.Render(&model.NodeSpec{Geodata: g})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(cfg)
+	if !strings.Contains(s, `"geodata"`) || !strings.Contains(s, `"file": "geoip.dat"`) || strings.Contains(s, "geosite_IR.dat") {
+		t.Fatalf("geodata block should list only present files:\n%s", s)
+	}
+	if old := New(core.Options{Version: "26.3.27", WorkDir: t.TempDir(), BinPath: bin}); old.geodata(g) != nil {
+		t.Fatal("xray before 26.4.25 has no geodata")
+	}
+	if os.Getenv("POLARIS_XRAY_BIN") != "" && core.VersionAtLeast(xrayVersion(bin), "26.4.25") {
+		if err := a.Validate(cfg); err != nil {
+			t.Fatalf("xray rejected geodata: %v", err)
+		}
+	}
+}
+
+func mustRead(t *testing.T, p string) []byte {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return []byte("placeholder")
+	}
+	return b
 }

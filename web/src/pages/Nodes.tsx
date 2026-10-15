@@ -467,6 +467,12 @@ export default function Nodes() {
                           const r = await get<{ logs: string; error: string }>(`/cores/${c.id}/logs?lines=300`)
                           setPreview({ title: `${coreLabel[c.type]} 日志`, text: r.logs || r.error || '（暂无日志）' })
                         })}>日志</button>
+                        {c.type === 'xray' && (
+                          <button className="btn sm" type="button" disabled={!sel.connected} title="立即下载设置中配置的 .dat 文件并重载 Xray" onClick={() => run(async () => {
+                            const r = await post<{ output: string }>(`/nodes/${sel.id}/geodata-update`, {})
+                            setPreview({ title: '更新 Geo 文件', text: r.output || '完成' })
+                          })}>更新 Geo 文件</button>
+                        )}
                         <button className="btn sm danger" type="button" onClick={async () => {
                           if (await confirm(`卸载 ${coreLabel[c.type]}？仍承载入站时会被拒绝。`, { danger: true })) run(async () => { await del('/cores/' + c.id); refresh() }, '已卸载')
                         }}>卸载</button>

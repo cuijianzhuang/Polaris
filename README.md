@@ -21,7 +21,7 @@
 | 模块 | 内容 |
 | --- | --- |
 | 内核适配层 | `CoreAdapter` 接口：`Capabilities / Render / Validate / Start / Stop / Reload / AddUsers / RemoveUsers / CollectTraffic / OnlineIPs / Health`。新增内核只需新增一个适配器 |
-| 协议 | VLESS（Vision / REALITY / XHTTP）、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC v5、AnyTLS、ShadowTLS v3、Naive、SOCKS、HTTP；传输 TCP / WS / gRPC / HTTPUpgrade / XHTTP / mKCP |
+| 协议 | VLESS（Vision / REALITY / XHTTP）、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC v5、AnyTLS、ShadowTLS v3、Naive、SOCKS、HTTP；传输 TCP / WS / gRPC / HTTPUpgrade / XHTTP / mKCP；Xray 新特性：VLESS Encryption（ML-KEM-768 + X25519，面板一键生成）、Vision testseed、REALITY ML-DSA-65 签名 / 客户端版本范围 / 回落限速、PROXY protocol、嗅探排除；REALITY 目标扫描（TLS 1.3 / h2 / X25519MLKEM768，由节点发起） |
 | 能力矩阵 | 由适配器按内核版本计算（如 XHTTP 需 Xray ≥ 24.9.30、AnyTLS 需 sing-box ≥ 1.12），前端据此置灰不可选组合，主控创建时再校验；双内核都支持时按节点默认内核分配 |
 | 期望状态同步 | 每次变更生成完整 `NodeSpec` 存入 `config_revisions`；Agent 只增删用户时走热更新，结构变化走 渲染 → 内核自检 → 原子替换 → 重载，失败自动回滚并上报；后台可一键回滚到任意已应用版本 |
 | 用户 | 每个用户一个 UUID + 一个密码，SS 2022 按加密方式派生对应长度 PSK；配额、到期（固定日期或「首次使用后 N 天」）、IP 数限制（可选临时封禁）、授权（整台绑定节点 / 按分组 / 单独入站，三者取并集；节点页可查看谁有权使用、本节点流量与在线 IP，并直接绑定 / 解绑；批量绑定 / 解绑节点）、每月 / 周期重置、节点流量倍率；近 30 天每日流量图 |
@@ -34,6 +34,7 @@
 | Telegram 机器人 | 超级管理员（全部节点与用户）/ 节点管理员（只管绑定的节点）/ 用户（订阅链接或信息页一键绑定）三种角色；查看节点、重启内核、强制同步、搜索用户、重置流量、续期；节点离线 / 下发失败 / IP 变更告警；用户流量与到期提醒；公告群发 |
 | CDN | 入站可挂多个入口（直连 / CDN / 中转）；CDN 配置档含优选 IP（手填或定时拉取、可按 IP 展开）；Cloudflare 集成：自动建代理 DNS 记录、SSL 设为 Full (strict)、签发 Origin 证书并下发 |
 | 链式代理 | L4 端口转发（realm，不解密）与协议中转（自动创建服务账号、出站与路由）；节点出站可经 WARP / 住宅 SOCKS / 面板内其他节点（`detour` 串链）；路由规则、urltest / selector 出站组；链路探测 |
+| Xray Geodata | 设置中开启后，Xray 按 cron 自动下载 geoip / geosite 等 .dat 文件并热重载（Xray 26.4.25+），支持自定义文件与经出站下载；节点页可立即更新 |
 | 入站模板 | 内置「REALITY 直连」「Hy2 + TUIC」「CDN WS 备用」「全协议」；选模板 → 选节点 → 预览（改派内核、端口冲突自动调整、跳过原因）→ 生成；改模板后差异同步，手动改过的字段保留；节点标签绑定模板，新节点上线自动套用 |
 | 安全 | 主控 ↔ Agent 全程 mTLS（内置 CA，首次接入用一次性 token + CA 指纹钉扎，可吊销）；后台路径自定义，其余路径 404 或反代伪装站；bcrypt + TOTP + 5 次失败锁 15 分钟；管理员可绑定 GitHub 账号免密登录（开启二次验证的仍需输入验证码）；REALITY 私钥 / 证书私钥 / SS 主密钥 / API Token 以 AES-GCM 加密存库；订阅 token 32 字节、接口限速；Agent 只执行结构化指令；内核下载校验官方 SHA256；全部写操作记审计日志 |
 

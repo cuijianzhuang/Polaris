@@ -514,6 +514,12 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			fail(err)
 		}
 		a.applyMu.Unlock()
+	case "geodata_update":
+		out, err := a.updateGeodata(ctx, c.Args)
+		res.Output = out
+		if err != nil {
+			fail(err)
+		}
 	case "reality_scan":
 		rs, err := realityscan.Scan(ctx, c.Args["target"])
 		if err != nil {

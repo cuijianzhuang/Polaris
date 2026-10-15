@@ -189,3 +189,28 @@ func TestXrayPostQuantumOptions(t *testing.T) {
 		t.Fatalf("share link lacks encryption / pqv: %s", link)
 	}
 }
+
+func TestGeodataSettings(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "tokyo", Address: "203.0.113.9"})
+	if code, _ := c.do("PUT", "/settings", map[string]any{"geodata_cron": "every day"}); code != 400 {
+		t.Fatal("invalid cron accepted")
+	}
+	if code, _ := c.do("PUT", "/settings", map[string]any{"geodata_assets": `[{"url":"http://x/a.dat","file":"a.dat"}]`}); code != 400 {
+		t.Fatal("plain http asset accepted")
+	}
+	if code, _ := c.do("PUT", "/settings", map[string]any{"geodata_assets": `[{"url":"https://x/a.dat","file":"../a.dat"}]`}); code != 400 {
+		t.Fatal("path in file name accepted")
+	}
+	if spec, _ := s.BuildSpec("n1"); spec.Geodata != nil {
+		t.Fatal("geodata on by default")
+	}
+	if code, out := c.do("PUT", "/settings", map[string]any{"geodata_cron": "0 4 * * *",
+		"geodata_assets": `[{"url":"https://example.com/geosite_IR.dat","file":"geosite_IR.dat"}]`}); code != 200 {
+		t.Fatalf("save %d %v", code, out)
+	}
+	spec, _ := s.BuildSpec("n1")
+	if spec.Geodata == nil || spec.Geodata.Cron != "0 4 * * *" || spec.Geodata.Assets[0].File != "geosite_IR.dat" {
+		t.Fatalf("geodata spec = %+v", spec.Geodata)
+	}
+}

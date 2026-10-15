@@ -21,6 +21,7 @@ type managed struct {
 	spec    model.CoreSpec
 	adapter core.CoreAdapter
 	cfgPath string
+	binDir  string // where the core binary (and Xray's .dat assets) live
 	// applied is the spec this core last converged to. It can differ from
 	// Agent.current when another core failed in the same apply.
 	applied *model.NodeSpec
@@ -131,6 +132,9 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		if m == nil {
 			continue // installed, nothing to serve
 		}
+		if t == model.CoreXray && spec.Geodata != nil {
+			a.fetchGeoAssets(ctx, m.binDir, spec.Geodata.Assets, false)
+		}
 		corePrev := m.applied
 		if corePrev == nil && old == nil {
 			corePrev = prev
@@ -198,7 +202,7 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 		a.collectFrom(ctx, m)
 		_ = m.adapter.Stop(ctx) // version switch
 	}
-	nm := &managed{spec: cs, adapter: ad, cfgPath: filepath.Join(work, cfgNames[cs.Type])}
+	nm := &managed{spec: cs, adapter: ad, cfgPath: filepath.Join(work, cfgNames[cs.Type]), binDir: filepath.Dir(bin)}
 	a.setCore(cs.Type, nm)
 	return nm, m, nil
 }

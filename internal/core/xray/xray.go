@@ -146,6 +146,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	for k, v := range observe {
 		cfg[k] = v
 	}
+	if g := a.geodata(spec.Geodata); g != nil {
+		cfg["geodata"] = g
+	}
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, err
@@ -893,6 +896,32 @@ func dedupe(in []string) []string {
 			seen[s] = true
 			out = append(out, s)
 		}
+	}
+	return out
+}
+
+// geodata renders the auto-update block (Xray 26.4.25+). Xray refuses
+// assets whose file is missing, so only files present next to the binary
+// are listed (the agent downloads missing ones before applying).
+func (a *Adapter) geodata(g *model.GeodataSpec) map[string]any {
+	if g == nil || g.Cron == "" || !core.VersionAtLeast(a.opt.Version, "26.4.25") {
+		return nil
+	}
+	var assets []any
+	for _, as := range g.Assets {
+		if a.opt.BinPath != "" {
+			if _, err := os.Stat(filepath.Join(filepath.Dir(a.opt.BinPath), as.File)); err != nil {
+				continue
+			}
+		}
+		assets = append(assets, map[string]any{"url": as.URL, "file": as.File})
+	}
+	if len(assets) == 0 {
+		return nil
+	}
+	out := map[string]any{"cron": g.Cron, "assets": assets}
+	if g.Outbound != "" {
+		out["outbound"] = g.Outbound
 	}
 	return out
 }

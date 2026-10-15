@@ -91,8 +91,30 @@ type NodeSpec struct {
 	IPLimits map[string]int `json:"ipLimits,omitempty"`
 	// AutoFirewall lets the agent open the spec's ports in the host
 	// firewall (ufw / firewalld / iptables) and close them again.
-	AutoFirewall bool      `json:"autoFirewall,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
+	AutoFirewall bool `json:"autoFirewall,omitempty"`
+	// Geodata makes Xray download its .dat files on a schedule and reload
+	// them without a restart (Xray 26.4.25+).
+	Geodata   *GeodataSpec `json:"geodata,omitempty"`
+	CreatedAt time.Time    `json:"createdAt"`
+}
+
+// GeodataSpec is Xray's "geodata" block.
+type GeodataSpec struct {
+	Cron     string     `json:"cron"`
+	Outbound string     `json:"outbound,omitempty"` // download through this outbound tag
+	Assets   []GeoAsset `json:"assets"`
+}
+
+// GeoAsset is one .dat file and where to fetch it (https only).
+type GeoAsset struct {
+	URL  string `json:"url"`
+	File string `json:"file"`
+}
+
+// StandardGeoAssets are the commonly used rule sets.
+var StandardGeoAssets = []GeoAsset{
+	{URL: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat", File: "geoip.dat"},
+	{URL: "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat", File: "geosite.dat"},
 }
 
 // InboundsFor returns the enabled inbounds hosted by the given core.

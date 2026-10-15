@@ -108,6 +108,7 @@ var editableSettings = map[string]bool{
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
+	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true,
 }
 
 func (s *Server) getSettings(c *gin.Context) {
@@ -162,6 +163,10 @@ func (s *Server) putSettings(c *gin.Context) {
 				return
 			}
 		}
+		if err := validateGeodataSetting(k, v); err != nil {
+			badRequest(c, err)
+			return
+		}
 		if k == "sub_update_interval" || k == "ip_ban_minutes" {
 			if _, err := strconv.Atoi(v); err != nil {
 				badRequest(c, fmt.Errorf("%s must be a number", k))
@@ -175,6 +180,14 @@ func (s *Server) putSettings(c *gin.Context) {
 		keys = append(keys, k)
 	}
 	s.auditCtx(c, "settings.update", strings.Join(keys, ","), "")
+	for _, k := range keys {
+		if geodataSettings[k] { // part of every node's spec
+			var ids []string
+			s.st.DB.Model(&store.Node{}).Pluck("id", &ids)
+			s.MarkDirty("geodata settings", ids...)
+			break
+		}
+	}
 	s.getSettings(c)
 }
 

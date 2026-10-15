@@ -148,7 +148,8 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	if err := s.st.DB.First(&node, "id = ?", nodeID).Error; err != nil {
 		return nil, err
 	}
-	spec := &model.NodeSpec{NodeID: node.ID, DefaultCore: node.DefaultCore, Inbounds: []model.Inbound{}, AutoFirewall: !node.NoFirewall}
+	spec := &model.NodeSpec{NodeID: node.ID, DefaultCore: node.DefaultCore, Inbounds: []model.Inbound{}, AutoFirewall: !node.NoFirewall,
+		Geodata: s.geodataSpec()}
 
 	cores, err := s.nodeCores(node.ID)
 	if err != nil {
