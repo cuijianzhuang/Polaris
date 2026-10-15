@@ -61,6 +61,24 @@ env_set() { # key value
 }
 running() { systemctl is-active --quiet polaris; }
 
+# The installer hands the generated admin password to the first start via the
+# env file; once the panel runs the account exists, so drop it from disk.
+scrub_initial_password() {
+  [ -f "$ENV_FILE" ] && grep -q '^POLARIS_INITIAL_ADMIN_PASSWORD=' "$ENV_FILE" &&
+    sed -i '/^POLARIS_INITIAL_ADMIN_PASSWORD=/d' "$ENV_FILE"
+  return 0
+}
+
+print_credentials() { # password
+  echo
+  printf '\033[1;32m%s\033[0m\n' "┌──────────────── 后台登录信息（请立即保存）────────────────┐"
+  echo "   地址：  $(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/"
+  echo "   用户名：admin"
+  echo "   密码：  $1"
+  echo "   （密码只显示这一次；忘记后用 polaris reset-password 重置）"
+  printf '\033[1;32m%s\033[0m\n' "└──────────────────────────────────────────────────────────┘"
+}
+
 # polaris_cmd runs a panel maintenance subcommand as the service user with
 # the service's environment (so SQLite files keep the right owner).
 polaris_cmd() {
@@ -77,7 +95,7 @@ polaris_cmd() {
 
 wait_active() {
   local _
-  for _ in $(seq 1 15); do running && return 0; sleep 1; done
+  for _ in $(seq 1 15); do running && { scrub_initial_password; return 0; }; sleep 1; done
   journalctl -u polaris -n 30 --no-pager
   return 1
 }
@@ -246,7 +264,12 @@ show_info() {
 
 do_install() {
   installed && die "已安装：升级用 update，重装请先 uninstall"
-  [ -f "$ENV_FILE" ] && die "$ENV_FILE 已存在：升级用 update，重装请先 uninstall"
+  [ -f "$ENV_FILE" ] && die "$ENV_FILE 已存在：恢复或升级请用 polaris update，全新安装请先 polaris uninstall --purge"
+  # Data left by an earlier install is encrypted with that install's secret
+  # key; a fresh key cannot read it, so do not start on top of it.
+  if ls "$DATA"/*.db >/dev/null 2>&1; then
+    die "$DATA 中有旧安装留下的数据，但配置文件（含解密密钥）已不存在。请恢复原来的 $ENV_FILE 后执行 polaris update，或执行 polaris uninstall --purge 清除旧数据后重新安装"
+  fi
   [ -z "$DOMAIN" ] || valid_domain "$DOMAIN" || die "域名格式不正确：$DOMAIN"
   valid_port "$PORT" && valid_port "$AGENT_PORT" || die "端口不正确"
   [ "$PORT" != "$AGENT_PORT" ] || die "面板端口与节点接入端口不能相同"
@@ -255,6 +278,9 @@ do_install() {
   download_release
 
   local host listen public_url secret use_caddy=0 pass=""
+  # Generate the first admin's password here and print it ourselves: reading it
+  # back from the journal can pick up an older install's line after a reinstall.
+  pass="$(head -c 48 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-16)"
   if [ -n "$DOMAIN" ]; then
     host="$DOMAIN"
   else
@@ -286,6 +312,7 @@ POLARIS_AGENT_LISTEN=:$AGENT_PORT
 POLARIS_AGENT_HOSTS=$host
 POLARIS_DATA_DIR=$DATA
 POLARIS_INITIAL_ADMIN_USERNAME=admin
+POLARIS_INITIAL_ADMIN_PASSWORD=$pass
 EOF
   chmod 0640 "$ENV_FILE"; chown root:polaris "$ENV_FILE"
   install_unit
@@ -299,15 +326,10 @@ EOF
   step "启动 Polaris"
   systemctl daemon-reload
   systemctl enable --now polaris >/dev/null 2>&1
-  local _
-  for _ in $(seq 1 30); do
-    pass="$(journalctl -u polaris --no-pager -o cat 2>/dev/null | sed -n 's/.*created initial admin.* password=\([^ ]*\).*/\1/p' | tail -n1)"
-    [ -n "$pass" ] && break
-    running || break
-    sleep 1
-  done
-  if ! running; then
-    journalctl -u polaris -n 40 --no-pager
+  if ! wait_active; then
+    # The admin account is created before the listeners start, so the
+    # credentials are valid even when startup fails afterwards (e.g. port busy).
+    print_credentials "$pass" # after the log wait_active printed, so it stays in view
     if journalctl -u polaris -n 40 --no-pager 2>/dev/null | grep -q 'address already in use'; then
       die "Polaris 启动失败：端口被占用。可执行 polaris set-port <新端口> 修改后会自动重启"
     fi
@@ -317,8 +339,7 @@ EOF
   echo
   green "Polaris $VERSION 安装完成"
   show_info
-  echo "  用户名：    admin"
-  echo "  初始密码：  ${pass:-（未能从日志读取，可执行 polaris reset-password 重新生成）}"
+  print_credentials "$pass"
   echo
   yellow "请在防火墙放行："
   if [ "$use_caddy" = 1 ]; then echo "  80/tcp、443/tcp（HTTPS 与证书申请）"; elif [ -z "$DOMAIN" ]; then echo "  $PORT/tcp（后台与订阅）"; fi
@@ -332,21 +353,25 @@ EOF
 
 do_update() {
   migrate_layout
-  need_installed
+  # Config is what matters: after "uninstall" without --purge the binary and
+  # unit are gone but config and data remain, and update restores them.
+  [ -f "$ENV_FILE" ] || die "Polaris 尚未安装（未找到 $ENV_FILE）"
+  id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
   download_release
   local cur backup=""
-  cur="$("$BIN" --version 2>/dev/null || echo unknown)"
+  cur="$("$BIN" --version 2>/dev/null || echo 未安装)"
   step "升级 $cur -> $VERSION（配置与数据保持不变）"
   if ls "$DATA"/*.db >/dev/null 2>&1; then
     backup="$DATA/backup-$(date +%Y%m%d%H%M%S)"
   fi
-  systemctl stop polaris
+  systemctl stop polaris 2>/dev/null || true
   if [ -n "$backup" ]; then
     mkdir -p "$backup" && cp -a "$DATA"/*.db* "$backup"/ && echo "数据库已备份到 $backup"
   fi
   install_files
   install_unit
   systemctl daemon-reload
+  systemctl enable polaris >/dev/null 2>&1 || true
   systemctl start polaris
   wait_active || die "启动失败${backup:+，升级前的数据库备份在 $backup}"
   green "已升级到 $("$BIN" --version)"
