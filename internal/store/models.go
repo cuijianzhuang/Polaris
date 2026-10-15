@@ -62,6 +62,8 @@ type Core struct {
 	StartedAt         *time.Time     `json:"startedAt"`
 	Error             string         `gorm:"size:2000" json:"error"`
 	InstalledVersions JSON[[]string] `json:"installedVersions"`
+	RunningVersion    string         `gorm:"size:32" json:"runningVersion"` // version the agent reports running
+	PrevVersion       string         `gorm:"size:32" json:"prevVersion"`    // version before the last switch (rollback target)
 	Inbounds          int            `gorm:"-" json:"inbounds"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	UpdatedAt         time.Time      `json:"updatedAt"`
@@ -119,6 +121,8 @@ type User struct {
 	WarnedExpire    *time.Time     `json:"-"`
 	Remark          string         `gorm:"size:255" json:"remark"`
 	GroupIDs        []string       `gorm:"-" json:"groupIds"`
+	NodeIDs         []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs      []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
 	CreatedAt       time.Time      `json:"createdAt"`
 	UpdatedAt       time.Time      `json:"updatedAt"`
 }
@@ -151,6 +155,21 @@ type UserGroup struct {
 	GroupID string `gorm:"primaryKey;size:32;index"`
 }
 
+// UserAccess binds a user directly to a whole node (every inbound on it,
+// including ones added later) or to one inbound, alongside group grants.
+type UserAccess struct {
+	UserID   string `gorm:"primaryKey;size:32"`
+	Kind     string `gorm:"primaryKey;size:8"` // node / inbound
+	TargetID string `gorm:"primaryKey;size:32;index"`
+}
+
+// GrantsSQL selects (user_id, inbound_id) for every way a user can be
+// authorised on an inbound: group membership, a direct inbound binding, or a
+// node binding.
+const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id
+UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua WHERE ua.kind = 'inbound'
+UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'`
+
 // TrafficHourly keeps hourly traffic per user and node (90 days).
 type TrafficHourly struct {
 	UserID string    `gorm:"primaryKey;size:32"`
@@ -165,6 +184,8 @@ type Certificate struct {
 	ID        string     `gorm:"primaryKey;size:32" json:"id"`
 	Domain    string     `gorm:"size:255;index" json:"domain"`
 	Provider  string     `gorm:"size:32" json:"provider"` // acme / selfsigned / manual / cf-origin
+	Challenge string     `gorm:"size:8" json:"challenge"` // acme: dns (Cloudflare) / http (node port 80)
+	NodeID    string     `gorm:"size:32" json:"nodeId"`   // acme http: node that answers the challenge
 	Cert      string     `gorm:"type:text" json:"cert"`
 	Key       string     `gorm:"type:text" json:"-"` // sealed
 	ExpireAt  *time.Time `json:"expireAt"`
@@ -465,7 +486,7 @@ type TGAdmin struct {
 // AllModels lists every table for migration.
 func AllModels() []any {
 	return []any{
-		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{},
+		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},

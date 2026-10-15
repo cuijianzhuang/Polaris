@@ -77,6 +77,8 @@ type Agent struct {
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
 	wantRev chan int64
 
+	acme acmeHTTP // ACME HTTP-01 challenge server (panel-driven)
+
 	restartMu sync.Mutex
 	restart   bool // set by a self-update: Run returns ErrRestart
 	cancel    context.CancelFunc
@@ -162,6 +164,7 @@ func (a *Agent) Run(ctx context.Context) error {
 }
 
 func (a *Agent) shutdown() {
+	a.acme.stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	a.flushTraffic(ctx)
@@ -485,6 +488,10 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 		}
 		if l, ok := m.adapter.(interface{ Logs(int) []string }); ok {
 			res.Output = strings.Join(l.Logs(n), "\n")
+		}
+	case "acme_http":
+		if err := a.handleACMEHTTP(c.Args); err != nil {
+			fail(err)
 		}
 	case "upgrade_agent":
 		out, err := a.selfUpdate(ctx, c.Args)

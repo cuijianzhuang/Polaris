@@ -70,9 +70,8 @@ func (s *Server) subscription(c *gin.Context) {
 func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	var ins []store.Inbound
 	err := s.st.DB.Table("inbounds").Select("DISTINCT inbounds.*").
-		Joins("JOIN group_inbounds ON group_inbounds.inbound_id = inbounds.id").
-		Joins("JOIN user_groups ON user_groups.group_id = group_inbounds.group_id").
-		Where("user_groups.user_id = ? AND inbounds.enabled = ? AND inbounds.service_only = ?", u.ID, true, false).
+		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
+		Where("grants.user_id = ? AND inbounds.enabled = ? AND inbounds.service_only = ?", u.ID, true, false).
 		Order("inbounds.node_id, inbounds.port").Find(&ins).Error
 	if err != nil {
 		return nil, err
@@ -87,6 +86,11 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	}
 	var chains []store.Chain
 	s.st.DB.Find(&chains)
+	nodeIDs := make([]string, 0, len(ins))
+	for _, in := range ins {
+		nodeIDs = append(nodeIDs, in.NodeID)
+	}
+	masters := s.fallbackMasters(nodeIDs)
 	nameTpl := s.st.GetSetting("sub_name_template", "{flag} {node} {protocol}")
 	var out []sub.Node
 	for _, in := range ins {
@@ -95,6 +99,11 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 			continue
 		}
 		m := s.toModelInbound(&in)
+		if master := masters[in.ID]; master != nil {
+			// Fallback child: reachable only through the master's port and TLS.
+			mm := s.toModelInbound(master)
+			m.Port, m.Security = mm.Port, mm.Security
+		}
 		base := s.clientNode(&m, node, u)
 		base.Region, base.Source = node.Flag, "panel"
 		vars := map[string]string{"flag": sub.Flag(node.Flag), "region": node.Region, "node": node.Name,

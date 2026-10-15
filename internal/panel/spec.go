@@ -196,6 +196,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		sort.Slice(m.Users, func(a, b int) bool { return m.Users[a].ID < m.Users[b].ID })
 		spec.Inbounds = append(spec.Inbounds, m)
 	}
+	resolveFallbacks(spec.Inbounds)
 
 	if spec.Outbounds, err = s.buildOutbounds(node.ID); err != nil {
 		return nil, err
@@ -217,7 +218,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 }
 
 // inboundUsers maps inbound id -> authorised users: active users granted via
-// groups, plus service accounts of outbounds/chains that target the inbound.
+// groups or direct node / inbound bindings, plus service accounts of outbounds/chains that target the inbound.
 func (s *Server) inboundUsers(inboundIDs []string) (map[string][]store.User, error) {
 	out := map[string][]store.User{}
 	if len(inboundIDs) == 0 {
@@ -230,10 +231,9 @@ func (s *Server) inboundUsers(inboundIDs []string) (map[string][]store.User, err
 	var rows []row
 	now := time.Now()
 	err := s.st.DB.Table("users").
-		Select("DISTINCT group_inbounds.inbound_id AS inbound_id, users.*").
-		Joins("JOIN user_groups ON user_groups.user_id = users.id").
-		Joins("JOIN group_inbounds ON group_inbounds.group_id = user_groups.group_id").
-		Where("group_inbounds.inbound_id IN ? AND users.status = ? AND users.is_service = ? AND (users.banned_until IS NULL OR users.banned_until < ?)",
+		Select("DISTINCT grants.inbound_id AS inbound_id, users.*").
+		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.user_id = users.id").
+		Where("grants.inbound_id IN ? AND users.status = ? AND users.is_service = ? AND (users.banned_until IS NULL OR users.banned_until < ?)",
 			inboundIDs, "active", false, now).
 		Scan(&rows).Error
 	if err != nil {
@@ -472,9 +472,8 @@ func (s *Server) nodesForInbounds(inboundIDs ...string) []string {
 func (s *Server) nodesForUsers(userIDs ...string) []string {
 	var ids []string
 	s.st.DB.Table("inbounds").
-		Joins("JOIN group_inbounds ON group_inbounds.inbound_id = inbounds.id").
-		Joins("JOIN user_groups ON user_groups.group_id = group_inbounds.group_id").
-		Where("user_groups.user_id IN ?", userIDs).Distinct().Pluck("inbounds.node_id", &ids)
+		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
+		Where("grants.user_id IN ?", userIDs).Distinct().Pluck("inbounds.node_id", &ids)
 	// Routing rules may reference groups the users belong to.
 	var gids []string
 	s.st.DB.Model(&store.UserGroup{}).Where("user_id IN ?", userIDs).Pluck("group_id", &gids)

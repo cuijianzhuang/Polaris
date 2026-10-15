@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -110,5 +112,31 @@ func TestAgentBinaryNeedsNodeCert(t *testing.T) {
 	s.serveAgentBinary(w, httptest.NewRequest("GET", "/agent/binary/amd64", nil))
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("download without a node certificate: %d", w.Code)
+	}
+}
+
+func TestRenewDue(t *testing.T) {
+	now := time.Now()
+	mk := func(life, left time.Duration) *store.Certificate {
+		c, _, err := pki.SelfSigned([]string{"x"}, life)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exp := now.Add(left)
+		return &store.Certificate{Cert: string(c), ExpireAt: &exp}
+	}
+	cases := []struct {
+		life, left time.Duration
+		want       bool
+	}{
+		{90 * 24 * time.Hour, 40 * 24 * time.Hour, false},
+		{90 * 24 * time.Hour, 20 * 24 * time.Hour, true},
+		{6 * 24 * time.Hour, 5 * 24 * time.Hour, false}, // 6-day IP certs: not every day
+		{6 * 24 * time.Hour, 36 * time.Hour, true},
+	}
+	for _, c := range cases {
+		if got := renewDue(mk(c.life, c.left), now); got != c.want {
+			t.Errorf("life %s, left %s: got %v", c.life, c.left, got)
+		}
 	}
 }

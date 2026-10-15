@@ -22,7 +22,7 @@
 | 协议 | VLESS（Vision / REALITY / XHTTP）、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC v5、AnyTLS、ShadowTLS v3、Naive、SOCKS、HTTP；传输 TCP / WS / gRPC / HTTPUpgrade / XHTTP / mKCP |
 | 能力矩阵 | 由适配器按内核版本计算（如 XHTTP 需 Xray ≥ 24.9.30、AnyTLS 需 sing-box ≥ 1.12），前端据此置灰不可选组合，主控创建时再校验；双内核都支持时按节点默认内核分配 |
 | 期望状态同步 | 每次变更生成完整 `NodeSpec` 存入 `config_revisions`；Agent 只增删用户时走热更新，结构变化走 渲染 → 内核自检 → 原子替换 → 重载，失败自动回滚并上报；后台可一键回滚到任意已应用版本 |
-| 用户 | 每个用户一个 UUID + 一个密码，SS 2022 按加密方式派生对应长度 PSK；配额、到期（固定日期或「首次使用后 N 天」）、IP 数限制（可选临时封禁）、分组授权、每月 / 周期重置、节点流量倍率；近 30 天每日流量图 |
+| 用户 | 每个用户一个 UUID + 一个密码，SS 2022 按加密方式派生对应长度 PSK；配额、到期（固定日期或「首次使用后 N 天」）、IP 数限制（可选临时封禁）、授权（整台绑定节点 / 按分组 / 单独入站，三者取并集；节点页可查看谁有权使用、本节点流量与在线 IP，并直接绑定 / 解绑；批量绑定 / 解绑节点）、每月 / 周期重置、节点流量倍率；近 30 天每日流量图 |
 | 订阅 | `/sub/{token}` 按 UA 或 `?format=` 输出 通用链接 / Clash(mihomo) / sing-box / Surge / Loon / Quantumult X；每种格式可维护多套规则模板。订阅设置：独立订阅域名、订阅标题、更新间隔、客服链接、一键停用；`subscription-userinfo` / `profile-title` / `support-url` / `announce`（公告）/ `routing`（Happ 路由规则，可开关）响应头；可在节点列表插入「剩余流量 / 到期 / 公告」信息节点或名称后缀 |
 | 订阅信息页 | 浏览器打开订阅链接：公告、状态、用量与剩余、到期与重置周期、近 30 天流量柱状图、订阅二维码、12 个客户端一键导入（Clash Verge、sing-box、Shadowrocket、Stash、Hiddify、Happ、v2rayNG、Streisand、Surge、Loon、QX、Karing）、每个节点的链接与二维码、Telegram 一键绑定、客服入口；明暗主题自适应 |
 | 订阅转换 | 参考 MiSub：订阅源（机场订阅链接 / 手动节点，自动识别 Base64、Clash、sing-box、SIP008，定时更新，记录流量与到期）+ 订阅组（面板用户节点 + 多个订阅源合并）；处理链：过滤（协议 / 地区 / 正则 / 去信息节点）、重命名（正则或 `{emoji} {regionZh} {index}` 模板）、排序（地区优先级）、去重；可切换第三方 subconverter 后端；SSRF 防护 |
@@ -118,7 +118,17 @@ curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <一次性 
 | `POLARIS_DECOY` | 非后台路径反代到的伪装站 | 返回 404 |
 | `POLARIS_SUB_RATE_LIMIT` | 订阅接口每 IP 每分钟请求数 | 30 |
 
-ACME（DNS-01，Cloudflare）在后台「设置」中填写邮箱与 DNS Token 后启用，证书到期前 30 天自动续期并下发到使用它的节点。
+ACME（Let's Encrypt）在后台「设置」填写邮箱即可启用：
+
+- **HTTP 验证**（只需邮箱）：域名解析到节点，签发时主控让该节点的 Agent 在 80 端口临时应答 `/.well-known/acme-challenge/`（几秒后关闭；80 端口被占用时会提示是哪个程序）。节点按域名 / 地址自动匹配，也可手动指定。
+- **DNS 验证**（再填 Cloudflare DNS Token）：支持泛域名 `*.example.com`，不需要 80 端口。
+- **IP 证书**：域名处填节点 IP，按 Let's Encrypt 短期证书签发（约 6 天）。
+
+证书在剩余不足 1/3 有效期时自动续期（90 天证书提前 30 天，IP 证书提前 2 天），并下发到使用它的节点。
+
+**内核升级与回退**：每个内核的历史版本都保留在节点上（`current` 软链切换）。节点页会显示 GitHub 最新稳定版（API 受限时改读 releases/latest 跳转，可走 `github_mirror`），可一键升级、一键回退到上一版本，或「批量升级内核」把多个节点切到同一版本。新版本启动失败时 Agent 自动停掉新版本、切回旧版本并恢复原配置，面板随之把期望版本设回正在运行的版本（不会反复重试），并在内核卡片上显示失败原因。
+
+**回落（一个端口多个协议）**：Xray 上的 VLESS / Trojan + TCP + TLS / REALITY 入站可配置回落，把不是本协议的连接按路径 / ALPN 转给同节点、监听 127.0.0.1、不开 TLS 的子入站（如 VLESS-WS、Trojan），实现 443 一个端口同时承载多种协议；子入站的订阅链接自动使用主入站的端口与 TLS。
 
 ## 开发
 

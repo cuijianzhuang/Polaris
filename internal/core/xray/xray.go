@@ -150,6 +150,35 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	return out, nil
 }
 
+// withFallbacks adds resolved fallbacks (entries the panel could not resolve
+// carry no Dest and are skipped).
+func withFallbacks(settings map[string]any, in model.Inbound) map[string]any {
+	if !in.FallbackCapable() {
+		return settings
+	}
+	var fbs []any
+	for _, f := range in.Protocol.Fallbacks {
+		if f.Dest == "" {
+			continue
+		}
+		fb := map[string]any{"dest": f.Dest}
+		if f.Path != "" {
+			fb["path"] = f.Path
+		}
+		if f.ALPN != "" {
+			fb["alpn"] = f.ALPN
+		}
+		if f.Xver > 0 {
+			fb["xver"] = f.Xver
+		}
+		fbs = append(fbs, fb)
+	}
+	if len(fbs) > 0 {
+		settings["fallbacks"] = fbs
+	}
+	return settings
+}
+
 func renderInbound(in model.Inbound, legacyKCP bool) (map[string]any, error) {
 	ib := map[string]any{
 		"tag":      in.Tag,
@@ -167,7 +196,7 @@ func renderInbound(in model.Inbound, legacyKCP bool) (map[string]any, error) {
 			}
 			clients = append(clients, c)
 		}
-		ib["settings"] = map[string]any{"clients": nonNil(clients), "decryption": "none"}
+		ib["settings"] = withFallbacks(map[string]any{"clients": nonNil(clients), "decryption": "none"}, in)
 	case model.ProtoVMess:
 		for _, u := range in.Users {
 			clients = append(clients, map[string]any{"id": u.UUID, "email": u.ID, "level": u.Level})
@@ -177,7 +206,7 @@ func renderInbound(in model.Inbound, legacyKCP bool) (map[string]any, error) {
 		for _, u := range in.Users {
 			clients = append(clients, map[string]any{"password": u.Password, "email": u.ID, "level": u.Level})
 		}
-		ib["settings"] = map[string]any{"clients": nonNil(clients)}
+		ib["settings"] = withFallbacks(map[string]any{"clients": nonNil(clients)}, in)
 	case model.ProtoShadowsocks:
 		m := in.Protocol.Method
 		s := map[string]any{"method": m, "network": "tcp,udp"}

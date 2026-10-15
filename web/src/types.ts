@@ -3,10 +3,12 @@ export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2
 export type Transport = 'tcp' | 'ws' | 'grpc' | 'httpupgrade' | 'xhttp' | 'kcp' | 'quic'
 export type Security = 'none' | 'tls' | 'reality'
 
+export interface Fallback { inboundId: string; path?: string; alpn?: string; xver?: number }
 export interface ProtocolSpec {
   type: Protocol; flow?: string; method?: string; congestionControl?: string
   upMbps?: number; downMbps?: number; obfs?: string; obfsPassword?: string
   handshakeServer?: string; detour?: string; udp?: boolean
+  fallbacks?: Fallback[]
 }
 export interface TransportSpec { type: Transport; path?: string; host?: string; serviceName?: string; mode?: string; headerType?: string; seed?: string }
 export interface SecuritySpec {
@@ -22,6 +24,7 @@ export interface SystemInfo { cpu: number; mem: number; rxBps: number; txBps: nu
 export interface Core {
   id: string; nodeId: string; type: CoreType; version: string; status: string; pid: number; isDefault: boolean
   startedAt?: string; error: string; installedVersions: string[]; inbounds: number
+  runningVersion?: string; prevVersion?: string
 }
 export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; labels: string[]
@@ -41,6 +44,7 @@ export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; remark: string; groupIds: string[]; createdAt: string
+  nodeIds: string[]; inboundIds: string[]
 }
 export interface Group { id: string; name: string; remark: string; inboundIds: string[]; userCount: number }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
@@ -64,7 +68,7 @@ export interface TemplateItem {
 export interface InboundTemplate { id: string; name: string; builtin: boolean; description: string; items: TemplateItem[]; groups: string[]; boundLabels: string[]; inbounds: number; nodes: number }
 export interface PlannedInbound { nodeId: string; nodeName: string; itemKey: string; tag: string; core?: CoreType; port?: number; network?: string; cert: string; entries: string; result: 'new' | 'fix' | 'skip'; reason?: string }
 export interface NodePlan { nodeId: string; nodeName: string; summary: string; items: PlannedInbound[]; error?: string }
-export interface Certificate { id: string; domain: string; provider: string; cert: string; expireAt?: string; autoRenew: boolean; lastError: string; usedBy: number }
+export interface Certificate { id: string; domain: string; provider: string; challenge?: string; nodeId?: string; cert: string; expireAt?: string; autoRenew: boolean; lastError: string; usedBy: number }
 export interface Revision { id: number; nodeId: string; rev: number; reason: string; status: string; method: string; error: string; createdAt: string }
 export interface AuditLog { id: number; admin: string; action: string; target: string; detail: string; ip: string; createdAt: string }
 export interface SubTemplate { id: string; format: string; name: string; content: string; isDefault: boolean; updatedAt: string }

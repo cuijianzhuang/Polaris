@@ -97,6 +97,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/nodes/:id/install-token", s.installToken)
 	p.POST("/nodes/:id/sync", s.syncNode)
 	p.POST("/nodes/:id/upgrade-agent", s.upgradeAgentAPI)
+	p.GET("/nodes/:id/users", s.nodeUsersAPI)
+	p.POST("/nodes/:id/users", s.bindNodeUsers)
 	p.POST("/nodes/upgrade-agents", s.upgradeAllAgents)
 	p.POST("/nodes/:id/rollback", s.rollbackNode)
 	p.POST("/nodes/:id/revoke", s.revokeNode)
@@ -107,6 +109,9 @@ func (s *Server) Router() http.Handler {
 	p.POST("/nodes/:id/cores", s.upsertCore)
 	p.DELETE("/cores/:id", s.deleteCore)
 	p.POST("/cores/:id/restart", s.restartCore)
+	p.POST("/cores/:id/rollback", s.rollbackCore)
+	p.POST("/cores/upgrade", s.upgradeCores)
+	p.GET("/core-latest", s.coreLatest)
 	p.GET("/cores/:id/logs", s.coreLogs)
 	p.GET("/capabilities", s.capabilities)
 

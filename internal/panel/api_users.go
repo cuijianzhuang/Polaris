@@ -25,6 +25,8 @@ type userReq struct {
 	ResetDay        int        `json:"resetDay"`
 	Remark          string     `json:"remark"`
 	GroupIDs        []string   `json:"groupIds"`
+	NodeIDs         []string   `json:"nodeIds"`    // nil = unchanged on update
+	InboundIDs      []string   `json:"inboundIds"` // nil = unchanged on update
 	UUID            string     `json:"uuid"`
 	Password        string     `json:"password"`
 }
@@ -43,12 +45,52 @@ func (s *Server) withGroups(us []store.User) {
 	for _, g := range ugs {
 		m[g.UserID] = append(m[g.UserID], g.GroupID)
 	}
-	for i := range us {
-		us[i].GroupIDs = m[us[i].ID]
-		if us[i].GroupIDs == nil {
-			us[i].GroupIDs = []string{}
+	var acc []store.UserAccess
+	s.st.DB.Where("user_id IN ?", ids).Find(&acc)
+	nodes, ins := map[string][]string{}, map[string][]string{}
+	for _, a := range acc {
+		if a.Kind == "node" {
+			nodes[a.UserID] = append(nodes[a.UserID], a.TargetID)
+		} else {
+			ins[a.UserID] = append(ins[a.UserID], a.TargetID)
 		}
 	}
+	for i := range us {
+		us[i].GroupIDs, us[i].NodeIDs, us[i].InboundIDs = nonNilStrs(m[us[i].ID]), nonNilStrs(nodes[us[i].ID]), nonNilStrs(ins[us[i].ID])
+	}
+}
+
+// setAccess replaces a user's direct node or inbound bindings (nil = keep).
+func setAccess(tx *gorm.DB, userID, kind string, ids []string) error {
+	if ids == nil {
+		return nil
+	}
+	if err := tx.Where("user_id = ? AND kind = ?", userID, kind).Delete(&store.UserAccess{}).Error; err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if err := tx.Create(&store.UserAccess{UserID: userID, Kind: kind, TargetID: id}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// addAccess adds one binding to many users (idempotent).
+func addAccess(tx *gorm.DB, userIDs []string, kind string, targets []string) error {
+	for _, u := range userIDs {
+		for _, t := range targets {
+			if err := tx.Where(store.UserAccess{UserID: u, Kind: kind, TargetID: t}).FirstOrCreate(&store.UserAccess{UserID: u, Kind: kind, TargetID: t}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // listUsers supports ?q= search and ?filter=online|expiring|limited|disabled.
@@ -137,7 +179,10 @@ func (s *Server) createUser(c *gin.Context) {
 				return err
 			}
 		}
-		return nil
+		if err := setAccess(tx, u.ID, "node", req.NodeIDs); err != nil {
+			return err
+		}
+		return setAccess(tx, u.ID, "inbound", req.InboundIDs)
 	})
 	if err != nil {
 		dbError(c, err)
@@ -155,44 +200,57 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		IDs      []string `json:"ids"`
 		Prefix   string   `json:"prefix"`
 		Count    int      `json:"count"`
-		Template userReq  `json:"template"`
+		Template *userReq `json:"template"` // create only (a pointer, so other actions need not send it)
 		Days     int      `json:"days"`
 		GroupID  string   `json:"groupId"`
+		NodeIDs  []string `json:"nodeIds"`    // attach-nodes / detach-nodes
+		Inbounds []string `json:"inboundIds"` // attach-inbounds / detach-inbounds
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
 	}
 	var affected []string
+	// Nodes the users are on before the change (they must be republished when
+	// users leave them). Looked up outside the transaction: SQLite has a
+	// single connection, so a query on s.st.DB inside it would deadlock.
+	var before []string
+	if len(req.IDs) > 0 {
+		before = s.nodesForUsers(req.IDs...)
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		switch req.Action {
 		case "create":
-			if req.Count <= 0 || req.Count > 1000 || req.Prefix == "" {
-				return fmt.Errorf("prefix and count (1-1000) are required")
+			if req.Count <= 0 || req.Count > 1000 || req.Prefix == "" || req.Template == nil {
+				return fmt.Errorf("prefix, count (1-1000) and template are required")
 			}
 			for i := 1; i <= req.Count; i++ {
-				t := req.Template
+				t := *req.Template
 				t.Username = fmt.Sprintf("%s%03d", req.Prefix, i)
 				t.UUID, t.Password = "", ""
 				u := newUser(&t)
 				if err := tx.Create(&u).Error; err != nil {
 					return err
 				}
-				for _, g := range req.Template.GroupIDs {
+				for _, g := range t.GroupIDs {
 					if err := tx.Create(&store.UserGroup{UserID: u.ID, GroupID: g}).Error; err != nil {
 						return err
 					}
 				}
+				if err := setAccess(tx, u.ID, "node", t.NodeIDs); err != nil {
+					return err
+				}
+				if err := setAccess(tx, u.ID, "inbound", t.InboundIDs); err != nil {
+					return err
+				}
 				affected = append(affected, u.ID)
 			}
 		case "delete":
-			affected = req.IDs
-			nodes := s.nodesForUsers(req.IDs...)
 			tx.Where("user_id IN ?", req.IDs).Delete(&store.UserGroup{})
+			tx.Where("user_id IN ?", req.IDs).Delete(&store.UserAccess{})
 			if err := tx.Where("id IN ? AND is_service = ?", req.IDs, false).Delete(&store.User{}).Error; err != nil {
 				return err
 			}
-			defer s.MarkDirty("users deleted", nodes...)
 			affected = nil
 		case "enable":
 			affected = req.IDs
@@ -231,6 +289,24 @@ func (s *Server) bulkUsers(c *gin.Context) {
 					return err
 				}
 			}
+		case "attach-nodes", "attach-inbounds":
+			kind, targets := "node", req.NodeIDs
+			if req.Action == "attach-inbounds" {
+				kind, targets = "inbound", req.Inbounds
+			}
+			affected = req.IDs
+			if err := addAccess(tx, req.IDs, kind, targets); err != nil {
+				return err
+			}
+		case "detach-nodes", "detach-inbounds":
+			kind, targets := "node", req.NodeIDs
+			if req.Action == "detach-inbounds" {
+				kind, targets = "inbound", req.Inbounds
+			}
+			affected = req.IDs
+			if err := tx.Where("user_id IN ? AND kind = ? AND target_id IN ?", req.IDs, kind, targets).Delete(&store.UserAccess{}).Error; err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown action %q", req.Action)
 		}
@@ -242,7 +318,9 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	}
 	if len(affected) > 0 {
 		s.recomputeStatus(affected...)
-		s.MarkDirty("bulk "+req.Action, s.nodesForUsers(affected...)...)
+	}
+	if nodes := append(before, s.nodesForUsers(affected...)...); len(nodes) > 0 {
+		s.MarkDirty("bulk "+req.Action, nodes...)
 	}
 	s.auditCtx(c, "user.bulk", req.Action, fmt.Sprintf("%d users", max(len(req.IDs), req.Count)))
 	c.JSON(http.StatusOK, gin.H{"affected": len(affected)})
@@ -302,7 +380,10 @@ func (s *Server) updateUser(c *gin.Context) {
 				}
 			}
 		}
-		return nil
+		if err := setAccess(tx, u.ID, "node", req.NodeIDs); err != nil {
+			return err
+		}
+		return setAccess(tx, u.ID, "inbound", req.InboundIDs)
 	})
 	if err != nil {
 		dbError(c, err)
@@ -321,6 +402,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 	}
 	nodes := s.nodesForUsers(u.ID)
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserGroup{})
+	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserAccess{})
 	s.st.DB.Delete(&u)
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")
