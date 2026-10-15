@@ -22,8 +22,13 @@ dns-server = system, 223.5.5.5
 {{ .Proxies }}
 
 [Proxy Group]
-节点选择 = select, 自动选择, DIRECT{{ .NamesCSV }}
+节点选择 = select, 自动选择, 故障转移, 负载均衡{{ range .Regions }}, {{ .Name }}{{ end }}, DIRECT{{ .NamesCSV }}
 自动选择 = url-test{{ .NamesCSV }}, url=http://www.gstatic.com/generate_204, interval=600
+故障转移 = fallback{{ .NamesCSV }}, url=http://www.gstatic.com/generate_204, interval=600
+负载均衡 = load-balance{{ .NamesCSV }}, url=http://www.gstatic.com/generate_204, persistent=true
+{{- range .Regions }}
+{{ .Name }} = url-test, {{ join .Names ", " }}, url=http://www.gstatic.com/generate_204, interval=600
+{{- end }}
 
 [Rule]
 GEOIP,CN,DIRECT
@@ -36,22 +41,15 @@ func (surgeRenderer) Format() string      { return "surge" }
 func (surgeRenderer) ContentType() string { return "text/plain; charset=utf-8" }
 
 func (surgeRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error) {
-	var lines, names []string
+	var lines []string
+	var kept []Node
 	for _, n := range nodes {
 		if l := SurgeLine(n); l != "" {
 			lines = append(lines, l)
-			names = append(names, n.Name)
+			kept = append(kept, n)
 		}
 	}
-	csv := ""
-	for _, n := range names {
-		csv += ", " + n
-	}
-	return execTemplate(orDefault(tpl, DefaultSurgeTemplate), map[string]any{
-		"URL":      info.URL,
-		"Proxies":  strings.Join(lines, "\n"),
-		"NamesCSV": csv,
-	})
+	return execTemplate(orDefault(tpl, DefaultSurgeTemplate), templateData(kept, info, strings.Join(lines, "\n")))
 }
 
 // SurgeLine renders one [Proxy] line, or "" if Surge cannot express the node.

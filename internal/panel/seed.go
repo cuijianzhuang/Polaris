@@ -13,13 +13,21 @@ import (
 
 // Default system settings.
 var defaultSettings = map[string]string{
-	"site_title":          "Polaris",
-	"sub_name_template":   "{flag} {node} {protocol}",
-	"sub_update_interval": "12",
-	"ip_ban_minutes":      "0",
-	"acme_email":          "",
-	"default_xray":        "26.3.27",
-	"default_singbox":     "1.13.5",
+	"site_title":            "Polaris",
+	"sub_name_template":     "{flag} {node} {protocol}",
+	"sub_update_interval":   "12",
+	"ip_ban_minutes":        "0",
+	"acme_email":            "",
+	"default_xray":          "26.3.27",
+	"default_singbox":       "1.13.5",
+	"converter_mode":        "builtin",
+	"converter_backend":     "",
+	"converter_config":      "",
+	"converter_params":      "emoji=true&udp=true&scv=true",
+	"converter_for_users":   "false",
+	"sub_operators":         "[]",
+	"sub_apply_ops_users":   "false",
+	"allow_private_sources": "false",
 }
 
 func (s *Server) seed() error {
@@ -59,6 +67,7 @@ func (s *Server) seed() error {
 	}
 	for _, f := range []struct{ format, content string }{
 		{"clash", sub.DefaultClashTemplate}, {"singbox", sub.DefaultSingboxTemplate}, {"surge", sub.DefaultSurgeTemplate},
+		{"loon", sub.DefaultLoonTemplate}, {"quanx", sub.DefaultQuanxTemplate},
 	} {
 		var n int64
 		s.st.DB.Model(&store.SubTemplate{}).Where("format = ?", f.format).Count(&n)

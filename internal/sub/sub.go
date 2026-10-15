@@ -14,6 +14,8 @@ import (
 // Node is one client-side proxy entry (one endpoint of one inbound).
 type Node struct {
 	Name     string
+	Region   string // ISO country code when known (panel nodes); otherwise detected from Name
+	Source   string // origin label (panel / source name), informational
 	Server   string
 	Port     int
 	Protocol model.Protocol
@@ -88,7 +90,11 @@ func DetectFormat(query, ua string) string {
 		return "singbox"
 	case strings.Contains(u, "surge"):
 		return "surge"
-	case containsAny(u, "v2ray", "shadowrocket", "nekobox", "nekoray", "streisand", "karing", "quantumult", "loon"):
+	case strings.Contains(u, "loon"):
+		return "loon"
+	case strings.Contains(u, "quantumult"):
+		return "quanx"
+	case containsAny(u, "v2ray", "shadowrocket", "nekobox", "nekoray", "streisand", "karing"):
 		return "links"
 	case strings.HasPrefix(u, "mozilla/"):
 		return "html"

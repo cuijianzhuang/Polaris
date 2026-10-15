@@ -2,6 +2,7 @@ package panel
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -94,11 +95,14 @@ func (s *Server) renewCert(c *gin.Context) {
 
 // --- settings ---
 
-var secretSettings = map[string]bool{"acme_cf_token": true}
+var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true}
 
 var editableSettings = map[string]bool{
 	"site_title": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
 	"acme_email": true, "acme_cf_token": true, "acme_directory": true, "default_xray": true, "default_singbox": true,
+	"converter_mode": true, "converter_backend": true, "converter_config": true, "converter_params": true,
+	"converter_for_users": true, "sub_operators": true, "sub_apply_ops_users": true, "allow_private_sources": true,
+	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,
 }
 
 func (s *Server) getSettings(c *gin.Context) {
@@ -141,6 +145,17 @@ func (s *Server) putSettings(c *gin.Context) {
 			}
 			v = s.st.Box.Seal(v)
 		}
+		if k == "sub_operators" {
+			var ops []sub.Operator
+			if err := json.Unmarshal([]byte(v), &ops); err != nil {
+				badRequest(c, fmt.Errorf("sub_operators: %w", err))
+				return
+			}
+			if err := sub.ValidateChain(ops); err != nil {
+				badRequest(c, err)
+				return
+			}
+		}
 		if k == "sub_update_interval" || k == "ip_ban_minutes" {
 			if _, err := strconv.Atoi(v); err != nil {
 				badRequest(c, fmt.Errorf("%s must be a number", k))
@@ -172,22 +187,24 @@ func (s *Server) updateSubTemplate(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Content string `json:"content"`
-		Reset   bool   `json:"reset"`
+		Content   string `json:"content"`
+		Reset     bool   `json:"reset"`
+		Name      string `json:"name"`
+		IsDefault bool   `json:"isDefault"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
 	}
 	if req.Reset {
-		switch t.Format {
-		case "clash":
-			req.Content = sub.DefaultClashTemplate
-		case "singbox":
-			req.Content = sub.DefaultSingboxTemplate
-		case "surge":
-			req.Content = sub.DefaultSurgeTemplate
-		}
+		req.Content = defaultTemplate(t.Format)
+	}
+	if req.Name != "" {
+		t.Name = req.Name
+	}
+	if req.IsDefault {
+		s.st.DB.Model(&store.SubTemplate{}).Where("format = ?", t.Format).Update("is_default", false)
+		t.IsDefault = true
 	}
 	// Validate by rendering with a sample node.
 	if r, ok := sub.Get(t.Format); ok {
@@ -201,6 +218,68 @@ func (s *Server) updateSubTemplate(c *gin.Context) {
 	s.st.DB.Save(&t)
 	s.auditCtx(c, "sub_template.update", t.Format, "")
 	c.JSON(http.StatusOK, t)
+}
+
+func defaultTemplate(format string) string {
+	switch format {
+	case "clash":
+		return sub.DefaultClashTemplate
+	case "singbox":
+		return sub.DefaultSingboxTemplate
+	case "surge":
+		return sub.DefaultSurgeTemplate
+	case "loon":
+		return sub.DefaultLoonTemplate
+	case "quanx":
+		return sub.DefaultQuanxTemplate
+	}
+	return ""
+}
+
+// createSubTemplate adds another named rule template for a format (starting
+// from the built-in default unless content is given).
+func (s *Server) createSubTemplate(c *gin.Context) {
+	var req struct {
+		Format  string `json:"format" binding:"required"`
+		Name    string `json:"name" binding:"required"`
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	if defaultTemplate(req.Format) == "" {
+		badRequest(c, fmt.Errorf("format %s has no templates", req.Format))
+		return
+	}
+	t := store.SubTemplate{ID: store.NewID(), Format: req.Format, Name: req.Name, Content: orDefault(req.Content, defaultTemplate(req.Format)), UpdatedAt: time.Now()}
+	if r, ok := sub.Get(t.Format); ok {
+		if _, err := r.Render(nil, sub.Info{}, t.Content); err != nil {
+			badRequest(c, fmt.Errorf("模板无效: %w", err))
+			return
+		}
+	}
+	if err := s.st.DB.Create(&t).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	s.auditCtx(c, "sub_template.create", t.Format+"/"+t.Name, "")
+	c.JSON(http.StatusCreated, t)
+}
+
+func (s *Server) deleteSubTemplate(c *gin.Context) {
+	var t store.SubTemplate
+	if err := s.st.DB.First(&t, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	if t.IsDefault {
+		c.JSON(http.StatusConflict, gin.H{"error": "默认模板不能删除，请先把其他模板设为默认"})
+		return
+	}
+	s.st.DB.Delete(&t)
+	s.auditCtx(c, "sub_template.delete", t.Format+"/"+t.Name, "")
+	c.Status(http.StatusNoContent)
 }
 
 // --- audit ---

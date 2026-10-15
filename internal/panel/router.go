@@ -59,6 +59,7 @@ func (s *Server) Router() http.Handler {
 
 	// Public routes.
 	r.GET("/sub/:token", s.subscription)
+	r.GET("/sub/p/:token", s.profileSubscription)
 	r.GET("/install.sh", s.installScript)
 	r.GET("/download/:file", s.download)
 
@@ -169,7 +170,22 @@ func (s *Server) Router() http.Handler {
 	p.POST("/templates/:id/bulk", s.bulkTemplateInbounds)
 
 	p.GET("/sub-templates", s.listSubTemplates)
+	p.POST("/sub-templates", s.createSubTemplate)
 	p.PUT("/sub-templates/:id", s.updateSubTemplate)
+	p.DELETE("/sub-templates/:id", s.deleteSubTemplate)
+	p.GET("/sub-meta", s.subMeta)
+	p.GET("/sub-sources", s.listSources)
+	p.POST("/sub-sources", s.saveSource)
+	p.PUT("/sub-sources/:id", s.saveSource)
+	p.DELETE("/sub-sources/:id", s.deleteSource)
+	p.POST("/sub-sources/:id/refresh", s.refreshSource)
+	p.GET("/sub-sources/:id/nodes", s.sourceNodesAPI)
+	p.GET("/sub-profiles", s.listProfiles)
+	p.POST("/sub-profiles", s.saveProfile)
+	p.POST("/sub-profiles/preview", s.previewProfile)
+	p.PUT("/sub-profiles/:id", s.saveProfile)
+	p.DELETE("/sub-profiles/:id", s.deleteProfile)
+	p.POST("/sub-profiles/:id/reset-token", s.resetProfileToken)
 	p.GET("/settings", s.getSettings)
 	p.PUT("/settings", s.putSettings)
 	p.GET("/audit-logs", s.listAudit)

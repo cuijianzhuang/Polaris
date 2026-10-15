@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -39,21 +38,6 @@ func (s *Server) subscription(c *gin.Context) {
 	title := s.st.GetSetting("site_title", "Polaris")
 	info := sub.Info{Title: title, Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown, Total: u.TrafficLimit,
 		Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
-	format := sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent"))
-	if format == "html" {
-		b, err := sub.RenderPage(info)
-		if err != nil {
-			serverError(c, err)
-			return
-		}
-		c.Data(http.StatusOK, "text/html; charset=utf-8", b)
-		return
-	}
-	r, ok := sub.Get(format)
-	if !ok {
-		c.String(http.StatusBadRequest, "unknown format")
-		return
-	}
 	var nodes []sub.Node
 	if u.Status == "active" {
 		var err error
@@ -61,23 +45,13 @@ func (s *Server) subscription(c *gin.Context) {
 			serverError(c, err)
 			return
 		}
+		if s.st.GetSetting("sub_apply_ops_users", "false") == "true" {
+			if out, err := sub.ApplyChain(nodes, s.globalOperators()); err == nil {
+				nodes = out
+			}
+		}
 	}
-	tpl := ""
-	var st store.SubTemplate
-	if err := s.st.DB.Where("format = ? AND is_default = ?", format, true).First(&st).Error; err == nil {
-		tpl = st.Content
-	}
-	body, err := r.Render(nodes, info, tpl)
-	if err != nil {
-		serverError(c, err)
-		return
-	}
-	c.Header("subscription-userinfo", sub.UserInfoHeader(info))
-	c.Header("profile-update-interval", s.st.GetSetting("sub_update_interval", "12"))
-	c.Header("profile-title", "base64:"+b64(title))
-	c.Header("content-disposition", "attachment; filename*=UTF-8''"+url.PathEscape(title))
-	c.Header("profile-web-page-url", info.URL)
-	c.Data(http.StatusOK, r.ContentType(), body)
+	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.subURL(u.SubToken)+"?raw=1")
 }
 
 // subNodes expands every authorised inbound × endpoint into client nodes.
@@ -110,6 +84,7 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		}
 		m := s.toModelInbound(&in)
 		base := s.clientNode(&m, node, u)
+		base.Region, base.Source = node.Flag, "panel"
 		vars := map[string]string{"flag": sub.Flag(node.Flag), "region": node.Region, "node": node.Name,
 			"protocol": sub.ProtocolLabel(base), "tag": in.Tag, "kind": ""}
 		// Proxy-chain relay inbounds are named "[relay] → [landing]".

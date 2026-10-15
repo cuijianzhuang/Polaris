@@ -25,13 +25,32 @@ proxies:
 proxy-groups:
   - name: 节点选择
     type: select
-    proxies: [自动选择, DIRECT, {{ .NamesInline }}]
+    proxies: [自动选择, 故障转移, 负载均衡{{ range .Regions }}, {{ .Name }}{{ end }}, DIRECT, {{ .NamesInline }}]
   - name: 自动选择
     type: url-test
     url: https://www.gstatic.com/generate_204
     interval: 300
     tolerance: 50
     proxies: {{ .Names }}
+  - name: 故障转移
+    type: fallback
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    proxies: {{ .Names }}
+  - name: 负载均衡
+    type: load-balance
+    strategy: consistent-hashing
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    proxies: {{ .Names }}
+{{- range .Regions }}
+  - name: {{ .Name }}
+    type: url-test
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    tolerance: 50
+    proxies: {{ .NamesJSON }}
+{{- end }}
 rules:
   - GEOIP,LAN,DIRECT,no-resolve
   - GEOSITE,CN,DIRECT
@@ -45,19 +64,16 @@ type clashRenderer struct{}
 func (clashRenderer) Format() string      { return "clash" }
 func (clashRenderer) ContentType() string { return "text/yaml; charset=utf-8" }
 
-func (clashRenderer) Render(nodes []Node, _ Info, tpl string) ([]byte, error) {
+func (clashRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error) {
 	var proxies []map[string]any
-	var names []string
+	var kept []Node
 	for _, n := range nodes {
 		p := ClashProxy(n)
 		if p == nil {
 			continue
 		}
 		proxies = append(proxies, p)
-		names = append(names, n.Name)
-	}
-	if len(names) == 0 {
-		names = []string{"DIRECT"}
+		kept = append(kept, n)
 	}
 	var buf bytes.Buffer
 	if len(proxies) > 0 {
@@ -71,12 +87,40 @@ func (clashRenderer) Render(nodes []Node, _ Info, tpl string) ([]byte, error) {
 	} else {
 		buf.WriteString("  []\n")
 	}
-	return execTemplate(orDefault(tpl, DefaultClashTemplate), map[string]any{
-		"Proxies":     strings.TrimRight(buf.String(), "\n"),
+	return execTemplate(orDefault(tpl, DefaultClashTemplate), templateData(kept, info, strings.TrimRight(buf.String(), "\n")))
+}
+
+// templateData is what every text template receives:
+//
+//	.Proxies      pre-rendered proxy list for the format
+//	.Names        JSON/YAML flow list of node names (["DIRECT"] when empty)
+//	.NamesInline  the same without brackets
+//	.NamesCSV     ", a, b" for INI-style formats
+//	.NameList     []string
+//	.Regions      []RegionGroup{Code, Name, Names, NamesJSON}
+//	.URL .Title   subscription info
+func templateData(nodes []Node, info Info, proxies string) map[string]any {
+	names := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		names = append(names, n.Name)
+	}
+	csv := ""
+	for _, n := range names {
+		csv += ", " + n
+	}
+	if len(names) == 0 {
+		names = []string{"DIRECT"}
+	}
+	return map[string]any{
+		"Proxies":     proxies,
 		"Names":       flowList(names),
 		"NamesInline": strings.Trim(flowList(names), "[]"),
+		"NamesCSV":    csv,
 		"NameList":    names,
-	})
+		"Regions":     GroupByRegion(nodes),
+		"URL":         info.URL,
+		"Title":       info.Title,
+	}
 }
 
 func flowList(ss []string) string {
@@ -85,7 +129,10 @@ func flowList(ss []string) string {
 }
 
 func execTemplate(tpl string, data any) ([]byte, error) {
-	t, err := template.New("sub").Parse(tpl)
+	t, err := template.New("sub").Funcs(template.FuncMap{"join": strings.Join, "json": func(v any) string {
+		b, _ := json.Marshal(v)
+		return string(b)
+	}}).Parse(tpl)
 	if err != nil {
 		return nil, err
 	}

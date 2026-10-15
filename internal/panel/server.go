@@ -223,6 +223,7 @@ func (s *Server) startJobs() func() {
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)
 	add("45 * * * * *", "health", s.probeChains)
+	add("15 * * * * *", "sub-sources", s.refreshDueSources)
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }

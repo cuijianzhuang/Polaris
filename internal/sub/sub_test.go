@@ -77,7 +77,7 @@ func TestClash(t *testing.T) {
 	if len(doc.Proxies) != 10 {
 		t.Fatalf("want 10 proxies, got %d", len(doc.Proxies))
 	}
-	if len(doc.Groups) != 2 || len(doc.Groups[1].Proxies) != 10 {
+	if len(doc.Groups) != 5 || len(doc.Groups[1].Proxies) != 10 || doc.Groups[4].Name != "🇯🇵 日本" {
 		t.Fatalf("bad groups: %+v", doc.Groups)
 	}
 }

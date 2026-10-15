@@ -26,8 +26,11 @@ const DefaultSingboxTemplate = `{
     {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080}
   ],
   "outbounds": [
-    {"type": "selector", "tag": "节点选择", "outbounds": ["自动选择", {{ .TagsInline }}]},
+    {"type": "selector", "tag": "节点选择", "outbounds": ["自动选择"{{ range .Regions }}, {{ json .Name }}{{ end }}, {{ .TagsInline }}]},
     {"type": "urltest", "tag": "自动选择", "outbounds": {{ .Tags }}, "url": "https://www.gstatic.com/generate_204", "interval": "5m"},
+    {{- range .Regions }}
+    {"type": "urltest", "tag": {{ json .Name }}, "outbounds": {{ .NamesJSON }}, "url": "https://www.gstatic.com/generate_204", "interval": "5m"},
+    {{- end }}
     {{ .Outbounds }}{{ if .HasOutbounds }},{{ end }}
     {"type": "direct", "tag": "direct"}
   ],
@@ -54,9 +57,10 @@ type singboxRenderer struct{}
 func (singboxRenderer) Format() string      { return "singbox" }
 func (singboxRenderer) ContentType() string { return "application/json; charset=utf-8" }
 
-func (singboxRenderer) Render(nodes []Node, _ Info, tpl string) ([]byte, error) {
+func (singboxRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error) {
 	var parts []string
 	var tags []string
+	var kept []Node
 	for _, n := range nodes {
 		o := SingboxOutbound(n)
 		if o == nil {
@@ -68,6 +72,7 @@ func (singboxRenderer) Render(nodes []Node, _ Info, tpl string) ([]byte, error) 
 		}
 		parts = append(parts, string(b))
 		tags = append(tags, n.Name)
+		kept = append(kept, n)
 	}
 	if len(tags) == 0 {
 		tags = []string{"direct"}
@@ -80,12 +85,12 @@ func (singboxRenderer) Render(nodes []Node, _ Info, tpl string) ([]byte, error) 
 		outs += p
 	}
 	tagsJSON, _ := json.Marshal(tags)
-	body, err := execTemplate(orDefault(tpl, DefaultSingboxTemplate), map[string]any{
-		"Outbounds":    outs,
-		"HasOutbounds": len(parts) > 0,
-		"Tags":         string(tagsJSON),
-		"TagsInline":   string(tagsJSON[1 : len(tagsJSON)-1]),
-	})
+	data := templateData(kept, info, "")
+	data["Outbounds"] = outs
+	data["HasOutbounds"] = len(parts) > 0
+	data["Tags"] = string(tagsJSON)
+	data["TagsInline"] = string(tagsJSON[1 : len(tagsJSON)-1])
+	body, err := execTemplate(orDefault(tpl, DefaultSingboxTemplate), data)
 	if err != nil {
 		return nil, err
 	}

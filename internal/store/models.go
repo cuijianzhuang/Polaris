@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/sub"
 )
 
 // Node is one managed server running an agent.
@@ -388,12 +389,62 @@ type DomainBinding struct {
 	CreatedAt  time.Time  `json:"createdAt"`
 }
 
+// SubSource is an upstream subscription URL or a list of manual node links,
+// merged into subscription profiles by the conversion engine.
+type SubSource struct {
+	ID         string           `gorm:"primaryKey;size:32" json:"id"`
+	Name       string           `gorm:"size:64" json:"name"`
+	Kind       string           `gorm:"size:8" json:"kind"` // url / manual
+	URL        string           `gorm:"size:2000" json:"url"`
+	Content    string           `gorm:"type:text" json:"content"` // manual: share links / YAML / JSON
+	UserAgent  string           `gorm:"size:200" json:"userAgent"`
+	Group      string           `gorm:"size:64" json:"group"`
+	Enabled    bool             `json:"enabled"`
+	RefreshMin int              `json:"refreshMin"`         // auto refresh interval (minutes), 0 = manual
+	Cache      string           `gorm:"type:text" json:"-"` // last parsed nodes (JSON)
+	NodeCount  int              `json:"nodeCount"`
+	UserInfo   JSON[SubTraffic] `json:"userInfo"`
+	FetchedAt  *time.Time       `json:"fetchedAt"`
+	LastError  string           `gorm:"size:2000" json:"lastError"`
+	SortOrder  int              `json:"sortOrder"`
+	Remark     string           `gorm:"size:255" json:"remark"`
+	CreatedAt  time.Time        `json:"createdAt"`
+}
+
+// SubTraffic mirrors the subscription-userinfo header.
+type SubTraffic struct {
+	Upload   int64 `json:"upload"`
+	Download int64 `json:"download"`
+	Total    int64 `json:"total"`
+	Expire   int64 `json:"expire"` // unix seconds, 0 = none
+}
+
+// SubProfile combines panel nodes and sources into one published subscription.
+type SubProfile struct {
+	ID            string                  `gorm:"primaryKey;size:32" json:"id"`
+	Name          string                  `gorm:"size:64;uniqueIndex" json:"name"`
+	Token         string                  `gorm:"size:64;uniqueIndex" json:"token"`
+	Enabled       bool                    `json:"enabled"`
+	SourceIDs     JSON[[]string]          `json:"sourceIds"`
+	PanelUserID   string                  `gorm:"size:32" json:"panelUserId"` // include this user's panel nodes
+	Operators     JSON[[]sub.Operator]    `json:"operators"`                  // empty = global default chain
+	UseGlobalOps  bool                    `json:"useGlobalOps"`
+	Templates     JSON[map[string]string] `json:"templates"`                // format -> sub template id
+	Converter     string                  `gorm:"size:16" json:"converter"` // "" = global setting, builtin, external
+	Backend       string                  `gorm:"size:500" json:"backend"`  // external backend override
+	BackendConfig string                  `gorm:"size:1000" json:"backendConfig"`
+	Downloads     int64                   `json:"downloads"`
+	Remark        string                  `gorm:"size:255" json:"remark"`
+	CreatedAt     time.Time               `json:"createdAt"`
+	UpdatedAt     time.Time               `json:"updatedAt"`
+}
+
 // AllModels lists every table for migration.
 func AllModels() []any {
 	return []any{
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
-		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{},
+		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{},
 	}
 }
