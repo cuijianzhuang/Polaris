@@ -226,7 +226,14 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		}
 		return nil
 	default:
-		n := apply(base)
+		n := base
+		if fi, ok := s.frontFor(m.ID); ok {
+			// Fronted inbounds are only reachable through Caddy's public port.
+			n.Port = fi.Port
+			n.TLS.ServerName = fi.Domain
+			n.Transport.Host = fi.Domain
+		}
+		n = apply(n)
 		n.Name = name("")
 		return []sub.Node{n}
 	}

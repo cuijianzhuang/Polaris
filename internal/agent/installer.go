@@ -97,6 +97,28 @@ func releaseFor(t model.CoreType, ver string) (*release, error) {
 				return "", errors.New("asset not in hashes.txt")
 			},
 		}, nil
+	case model.CoreMihomo:
+		asset := fmt.Sprintf("mihomo-linux-%s-v%s.gz", arch, v)
+		return &release{
+			url: "https://github.com/MetaCubeX/mihomo/releases/download/v" + v + "/" + asset, binary: "mihomo",
+			repo: "MetaCubeX/mihomo", tag: "v" + v, digest: githubDigest,
+		}, nil
+	case model.CoreCaddy:
+		if v == "" {
+			v = "2.10.2"
+		}
+		asset := fmt.Sprintf("caddy_%s_linux_%s.tar.gz", v, arch)
+		return &release{
+			url: "https://github.com/caddyserver/caddy/releases/download/v" + v + "/" + asset, binary: "caddy",
+			repo: "caddyserver/caddy", tag: "v" + v,
+			digest: func(ctx context.Context, i *Installer, u string) (string, error) {
+				if d, err := githubDigest(ctx, i, u); err == nil {
+					return d, nil
+				}
+				// Caddy publishes caddy_<v>_checksums.txt (SHA-512) — fall back to it.
+				return "", errors.New("caddy: no sha256 digest published")
+			},
+		}, nil
 	case model.CoreForwarder:
 		if v == "" {
 			v = "2.7.0"
@@ -185,7 +207,7 @@ func (i *Installer) get(ctx context.Context, u string) ([]byte, error) {
 // BinPath returns the executable path for an installed version.
 func (i *Installer) BinPath(t model.CoreType, ver string) string {
 	name := map[model.CoreType]string{model.CoreXray: "xray", model.CoreSingbox: "sing-box", model.CoreHysteria: "hysteria",
-		model.CoreForwarder: "realm", model.CoreMihomo: "mihomo"}[t]
+		model.CoreForwarder: "realm", model.CoreMihomo: "mihomo", model.CoreCaddy: "caddy"}[t]
 	return filepath.Join(i.Dir, string(t), versionDir(ver), name)
 }
 
@@ -299,6 +321,12 @@ func extract(url string, data []byte, dst, inner, binName string) error {
 				return err
 			}
 		}
+	case strings.HasSuffix(url, ".gz") && !strings.HasSuffix(url, ".tar.gz"):
+		gz, err := gzip.NewReader(bytes.NewReader(data))
+		if err != nil {
+			return err
+		}
+		return writeFile(inner, gz, 0o755)
 	case strings.HasSuffix(url, ".tar.gz"):
 		gz, err := gzip.NewReader(bytes.NewReader(data))
 		if err != nil {

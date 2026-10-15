@@ -60,6 +60,20 @@ type ForwardRule struct {
 	Target  string `json:"target"`  // host:port
 }
 
+// FrontRule makes the node's Caddy terminate TLS for Domain on Port and
+// reverse-proxy Path to a loopback inbound (CDN inbounds sharing 443).
+type FrontRule struct {
+	Domain   string    `json:"domain"`
+	Port     int       `json:"port"`
+	Path     string    `json:"path"`     // ws / httpupgrade / xhttp path, or "/<serviceName>" for gRPC
+	Upstream string    `json:"upstream"` // 127.0.0.1:port
+	H2C      bool      `json:"h2c"`      // gRPC / xhttp upstreams speak h2c
+	CertPEM  string    `json:"certPem"`
+	KeyPEM   string    `json:"keyPem"`
+	Inbound  string    `json:"inbound"`
+	Kind     Transport `json:"kind"`
+}
+
 // NodeSpec is the complete desired state of one node at one revision. The
 // panel stores every revision; the agent converges the host onto it.
 type NodeSpec struct {
@@ -71,6 +85,7 @@ type NodeSpec struct {
 	Outbounds   []Outbound    `json:"outbounds,omitempty"`
 	Routes      []RouteRule   `json:"routes,omitempty"`
 	Forwards    []ForwardRule `json:"forwards,omitempty"`
+	Fronts      []FrontRule   `json:"fronts,omitempty"`
 	// IPLimits maps user id -> max concurrent source IPs (0 = unlimited);
 	// the agent uses it to raise alerts.
 	IPLimits  map[string]int `json:"ipLimits,omitempty"`

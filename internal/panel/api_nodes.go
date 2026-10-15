@@ -533,7 +533,7 @@ func (s *Server) capabilities(c *gin.Context) {
 	}
 	defaults := map[model.CoreType]string{
 		model.CoreXray: s.st.GetSetting("default_xray", ""), model.CoreSingbox: s.st.GetSetting("default_singbox", ""),
-		model.CoreHysteria: "2.6.1", model.CoreForwarder: "2.7.0", model.CoreMihomo: "",
+		model.CoreHysteria: "2.6.1", model.CoreForwarder: "2.7.0", model.CoreMihomo: "1.19.15", model.CoreCaddy: "2.10.2",
 	}
 	out := []model.CapSet{}
 	for _, t := range core.Types() {

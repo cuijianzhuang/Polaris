@@ -116,13 +116,6 @@ func (s *Server) validateInbound(node *store.Node, m *model.Inbound, excludeID s
 	if err := s.assignCore(node, m); err != nil {
 		return err
 	}
-	if m.Core == model.CoreHysteria {
-		var n int64
-		s.st.DB.Model(&store.Inbound{}).Where("node_id = ? AND core = ? AND id <> ?", node.ID, m.Core, excludeID).Count(&n)
-		if n > 0 {
-			return fmt.Errorf("hysteria core serves a single inbound per node")
-		}
-	}
 	return s.portConflict(node.ID, m, excludeID)
 }
 

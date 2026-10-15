@@ -23,7 +23,8 @@ type managed struct {
 	cfgPath string
 }
 
-var apiOffsets = map[model.CoreType]int{model.CoreXray: 0, model.CoreSingbox: 1, model.CoreHysteria: 2}
+// Hysteria uses base+10.. (one stats port per inbound).
+var apiOffsets = map[model.CoreType]int{model.CoreXray: 0, model.CoreSingbox: 1, model.CoreMihomo: 3, model.CoreCaddy: 4, model.CoreHysteria: 10}
 
 func (a *Agent) apiListen(t model.CoreType) string {
 	off, ok := apiOffsets[t]
@@ -35,7 +36,7 @@ func (a *Agent) apiListen(t model.CoreType) string {
 
 var cfgNames = map[model.CoreType]string{
 	model.CoreXray: "xray.json", model.CoreSingbox: "singbox.json", model.CoreHysteria: "hysteria.json",
-	model.CoreForwarder: "realm.toml",
+	model.CoreForwarder: "realm.toml", model.CoreMihomo: "mihomo.yaml", model.CoreCaddy: "Caddyfile",
 }
 
 // applyResult describes one reconcile.
@@ -62,10 +63,15 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	for _, cs := range spec.Cores {
 		wanted[cs.Type] = cs
 	}
-	// Implicit forwarder when relay forwards exist.
+	// Implicit forwarder / caddy when relay forwards or CDN fronts exist.
 	if len(spec.Forwards) > 0 {
 		if _, ok := wanted[model.CoreForwarder]; !ok {
 			wanted[model.CoreForwarder] = model.CoreSpec{Type: model.CoreForwarder}
+		}
+	}
+	if len(spec.Fronts) > 0 {
+		if _, ok := wanted[model.CoreCaddy]; !ok {
+			wanted[model.CoreCaddy] = model.CoreSpec{Type: model.CoreCaddy}
 		}
 	}
 	// Stop cores that are no longer wanted.
@@ -86,10 +92,8 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	rolledBack := false
 	for _, t := range types {
 		cs := wanted[t]
-		if t == model.CoreMihomo {
-			continue // reserved slot, nothing to run yet
-		}
-		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.Forwards) > 0)
+		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.Forwards) > 0) ||
+			(t == model.CoreCaddy && len(spec.Fronts) > 0)
 		m, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))

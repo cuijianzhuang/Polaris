@@ -18,6 +18,7 @@ const (
 	CoreMihomo    CoreType = "mihomo"
 	CoreHysteria  CoreType = "hysteria"
 	CoreForwarder CoreType = "forwarder" // L4 port forwarder (nftables / realm)
+	CoreCaddy     CoreType = "caddy"     // TLS front for CDN inbounds sharing one port
 	CoreAuto      CoreType = "auto"      // templates only: pick by capability
 )
 

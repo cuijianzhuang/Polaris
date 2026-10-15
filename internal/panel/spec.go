@@ -209,6 +209,10 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	if len(spec.Forwards) > 0 && !spec.HasCore(model.CoreForwarder) {
 		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreForwarder})
 	}
+	spec.Fronts = s.buildFronts(spec)
+	if len(spec.Fronts) > 0 && !spec.HasCore(model.CoreCaddy) {
+		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreCaddy})
+	}
 	return spec, nil
 }
 
