@@ -10,8 +10,24 @@ function Svg({ children, size = 18 }: { children: ReactNode; size?: number }) {
 
 export const Icon = {
   Logo: () => (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5CC8DB" strokeWidth="2" aria-hidden="true">
-      <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+    // Polaris: the North Star with an orbit, a companion star and a node.
+    <svg width="24" height="24" viewBox="0 0 512 512" aria-hidden="true">
+      <circle cx="256" cy="262" r="168" fill="none" stroke="#5EEAD4" strokeOpacity=".4" strokeWidth="18" />
+      <path d="M256 58 Q271 247 384 262 Q271 277 256 476 Q241 277 128 262 Q241 247 256 58 Z" fill="#FFFFFF" />
+      <path d="M375 120 Q380 162 420 167 Q380 172 375 214 Q370 172 330 167 Q370 162 375 120 Z" fill="#5EEAD4" />
+      <circle cx="137" cy="381" r="18" fill="#5EEAD4" />
+    </svg>
+  ),
+  LogoTile: ({ size = 40 }: { size?: number }) => (
+    <svg width={size} height={size} viewBox="0 0 512 512" aria-hidden="true">
+      <defs>
+        <linearGradient id="plbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#13899F" /><stop offset="1" stopColor="#0A4557" /></linearGradient>
+      </defs>
+      <rect width="512" height="512" rx="116" fill="url(#plbg)" />
+      <circle cx="256" cy="262" r="168" fill="none" stroke="#FFFFFF" strokeOpacity=".16" strokeWidth="10" />
+      <path d="M256 58 Q271 247 384 262 Q271 277 256 476 Q241 277 128 262 Q241 247 256 58 Z" fill="#FFFFFF" />
+      <path d="M375 120 Q380 162 420 167 Q380 172 375 214 Q370 172 330 167 Q370 162 375 120 Z" fill="#9FF3E8" />
+      <circle cx="137" cy="381" r="13" fill="#9FF3E8" fillOpacity=".85" />
     </svg>
   ),
   Dashboard: () => <Svg><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></Svg>,

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Polaris">
+  <circle cx="256" cy="262" r="168" fill="none" stroke="#5EEAD4" stroke-opacity=".35" stroke-width="14"/>
+  <path d="M256 58 Q271 247 384 262 Q271 277 256 476 Q241 277 128 262 Q241 247 256 58 Z" fill="#FFFFFF"/>
+  <path d="M375 120 Q380 162 420 167 Q380 172 375 214 Q370 172 330 167 Q370 162 375 120 Z" fill="#5EEAD4"/>
+  <circle cx="137" cy="381" r="16" fill="#5EEAD4"/>
+</svg>

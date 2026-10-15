@@ -1,4 +1,6 @@
-# Polaris
+<p align="center"><img src="docs/brand/polaris-icon.svg" width="112" alt="Polaris"></p>
+
+<h1 align="center">Polaris</h1>
 
 多内核代理面板：一个主控管理 N 台服务器，每台运行一个 Agent，Agent 通过统一的内核适配层同时驱动 **Xray-core** 与 **sing-box**（并预留 Hysteria2 官方服务端、mihomo）。用户、入站、订阅在主控上只定义一次，由适配器翻译成各内核自己的配置。
 

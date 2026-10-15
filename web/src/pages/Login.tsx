@@ -33,7 +33,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   return (
     <div className="login">
       <form className="card" onSubmit={submit}>
-        <div className="row" style={{ gap: 10, fontWeight: 600, fontSize: 18 }}><Icon.Logo />Polaris</div>
+        <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.LogoTile size={40} />Polaris</div>
         <div className="field">
           <label className="lbl" htmlFor="u">用户名</label>
           <input className="input" id="u" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
