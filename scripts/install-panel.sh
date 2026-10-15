@@ -100,11 +100,11 @@ download_release() {
   PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
   fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" || die "下载 checksums.txt 失败：$RELEASE"
   local f want got
-  for f in "$PANEL_TGZ" polaris-agent-linux-amd64 polaris-agent-linux-arm64 install-panel.sh; do
-    if ! fetch "$RELEASE/$f" "$TMP/$f"; then
-      [ "$f" = install-panel.sh ] && { rm -f "$TMP/$f"; continue; } # older releases do not ship it
-      die "下载 $f 失败"
-    fi
+  local files=("$PANEL_TGZ" polaris-agent-linux-amd64 polaris-agent-linux-arm64)
+  # Releases before the installer existed do not ship it; only fetch what is listed.
+  grep -q ' \*\?install-panel.sh$' "$TMP/checksums.txt" && files+=(install-panel.sh)
+  for f in "${files[@]}"; do
+    fetch "$RELEASE/$f" "$TMP/$f" || die "下载 $f 失败"
     want="$(awk -v f="$f" '$2 == f || $2 == "*"f {print $1}' "$TMP/checksums.txt")"
     got="$(sha256sum "$TMP/$f" | awk '{print $1}')"
     [ -n "$want" ] && [ "$want" = "$got" ] || die "$f 校验失败（期望 ${want:-无}，实际 $got）"
@@ -169,6 +169,19 @@ public_ip() {
 # rand N: N random lowercase hex characters (no pipes that can SIGPIPE under pipefail).
 rand() { od -An -N32 -tx1 /dev/urandom | tr -d ' \n' | cut -c1-"$1"; }
 valid_port() { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+# port_busy PORT: true if something already listens on the TCP port.
+port_busy() {
+  if command -v ss >/dev/null; then
+    ss -Hltn "sport = :$1" 2>/dev/null | grep -q .
+  else # /proc fallback: state 0A = LISTEN, port in hex; tcp6 is absent without IPv6
+    local f files=()
+    for f in /proc/net/tcp /proc/net/tcp6; do [ -r "$f" ] && files+=("$f"); done
+    [ ${#files[@]} -gt 0 ] || return 1
+    awk -v p="$(printf ':%04X' "$1")" '$4 == "0A" && substr($2, length($2) - 4) == p' "${files[@]}" | grep -q .
+  fi
+}
+port_owner() { ss -Hltnp "sport = :$1" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -n1; }
+port_msg() { local o; o="$(port_owner "$1")"; echo "端口 $1 已被占用${o:+（$o）}"; }
 valid_domain() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; }
 
 install_caddy() {
@@ -229,6 +242,9 @@ do_install() {
   [ -f "$ENV_FILE" ] && die "$ENV_FILE 已存在：升级用 update，重装请先 uninstall"
   [ -z "$DOMAIN" ] || valid_domain "$DOMAIN" || die "域名格式不正确：$DOMAIN"
   valid_port "$PORT" && valid_port "$AGENT_PORT" || die "端口不正确"
+  [ "$PORT" != "$AGENT_PORT" ] || die "面板端口与节点接入端口不能相同"
+  port_busy "$PORT" && die "$(port_msg "$PORT")：请换一个面板端口（--port）"
+  port_busy "$AGENT_PORT" && die "$(port_msg "$AGENT_PORT")：请换一个节点接入端口（--agent-port）"
   download_release
 
   local host listen public_url secret use_caddy=0 pass=""
@@ -283,7 +299,13 @@ EOF
     running || break
     sleep 1
   done
-  running || { journalctl -u polaris -n 40 --no-pager; die "Polaris 启动失败"; }
+  if ! running; then
+    journalctl -u polaris -n 40 --no-pager
+    if journalctl -u polaris -n 40 --no-pager 2>/dev/null | grep -q 'address already in use'; then
+      die "Polaris 启动失败：端口被占用。可执行 polaris set-port <新端口> 修改后会自动重启"
+    fi
+    die "Polaris 启动失败（修正后执行 polaris restart）"
+  fi
 
   echo
   green "Polaris $VERSION 安装完成"
@@ -368,6 +390,7 @@ do_set_port() {
   local port="$1" listen url domain
   valid_port "$port" || die "端口不正确"
   listen="$(env_get POLARIS_LISTEN)"
+  if [ "${listen##*:}" != "$port" ] && port_busy "$port"; then die "$(port_msg "$port")"; fi
   env_set POLARIS_LISTEN "${listen%:*}:$port"
   url="$(env_get POLARIS_PUBLIC_URL)"
   domain="$(panel_domain)"
@@ -431,6 +454,18 @@ do_log() {
 pause() { echo; read -r -p "按回车返回菜单…" _ || true; }
 ask() { local v; read -r -p "$1" v || true; echo "$v"; }
 confirm() { local v; read -r -p "$1 [y/N] " v || true; [[ "$v" =~ ^[Yy]$ ]]; }
+# ask_port LABEL DEFAULT [TAKEN]: prompt until a valid, free port is given.
+ask_port() {
+  local v def="$2"
+  while port_busy "$def" || [ "$def" = "${3:-}" ]; do def=$((def + 1)); done
+  while true; do
+    v="$(ask "$1 [$def]：")"; v="${v:-$def}"
+    if ! valid_port "$v"; then red "端口不正确" >&2
+    elif [ "$v" = "${3:-}" ]; then red "不能与面板端口相同" >&2
+    elif port_busy "$v"; then red "$(port_msg "$v")" >&2
+    else echo "$v"; return; fi
+  done
+}
 
 # run_action runs an action in a subshell with errexit on. It must not be
 # called as part of && / || lists: bash ignores set -e in such contexts.
@@ -464,8 +499,8 @@ menu() {
       1)
         DOMAIN="$(ask "域名（已解析到本机，留空则使用 IP + HTTP）：")"
         if [ -n "$DOMAIN" ] && ! confirm "自动安装 Caddy 申请 HTTPS 证书？（选 N 表示你自备反向代理）"; then CADDY=0; else CADDY=1; fi
-        local p; p="$(ask "面板端口 [8080]：")"; PORT="${p:-8080}"
-        p="$(ask "节点接入端口 [9443]：")"; AGENT_PORT="${p:-9443}"
+        PORT="$(ask_port "面板端口" 8080)"
+        AGENT_PORT="$(ask_port "节点接入端口" 9443 "$PORT")"
         run_action do_install; pause ;;
       2) run_action do_update; pause ;;
       3)
