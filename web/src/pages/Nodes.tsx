@@ -21,6 +21,59 @@ function capsSummary(c?: CapSet): string[] {
   return [...out]
 }
 
+const vparts = (v: string) => v.replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0)
+const versionLess = (a: string, b: string) => {
+  const pa = vparts(a), pb = vparts(b)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0)
+  return false
+}
+
+/** Upgrade one core type on many nodes at once. */
+function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: Node[]; latest: Record<string, string>; onClose: () => void; onDone: () => void }) {
+  const types = [...new Set(nodes.flatMap((n) => n.cores.map((c) => c.type)))] as CoreType[]
+  const [type, setType] = useState<CoreType>(types[0] ?? 'xray')
+  const [version, setVersion] = useState(latest[types[0] ?? 'xray'] ?? '')
+  const withCore = nodes.filter((n) => n.cores.some((c) => c.type === type))
+  const [ids, setIds] = useState<string[]>(withCore.map((n) => n.id))
+  const { busy, run } = useAction()
+  const pick = (t: CoreType) => {
+    setType(t); setVersion(latest[t] ?? '')
+    setIds(nodes.filter((n) => n.cores.some((c) => c.type === t)).map((n) => n.id))
+  }
+  return (
+    <Modal title="批量升级内核" onClose={onClose} footer={<>
+      <button className="btn" type="button" onClick={onClose}>取消</button>
+      <button className="btn pri" type="button" disabled={busy || !version || !ids.length} onClick={() => run(async () => {
+        const r = await post<{ results: { nodeId: string; ok: boolean; error?: string }[] }>('/cores/upgrade', { type, version, nodeIds: ids })
+        const bad = r.results.filter((x) => !x.ok)
+        if (bad.length) throw new Error(bad.map((x) => `${nodes.find((n) => n.id === x.nodeId)?.name}：${x.error}`).join('；'))
+        onDone()
+      }, `已下发：${ids.length} 个节点切换到 v${version}`)}>升级 {ids.length} 个节点</button>
+    </>}>
+      <div className="sub" style={{ margin: 0 }}>旧版本保留在节点上；新版本启动失败时 Agent 会自动回退，之后也可一键回退。</div>
+      <Field label="内核">
+        <div className="row">{types.map((t) => <button key={t} type="button" className={'chip' + (type === t ? ' on' : '')} onClick={() => pick(t)}>{coreLabel[t]}</button>)}</div>
+      </Field>
+      <Field label="目标版本" hint={latest[type] ? `GitHub 最新稳定版 v${latest[type]}` : '未能获取最新版本，请手动填写'}>
+        <input className="input mono" value={version} onChange={(e) => setVersion(e.target.value.replace(/^v/, ''))} placeholder="26.3.27" />
+      </Field>
+      <Field label="节点">
+        <div className="pick-list">
+          {withCore.map((n) => {
+            const cur = n.cores.find((c) => c.type === type)
+            return (
+              <label key={n.id} className="chk">
+                <input type="checkbox" checked={ids.includes(n.id)} onChange={(e) => setIds(e.target.checked ? [...ids, n.id] : ids.filter((x) => x !== n.id))} />
+                {n.name}<span className="mono small mute">v{cur?.version}{cur && version && cur.version === version ? '（已是）' : ''}</span>
+              </label>
+            )
+          })}
+        </div>
+      </Field>
+    </Modal>
+  )
+}
+
 type NodeUser = { id: string; username: string; status: string; via: string[]; inbounds: number; up: number; down: number; onlineIps: string[] }
 
 const viaLabel = (v: string) => (v === 'node' ? '整台节点' : v === 'inbound' ? '单独入站' : '分组 · ' + v.replace(/^group:/, ''))
@@ -258,6 +311,8 @@ export default function Nodes() {
 
   useEffect(() => { if (params.get('new')) { setParams({}, { replace: true }) } }, [params, setParams])
 
+  const latest = useLoad(() => get<Record<string, string>>('/core-latest').catch(() => ({} as Record<string, string>)))
+  const [batchCore, setBatchCore] = useState(false)
   // Agent upgrades: nodes whose agent differs from the panel version.
   const info = useLoad(() => get<{ version: string }>('/info'))
   const panelVer = info.data?.version ?? ''
@@ -297,6 +352,7 @@ export default function Nodes() {
               <span className="badge-dot" />升级全部 Agent（{outdatedNodes.length}）
             </button>
           )}
+          {nodes.some((n) => n.cores.length > 0) && <button className="btn" type="button" onClick={() => setBatchCore(true)}>批量升级内核</button>}
           <button className="btn pri" type="button" onClick={() => setEditing('new')}>+ 添加节点</button>
         </div>
       </div>
@@ -352,13 +408,33 @@ export default function Nodes() {
                         <span className={'st ' + (running ? 'ok' : c.status === 'installing' ? 'warn' : 'off')}>{running ? '● 运行中' : c.status === 'installing' ? '安装中' : c.inbounds ? '已停止' : '空闲'}</span>
                       </div>
                       <div className="meta">
-                        <div><span>版本</span><button className="link mono" type="button" onClick={() => setCoreForm({ core: c })}>v{c.version}</button></div>
+                        <div><span>版本</span><button className="link mono" type="button" onClick={() => setCoreForm({ core: c })}>v{c.version}</button>
+                          {c.runningVersion && c.runningVersion !== c.version && <div className="small" style={{ color: 'var(--warn)' }}>切换中 · 运行 v{c.runningVersion}</div>}</div>
                         <div><span>入站</span><span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>{c.inbounds}</span></div>
                         <div><span>运行时长</span><span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>{running && c.startedAt ? ago(c.startedAt).replace('前', '') : '—'}</span></div>
                       </div>
                       <div className="caps">{capsSummary(cap).map((x) => <span key={x} className="tag">{x}</span>)}</div>
                       <div className="sub" style={{ margin: 0 }}>用户变更：{cap?.hotUsers ? (c.type === 'xray' ? 'gRPC 热更新，不中断连接' : 'HTTP 认证回调，无需重载') : c.type === 'singbox' ? 'SIGHUP 重载' : '重启进程'}</div>
                       {c.error && <div className="note bad">{c.error}</div>}
+                      {(() => {
+                        const lv = latest.data?.[c.type]
+                        const canUp = lv && versionLess(c.version, lv)
+                        const canBack = c.prevVersion && c.prevVersion !== c.version
+                        if (!canUp && !canBack) return null
+                        return (
+                          <div className="core-ver">
+                            {canUp && <span className="small">新版本 <b className="mono">v{lv}</b></span>}
+                            {canUp && <button className="btn sm pri" type="button" disabled={busy} onClick={async () => {
+                              if (await confirm(`把 ${sel.name} 的 ${coreLabel[c.type]} 从 v${c.version} 升级到 v${lv}？\n新版本启动失败会自动回退；升级期间该内核的连接会中断几秒。`))
+                                run(async () => { await post(`/nodes/${sel.id}/cores`, { type: c.type, version: lv, isDefault: c.isDefault }); refresh() }, '已下发升级')
+                            }}>升级</button>}
+                            {canBack && <button className="btn sm" type="button" disabled={busy} onClick={async () => {
+                              if (await confirm(`把 ${coreLabel[c.type]} 回退到 v${c.prevVersion}？（旧版本已在节点上，秒级切换）`))
+                                run(async () => { await post(`/cores/${c.id}/rollback`); refresh() }, `已回退到 v${c.prevVersion}`)
+                            }}>回退到 v{c.prevVersion}</button>}
+                          </div>
+                        )
+                      })()}
                       <div className="row">
                         <button className="btn sm" type="button" disabled={!sel.connected} onClick={() => run(() => post(`/cores/${c.id}/restart`), '已重启')}>重启</button>
                         <button className="btn sm" type="button" onClick={() => run(async () => {
@@ -423,6 +499,7 @@ export default function Nodes() {
       )}
       {editing && <NodeForm node={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={(i) => { setEditing(null); refresh(); if (i) setInstall(i) }} />}
       {coreForm && sel && <CoreForm node={sel} core={coreForm.core} onClose={() => setCoreForm(null)} onSaved={() => { setCoreForm(null); refresh() }} />}
+      {batchCore && <BatchCoreUpgrade nodes={nodes} latest={latest.data ?? {}} onClose={() => setBatchCore(false)} onDone={() => { setBatchCore(false); refresh() }} />}
       {install && <InstallModal install={install} node={nodes.find((n) => n.id === install.nodeId)} onClose={() => setInstall(null)} />}
       {preview && (
         <Modal title={preview.title} onClose={() => setPreview(null)} wide footer={<button className="btn" type="button" onClick={() => { navigator.clipboard.writeText(preview.text).then(() => toast('已复制')) }}>复制</button>}>

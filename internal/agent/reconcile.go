@@ -99,7 +99,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		cs := wanted[t]
 		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.Forwards) > 0) ||
 			(t == model.CoreCaddy && len(spec.Fronts) > 0)
-		m, err := a.ensureCore(ctx, cs, active)
+		m, old, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
 			continue
@@ -112,6 +112,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 			method = "reload"
 		}
 		rolledBack = rolledBack || rb
+		if err != nil && old != nil {
+			// A version switch failed: go back to the version that worked.
+			err = a.revertVersion(ctx, m, old, err)
+			rolledBack = true
+		}
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
 		}
@@ -124,40 +129,67 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	return applyResult{ok: true, method: method}
 }
 
-// ensureCore installs the binary and (re)creates the adapter on version change.
-func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) (*managed, error) {
+// ensureCore installs the binary and (re)creates the adapter on version
+// change. On a switch it also returns the previous core, which keeps
+// running until the new binary is installed, for revertVersion.
+func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) (*managed, *managed, error) {
 	m := a.cores[cs.Type]
 	if m != nil && m.spec.Version == cs.Version {
-		return m, nil
+		return m, nil, nil
 	}
 	if !active && m == nil {
 		// Install ahead of time so the first inbound starts instantly.
 		if _, err := a.installer.Ensure(ctx, cs); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return nil, nil
+		return nil, nil, nil
 	}
 	bin, err := a.installer.Ensure(ctx, cs)
 	if err != nil {
-		return nil, err
+		if m != nil {
+			return nil, nil, fmt.Errorf("安装 %s 失败，继续运行 %s：%w", cs.Version, m.spec.Version, err)
+		}
+		return nil, nil, err
 	}
 	work := filepath.Join(a.cfg.DataDir, "run", string(cs.Type))
 	if err := os.MkdirAll(work, 0o700); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ad, err := core.New(cs.Type, core.Options{
 		Version: cs.Version, BinPath: bin, WorkDir: work, APIListen: a.apiListen(cs.Type),
 		AuthURL: "http://" + a.cfg.AuthListen + "/auth/" + string(cs.Type), Logger: a.log,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if m != nil {
 		_ = m.adapter.Stop(ctx) // version switch
 	}
 	nm := &managed{spec: cs, adapter: ad, cfgPath: filepath.Join(work, cfgNames[cs.Type])}
 	a.cores[cs.Type] = nm
-	return nm, nil
+	return nm, m, nil
+}
+
+// revertVersion undoes a failed version switch: the new core is stopped,
+// "current" points at the old version again and the old core is restarted
+// with the configuration it was running (applyCore already restored it).
+func (a *Agent) revertVersion(ctx context.Context, failed, old *managed, cause error) error {
+	t := failed.spec.Type
+	a.log.Error("core version switch failed, reverting", "core", t, "from", failed.spec.Version, "to", old.spec.Version, "err", cause)
+	_ = failed.adapter.Stop(ctx)
+	a.cores[t] = old
+	if _, err := a.installer.Ensure(ctx, old.spec); err != nil {
+		a.log.Warn("relink previous core version", "core", t, "err", err)
+	}
+	if err := old.adapter.Start(ctx); err == nil {
+		err = waitHealthy(ctx, old.adapter)
+		if err != nil {
+			return fmt.Errorf("升级到 %s 失败（%v），回退到 %s 后仍未正常运行：%w", failed.spec.Version, cause, old.spec.Version, err)
+		}
+	} else {
+		return fmt.Errorf("升级到 %s 失败（%v），回退到 %s 时启动失败：%w", failed.spec.Version, cause, old.spec.Version, err)
+	}
+	return fmt.Errorf("升级到 %s 失败，已回退到 %s：%w", failed.spec.Version, old.spec.Version, cause)
 }
 
 func (a *Agent) applyCore(ctx context.Context, m *managed, prev, next *model.NodeSpec, active bool) (method string, rolledBack bool, err error) {

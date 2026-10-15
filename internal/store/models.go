@@ -62,6 +62,8 @@ type Core struct {
 	StartedAt         *time.Time     `json:"startedAt"`
 	Error             string         `gorm:"size:2000" json:"error"`
 	InstalledVersions JSON[[]string] `json:"installedVersions"`
+	RunningVersion    string         `gorm:"size:32" json:"runningVersion"` // version the agent reports running
+	PrevVersion       string         `gorm:"size:32" json:"prevVersion"`    // version before the last switch (rollback target)
 	Inbounds          int            `gorm:"-" json:"inbounds"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	UpdatedAt         time.Time      `json:"updatedAt"`

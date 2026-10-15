@@ -253,7 +253,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 			st = "running"
 		}
 		upd := map[string]any{"status": st, "pid": int(c.Pid), "error": c.Error,
-			"installed_versions": store.NewJSON(c.InstalledVersions)}
+			"installed_versions": store.NewJSON(c.InstalledVersions), "running_version": c.Version}
 		if c.StartedAt > 0 {
 			t := time.Unix(c.StartedAt, 0)
 			upd["started_at"] = &t
@@ -281,6 +281,7 @@ func (s *Server) handleApplyResult(nodeID string, r *polarisv1.ApplyResult) {
 	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Updates(upd)
 	if !r.Ok {
+		s.revertFailedUpgrades(nodeID, r.Error)
 		var n store.Node
 		s.st.DB.Select("name").First(&n, "id = ?", nodeID)
 		s.audit("agent", "spec.apply_failed", n.Name, "rev "+strconv.FormatInt(r.Rev, 10)+": "+r.Error, "")

@@ -109,6 +109,9 @@ func (s *Server) Router() http.Handler {
 	p.POST("/nodes/:id/cores", s.upsertCore)
 	p.DELETE("/cores/:id", s.deleteCore)
 	p.POST("/cores/:id/restart", s.restartCore)
+	p.POST("/cores/:id/rollback", s.rollbackCore)
+	p.POST("/cores/upgrade", s.upgradeCores)
+	p.GET("/core-latest", s.coreLatest)
 	p.GET("/cores/:id/logs", s.coreLogs)
 	p.GET("/capabilities", s.capabilities)
 

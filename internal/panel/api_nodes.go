@@ -408,46 +408,12 @@ func (s *Server) upsertCore(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	nodeID := c.Param("id")
-	var n store.Node
-	if err := s.st.DB.First(&n, "id = ?", nodeID).Error; err != nil {
-		dbError(c, err)
-		return
-	}
-	caps, ok := core.Capabilities(req.Type, req.Version)
-	if !ok {
-		badRequest(c, fmt.Errorf("unknown core %s", req.Type))
-		return
-	}
-	// Every inbound already on this core must remain supported by the new version.
-	var ins []store.Inbound
-	s.st.DB.Where("node_id = ? AND core = ?", nodeID, req.Type).Find(&ins)
-	for _, in := range ins {
-		m := s.toModelInbound(&in)
-		if err := caps.SupportsInbound(&m); err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("入站 %s 在该版本不受支持：%v", in.Tag, err)})
-			return
-		}
-	}
-	var cur store.Core
-	err := s.st.DB.Where("node_id = ? AND type = ?", nodeID, req.Type).First(&cur).Error
-	if store.IsNotFound(err) {
-		cur = store.Core{ID: store.NewID(), NodeID: nodeID, Type: req.Type, Version: req.Version, Status: "installing",
-			InstalledVersions: store.NewJSON([]string{})}
-		err = s.st.DB.Create(&cur).Error
-	} else if err == nil {
-		err = s.st.DB.Model(&cur).Updates(map[string]any{"version": req.Version, "status": "installing"}).Error
-	}
+	cur, code, err := s.setCoreVersion(c.Param("id"), req.Type, req.Version, req.IsDefault)
 	if err != nil {
-		dbError(c, err)
+		c.JSON(code, gin.H{"error": err.Error()})
 		return
 	}
-	if req.IsDefault {
-		s.st.DB.Model(&store.Core{}).Where("node_id = ?", nodeID).Update("is_default", gorm.Expr("type = ?", req.Type))
-		s.st.DB.Model(&n).Update("default_core", req.Type)
-	}
-	s.MarkDirty("core "+string(req.Type)+" "+req.Version, nodeID)
-	s.auditCtx(c, "core.install", n.Name, fmt.Sprintf("%s %s", req.Type, req.Version))
+	s.auditCtx(c, "core.install", c.Param("id"), fmt.Sprintf("%s %s", req.Type, req.Version))
 	c.JSON(http.StatusOK, cur)
 }
 

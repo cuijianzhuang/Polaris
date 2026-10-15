@@ -24,6 +24,7 @@ export interface SystemInfo { cpu: number; mem: number; rxBps: number; txBps: nu
 export interface Core {
   id: string; nodeId: string; type: CoreType; version: string; status: string; pid: number; isDefault: boolean
   startedAt?: string; error: string; installedVersions: string[]; inbounds: number
+  runningVersion?: string; prevVersion?: string
 }
 export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; labels: string[]
