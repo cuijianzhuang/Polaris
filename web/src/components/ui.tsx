@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
 import { Icon } from './Icons'
 import { errMsg } from '../format'
@@ -85,12 +86,19 @@ function useClosing(onClose: () => void): [boolean, () => void] {
   return [closing, close]
 }
 
+// Escape closes only the topmost drawer / modal (a scanner opened from the
+// inbound drawer must not take the drawer and its unsaved form with it).
+const escStack: { current: () => void }[] = []
 function useEscape(onClose: () => void) {
+  const ref = useRef(onClose)
+  ref.current = onClose
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const entry = ref
+    escStack.push(entry)
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && escStack[escStack.length - 1] === entry) entry.current() }
     window.addEventListener('keydown', h)
-    return () => window.removeEventListener('keydown', h)
-  }, [onClose])
+    return () => { window.removeEventListener('keydown', h); escStack.splice(escStack.indexOf(entry), 1) }
+  }, [])
 }
 
 export function Drawer({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
@@ -107,17 +115,20 @@ export function Drawer({ title, onClose, children, footer, wide }: { title: Reac
   )
 }
 
-export function Modal({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+export function Modal({ title, onClose, children, footer, wide, xwide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; xwide?: boolean }) {
   const [closing, close] = useClosing(onClose)
   useEscape(close)
-  return (
+  // Portalled: a modal opened from a drawer must not be laid out inside it
+  // (the drawer's animation transform would clip a fixed overlay).
+  return createPortal(
     <div className={'overlay center' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
-      <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true">
+      <div className={'modal' + (xwide ? ' xwide' : wide ? ' wide' : '')} role="dialog" aria-modal="true">
         <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={close}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

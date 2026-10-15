@@ -207,7 +207,7 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
               <button className="btn" type="button" onClick={() => setScanning(true)}>扫描</button>
             </div>
           </Field>
-          {scanning && <RealityScanner nodeId={nodeId} initial={(s.realityDest ?? '').replace(/:443$/, '')} onClose={() => setScanning(false)}
+          {scanning && <RealityScanner nodeId={nodeId} onClose={() => setScanning(false)}
             onPick={(target, names) => setS({ realityDest: target, realityServerNames: names.length ? names : undefined })} />}
           <Field label="SNI（Server Names）" htmlFor="f-sn" hint="必须是目标站点证书里的域名；回车或逗号添加。扫描结果点「使用」会自动填入证书中的全部域名，订阅给客户端用第一个">
             <TagInput id="f-sn" value={s.realityServerNames ?? []} onChange={(v) => setS({ realityServerNames: v.length ? v : undefined })} placeholder={destHost || 'www.microsoft.com'} />

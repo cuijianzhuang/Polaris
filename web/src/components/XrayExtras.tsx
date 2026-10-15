@@ -1,7 +1,7 @@
 // Newer Xray inbound options: VLESS Encryption, Vision testseed, REALITY
 // limits / ML-DSA-65 signatures, and the REALITY target scanner.
-import { useState } from 'react'
-import { post } from '../api'
+import { useEffect, useState } from 'react'
+import { get, post, put } from '../api'
 import type { CapSet, LimitFallback, ProtocolSpec, RealityScanResult, SecuritySpec, SniffSpec } from '../types'
 import { Field, Modal, Switch, fromLines, toLines, useAction } from './ui'
 
@@ -119,48 +119,89 @@ export function SniffExtras({ sn, set }: { sn: SniffSpec; set: (x: SniffSpec) =>
   )
 }
 
-// RealityScanner probes candidates (or a domain / IP / CIDR) for a REALITY
-// target: TLS 1.3, h2, X25519MLKEM768 and a valid certificate.
+// RealityScanner probes candidates (or domains / IPs / CIDRs, several at
+// once) for a REALITY target: TLS 1.3, h2, X25519MLKEM768 and a valid
+// certificate. Modelled on the 3x-ui scanner.
 export function RealityScanner({ nodeId, initial, onPick, onClose }: {
   nodeId?: string; initial?: string; onPick: (target: string, names: string[]) => void; onClose: () => void
 }) {
   const [q, setQ] = useState(initial ?? '')
-  const [res, setRes] = useState<{ results: RealityScanResult[]; from: string } | null>(null)
+  const [res, setRes] = useState<{ results: RealityScanResult[]; from: string; ms: number } | null>(null)
+  const [okOnly, setOkOnly] = useState(false)
+  const [editing, setEditing] = useState<{ value: string; def: string } | null>(null)
   const { busy, run } = useAction()
-  const scan = () => run(async () => { setRes(await post('/tools/reality-scan', { target: q.trim(), nodeId })) })
+  const scan = (target = q) => run(async () => {
+    const t0 = performance.now()
+    const r = await post<{ results: RealityScanResult[]; from: string }>('/tools/reality-scan', { target: target.trim(), nodeId })
+    setRes({ ...r, ms: Math.round(performance.now() - t0) })
+  })
+  useEffect(() => { scan() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const editCandidates = () => run(async () => {
+    const r = await get<{ candidates: string; default: string }>('/tools/reality-candidates')
+    setEditing({ value: r.candidates ? r.candidates.split(/[,\s]+/).filter(Boolean).join('\n') : r.default, def: r.default })
+  })
+  const saveCandidates = () => run(async () => {
+    const v = editing!.value.split(/[,\s]+/).filter(Boolean).join(',')
+    await put('/settings', { reality_scan_candidates: v === editing!.def.split('\n').join(',') ? '' : v })
+    setEditing(null)
+    if (!q.trim()) scan('')
+  }, '候选目标已保存')
+  const rows = (res?.results ?? []).filter((r) => !okOnly || r.ok)
+  const okCount = (res?.results ?? []).filter((r) => r.ok).length
   return (
-    <Modal wide title="REALITY 目标扫描" onClose={onClose} footer={<button className="btn" type="button" onClick={onClose}>关闭</button>}>
-      <div className="hint" style={{ marginBottom: 8 }}>验证域名，或扫描 IP / CIDR（最多 256 个地址）从证书中发现目标；留空则探测常用候选。节点在线时由节点发起，延迟以节点为准。</div>
-      <div className="row" style={{ gap: 8 }}>
-        <input className="input mono" style={{ flex: 1 }} value={q} onChange={(e) => setQ(e.target.value)} placeholder="IP、CIDR 或域名 — 留空使用常用候选"
-          onKeyDown={(e) => { if (e.key === 'Enter') scan() }} />
-        <button className="btn pri" type="button" disabled={busy} onClick={scan}>{busy ? '扫描中…' : '扫描'}</button>
+    <Modal xwide title="REALITY 目标扫描器" onClose={onClose} footer={<>
+      <button className="btn" type="button" style={{ marginRight: 'auto' }} disabled={busy} onClick={editCandidates}>编辑默认候选</button>
+      <button className="btn" type="button" disabled={busy} onClick={() => scan()}>{busy ? '扫描中…' : '重新扫描'}</button>
+      <button className="btn pri" type="button" onClick={onClose}>关闭</button>
+    </>}>
+      <div className="hint" style={{ marginBottom: 8 }}>验证域名，或扫描 IP / CIDR 范围（每段最多 256 个地址），从证书中发现新的 REALITY 目标；可用逗号或空格分隔多个。留空则探测默认候选。节点在线时由节点发起，延迟以节点为准。</div>
+      <div className="joined">
+        <input className="input mono" value={q} onChange={(e) => setQ(e.target.value)} placeholder="IP、CIDR 或域名 — 留空使用默认候选"
+          onKeyDown={(e) => { if (e.key === 'Enter') scan() }} aria-label="扫描目标" />
+        <button className="btn pri" type="button" disabled={busy} onClick={() => scan()}>{busy ? '扫描中…' : '扫描'}</button>
       </div>
-      {res && (
-        <div className="scroll" style={{ marginTop: 12 }}>
-          <div className="hint">来源：{res.from === 'node' ? '节点' : res.from}</div>
-          <table>
-            <thead><tr><th>目标</th><th>状态</th><th>TLS</th><th>ALPN</th><th>密钥交换</th><th>证书</th><th>证书链</th><th>ML-DSA</th><th>延迟</th><th /></tr></thead>
-            <tbody>
-              {res.results.length === 0 && <tr><td colSpan={10} className="sub">没有响应的目标</td></tr>}
-              {res.results.map((r) => (
-                <tr key={r.target}>
-                  <td className="mono small">{r.target}</td>
-                  <td><span className={'tag ' + (r.ok ? 'ok' : 'bad')}>{r.ok ? '可用' : '不可用'}</span>{r.problem && <div className="small sub">{r.problem}</div>}</td>
-                  <td className="mono small">{r.tls ?? '—'}</td>
-                  <td className="mono small">{r.alpn || '—'}</td>
-                  <td className="mono small">{r.keyShare ?? '—'}</td>
-                  <td className="small">{r.certName ?? '—'}</td>
-                  <td className="mono small">{r.chainSize ? `${r.chainSize} B` : '—'}</td>
-                  <td className="small">{r.tls ? (r.mldsa ? '可用' : '链太短') : '—'}</td>
-                  <td className="mono small">{r.latencyMs != null ? `${r.latencyMs} ms` : '—'}</td>
-                  <td>{r.ok && <button className="btn sm" type="button" onClick={() => { onPick(r.target, r.names ?? []); onClose() }}>使用</button>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {editing && (
+        <div className="card" style={{ marginTop: 12, display: 'grid', gap: 8, padding: 14 }}>
+          <div className="small">默认候选（每行一个 host[:port]，也可以写 CIDR）</div>
+          <textarea className="input mono" style={{ minHeight: 140 }} value={editing.value} onChange={(e) => setEditing({ ...editing, value: e.target.value })} />
+          <div className="row">
+            <button className="btn sm pri" type="button" disabled={busy} onClick={saveCandidates}>保存</button>
+            <button className="btn sm" type="button" onClick={() => setEditing({ ...editing, value: editing.def })}>恢复内置列表</button>
+            <button className="btn sm" type="button" onClick={() => setEditing(null)}>取消</button>
+          </div>
         </div>
       )}
+      {res && (
+        <div className="row small sub" style={{ marginTop: 12, justifyContent: 'space-between' }}>
+          <span>共 {res.results.length} 个目标，可用 {okCount} 个 · 来源：{res.from === 'node' ? '节点' : res.from === 'panel' ? '面板' : res.from} · 用时 {(res.ms / 1000).toFixed(1)} 秒</span>
+          <label className="chk" style={{ margin: 0 }}><input type="checkbox" checked={okOnly} onChange={(e) => setOkOnly(e.target.checked)} />只看可用</label>
+        </div>
+      )}
+      <div className="scroll scan-table" style={{ marginTop: 8 }} aria-busy={busy}>
+        <table>
+          <thead><tr><th>目标</th><th>状态</th><th>TLS</th><th>ALPN</th><th>交换</th><th>证书</th><th>证书链</th><th>延迟</th><th /></tr></thead>
+          <tbody>
+            {!res && busy && <tr><td colSpan={9} className="sub">正在扫描…</td></tr>}
+            {res && rows.length === 0 && <tr><td colSpan={9} className="sub">{okOnly ? '没有可用的目标' : '没有响应的目标'}</td></tr>}
+            {rows.map((r) => (
+              <tr key={r.target}>
+                <td className="mono small">{r.target}</td>
+                <td><span className={'tag ' + (r.ok ? 'ok' : 'bad')}>{r.ok ? '可用' : '不可用'}</span>{r.problem && <div className="sub" style={{ fontSize: 11, maxWidth: 180, whiteSpace: 'normal' }}>{r.problem}</div>}</td>
+                <td className="mono small">{r.tls ?? '—'}</td>
+                <td className="mono small">{r.alpn || '—'}</td>
+                <td className="mono small">{r.keyShare ?? '—'}</td>
+                <td className="small" title={[r.issuer && '签发：' + r.issuer, r.notAfter && '到期：' + r.notAfter.slice(0, 10), r.names?.length && '域名：' + r.names.join(', ')].filter(Boolean).join('\n')}>
+                  {r.certName ?? '—'}
+                  {(r.issuer || r.notAfter) && <div className="sub" style={{ fontSize: 11 }}>{r.issuer}{r.notAfter ? ` · ${r.notAfter.slice(0, 10)} 到期` : ''}</div>}
+                </td>
+                <td className="mono small">{r.chainSize ? `${r.chainSize} B` : '—'}{r.tls && <div className={'sub'} style={{ fontSize: 11 }} title="REALITY ML-DSA-65 签名需要证书链至少约 3.5 KB">{r.mldsa ? 'ML-DSA 可用' : 'ML-DSA 不可用'}</div>}</td>
+                <td className="mono small">{r.latencyMs != null ? `${r.latencyMs} 毫秒` : '—'}</td>
+                <td>{r.ok && <button className="btn sm link" type="button" onClick={() => { onPick(r.target, r.names ?? []); onClose() }}>使用</button>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </Modal>
   )
 }

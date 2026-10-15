@@ -25,12 +25,18 @@ func (s *Server) realityScan(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if strings.TrimSpace(req.Target) == "" {
+		// The candidate list is editable (设置 or the scanner dialog).
+		req.Target = strings.TrimSpace(s.st.GetSetting("reality_scan_candidates", ""))
+	}
 	from := "panel"
 	if req.NodeID != "" && s.hub.Online(req.NodeID) {
 		res, err := s.hub.Command(c, req.NodeID, "reality_scan", map[string]string{"target": req.Target}, 60*time.Second)
 		if err == nil && res.Ok {
 			var rs []realityscan.Result
-			if json.Unmarshal([]byte(res.Output), &rs) == nil {
+			// Agents before multi-target scans probe "a,b" as one host;
+			// scan from the panel instead.
+			if json.Unmarshal([]byte(res.Output), &rs) == nil && !(len(rs) == 1 && strings.ContainsAny(rs[0].Target, ", \n")) {
 				c.JSON(http.StatusOK, gin.H{"results": rs, "from": "node"})
 				return
 			}
@@ -46,6 +52,13 @@ func (s *Server) realityScan(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"results": rs, "from": from})
+}
+
+// realityCandidates is GET /tools/reality-candidates: the targets an empty
+// scan probes (the setting, else the built-in list).
+func (s *Server) realityCandidates(c *gin.Context) {
+	v := strings.TrimSpace(s.st.GetSetting("reality_scan_candidates", ""))
+	c.JSON(http.StatusOK, gin.H{"candidates": v, "default": strings.Join(realityscan.Candidates, "\n")})
 }
 
 // genVLESSEnc is POST /tools/vlessenc {auth: x25519 | mlkem768}.

@@ -22,7 +22,7 @@ export interface SecuritySpec {
 export interface LimitFallback { afterBytes?: number; bytesPerSec?: number; burstBytesPerSec?: number }
 export interface SniffSpec { enabled: boolean; destOverride?: string[]; routeOnly?: boolean; metadataOnly?: boolean; ipsExcluded?: string[]; domainsExcluded?: string[] }
 export interface RealityScanResult {
-  target: string; ok: boolean; tls?: string; alpn?: string; keyShare?: string; pq: boolean; mldsa?: boolean; certName?: string
+  target: string; ok: boolean; tls?: string; alpn?: string; keyShare?: string; pq: boolean; mldsa?: boolean; certName?: string; issuer?: string; notAfter?: string
   names?: string[]; chainSize?: number; latencyMs?: number; problem?: string
 }
 
