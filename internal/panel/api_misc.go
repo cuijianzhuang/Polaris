@@ -103,6 +103,8 @@ var editableSettings = map[string]bool{
 	"converter_mode": true, "converter_backend": true, "converter_config": true, "converter_params": true,
 	"converter_for_users": true, "sub_operators": true, "sub_apply_ops_users": true, "allow_private_sources": true,
 	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,
+	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
+	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true,
 }
 
 func (s *Server) getSettings(c *gin.Context) {

@@ -197,11 +197,7 @@ func (s *Server) profileNodes(ctx context.Context, p *store.SubProfile) ([]sub.N
 }
 
 func (s *Server) profileURL(token string) string {
-	base := s.cfg.PublicURL
-	if base == "" {
-		base = "http://" + s.cfg.Listen
-	}
-	return base + "/sub/p/" + token
+	return s.subBase() + "/sub/p/" + token
 }
 
 // converterConfig resolves builtin vs. external conversion.
@@ -289,13 +285,15 @@ func (s *Server) templateContent(format string, ids map[string]string) string {
 }
 
 // serveNodes writes a subscription response in the requested format.
-func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, templates map[string]string, cc converterConfig, callback string) {
+func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, templates map[string]string, cc converterConfig, callback string, u *store.User) {
+	info.Title = s.subTitle(info.Title)
 	format := sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent"))
 	raw := c.Query("raw") == "1" // callback from the external converter: always built-in links
 	if raw {
 		format = "links"
 	}
 	if format == "html" {
+		s.pageExtras(&info, u, nodes)
 		b, err := sub.RenderPage(info)
 		if err != nil {
 			serverError(c, err)
@@ -304,6 +302,8 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 		c.Data(http.StatusOK, "text/html; charset=utf-8", b)
 		return
 	}
+	info.Announce = strings.TrimSpace(s.st.GetSetting("sub_announce", ""))
+	nodes = s.decorateNodes(nodes, info)
 	var body []byte
 	ctype := ""
 	if cc.External && !raw && format != "links" {
@@ -327,17 +327,17 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 		}
 		ctype = r.ContentType()
 	}
-	title := orDefault(info.Title, s.st.GetSetting("site_title", "Polaris"))
-	c.Header("subscription-userinfo", sub.UserInfoHeader(info))
-	c.Header("profile-update-interval", s.st.GetSetting("sub_update_interval", "12"))
-	c.Header("profile-title", "base64:"+b64(title))
-	c.Header("content-disposition", "attachment; filename*=UTF-8''"+url.PathEscape(title))
-	c.Header("profile-web-page-url", info.URL)
+	s.subHeaders(c, info)
+	c.Header("content-disposition", "attachment; filename*=UTF-8''"+url.PathEscape(info.Title))
 	c.Data(http.StatusOK, ctype, body)
 }
 
 // profileSubscription serves /sub/p/{token}.
 func (s *Server) profileSubscription(c *gin.Context) {
+	if !s.subEnabled() {
+		c.String(http.StatusNotFound, "404 page not found")
+		return
+	}
 	if !s.subLimit.Allow(clientIP(c.Request)) {
 		c.String(http.StatusTooManyRequests, "too many requests")
 		return
@@ -355,7 +355,14 @@ func (s *Server) profileSubscription(c *gin.Context) {
 	if c.Query("raw") != "1" {
 		s.st.DB.Model(&p).UpdateColumn("downloads", p.Downloads+1)
 	}
-	s.serveNodes(c, nodes, info, p.Templates.V, s.converterFor(&p), s.profileURL(p.Token)+"?raw=1")
+	var pu *store.User
+	if p.PanelUserID != "" {
+		var u store.User
+		if s.st.DB.First(&u, "id = ?", p.PanelUserID).Error == nil {
+			pu = &u
+		}
+	}
+	s.serveNodes(c, nodes, info, p.Templates.V, s.converterFor(&p), s.profileURL(p.Token)+"?raw=1", pu)
 }
 
 // refreshDueSources runs every minute.

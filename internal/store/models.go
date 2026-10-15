@@ -92,32 +92,35 @@ type Inbound struct {
 
 // User is a panel user with quota.
 type User struct {
-	ID           string         `gorm:"primaryKey;size:32" json:"id"`
-	Username     string         `gorm:"size:64;uniqueIndex" json:"username"`
-	UUID         string         `gorm:"size:36;uniqueIndex" json:"uuid"`
-	Password     string         `gorm:"size:64" json:"password"`
-	SSSeed       string         `gorm:"size:64" json:"-"`
-	TrafficLimit int64          `json:"trafficLimit"` // bytes, 0 = unlimited
-	UsedUp       int64          `json:"usedUp"`
-	UsedDown     int64          `json:"usedDown"`
-	ExpireAt     *time.Time     `json:"expireAt"`
-	IPLimit      int            `json:"ipLimit"`
-	Status       string         `gorm:"size:16;index" json:"status"` // active / limited / expired / disabled
-	SubToken     string         `gorm:"size:64;uniqueIndex" json:"subToken"`
-	ResetPolicy  string         `gorm:"size:16" json:"resetPolicy"` // none / monthly / cycle
-	ResetDay     int            `json:"resetDay"`                   // day of month for monthly, days for cycle
-	LastResetAt  *time.Time     `json:"lastResetAt"`
-	OnlineAt     *time.Time     `json:"onlineAt"`
-	BannedUntil  *time.Time     `json:"bannedUntil"`
-	OnlineIPs    JSON[[]string] `json:"onlineIps"`
-	IsService    bool           `gorm:"index" json:"isService"`  // chain service account
-	TelegramID   int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
-	WarnedUsage  bool           `json:"-"`                       // 80% traffic warning sent this cycle
-	WarnedExpire *time.Time     `json:"-"`
-	Remark       string         `gorm:"size:255" json:"remark"`
-	GroupIDs     []string       `gorm:"-" json:"groupIds"`
-	CreatedAt    time.Time      `json:"createdAt"`
-	UpdatedAt    time.Time      `json:"updatedAt"`
+	ID           string     `gorm:"primaryKey;size:32" json:"id"`
+	Username     string     `gorm:"size:64;uniqueIndex" json:"username"`
+	UUID         string     `gorm:"size:36;uniqueIndex" json:"uuid"`
+	Password     string     `gorm:"size:64" json:"password"`
+	SSSeed       string     `gorm:"size:64" json:"-"`
+	TrafficLimit int64      `json:"trafficLimit"` // bytes, 0 = unlimited
+	UsedUp       int64      `json:"usedUp"`
+	UsedDown     int64      `json:"usedDown"`
+	ExpireAt     *time.Time `json:"expireAt"`
+	// ExpireAfterDays starts the validity period on first use (ExpireAt is
+	// set when traffic is first seen).
+	ExpireAfterDays int            `json:"expireAfterDays"`
+	IPLimit         int            `json:"ipLimit"`
+	Status          string         `gorm:"size:16;index" json:"status"` // active / limited / expired / disabled
+	SubToken        string         `gorm:"size:64;uniqueIndex" json:"subToken"`
+	ResetPolicy     string         `gorm:"size:16" json:"resetPolicy"` // none / monthly / cycle
+	ResetDay        int            `json:"resetDay"`                   // day of month for monthly, days for cycle
+	LastResetAt     *time.Time     `json:"lastResetAt"`
+	OnlineAt        *time.Time     `json:"onlineAt"`
+	BannedUntil     *time.Time     `json:"bannedUntil"`
+	OnlineIPs       JSON[[]string] `json:"onlineIps"`
+	IsService       bool           `gorm:"index" json:"isService"`  // chain service account
+	TelegramID      int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
+	WarnedUsage     bool           `json:"-"`                       // 80% traffic warning sent this cycle
+	WarnedExpire    *time.Time     `json:"-"`
+	Remark          string         `gorm:"size:255" json:"remark"`
+	GroupIDs        []string       `gorm:"-" json:"groupIds"`
+	CreatedAt       time.Time      `json:"createdAt"`
+	UpdatedAt       time.Time      `json:"updatedAt"`
 }
 
 // Used returns total used bytes.

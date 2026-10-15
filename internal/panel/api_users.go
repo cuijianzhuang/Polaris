@@ -15,17 +15,18 @@ import (
 )
 
 type userReq struct {
-	Username     string     `json:"username" binding:"required"`
-	TrafficLimit int64      `json:"trafficLimit"`
-	ExpireAt     *time.Time `json:"expireAt"`
-	IPLimit      int        `json:"ipLimit"`
-	Status       string     `json:"status"` // active / disabled
-	ResetPolicy  string     `json:"resetPolicy"`
-	ResetDay     int        `json:"resetDay"`
-	Remark       string     `json:"remark"`
-	GroupIDs     []string   `json:"groupIds"`
-	UUID         string     `json:"uuid"`
-	Password     string     `json:"password"`
+	Username        string     `json:"username" binding:"required"`
+	TrafficLimit    int64      `json:"trafficLimit"`
+	ExpireAt        *time.Time `json:"expireAt"`
+	ExpireAfterDays int        `json:"expireAfterDays"`
+	IPLimit         int        `json:"ipLimit"`
+	Status          string     `json:"status"` // active / disabled
+	ResetPolicy     string     `json:"resetPolicy"`
+	ResetDay        int        `json:"resetDay"`
+	Remark          string     `json:"remark"`
+	GroupIDs        []string   `json:"groupIds"`
+	UUID            string     `json:"uuid"`
+	Password        string     `json:"password"`
 }
 
 func (s *Server) withGroups(us []store.User) {
@@ -103,7 +104,7 @@ func (s *Server) getUser(c *gin.Context) {
 func newUser(req *userReq) store.User {
 	u := store.User{
 		ID: store.NewID(), Username: req.Username, UUID: req.UUID, Password: req.Password, SSSeed: pki.Token(24),
-		TrafficLimit: req.TrafficLimit, ExpireAt: req.ExpireAt, IPLimit: req.IPLimit, Status: "active",
+		TrafficLimit: req.TrafficLimit, ExpireAt: req.ExpireAt, ExpireAfterDays: req.ExpireAfterDays, IPLimit: req.IPLimit, Status: "active",
 		SubToken: pki.Token(32), ResetPolicy: orDefault(req.ResetPolicy, "none"), ResetDay: req.ResetDay,
 		Remark: req.Remark, OnlineIPs: store.NewJSON([]string{}),
 	}
@@ -272,6 +273,7 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	before := s.nodesForUsers(u.ID)
 	u.Username, u.TrafficLimit, u.ExpireAt, u.IPLimit = req.Username, req.TrafficLimit, req.ExpireAt, req.IPLimit
+	u.ExpireAfterDays = req.ExpireAfterDays
 	u.ResetPolicy, u.ResetDay, u.Remark = orDefault(req.ResetPolicy, "none"), req.ResetDay, req.Remark
 	if req.UUID != "" {
 		u.UUID = req.UUID
@@ -352,11 +354,7 @@ func (s *Server) resetUserToken(c *gin.Context) {
 }
 
 func (s *Server) subURL(token string) string {
-	base := s.cfg.PublicURL
-	if base == "" {
-		base = "http://" + s.cfg.Listen
-	}
-	return base + "/sub/" + token
+	return s.subBase() + "/sub/" + token
 }
 
 // userLinks returns the subscription URL and share links for one user.

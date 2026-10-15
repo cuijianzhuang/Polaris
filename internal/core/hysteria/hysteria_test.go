@@ -81,8 +81,16 @@ func TestLiveMultiInbound(t *testing.T) {
 	if st := a.Health(ctx); !st.Running || st.Inbounds != 2 {
 		t.Fatalf("health %+v\n%s", st, strings.Join(a.Logs(20), "\n"))
 	}
-	if _, err := a.CollectTraffic(ctx); err != nil {
-		t.Fatalf("stats: %v", err)
+	// The stats API comes up a moment after the process; poll instead of a fixed sleep.
+	var serr error
+	for i := 0; i < 50; i++ {
+		if _, serr = a.CollectTraffic(ctx); serr == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if serr != nil {
+		t.Fatalf("stats: %v", serr)
 	}
 	// Auth is per inbound: u2 is not authorised on hy-b.
 	post := func(tag, pw string) bool {

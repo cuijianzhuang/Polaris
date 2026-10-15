@@ -39,7 +39,7 @@ export interface Inbound {
 }
 export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
-  expireAt?: string | null; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
+  expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; remark: string; groupIds: string[]; createdAt: string
 }
 export interface Group { id: string; name: string; remark: string; inboundIds: string[]; userCount: number }

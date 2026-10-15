@@ -206,6 +206,21 @@ func (s *Server) settleTraffic() error {
 				return err
 			}
 		}
+		// Start "valid N days from first use" periods.
+		if len(perUser) > 0 {
+			ids := make([]string, 0, len(perUser))
+			for uid := range perUser {
+				ids = append(ids, uid)
+			}
+			var fresh []store.User
+			tx.Where("id IN ? AND expire_at IS NULL AND expire_after_days > 0", ids).Find(&fresh)
+			for _, u := range fresh {
+				exp := now.AddDate(0, 0, u.ExpireAfterDays)
+				if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "expire_after_days": 0}).Error; err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	})
 	if err == nil {

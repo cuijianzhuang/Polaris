@@ -192,6 +192,7 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/telegram/admins/:id", s.updateTGAdmin)
 	p.DELETE("/telegram/admins/:id", s.deleteTGAdmin)
 	p.POST("/telegram/test", s.tgTest)
+	p.POST("/telegram/broadcast", s.tgBroadcast)
 	p.GET("/settings", s.getSettings)
 	p.PUT("/settings", s.putSettings)
 	p.GET("/audit-logs", s.listAudit)

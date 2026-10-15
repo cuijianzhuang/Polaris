@@ -22,8 +22,13 @@
 | 协议 | VLESS（Vision / REALITY / XHTTP）、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC v5、AnyTLS、ShadowTLS v3、Naive、SOCKS、HTTP；传输 TCP / WS / gRPC / HTTPUpgrade / XHTTP / mKCP |
 | 能力矩阵 | 由适配器按内核版本计算（如 XHTTP 需 Xray ≥ 24.9.30、AnyTLS 需 sing-box ≥ 1.12），前端据此置灰不可选组合，主控创建时再校验；双内核都支持时按节点默认内核分配 |
 | 期望状态同步 | 每次变更生成完整 `NodeSpec` 存入 `config_revisions`；Agent 只增删用户时走热更新，结构变化走 渲染 → 内核自检 → 原子替换 → 重载，失败自动回滚并上报；后台可一键回滚到任意已应用版本 |
-| 用户 | 每个用户一个 UUID + 一个密码，SS 2022 按加密方式派生对应长度 PSK；配额、到期、IP 数限制（可选临时封禁）、分组授权、每月 / 周期重置、节点流量倍率 |
-| 订阅 | `/sub/{token}` 按 UA 或 `?format=` 输出 通用链接 / Clash(mihomo) / sing-box / Surge，浏览器打开显示信息页 + 二维码 + 一键导入；`subscription-userinfo` 响应头；规则模板后台可编辑 |
+| 用户 | 每个用户一个 UUID + 一个密码，SS 2022 按加密方式派生对应长度 PSK；配额、到期（固定日期或「首次使用后 N 天」）、IP 数限制（可选临时封禁）、分组授权、每月 / 周期重置、节点流量倍率；近 30 天每日流量图 |
+| 订阅 | `/sub/{token}` 按 UA 或 `?format=` 输出 通用链接 / Clash(mihomo) / sing-box / Surge / Loon / Quantumult X；每种格式可维护多套规则模板。订阅设置：独立订阅域名、订阅标题、更新间隔、客服链接、一键停用；`subscription-userinfo` / `profile-title` / `support-url` / `announce`（公告）/ `routing`（Happ 路由规则，可开关）响应头；可在节点列表插入「剩余流量 / 到期 / 公告」信息节点或名称后缀 |
+| 订阅信息页 | 浏览器打开订阅链接：公告、状态、用量与剩余、到期与重置周期、近 30 天流量柱状图、订阅二维码、12 个客户端一键导入（Clash Verge、sing-box、Shadowrocket、Stash、Hiddify、Happ、v2rayNG、Streisand、Surge、Loon、QX、Karing）、每个节点的链接与二维码、Telegram 一键绑定、客服入口；明暗主题自适应 |
+| 订阅转换 | 参考 MiSub：订阅源（机场订阅链接 / 手动节点，自动识别 Base64、Clash、sing-box、SIP008，定时更新，记录流量与到期）+ 订阅组（面板用户节点 + 多个订阅源合并）；处理链：过滤（协议 / 地区 / 正则 / 去信息节点）、重命名（正则或 `{emoji} {regionZh} {index}` 模板）、排序（地区优先级）、去重；可切换第三方 subconverter 后端；SSRF 防护 |
+| 域名与 DDNS | DNS 服务商（Cloudflare / 自定义 Webhook）；域名绑定节点 IP（A / AAAA / 双栈，可选 CDN 代理）；Agent 定期探测公网 IP 随心跳上报，开启 DDNS 的节点 IP 变化后自动更新记录并告警 |
+| 路由与负载均衡 | 出站负载均衡组（延迟最低 / 最稳定 / 故障转移 / 轮询 / 随机，探测地址、容差、兜底出站）；健康检查失败的成员自动摘除；入站可绑定固定出口；全局规则（所有节点）+ 节点规则；规则预设（拦截广告 / BT / 私有地址、国内直连、流媒体 / AI / Telegram 分流） |
+| Telegram 机器人 | 超级管理员（全部节点与用户）/ 节点管理员（只管绑定的节点）/ 用户（订阅链接或信息页一键绑定）三种角色；查看节点、重启内核、强制同步、搜索用户、重置流量、续期；节点离线 / 下发失败 / IP 变更告警；用户流量与到期提醒；公告群发 |
 | CDN | 入站可挂多个入口（直连 / CDN / 中转）；CDN 配置档含优选 IP（手填或定时拉取、可按 IP 展开）；Cloudflare 集成：自动建代理 DNS 记录、SSL 设为 Full (strict)、签发 Origin 证书并下发 |
 | 链式代理 | L4 端口转发（realm，不解密）与协议中转（自动创建服务账号、出站与路由）；节点出站可经 WARP / 住宅 SOCKS / 面板内其他节点（`detour` 串链）；路由规则、urltest / selector 出站组；链路探测 |
 | 入站模板 | 内置「REALITY 直连」「Hy2 + TUIC」「CDN WS 备用」「全协议」；选模板 → 选节点 → 预览（改派内核、端口冲突自动调整、跳过原因）→ 生成；改模板后差异同步，手动改过的字段保留；节点标签绑定模板，新节点上线自动套用 |
@@ -84,8 +89,8 @@ ACME（DNS-01，Cloudflare）在后台「设置」中填写邮箱与 DNS Token �
 cmd/panel  cmd/agent           两个二进制
 api/proto                      主控 ↔ Agent 的 gRPC 定义（connect-go，buf generate）
 internal/model                 统一协议模型与能力矩阵
-internal/core/{xray,singbox,hysteria,forwarder,mihomo}   内核适配器
-internal/sub                   SubRenderer：links / clash / singbox / surge / 信息页
+internal/core/{xray,singbox,hysteria,forwarder,mihomo,caddy}   内核适配器
+internal/sub                   订阅解析与转换（处理链、地区识别）、渲染器 links / clash / singbox / surge / loon / quanx、信息页
 internal/panel                 HTTP API、期望状态发布、Agent 服务、流量结算、定时任务
 internal/agent                 reconcile、内核安装、进程管理、上报
 internal/store                 GORM 仓储（SQLite / PostgreSQL）
@@ -103,13 +108,23 @@ cd web && npm run dev   # 前端开发服务器，/api 代理到 127.0.0.1:8080
 
 接口文档：登录后访问 `<admin_path>/api/v1/openapi.json`（由路由自动生成）。实时节点数据走 WebSocket `<admin_path>/api/v1/ws`。
 
+## 为什么内核以子进程运行，而不是引入 Xray / sing-box 的 Go 模块
+
+Agent 托管的是**官方发布的二进制**，用户热增删、流量统计走官方 gRPC / HTTP API，配置用官方 `xray -test` / `sing-box check` 自检——实现本身就是官方的，只是没有链接进 Agent。这样选择是因为：
+
+- **多内核共存与独立升级**：同一节点可同时跑 Xray、sing-box、mihomo、Hysteria，各自按节点切换版本、秒级回滚；嵌入库则每次升级内核都要重新发布 Agent。
+- **依赖冲突**：Xray 与 sing-box 依赖不同的 quic-go / uTLS 分叉，同一个 Go 模块里很难同时满足；sing-box 的很多能力还取决于构建 tag（`with_quic`、`with_utls`、`with_v2ray_api`…），官方 release 已按推荐组合构建。
+- **故障隔离**：内核 panic 或内存泄漏不会拖垮 Agent 和主控控制通道，Agent 可以继续上报并回滚。
+- **许可证**：sing-box 为 GPL-3.0，直接链接会让 Agent 整体受 GPL 约束；子进程方式不受影响。
+- **体积**：两个内核编进去后 Agent 会超过 60 MB，而大多数节点只用其中一个。
+
+代价是需要进程管理和 API 客户端：Xray 的 HandlerService / StatsService 客户端是手写的 protobuf 编码（避免为几个消息引入整个 xray-core 依赖树），由 `make test-cores` 用真实二进制回归。
+
 ## 当前状态
 
-已实现方案中的 M1–M6 主体功能。尚未完成 / 已知限制：
+已实现方案中的 M1–M6 主体功能，以及订阅转换、DDNS、负载均衡、Telegram 机器人、订阅设置与信息页。已知限制：
 
-- mihomo 适配器仅占位（能力为空，不会被分配入站）；Hysteria2 官方服务端每节点只承载一个入站
 - Xray 的 Hysteria2 入站未开放（不同版本配置差异较大），Hy2 请使用 sing-box 或官方服务端
-- 「Agent 内置 Caddy 统一回源」开关已建模，回源逻辑尚未实现
-- 链路健康检查为逐跳 TCP 探测 + 落地 HTTP 探测；落地故障转移依赖内核自身的 urltest / balancer
-- Surge 之外的 Loon / Quantumult X 目前回落为通用链接
-- 订阅模板使用 Go text/template，按格式各维护一份默认模板
+- sing-box 负载均衡组不支持「轮询 / 随机」（只有 urltest），在 sing-box 节点上会被拒绝
+- 订阅信息页的 Happ / Hiddify / Streisand 等深链依赖客户端已安装；`routing` 头目前只有 Happ 识别
+- 订阅模板使用 Go text/template

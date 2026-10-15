@@ -28,6 +28,10 @@ var defaultSettings = map[string]string{
 	"sub_operators":         "[]",
 	"sub_apply_ops_users":   "false",
 	"allow_private_sources": "false",
+	"sub_enabled":           "true",
+	"sub_show_info":         "none",
+	"sub_routing_enabled":   "false",
+	"sub_show_bot":          "true",
 }
 
 func (s *Server) seed() error {

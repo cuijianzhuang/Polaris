@@ -329,6 +329,10 @@ func (b *tgBot) handle(u tgUpdate) {
 	id := b.identify(chat)
 	switch cmd {
 	case "/start", "/help":
+		if cmd == "/start" && arg != "" { // deep link t.me/bot?start=<sub token>
+			b.bind(chat, u.Message.From, arg, id)
+			return
+		}
 		b.help(chat, id)
 	case "/whoami":
 		b.send(chat, fmt.Sprintf("Chat ID：<code>%d</code>\n%s", chat, b.roleLine(id)))

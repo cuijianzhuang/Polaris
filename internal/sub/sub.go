@@ -45,6 +45,81 @@ type Info struct {
 	Total    int64 // 0 = unlimited
 	Expire   *time.Time
 	URL      string // the subscription URL itself
+
+	// Extras shown on the browser info page only.
+	Status     string     // active / limited / expired / disabled
+	Announce   string     // announcement text
+	SupportURL string     // support / contact link
+	BotURL     string     // Telegram deep link for one-tap binding
+	ResetNote  string     // e.g. "每月 1 日重置"
+	Daily      []DayUsage // recent daily traffic, oldest first
+	Links      []PageLink // per-node share links
+}
+
+// DayUsage is one day of traffic on the info page.
+type DayUsage struct {
+	Day  time.Time
+	Up   int64
+	Down int64
+}
+
+// PageLink is one node shown on the info page.
+type PageLink struct {
+	Name     string
+	Protocol string
+	Link     string
+}
+
+// InfoNodes returns pseudo nodes that carry remaining traffic and expiry in
+// their names (for clients that do not read subscription-userinfo).
+func InfoNodes(i Info) []Node {
+	var names []string
+	if i.Total > 0 {
+		left := i.Total - i.Upload - i.Download
+		if left < 0 {
+			left = 0
+		}
+		names = append(names, "📊 剩余流量 "+HumanBytes(left)+" / "+HumanBytes(i.Total))
+	}
+	if i.Expire != nil {
+		names = append(names, "⏳ 到期 "+i.Expire.Local().Format("2006-01-02"))
+	}
+	if i.Announce != "" {
+		a := []rune(strings.ReplaceAll(i.Announce, "\n", " "))
+		if len(a) > 40 {
+			a = append(a[:40], '…')
+		}
+		names = append(names, "📢 "+strings.Join(strings.Fields(string(a)), " "))
+	}
+	out := make([]Node, 0, len(names))
+	for k, n := range names {
+		out = append(out, Node{Name: n, Protocol: "shadowsocks", Server: "127.0.0.1", Port: 1 + k, Method: "aes-128-gcm", Password: "info", Source: "info"})
+	}
+	return out
+}
+
+// InfoSuffix is appended to node names when info nodes are disabled but
+// usage should still be visible (3x-ui "show info" style).
+func InfoSuffix(i Info) string {
+	var parts []string
+	if i.Total > 0 {
+		left := i.Total - i.Upload - i.Download
+		if left < 0 {
+			left = 0
+		}
+		parts = append(parts, HumanBytes(left))
+	}
+	if i.Expire != nil {
+		d := int(time.Until(*i.Expire).Hours() / 24)
+		if d < 0 {
+			d = 0
+		}
+		parts = append(parts, fmt.Sprintf("%dD", d))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " | " + strings.Join(parts, " · ")
 }
 
 // Renderer turns nodes into one client format.

@@ -28,7 +28,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
     username: user?.username ?? '', limitGB: user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : '',
     expire: user?.expireAt ? date(user.expireAt) : '', ipLimit: String(user?.ipLimit ?? 0), resetPolicy: user?.resetPolicy ?? 'none',
     resetDay: String(user?.resetDay ?? 1), remark: user?.remark ?? '', status: user?.status === 'disabled' ? 'disabled' : 'active',
-    groupIds: user?.groupIds ?? (groups[0] ? [groups[0].id] : []),
+    groupIds: user?.groupIds ?? (groups[0] ? [groups[0].id] : []), afterDays: String(user?.expireAfterDays || ''),
+    expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -36,7 +37,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
   const save = () => run(async () => {
     const body = {
       username: f.username, trafficLimit: Math.round(Number(f.limitGB || 0) * GB), ipLimit: Number(f.ipLimit) || 0,
-      expireAt: f.expire ? new Date(f.expire + 'T23:59:59').toISOString() : null, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
+      expireAt: f.expireMode === 'date' && f.expire ? new Date(f.expire + 'T23:59:59').toISOString() : null,
+      expireAfterDays: f.expireMode === 'first' ? Number(f.afterDays) || 0 : 0, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
       remark: f.remark, status: f.status, groupIds: f.groupIds,
     }
     if (user) await put('/users/' + user.id, body)
@@ -60,10 +62,20 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
         <Field label="用户名" htmlFor="u-name" full><input id="u-name" className="input" value={f.username} onChange={(e) => set('username', e.target.value)} /></Field>
         <Field label="流量配额 (GB)" htmlFor="u-limit" hint="留空或 0 为不限"><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
         <Field label="设备 / IP 数限制" htmlFor="u-ip" hint="0 为不限"><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
-        <Field label="到期日期" htmlFor="u-exp" hint="留空为永不到期"><input id="u-exp" className="input mono" type="date" value={f.expire} onChange={(e) => set('expire', e.target.value)} /></Field>
-        <Field label="快捷续期">
-          <div className="row">{[30, 90, 365].map((d) => <button key={d} type="button" className="btn sm" onClick={() => extend(d)}>+{d} 天</button>)}</div>
+        <Field label="有效期" full>
+          <div className="seg">
+            <button type="button" className={'opt' + (f.expireMode === 'date' ? ' on' : '')} onClick={() => set('expireMode', 'date')}>固定到期日<small>留空为永不到期</small></button>
+            <button type="button" className={'opt' + (f.expireMode === 'first' ? ' on' : '')} onClick={() => set('expireMode', 'first')}>首次使用后开始计时<small>产生第一笔流量时才开始算天数</small></button>
+          </div>
         </Field>
+        {f.expireMode === 'date' ? <>
+          <Field label="到期日期" htmlFor="u-exp" hint="留空为永不到期"><input id="u-exp" className="input mono" type="date" value={f.expire} onChange={(e) => set('expire', e.target.value)} /></Field>
+          <Field label="快捷续期">
+            <div className="row">{[30, 90, 365].map((d) => <button key={d} type="button" className="btn sm" onClick={() => extend(d)}>+{d} 天</button>)}</div>
+          </Field>
+        </> : (
+          <Field label="有效天数" htmlFor="u-after" hint="首次连接后生效，到期日自动写入"><input id="u-after" className="input mono" inputMode="numeric" value={f.afterDays} onChange={(e) => set('afterDays', e.target.value)} placeholder="30" /></Field>
+        )}
         <Field label="流量重置" htmlFor="u-reset">
           <select id="u-reset" className="input" value={f.resetPolicy} onChange={(e) => set('resetPolicy', e.target.value)}>
             <option value="none">不重置</option><option value="monthly">每月固定日</option><option value="cycle">按周期滚动</option>
@@ -91,6 +103,7 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
           <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>禁用</button>
         </div>
       </Field>
+      {user && <UserTraffic userId={user.id} />}
       {user && (
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
@@ -100,6 +113,36 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
         </div>
       )}
     </Drawer>
+  )
+}
+
+function UserTraffic({ userId }: { userId: string }) {
+  const from = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 29); return d.toISOString() }, [])
+  const data = useLoad(() => get<{ series: { t: string; up: number; down: number }[] }>(`/stats/traffic?user=${userId}&bucket=day&from=${encodeURIComponent(from)}`), [userId])
+  const days = useMemo(() => {
+    const m = new Map((data.data?.series ?? []).map((p) => [date(p.t), p]))
+    return Array.from({ length: 30 }, (_, i) => {
+      const d = new Date(from); d.setDate(d.getDate() + i)
+      const p = m.get(date(d.toISOString()))
+      return { day: date(d.toISOString()), up: p?.up ?? 0, down: p?.down ?? 0 }
+    })
+  }, [data.data, from])
+  const max = Math.max(1, ...days.map((d) => d.up + d.down))
+  const total = days.reduce((a, d) => a + d.up + d.down, 0)
+  const W = 300, H = 80, bw = W / days.length
+  return (
+    <div className="field">
+      <span className="lbl">近 30 天流量 · 合计 {bytes(total)}</span>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 90 }} role="img" aria-label="近 30 天每日流量">
+        {days.map((d, i) => {
+          const th = (d.up + d.down) / max * H, uh = d.up / max * H
+          return <g key={d.day}><title>{d.day} ↑ {bytes(d.up)} ↓ {bytes(d.down)}</title>
+            <rect x={i * bw + bw * 0.15} y={H - th} width={bw * 0.7} height={Math.max(0, th - uh)} rx={1.5} style={{ fill: "var(--pri)" }} />
+            <rect x={i * bw + bw * 0.15} y={H - uh} width={bw * 0.7} height={uh} rx={1.5} style={{ fill: "#7DD3E3" }} /></g>
+        })}
+      </svg>
+      <div className="hint">峰值 {bytes(max)} / 天 · 深色为下载、浅色为上传</div>
+    </div>
   )
 }
 
@@ -211,8 +254,9 @@ export default function Users() {
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t) }, [q])
   const list = useLoad(() => get<{ items: User[]; total: number }>(`/users?limit=500&q=${encodeURIComponent(query)}&filter=${filter}`), [query, filter])
   const groups = useLoad(() => get<Group[]>('/groups'))
-  const settings = useLoad(() => get<{ public_url?: string }>('/settings'))
-  if (settings.data?.public_url) subBase = settings.data.public_url
+  const settings = useLoad(() => get<{ public_url?: string; sub_base_url?: string }>('/settings'))
+  const base = settings.data?.sub_base_url || settings.data?.public_url
+  if (base) subBase = base.replace(/\/$/, '')
   const [drawer, setDrawer] = useState<User | 'new' | null>(params.get('new') ? 'new' : null)
   const [selected, setSelected] = useState<User | null>(null)
   const [qr, setQr] = useState<User | null>(null)

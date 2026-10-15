@@ -54,7 +54,7 @@ const nav = [
   { to: '/chains', label: '链路与 CDN', icon: <Icon.Chain /> },
   { to: '/templates', label: '入站模板', icon: <Icon.Template /> },
   { to: '/users', label: '用户', icon: <Icon.Users /> },
-  { to: '/sub-templates', label: '订阅模板', icon: <Icon.Sub /> },
+  { to: '/sub-templates', label: '订阅设置', icon: <Icon.Sub /> },
   { to: '/convert', label: '订阅转换', icon: <Icon.Convert /> },
   { to: '/domains', label: '域名与 DDNS', icon: <Icon.Globe /> },
 ]

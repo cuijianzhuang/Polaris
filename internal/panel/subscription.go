@@ -21,6 +21,10 @@ func shareLink(n sub.Node) string { return sub.ShareLink(n) }
 
 // subscription serves /sub/{token}, choosing the renderer from ?format= or UA.
 func (s *Server) subscription(c *gin.Context) {
+	if !s.subEnabled() {
+		c.String(http.StatusNotFound, "404 page not found")
+		return
+	}
 	if !s.subLimit.Allow(clientIP(c.Request)) {
 		c.String(http.StatusTooManyRequests, "too many requests")
 		return
@@ -51,7 +55,7 @@ func (s *Server) subscription(c *gin.Context) {
 			}
 		}
 	}
-	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.subURL(u.SubToken)+"?raw=1")
+	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.subURL(u.SubToken)+"?raw=1", &u)
 }
 
 // subNodes expands every authorised inbound × endpoint into client nodes.
