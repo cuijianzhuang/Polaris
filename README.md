@@ -51,10 +51,21 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
 其他参数：`--version v0.1.0-beta`、`--port`、`--agent-port`、`--admin-path`、`--no-caddy`（自备反代）、`--mirror`（GitHub 下载加速前缀）。
 
+安装后用 **`polaris-ctl`** 管理：不带参数打开交互式菜单（安装 / 升级 / 卸载、启停与日志、查看后台地址、重置管理员密码、关闭二次验证、修改后台路径与端口、绑定域名切换 HTTPS、备份、开机自启），也可以直接带子命令：
+
 ```bash
-bash <(curl -fsSL .../install-panel.sh) update              # 升级（先备份数据库，配置不变）
-bash <(curl -fsSL .../install-panel.sh) uninstall [--purge] # 卸载；--purge 同时删除配置与数据
+polaris-ctl                      # 交互式菜单
+polaris-ctl info                 # 后台地址、端口、运行状态
+polaris-ctl update               # 升级（先备份数据库，配置不变）
+polaris-ctl reset-password       # 忘记密码：生成新密码、解除锁定、注销所有会话
+polaris-ctl reset-2fa            # 丢失验证器：关闭二次验证
+polaris-ctl set-domain panel.example.com   # 由 IP + HTTP 切换到域名 + HTTPS
+polaris-ctl set-path /my-admin | set-port 8443
+polaris-ctl backup               # 配置 + 数据库一致性快照 → /root/polaris-backup-*.tar.gz
+polaris-ctl uninstall [--purge]  # 卸载；--purge 同时删除配置与数据
 ```
+
+重置密码等维护操作也可直接用主控二进制：`polaris admin reset-password|reset-2fa|list`、`polaris backup FILE`（需与服务相同的环境变量）。
 
 **Docker**：
 
