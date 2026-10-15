@@ -140,6 +140,9 @@ func ClashProxy(n Node) map[string]any {
 			if n.Flow != "" {
 				p["flow"] = n.Flow
 			}
+			if n.Encryption != "" {
+				p["encryption"] = n.Encryption // mihomo 1.19.14+
+			}
 		case model.ProtoVMess:
 			p["type"] = "vmess"
 			p["uuid"] = n.UUID

@@ -3,6 +3,8 @@
 import type { CapSet, Certificate, CoreType, Protocol, ProtocolSpec, Security, SecuritySpec, SniffSpec, Transport, TransportSpec } from '../types'
 import { coreLabel, protoLabel, secLabel, transLabel } from '../format'
 import { Field, Switch, fromLines, toLines } from './ui'
+import { useState } from 'react'
+import { RealityAdvanced, RealityScanner, SniffExtras, TestSeed, VlessEncryption, hasFeature } from './XrayExtras'
 
 export interface InboundDraft {
   core: CoreType
@@ -34,12 +36,13 @@ export function normalizeDraft(d: InboundDraft, caps: CapSet[]): InboundDraft {
   if (!supports(caps, p, t)) t = TRANSPORTS.find((x) => supports(caps, p, x)) ?? t
   if (!supports(caps, p, t, s)) s = SECURITIES.find((x) => supports(caps, p, t, x)) ?? s
   const protocol = { ...d.protocol }
-  if (p !== 'vless' || t !== 'tcp' || s === 'none') delete protocol.flow
+  if (p !== 'vless' || t !== 'tcp' || s === 'none') { delete protocol.flow; delete protocol.testSeed }
+  if (p !== 'vless') { delete protocol.decryption; delete protocol.encryption }
   if (p === 'shadowsocks' && !protocol.method) protocol.method = SS_METHODS[0]
   return { ...d, protocol, transport: { ...d.transport, type: t }, security: { ...d.security, type: s } }
 }
 
-export default function InboundFields({ draft, onChange, caps, allCaps, coreChoices, certs, showFlowHint = true }: {
+export default function InboundFields({ draft, onChange, caps, allCaps, coreChoices, certs, showFlowHint = true, nodeId }: {
   draft: InboundDraft
   onChange: (d: InboundDraft) => void
   caps: CapSet[] // capabilities of the selected core (or all cores for "auto")
@@ -47,7 +50,10 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
   coreChoices?: { core: CoreType; version?: string; hint?: string }[]
   certs?: Certificate[]
   showFlowHint?: boolean
+  nodeId?: string // for the REALITY scanner (probes from the node)
 }) {
+  const [scanning, setScanning] = useState(false)
+  const isXray = caps.some((c) => c.core === 'xray') // newer options are Xray-only
   const set = (patch: Partial<InboundDraft>) => onChange(normalizeDraft({ ...draft, ...patch }, caps))
   const p = draft.protocol
   const t = draft.transport
@@ -112,6 +118,10 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
           </select>
         </Field>
       )}
+      {flowable && p.flow && hasFeature(caps, 'vless-encryption') && <TestSeed p={p} setP={setP} />}
+      {p.type === 'vless' && (hasFeature(allCaps, 'vless-encryption') || !!p.encryption) && (
+        <VlessEncryption p={p} setP={setP} available={hasFeature(caps, 'vless-encryption')} />
+      )}
       {p.type === 'shadowsocks' && (
         <Field label="加密方式" htmlFor="f-ss" hint="多用户需 2022 系列；每个用户自动生成对应长度的 PSK">
           <select id="f-ss" className="input mono" value={p.method} onChange={(e) => setP({ method: e.target.value })}>
@@ -155,6 +165,10 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
           )}
         </div>
       )}
+      {(t.type === 'tcp' || t.type === 'ws' || t.type === 'httpupgrade') && hasFeature(caps, 'proxy-protocol') && (
+        <label className="chk"><input type="checkbox" checked={!!t.acceptProxyProtocol} onChange={(e) => setT({ acceptProxyProtocol: e.target.checked || undefined })} />
+          接收 PROXY protocol（前面有 HAProxy / Nginx stream / 中转并发送 PROXY 头时开启，否则直连客户端会失败）</label>
+      )}
       {t.type === 'grpc' && (
         <Field label="Service Name" htmlFor="f-svc" hint="留空则随机生成"><input id="f-svc" className="input mono" value={t.serviceName ?? ''} onChange={(e) => setT({ serviceName: e.target.value })} /></Field>
       )}
@@ -176,16 +190,26 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
       )}
       {s.type === 'reality' && (
         <>
-          <Field label="REALITY 目标站点" htmlFor="f-dest" hint="私钥 / 公钥 / shortId 一键生成，私钥加密存储">
-            <input id="f-dest" className="input mono" value={s.realityDest ?? ''} onChange={(e) => setS({ realityDest: e.target.value })} placeholder="www.microsoft.com:443" />
+          <Field label="REALITY 目标站点" htmlFor="f-dest" hint="私钥 / 公钥 / shortId 自动生成，私钥加密存储。目标需支持 TLS 1.3 + h2，最好支持 X25519MLKEM768">
+            <div className="row" style={{ flexWrap: 'nowrap' }}>
+              <input id="f-dest" className="input mono" style={{ flex: 1 }} value={s.realityDest ?? ''} onChange={(e) => setS({ realityDest: e.target.value })} placeholder="www.microsoft.com:443" />
+              <button className="btn" type="button" onClick={() => setScanning(true)}>扫描</button>
+            </div>
           </Field>
+          {scanning && <RealityScanner nodeId={nodeId} initial={(s.realityDest ?? '').replace(/:443$/, '')} onClose={() => setScanning(false)}
+            onPick={(target, names) => setS({ realityDest: target, realityServerNames: names.length ? names : undefined })} />}
           <Field label="Server Names" htmlFor="f-sn" hint="每行一个，默认取目标站点域名">
             <textarea id="f-sn" className="input" style={{ minHeight: 64 }} value={toLines(s.realityServerNames)} onChange={(e) => setS({ realityServerNames: fromLines(e.target.value) })} />
           </Field>
           {s.realityPublicKey && <div className="hint mono">公钥：{s.realityPublicKey} · shortId：{(s.realityShortIds ?? []).join(', ')}</div>}
+          {isXray &&
+            <RealityAdvanced s={s} setS={setS} mldsa={hasFeature(caps, 'reality-mldsa65')} />}
         </>
       )}
       <div className="toggle"><span>流量嗅探（http / tls / quic）</span><Switch label="嗅探" on={draft.sniffing.enabled} onChange={(v) => onChange({ ...draft, sniffing: { ...draft.sniffing, enabled: v } })} /></div>
+      {draft.sniffing.enabled && isXray && (
+        <details className="more"><summary>嗅探选项</summary><div><SniffExtras sn={draft.sniffing} set={(sn) => onChange({ ...draft, sniffing: sn })} /></div></details>
+      )}
     </>
   )
 }

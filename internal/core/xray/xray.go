@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/protobuf/encoding/protowire"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -78,10 +79,15 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	b.Add([]model.Protocol{model.ProtoVLESS, model.ProtoVMess}, []model.Transport{model.TransKCP}, []model.Security{model.SecNone})
 	b.Add([]model.Protocol{model.ProtoShadowsocks, model.ProtoSOCKS, model.ProtoHTTP},
 		[]model.Transport{model.TransTCP}, []model.Security{model.SecNone})
+	features := []string{model.FeatureProxyProtocol}
+	if core.VersionAtLeast(v, "25.9.11") {
+		features = append(features, model.FeatureVLESSEncryption, model.FeatureRealityMLDSA65)
+	}
 	return model.CapSet{
 		Core:     model.CoreXray,
 		Version:  v,
 		Combos:   b.Combos(),
+		Features: features,
 		Flows:    []string{"xtls-rprx-vision"},
 		HotUsers: true,
 		RealIP:   true,
@@ -140,6 +146,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	for k, v := range observe {
 		cfg[k] = v
 	}
+	if g := a.geodata(spec.Geodata); g != nil {
+		cfg["geodata"] = g
+	}
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, err
@@ -196,7 +205,11 @@ func renderInbound(in model.Inbound, legacyKCP bool) (map[string]any, error) {
 			}
 			clients = append(clients, c)
 		}
-		ib["settings"] = withFallbacks(map[string]any{"clients": nonNil(clients), "decryption": "none"}, in)
+		vs := map[string]any{"clients": nonNil(clients), "decryption": orDefault(in.Protocol.Decryption, "none")}
+		if len(in.Protocol.TestSeed) == 4 {
+			vs["testseed"] = in.Protocol.TestSeed
+		}
+		ib["settings"] = withFallbacks(vs, in)
 	case model.ProtoVMess:
 		for _, u := range in.Users {
 			clients = append(clients, map[string]any{"id": u.UUID, "email": u.ID, "level": u.Level})
@@ -249,7 +262,17 @@ func renderInbound(in model.Inbound, legacyKCP bool) (map[string]any, error) {
 		if len(do) == 0 {
 			do = []string{"http", "tls", "quic"}
 		}
-		ib["sniffing"] = map[string]any{"enabled": true, "destOverride": do, "routeOnly": in.Sniffing.RouteOnly}
+		sn := map[string]any{"enabled": true, "destOverride": do, "routeOnly": in.Sniffing.RouteOnly}
+		if in.Sniffing.MetadataOnly {
+			sn["metadataOnly"] = true
+		}
+		if len(in.Sniffing.IPsExcluded) > 0 {
+			sn["ipsExcluded"] = in.Sniffing.IPsExcluded
+		}
+		if len(in.Sniffing.DomainsExcluded) > 0 {
+			sn["domainsExcluded"] = in.Sniffing.DomainsExcluded
+		}
+		ib["sniffing"] = sn
 	}
 	if err := core.MergeExtra(ib, in.Extra); err != nil {
 		return nil, fmt.Errorf("extra: %w", err)
@@ -298,6 +321,19 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 	default:
 		return nil, fmt.Errorf("transport %s not supported by xray", t.Type)
 	}
+	if server && t.AcceptProxyProtocol {
+		key := map[model.Transport]string{"": "tcpSettings", model.TransTCP: "tcpSettings", model.TransWS: "wsSettings",
+			model.TransHTTPUpgrade: "httpupgradeSettings"}[t.Type]
+		if key == "" {
+			return nil, fmt.Errorf("proxy protocol is only supported on raw / ws / httpupgrade")
+		}
+		ts, _ := st[key].(map[string]any)
+		if ts == nil {
+			ts = map[string]any{}
+		}
+		ts["acceptProxyProtocol"] = true
+		st[key] = ts
+	}
 	switch sec.Type {
 	case "", model.SecNone:
 	case model.SecTLS:
@@ -329,7 +365,7 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 	case model.SecReality:
 		st["security"] = "reality"
 		if server {
-			st["realitySettings"] = map[string]any{
+			r := map[string]any{
 				"show":        false,
 				"dest":        sec.RealityDest,
 				"xver":        0,
@@ -337,6 +373,25 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 				"privateKey":  sec.RealityPrivateKey,
 				"shortIds":    nonNilStr(sec.RealityShortIDs),
 			}
+			if sec.RealityMaxTimeDiff > 0 {
+				r["maxTimeDiff"] = sec.RealityMaxTimeDiff
+			}
+			if sec.RealityMinClientVer != "" {
+				r["minClientVer"] = sec.RealityMinClientVer
+			}
+			if sec.RealityMaxClientVer != "" {
+				r["maxClientVer"] = sec.RealityMaxClientVer
+			}
+			if sec.RealityMldsa65Seed != "" {
+				r["mldsa65Seed"] = sec.RealityMldsa65Seed
+			}
+			if l := sec.RealityLimitUpload; l != nil && *l != (model.LimitFallback{}) {
+				r["limitFallbackUpload"] = limitFallback(l)
+			}
+			if l := sec.RealityLimitDownload; l != nil && *l != (model.LimitFallback{}) {
+				r["limitFallbackDownload"] = limitFallback(l)
+			}
+			st["realitySettings"] = r
 		} else {
 			r := map[string]any{
 				"serverName":  sec.ServerName,
@@ -346,12 +401,22 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 			if len(sec.RealityShortIDs) > 0 {
 				r["shortId"] = sec.RealityShortIDs[0]
 			}
+			if sec.RealitySpiderX != "" {
+				r["spiderX"] = sec.RealitySpiderX
+			}
+			if sec.RealityMldsa65Verify != "" {
+				r["mldsa65Verify"] = sec.RealityMldsa65Verify
+			}
 			st["realitySettings"] = r
 		}
 	default:
 		return nil, fmt.Errorf("security %s not supported", sec.Type)
 	}
 	return st, nil
+}
+
+func limitFallback(l *model.LimitFallback) map[string]any {
+	return map[string]any{"afterBytes": l.AfterBytes, "bytesPerSec": l.BytesPerSec, "burstBytesPerSec": l.BurstBytesPerSec}
 }
 
 func pathHost(t model.TransportSpec) map[string]any {
@@ -391,7 +456,7 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 			ob = map[string]any{"protocol": "shadowsocks", "settings": map[string]any{"servers": []any{
 				map[string]any{"address": s.Server, "port": s.Port, "method": s.Method, "password": s.Password}}}}
 		case model.OutVLESS:
-			u := map[string]any{"id": s.UUID, "encryption": "none"}
+			u := map[string]any{"id": s.UUID, "encryption": orDefault(s.Encryption, "none")}
 			if s.Flow != "" {
 				u["flow"] = s.Flow
 			}
@@ -493,7 +558,7 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 
 func clientSec(c model.ClientTLS) model.SecuritySpec {
 	s := model.SecuritySpec{Type: c.Type, ServerName: c.ServerName, ALPN: c.ALPN, Fingerprint: c.Fingerprint, Insecure: c.Insecure,
-		RealityPublicKey: c.PublicKey}
+		RealityPublicKey: c.PublicKey, RealitySpiderX: c.SpiderX, RealityMldsa65Verify: c.Mldsa65Verify}
 	if c.ShortID != "" {
 		s.RealityShortIDs = []string{c.ShortID}
 	}
@@ -694,6 +759,13 @@ func account(in *model.Inbound, u model.User) ([]byte, error) {
 		b = core.PBString(b, 1, u.UUID)
 		b = core.PBString(b, 2, in.Protocol.Flow)
 		b = core.PBString(b, 3, "none")
+		if len(in.Protocol.TestSeed) == 4 {
+			var packed []byte
+			for _, v := range in.Protocol.TestSeed {
+				packed = protowire.AppendVarint(packed, uint64(v))
+			}
+			b = core.PBBytes(b, 9, packed) // repeated uint32 testseed
+		}
 		return core.PBTyped("xray.proxy.vless.Account", b), nil
 	case model.ProtoVMess:
 		b = core.PBString(b, 1, u.UUID)
@@ -824,6 +896,32 @@ func dedupe(in []string) []string {
 			seen[s] = true
 			out = append(out, s)
 		}
+	}
+	return out
+}
+
+// geodata renders the auto-update block (Xray 26.4.25+). Xray refuses
+// assets whose file is missing, so only files present next to the binary
+// are listed (the agent downloads missing ones before applying).
+func (a *Adapter) geodata(g *model.GeodataSpec) map[string]any {
+	if g == nil || g.Cron == "" || !core.VersionAtLeast(a.opt.Version, "26.4.25") {
+		return nil
+	}
+	var assets []any
+	for _, as := range g.Assets {
+		if a.opt.BinPath != "" {
+			if _, err := os.Stat(filepath.Join(filepath.Dir(a.opt.BinPath), as.File)); err != nil {
+				continue
+			}
+		}
+		assets = append(assets, map[string]any{"url": as.URL, "file": as.File})
+	}
+	if len(assets) == 0 {
+		return nil
+	}
+	out := map[string]any{"cron": g.Cron, "assets": assets}
+	if g.Outbound != "" {
+		out["outbound"] = g.Outbound
 	}
 	return out
 }

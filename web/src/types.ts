@@ -9,16 +9,25 @@ export interface ProtocolSpec {
   upMbps?: number; downMbps?: number; obfs?: string; obfsPassword?: string
   handshakeServer?: string; detour?: string; udp?: boolean
   fallbacks?: Fallback[]
+  decryption?: string; encryption?: string; testSeed?: number[]
 }
-export interface TransportSpec { type: Transport; path?: string; host?: string; serviceName?: string; mode?: string; headerType?: string; seed?: string }
+export interface TransportSpec { type: Transport; path?: string; host?: string; serviceName?: string; mode?: string; headerType?: string; seed?: string; acceptProxyProtocol?: boolean }
 export interface SecuritySpec {
   type: Security; serverName?: string; alpn?: string[]; fingerprint?: string; certificateId?: string
   realityDest?: string; realityServerNames?: string[]; realityPrivateKey?: string; realityPublicKey?: string; realityShortIds?: string[]
+  realityMaxTimeDiff?: number; realityMinClientVer?: string; realityMaxClientVer?: string; realitySpiderX?: string
+  realityMldsa65Seed?: string; realityMldsa65Verify?: string
+  realityLimitUpload?: LimitFallback; realityLimitDownload?: LimitFallback
 }
-export interface SniffSpec { enabled: boolean; destOverride?: string[]; routeOnly?: boolean }
+export interface LimitFallback { afterBytes?: number; bytesPerSec?: number; burstBytesPerSec?: number }
+export interface SniffSpec { enabled: boolean; destOverride?: string[]; routeOnly?: boolean; metadataOnly?: boolean; ipsExcluded?: string[]; domainsExcluded?: string[] }
+export interface RealityScanResult {
+  target: string; ok: boolean; tls?: string; alpn?: string; keyShare?: string; pq: boolean; mldsa?: boolean; certName?: string
+  names?: string[]; chainSize?: number; latencyMs?: number; problem?: string
+}
 
 export interface Combo { protocol: Protocol; transport: Transport; security: Security }
-export interface CapSet { core: CoreType; version: string; combos: Combo[]; flows?: string[]; hotUsers: boolean; outbounds?: string[]; realIp: boolean; balancers?: string[] }
+export interface CapSet { core: CoreType; version: string; combos: Combo[]; flows?: string[]; features?: string[]; hotUsers: boolean; outbounds?: string[]; realIp: boolean; balancers?: string[] }
 
 export interface SystemInfo { cpu: number; mem: number; rxBps: number; txBps: number; uptime: number; load1: number; hostname: string }
 export interface Core {

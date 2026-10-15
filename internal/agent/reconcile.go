@@ -21,6 +21,7 @@ type managed struct {
 	spec    model.CoreSpec
 	adapter core.CoreAdapter
 	cfgPath string
+	binDir  string // where the core binary (and Xray's .dat assets) live
 	// applied is the spec this core last converged to. It can differ from
 	// Agent.current when another core failed in the same apply.
 	applied *model.NodeSpec
@@ -92,7 +93,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		if _, ok := wanted[t]; !ok {
 			a.collectFrom(ctx, m)
 			_ = m.adapter.Stop(ctx)
-			delete(a.cores, t)
+			a.setCore(t, nil)
 			method = "reload"
 		}
 	}
@@ -131,6 +132,9 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		if m == nil {
 			continue // installed, nothing to serve
 		}
+		if t == model.CoreXray && spec.Geodata != nil {
+			a.fetchGeoAssets(ctx, m.binDir, spec.Geodata.Assets, false)
+		}
 		corePrev := m.applied
 		if corePrev == nil && old == nil {
 			corePrev = prev
@@ -155,6 +159,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		return applyResult{ok: false, method: method, err: errors.New(strings.Join(errs, "; ")), rolledBack: rolledBack}
 	}
 	a.current = spec
+	a.rev.Store(spec.Rev)
 	a.saveSpec(spec)
 	a.syncFirewall(ctx, spec)
 	return applyResult{ok: true, method: method}
@@ -197,8 +202,8 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 		a.collectFrom(ctx, m)
 		_ = m.adapter.Stop(ctx) // version switch
 	}
-	nm := &managed{spec: cs, adapter: ad, cfgPath: filepath.Join(work, cfgNames[cs.Type])}
-	a.cores[cs.Type] = nm
+	nm := &managed{spec: cs, adapter: ad, cfgPath: filepath.Join(work, cfgNames[cs.Type]), binDir: filepath.Dir(bin)}
+	a.setCore(cs.Type, nm)
 	return nm, m, nil
 }
 
@@ -209,7 +214,7 @@ func (a *Agent) revertVersion(ctx context.Context, failed, old *managed, cause e
 	t := failed.spec.Type
 	a.log.Error("core version switch failed, reverting", "core", t, "from", failed.spec.Version, "to", old.spec.Version, "err", cause)
 	_ = failed.adapter.Stop(ctx)
-	a.cores[t] = old
+	a.setCore(t, old)
 	if _, err := a.installer.Ensure(ctx, old.spec); err != nil {
 		a.log.Warn("relink previous core version", "core", t, "err", err)
 	}

@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	connectrpc.com/connect v1.17.0
+	github.com/cloudflare/circl v1.6.1
 	github.com/coder/websocket v1.8.12
 	github.com/gin-gonic/gin v1.10.0
 	github.com/glebarez/sqlite v1.11.0

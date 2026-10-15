@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cuijianzhuang/polaris/internal/realityscan"
 	"log/slog"
 	"net"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -68,7 +70,13 @@ type Agent struct {
 
 	applyMu sync.Mutex
 	current *model.NodeSpec
-	cores   map[model.CoreType]*managed
+	// rev mirrors current.Rev for heartbeats, which must never wait for an
+	// apply (installing a core can take minutes).
+	rev   atomic.Int64
+	cores map[model.CoreType]*managed // written under applyMu and coresMu
+	// coresMu lets heartbeats, online-IP reports and auth callbacks read
+	// the cores without waiting for an apply to finish.
+	coresMu sync.RWMutex
 
 	queueMu sync.Mutex
 	queue   []*polarisv1.TrafficBatch
@@ -243,14 +251,7 @@ func (a *Agent) send(m *polarisv1.AgentMessage) error {
 	return a.stream.Send(m)
 }
 
-func (a *Agent) appliedRev() int64 {
-	a.applyMu.Lock()
-	defer a.applyMu.Unlock()
-	if a.current == nil {
-		return 0
-	}
-	return a.current.Rev
-}
+func (a *Agent) appliedRev() int64 { return a.rev.Load() }
 
 func (a *Agent) sendHeartbeat() error {
 	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample()}
@@ -259,8 +260,7 @@ func (a *Agent) sendHeartbeat() error {
 		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Get(ctx)
 		cancel()
 	}
-	a.applyMu.Lock()
-	for t, m := range a.cores {
+	for t, m := range a.coreSnapshot() {
 		st := m.adapter.Health(context.Background())
 		cs := &polarisv1.CoreState{Type: string(t), Version: m.spec.Version, Running: st.Running, Pid: int32(st.PID),
 			Error: st.Error, Inbounds: int32(st.Inbounds), InstalledVersions: a.installer.Installed(t)}
@@ -269,19 +269,45 @@ func (a *Agent) sendHeartbeat() error {
 		}
 		hb.Cores = append(hb.Cores, cs)
 	}
-	a.applyMu.Unlock()
 	return a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Heartbeat{Heartbeat: hb}})
 }
 
+// requestRev asks the reconcile loop for a revision without ever blocking
+// (it runs on the stream and heartbeat goroutines): a pending request is
+// replaced by the newer one.
 func (a *Agent) requestRev(rev int64) {
-	select {
-	case a.wantRev <- rev:
-	default:
+	for {
+		select {
+		case a.wantRev <- rev:
+			return
+		default:
+		}
 		select {
 		case <-a.wantRev:
 		default:
 		}
-		a.wantRev <- rev
+	}
+}
+
+// coreSnapshot copies the core map for readers outside an apply.
+func (a *Agent) coreSnapshot() map[model.CoreType]*managed {
+	a.coresMu.RLock()
+	defer a.coresMu.RUnlock()
+	out := make(map[model.CoreType]*managed, len(a.cores))
+	for t, m := range a.cores {
+		out[t] = m
+	}
+	return out
+}
+
+// setCore replaces (m != nil) or removes a core. Called with applyMu held.
+func (a *Agent) setCore(t model.CoreType, m *managed) {
+	a.coresMu.Lock()
+	defer a.coresMu.Unlock()
+	if m == nil {
+		delete(a.cores, t)
+	} else {
+		a.cores[t] = m
 	}
 }
 
@@ -438,9 +464,8 @@ func (a *Agent) flushTraffic(ctx context.Context) {
 }
 
 func (a *Agent) sendOnlineIPs(ctx context.Context) {
-	a.applyMu.Lock()
 	merged := map[string]map[string]bool{}
-	for _, m := range a.cores {
+	for _, m := range a.coreSnapshot() {
 		ips, err := m.adapter.OnlineIPs(ctx)
 		if err != nil {
 			continue
@@ -454,7 +479,6 @@ func (a *Agent) sendOnlineIPs(ctx context.Context) {
 			}
 		}
 	}
-	a.applyMu.Unlock()
 	if len(merged) == 0 {
 		return
 	}
@@ -490,10 +514,22 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			fail(err)
 		}
 		a.applyMu.Unlock()
+	case "geodata_update":
+		out, err := a.updateGeodata(ctx, c.Args)
+		res.Output = out
+		if err != nil {
+			fail(err)
+		}
+	case "reality_scan":
+		rs, err := realityscan.Scan(ctx, c.Args["target"])
+		if err != nil {
+			fail(err)
+			break
+		}
+		b, _ := json.Marshal(rs)
+		res.Output = string(b)
 	case "core_logs":
-		a.applyMu.Lock()
-		m := a.cores[model.CoreType(c.Args["type"])]
-		a.applyMu.Unlock()
+		m := a.coreSnapshot()[model.CoreType(c.Args["type"])]
 		n, _ := strconv.Atoi(c.Args["lines"])
 		if n <= 0 || n > 2000 {
 			n = 200
@@ -569,9 +605,7 @@ func (a *Agent) serveAuth(ctx context.Context) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/auth/", func(w http.ResponseWriter, r *http.Request) {
 		t := model.CoreType(strings.TrimPrefix(r.URL.Path, "/auth/"))
-		a.applyMu.Lock()
-		m := a.cores[t]
-		a.applyMu.Unlock()
+		m := a.coreSnapshot()[t]
 		if m == nil {
 			http.NotFound(w, r)
 			return

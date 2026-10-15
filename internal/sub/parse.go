@@ -96,6 +96,9 @@ func ParseLink(link string) (Node, error) {
 	switch strings.ToLower(u.Scheme) {
 	case "vless":
 		n.Protocol, n.UUID, n.Flow = model.ProtoVLESS, user, q.Get("flow")
+		if e := q.Get("encryption"); e != "" && e != "none" {
+			n.Encryption = e
+		}
 		applyStreamQuery(&n, q)
 	case "trojan":
 		n.Protocol, n.Password = model.ProtoTrojan, user
@@ -180,7 +183,8 @@ func applyStreamQuery(n *Node, q url.Values) {
 			n.TLS.ALPN = strings.Split(a, ",")
 		}
 	case "reality":
-		n.TLS = model.ClientTLS{Type: model.SecReality, ServerName: q.Get("sni"), Fingerprint: q.Get("fp"), PublicKey: q.Get("pbk"), ShortID: q.Get("sid")}
+		n.TLS = model.ClientTLS{Type: model.SecReality, ServerName: q.Get("sni"), Fingerprint: q.Get("fp"), PublicKey: q.Get("pbk"), ShortID: q.Get("sid"),
+			SpiderX: q.Get("spx"), Mldsa65Verify: q.Get("pqv")}
 	default:
 		n.TLS = model.ClientTLS{Type: model.SecNone}
 	}
@@ -331,6 +335,9 @@ func fromClash(p map[string]any) (Node, bool) {
 		switch mstr(p, "type") {
 		case "vless":
 			n.Protocol, n.UUID, n.Flow = model.ProtoVLESS, mstr(p, "uuid"), mstr(p, "flow")
+			if e := mstr(p, "encryption"); e != "" && e != "none" {
+				n.Encryption = e
+			}
 		case "vmess":
 			n.Protocol, n.UUID = model.ProtoVMess, mstr(p, "uuid")
 		default:

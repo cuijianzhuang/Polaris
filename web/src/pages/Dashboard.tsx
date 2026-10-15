@@ -6,7 +6,7 @@ import { bps, bytes, coreColor, coreLabel, coreShort, coreTagClass, nodeStatus, 
 import type { Node } from '../types'
 
 interface Overview {
-  nodes: { online: number; total: number; timeout: number }
+  nodes: { online: number; total: number; timeout: number; error?: number }
   users: { online: number; active: number; total: number }
   today: { Up: number; Down: number }
   rate: { rxBps: number; txBps: number; peakNode: string }
@@ -75,7 +75,7 @@ export default function Dashboard() {
         </div>
       </div>
       <section className="grid g4" aria-label="概览">
-        <div className="card kpi"><div className="label">在线节点</div><div className="val">{data?.nodes.online ?? '—'} / {data?.nodes.total ?? '—'}</div><div className="foot">{data?.nodes.timeout ?? 0} 个节点心跳超时</div></div>
+        <div className="card kpi"><div className="label">在线节点</div><div className="val">{data?.nodes.online ?? '—'} / {data?.nodes.total ?? '—'}</div><div className="foot">{data?.nodes.timeout ?? 0} 个节点心跳超时{data?.nodes.error ? ` · ${data.nodes.error} 个下发失败` : ''}</div></div>
         <div className="card kpi"><div className="label">在线用户</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">共 {data?.users.active ?? 0} 个有效用户</div></div>
         <div className="card kpi"><div className="label">今日流量</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">上行 {bytes(data?.today.Up)} · 下行 {bytes(data?.today.Down)}</div></div>
         <div className="card kpi"><div className="label">实时速率</div><div className="val">{bps((data?.rate.rxBps ?? 0) + (data?.rate.txBps ?? 0))}</div><div className="foot">峰值节点：{data?.rate.peakNode || '—'}</div></div>

@@ -4,6 +4,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,5 +52,22 @@ func TestCASignsNodeCert(t *testing.T) {
 	}
 	if loaded, err := LoadCA(ca.CertPEM, ca.KeyPEM); err != nil || loaded.Fingerprint() != ca.Fingerprint() {
 		t.Fatal("reload CA")
+	}
+}
+
+// Values cross-checked with `xray mldsa65 -i` and `xray mlkem768 -i`.
+func TestPostQuantumKeys(t *testing.T) {
+	v, err := MLDSA65Verify("WbZziH4NO3zX1rkzbzCITbLY_W9cXKq140xBkR9_v5s")
+	if err != nil || !strings.HasPrefix(v, "MmdKXtAhS68ahMAw25bgnJflOR-OrV5fRqMmbTkKjqQ8MAzrhwnB1Ge_wZOT") {
+		t.Fatalf("mldsa65 verify = %.40s… %v", v, err)
+	}
+	for _, auth := range []string{VLESSAuthX25519, VLESSAuthMLKEM} {
+		d, e, err := VLESSEncPair(auth)
+		if err != nil || !strings.HasPrefix(d, "mlkem768x25519plus.native.600s.") || !strings.HasPrefix(e, "mlkem768x25519plus.native.0rtt.") {
+			t.Fatalf("%s: %s %s %v", auth, d, e, err)
+		}
+		if VLESSAuthOf(d) != auth {
+			t.Fatalf("auth of %s = %q", auth, VLESSAuthOf(d))
+		}
 	}
 }

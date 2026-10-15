@@ -97,6 +97,9 @@ func LoonLine(n Node) string {
 			parts = append(parts, "udp=true")
 		}
 	case model.ProtoVLESS:
+		if n.Encryption != "" {
+			return "" // no VLESS Encryption
+		}
 		t, ok := transport()
 		if !ok {
 			return ""
@@ -221,6 +224,9 @@ func QuanxLine(n Node) string {
 		}
 		parts = append([]string{"vmess=" + hp, "method=chacha20-ietf-poly1305", "password=" + n.UUID, "aead=true"}, o...)
 	case model.ProtoVLESS:
+		if n.Encryption != "" {
+			return "" // no VLESS Encryption
+		}
 		o, ok := obfs()
 		if !ok {
 			return ""

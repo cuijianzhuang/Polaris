@@ -18,17 +18,19 @@ func init() {}
 func (s *Server) statsOverview(c *gin.Context) {
 	now := time.Now()
 	nodes := s.nodeViews()
-	online, timeout := 0, 0
+	online, timeout, failed := 0, 0, 0
 	var rx, tx uint64
 	peak, peakRate := "", uint64(0)
 	for _, n := range nodes {
 		switch n.Status {
 		case "online", "syncing":
 			online++
-		case "offline", "error":
+		case "offline":
 			if n.LastSeen != nil {
 				timeout++
 			}
+		case "error":
+			failed++ // connected, but the last spec failed to apply
 		}
 		rx += n.System.V.RxBps
 		tx += n.System.V.TxBps
@@ -73,7 +75,7 @@ func (s *Server) statsOverview(c *gin.Context) {
 		dist[cr.Type]++
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"nodes":       gin.H{"online": online, "total": len(nodes), "timeout": timeout},
+		"nodes":       gin.H{"online": online, "total": len(nodes), "timeout": timeout, "error": failed},
 		"users":       gin.H{"online": onlineUsers, "active": activeUsers, "total": totalUsers},
 		"today":       today,
 		"rate":        gin.H{"rxBps": rx, "txBps": tx, "peakNode": peak},

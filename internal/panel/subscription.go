@@ -143,6 +143,7 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 	if m.Protocol.Obfs == "" {
 		n.ObfsPassword = "" // the server has obfs off
 	}
+	n.Encryption = m.Protocol.Encryption
 	if m.Protocol.Type == model.ProtoShadowsocks {
 		n.Method = m.Protocol.Method
 		n.Password = ssClientPassword(m, &um)
@@ -153,7 +154,8 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 			Fingerprint: m.Security.Fingerprint, Insecure: s.tlsInsecure(m.Security.CertificateID)}
 	case model.SecReality:
 		n.TLS = model.ClientTLS{Type: model.SecReality, ServerName: first(m.Security.RealityServerNames),
-			PublicKey: m.Security.RealityPublicKey, ShortID: first(m.Security.RealityShortIDs), Fingerprint: orDefault(m.Security.Fingerprint, "chrome")}
+			PublicKey: m.Security.RealityPublicKey, ShortID: first(m.Security.RealityShortIDs), Fingerprint: orDefault(m.Security.Fingerprint, "chrome"),
+			SpiderX: m.Security.RealitySpiderX, Mldsa65Verify: m.Security.RealityMldsa65Verify}
 	}
 	return n
 }
