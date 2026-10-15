@@ -141,4 +141,12 @@ const (
 	FeatureRealityMLDSA65  = "reality-mldsa65"
 	FeatureProxyProtocol   = "proxy-protocol"
 	FeatureTCPHTTPHeader   = "tcp-http-header"
+	// FeatureRealityPQOnly means the core's REALITY server only accepts
+	// clients offering an X25519MLKEM768 key share (sing-box / mihomo
+	// clients cannot connect).
+	FeatureRealityPQOnly = "reality-pq-only"
 )
+
+// XrayPQRealityVersion is the first Xray release whose REALITY server
+// rejects Client Hellos without an X25519MLKEM768 key share.
+const XrayPQRealityVersion = "26.9.8"

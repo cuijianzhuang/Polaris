@@ -28,6 +28,10 @@ type Node struct {
 	// Encryption is the VLESS Encryption client key ("" = none); clients
 	// that cannot speak it skip the node.
 	Encryption string
+	// PQRealityOnly marks a REALITY server (Xray 26.9.8+) that rejects
+	// Client Hellos without an X25519MLKEM768 key share; sing-box and
+	// mihomo clients send none, so those formats skip the node.
+	PQRealityOnly bool
 
 	Transport model.TransportSpec
 	TLS       model.ClientTLS

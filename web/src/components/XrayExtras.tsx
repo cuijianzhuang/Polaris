@@ -74,7 +74,7 @@ export function RealityAdvanced({ s, setS, mldsa }: { s: SecuritySpec; setS: (x:
       <div className="form-grid">
         <Field label="最大时间差 (ms)" hint="0 = 不限制"><input className="input mono" inputMode="numeric" value={s.realityMaxTimeDiff ?? ''} onChange={(e) => setS({ realityMaxTimeDiff: numOr(e.target.value) })} placeholder="0" /></Field>
         <Field label="SpiderX" hint="客户端爬虫初始路径"><input className="input mono" value={s.realitySpiderX ?? ''} onChange={(e) => setS({ realitySpiderX: e.target.value || undefined })} placeholder="/" /></Field>
-        <Field label="最小客户端版本" hint="Xray 26.7.x 默认只接受 26.3.27 起的客户端；填 1.0.0 可兼容旧客户端">
+        <Field label="最小客户端版本" hint="留空则不限制（Xray 26.7.x 自带的 26.3.27 下限会拒绝 sing-box / Clash 客户端，面板会自动放开）">
           <input className="input mono" value={s.realityMinClientVer ?? ''} onChange={(e) => setS({ realityMinClientVer: e.target.value || undefined })} placeholder="x.y.z" />
         </Field>
         <Field label="最大客户端版本"><input className="input mono" value={s.realityMaxClientVer ?? ''} onChange={(e) => setS({ realityMaxClientVer: e.target.value || undefined })} placeholder="x.y.z" /></Field>

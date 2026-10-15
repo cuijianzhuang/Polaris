@@ -247,6 +247,9 @@ func renderInbound(in model.Inbound) (map[string]any, error) {
 		return nil, err
 	}
 	if tls != nil {
+		if _, ok := tls["alpn"]; !ok && in.Protocol.Type == model.ProtoTUIC {
+			tls["alpn"] = []string{"h3"} // TUIC clients always offer h3
+		}
 		ib["tls"] = tls
 	}
 	if err := core.MergeExtra(ib, in.Extra); err != nil {

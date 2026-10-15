@@ -4,6 +4,28 @@ import { Icon } from '../components/Icons'
 import GeodataCard from '../components/GeodataCard'
 import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 
+// DefaultVersion picks the version new nodes install: "latest" follows the
+// newest stable release, or pin one of the five most recent ones.
+function DefaultVersion({ label, type, value, onChange }: { label: string; type: string; value: string; onChange: (v: string) => void }) {
+  const [vers, setVers] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    get<{ versions: string[] }>('/core-versions?type=' + type).then((r) => { if (live) setVers(r.versions ?? []) }).catch(() => { if (live) setVers([]) })
+    return () => { live = false }
+  }, [type])
+  const cur = value.replace(/^v/, '') || 'latest'
+  const recent = (vers ?? []).slice(0, 5)
+  const opts = cur !== 'latest' && !recent.includes(cur) ? [...recent, cur] : recent
+  return (
+    <Field label={label} hint={vers === null ? '正在获取版本列表…' : vers.length === 0 ? '无法获取版本列表（可配置 GitHub 镜像）' : '「自动」时新节点安装最新稳定版'}>
+      <select className="input mono" value={cur} onChange={(e) => onChange(e.target.value)}>
+        <option value="latest">自动（最新{recent[0] ? `：v${recent[0]}` : ''}）</option>
+        {opts.map((v, i) => <option key={v} value={v}>v{v}{i === 0 && recent[0] === v ? ' · 最新' : ''}{!recent.includes(v) ? ' · 自定义' : ''}</option>)}
+      </select>
+    </Field>
+  )
+}
+
 export default function Settings() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
   const me = useLoad(() => get<{ username: string; totpEnabled: boolean; githubLogin?: string }>('/auth/me'))
@@ -26,7 +48,7 @@ export default function Settings() {
   useEffect(() => {
     if (s.data) setF({
       site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '12', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
-      acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray ?? '', default_singbox: s.data.default_singbox ?? '',
+      acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray || 'latest', default_singbox: s.data.default_singbox || 'latest',
       ip_limit_trusted: s.data.ip_limit_trusted ?? '',
     })
   }, [s.data])
@@ -45,8 +67,8 @@ export default function Settings() {
             <Field label="IP 限制受信任地址" full hint="每行一个 IP 或 CIDR，不计入用户的同时在线 IP 数（如家庭 / 公司出口、自己的中转节点）">
               <textarea className="input mono" style={{ minHeight: 56 }} value={f.ip_limit_trusted ?? ''} onChange={(e) => set('ip_limit_trusted', e.target.value)} placeholder={'203.0.113.10\n198.51.100.0/24'} />
             </Field>
-            <Field label="默认 Xray 版本"><input className="input mono" value={f.default_xray ?? ''} onChange={(e) => set('default_xray', e.target.value)} /></Field>
-            <Field label="默认 sing-box 版本"><input className="input mono" value={f.default_singbox ?? ''} onChange={(e) => set('default_singbox', e.target.value)} /></Field>
+            <DefaultVersion label="默认 Xray 版本" type="xray" value={f.default_xray ?? ''} onChange={(v) => set('default_xray', v)} />
+            <DefaultVersion label="默认 sing-box 版本" type="singbox" value={f.default_singbox ?? ''} onChange={(v) => set('default_singbox', v)} />
           </div>
           <h2 style={{ marginTop: 8 }}>ACME（Let's Encrypt）</h2>
           <div className="hint" style={{ marginTop: -6 }}>只填邮箱即可用 HTTP 验证签发（由域名指向的节点在 80 端口应答）；再填 Cloudflare Token 则改用 DNS 验证，支持泛域名、无需 80 端口。</div>

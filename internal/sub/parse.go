@@ -214,6 +214,9 @@ func parseVMess(link string) (Node, error) {
 	if n.Transport.Type == model.TransGRPC {
 		n.Transport.ServiceName, n.Transport.Path = n.Transport.Path, ""
 	}
+	if t := str("type"); t != "" && t != "none" && (n.Transport.Type == model.TransTCP || n.Transport.Type == model.TransKCP) {
+		n.Transport.HeaderType = t
+	}
 	if str("tls") == "tls" {
 		n.TLS = model.ClientTLS{Type: model.SecTLS, ServerName: str("sni"), Fingerprint: str("fp")}
 		if a := str("alpn"); a != "" {
@@ -351,6 +354,17 @@ func fromClash(p map[string]any) (Node, bool) {
 		}
 		n.Transport.Type = model.TransTCP
 		switch mstr(p, "network") {
+		case "http":
+			n.Transport.Type, n.Transport.HeaderType = model.TransTCP, "http"
+			o := mmap(p, "http-opts")
+			if ps, ok := o["path"].([]any); ok && len(ps) > 0 {
+				n.Transport.Path, _ = ps[0].(string)
+			}
+			if h := mmap(o, "headers"); h != nil {
+				if hs, ok := h["Host"].([]any); ok && len(hs) > 0 {
+					n.Transport.Host, _ = hs[0].(string)
+				}
+			}
 		case "ws":
 			n.Transport.Type = model.TransWS
 			o := mmap(p, "ws-opts")

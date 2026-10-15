@@ -54,7 +54,7 @@ func ShareLink(n Node) string {
 		if n.Transport.Type == model.TransGRPC {
 			v["path"] = n.Transport.ServiceName
 		}
-		if n.Transport.Type == model.TransKCP {
+		if n.Transport.Type == model.TransKCP || n.Transport.HeaderType == "http" {
 			v["type"] = orDefault(n.Transport.HeaderType, "none")
 		}
 		if n.TLS.Type == model.SecTLS {
@@ -141,7 +141,13 @@ func streamQuery(n Node) url.Values {
 		setNE(q, "headerType", n.Transport.HeaderType)
 		setNE(q, "seed", n.Transport.Seed)
 	default:
-		q.Set("headerType", "none")
+		if n.Transport.HeaderType == "http" {
+			q.Set("headerType", "http")
+			setNE(q, "path", n.Transport.Path)
+			setNE(q, "host", n.Transport.Host)
+		} else {
+			q.Set("headerType", "none")
+		}
 	}
 	switch n.TLS.Type {
 	case model.SecTLS:

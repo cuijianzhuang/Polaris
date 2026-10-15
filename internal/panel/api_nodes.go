@@ -97,7 +97,12 @@ func (s *Server) createNode(c *gin.Context) {
 		req.TrafficRate = 1
 	}
 	if len(req.Cores) == 0 {
-		req.Cores = []model.CoreSpec{{Type: model.CoreXray, Version: s.st.GetSetting("default_xray", "26.3.27")}}
+		req.Cores = []model.CoreSpec{{Type: model.CoreXray}}
+	}
+	for i := range req.Cores {
+		if req.Cores[i].Version == "" || req.Cores[i].Version == "latest" {
+			req.Cores[i].Version = s.defaultCoreVersion(c.Request.Context(), req.Cores[i].Type)
+		}
 	}
 	if req.DefaultCore == "" {
 		req.DefaultCore = req.Cores[0].Type
@@ -506,9 +511,16 @@ func (s *Server) capabilities(c *gin.Context) {
 		c.JSON(http.StatusOK, caps)
 		return
 	}
-	defaults := map[model.CoreType]string{
-		model.CoreXray: s.st.GetSetting("default_xray", ""), model.CoreSingbox: s.st.GetSetting("default_singbox", ""),
-		model.CoreHysteria: "2.6.1", model.CoreForwarder: "2.7.0", model.CoreMihomo: "1.19.15", model.CoreCaddy: "2.10.2",
+	defaults := map[model.CoreType]string{}
+	for t, v := range fallbackVersions {
+		defaults[t] = v
+	}
+	for t, k := range coreDefaultKeys {
+		if v := s.st.GetSetting(k, ""); v != "" && v != "latest" {
+			defaults[t] = v
+		} else {
+			defaults[t] = "" // newest: every capability
+		}
 	}
 	out := []model.CapSet{}
 	for _, t := range core.Types() {

@@ -83,6 +83,9 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	if core.VersionAtLeast(v, "25.9.11") {
 		features = append(features, model.FeatureVLESSEncryption, model.FeatureRealityMLDSA65)
 	}
+	if core.VersionAtLeast(v, model.XrayPQRealityVersion) {
+		features = append(features, model.FeatureRealityPQOnly)
+	}
 	return model.CapSet{
 		Core:     model.CoreXray,
 		Version:  v,
@@ -118,6 +121,12 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	}
 	var inbounds []any
 	for _, in := range spec.InboundsFor(model.CoreXray) {
+		if in.Security.Type == model.SecReality && in.Security.RealityMinClientVer == "" &&
+			core.VersionAtLeast(a.opt.Version, "26.7.11") && !core.VersionAtLeast(a.opt.Version, model.XrayPQRealityVersion) {
+			// 26.7.x defaults minClientVer to 26.3.27, which refuses every
+			// non-Xray client (sing-box, mihomo); keep them connectable.
+			in.Security.RealityMinClientVer = "0.0.0"
+		}
 		ib, err := renderInbound(in, a.legacyKCP())
 		if err != nil {
 			return nil, fmt.Errorf("inbound %s: %w", in.Tag, err)
