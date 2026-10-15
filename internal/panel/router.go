@@ -144,6 +144,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/users", s.createUser)
 	p.POST("/users/bulk", s.bulkUsers)
 	p.GET("/users/:id/sub-check", s.subDiagnose)
+	p.GET("/users/:id/devices", s.listDevices)
+	p.DELETE("/users/:id/devices/:did", s.deleteDevice)
 	p.GET("/users/:id", s.getUser)
 	p.PUT("/users/:id", s.updateUser)
 	p.DELETE("/users/:id", s.deleteUser)

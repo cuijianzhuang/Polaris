@@ -27,6 +27,7 @@ export default function Settings() {
     if (s.data) setF({
       site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '12', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
       acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray ?? '', default_singbox: s.data.default_singbox ?? '',
+      ip_limit_trusted: s.data.ip_limit_trusted ?? '',
     })
   }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
@@ -41,6 +42,9 @@ export default function Settings() {
             <Field label="站点标题" full><input className="input" value={f.site_title ?? ''} onChange={(e) => set('site_title', e.target.value)} /></Field>
             <Field label="订阅更新间隔（小时）"><input className="input mono" value={f.sub_update_interval ?? ''} onChange={(e) => set('sub_update_interval', e.target.value)} /></Field>
             <Field label="IP 超限封禁（分钟）" hint="0 为只告警不封禁"><input className="input mono" value={f.ip_ban_minutes ?? ''} onChange={(e) => set('ip_ban_minutes', e.target.value)} /></Field>
+            <Field label="IP 限制受信任地址" full hint="每行一个 IP 或 CIDR，不计入用户的同时在线 IP 数（如家庭 / 公司出口、自己的中转节点）">
+              <textarea className="input mono" style={{ minHeight: 56 }} value={f.ip_limit_trusted ?? ''} onChange={(e) => set('ip_limit_trusted', e.target.value)} placeholder={'203.0.113.10\n198.51.100.0/24'} />
+            </Field>
             <Field label="默认 Xray 版本"><input className="input mono" value={f.default_xray ?? ''} onChange={(e) => set('default_xray', e.target.value)} /></Field>
             <Field label="默认 sing-box 版本"><input className="input mono" value={f.default_singbox ?? ''} onChange={(e) => set('default_singbox', e.target.value)} /></Field>
           </div>

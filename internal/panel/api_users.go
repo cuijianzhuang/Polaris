@@ -23,6 +23,9 @@ type userReq struct {
 	Status          string     `json:"status"` // active / disabled
 	ResetPolicy     string     `json:"resetPolicy"`
 	ResetDay        int        `json:"resetDay"`
+	RenewDays       int        `json:"renewDays"`
+	RenewMax        int        `json:"renewMax"`
+	DeviceLimit     int        `json:"deviceLimit"`
 	Remark          string     `json:"remark"`
 	GroupIDs        []string   `json:"groupIds"`
 	NodeIDs         []string   `json:"nodeIds"`    // nil = unchanged on update
@@ -149,6 +152,7 @@ func newUser(req *userReq) store.User {
 		ID: store.NewID(), Username: req.Username, UUID: req.UUID, Password: req.Password, SSSeed: pki.Token(24),
 		TrafficLimit: req.TrafficLimit, ExpireAt: req.ExpireAt, ExpireAfterDays: req.ExpireAfterDays, IPLimit: req.IPLimit, Status: "active",
 		SubToken: pki.Token(32), ResetPolicy: orDefault(req.ResetPolicy, "none"), ResetDay: req.ResetDay,
+		RenewDays: max(req.RenewDays, 0), RenewMax: max(req.RenewMax, 0), DeviceLimit: max(req.DeviceLimit, 0),
 		Remark: req.Remark, OnlineIPs: store.NewJSON([]string{}),
 	}
 	if u.UUID == "" {
@@ -370,6 +374,10 @@ func (s *Server) updateUser(c *gin.Context) {
 	u.Username, u.TrafficLimit, u.ExpireAt, u.IPLimit = req.Username, req.TrafficLimit, req.ExpireAt, req.IPLimit
 	u.ExpireAfterDays = req.ExpireAfterDays
 	u.ResetPolicy, u.ResetDay, u.Remark = orDefault(req.ResetPolicy, "none"), req.ResetDay, req.Remark
+	if req.RenewDays != u.RenewDays || req.RenewMax != u.RenewMax {
+		u.RenewCount = 0 // a new renewal plan starts counting again
+	}
+	u.RenewDays, u.RenewMax, u.DeviceLimit = max(req.RenewDays, 0), max(req.RenewMax, 0), max(req.DeviceLimit, 0)
 	if req.UUID != "" {
 		u.UUID = req.UUID
 	}
@@ -397,7 +405,8 @@ func (s *Server) updateUser(c *gin.Context) {
 		// Only the edited columns: traffic settlement, IP bans and resets
 		// update the counters concurrently and must not be overwritten.
 		if err := tx.Model(&u).Select("username", "traffic_limit", "expire_at", "ip_limit", "expire_after_days",
-			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "status").Updates(&u).Error; err != nil {
+			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "status",
+			"renew_days", "renew_max", "renew_count", "device_limit").Updates(&u).Error; err != nil {
 			return err
 		}
 		if req.GroupIDs != nil {

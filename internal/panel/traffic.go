@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -267,6 +268,9 @@ func (s *Server) enforceLimits() {
 	var users []store.User
 	s.st.DB.Where("status IN ? AND is_service = ?", []string{"active", "limited", "expired"}, false).Find(&users)
 	for _, u := range users {
+		if s.autoRenew(&u, now) {
+			changed = append(changed, u.ID)
+		}
 		want := computeStatus(&u, now)
 		if want != u.Status {
 			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Update("status", want)
@@ -293,6 +297,39 @@ func (s *Server) enforceLimits() {
 	}
 }
 
+// autoRenew extends an expired account with a renewal plan: expiry moves on
+// by RenewDays (past now) and traffic starts over. It reports a change.
+func (s *Server) autoRenew(u *store.User, now time.Time) bool {
+	if u.RenewDays <= 0 || u.ExpireAt == nil || !now.After(*u.ExpireAt) || (u.RenewMax > 0 && u.RenewCount >= u.RenewMax) {
+		return false
+	}
+	exp := *u.ExpireAt
+	for !exp.After(now) {
+		exp = exp.AddDate(0, 0, u.RenewDays)
+	}
+	u.ExpireAt, u.UsedUp, u.UsedDown, u.RenewCount, u.LastResetAt = &exp, 0, 0, u.RenewCount+1, &now
+	u.WarnedUsage, u.WarnedExpire = false, nil
+	s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
+		"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil})
+	s.audit("system", "user.renew", u.Username, fmt.Sprintf("+%d 天，至 %s（第 %d 次）", u.RenewDays, exp.Format("2006-01-02"), u.RenewCount), "")
+	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
+	return true
+}
+
+// weeklyBoundary is the most recent start (00:00) of the given ISO weekday
+// (1 = Monday … 7 = Sunday; others mean Monday).
+func weeklyBoundary(now time.Time, weekday int) time.Time {
+	if weekday < 1 || weekday > 7 {
+		weekday = 1
+	}
+	want := time.Weekday(weekday % 7)
+	d := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	for d.Weekday() != want {
+		d = d.AddDate(0, 0, -1)
+	}
+	return d
+}
+
 // computeStatus derives a user's status from quota and expiry. Disabled is
 // sticky and only changed by an admin.
 func computeStatus(u *store.User, now time.Time) string {
@@ -312,7 +349,7 @@ func computeStatus(u *store.User, now time.Time) string {
 func (s *Server) resetTrafficCycles() {
 	now := time.Now()
 	var users []store.User
-	s.st.DB.Where("reset_policy IN ?", []string{"monthly", "cycle"}).Find(&users)
+	s.st.DB.Where("reset_policy IN ?", []string{"daily", "weekly", "monthly", "cycle"}).Find(&users)
 	var changed []string
 	for _, u := range users {
 		last := u.CreatedAt
@@ -321,6 +358,10 @@ func (s *Server) resetTrafficCycles() {
 		}
 		due := false
 		switch u.ResetPolicy {
+		case "daily":
+			due = last.Before(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()))
+		case "weekly":
+			due = last.Before(weeklyBoundary(now, u.ResetDay))
 		case "monthly":
 			boundary := monthlyBoundary(now, u.ResetDay, 0)
 			if now.Before(boundary) {
@@ -350,6 +391,7 @@ func (s *Server) resetTrafficCycles() {
 // handleOnlineIPs records source IPs and enforces ip_limit.
 func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	banMinutes, _ := strconv.Atoi(s.st.GetSetting("ip_ban_minutes", "0"))
+	trusted := parseNetList(s.st.GetSetting("ip_limit_trusted", ""))
 	allowed := s.nodeUsers(nodeID)
 	for _, u := range m.Users {
 		if !allowed[u.UserId] {
@@ -381,18 +423,22 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		}
 		s.onlineMu.Unlock()
 		list := make([]string, 0, len(all))
+		counted := 0
 		for ip := range all {
 			list = append(list, ip)
+			if !trusted.contains(ip) {
+				counted++
+			}
 		}
 		var user store.User
 		if err := s.st.DB.First(&user, "id = ?", u.UserId).Error; err != nil {
 			continue
 		}
 		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(map[string]any{"online_ips": store.NewJSON(list), "online_at": time.Now()})
-		if user.IPLimit > 0 && len(list) > user.IPLimit {
+		if user.IPLimit > 0 && counted > user.IPLimit {
 			if s.alertOnce("ip:"+user.ID, 10*time.Minute) {
-				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", len(list), user.IPLimit, strings.Join(list, ", ")), "")
-				s.notify(Event{Kind: "ip_limit", UserID: user.ID, Text: fmt.Sprintf("🚨 用户 %s 同时在线 IP %d 个，超过限制 %d", user.Username, len(list), user.IPLimit)})
+				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", counted, user.IPLimit, strings.Join(list, ", ")), "")
+				s.notify(Event{Kind: "ip_limit", UserID: user.ID, Text: fmt.Sprintf("🚨 用户 %s 同时在线 IP %d 个（不含受信任地址），超过限制 %d", user.Username, counted, user.IPLimit)})
 			}
 			if banMinutes > 0 && user.BannedUntil == nil {
 				until := time.Now().Add(time.Duration(banMinutes) * time.Minute)
@@ -428,4 +474,34 @@ func monthlyBoundary(now time.Time, day, offset int) time.Time {
 		day = last
 	}
 	return first.AddDate(0, 0, day-1)
+}
+
+// netList is a set of IPs / CIDRs (trusted addresses exempt from ip_limit,
+// e.g. a home or office egress shared by several devices).
+type netList []netip.Prefix
+
+func parseNetList(s string) netList {
+	var out netList
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == '\n' || r == ' ' || r == '\r' }) {
+		if p, err := netip.ParsePrefix(f); err == nil {
+			out = append(out, p.Masked())
+		} else if a, err := netip.ParseAddr(f); err == nil {
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+		}
+	}
+	return out
+}
+
+func (l netList) contains(ip string) bool {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	for _, p := range l {
+		if p.Contains(a) {
+			return true
+		}
+	}
+	return false
 }

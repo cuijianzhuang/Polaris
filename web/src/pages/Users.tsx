@@ -3,9 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
-import { bytes, coreShort, date, daysLeft, GB, isOnline, userStatus } from '../format'
-import type { Group, Inbound, Node, User } from '../types'
+import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
+import type { Group, Inbound, Node, User, UserDevice } from '../types'
 
 type Filter = '' | 'online' | 'expiring' | 'limited' | 'disabled'
 const filters: { k: Filter; label: string }[] = [
@@ -161,6 +161,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
     groupIds: user?.groupIds ?? groups.filter((g) => g.isDefault).map((g) => g.id), afterDays: String(user?.expireAfterDays || ''),
     nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [], telegramId: user?.telegramId ? String(user.telegramId) : '',
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
+    renewDays: user?.renewDays ? String(user.renewDays) : '', renewMax: user?.renewMax ? String(user.renewMax) : '',
+    deviceLimit: String(user?.deviceLimit ?? 0),
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -174,6 +176,7 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
       expireAfterDays: f.expireMode === 'first' ? Number(f.afterDays) || 0 : 0, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
       remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
       telegramId: Number(f.telegramId.trim()) || 0,
+      renewDays: Number(f.renewDays) || 0, renewMax: Number(f.renewMax) || 0, deviceLimit: Number(f.deviceLimit) || 0,
     }
     if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error('Telegram User ID 应为纯数字')
     if (user) await put('/users/' + user.id, body)
@@ -197,7 +200,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
       <div className="form-grid">
         <Field label="用户名" htmlFor="u-name" full><input id="u-name" className="input" value={f.username} onChange={(e) => set('username', e.target.value)} /></Field>
         <Field label="流量配额 (GB)" htmlFor="u-limit" hint="留空或 0 为不限"><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
-        <Field label="设备 / IP 数限制" htmlFor="u-ip" hint="0 为不限"><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
+        <Field label="同时在线 IP 数" htmlFor="u-ip" hint="0 为不限；受信任地址（设置中配置）不计入"><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
+        <Field label="设备数（HWID）" htmlFor="u-dev" hint="0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数"><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
         <Field label="有效期" full>
           <div className="seg">
             <button type="button" className={'opt' + (f.expireMode === 'date' ? ' on' : '')} onClick={() => set('expireMode', 'date')}>固定到期日<small>留空为永不到期</small></button>
@@ -214,14 +218,28 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
         )}
         <Field label="流量重置" htmlFor="u-reset">
           <select id="u-reset" className="input" value={f.resetPolicy} onChange={(e) => set('resetPolicy', e.target.value)}>
-            <option value="none">不重置</option><option value="monthly">每月固定日</option><option value="cycle">按周期滚动</option>
+            <option value="none">不重置</option><option value="daily">每天</option><option value="weekly">每周固定日</option>
+            <option value="monthly">每月固定日</option><option value="cycle">按周期滚动</option>
           </select>
         </Field>
-        {f.resetPolicy !== 'none' && (
-          <Field label={f.resetPolicy === 'monthly' ? '每月几号' : '周期（天）'} htmlFor="u-rday">
+        {f.resetPolicy === 'weekly' && (
+          <Field label="每周几" htmlFor="u-rday">
+            <select id="u-rday" className="input" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)}>
+              {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => <option key={d} value={String(i + 1)}>周{d}</option>)}
+            </select>
+          </Field>
+        )}
+        {(f.resetPolicy === 'monthly' || f.resetPolicy === 'cycle') && (
+          <Field label={f.resetPolicy === 'monthly' ? '每月几号' : '周期（天）'} htmlFor="u-rday" hint={f.resetPolicy === 'monthly' ? '29–31 在小月按月末' : undefined}>
             <input id="u-rday" className="input mono" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)} inputMode="numeric" />
           </Field>
         )}
+        <Field label="到期自动续订（天）" htmlFor="u-renew" hint="到期时自动顺延这么多天并清零流量；留空不续订">
+          <input id="u-renew" className="input mono" value={f.renewDays} onChange={(e) => set('renewDays', e.target.value)} inputMode="numeric" placeholder="例如 30" />
+        </Field>
+        <Field label="最多续订次数" htmlFor="u-rmax" hint={user?.renewDays ? `已续订 ${user.renewCount} 次；留空不限` : '留空不限'}>
+          <input id="u-rmax" className="input mono" value={f.renewMax} disabled={!f.renewDays} onChange={(e) => set('renewMax', e.target.value)} inputMode="numeric" />
+        </Field>
         <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? '已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒' : '纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定'}>
           <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder="例如 123456789" />
         </Field>
@@ -235,6 +253,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
           <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>禁用</button>
         </div>
       </Field>
+      {user && <UserLinks userId={user.id} />}
+      {user && <Devices userId={user.id} limit={user.deviceLimit} />}
       {user && <SubCheck userId={user.id} />}
       {user && <UserTraffic userId={user.id} />}
       {user && (
@@ -243,9 +263,59 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
           <dt>密码</dt><dd className="mono">{user.password}</dd>
           <dt>已用</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)}</dd>
           <dt>在线 IP</dt><dd className="mono">{user.onlineIps?.join(', ') || '—'}</dd>
+          <dt>最近拉取订阅</dt><dd className="small">{user.lastSubAt ? `${datetime(user.lastSubAt)} · ${user.lastSubUa || '—'}` : '—'}</dd>
         </div>
       )}
     </Drawer>
+  )
+}
+
+// UserLinks lists one share link per node with copy and QR code.
+function UserLinks({ userId }: { userId: string }) {
+  const data = useLoad(() => get<{ links: { name: string; uri: string }[] | null }>(`/users/${userId}/links`), [userId])
+  const [qr, setQr] = useState<string | null>(null)
+  const links = data.data?.links ?? []
+  return (
+    <details className="more">
+      <summary>节点链接与二维码（{links.length}）</summary>
+      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+        {links.length === 0 && <div className="sub">没有可用节点（见下方「订阅诊断」）</div>}
+        {links.map((l) => (
+          <div key={l.uri} className="row" style={{ flexWrap: 'nowrap' }}>
+            <span className="small" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.name}>{l.name}</span>
+            <Copy text={l.uri} />
+            <button className="btn sm" type="button" onClick={() => setQr(qr === l.uri ? null : l.uri)}>二维码</button>
+          </div>
+        ))}
+        {qr && <div style={{ justifySelf: 'center' }}><QR text={qr} size={200} /></div>}
+      </div>
+    </details>
+  )
+}
+
+// Devices lists the HWIDs that fetched the subscription.
+function Devices({ userId, limit }: { userId: string; limit: number }) {
+  const data = useLoad(() => get<UserDevice[]>(`/users/${userId}/devices`), [userId])
+  const { run } = useAction()
+  const ds = data.data ?? []
+  if (!ds.length && !limit) return null
+  return (
+    <details className="more">
+      <summary>设备（{ds.length}{limit ? ` / ${limit}` : ''}）</summary>
+      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+        {ds.length === 0 && <div className="sub">还没有客户端上报设备 ID</div>}
+        {ds.map((d) => (
+          <div key={d.id} className="row" style={{ flexWrap: 'nowrap' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="small">{[d.model, d.os].filter(Boolean).join(' · ') || d.userAgent || '未知设备'}</div>
+              <div className="hint mono">{d.hwid.slice(0, 16)}… · {d.ip} · {ago(d.lastSeen)}</div>
+            </div>
+            <button className="btn sm danger" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/${d.id}`); data.reload() }, '已移除')}>移除</button>
+          </div>
+        ))}
+        {ds.length > 1 && <div><button className="btn sm" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/all`); data.reload() }, '已清空')}>清空全部设备</button></div>}
+      </div>
+    </details>
   )
 }
 
