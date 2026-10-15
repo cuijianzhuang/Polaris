@@ -58,6 +58,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
 	prev := a.current
+	// Refuse up front, leaving running cores untouched, when another program
+	// holds a port the new spec needs.
+	if msgs := portConflicts(prev, spec); len(msgs) > 0 {
+		return applyResult{ok: false, method: "reload", err: errors.New(strings.Join(msgs, "; "))}
+	}
 	method := "hot"
 	wanted := map[model.CoreType]model.CoreSpec{}
 	for _, cs := range spec.Cores {
