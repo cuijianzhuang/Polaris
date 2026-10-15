@@ -63,6 +63,10 @@ func (s *Server) subscription(c *gin.Context) {
 			}
 		}
 	}
+	if len(nodes) == 0 && c.Query("raw") != "1" && sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent")) != "html" {
+		// Tell the user why instead of handing clients an empty list.
+		nodes = []sub.Node{reasonNode(s.emptyReason(&u))}
+	}
 	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.renderOptsFor(nil), "/sub/"+u.SubToken, &u)
 }
 

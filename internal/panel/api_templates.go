@@ -471,6 +471,7 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 		return nil, err
 	}
 	var plans []nodePlan
+	defGroups := s.defaultGroupIDs() // outside the transactions (single SQLite connection)
 	for i := range nodes {
 		np := s.planNode(t, &nodes[i], opt, true)
 		err := s.st.DB.Transaction(func(tx *gorm.DB) error {
@@ -508,7 +509,7 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 						return err
 					}
 				}
-				for _, g := range t.Groups.V {
+				for _, g := range groupsOr(t.Groups.V, defGroups) {
 					if err := tx.Create(&store.GroupInbound{GroupID: g, InboundID: row.ID}).Error; err != nil {
 						return err
 					}

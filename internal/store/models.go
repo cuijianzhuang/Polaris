@@ -140,6 +140,7 @@ type Group struct {
 	ID         string    `gorm:"primaryKey;size:32" json:"id"`
 	Name       string    `gorm:"size:64;uniqueIndex" json:"name"`
 	Remark     string    `gorm:"size:255" json:"remark"`
+	IsDefault  bool      `json:"isDefault"` // new users and inbounds join it unless told otherwise
 	InboundIDs []string  `gorm:"-" json:"inboundIds"`
 	UserCount  int64     `gorm:"-" json:"userCount"`
 	CreatedAt  time.Time `json:"createdAt"`

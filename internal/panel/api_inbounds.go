@@ -161,6 +161,9 @@ func (s *Server) createInbound(c *gin.Context) {
 	row := store.Inbound{ID: store.NewID(), Remark: req.Remark, OutboundTag: req.OutboundTag, OverriddenFields: store.NewJSON([]string{})}
 	fromModel(&m, &row)
 	s.sealInbound(&row)
+	if req.GroupIDs == nil {
+		req.GroupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
 			return err

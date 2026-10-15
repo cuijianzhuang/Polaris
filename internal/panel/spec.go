@@ -8,6 +8,7 @@ import (
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -427,11 +428,16 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 }
 
 // nodeHost is the address other nodes and clients use to reach a node.
+// nodeHost is the address clients use for a node: the configured address,
+// else its domain, else the public IP the agent detected (so a node added
+// without an address still yields working links).
 func nodeHost(n *store.Node) string {
-	if n.Address != "" {
-		return n.Address
+	for _, h := range []string{n.Address, n.Domain, n.PublicIPv4, n.PublicIPv6} {
+		if h = strings.TrimSpace(h); h != "" {
+			return h
+		}
 	}
-	return n.Domain
+	return ""
 }
 
 // nodesForInbounds returns node ids hosting the inbounds plus nodes whose

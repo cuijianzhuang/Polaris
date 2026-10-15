@@ -125,6 +125,11 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
   const [port, setPort] = useState(String(editing?.port ?? 443))
   const [listen, setListen] = useState(editing?.listen && editing.listen !== '::' ? editing.listen : '')
   const [groupIds, setGroupIds] = useState<string[]>(editing?.groupIds ?? [])
+  // New inbounds join the default group(s), so existing users can use them right away.
+  useEffect(() => {
+    if (!editing && groups.data) setGroupIds((x) => (x.length ? x : groups.data!.filter((g) => g.isDefault).map((g) => g.id)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groups.data])
   const [extra, setExtra] = useState(editing?.extra ? JSON.stringify(editing.extra, null, 2) : '')
   const [enabled, setEnabled] = useState(editing?.enabled ?? true)
   const [remark, setRemark] = useState(editing?.remark ?? '')

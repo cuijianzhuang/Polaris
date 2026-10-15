@@ -109,13 +109,56 @@ function BindNodesModal({ count, detach, onClose, onSubmit }: { count: number; d
   )
 }
 
+type SubCheckResult = {
+  status: string; problems: string[]; formats: Record<string, number>; url: string
+  inbounds: { id: string; tag: string; node: string; via: string[]; included: boolean; reason?: string }[]
+}
+const viaText = (v: string) => (v === 'node' ? '整台节点' : v === 'inbound' ? '单独授权' : '分组 ' + v.replace(/^group:/, ''))
+
+/** Explains what the user's subscription contains, and why something is missing. */
+function SubCheck({ userId }: { userId: string }) {
+  const [res, setRes] = useState<SubCheckResult | null>(null)
+  const { busy, run } = useAction()
+  const check = () => run(async () => setRes(await get<SubCheckResult>(`/users/${userId}/sub-check`)))
+  const fmts: [string, string][] = [['links', '通用'], ['clash', 'Clash'], ['singbox', 'sing-box'], ['surge', 'Surge'], ['loon', 'Loon'], ['quanx', 'QX']]
+  return (
+    <section className="field">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="lbl">订阅诊断</span>
+        <button className="btn sm" type="button" disabled={busy} onClick={check}>{res ? '重新检查' : '检查订阅'}</button>
+      </div>
+      {res && (
+        <div className="subcheck">
+          {res.problems.length === 0
+            ? <div className="note ok-note">订阅正常：共 {res.formats.links ?? 0} 个节点</div>
+            : res.problems.map((p) => <div key={p} className="note bad">{p}</div>)}
+          <div className="row small">{fmts.map(([k, l]) => <span key={k} className={'tag' + ((res.formats[k] ?? 0) === 0 ? ' warn' : '')}>{l} {res.formats[k] ?? 0}</span>)}</div>
+          {res.inbounds.length > 0 && (
+            <table>
+              <thead><tr><th>入站</th><th>节点</th><th>授权来源</th><th>状态</th></tr></thead>
+              <tbody>{res.inbounds.map((i) => (
+                <tr key={i.id}>
+                  <td className="mono">{i.tag}</td><td>{i.node || '—'}</td>
+                  <td className="small">{i.via.map(viaText).join('、')}</td>
+                  <td className="small">{i.included ? (i.reason ? <span style={{ color: 'var(--warn-ink)' }}>⚠ {i.reason}</span> : '✓ 包含') : <span style={{ color: 'var(--bad)' }}>✗ {i.reason}</span>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+          <div className="hint">某个客户端格式为 0 表示该格式不支持这些协议组合（如 Surge 不支持 VLESS / REALITY）。</div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     username: user?.username ?? '', limitGB: user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : '',
     expire: user?.expireAt ? date(user.expireAt) : '', ipLimit: String(user?.ipLimit ?? 0), resetPolicy: user?.resetPolicy ?? 'none',
     resetDay: String(user?.resetDay ?? 1), remark: user?.remark ?? '', status: user?.status === 'disabled' ? 'disabled' : 'active',
-    groupIds: user?.groupIds ?? (groups[0] ? [groups[0].id] : []), afterDays: String(user?.expireAfterDays || ''),
-    nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [],
+    groupIds: user?.groupIds ?? groups.filter((g) => g.isDefault).map((g) => g.id), afterDays: String(user?.expireAfterDays || ''),
+    nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [], telegramId: user?.telegramId ? String(user.telegramId) : '',
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
@@ -127,7 +170,9 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
       expireAt: f.expireMode === 'date' && f.expire ? new Date(f.expire + 'T23:59:59').toISOString() : null,
       expireAfterDays: f.expireMode === 'first' ? Number(f.afterDays) || 0 : 0, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
       remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
+      telegramId: Number(f.telegramId.trim()) || 0,
     }
+    if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error('Telegram User ID 应为纯数字')
     if (user) await put('/users/' + user.id, body)
     else await post('/users', body)
     onSaved()
@@ -173,6 +218,9 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
             <input id="u-rday" className="input mono" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)} inputMode="numeric" />
           </Field>
         )}
+        <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? '已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒' : '纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定'}>
+          <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder="例如 123456789" />
+        </Field>
         <Field label="备注" htmlFor="u-remark" full><input id="u-remark" className="input" value={f.remark} onChange={(e) => set('remark', e.target.value)} /></Field>
       </div>
       <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
@@ -183,6 +231,7 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
           <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>禁用</button>
         </div>
       </Field>
+      {user && <SubCheck userId={user.id} />}
       {user && <UserTraffic userId={user.id} />}
       {user && (
         <div className="kv">
@@ -247,7 +296,7 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
               <tbody>
                 {(groups.data ?? []).map((g) => (
                   <tr key={g.id}>
-                    <td style={{ fontWeight: 500 }}>{g.name}</td><td className="mono">{g.userCount}</td><td className="mono">{g.inboundIds.length}</td>
+                    <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>默认</span>}</td><td className="mono">{g.userCount}</td><td className="mono">{g.inboundIds.length}</td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="link" type="button" onClick={() => setEdit({ id: g.id, name: g.name, inboundIds: g.inboundIds })}>编辑</button>{'  '}
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {

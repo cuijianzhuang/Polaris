@@ -44,9 +44,9 @@ export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; remark: string; groupIds: string[]; createdAt: string
-  nodeIds: string[]; inboundIds: string[]
+  nodeIds: string[]; inboundIds: string[]; telegramId: number
 }
-export interface Group { id: string; name: string; remark: string; inboundIds: string[]; userCount: number }
+export interface Group { id: string; name: string; remark: string; inboundIds: string[]; userCount: number; isDefault?: boolean }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
 export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
