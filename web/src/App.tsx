@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
+import { useTheme } from './theme'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import type { Node } from './types'
 import Login from './pages/Login'
@@ -81,6 +82,19 @@ function TopProgress() {
   return <div className={'topbar' + (show ? ' on' : '')} aria-hidden="true" />
 }
 
+// ThemeToggle cycles light → dark → follow system; accents live in 设置.
+function ThemeToggle() {
+  const [t, setT] = useTheme()
+  const next = { light: 'dark', dark: 'system', system: 'light' } as const
+  const label = { light: '浅色', dark: '深色', system: '跟随系统' }[t.mode]
+  return (
+    <button type="button" className="theme-btn" title={`主题：${label}（点击切换）`} aria-label={`主题：${label}`}
+      onClick={() => setT({ ...t, mode: next[t.mode] })}>
+      {t.mode === 'light' ? <Icon.Sun /> : t.mode === 'dark' ? <Icon.Moon /> : <Icon.Monitor />}
+    </button>
+  )
+}
+
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
   const [title, setTitle] = useState('Polaris')
   useEffect(() => { get<{ title: string }>('/info').then((i) => setTitle(i.title)).catch(() => {}) }, [])
@@ -94,7 +108,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         {nav.map((n) => <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
         <div className="navsec">系统</div>
         {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
-        <div className="side-foot"><span>{user}</span><button type="button" onClick={onLogout}>退出</button></div>
+        <div className="side-foot"><span>{user}</span><span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" onClick={onLogout}>退出</button></span></div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>
     </div>

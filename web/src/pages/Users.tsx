@@ -49,7 +49,7 @@ function Access({ groups, nodeIds, groupIds, inboundIds, onChange }: {
           {nodes.map((n) => (
             <button key={n.id} type="button" className={'chip' + (nodeIds.includes(n.id) ? ' on' : '')} aria-pressed={nodeIds.includes(n.id)}
               onClick={() => onChange('nodeIds', toggle(nodeIds, n.id))}>
-              <span className="dot" style={{ background: n.status === 'online' ? 'var(--ok)' : '#C9CED4' }} />{n.name}
+              <span className="dot" style={{ background: n.status === 'online' ? 'var(--ok)' : 'var(--input-strong)' }} />{n.name}
             </button>
           ))}
           {nodes.length === 0 && <span className="hint">还没有节点</span>}
@@ -341,7 +341,7 @@ function UserTraffic({ userId }: { userId: string }) {
           const th = (d.up + d.down) / max * H, uh = d.up / max * H
           return <g key={d.day}><title>{d.day} ↑ {bytes(d.up)} ↓ {bytes(d.down)}</title>
             <rect x={i * bw + bw * 0.15} y={H - th} width={bw * 0.7} height={Math.max(0, th - uh)} rx={1.5} style={{ fill: "var(--pri)" }} />
-            <rect x={i * bw + bw * 0.15} y={H - uh} width={bw * 0.7} height={uh} rx={1.5} style={{ fill: "#7DD3E3" }} /></g>
+            <rect x={i * bw + bw * 0.15} y={H - uh} width={bw * 0.7} height={uh} rx={1.5} style={{ fill: 'color-mix(in srgb, var(--pri) 45%, transparent)' }} /></g>
         })}
       </svg>
       <div className="hint">峰值 {bytes(max)} / 天 · 深色为下载、浅色为上传</div>

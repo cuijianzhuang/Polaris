@@ -26,17 +26,17 @@ function Trend({ data }: { data: Overview['trend'] }) {
   const last = data[data.length - 1]
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 220, marginTop: 12 }} role="img" aria-label="近 7 天流量趋势">
-      <g stroke="#EEF0EC">{[T, (T + B) / 2, B].map((v) => <line key={v} x1={L} y1={v} x2={R} y2={v} stroke={v === B ? '#D5D9D3' : undefined} />)}</g>
-      <g fill="#5B6470" fontSize="11" fontFamily="IBM Plex Mono">
+      <g style={{ stroke: 'var(--line-2)' }}>{[T, (T + B) / 2, B].map((v) => <line key={v} x1={L} y1={v} x2={R} y2={v} style={v === B ? { stroke: 'var(--input)' } : undefined} />)}</g>
+      <g style={{ fill: 'var(--mute)' }} fontSize="11" fontFamily="IBM Plex Mono">
         <text x={L - 8} y={T + 4} textAnchor="end">{bytes(max)}</text>
         <text x={L - 8} y={B + 4} textAnchor="end">0</text>
         {data.map((d, i) => <text key={d.date} x={x(i)} y={210} textAnchor="middle">{weekday[new Date(d.date + 'T00:00:00').getDay()]}</text>)}
       </g>
-      <path d={line('down')} fill="none" stroke="#0E7490" strokeWidth="2.5" />
-      <path d={line('up')} fill="none" stroke="#B45309" strokeWidth="2" strokeDasharray="5 4" />
+      <path d={line('down')} fill="none" style={{ stroke: 'var(--pri)' }} strokeWidth="2.5" />
+      <path d={line('up')} fill="none" style={{ stroke: 'var(--warn)' }} strokeWidth="2" strokeDasharray="5 4" />
       {last && <g fontSize="12">
-        <text x={R - 4} y={y(last.down) - 8} fill="#0E7490" textAnchor="end">下行</text>
-        <text x={R - 4} y={y(last.up) + 16} fill="#B45309" textAnchor="end">上行</text>
+        <text x={R - 4} y={y(last.down) - 8} style={{ fill: 'var(--pri)' }} textAnchor="end">下行</text>
+        <text x={R - 4} y={y(last.up) + 16} style={{ fill: 'var(--warn)' }} textAnchor="end">上行</text>
       </g>}
     </svg>
   )

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
 import GeodataCard from '../components/GeodataCard'
+import { accents, useTheme, type ThemeMode } from '../theme'
 import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 
 // DefaultVersion picks the version new nodes install: "latest" follows the
@@ -23,6 +24,28 @@ function DefaultVersion({ label, type, value, onChange }: { label: string; type:
         {opts.map((v, i) => <option key={v} value={v}>v{v}{i === 0 && recent[0] === v ? ' · 最新' : ''}{!recent.includes(v) ? ' · 自定义' : ''}</option>)}
       </select>
     </Field>
+  )
+}
+
+// Appearance is per browser: mode plus an accent palette.
+function Appearance() {
+  const [t, setT] = useTheme()
+  const modes: { id: ThemeMode; label: string }[] = [{ id: 'light', label: '浅色' }, { id: 'dark', label: '深色' }, { id: 'system', label: '跟随系统' }]
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2>外观</h2>
+      <Field label="主题模式" hint="仅保存在当前浏览器">
+        <div className="seg">
+          {modes.map((m) => <button key={m.id} type="button" className={'opt' + (t.mode === m.id ? ' on' : '')} aria-pressed={t.mode === m.id} onClick={() => setT({ ...t, mode: m.id })}>{m.label}</button>)}
+        </div>
+      </Field>
+      <Field label="主题色">
+        <div className="swatches">
+          {accents.map((a) => <button key={a.id} type="button" className={'swatch' + (t.accent === a.id ? ' on' : '')} style={{ background: a.color }}
+            title={a.label} aria-label={'主题色：' + a.label} aria-pressed={t.accent === a.id} onClick={() => setT({ ...t, accent: a.id })} />)}
+        </div>
+      </Field>
+    </section>
   )
 }
 
@@ -91,6 +114,7 @@ export default function Settings() {
           <Field label="CA 指纹（SHA-256）" hint="安装命令携带此指纹，Agent 首次接入时校验主控身份"><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
+        <Appearance />
         <GeodataCard />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>

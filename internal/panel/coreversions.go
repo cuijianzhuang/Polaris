@@ -236,16 +236,19 @@ func (s *Server) defaultCoreVersion(ctx context.Context, t model.CoreType) strin
 // cachedVersions returns recent stable versions, cached for an hour.
 func (s *Server) cachedVersions(ctx context.Context, t model.CoreType, repo, prefix string) []string {
 	versionLists.mu.Lock()
-	defer versionLists.mu.Unlock()
 	if versionLists.m == nil {
 		versionLists.m = map[model.CoreType]versionList{}
 	}
 	if l, ok := versionLists.m[t]; ok && time.Since(l.at) < time.Hour {
+		versionLists.mu.Unlock()
 		return l.vers
 	}
+	versionLists.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	vs, err := s.releaseVersions(ctx, repo, prefix)
+	versionLists.mu.Lock()
+	defer versionLists.mu.Unlock()
 	if err != nil {
 		// Remember the failure for a few minutes so node creation does
 		// not wait on an unreachable GitHub every time.
@@ -263,9 +266,19 @@ func (s *Server) cachedVersions(ctx context.Context, t model.CoreType, repo, pre
 // added without one (resolving "latest").
 func (s *Server) coreDefaults(c *gin.Context) {
 	out := map[model.CoreType]string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for t := range coreRepos {
-		out[t] = s.defaultCoreVersion(c.Request.Context(), t)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			v := s.defaultCoreVersion(c.Request.Context(), t)
+			mu.Lock()
+			out[t] = v
+			mu.Unlock()
+		}()
 	}
+	wg.Wait()
 	c.JSON(http.StatusOK, out)
 }
 
