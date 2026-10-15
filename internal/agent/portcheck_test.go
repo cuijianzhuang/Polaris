@@ -39,7 +39,7 @@ func TestPortConflicts(t *testing.T) {
 		t.Fatalf("conflicts: %v", msgs)
 	}
 	// Ports our own cores already hold (the applied spec) are not conflicts.
-	if msgs := portConflicts(next, next); len(msgs) != 0 {
+	if msgs := portConflicts([]*model.NodeSpec{next}, next); len(msgs) != 0 {
 		t.Fatalf("own ports reported: %v", msgs)
 	}
 	// Disabled inbounds open nothing.

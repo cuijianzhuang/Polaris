@@ -2,6 +2,7 @@ package sub
 
 import (
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -111,8 +112,13 @@ func LoonLine(n Node) string {
 		parts = append(parts, "udp=true")
 	case model.ProtoTrojan:
 		parts = []string{"trojan", host, port, q(n.Password)}
-		if t, ok := transport(); ok && n.Transport.Type == model.TransWS {
+		switch n.Transport.Type {
+		case model.TransWS:
+			t, _ := transport()
 			parts = append(parts, t...)
+		case "", model.TransTCP:
+		default:
+			return "" // gRPC / HTTPUpgrade cannot be expressed
 		}
 		parts = append(parts, tlsOpts()...)
 		parts = append(parts, "udp=true")
@@ -177,7 +183,7 @@ func (quanxRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error)
 // QuanxLine renders a Quantumult X [server_local] line, or "" when unsupported.
 func QuanxLine(n Node) string {
 	tag := "tag=" + strings.ReplaceAll(n.Name, ",", " ")
-	hp := fmt.Sprintf("%s:%d", n.Server, n.Port)
+	hp := net.JoinHostPort(n.Server, fmt.Sprint(n.Port)) // brackets IPv6
 	obfs := func() ([]string, bool) {
 		tls := n.TLS.Type == model.SecTLS || n.TLS.Type == model.SecReality
 		host := orDefault(n.TLS.ServerName, n.Transport.Host)
@@ -228,6 +234,9 @@ func QuanxLine(n Node) string {
 		}
 	case model.ProtoTrojan:
 		parts = []string{"trojan=" + hp, "password=" + n.Password}
+		if t := n.Transport.Type; t != "" && t != model.TransTCP && t != model.TransWS {
+			return "" // gRPC / HTTPUpgrade cannot be expressed
+		}
 		if n.Transport.Type == model.TransWS {
 			o, _ := obfs()
 			parts = append(parts, o...)

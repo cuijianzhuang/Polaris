@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"html"
 	"io"
 	"io/fs"
 	"net/http"
@@ -85,7 +86,9 @@ func (s *Server) Router() http.Handler {
 	api.GET("/info", s.publicInfo)
 
 	p := api.Group("", s.authRequired)
-	p.GET("/ws", func(c *gin.Context) { s.handleWS(c.Writer, c.Request) })
+	p.GET("/ws", func(c *gin.Context) {
+		s.handleWS(c.Writer, c.Request, c.GetString("adminID"), c.GetInt("tokenVersion"))
+	})
 	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPI(r)) })
 	p.GET("/auth/me", s.me)
 	p.POST("/auth/password", s.changePassword)
@@ -281,13 +284,13 @@ func (s *Server) serveIndex(c *gin.Context, prefix string) {
 	b, _ := io.ReadAll(f)
 	base := prefix + "/"
 	inject := `<script>window.__POLARIS_BASE__=` + jsString(base) + `;</script>`
-	b = bytes.Replace(b, []byte("<head>"), []byte("<head><base href=\""+base+"\">"+inject), 1)
+	b = bytes.Replace(b, []byte("<head>"), []byte("<head><base href=\""+html.EscapeString(base)+"\">"+inject), 1)
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", b)
 }
 
 func jsString(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "<", `<`)
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "<", `\u003c`)
 	return `"` + r.Replace(s) + `"`
 }
 

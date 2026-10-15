@@ -201,6 +201,11 @@ func (in *Inbound) Normalize() {
 	switch in.Protocol.Type {
 	case ProtoHysteria2, ProtoTUIC:
 		in.Transport.Type = TransQUIC
+		if in.Protocol.Obfs == "" {
+			// Servers enable obfs by type; a leftover password would make
+			// clients enable it alone.
+			in.Protocol.ObfsPassword = ""
+		}
 		if in.Security.Type == SecNone {
 			in.Security.Type = SecTLS
 		}

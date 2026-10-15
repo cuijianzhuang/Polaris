@@ -110,11 +110,8 @@ func (s *Server) validateChain(req *chainReq, chainID string) error {
 			lm := s.toModelInbound(&landing)
 			probe := model.Inbound{Port: h.Port, Protocol: lm.Protocol, Transport: lm.Transport}
 			probe.Normalize()
-			if err := s.portConflict(h.NodeID, &probe, ""); err != nil {
-				var c store.Chain
-				if s.st.DB.First(&c, "id = ?", chainID).Error != nil {
-					return err
-				}
+			if err := s.portConflictExcept(h.NodeID, &probe, "", chainID); err != nil {
+				return err
 			}
 		case "proxy":
 			var relay store.Inbound

@@ -209,9 +209,10 @@ func (a *agentService) ReportTraffic(ctx context.Context, req *connect.Request[p
 			if !allowed[u.UserId] {
 				continue // not a user of this node
 			}
-			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: u.Up, Down: u.Down})
+			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: max(u.Up, 0), Down: max(u.Down, 0)})
 		}
 		if err := a.s.traffic.Add(n.ID, ds); err != nil {
+			a.s.traffic.Forget(n.ID + "/" + b.BatchId) // let the retry count
 			return nil, connect.NewError(connect.CodeUnavailable, err)
 		}
 		resp.AcceptedBatchIds = append(resp.AcceptedBatchIds, b.BatchId)

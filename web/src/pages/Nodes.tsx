@@ -207,7 +207,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const save = () => run(async () => {
     const body: any = {
       name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate),
-      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall,
+      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
     if (node) {
       await put('/nodes/' + node.id, body)

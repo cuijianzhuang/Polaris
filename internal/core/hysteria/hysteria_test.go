@@ -116,3 +116,62 @@ func TestLiveMultiInbound(t *testing.T) {
 		t.Fatalf("after removal: %+v", st)
 	}
 }
+
+// The config refers to cert files by path: a renewed certificate must change
+// the rendered fingerprint and mark the instance for a restart.
+func TestRenderChangesWithCert(t *testing.T) {
+	a := New(core.Options{WorkDir: t.TempDir()})
+	render := func(sec model.SecuritySpec) string {
+		in := coretest.Inbound(model.CoreHysteria, "hy", 443, model.ProtocolSpec{Type: model.ProtoHysteria2}, model.TransportSpec{}, sec)
+		cfg, err := a.Render(&model.NodeSpec{Inbounds: []model.Inbound{in}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(cfg)
+	}
+	first := render(coretest.TLS(t, "h.example.com"))
+	a.insts["hy"].active = true // as after a start
+	if first == render(coretest.TLS(t, "h.example.com")) {
+		t.Fatal("rendered config unchanged after a certificate change")
+	}
+	if a.insts["hy"].active {
+		t.Fatal("instance not marked for restart after a certificate change")
+	}
+}
+
+// Start (used by the agent whenever the core is not fully running) must
+// also restart a running instance whose config changed.
+func TestStartRestartsChangedInstance(t *testing.T) {
+	dir := t.TempDir()
+	bin := dir + "/fake-hysteria"
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexec sleep 1000\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := New(core.Options{BinPath: bin, WorkDir: dir, APIListen: "127.0.0.1:1"})
+	sec := coretest.TLS(t, "h.example.com")
+	spec := func(port int) *model.NodeSpec {
+		return &model.NodeSpec{Inbounds: []model.Inbound{coretest.Inbound(model.CoreHysteria, "hy", port,
+			model.ProtocolSpec{Type: model.ProtoHysteria2}, model.TransportSpec{}, sec)}}
+	}
+	ctx := context.Background()
+	if _, err := a.Render(spec(4431)); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(ctx)
+	pid := a.insts["hy"].proc.PID()
+	if pid == 0 {
+		t.Fatal("fake hysteria not running")
+	}
+	if _, err := a.Render(spec(4432)); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.insts["hy"].proc.PID(); got == pid {
+		t.Fatalf("changed instance not restarted on Start (pid %d)", got)
+	}
+}

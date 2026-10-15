@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -305,6 +306,17 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 			}
 			m.Port = alt
 		}
+		if strings.Contains(item.TagPattern, "{rand.port}") {
+			// The port is only known now.
+			rnd["port"] = strconv.Itoa(m.Port)
+			tag = tagSanitizer.ReplaceAllString(expandVars(item.TagPattern, node, proto, rnd), "-")
+			m.Tag, pi.Tag = tag, tag
+			if tagUsed[tag] {
+				pi.Result, pi.Reason = "skip", "已存在同名入站"
+				np.Items = append(np.Items, pi)
+				continue
+			}
+		}
 		used[m.Port] = true
 		tagUsed[tag] = true
 		// Certificates.
@@ -480,7 +492,7 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 				if it.Result == "skip" || it.inbound == nil {
 					continue
 				}
-				row := store.Inbound{ID: store.NewID(), TemplateID: t.ID, OverriddenFields: store.NewJSON([]string{})}
+				row := store.Inbound{ID: store.NewID(), TemplateID: t.ID, TemplateItemKey: it.ItemKey, OverriddenFields: store.NewJSON([]string{})}
 				fromModel(it.inbound, &row)
 				s.sealInbound(&row)
 				if err := tx.Create(&row).Error; err != nil {
@@ -592,17 +604,18 @@ func (s *Server) syncTemplate(c *gin.Context) {
 		if wantProto.Type == model.ProtoHysteria2 && wantProto.Obfs != "" && wantProto.ObfsPassword == "" {
 			wantProto.ObfsPassword = cur.Protocol.ObfsPassword
 		}
-		apply("protocol", jsonEq(cur.Protocol, wantProto), func() { next.Protocol = wantProto })
 		wantT := item.Transport
 		if strings.Contains(wantT.Path, "{rand.path}") || wantT.Path == "" {
 			wantT.Path = cur.Transport.Path // random values are kept per node
 		} else {
 			wantT.Path = expandVars(wantT.Path, &node, "", nil)
 		}
-		if wantT.ServiceName == "" {
+		wantT.Host = expandVars(wantT.Host, &node, "", nil)
+		if wantT.ServiceName == "" || strings.Contains(wantT.ServiceName, "{rand.") {
 			wantT.ServiceName = cur.Transport.ServiceName
+		} else {
+			wantT.ServiceName = expandVars(wantT.ServiceName, &node, "", nil)
 		}
-		apply("transport", jsonEq(cur.Transport, wantT), func() { next.Transport = wantT })
 		wantS := item.Security
 		wantS.ServerName = expandVars(wantS.ServerName, &node, "", nil)
 		if wantS.ServerName == "" {
@@ -612,10 +625,20 @@ func (s *Server) syncTemplate(c *gin.Context) {
 		if len(wantS.RealityShortIDs) == 0 || strings.Contains(strings.Join(wantS.RealityShortIDs, ""), "{") {
 			wantS.RealityShortIDs = cur.Security.RealityShortIDs
 		}
+		// Compare against the template run through the same defaults the
+		// stored inbound went through (sniffing overrides, SS method, …),
+		// or every sync would report changes.
+		want := cur
+		want.Protocol, want.Transport, want.Security, want.Sniffing = wantProto, wantT, wantS, item.Sniffing
+		_ = s.prepareInbound(&want)
+		wantProto, wantT, wantS = want.Protocol, want.Transport, want.Security
+		apply("protocol", jsonEq(cur.Protocol, wantProto), func() { next.Protocol = wantProto })
+		apply("transport", jsonEq(cur.Transport, wantT), func() { next.Transport = wantT })
 		cs, ws := cur.Security, wantS
 		cs.CertPEM, cs.KeyPEM = "", ""
+		ws.CertPEM, ws.KeyPEM = "", ""
 		apply("security", jsonEq(cs, ws), func() { next.Security = wantS })
-		apply("sniffing", jsonEq(cur.Sniffing, item.Sniffing), func() { next.Sniffing = item.Sniffing })
+		apply("sniffing", jsonEq(cur.Sniffing, want.Sniffing), func() { next.Sniffing = want.Sniffing })
 		if item.Port.Mode == "fixed" {
 			apply("port", cur.Port == item.Port.Fixed, func() { next.Port = item.Port.Fixed })
 		}
@@ -661,15 +684,25 @@ func (s *Server) syncTemplate(c *gin.Context) {
 }
 
 // matchItem finds the template item that generated an inbound.
+// Inbounds generated before the item key was recorded fall back to matching
+// protocol and transport, and only when exactly one item matches.
 func matchItem(items map[string]store.TemplateItem, in *store.Inbound) (store.TemplateItem, bool) {
+	if in.TemplateItemKey != "" {
+		it, ok := items[in.TemplateItemKey]
+		return it, ok
+	}
+	var found []store.TemplateItem
 	for _, it := range items {
 		if it.Protocol.Type == in.Protocol.V.Type && (it.Transport.Type == in.Transport.V.Type ||
 			(it.Transport.Type == "" && in.Transport.V.Type == model.TransTCP) ||
 			(it.Transport.Type == model.TransQUIC && in.Transport.V.Type == model.TransQUIC)) {
-			return it, true
+			found = append(found, it)
 		}
 	}
-	return store.TemplateItem{}, false
+	if len(found) != 1 {
+		return store.TemplateItem{}, false
+	}
+	return found[0], true
 }
 
 func jsonEq(a, b any) bool {

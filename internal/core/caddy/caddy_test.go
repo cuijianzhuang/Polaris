@@ -101,3 +101,21 @@ func TestLiveFront(t *testing.T) {
 		}
 	}
 }
+
+// Certificates are referenced by path, so a renewal (same domain, new PEM)
+// must still change the rendered config or the agent never reloads Caddy.
+func TestRenderChangesWithCert(t *testing.T) {
+	a := New(core.Options{WorkDir: t.TempDir()})
+	render := func(sec model.SecuritySpec) string {
+		cfg, err := a.Render(&model.NodeSpec{Fronts: []model.FrontRule{
+			{Domain: "cdn.example.com", Port: 443, Path: "/ws", Upstream: "127.0.0.1:1", CertPEM: sec.CertPEM, KeyPEM: sec.KeyPEM}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(cfg)
+	}
+	first := render(coretest.TLS(t, "cdn.example.com"))
+	if first == render(coretest.TLS(t, "cdn.example.com")) {
+		t.Fatalf("config unchanged after a certificate change:\n%s", first)
+	}
+}

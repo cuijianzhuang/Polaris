@@ -7,6 +7,7 @@ package hysteria
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -156,13 +157,17 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 				return nil, err
 			}
 		}
-		combined[in.Tag] = cfg
+		// The config refers to the cert files by path: put a digest of their
+		// content in the comparison so a renewal restarts the instance.
+		sum := sha256.Sum256([]byte(in.Security.CertPEM + in.Security.KeyPEM))
+		certSum := hex.EncodeToString(sum[:8])
+		combined[in.Tag] = map[string]any{"config": cfg, "certSha256": certSum}
 		m := map[string]string{}
 		for _, u := range in.Users {
 			m[u.Password] = u.ID
 		}
 		users[in.Tag] = m
-		next[in.Tag] = &instance{tag: in.Tag, api: stats, cfg: path, hash: string(b)}
+		next[in.Tag] = &instance{tag: in.Tag, api: stats, cfg: path, hash: string(b) + certSum}
 	}
 	a.mu.Lock()
 	a.last = spec.Clone()
@@ -230,7 +235,8 @@ func (a *Adapter) Validate(cfg []byte) error {
 	return json.Unmarshal(cfg, &m)
 }
 
-func (a *Adapter) ensure(ctx context.Context, restartChanged bool) error {
+// ensure starts stopped instances and restarts those whose config changed.
+func (a *Adapter) ensure(ctx context.Context) error {
 	if a.opt.BinPath == "" {
 		return fmt.Errorf("hysteria binary not configured")
 	}
@@ -249,7 +255,7 @@ func (a *Adapter) ensure(ctx context.Context, restartChanged bool) error {
 		switch {
 		case !in.proc.Running():
 			err = in.proc.Start(ctx)
-		case restartChanged && !in.active:
+		case !in.active:
 			err = in.proc.Restart(ctx)
 		}
 		if err != nil {
@@ -264,8 +270,8 @@ func (a *Adapter) ensure(ctx context.Context, restartChanged bool) error {
 	return nil
 }
 
-func (a *Adapter) Start(ctx context.Context) error  { return a.ensure(ctx, false) }
-func (a *Adapter) Reload(ctx context.Context) error { return a.ensure(ctx, true) }
+func (a *Adapter) Start(ctx context.Context) error  { return a.ensure(ctx) }
+func (a *Adapter) Reload(ctx context.Context) error { return a.ensure(ctx) }
 
 func (a *Adapter) Stop(ctx context.Context) error {
 	a.mu.Lock()

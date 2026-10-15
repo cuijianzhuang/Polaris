@@ -25,6 +25,8 @@ type TrafficBuffer interface {
 	Drain() (map[string]map[string][2]int64, error)
 	// Seen records a batch id and reports whether it was already processed.
 	Seen(batchID string) bool
+	// Forget drops a recorded batch id (its Add failed; the retry must count).
+	Forget(batchID string)
 }
 
 type memBuffer struct {
@@ -82,6 +84,12 @@ func (b *memBuffer) Seen(id string) bool {
 	return false
 }
 
+func (b *memBuffer) Forget(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.seen, id)
+}
+
 // redisBuffer uses HINCRBY so several panel replicas can share counters.
 type redisBuffer struct{ c *redis.Client }
 
@@ -129,7 +137,10 @@ func (b *redisBuffer) Drain() (map[string]map[string][2]int64, error) {
 		}
 		vals, err := b.c.HGetAll(ctx, snap).Result()
 		if err != nil {
-			return nil, err
+			// Keep what was already drained; this node's snapshot is merged
+			// back so the next settlement picks it up.
+			_ = b.c.Eval(ctx, mergeBackLua, []string{snap, key}).Err()
+			continue
 		}
 		b.c.Del(ctx, snap)
 		m := map[string][2]int64{}
@@ -156,6 +167,16 @@ func (b *redisBuffer) Seen(id string) bool {
 	ok, err := b.c.SetNX(context.Background(), "polaris:batch:"+id, 1, time.Hour).Result()
 	return err == nil && !ok
 }
+
+func (b *redisBuffer) Forget(id string) {
+	b.c.Del(context.Background(), "polaris:batch:"+id)
+}
+
+// mergeBackLua adds a drain snapshot back into the live counters and deletes it.
+const mergeBackLua = `local v = redis.call('HGETALL', KEYS[1])
+for i = 1, #v, 2 do redis.call('HINCRBY', KEYS[2], v[i], v[i+1]) end
+redis.call('DEL', KEYS[1])
+return 1`
 
 // settleTraffic moves buffered traffic into users and traffic_hourly, applying
 // each node's traffic multiplier, and marks active users online.
@@ -223,10 +244,19 @@ func (s *Server) settleTraffic() error {
 		}
 		return nil
 	})
-	if err == nil {
-		s.enforceLimits()
+	if err != nil {
+		// Put the traffic back so the next settlement counts it.
+		for nodeID, users := range data {
+			ds := make([]model.TrafficDelta, 0, len(users))
+			for uid, v := range users {
+				ds = append(ds, model.TrafficDelta{UserID: uid, Up: v[0], Down: v[1]})
+			}
+			_ = s.traffic.Add(nodeID, ds)
+		}
+		return err
 	}
-	return err
+	s.enforceLimits()
+	return nil
 }
 
 // enforceLimits moves users between active / limited / expired and lifts
@@ -292,13 +322,9 @@ func (s *Server) resetTrafficCycles() {
 		due := false
 		switch u.ResetPolicy {
 		case "monthly":
-			day := u.ResetDay
-			if day < 1 || day > 28 {
-				day = 1
-			}
-			boundary := time.Date(now.Year(), now.Month(), day, 0, 0, 0, 0, now.Location())
+			boundary := monthlyBoundary(now, u.ResetDay, 0)
 			if now.Before(boundary) {
-				boundary = boundary.AddDate(0, -1, 0)
+				boundary = monthlyBoundary(now, u.ResetDay, -1)
 			}
 			due = last.Before(boundary)
 		case "cycle":
@@ -341,9 +367,16 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		}
 		cur[nodeID] = ips
 		all := map[string]bool{}
-		for _, perNode := range cur {
-			for ip := range perNode {
+		for n, perNode := range cur {
+			for ip, seen := range perNode {
+				if time.Since(seen) >= onlineIPWindow {
+					delete(perNode, ip) // the node stopped reporting it
+					continue
+				}
 				all[ip] = true
+			}
+			if len(perNode) == 0 {
+				delete(cur, n)
 			}
 		}
 		s.onlineMu.Unlock()
@@ -378,4 +411,21 @@ func (s *Server) alertOnce(key string, every time.Duration) bool {
 	}
 	s.alerts[key] = time.Now()
 	return true
+}
+
+// onlineIPWindow is how long a reported source IP counts as online. Agents
+// report every minute and only list users that have connections.
+const onlineIPWindow = 3 * time.Minute
+
+// monthlyBoundary is the reset instant for "day of month" in the month
+// offset from now's; days past the month's end mean its last day.
+func monthlyBoundary(now time.Time, day, offset int) time.Time {
+	if day < 1 {
+		day = 1
+	}
+	first := time.Date(now.Year(), now.Month()+time.Month(offset), 1, 0, 0, 0, 0, now.Location())
+	if last := first.AddDate(0, 1, -1).Day(); day > last {
+		day = last
+	}
+	return first.AddDate(0, 0, day-1)
 }

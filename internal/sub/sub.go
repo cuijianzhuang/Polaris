@@ -249,13 +249,26 @@ func ProtocolLabel(n Node) string {
 
 // Dedupe makes node names unique (clients key proxies by name).
 func Dedupe(nodes []Node) []Node {
-	seen := map[string]int{}
+	used := map[string]bool{}
+	for _, n := range nodes {
+		used[n.Name] = true
+	}
+	taken := map[string]bool{} // names already given out
+	count := map[string]int{}
 	out := make([]Node, len(nodes))
 	for i, n := range nodes {
-		seen[n.Name]++
-		if c := seen[n.Name]; c > 1 {
-			n.Name = fmt.Sprintf("%s %d", n.Name, c)
+		if taken[n.Name] {
+			// Pick a suffix no other node has or will keep.
+			base := n.Name
+			for c := count[base] + 2; ; c++ {
+				cand := fmt.Sprintf("%s %d", base, c)
+				if !used[cand] && !taken[cand] {
+					n.Name, count[base] = cand, c-1
+					break
+				}
+			}
 		}
+		taken[n.Name] = true
 		out[i] = n
 	}
 	return out

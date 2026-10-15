@@ -169,6 +169,7 @@ func (a *Agent) shutdown() {
 	a.acme.stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	a.collect(ctx)
 	a.flushTraffic(ctx)
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
@@ -366,18 +367,29 @@ func (a *Agent) trafficLoop(ctx context.Context) {
 
 func (a *Agent) collect(ctx context.Context) {
 	a.applyMu.Lock()
+	ms := make([]*managed, 0, len(a.cores))
+	for _, m := range a.cores {
+		ms = append(ms, m)
+	}
+	a.collectFrom(ctx, ms...)
+	a.applyMu.Unlock()
+}
+
+// collectFrom reads and queues the counters of some cores. Called with
+// applyMu held, also right before a core is stopped or reloaded: counters
+// live in core memory and would otherwise be lost.
+func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 	var all [][]model.TrafficDelta
-	for t, m := range a.cores {
+	for _, m := range ms {
 		ds, err := m.adapter.CollectTraffic(ctx)
 		if err != nil {
 			if !errors.Is(err, core.ErrNotSupported) {
-				a.log.Debug("collect traffic", "core", t, "err", err)
+				a.log.Debug("collect traffic", "core", m.spec.Type, "err", err)
 			}
 			continue
 		}
 		all = append(all, ds)
 	}
-	a.applyMu.Unlock()
 	merged := model.MergeDeltas(all...)
 	if len(merged) == 0 {
 		return
@@ -464,18 +476,20 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 	fail := func(err error) { res.Ok, res.Error = false, err.Error() }
 	switch c.Kind {
 	case "restart_core":
-		a.applyMu.Lock()
+		a.applyMu.Lock() // held across the restart: no apply may interleave
 		m := a.cores[model.CoreType(c.Args["type"])]
-		a.applyMu.Unlock()
 		if m == nil {
+			a.applyMu.Unlock()
 			fail(errors.New("core is not running on this node"))
 			break
 		}
+		a.collectFrom(ctx, m)
 		if err := m.adapter.Stop(ctx); err != nil {
 			fail(err)
 		} else if err := m.adapter.Start(ctx); err != nil {
 			fail(err)
 		}
+		a.applyMu.Unlock()
 	case "core_logs":
 		a.applyMu.Lock()
 		m := a.cores[model.CoreType(c.Args["type"])]

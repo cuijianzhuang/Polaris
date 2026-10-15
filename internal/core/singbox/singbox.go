@@ -551,10 +551,19 @@ func (a *Adapter) Validate(cfg []byte) error {
 	return core.RunCheck(a.opt.BinPath, "check", "-c", f)
 }
 
+// resetCounters forgets the cumulative counters: a (re)started or reloaded
+// sing-box counts from zero again.
+func (a *Adapter) resetCounters() {
+	a.mu.Lock()
+	a.seen = map[string][2]int64{}
+	a.mu.Unlock()
+}
+
 func (a *Adapter) Start(ctx context.Context) error {
 	if a.proc == nil {
 		return fmt.Errorf("sing-box binary not configured")
 	}
+	a.resetCounters()
 	return a.proc.Start(ctx)
 }
 
@@ -562,6 +571,7 @@ func (a *Adapter) Stop(ctx context.Context) error {
 	if a.proc == nil {
 		return nil
 	}
+	a.resetCounters()
 	return a.proc.Stop(ctx)
 }
 
@@ -570,6 +580,7 @@ func (a *Adapter) Reload(ctx context.Context) error {
 	if a.proc == nil {
 		return fmt.Errorf("sing-box binary not configured")
 	}
+	a.resetCounters()
 	if !a.proc.Running() {
 		return a.proc.Start(ctx)
 	}

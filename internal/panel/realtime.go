@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"github.com/cuijianzhuang/polaris/internal/store"
 	"net"
 	"net/http"
 	"strings"
@@ -54,7 +55,9 @@ func (r *realtime) run(ctx context.Context) {
 func (s *Server) broadcastNodes() { s.rt.dirty.Store(true) }
 
 // handleWS upgrades an authenticated request.
-func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+// The session is re-checked every ping: a password change or deleted admin
+// closes the stream.
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, adminID string, version int) {
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -87,6 +90,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-ping.C:
+			var a store.Admin
+			if s.st.DB.Select("id", "token_version").First(&a, "id = ?", adminID).Error != nil || a.TokenVersion != version {
+				c.Close(websocket.StatusPolicyViolation, "session revoked")
+				return
+			}
 			if err := c.Ping(ctx); err != nil {
 				return
 			}
@@ -130,6 +138,21 @@ func (l *ipLimiter) Allow(ip string) bool {
 	return lim.Allow()
 }
 
+// trustedProxies is set from the config (trusted_proxies).
+var trustedProxies []*net.IPNet
+
+func trustedPeer(ip net.IP) bool {
+	if len(trustedProxies) == 0 {
+		return ip.IsLoopback() || ip.IsPrivate()
+	}
+	for _, n := range trustedProxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // clientIP extracts the caller IP, trusting X-Forwarded-For only from loopback
 // / private proxies (Caddy/Nginx in front).
 func clientIP(r *http.Request) string {
@@ -138,7 +161,7 @@ func clientIP(r *http.Request) string {
 		host = r.RemoteAddr
 	}
 	ip := net.ParseIP(host)
-	if ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+	if ip != nil && trustedPeer(ip) {
 		// Behind a local reverse proxy: the right-most X-Forwarded-For entry is
 		// the one the proxy appended; entries to its left are client-supplied.
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {

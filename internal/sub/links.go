@@ -43,7 +43,7 @@ func ShareLink(n Node) string {
 		}
 		return "vless://" + n.UUID + "@" + hostPort(n) + "?" + q.Encode() + frag
 	case model.ProtoTrojan:
-		return "trojan://" + url.PathEscape(n.Password) + "@" + hostPort(n) + "?" + streamQuery(n).Encode() + frag
+		return "trojan://" + userEsc(n.Password) + "@" + hostPort(n) + "?" + streamQuery(n).Encode() + frag
 	case model.ProtoVMess:
 		v := map[string]string{
 			"v": "2", "ps": n.Name, "add": n.Server, "port": strconv.Itoa(n.Port), "id": n.UUID,
@@ -69,7 +69,7 @@ func ShareLink(n Node) string {
 		var userinfo string
 		if model.SS2022KeyLen(n.Method) > 0 {
 			// SIP022: plain, percent-encoded userinfo.
-			userinfo = url.PathEscape(n.Method) + ":" + url.PathEscape(n.Password)
+			userinfo = userEsc(n.Method) + ":" + userEsc(n.Password)
 		} else {
 			userinfo = base64.RawURLEncoding.EncodeToString([]byte(n.Method + ":" + n.Password))
 		}
@@ -84,7 +84,7 @@ func ShareLink(n Node) string {
 			q.Set("obfs", orDefault(n.Obfs, "salamander"))
 			q.Set("obfs-password", n.ObfsPassword)
 		}
-		return "hysteria2://" + url.PathEscape(n.Password) + "@" + hostPort(n) + "/?" + q.Encode() + frag
+		return "hysteria2://" + userEsc(n.Password) + "@" + hostPort(n) + "/?" + q.Encode() + frag
 	case model.ProtoTUIC:
 		q := url.Values{}
 		q.Set("congestion_control", orDefault(n.CongestionControl, "bbr"))
@@ -93,22 +93,28 @@ func ShareLink(n Node) string {
 		if n.TLS.Insecure {
 			q.Set("allow_insecure", "1")
 		}
-		return "tuic://" + n.UUID + ":" + url.PathEscape(n.Password) + "@" + hostPort(n) + "?" + q.Encode() + frag
+		return "tuic://" + n.UUID + ":" + userEsc(n.Password) + "@" + hostPort(n) + "?" + q.Encode() + frag
 	case model.ProtoAnyTLS:
 		q := url.Values{}
 		setNE(q, "sni", n.TLS.ServerName)
 		if n.TLS.Insecure {
 			q.Set("insecure", "1")
 		}
-		return "anytls://" + url.PathEscape(n.Password) + "@" + hostPort(n) + "/?" + q.Encode() + frag
+		return "anytls://" + userEsc(n.Password) + "@" + hostPort(n) + "/?" + q.Encode() + frag
 	case model.ProtoSOCKS:
 		return "socks://" + base64.RawURLEncoding.EncodeToString([]byte(n.Username+":"+n.Password)) + "@" + hostPort(n) + frag
 	case model.ProtoHTTP:
-		return "http://" + url.PathEscape(n.Username) + ":" + url.PathEscape(n.Password) + "@" + hostPort(n) + frag
+		return "http://" + userEsc(n.Username) + ":" + userEsc(n.Password) + "@" + hostPort(n) + frag
 	case model.ProtoNaive:
-		return "naive+https://" + url.PathEscape(n.Username) + ":" + url.PathEscape(n.Password) + "@" + hostPort(n) + frag
+		return "naive+https://" + userEsc(n.Username) + ":" + userEsc(n.Password) + "@" + hostPort(n) + frag
 	}
 	return ""
+}
+
+// userEsc escapes a URI userinfo part. Unlike PathEscape it also escapes
+// ":" and "@", which would otherwise split the credentials.
+func userEsc(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
 func netName(t model.Transport) string {

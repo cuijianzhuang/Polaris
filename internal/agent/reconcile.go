@@ -21,6 +21,9 @@ type managed struct {
 	spec    model.CoreSpec
 	adapter core.CoreAdapter
 	cfgPath string
+	// applied is the spec this core last converged to. It can differ from
+	// Agent.current when another core failed in the same apply.
+	applied *model.NodeSpec
 }
 
 // Hysteria uses base+10.. (one stats port per inbound).
@@ -59,8 +62,13 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	defer a.applyMu.Unlock()
 	prev := a.current
 	// Refuse up front, leaving running cores untouched, when another program
-	// holds a port the new spec needs.
-	if msgs := portConflicts(prev, spec); len(msgs) > 0 {
+	// holds a port the new spec needs. Ports our cores hold come from what
+	// each one actually runs.
+	held := []*model.NodeSpec{prev}
+	for _, m := range a.cores {
+		held = append(held, m.applied)
+	}
+	if msgs := portConflicts(held, spec); len(msgs) > 0 {
 		return applyResult{ok: false, method: "reload", err: errors.New(strings.Join(msgs, "; "))}
 	}
 	method := "hot"
@@ -82,6 +90,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	// Stop cores that are no longer wanted.
 	for t, m := range a.cores {
 		if _, ok := wanted[t]; !ok {
+			a.collectFrom(ctx, m)
 			_ = m.adapter.Stop(ctx)
 			delete(a.cores, t)
 			method = "reload"
@@ -91,7 +100,22 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	for t := range wanted {
 		types = append(types, t)
 	}
-	sort.Slice(types, func(i, j int) bool { return types[i] < types[j] })
+	// Cores that take over a port from another core go last, so the port is
+	// released before it is bound again (an inbound moved between cores).
+	gains := map[model.CoreType]bool{}
+	for _, t := range types {
+		var had *model.NodeSpec
+		if m := a.cores[t]; m != nil {
+			had = m.applied
+		}
+		gains[t] = takesPorts(coreSlice(had, t), coreSlice(spec, t))
+	}
+	sort.Slice(types, func(i, j int) bool {
+		if gains[types[i]] != gains[types[j]] {
+			return !gains[types[i]]
+		}
+		return types[i] < types[j]
+	})
 
 	var errs []string
 	rolledBack := false
@@ -107,7 +131,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		if m == nil {
 			continue // installed, nothing to serve
 		}
-		meth, rb, err := a.applyCore(ctx, m, prev, spec, active)
+		corePrev := m.applied
+		if corePrev == nil && old == nil {
+			corePrev = prev
+		}
+		meth, rb, err := a.applyCore(ctx, m, corePrev, spec, active)
 		if meth == "reload" {
 			method = "reload"
 		}
@@ -119,6 +147,8 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		}
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
+		} else {
+			m.applied = spec
 		}
 	}
 	if len(errs) > 0 {
@@ -164,6 +194,7 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 		return nil, nil, err
 	}
 	if m != nil {
+		a.collectFrom(ctx, m)
 		_ = m.adapter.Stop(ctx) // version switch
 	}
 	nm := &managed{spec: cs, adapter: ad, cfgPath: filepath.Join(work, cfgNames[cs.Type])}
@@ -196,6 +227,7 @@ func (a *Agent) revertVersion(ctx context.Context, failed, old *managed, cause e
 func (a *Agent) applyCore(ctx context.Context, m *managed, prev, next *model.NodeSpec, active bool) (method string, rolledBack bool, err error) {
 	t := m.spec.Type
 	if !active {
+		a.collectFrom(ctx, m)
 		return "reload", false, m.adapter.Stop(ctx)
 	}
 	cfg, err := m.adapter.Render(next)
@@ -230,6 +262,7 @@ func (a *Agent) applyCore(ctx context.Context, m *managed, prev, next *model.Nod
 		return "reload", false, err
 	}
 	if running {
+		a.collectFrom(ctx, m) // a reload resets the core's counters
 		err = m.adapter.Reload(ctx)
 	} else {
 		err = m.adapter.Start(ctx)
@@ -293,7 +326,8 @@ func userOnlyDiff(prev, next *model.NodeSpec, t model.CoreType) (map[string][]mo
 			Out []model.Outbound
 			R   []model.RouteRule
 			F   []model.ForwardRule
-		}{ins, s.Outbounds, s.Routes, s.Forwards})
+			Fr  []model.FrontRule
+		}{ins, s.Outbounds, s.Routes, s.Forwards, s.Fronts})
 		return b, users
 	}
 	pb, pu := strip(prev)
@@ -364,4 +398,33 @@ func (a *Agent) syncFirewall(ctx context.Context, spec *model.NodeSpec) {
 	if err != nil {
 		a.log.Warn("firewall update incomplete", "err", err)
 	}
+}
+
+// coreSlice is the part of a spec one core serves (its sockets).
+func coreSlice(s *model.NodeSpec, t model.CoreType) *model.NodeSpec {
+	if s == nil {
+		return nil
+	}
+	out := &model.NodeSpec{Inbounds: s.InboundsFor(t)}
+	switch t {
+	case model.CoreForwarder:
+		out.Forwards = s.Forwards
+	case model.CoreCaddy:
+		out.Fronts = s.Fronts
+	}
+	return out
+}
+
+// takesPorts reports whether a core needs a port it does not hold yet.
+func takesPorts(had, want *model.NodeSpec) bool {
+	mine := map[string]bool{}
+	for _, p := range portsOf(had) {
+		mine[p.key()] = true
+	}
+	for _, p := range portsOf(want) {
+		if !mine[p.key()] {
+			return true
+		}
+	}
+	return false
 }

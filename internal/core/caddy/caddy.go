@@ -5,6 +5,8 @@ package caddy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -59,6 +61,7 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		domain string
 		port   int
 		cert   string
+		sum    string // digest of the certificate and key
 		rules  []model.FrontRule
 	}
 	sites := map[string]*site{}
@@ -74,6 +77,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if f.CertPEM != "" && st.cert == "" {
 			name := strings.NewReplacer("*", "_", ":", "_").Replace(f.Domain)
 			st.cert = name
+			sum := sha256.Sum256([]byte(f.CertPEM + f.KeyPEM))
+			st.sum = hex.EncodeToString(sum[:8])
 			if a.opt.WorkDir != "" {
 				dir := filepath.Join(a.opt.WorkDir, "certs")
 				if err := core.AtomicWrite(filepath.Join(dir, name+".crt"), []byte(f.CertPEM), 0o600); err != nil {
@@ -97,6 +102,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		}
 		dir := filepath.Join(a.opt.WorkDir, "certs")
 		fmt.Fprintf(&b, "\ttls %s %s\n", filepath.Join(dir, st.cert+".crt"), filepath.Join(dir, st.cert+".key"))
+		// The files are referenced by path: a digest of their content makes a
+		// renewed certificate change the config, so Caddy reloads it.
+		fmt.Fprintf(&b, "\t# cert %s\n", st.sum)
 		// Longest paths first so a short prefix never shadows a longer one.
 		sort.SliceStable(st.rules, func(i, j int) bool { return len(st.rules[i].Path) > len(st.rules[j].Path) })
 		for i, r := range st.rules {
