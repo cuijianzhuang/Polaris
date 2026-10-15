@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -108,6 +109,7 @@ func liveNewOpts(t *testing.T, bin string, enc, mldsa bool) {
 	if !mldsa {
 		in.Security.RealityMldsa65Seed, in.Security.RealityMldsa65Verify = "", ""
 	}
+	in.Extra = json.RawMessage(`{"streamSettings":{"realitySettings":{"show":true}}}`) // REALITY debug output for failures
 	srv := New(core.Options{Version: "26.10.10", BinPath: bin, WorkDir: t.TempDir(), APIListen: fmt.Sprintf("127.0.0.1:%d", freePort(t))})
 	start(t, srv, &model.NodeSpec{Inbounds: []model.Inbound{in}})
 
@@ -135,7 +137,7 @@ func liveNewOpts(t *testing.T, bin string, enc, mldsa bool) {
 		time.Sleep(200 * time.Millisecond)
 	}
 	t.Errorf("no traffic: %v %q\nserver log:\n%s\nclient log:\n%s", err, out,
-		strings.Join(srv.Logs(40), "\n"), strings.Join(cli.Logs(40), "\n"))
+		strings.Join(srv.Logs(80), "\n"), strings.Join(cli.Logs(20), "\n"))
 }
 
 func start(t *testing.T, a *Adapter, spec *model.NodeSpec) {
