@@ -41,6 +41,7 @@ jobs:
               -C "$GITHUB_WORKSPACE/deploy" polaris.service polaris.env.example Caddyfile
             rm -f build/polaris
           done
+          cp scripts/install-panel.sh dist/
           cd dist && sha256sum * > checksums.txt && cat checksums.txt
       - name: Smoke test the binaries
         env:

@@ -44,7 +44,7 @@ command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 TMP="$(mktemp)"
 SUMS="$(mktemp)"
 trap 'rm -f "$TMP" "$SUMS"' EXIT
-eval "WANT=\$SHA_$ARCH"
+case "$ARCH" in amd64) WANT="$SHA_amd64" ;; arm64) WANT="$SHA_arm64" ;; esac
 echo "==> downloading polaris-agent ($ARCH)"
 if [ -n "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TMP" 2>/dev/null; then
   : # checksum published by the panel together with this script
