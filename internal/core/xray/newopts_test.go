@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -96,6 +97,21 @@ func liveNewOpts(t *testing.T, bin string, enc, mldsa bool) {
 	dest := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	dest.EnableHTTP2 = true
 	dest.Config.ErrorLog = log.New(io.Discard, "", 0) // REALITY probes the target on every handshake
+	// ML-DSA-65 must fit its signature into a certificate record as large
+	// as the target's: real targets send 3.5 KB+, so pad the test cert.
+	var names []string
+	for i := 0; i < 220; i++ {
+		names = append(names, fmt.Sprintf("host-%03d.example.com", i))
+	}
+	certPEM, keyPEM, err := pki.SelfSigned(append([]string{"example.com"}, names...), 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest.TLS = &tls.Config{Certificates: []tls.Certificate{pair}}
 	dest.StartTLS()
 	defer dest.Close()
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "through") }))
@@ -109,7 +125,7 @@ func liveNewOpts(t *testing.T, bin string, enc, mldsa bool) {
 	if !mldsa {
 		in.Security.RealityMldsa65Seed, in.Security.RealityMldsa65Verify = "", ""
 	}
-	in.Extra = json.RawMessage(`{"streamSettings":{"realitySettings":{"show":true}}}`) // REALITY debug output for failures
+	in.Extra = json.RawMessage(`{"streamSettings":{"realitySettings":{"show":true}}}`) // REALITY trace on failure
 	srv := New(core.Options{Version: "26.10.10", BinPath: bin, WorkDir: t.TempDir(), APIListen: fmt.Sprintf("127.0.0.1:%d", freePort(t))})
 	start(t, srv, &model.NodeSpec{Inbounds: []model.Inbound{in}})
 
@@ -127,7 +143,6 @@ func liveNewOpts(t *testing.T, bin string, enc, mldsa bool) {
 
 	u := coretest.Users()[0]
 	var out []byte
-	var err error
 	for i := 0; i < 30; i++ {
 		out, err = exec.Command("curl", "-s", "-m", "5", "--socks5-hostname", fmt.Sprintf("127.0.0.1:%d", socks),
 			"-U", u.ID+":"+u.Password, web.URL).CombinedOutput()

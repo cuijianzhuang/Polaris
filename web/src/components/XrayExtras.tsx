@@ -80,7 +80,7 @@ export function RealityAdvanced({ s, setS, mldsa }: { s: SecuritySpec; setS: (x:
         <Field label="最大客户端版本"><input className="input mono" value={s.realityMaxClientVer ?? ''} onChange={(e) => setS({ realityMaxClientVer: e.target.value || undefined })} placeholder="x.y.z" /></Field>
       </div>
       <Field label="ML-DSA-65 签名" hint={mldsa
-        ? '服务端用后量子签名证明身份；客户端填入校验公钥（订阅中的 pqv）后才会校验。种子加密存储、不回显'
+        ? '服务端用后量子签名证明身份；客户端填入校验公钥（订阅中的 pqv）后才会校验。目标站证书链需至少约 3.5 KB（扫描结果中标「ML-DSA 可用」），否则连接会失败。种子加密存储、不回显'
         : '需要 Xray 25.9.11 及以上的内核'}>
         <div className="row" style={{ gap: 8 }}>
           <button className="btn sm" type="button" disabled={busy || !mldsa} onClick={() => run(async () => {
@@ -135,9 +135,9 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
         <div className="scroll" style={{ marginTop: 12 }}>
           <div className="hint">来源：{res.from === 'node' ? '节点' : res.from}</div>
           <table>
-            <thead><tr><th>目标</th><th>状态</th><th>TLS</th><th>ALPN</th><th>密钥交换</th><th>证书</th><th>证书链</th><th>延迟</th><th /></tr></thead>
+            <thead><tr><th>目标</th><th>状态</th><th>TLS</th><th>ALPN</th><th>密钥交换</th><th>证书</th><th>证书链</th><th>ML-DSA</th><th>延迟</th><th /></tr></thead>
             <tbody>
-              {res.results.length === 0 && <tr><td colSpan={9} className="sub">没有响应的目标</td></tr>}
+              {res.results.length === 0 && <tr><td colSpan={10} className="sub">没有响应的目标</td></tr>}
               {res.results.map((r) => (
                 <tr key={r.target}>
                   <td className="mono small">{r.target}</td>
@@ -147,6 +147,7 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
                   <td className="mono small">{r.keyShare ?? '—'}</td>
                   <td className="small">{r.certName ?? '—'}</td>
                   <td className="mono small">{r.chainSize ? `${r.chainSize} B` : '—'}</td>
+                  <td className="small">{r.tls ? (r.mldsa ? '可用' : '链太短') : '—'}</td>
                   <td className="mono small">{r.latencyMs != null ? `${r.latencyMs} ms` : '—'}</td>
                   <td>{r.ok && <button className="btn sm" type="button" onClick={() => { onPick(r.target, r.names ?? []); onClose() }}>使用</button>}</td>
                 </tr>

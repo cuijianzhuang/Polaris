@@ -27,12 +27,16 @@ var Candidates = []string{
 
 // Result describes one probed target.
 type Result struct {
-	Target    string   `json:"target"` // host:port to use as REALITY "target"
-	OK        bool     `json:"ok"`     // usable: TLS 1.3 + h2 + valid certificate
-	TLS       string   `json:"tls,omitempty"`
-	ALPN      string   `json:"alpn,omitempty"`
-	KeyShare  string   `json:"keyShare,omitempty"`
-	PQ        bool     `json:"pq"` // X25519MLKEM768 negotiated
+	Target   string `json:"target"` // host:port to use as REALITY "target"
+	OK       bool   `json:"ok"`     // usable: TLS 1.3 + h2 + valid certificate
+	TLS      string `json:"tls,omitempty"`
+	ALPN     string `json:"alpn,omitempty"`
+	KeyShare string `json:"keyShare,omitempty"`
+	PQ       bool   `json:"pq"` // X25519MLKEM768 negotiated
+	// MLDSA reports whether the certificate chain is long enough for
+	// REALITY's ML-DSA-65 signature (it must fit into a record as long as
+	// the target's certificate message).
+	MLDSA     bool     `json:"mldsa"`
 	CertName  string   `json:"certName,omitempty"`
 	Names     []string `json:"names,omitempty"` // certificate names usable as serverNames
 	ChainSize int      `json:"chainSize,omitempty"`
@@ -41,6 +45,11 @@ type Result struct {
 }
 
 const maxHosts = 256
+
+// MLDSAMinChain is the certificate chain size (bytes) a REALITY target needs
+// for ML-DSA-65 signatures: the forged certificate carries a 3309-byte
+// signature and must not exceed the target's certificate record.
+const MLDSAMinChain = 3600
 
 // roots verifies certificates (nil: the system pool); tests replace it.
 var roots *x509.CertPool
@@ -140,6 +149,7 @@ func Probe(ctx context.Context, hostport string) Result {
 	for _, c := range st.PeerCertificates {
 		r.ChainSize += len(c.Raw)
 	}
+	r.MLDSA = r.ChainSize >= MLDSAMinChain
 	if len(st.PeerCertificates) == 0 {
 		r.Problem = "没有证书"
 		return r
