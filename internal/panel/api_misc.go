@@ -105,6 +105,7 @@ var editableSettings = map[string]bool{
 	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true,
+	"sub_scheme": true, "sub_skip_cert": true, "sub_force_udp": true,
 }
 
 func (s *Server) getSettings(c *gin.Context) {

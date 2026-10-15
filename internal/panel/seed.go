@@ -32,6 +32,9 @@ var defaultSettings = map[string]string{
 	"sub_show_info":         "none",
 	"sub_routing_enabled":   "false",
 	"sub_show_bot":          "true",
+	"sub_scheme":            "",
+	"sub_skip_cert":         "false",
+	"sub_force_udp":         "false",
 }
 
 func (s *Server) seed() error {

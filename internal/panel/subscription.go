@@ -63,7 +63,7 @@ func (s *Server) subscription(c *gin.Context) {
 			}
 		}
 	}
-	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), "/sub/"+u.SubToken, &u)
+	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.renderOptsFor(nil), "/sub/"+u.SubToken, &u)
 }
 
 // subNodes expands every authorised inbound × endpoint into client nodes.

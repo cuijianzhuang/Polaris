@@ -13,8 +13,9 @@ import (
 
 func init() { Register(clashRenderer{}) }
 
-// DefaultClashTemplate is the default mihomo rule template. {{ .Proxies }}
-// expands to the proxies list and {{ .Names }} to a flow list of proxy names.
+// DefaultClashTemplate is the default mihomo template. {{ .Proxies }} expands
+// to the proxies list; {{ .ProxyGroups }}, {{ .RuleProviders }} and {{ .Rules }}
+// come from the active rule scheme.
 const DefaultClashTemplate = `mixed-port: 7890
 allow-lan: false
 mode: rule
@@ -23,39 +24,9 @@ unified-delay: true
 proxies:
 {{ .Proxies }}
 proxy-groups:
-  - name: 节点选择
-    type: select
-    proxies: [自动选择, 故障转移, 负载均衡{{ range .Regions }}, {{ .Name }}{{ end }}, DIRECT, {{ .NamesInline }}]
-  - name: 自动选择
-    type: url-test
-    url: https://www.gstatic.com/generate_204
-    interval: 300
-    tolerance: 50
-    proxies: {{ .Names }}
-  - name: 故障转移
-    type: fallback
-    url: https://www.gstatic.com/generate_204
-    interval: 300
-    proxies: {{ .Names }}
-  - name: 负载均衡
-    type: load-balance
-    strategy: consistent-hashing
-    url: https://www.gstatic.com/generate_204
-    interval: 300
-    proxies: {{ .Names }}
-{{- range .Regions }}
-  - name: {{ .Name }}
-    type: url-test
-    url: https://www.gstatic.com/generate_204
-    interval: 300
-    tolerance: 50
-    proxies: {{ .NamesJSON }}
-{{- end }}
-rules:
-  - GEOIP,LAN,DIRECT,no-resolve
-  - GEOSITE,CN,DIRECT
-  - GEOIP,CN,DIRECT,no-resolve
-  - MATCH,节点选择
+{{ .ProxyGroups }}
+{{ .RuleProviders }}rules:
+{{ .Rules }}
 `
 
 // clashRenderer outputs Clash / mihomo / Stash YAML.
@@ -87,7 +58,9 @@ func (clashRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error)
 	} else {
 		buf.WriteString("  []\n")
 	}
-	return execTemplate(orDefault(tpl, DefaultClashTemplate), templateData(kept, info, strings.TrimRight(buf.String(), "\n")))
+	data := templateData(kept, info, strings.TrimRight(buf.String(), "\n"))
+	data["ProxyGroups"], data["RuleProviders"], data["Rules"] = clashScheme(schemeOf(info), kept)
+	return execTemplate(orDefault(tpl, DefaultClashTemplate), data)
 }
 
 // templateData is what every text template receives:

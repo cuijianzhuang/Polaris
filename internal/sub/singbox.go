@@ -10,12 +10,13 @@ func init() { Register(singboxRenderer{}) }
 
 // DefaultSingboxTemplate targets sing-box >= 1.11 clients (SFA / SFI / SFM).
 // {{ .Outbounds }} is a JSON array fragment of proxy outbounds and {{ .Tags }}
-// a JSON array of their tags.
+// a JSON array of their tags; {{ .ProxyGroups }}, {{ .Rules }}, {{ .RuleSets }},
+// {{ .Final }} and {{ .Main }} (the first selector) come from the rule scheme.
 const DefaultSingboxTemplate = `{
   "log": {"level": "warn"},
   "dns": {
     "servers": [
-      {"tag": "remote", "type": "https", "server": "1.1.1.1", "detour": "节点选择"},
+      {"tag": "remote", "type": "https", "server": "1.1.1.1", "detour": {{ json .Main }}},
       {"tag": "local", "type": "udp", "server": "223.5.5.5"}
     ],
     "rules": [{"rule_set": "geosite-cn", "server": "local"}],
@@ -26,26 +27,17 @@ const DefaultSingboxTemplate = `{
     {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080}
   ],
   "outbounds": [
-    {"type": "selector", "tag": "节点选择", "outbounds": ["自动选择"{{ range .Regions }}, {{ json .Name }}{{ end }}, {{ .TagsInline }}]},
-    {"type": "urltest", "tag": "自动选择", "outbounds": {{ .Tags }}, "url": "https://www.gstatic.com/generate_204", "interval": "5m"},
-    {{- range .Regions }}
-    {"type": "urltest", "tag": {{ json .Name }}, "outbounds": {{ .NamesJSON }}, "url": "https://www.gstatic.com/generate_204", "interval": "5m"},
-    {{- end }}
+    {{ .ProxyGroups }},
     {{ .Outbounds }}{{ if .HasOutbounds }},{{ end }}
     {"type": "direct", "tag": "direct"}
   ],
   "route": {
     "rules": [
       {"action": "sniff"},
-      {"protocol": "dns", "action": "hijack-dns"},
-      {"ip_is_private": true, "outbound": "direct"},
-      {"rule_set": ["geosite-cn", "geoip-cn"], "outbound": "direct"}
+      {"protocol": "dns", "action": "hijack-dns"}{{ .Rules }}
     ],
-    "rule_set": [
-      {"type": "remote", "tag": "geosite-cn", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs", "download_detour": "节点选择"},
-      {"type": "remote", "tag": "geoip-cn", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs", "download_detour": "节点选择"}
-    ],
-    "final": "节点选择",
+    "rule_set": {{ .RuleSets }},
+    "final": {{ json .Final }},
     "auto_detect_interface": true,
     "default_domain_resolver": "local"
   }
@@ -90,6 +82,7 @@ func (singboxRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, erro
 	data["HasOutbounds"] = len(parts) > 0
 	data["Tags"] = string(tagsJSON)
 	data["TagsInline"] = string(tagsJSON[1 : len(tagsJSON)-1])
+	data["ProxyGroups"], data["Rules"], data["RuleSets"], data["Final"], data["Main"] = singboxScheme(schemeOf(info), kept)
 	body, err := execTemplate(orDefault(tpl, DefaultSingboxTemplate), data)
 	if err != nil {
 		return nil, err

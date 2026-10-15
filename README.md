@@ -26,6 +26,7 @@
 | 订阅 | `/sub/{token}` 按 UA 或 `?format=` 输出 通用链接 / Clash(mihomo) / sing-box / Surge / Loon / Quantumult X；每种格式可维护多套规则模板。订阅设置：独立订阅域名、订阅标题、更新间隔、客服链接、一键停用；`subscription-userinfo` / `profile-title` / `support-url` / `announce`（公告）/ `routing`（Happ 路由规则，可开关）响应头；可在节点列表插入「剩余流量 / 到期 / 公告」信息节点或名称后缀 |
 | 订阅信息页 | 浏览器打开订阅链接：公告、状态、用量与剩余、到期与重置周期、近 30 天流量柱状图、订阅二维码、12 个客户端一键导入（Clash Verge、sing-box、Shadowrocket、Stash、Hiddify、Happ、v2rayNG、Streisand、Surge、Loon、QX、Karing）、每个节点的链接与二维码、Telegram 一键绑定、客服入口；明暗主题自适应 |
 | 订阅转换 | 参考 MiSub：订阅源（机场订阅链接 / 手动节点，自动识别 Base64、Clash、sing-box、SIP008，定时更新，记录流量与到期）+ 订阅组（面板用户节点 + 多个订阅源合并）；处理链：过滤（协议 / 地区 / 正则 / 去信息节点）、重命名（正则或 `{emoji} {regionZh} {index}` 模板）、排序（地区优先级）、去重；可切换第三方 subconverter 后端；SSRF 防护 |
+| 规则与配置方案 | 参考 MiSub：内置 4 套方案（极简 / ACL4SSR 精简 / 流媒体与 AI / ACL4SSR 完整）+ ACL4SSR CM_Online 系列 7 套 + 自定义 ini URL；采用 subconverter ini 语法，内置引擎转换为各客户端原生写法（Clash rule-providers、sing-box rule-set、Surge / Loon / QX 远程规则），`[]@regions` 自动展开地区分组；第三方后端直接用方案作 config；全局或按订阅组设置，另有「跳过证书校验」「强制 UDP」开关 |
 | 域名与 DDNS | DNS 服务商（Cloudflare / 自定义 Webhook）；域名绑定节点 IP（A / AAAA / 双栈，可选 CDN 代理）；Agent 定期探测公网 IP 随心跳上报，开启 DDNS 的节点 IP 变化后自动更新记录并告警 |
 | 路由与负载均衡 | 出站负载均衡组（延迟最低 / 最稳定 / 故障转移 / 轮询 / 随机，探测地址、容差、兜底出站）；健康检查失败的成员自动摘除；入站可绑定固定出口；全局规则（所有节点）+ 节点规则；规则预设（拦截广告 / BT / 私有地址、国内直连、流媒体 / AI / Telegram 分流） |
 | Telegram 机器人 | 超级管理员（全部节点与用户）/ 节点管理员（只管绑定的节点）/ 用户（订阅链接或信息页一键绑定）三种角色；查看节点、重启内核、强制同步、搜索用户、重置流量、续期；节点离线 / 下发失败 / IP 变更告警；用户流量与到期提醒；公告群发 |

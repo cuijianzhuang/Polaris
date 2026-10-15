@@ -22,17 +22,10 @@ dns-server = system, 223.5.5.5
 {{ .Proxies }}
 
 [Proxy Group]
-节点选择 = select, 自动选择, 故障转移, 负载均衡{{ range .Regions }}, {{ .Name }}{{ end }}, DIRECT{{ .NamesCSV }}
-自动选择 = url-test{{ .NamesCSV }}, url=http://www.gstatic.com/generate_204, interval=600
-故障转移 = fallback{{ .NamesCSV }}, url=http://www.gstatic.com/generate_204, interval=600
-负载均衡 = load-balance{{ .NamesCSV }}, url=http://www.gstatic.com/generate_204, persistent=true
-{{- range .Regions }}
-{{ .Name }} = url-test, {{ join .Names ", " }}, url=http://www.gstatic.com/generate_204, interval=600
-{{- end }}
+{{ .ProxyGroups }}
 
 [Rule]
-GEOIP,CN,DIRECT
-FINAL,节点选择,dns-failed
+{{ .Rules }}
 `
 
 type surgeRenderer struct{}
@@ -49,7 +42,9 @@ func (surgeRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error)
 			kept = append(kept, n)
 		}
 	}
-	return execTemplate(orDefault(tpl, DefaultSurgeTemplate), templateData(kept, info, strings.Join(lines, "\n")))
+	data := templateData(kept, info, strings.Join(lines, "\n"))
+	data["ProxyGroups"], data["Rules"] = surgeScheme(schemeOf(info), kept)
+	return execTemplate(orDefault(tpl, DefaultSurgeTemplate), data)
 }
 
 // SurgeLine renders one [Proxy] line, or "" if Surge cannot express the node.
@@ -110,6 +105,9 @@ func SurgeLine(n Node) string {
 		parts = []string{"http", n.Server, fmt.Sprint(n.Port), n.Username, n.Password}
 	default:
 		return ""
+	}
+	if n.ForceUDP && (n.Protocol == model.ProtoVMess || n.Protocol == model.ProtoTrojan || n.Protocol == model.ProtoSOCKS) {
+		parts = append(parts, "udp-relay=true")
 	}
 	return name + " = " + strings.Join(parts, ", ")
 }
