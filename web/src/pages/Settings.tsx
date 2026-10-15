@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
-import GeodataCard from '../components/GeodataCard'
 import { accents, useTheme, type ThemeMode } from '../theme'
 import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 
@@ -41,7 +40,7 @@ function Appearance() {
       </Field>
       <Field label="主题色">
         <div className="swatches">
-          {accents.map((a) => <button key={a.id} type="button" className={'swatch' + (t.accent === a.id ? ' on' : '')} style={{ background: a.color }}
+          {accents.map((a) => <button key={a.id} type="button" className={'accent-swatch' + (t.accent === a.id ? ' on' : '')} style={{ background: a.color }}
             title={a.label} aria-label={'主题色：' + a.label} aria-pressed={t.accent === a.id} onClick={() => setT({ ...t, accent: a.id })} />)}
         </div>
       </Field>
@@ -115,7 +114,6 @@ export default function Settings() {
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
         <Appearance />
-        <GeodataCard />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>
           <Field label="原密码"><input className="input" type="password" autoComplete="current-password" value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>

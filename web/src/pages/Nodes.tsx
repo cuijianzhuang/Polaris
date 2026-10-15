@@ -32,14 +32,14 @@ function capsSummary(c?: CapSet): string[] {
 }
 
 const vparts = (v: string) => v.replace(/^v/, '').split('.').map((x) => parseInt(x, 10) || 0)
-const versionLess = (a: string, b: string) => {
+export const versionLess = (a: string, b: string) => {
   const pa = vparts(a), pb = vparts(b)
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) < (pb[i] ?? 0)
   return false
 }
 
 /** Upgrade one core type on many nodes at once. */
-function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: Node[]; latest: Record<string, string>; onClose: () => void; onDone: () => void }) {
+export function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: Node[]; latest: Record<string, string>; onClose: () => void; onDone: () => void }) {
   const types = [...new Set(nodes.flatMap((n) => n.cores.map((c) => c.type)))] as CoreType[]
   const [type, setType] = useState<CoreType>(types[0] ?? 'xray')
   const [version, setVersion] = useState(latest[types[0] ?? 'xray'] ?? '')
@@ -275,7 +275,7 @@ const coreHint: Record<string, string> = {
   mihomo: 'listeners · 控制器热重载', caddy: 'CDN 443 端口共享回源（按需自动安装）', forwarder: 'L4 端口转发 · 中转链路',
 }
 
-function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
+export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
   const [type, setType] = useState<CoreType>(core?.type ?? (node.cores.find((c) => c.type === 'singbox') ? 'xray' : 'singbox'))
   const defaults = useCoreDefaults()
   const [version, setVersion] = useState(core?.version ?? '')
