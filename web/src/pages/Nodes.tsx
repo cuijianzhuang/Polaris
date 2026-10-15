@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
-import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
 import type { CapSet, Core, CoreType, Node, Revision, User } from '../types'
 
@@ -530,7 +530,7 @@ export default function Nodes() {
       {batchCore && <BatchCoreUpgrade nodes={nodes} latest={latest.data ?? {}} onClose={() => setBatchCore(false)} onDone={() => { setBatchCore(false); refresh() }} />}
       {install && <InstallModal install={install} node={nodes.find((n) => n.id === install.nodeId)} onClose={() => setInstall(null)} />}
       {preview && (
-        <Modal title={preview.title} onClose={() => setPreview(null)} wide footer={<button className="btn" type="button" onClick={() => { navigator.clipboard.writeText(preview.text).then(() => toast('已复制')) }}>复制</button>}>
+        <Modal title={preview.title} onClose={() => setPreview(null)} wide footer={<button className="btn" type="button" onClick={() => { copyText(preview.text).then(() => toast('已复制'), () => toast('复制失败，请手动选择', true)) }}>复制</button>}>
           <div className="code">{preview.text}</div>
         </Modal>
       )}

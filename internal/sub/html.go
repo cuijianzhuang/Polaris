@@ -77,8 +77,10 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 </div></section>{{end}}
 </main>
 <script>
-document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;e.preventDefault();var t=b.getAttribute('data-copy');
-(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='已复制'},function(){prompt('复制以下内容',t)});setTimeout(function(){b.textContent='复制'},1500)});
+function legacyCopy(t){var a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.position='fixed';a.style.top='-1000px';a.style.opacity='0';document.body.appendChild(a);a.select();a.setSelectionRange(0,t.length);var ok=false;try{ok=document.execCommand('copy')}catch(x){}document.body.removeChild(a);return ok}
+function copyText(t){if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(t).catch(function(){if(!legacyCopy(t))throw 0})}return legacyCopy(t)?Promise.resolve():Promise.reject()}
+document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;e.preventDefault();var t=b.getAttribute('data-copy'),l=b.textContent;
+copyText(t).then(function(){b.textContent='已复制';setTimeout(function(){b.textContent=l},1500)},function(){prompt('复制以下内容',t)})});
 </script></body></html>`))
 
 type pageClient struct {

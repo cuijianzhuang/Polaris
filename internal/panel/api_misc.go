@@ -108,7 +108,7 @@ var editableSettings = map[string]bool{
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
-	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true,
+	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
 }
 
 func (s *Server) getSettings(c *gin.Context) {

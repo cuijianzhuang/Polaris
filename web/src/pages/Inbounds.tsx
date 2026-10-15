@@ -4,7 +4,8 @@ import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
-import { coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
+import { bytes, coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
+import type { TagTrafficRow } from '../components/TagTraffic'
 import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, Node, Outbound } from '../types'
 
 const emptyDraft = (): InboundDraft => ({
@@ -236,6 +237,12 @@ export default function Inbounds() {
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<{ core?: CoreType; node?: string }>(params.get('node') ? { node: params.get('node')! } : {})
   const list = useLoad(() => get<Inbound[]>('/inbounds'))
+  const tagStats = useLoad(() => get<TagTrafficRow[]>('/stats/tags?kind=inbound').catch(() => [] as TagTrafficRow[]))
+  const trafficOf = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of tagStats.data ?? []) m.set(r.nodeId + '/' + r.tag, r.up + r.down)
+    return m
+  }, [tagStats.data])
   const [drawer, setDrawer] = useState<Inbound | 'new' | null>(null)
   const toast = useToast()
   const rows = useMemo(() => (list.data ?? []).filter((i) => (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node)), [list.data, filter])
@@ -267,7 +274,7 @@ export default function Inbounds() {
       <div className="card flush scroll">
         {rows.length === 0 ? <Empty>{list.loading ? '加载中…' : '还没有入站'}</Empty> : (
           <table>
-            <thead><tr><th>标签</th><th>节点 / 内核</th><th>协议</th><th>传输 · 安全</th><th>端口</th><th>授权用户</th><th>入口</th><th>启用</th></tr></thead>
+            <thead><tr><th>标签</th><th>节点 / 内核</th><th>协议</th><th>传输 · 安全</th><th>端口</th><th>授权用户</th><th>流量</th><th>入口</th><th>启用</th></tr></thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
@@ -279,6 +286,7 @@ export default function Inbounds() {
                   <td>{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
                   <td className="mono">{portLabel(i)}</td>
                   <td className="mono">{i.userCount}</td>
+                  <td className="mono small">{trafficOf.has(i.nodeId + '/' + i.tag) ? bytes(trafficOf.get(i.nodeId + '/' + i.tag)!) : '—'}</td>
                   <td className="mono">{i.endpoints}</td>
                   <td onClick={(e) => e.stopPropagation()}><Switch label="启用" on={i.enabled} onChange={() => toggle(i)} /></td>
                 </tr>

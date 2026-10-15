@@ -126,6 +126,37 @@ func UserTraffic(stats []Stat) map[string][2]int64 {
 	return m
 }
 
+// TagPrefixInbound / TagPrefixOutbound mark per-inbound and per-outbound
+// counters in traffic deltas (UserID "inbound>>>tag"), so they travel with
+// user traffic without a protocol change.
+const (
+	TagPrefixInbound  = "inbound>>>"
+	TagPrefixOutbound = "outbound>>>"
+)
+
+// AllTraffic folds user counters (keyed by user id) and inbound / outbound
+// counters (keyed "inbound>>>tag" / "outbound>>>tag"), skipping the
+// internal "api" handler.
+func AllTraffic(stats []Stat) map[string][2]int64 {
+	m := UserTraffic(stats)
+	for _, s := range stats {
+		parts := strings.Split(s.Name, ">>>")
+		if len(parts) != 4 || (parts[0] != "inbound" && parts[0] != "outbound") || parts[2] != "traffic" || parts[1] == "api" {
+			continue
+		}
+		key := parts[0] + ">>>" + parts[1]
+		v := m[key]
+		switch parts[3] {
+		case "uplink":
+			v[0] += s.Value
+		case "downlink":
+			v[1] += s.Value
+		}
+		m[key] = v
+	}
+	return m
+}
+
 // --- protowire helpers ---
 
 func PBString(b []byte, num protowire.Number, s string) []byte {

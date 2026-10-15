@@ -107,26 +107,36 @@ type User struct {
 	ExpireAt     *time.Time `json:"expireAt"`
 	// ExpireAfterDays starts the validity period on first use (ExpireAt is
 	// set when traffic is first seen).
-	ExpireAfterDays int            `json:"expireAfterDays"`
-	IPLimit         int            `json:"ipLimit"`
-	Status          string         `gorm:"size:16;index" json:"status"` // active / limited / expired / disabled
-	SubToken        string         `gorm:"size:64;uniqueIndex" json:"subToken"`
-	ResetPolicy     string         `gorm:"size:16" json:"resetPolicy"` // none / monthly / cycle
-	ResetDay        int            `json:"resetDay"`                   // day of month for monthly, days for cycle
-	LastResetAt     *time.Time     `json:"lastResetAt"`
-	OnlineAt        *time.Time     `json:"onlineAt"`
-	BannedUntil     *time.Time     `json:"bannedUntil"`
-	OnlineIPs       JSON[[]string] `json:"onlineIps"`
-	IsService       bool           `gorm:"index" json:"isService"`  // chain service account
-	TelegramID      int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
-	WarnedUsage     bool           `json:"-"`                       // 80% traffic warning sent this cycle
-	WarnedExpire    *time.Time     `json:"-"`
-	Remark          string         `gorm:"size:255" json:"remark"`
-	GroupIDs        []string       `gorm:"-" json:"groupIds"`
-	NodeIDs         []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
-	InboundIDs      []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
-	CreatedAt       time.Time      `json:"createdAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
+	ExpireAfterDays int    `json:"expireAfterDays"`
+	IPLimit         int    `json:"ipLimit"`
+	Status          string `gorm:"size:16;index" json:"status"` // active / limited / expired / disabled
+	SubToken        string `gorm:"size:64;uniqueIndex" json:"subToken"`
+	ResetPolicy     string `gorm:"size:16" json:"resetPolicy"` // none / daily / weekly / monthly / cycle
+	ResetDay        int    `json:"resetDay"`                   // weekday 1-7 (weekly), day of month (monthly), days (cycle)
+	// RenewDays auto-renews an expired account: expiry moves on by this many
+	// days and traffic starts over, at most RenewMax times (0 = no cap).
+	RenewDays  int `json:"renewDays"`
+	RenewMax   int `json:"renewMax"`
+	RenewCount int `json:"renewCount"`
+	// DeviceLimit caps the client devices (HWID sent with subscription
+	// requests) that may fetch the subscription; 0 = unlimited.
+	DeviceLimit  int            `json:"deviceLimit"`
+	LastSubAt    *time.Time     `json:"lastSubAt"`
+	LastSubUA    string         `gorm:"size:255" json:"lastSubUa"`
+	LastResetAt  *time.Time     `json:"lastResetAt"`
+	OnlineAt     *time.Time     `json:"onlineAt"`
+	BannedUntil  *time.Time     `json:"bannedUntil"`
+	OnlineIPs    JSON[[]string] `json:"onlineIps"`
+	IsService    bool           `gorm:"index" json:"isService"`  // chain service account
+	TelegramID   int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
+	WarnedUsage  bool           `json:"-"`                       // 80% traffic warning sent this cycle
+	WarnedExpire *time.Time     `json:"-"`
+	Remark       string         `gorm:"size:255" json:"remark"`
+	GroupIDs     []string       `gorm:"-" json:"groupIds"`
+	NodeIDs      []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs   []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
 }
 
 // Used returns total used bytes.
@@ -495,5 +505,30 @@ func AllModels() []any {
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
+		&UserDevice{}, &TagTraffic{},
 	}
+}
+
+// UserDevice is a client device (HWID) that fetched a user's subscription.
+type UserDevice struct {
+	ID        string    `gorm:"primaryKey;size:32" json:"id"`
+	UserID    string    `gorm:"size:32;uniqueIndex:idx_user_hwid" json:"userId"`
+	HWID      string    `gorm:"column:hwid;size:128;uniqueIndex:idx_user_hwid" json:"hwid"`
+	OS        string    `gorm:"size:64" json:"os"`
+	Model     string    `gorm:"size:128" json:"model"`
+	UserAgent string    `gorm:"size:255" json:"userAgent"`
+	IP        string    `gorm:"size:64" json:"ip"`
+	FirstSeen time.Time `json:"firstSeen"`
+	LastSeen  time.Time `json:"lastSeen"`
+}
+
+// TagTraffic accumulates the bytes an inbound or outbound of a node carried
+// since its last reset (Kind "inbound" / "outbound").
+type TagTraffic struct {
+	NodeID    string    `gorm:"size:32;uniqueIndex:idx_tag_traffic" json:"nodeId"`
+	Kind      string    `gorm:"size:16;uniqueIndex:idx_tag_traffic" json:"kind"`
+	Tag       string    `gorm:"size:128;uniqueIndex:idx_tag_traffic" json:"tag"`
+	Up        int64     `json:"up"`
+	Down      int64     `json:"down"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }

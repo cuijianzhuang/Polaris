@@ -2,6 +2,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { useNodes } from '../App'
 import { useLoad } from '../components/ui'
+import TagTraffic from '../components/TagTraffic'
 import { bps, bytes, coreColor, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
 import type { Node } from '../types'
 
@@ -114,6 +115,7 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+      <TagTraffic />
     </>
   )
 }

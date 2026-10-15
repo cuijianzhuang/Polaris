@@ -79,7 +79,7 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	b.Add([]model.Protocol{model.ProtoVLESS, model.ProtoVMess}, []model.Transport{model.TransKCP}, []model.Security{model.SecNone})
 	b.Add([]model.Protocol{model.ProtoShadowsocks, model.ProtoSOCKS, model.ProtoHTTP},
 		[]model.Transport{model.TransTCP}, []model.Security{model.SecNone})
-	features := []string{model.FeatureProxyProtocol}
+	features := []string{model.FeatureProxyProtocol, model.FeatureTCPHTTPHeader}
 	if core.VersionAtLeast(v, "25.9.11") {
 		features = append(features, model.FeatureVLESSEncryption, model.FeatureRealityMLDSA65)
 	}
@@ -112,7 +112,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			"levels": map[string]any{"0": map[string]any{
 				"statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true,
 			}},
-			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true},
+			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true,
+				"statsOutboundUplink": true, "statsOutboundDownlink": true},
 		},
 	}
 	var inbounds []any
@@ -290,6 +291,15 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 	switch t.Type {
 	case "", model.TransTCP:
 		st["network"] = "tcp"
+		if t.HeaderType == "http" {
+			// HTTP request/response camouflage; clients send the same header
+			// (headerType=http in share links).
+			req := map[string]any{"path": []string{orDefault(t.Path, "/")}}
+			if t.Host != "" {
+				req["headers"] = map[string]any{"Host": strings.Split(t.Host, ",")}
+			}
+			st["tcpSettings"] = map[string]any{"header": map[string]any{"type": "http", "request": req}}
+		}
 	case model.TransWS:
 		st["network"] = "ws"
 		st["wsSettings"] = pathHost(t)
@@ -789,12 +799,15 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	if err != nil {
 		return nil, err
 	}
-	stats, err := c.QueryStats(ctx, statsService, "user>>>", true)
+	stats, err := c.QueryStats(ctx, statsService, "", true) // users, inbounds and outbounds
 	if err != nil {
 		return nil, err
 	}
 	var out []model.TrafficDelta
-	for id, v := range core.UserTraffic(stats) {
+	for id, v := range core.AllTraffic(stats) {
+		if v[0] == 0 && v[1] == 0 {
+			continue
+		}
 		out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
 	}
 	return out, nil

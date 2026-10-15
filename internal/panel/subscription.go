@@ -47,11 +47,12 @@ func (s *Server) subscription(c *gin.Context) {
 		c.String(http.StatusNotFound, "404 page not found")
 		return
 	}
+	deviceOK := s.checkDevice(&u, c.Request)
 	title := s.st.GetSetting("site_title", "Polaris")
 	info := sub.Info{Title: title, Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown, Total: u.TrafficLimit,
 		Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
 	var nodes []sub.Node
-	if u.Status == "active" {
+	if u.Status == "active" && deviceOK {
 		var err error
 		if nodes, err = s.subNodes(&u); err != nil {
 			serverError(c, err)
@@ -65,7 +66,11 @@ func (s *Server) subscription(c *gin.Context) {
 	}
 	if len(nodes) == 0 && c.Query("raw") != "1" && sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent")) != "html" {
 		// Tell the user why instead of handing clients an empty list.
-		nodes = []sub.Node{reasonNode(s.emptyReason(&u))}
+		reason := s.emptyReason(&u)
+		if !deviceOK {
+			reason = fmt.Sprintf("设备数已达上限（%d 台），请在面板移除旧设备", u.DeviceLimit)
+		}
+		nodes = []sub.Node{reasonNode(reason)}
 	}
 	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.renderOptsFor(nil), "/sub/"+u.SubToken, &u)
 }

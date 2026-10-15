@@ -206,7 +206,7 @@ func (a *agentService) ReportTraffic(ctx context.Context, req *connect.Request[p
 		}
 		ds := make([]model.TrafficDelta, 0, len(b.Users))
 		for _, u := range b.Users {
-			if !allowed[u.UserId] {
+			if !allowed[u.UserId] && !isTagCounter(u.UserId) {
 				continue // not a user of this node
 			}
 			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: max(u.Up, 0), Down: max(u.Down, 0)})

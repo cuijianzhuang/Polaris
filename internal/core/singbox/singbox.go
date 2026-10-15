@@ -148,7 +148,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		cfg["experimental"] = map[string]any{
 			"v2ray_api": map[string]any{
 				"listen": a.opt.APIListen,
-				"stats":  map[string]any{"enabled": true, "users": nonNilStr(users)},
+				"stats": map[string]any{"enabled": true, "users": nonNilStr(users),
+					"inbounds": nonNilStr(tagsOf(inbounds)), "outbounds": nonNilStr(tagsOf(outs))},
 			},
 		}
 	}
@@ -624,7 +625,7 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 		candidates = []string{svc}
 	}
 	for _, s := range candidates {
-		stats, err = c.QueryStats(ctx, s, "user>>>", false)
+		stats, err = c.QueryStats(ctx, s, "", false) // users, inbounds and outbounds
 		if err == nil {
 			svc = s
 			break
@@ -636,7 +637,7 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	if err != nil {
 		return nil, err
 	}
-	cur := core.UserTraffic(stats)
+	cur := core.AllTraffic(stats)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.service = svc
@@ -719,4 +720,17 @@ func orDefault(s, d string) string {
 		return d
 	}
 	return s
+}
+
+// tagsOf lists the tags of rendered inbounds / outbounds (for per-tag stats).
+func tagsOf(items []any) []string {
+	var tags []string
+	for _, it := range items {
+		if m, ok := it.(map[string]any); ok {
+			if t, _ := m["tag"].(string); t != "" {
+				tags = append(tags, t)
+			}
+		}
+	}
+	return tags
 }
