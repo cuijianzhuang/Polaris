@@ -33,9 +33,9 @@ export default function VersionPicker({ type, value, onChange, current, installe
       <div className="chips" style={{ marginBottom: 4 }} aria-label="可选版本">
         {available === null && <span className="sub">正在获取官方版本列表…</span>}
         {available?.length === 0 && <span className="sub">无法获取版本列表（可在设置中配置 GitHub 镜像），请手动填写版本号</span>}
-        {available?.slice(0, 5).map((x, i) => (
+        {available && available.length > 0 && [...new Set([...available.slice(0, 5), ...cur.filter(Boolean), ...installed])].map((x) => (
           <button key={x} type="button" className={'chip' + (v === x ? ' on' : '')} onClick={() => onChange(x)}>
-            v{x}{i === 0 ? ' · 最新' : ''}{cur.includes(x) ? ' · 当前' : installed.includes(x) ? ' · 已安装' : ''}
+            v{x}{x === available[0] ? ' · 最新' : ''}{cur.includes(x) ? ' · 当前' : installed.includes(x) ? ' · 已安装' : ''}
           </button>
         ))}
       </div>
