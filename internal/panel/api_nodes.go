@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -336,6 +335,33 @@ func (s *Server) nodeSpec(c *gin.Context) {
 	c.JSON(http.StatusOK, spec)
 }
 
+// renderNodeCore returns the native config one core would run (?core=xray).
+func (s *Server) renderNodeCore(c *gin.Context) {
+	spec, err := s.BuildSpec(c.Param("id"))
+	if err != nil {
+		dbError(c, err)
+		return
+	}
+	t := model.CoreType(c.Query("core"))
+	version := ""
+	for _, cs := range spec.Cores {
+		if cs.Type == t {
+			version = cs.Version
+		}
+	}
+	ad, err := core.New(t, core.Options{Version: version})
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	cfg, err := ad.Render(spec)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"core": t, "version": version, "config": string(cfg)})
+}
+
 func redactSpec(spec *model.NodeSpec) {
 	for i := range spec.Inbounds {
 		in := &spec.Inbounds[i]
@@ -518,5 +544,3 @@ func nonNilStrs(v []string) []string {
 	}
 	return v
 }
-
-var _ = json.Marshal

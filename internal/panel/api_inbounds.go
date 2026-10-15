@@ -307,6 +307,78 @@ func (s *Server) previewInbound(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"core": row.Core, "version": version, "config": string(cfg)})
 }
 
+// previewDraftInbound renders the native config as it would look with an
+// unsaved inbound added (or replacing ?id=).
+func (s *Server) previewDraftInbound(c *gin.Context) {
+	var req inboundReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	var node store.Node
+	if err := s.st.DB.First(&node, "id = ?", req.NodeID).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	m := req.toModel()
+	if m.Port == 0 {
+		m.Port = 1
+	}
+	exclude := c.Query("id")
+	if exclude != "" {
+		var old store.Inbound
+		if err := s.st.DB.First(&old, "id = ?", exclude).Error; err == nil {
+			om := s.toModelInbound(&old)
+			if m.Security.Type == model.SecReality && m.Security.RealityPrivateKey == "" {
+				m.Security.RealityPrivateKey, m.Security.RealityPublicKey, m.Security.RealityShortIDs =
+					om.Security.RealityPrivateKey, om.Security.RealityPublicKey, om.Security.RealityShortIDs
+			}
+			if m.Protocol.ServerKey == "" {
+				m.Protocol.ServerKey = om.Protocol.ServerKey
+			}
+		}
+	}
+	if err := s.validateInbound(&node, &m, exclude); err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+	spec, err := s.BuildSpec(node.ID)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	if m.Security.CertificateID != "" {
+		var cert store.Certificate
+		if s.st.DB.First(&cert, "id = ?", m.Security.CertificateID).Error == nil {
+			m.Security.CertPEM, m.Security.KeyPEM = cert.Cert, "<private key>"
+		}
+	}
+	var ins []model.Inbound
+	for _, x := range spec.Inbounds {
+		if x.ID != exclude {
+			ins = append(ins, x)
+		}
+	}
+	spec.Inbounds = append(ins, m)
+	version := ""
+	for _, cs := range spec.Cores {
+		if cs.Type == m.Core {
+			version = cs.Version
+		}
+	}
+	ad, err := core.New(m.Core, core.Options{Version: version})
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	cfg, err := ad.Render(spec)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"core": m.Core, "version": version, "config": string(cfg)})
+}
+
 func (s *Server) listEndpoints(c *gin.Context) {
 	var es []store.Endpoint
 	s.st.DB.Where("inbound_id = ?", c.Param("id")).Order("sort_order, created_at").Find(&es)

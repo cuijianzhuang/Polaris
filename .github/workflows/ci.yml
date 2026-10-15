@@ -1,0 +1,38 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fetch real cores for integration tests
+        run: |
+          mkdir -p /tmp/cores && cd /tmp/cores
+          curl -fsSL -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip && unzip -q xray.zip -d xray
+          curl -fsSL https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz | tar xz
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+        env:
+          POLARIS_XRAY_BIN: /tmp/cores/xray/xray
+          POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: web
+      - run: npm run build
+        working-directory: web

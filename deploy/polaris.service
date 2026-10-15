@@ -1,0 +1,21 @@
+[Unit]
+Description=Polaris panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/polaris/polaris.env
+ExecStart=/usr/local/bin/polaris
+Restart=always
+RestartSec=3
+User=polaris
+Group=polaris
+StateDirectory=polaris
+WorkingDirectory=/var/lib/polaris
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

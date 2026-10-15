@@ -86,6 +86,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/nodes/:id/revoke", s.revokeNode)
 	p.GET("/nodes/:id/revisions", s.listRevisions)
 	p.GET("/nodes/:id/spec", s.nodeSpec)
+	p.GET("/nodes/:id/render", s.renderNodeCore)
 	p.GET("/nodes/:id/cores", s.listCores)
 	p.POST("/nodes/:id/cores", s.upsertCore)
 	p.DELETE("/cores/:id", s.deleteCore)
@@ -95,6 +96,7 @@ func (s *Server) Router() http.Handler {
 
 	p.GET("/inbounds", s.listInbounds)
 	p.POST("/inbounds", s.createInbound)
+	p.POST("/inbounds/preview", s.previewDraftInbound)
 	p.GET("/inbounds/:id", s.getInbound)
 	p.PUT("/inbounds/:id", s.updateInbound)
 	p.DELETE("/inbounds/:id", s.deleteInbound)
@@ -160,25 +162,27 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/settings", s.putSettings)
 	p.GET("/audit-logs", s.listAudit)
 
-	// Admin SPA.
+	// Admin SPA under the admin path; everything else gets the decoy.
+	var spa gin.HandlerFunc
 	if s.webFS != nil {
-		spa := s.spaHandler(admin)
-		r.GET(admin, spa)
-		if admin == "" {
-			r.NoRoute(func(c *gin.Context) {
-				if strings.HasPrefix(c.Request.URL.Path, "/api/") {
-					notFound(c)
-					return
-				}
-				spa(c)
-			})
-		} else {
-			r.GET(admin+"/*any", spa)
+		spa = s.spaHandler(admin)
+	}
+	decoy := s.decoy()
+	apiPrefix := s.cfg.APIBase() + "/"
+	r.NoRoute(func(c *gin.Context) {
+		p := c.Request.URL.Path
+		inAdmin := admin == "" || p == admin || strings.HasPrefix(p, admin+"/")
+		switch {
+		case strings.HasPrefix(p, apiPrefix):
+			notFound(c)
+		case inAdmin && spa != nil && c.Request.Method == http.MethodGet:
+			spa(c)
+		case admin == "":
+			c.String(http.StatusNotFound, "404 page not found")
+		default:
+			decoy(c)
 		}
-	}
-	if admin != "" {
-		r.NoRoute(s.decoy())
-	}
+	})
 	return r
 }
 
@@ -193,7 +197,7 @@ func (s *Server) spaHandler(prefix string) gin.HandlerFunc {
 		}
 		f, err := s.webFS.Open(rel)
 		if err != nil {
-			s.serveIndex(c, prefix)
+			c.String(http.StatusNotFound, "404 page not found")
 			return
 		}
 		f.Close()

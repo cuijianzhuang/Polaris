@@ -52,7 +52,7 @@ type Core struct {
 	Type              model.CoreType `gorm:"size:16;uniqueIndex:idx_core_node_type" json:"type"`
 	Version           string         `gorm:"size:32" json:"version"`
 	Status            string         `gorm:"size:16" json:"status"` // running / stopped / installing / error
-	PID               int            `json:"pid"`
+	PID               int            `gorm:"column:pid" json:"pid"`
 	IsDefault         bool           `json:"isDefault"`
 	StartedAt         *time.Time     `json:"startedAt"`
 	Error             string         `gorm:"size:2000" json:"error"`

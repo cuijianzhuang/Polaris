@@ -1,0 +1,235 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { del, get, post, put } from '../api'
+import { useNodes } from '../App'
+import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
+import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
+import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Group, Inbound, Node } from '../types'
+
+const emptyDraft = (): InboundDraft => ({
+  core: 'xray',
+  protocol: { type: 'vless', flow: 'xtls-rprx-vision' },
+  transport: { type: 'tcp' },
+  security: { type: 'reality', realityDest: 'www.microsoft.com:443' },
+  sniffing: { enabled: true },
+})
+
+function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => void }) {
+  const eps = useLoad(() => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`), [inbound.id])
+  const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
+  const chains = useLoad(() => get<Chain[]>('/chains'))
+  const [kind, setKind] = useState<'direct' | 'cdn' | 'relay'>('cdn')
+  const [form, setForm] = useState({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
+  const { busy, run } = useAction()
+  const add = () => run(async () => {
+    await post(`/inbounds/${inbound.id}/endpoints`, { kind, ...form, port: Number(form.port) || 0 })
+    setForm({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
+    eps.reload()
+    onChanged()
+  }, '入口已添加')
+  const label = (e: Endpoint) => e.kind === 'direct' ? '直连' : e.kind === 'cdn' ? 'CDN · ' + (cdn.data?.find((c) => c.id === e.cdnProfileId)?.name ?? e.cdnProfileId) : '中转 · ' + (chains.data?.find((c) => c.id === e.relayChainId)?.name ?? e.relayChainId)
+  return (
+    <section className="field">
+      <span className="lbl">入口（订阅里每个入口生成一个节点）</span>
+      <div className="card flush">
+        <table>
+          <tbody>
+            {(eps.data ?? []).map((e) => (
+              <tr key={e.id}>
+                <td>{label(e)}</td>
+                <td className="mono small">{[e.address, e.port || '', e.host].filter(Boolean).join(' · ') || '默认'}</td>
+                <td style={{ textAlign: 'right' }}><button className="link" type="button" onClick={() => run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() })}>删除</button></td>
+              </tr>
+            ))}
+            {eps.data?.length === 0 && <tr><td className="mute">无入口：订阅按直连生成</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <div className="seg c3">
+        {(['direct', 'cdn', 'relay'] as const).map((k) => (
+          <button key={k} type="button" className={'opt' + (kind === k ? ' on' : '')} disabled={k === 'cdn' && !inbound.cdnCapable} onClick={() => setKind(k)}>
+            {k === 'direct' ? '直连' : k === 'cdn' ? 'CDN' : '中转'}{k === 'cdn' && !inbound.cdnCapable && <small>此组合不能走 CDN</small>}
+          </button>
+        ))}
+      </div>
+      <div className="form-grid">
+        {kind === 'cdn' && (
+          <Field label="CDN 配置档" full>
+            <select className="input" value={form.cdnProfileId} onChange={(e) => setForm({ ...form, cdnProfileId: e.target.value })}>
+              <option value="">选择配置档</option>
+              {(cdn.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.originDomain}</option>)}
+            </select>
+          </Field>
+        )}
+        {kind === 'relay' && (
+          <Field label="中转链路" full>
+            <select className="input" value={form.relayChainId} onChange={(e) => setForm({ ...form, relayChainId: e.target.value })}>
+              <option value="">选择链路</option>
+              {(chains.data ?? []).filter((c) => c.mode === 'l4').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </Field>
+        )}
+        <Field label="地址（可选）"><input className="input mono" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="覆盖默认地址" /></Field>
+        <Field label="端口（可选）"><input className="input mono" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} /></Field>
+        <Field label="Host（可选）"><input className="input mono" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} /></Field>
+        <Field label="备注"><input className="input" value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></Field>
+      </div>
+      <div><button className="btn sm" type="button" disabled={busy} onClick={add}>+ 添加入口</button></div>
+    </section>
+  )
+}
+
+function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; editing?: Inbound; onClose: () => void; onSaved: () => void }) {
+  const [nodeId, setNodeId] = useState(editing?.nodeId ?? nodes[0]?.id ?? '')
+  const node = nodes.find((n) => n.id === nodeId)
+  const caps = useLoad(() => (nodeId ? get<CapSet[]>('/capabilities?node=' + nodeId) : Promise.resolve([])), [nodeId])
+  const certs = useLoad(() => get<Certificate[]>('/certificates'))
+  const groups = useLoad(() => get<Group[]>('/groups'))
+  const nodeInbounds = useLoad(() => (nodeId ? get<Inbound[]>('/inbounds?node=' + nodeId) : Promise.resolve([])), [nodeId])
+  const [draft, setDraft] = useState<InboundDraft>(() => editing ? {
+    core: editing.core, protocol: editing.protocol, transport: editing.transport, security: editing.security, sniffing: editing.sniffing,
+  } : emptyDraft())
+  const [tag, setTag] = useState(editing?.tag ?? '')
+  const [port, setPort] = useState(String(editing?.port ?? 443))
+  const [listen, setListen] = useState(editing?.listen && editing.listen !== '::' ? editing.listen : '')
+  const [groupIds, setGroupIds] = useState<string[]>(editing?.groupIds ?? [])
+  const [extra, setExtra] = useState(editing?.extra ? JSON.stringify(editing.extra, null, 2) : '')
+  const [enabled, setEnabled] = useState(editing?.enabled ?? true)
+  const [remark, setRemark] = useState(editing?.remark ?? '')
+  const [preview, setPreview] = useState('')
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+
+  const proxyCores = (caps.data ?? []).filter((c) => c.combos.length > 0)
+  const coreCaps = proxyCores.filter((c) => c.core === draft.core)
+  useEffect(() => {
+    // Pick a valid core when the node changes.
+    if (!caps.data || editing) return
+    if (!proxyCores.find((c) => c.core === draft.core) && proxyCores[0]) {
+      setDraft((d) => normalizeDraft({ ...d, core: proxyCores[0].core }, [proxyCores[0]]))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caps.data])
+  useEffect(() => {
+    if (!editing && !tag) setTag(`${draft.protocol.type}-${draft.transport.type === 'tcp' ? draft.security.type : draft.transport.type}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.protocol.type])
+
+  const net = draft.protocol.type === 'hysteria2' || draft.protocol.type === 'tuic' || draft.transport.type === 'kcp' ? 'udp' : draft.protocol.type === 'shadowsocks' ? 'tcp,udp' : 'tcp'
+  const conflict = (nodeInbounds.data ?? []).find((i) => i.id !== editing?.id && i.port === Number(port) && (i.network.split(',').some((n) => net.includes(n))))
+  const coreHot = coreCaps[0]?.hotUsers
+  const body = () => {
+    let ex: any = undefined
+    if (extra.trim()) ex = JSON.parse(extra)
+    return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds }
+  }
+  const save = () => run(async () => {
+    if (editing) await put('/inbounds/' + editing.id, body())
+    else await post('/inbounds', body())
+    onSaved()
+  }, editing ? '已保存并下发' : '入站已创建，正在下发')
+
+  return (
+    <Drawer title={editing ? '编辑入站 · ' + editing.tag : '新建入站'} onClose={onClose} footer={<>
+      {editing && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={async () => {
+        if (await confirm(`删除入站 ${editing.tag}？`, { danger: true, ok: '删除' })) run(async () => { await del('/inbounds/' + editing.id); onSaved() }, '已删除')
+      }}>删除</button>}
+      <button className="btn" type="button" disabled={busy} onClick={() => run(async () => {
+        const r = await post<{ config: string }>('/inbounds/preview' + (editing ? '?id=' + editing.id : ''), body())
+        setPreview(r.config)
+      })}>预览内核配置</button>
+      <button className="btn pri" type="button" disabled={busy || !tag || !nodeId} onClick={save}>保存并下发</button>
+    </>}>
+      <Field label="节点" htmlFor="ib-node">
+        <select id="ib-node" className="input" value={nodeId} disabled={!!editing} onChange={(e) => setNodeId(e.target.value)}>
+          {nodes.map((n) => <option key={n.id} value={n.id}>{n.name} · 已装 {n.cores.map((c) => `${coreShort[c.type]} v${c.version}`).join(' / ') || '无内核'}</option>)}
+        </select>
+      </Field>
+      {proxyCores.length === 0 ? <div className="note warn">该节点还没有可承载入站的内核，请先在「节点与内核」安装。</div> : (
+        <InboundFields draft={draft} onChange={setDraft} caps={coreCaps} allCaps={proxyCores} certs={certs.data}
+          coreChoices={proxyCores.map((c) => ({ core: c.core, version: c.version, hint: `v${c.version} · ${c.hotUsers ? '支持热增删用户' : '用户变更需重载'}` }))} />
+      )}
+      <div className="form-grid">
+        <Field label="标签" htmlFor="ib-tag"><input id="ib-tag" className="input mono" value={tag} onChange={(e) => setTag(e.target.value)} /></Field>
+        <Field label="端口" htmlFor="ib-port"><input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" /></Field>
+        <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
+        <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
+      </div>
+      <Field label="授权分组" hint="分组内的用户获得此入站">
+        <div className="row">
+          {(groups.data ?? []).map((g) => (
+            <button key={g.id} type="button" className={'chip' + (groupIds.includes(g.id) ? ' on' : '')} aria-pressed={groupIds.includes(g.id)}
+              onClick={() => setGroupIds((x) => x.includes(g.id) ? x.filter((y) => y !== g.id) : [...x, g.id])}>{g.name}</button>
+          ))}
+          {groups.data?.length === 0 && <span className="hint">还没有分组，可在「用户」页创建</span>}
+        </div>
+      </Field>
+      <div className="toggle"><span>启用</span><Switch label="启用" on={enabled} onChange={setEnabled} /></div>
+      <details>
+        <summary className="lbl" style={{ cursor: 'pointer' }}>高级：Extra（原样合并进内核配置）</summary>
+        <textarea className="input" style={{ marginTop: 8 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='{"sniffing": {"routeOnly": true}}' />
+      </details>
+      {conflict ? <div className="note bad">端口 {port} 与 {node?.name} 上的入站 {conflict.tag} 冲突</div> : (
+        <div className="note">与 {node?.name ?? '节点'} 上已有入站无端口冲突 · 预计下发方式：{editing ? (draft.core === 'xray' ? '结构变更，重启 Xray' : draft.core === 'singbox' ? '结构变更，SIGHUP 重载' : '重载') : '新增入站需重载内核'}；之后的用户增删{coreHot ? '走热更新' : '会触发重载'}</div>
+      )}
+      {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
+      {preview && <Modal title={`${coreLabel[draft.core]} 原生配置预览`} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}
+    </Drawer>
+  )
+}
+
+export default function Inbounds() {
+  const { nodes } = useNodes()
+  const [params] = useSearchParams()
+  const [filter, setFilter] = useState<{ core?: CoreType; node?: string }>(params.get('node') ? { node: params.get('node')! } : {})
+  const list = useLoad(() => get<Inbound[]>('/inbounds'))
+  const [drawer, setDrawer] = useState<Inbound | 'new' | null>(null)
+  const toast = useToast()
+  const rows = useMemo(() => (list.data ?? []).filter((i) => (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node)), [list.data, filter])
+  const usedCores = [...new Set((list.data ?? []).map((i) => i.core))]
+
+  const toggle = async (i: Inbound) => {
+    try {
+      await put('/inbounds/' + i.id, { ...i, enabled: !i.enabled, groupIds: undefined })
+      list.reload()
+    } catch (e) { toast(String(e), true) }
+  }
+
+  return (
+    <>
+      <div className="top">
+        <div><h1>入站</h1><div className="sub">一个入站 = 节点 × 内核 × 协议 × 传输 × 安全</div></div>
+        <button className="btn pri" type="button" disabled={!nodes.length} onClick={() => setDrawer('new')}>+ 新建入站</button>
+      </div>
+      <div className="row" role="group" aria-label="筛选">
+        <button className={'chip' + (!filter.core && !filter.node ? ' on' : '')} type="button" onClick={() => setFilter({})}>全部</button>
+        {usedCores.map((c) => <button key={c} className={'chip' + (filter.core === c ? ' on' : '')} type="button" onClick={() => setFilter({ core: c })}>{coreLabel[c]}</button>)}
+        {nodes.map((n) => <button key={n.id} className={'chip' + (filter.node === n.id ? ' on' : '')} type="button" onClick={() => setFilter({ node: n.id })}>{n.name}</button>)}
+      </div>
+      <div className="card flush scroll">
+        {rows.length === 0 ? <Empty>{list.loading ? '加载中…' : '还没有入站'}</Empty> : (
+          <table>
+            <thead><tr><th>标签</th><th>节点 / 内核</th><th>协议</th><th>传输 · 安全</th><th>端口</th><th>授权用户</th><th>入口</th><th>启用</th></tr></thead>
+            <tbody>
+              {rows.map((i) => (
+                <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
+                  <td style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}</td>
+                  <td>{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
+                  <td>{inboundSummary(i).split(' · ')[0]}</td>
+                  <td>{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
+                  <td className="mono">{portLabel(i)}</td>
+                  <td className="mono">{i.userCount}</td>
+                  <td className="mono">{i.endpoints}</td>
+                  <td onClick={(e) => e.stopPropagation()}><Switch label="启用" on={i.enabled} onChange={() => toggle(i)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {drawer && <InboundDrawer nodes={nodes} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} />}
+    </>
+  )
+}

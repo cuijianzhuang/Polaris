@@ -243,7 +243,9 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 			t := time.Unix(c.StartedAt, 0)
 			upd["started_at"] = &t
 		}
-		s.st.DB.Model(&store.Core{}).Where("node_id = ? AND type = ?", nodeID, c.Type).Updates(upd)
+		if err := s.st.DB.Model(&store.Core{}).Where("node_id = ? AND type = ?", nodeID, c.Type).Updates(upd).Error; err != nil {
+			s.log.Error("update core state", "node", nodeID, "core", c.Type, "err", err)
+		}
 	}
 	s.broadcastNodes()
 }
