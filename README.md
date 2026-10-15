@@ -38,6 +38,26 @@
 
 ### 主控
 
+**一键安装（推荐）**：在一台 Linux（systemd，amd64 / arm64）服务器上以 root 执行。
+
+```bash
+# 绑定域名，自动安装 Caddy 申请 HTTPS（域名需已解析到本机）
+bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh) --domain panel.example.com
+
+# 没有域名时用公网 IP + HTTP（仅建议测试）
+bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh)
+```
+
+脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
+其他参数：`--version v0.1.0-beta`、`--port`、`--agent-port`、`--admin-path`、`--no-caddy`（自备反代）、`--mirror`（GitHub 下载加速前缀）。
+
+```bash
+bash <(curl -fsSL .../install-panel.sh) update              # 升级（先备份数据库，配置不变）
+bash <(curl -fsSL .../install-panel.sh) uninstall [--purge] # 卸载；--purge 同时删除配置与数据
+```
+
+**Docker**：
+
 ```bash
 cp deploy/polaris.env.example deploy/polaris.env   # 至少修改 POLARIS_SECRET_KEY、POLARIS_ADMIN_PATH、POLARIS_PUBLIC_URL
 docker compose up -d
