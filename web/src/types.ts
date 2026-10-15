@@ -88,6 +88,7 @@ export interface SubSource {
 export interface SubProfile {
   id: string; name: string; token: string; enabled: boolean; sourceIds: string[]; panelUserId: string; operators: Operator[]
   useGlobalOps: boolean; templates: Record<string, string>; converter: string; backend: string; backendConfig: string
+  scheme: string; skipCert: boolean | null; forceUdp: boolean | null
   downloads: number; remark: string; url: string
 }
 export interface NodeRow { name: string; protocol: string; server: string; port: number; region: string; source: string; network: string; security: string }

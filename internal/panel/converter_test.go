@@ -70,7 +70,7 @@ func TestProfileConversion(t *testing.T) {
 		return string(b), resp.Header
 	}
 	body, hdr := get("")
-	for _, want := range []string{"🇯🇵 日本 01", "🇭🇰 香港 01", "🇺🇸 美国 01", "- name: 🇯🇵 日本"} {
+	for _, want := range []string{"🇯🇵 日本 01", "🇭🇰 香港 01", "🇺🇸 美国 01", `- name: "🇯🇵 日本"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q:\n%s", want, body)
 		}

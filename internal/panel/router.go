@@ -71,6 +71,8 @@ func (s *Server) Router() http.Handler {
 	r.GET("/sub/:token", s.subscription)
 	r.GET("/sub/p/:token", s.profileSubscription)
 	r.GET("/sub/cb/:token", s.subCallbackHandler)
+	r.GET("/sub/scheme/:name", s.serveSchemeINI)
+	r.GET("/sub/rs/:sig/:enc", s.serveRuleSet)
 	r.GET("/install.sh", s.installScript)
 	r.GET("/download/:file", s.download)
 
@@ -185,6 +187,7 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/sub-templates/:id", s.updateSubTemplate)
 	p.DELETE("/sub-templates/:id", s.deleteSubTemplate)
 	p.GET("/sub-meta", s.subMeta)
+	p.GET("/sub-scheme-check", s.checkScheme)
 	p.GET("/sub-sources", s.listSources)
 	p.POST("/sub-sources", s.saveSource)
 	p.PUT("/sub-sources/:id", s.saveSource)

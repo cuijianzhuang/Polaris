@@ -441,6 +441,9 @@ type SubProfile struct {
 	Converter     string                  `gorm:"size:16" json:"converter"` // "" = global setting, builtin, external
 	Backend       string                  `gorm:"size:500" json:"backend"`  // external backend override
 	BackendConfig string                  `gorm:"size:1000" json:"backendConfig"`
+	Scheme        string                  `gorm:"size:1000" json:"scheme"` // rule scheme: "" = global, "none", preset id or ini URL
+	SkipCert      *bool                   `json:"skipCert"`                // nil = global setting
+	ForceUDP      *bool                   `json:"forceUdp"`
 	Downloads     int64                   `json:"downloads"`
 	Remark        string                  `gorm:"size:255" json:"remark"`
 	CreatedAt     time.Time               `json:"createdAt"`

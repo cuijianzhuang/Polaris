@@ -5,7 +5,8 @@ import { ago, bytes, datetime } from '../format'
 import type { NodeRow, Operator, SubProfile, SubSource, SubTemplate, User } from '../types'
 
 type Tab = 'profiles' | 'sources' | 'settings'
-type Meta = { formats: string[]; regions: { Code: string; Name: string }[] }
+type SchemePreset = { id: string; name: string; group: string; desc: string; url?: string }
+type Meta = { formats: string[]; regions: { Code: string; Name: string }[]; schemes?: SchemePreset[] }
 
 const fmtLabel: Record<string, string> = { links: '通用链接 (Base64)', clash: 'Clash / mihomo', singbox: 'sing-box', surge: 'Surge', loon: 'Loon', quanx: 'Quantumult X' }
 const protos = ['vless', 'vmess', 'trojan', 'shadowsocks', 'hysteria2', 'tuic', 'anytls', 'socks', 'http', 'wireguard']
@@ -216,7 +217,7 @@ function OpChain({ ops, onChange, meta }: { ops: Operator[]; onChange: (o: Opera
 // --- profiles ---
 
 type ProfForm = Omit<SubProfile, 'id' | 'token' | 'downloads' | 'url'> & { id?: string }
-const emptyProfile = (): ProfForm => ({ name: '', enabled: true, sourceIds: [], panelUserId: '', operators: [], useGlobalOps: true, templates: {}, converter: '', backend: '', backendConfig: '', remark: '' })
+const emptyProfile = (): ProfForm => ({ name: '', enabled: true, sourceIds: [], panelUserId: '', operators: [], useGlobalOps: true, templates: {}, converter: '', backend: '', backendConfig: '', scheme: '', skipCert: null, forceUdp: null, remark: '' })
 
 function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
   const list = useLoad(() => get<SubProfile[]>('/sub-profiles'))
@@ -247,7 +248,8 @@ function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
                     {(p.sourceIds ?? []).map((id) => <span key={id} className="tag">{sources.find((s) => s.id === id)?.name ?? '已删除'}</span>)}
                   </td>
                   <td className="small">{p.useGlobalOps ? '全局规则' : ''}{p.useGlobalOps && p.operators?.length ? ' + ' : ''}{p.operators?.length ? `${p.operators.length} 步` : ''}{!p.useGlobalOps && !p.operators?.length && '原样'}</td>
-                  <td className="small">{p.converter === 'external' ? '第三方后端' : p.converter === 'builtin' ? '内置' : '跟随全局'}</td>
+                  <td className="small">{p.converter === 'external' ? '第三方后端' : p.converter === 'builtin' ? '内置' : '跟随全局'}
+                    {p.scheme && <div className="mute">{schemeLabel(p.scheme, meta?.schemes)}</div>}</td>
                   <td className="mono">{p.downloads}</td>
                   <td><Switch label="启用" on={p.enabled} onChange={(v) => run(async () => { await put('/sub-profiles/' + p.id, { ...p, enabled: v }); list.reload() })} /></td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -310,6 +312,17 @@ function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
               ))}
             </div>
           </Field>
+          <Field label="规则与配置方案" hint="决定策略组与分流规则；内置引擎与第三方后端通用">
+            <SchemePicker value={form.scheme} onChange={(scheme) => setForm({ ...form, scheme })} presets={meta?.schemes} inherit />
+          </Field>
+          <div className="form-grid">
+            <Field label="跳过证书校验">
+              <TriState value={form.skipCert} onChange={(skipCert) => setForm({ ...form, skipCert })} />
+            </Field>
+            <Field label="强制开启 UDP">
+              <TriState value={form.forceUdp} onChange={(forceUdp) => setForm({ ...form, forceUdp })} />
+            </Field>
+          </div>
           <Field label="转换引擎">
             <div className="seg c3">
               {([['', '跟随全局'], ['builtin', '内置引擎'], ['external', '第三方后端']] as [string, string][]).map(([k, l]) => (
@@ -320,7 +333,7 @@ function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
           {form.converter === 'external' && (
             <div className="form-grid">
               <Field label="后端地址（留空用全局）"><input className="input mono" value={form.backend} onChange={(e) => setForm({ ...form, backend: e.target.value })} placeholder="https://api.v1.mk" /></Field>
-              <Field label="远程配置（留空用全局）"><input className="input mono" value={form.backendConfig} onChange={(e) => setForm({ ...form, backendConfig: e.target.value })} placeholder="https://…/ACL4SSR_Online.ini" /></Field>
+              <Field label="远程配置（留空用规则方案）"><input className="input mono" value={form.backendConfig} onChange={(e) => setForm({ ...form, backendConfig: e.target.value })} placeholder="https://…/ACL4SSR_Online.ini" /></Field>
             </div>
           )}
         </Drawer>
@@ -332,6 +345,67 @@ function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
         run(async () => { const r = await post<{ token: string; url: string }>(`/sub-profiles/${share.id}/reset-token`); setShare({ ...share, ...r }); list.reload() }, '已重置')
       }} />}
     </>
+  )
+}
+
+// --- rule schemes ---
+
+function schemeLabel(id: string, presets?: SchemePreset[]) {
+  if (id === 'none') return '不使用方案'
+  const p = presets?.find((x) => x.id === id)
+  return p ? `${p.group} · ${p.name}` : '自定义方案'
+}
+
+function TriState({ value, onChange }: { value: boolean | null; onChange: (v: boolean | null) => void }) {
+  return (
+    <div className="seg c3">
+      {([[null, '跟随全局'], [true, '开启'], [false, '关闭']] as [boolean | null, string][]).map(([k, l]) => (
+        <button key={String(k)} type="button" className={'opt' + (value === k ? ' on' : '')} onClick={() => onChange(k)}>{l}</button>
+      ))}
+    </div>
+  )
+}
+
+/** Grouped preset picker plus a custom ini URL, with a check of the loaded scheme. */
+function SchemePicker({ value, onChange, presets, inherit }: { value: string; onChange: (v: string) => void; presets?: SchemePreset[]; inherit?: boolean }) {
+  const isURL = /^https?:\/\//.test(value)
+  const [custom, setCustom] = useState(isURL)
+  const [check, setCheck] = useState<{ groups: string[]; rules: number; remote: number; source?: string } | null>(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setCheck(null); setErr('') }, [value])
+  const groups = [...new Set((presets ?? []).map((p) => p.group))]
+  const sel = custom || isURL ? 'custom' : value
+  const preset = presets?.find((p) => p.id === value)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <select className="input" value={sel} onChange={(e) => {
+        const v = e.target.value
+        if (v === 'custom') { setCustom(true); if (!isURL) onChange('') } else { setCustom(false); onChange(v) }
+      }}>
+        {inherit && <option value="">跟随全局</option>}
+        <option value={inherit ? 'none' : ''}>不使用方案（按订阅模板）</option>
+        {groups.map((g) => (
+          <optgroup key={g} label={g}>
+            {(presets ?? []).filter((p) => p.group === g).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </optgroup>
+        ))}
+        <option value="custom">自定义输入（ini URL）</option>
+      </select>
+      {(custom || isURL) && <input className="input mono" value={value} onChange={(e) => onChange(e.target.value.trim())} placeholder="https://raw.githubusercontent.com/…/config.ini（subconverter / ACL4SSR 格式）" />}
+      {preset && <div className="hint">{preset.desc}</div>}
+      {value && value !== 'none' && (
+        <div className="row" style={{ alignItems: 'flex-start' }}>
+          <button className="btn" type="button" disabled={busy} onClick={async () => {
+            setBusy(true); setErr('')
+            try { setCheck(await get('/sub-scheme-check?id=' + encodeURIComponent(value))) } catch (e: any) { setErr(e?.message ?? String(e)) } finally { setBusy(false) }
+          }}>检查方案</button>
+          {check && <div className="small" style={{ flex: 1 }}>{check.groups.length} 个策略组 · {check.rules} 条规则（{check.remote} 个远程规则集）
+            <div className="mute" style={{ marginTop: 4 }}>{check.groups.join('　')}</div></div>}
+          {err && <div className="small" style={{ color: 'var(--bad)', flex: 1 }}>{err}</div>}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -365,6 +439,7 @@ function ConvertSettings({ meta }: { meta?: Meta }) {
       converter_mode: s.data.converter_mode ?? 'builtin', converter_backend: s.data.converter_backend ?? '', converter_config: s.data.converter_config ?? '',
       converter_params: s.data.converter_params ?? '', converter_for_users: s.data.converter_for_users ?? 'false',
       sub_apply_ops_users: s.data.sub_apply_ops_users ?? 'false', allow_private_sources: s.data.allow_private_sources ?? 'false',
+      sub_scheme: s.data.sub_scheme ?? '', sub_skip_cert: s.data.sub_skip_cert ?? 'false', sub_force_udp: s.data.sub_force_udp ?? 'false',
     })
     try { setOps(JSON.parse(s.data.sub_operators || '[]')) } catch { setOps([]) }
   }, [s.data])
@@ -373,7 +448,7 @@ function ConvertSettings({ meta }: { meta?: Meta }) {
   return (
     <div className="grid g2">
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <h2>转换引擎</h2>
+        <h2>默认转换引擎</h2>
         <div className="seg">
           <button type="button" className={'opt' + (f.converter_mode !== 'external' ? ' on' : '')} onClick={() => set('converter_mode', 'builtin')}>内置引擎<small>主控本地渲染，节点信息不出站</small></button>
           <button type="button" className={'opt' + (f.converter_mode === 'external' ? ' on' : '')} onClick={() => set('converter_mode', 'external')}>第三方后端<small>subconverter 兼容 API（ACL4SSR 等远程配置）</small></button>
@@ -381,10 +456,17 @@ function ConvertSettings({ meta }: { meta?: Meta }) {
         {f.converter_mode === 'external' && <>
           <div className="note warn">第三方后端通过短时效回调地址（3 分钟内最多 3 次）从主控拉取节点链接，拿不到用户的永久订阅地址；但节点信息本身会经过该后端，请使用自建或可信的服务。</div>
           <Field label="后端地址"><input className="input mono" value={f.converter_backend ?? ''} onChange={(e) => set('converter_backend', e.target.value)} placeholder="https://sub.example.com" /></Field>
-          <Field label="远程配置 URL" hint="config 参数"><input className="input mono" value={f.converter_config ?? ''} onChange={(e) => set('converter_config', e.target.value)} placeholder="https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online.ini" /></Field>
+          <Field label="远程配置 URL" hint="config 参数，留空时使用下方规则方案"><input className="input mono" value={f.converter_config ?? ''} onChange={(e) => set('converter_config', e.target.value)} placeholder="https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online.ini" /></Field>
           <Field label="附加参数"><input className="input mono" value={f.converter_params ?? ''} onChange={(e) => set('converter_params', e.target.value)} placeholder="emoji=true&udp=true&scv=true" /></Field>
           <div className="toggle"><span>普通用户订阅（/sub/token）也走第三方后端</span><Switch label="用户订阅" on={f.converter_for_users === 'true'} onChange={(v) => set('converter_for_users', String(v))} /></div>
         </>}
+        <h2 style={{ marginTop: 8 }}>规则与配置方案</h2>
+        <Field label="规则来源" hint="用户订阅与订阅组的默认方案；订阅组可单独覆盖">
+          <SchemePicker value={f.sub_scheme ?? ''} onChange={(v) => set('sub_scheme', v)} presets={meta?.schemes} />
+        </Field>
+        <div className="note">方案采用 subconverter / ACL4SSR 的 ini 语法（<span className="mono">ruleset=</span>、<span className="mono">custom_proxy_group=</span>），内置引擎会转换为各客户端的原生写法：Clash 用 rule-providers，sing-box 用面板转换的 rule-set，Surge / Loon / QX 用远程规则；成员写 <span className="mono">[]@regions</span> 可自动展开为有节点的地区分组。自定义订阅模板需包含 <span className="mono">{'{{ .ProxyGroups }}'}</span> 与 <span className="mono">{'{{ .Rules }}'}</span> 才会套用方案，否则启用方案时改用内置模板。</div>
+        <div className="toggle"><span>跳过证书校验（skip-cert-verify，自签证书节点使用）</span><Switch label="跳过证书校验" on={f.sub_skip_cert === 'true'} onChange={(v) => set('sub_skip_cert', String(v))} /></div>
+        <div className="toggle"><span>强制开启 UDP 转发</span><Switch label="强制 UDP" on={f.sub_force_udp === 'true'} onChange={(v) => set('sub_force_udp', String(v))} /></div>
         <h2 style={{ marginTop: 8 }}>安全</h2>
         <div className="toggle"><span>允许订阅源使用内网 / 回环地址（默认拒绝，防 SSRF）</span><Switch label="内网" on={f.allow_private_sources === 'true'} onChange={(v) => set('allow_private_sources', String(v))} /></div>
         <div><button className="btn pri" type="button" disabled={busy} onClick={save}>保存</button></div>

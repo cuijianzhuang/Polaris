@@ -232,6 +232,11 @@ func (s *Server) converterFor(p *store.SubProfile) converterConfig {
 		mode = "builtin"
 	}
 	cc.External = mode == "external" && cc.Backend != ""
+	ro := s.renderOptsFor(p)
+	if src := s.schemeSourceURL(ro.Scheme); src != "" && (p == nil || p.BackendConfig == "") {
+		cc.Config = src
+	}
+	cc.Params = externalParams(cc.Params, ro)
 	return cc
 }
 
@@ -277,21 +282,25 @@ func (s *Server) renderExternal(ctx context.Context, cc converterConfig, format,
 }
 
 // templateContent picks a format's template: explicit id, else the default.
-func (s *Server) templateContent(format string, ids map[string]string) string {
+// With a rule scheme active, a template that does not place the scheme
+// ({{ .ProxyGroups }}) — e.g. one saved before schemes existed — is replaced
+// by the built-in template so the chosen scheme always takes effect.
+func (s *Server) templateContent(format string, ids map[string]string, scheme bool) string {
 	var t store.SubTemplate
-	if id := ids[format]; id != "" {
-		if s.st.DB.First(&t, "id = ? AND format = ?", id, format).Error == nil {
-			return t.Content
-		}
+	content := ""
+	if id := ids[format]; id != "" && s.st.DB.First(&t, "id = ? AND format = ?", id, format).Error == nil {
+		content = t.Content
+	} else if s.st.DB.Where("format = ? AND is_default = ?", format, true).First(&t).Error == nil {
+		content = t.Content
 	}
-	if s.st.DB.Where("format = ? AND is_default = ?", format, true).First(&t).Error == nil {
-		return t.Content
+	if scheme && !strings.Contains(content, ".ProxyGroups") {
+		return ""
 	}
-	return ""
+	return content
 }
 
 // serveNodes writes a subscription response in the requested format.
-func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, templates map[string]string, cc converterConfig, callback string, u *store.User) {
+func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, templates map[string]string, cc converterConfig, ro renderOpts, callback string, u *store.User) {
 	info.Title = s.subTitle(info.Title)
 	format := sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent"))
 	raw := c.Query("raw") == "1" // callback from the external converter: always built-in links
@@ -309,7 +318,7 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 		return
 	}
 	info.Announce = strings.TrimSpace(s.st.GetSetting("sub_announce", ""))
-	nodes = s.decorateNodes(nodes, info)
+	nodes = applyNodeOpts(s.decorateNodes(nodes, info), ro)
 	var body []byte
 	ctype := ""
 	if cc.External && !raw && format != "links" {
@@ -327,7 +336,12 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 			return
 		}
 		var err error
-		if body, err = r.Render(nodes, info, s.templateContent(format, templates)); err != nil {
+		if format != "links" {
+			if info.Scheme, err = s.loadScheme(c.Request.Context(), ro.Scheme); err != nil {
+				s.log.Warn("rule scheme unavailable, using the template default", "scheme", ro.Scheme, "err", err)
+			}
+		}
+		if body, err = r.Render(nodes, info, s.templateContent(format, templates, info.Scheme != nil)); err != nil {
 			serverError(c, err)
 			return
 		}
@@ -368,7 +382,7 @@ func (s *Server) profileSubscription(c *gin.Context) {
 			pu = &u
 		}
 	}
-	s.serveNodes(c, nodes, info, p.Templates.V, s.converterFor(&p), "/sub/p/"+p.Token, pu)
+	s.serveNodes(c, nodes, info, p.Templates.V, s.converterFor(&p), s.renderOptsFor(&p), "/sub/p/"+p.Token, pu)
 }
 
 // refreshDueSources runs every minute.
@@ -512,6 +526,9 @@ type profileReq struct {
 	Converter     string            `json:"converter"`
 	Backend       string            `json:"backend"`
 	BackendConfig string            `json:"backendConfig"`
+	Scheme        string            `json:"scheme"`
+	SkipCert      *bool             `json:"skipCert"`
+	ForceUDP      *bool             `json:"forceUdp"`
 	Remark        string            `json:"remark"`
 }
 
@@ -525,6 +542,7 @@ func (r *profileReq) apply(p *store.SubProfile) {
 	}
 	p.Operators, p.UseGlobalOps, p.Templates = store.NewJSON(r.Operators), r.UseGlobalOps, store.NewJSON(r.Templates)
 	p.Converter, p.Backend, p.BackendConfig, p.Remark = r.Converter, r.Backend, r.BackendConfig, r.Remark
+	p.Scheme, p.SkipCert, p.ForceUDP = strings.TrimSpace(r.Scheme), r.SkipCert, r.ForceUDP
 	if r.Enabled != nil {
 		p.Enabled = *r.Enabled
 	}
@@ -610,5 +628,5 @@ func (s *Server) subMeta(c *gin.Context) {
 	for _, r := range sub.Regions() {
 		rs = append(rs, region{r.Code, sub.Flag(r.Code) + " " + r.Zh})
 	}
-	c.JSON(http.StatusOK, gin.H{"formats": sub.Formats(), "regions": rs})
+	c.JSON(http.StatusOK, gin.H{"formats": sub.Formats(), "regions": rs, "schemes": sub.Presets()})
 }

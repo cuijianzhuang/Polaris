@@ -34,6 +34,8 @@ type Node struct {
 	Obfs              string
 	ObfsPassword      string
 	CongestionControl string
+
+	ForceUDP bool // ask clients to relay UDP even where it is optional
 }
 
 // Info is the account summary shared by every format.
@@ -54,6 +56,9 @@ type Info struct {
 	ResetNote  string     // e.g. "每月 1 日重置"
 	Daily      []DayUsage // recent daily traffic, oldest first
 	Links      []PageLink // per-node share links
+
+	// Scheme is the rule scheme for client configs (nil = minimal default).
+	Scheme *Scheme `json:"-"`
 }
 
 // DayUsage is one day of traffic on the info page.

@@ -21,16 +21,13 @@ dns-server = system,223.5.5.5
 {{ .Proxies }}
 
 [Proxy Group]
-节点选择 = select,自动选择,故障转移{{ range .Regions }},{{ .Name }}{{ end }},DIRECT{{ .NamesCSV }}
-自动选择 = url-test{{ .NamesCSV }},url=http://www.gstatic.com/generate_204,interval=600
-故障转移 = fallback{{ .NamesCSV }},url=http://www.gstatic.com/generate_204,interval=600
-{{- range .Regions }}
-{{ .Name }} = url-test,{{ join .Names "," }},url=http://www.gstatic.com/generate_204,interval=600
-{{- end }}
+{{ .ProxyGroups }}
+
+[Remote Rule]
+{{ .RemoteRules }}
 
 [Rule]
-GEOIP,CN,DIRECT
-FINAL,节点选择
+{{ .Rules }}
 `
 
 type loonRenderer struct{}
@@ -47,7 +44,9 @@ func (loonRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error) 
 			kept = append(kept, n)
 		}
 	}
-	return execTemplate(orDefault(tpl, DefaultLoonTemplate), templateData(kept, info, strings.Join(lines, "\n")))
+	data := templateData(kept, info, strings.Join(lines, "\n"))
+	data["ProxyGroups"], data["RemoteRules"], data["Rules"] = loonScheme(schemeOf(info), kept)
+	return execTemplate(orDefault(tpl, DefaultLoonTemplate), data)
 }
 
 func q(s string) string { return `"` + strings.ReplaceAll(s, `"`, ``) + `"` }
@@ -93,6 +92,9 @@ func LoonLine(n Node) string {
 		}
 		parts = append([]string{"vmess", host, port, "auto", q(n.UUID)}, t...)
 		parts = append(parts, tlsOpts()...)
+		if n.ForceUDP {
+			parts = append(parts, "udp=true")
+		}
 	case model.ProtoVLESS:
 		t, ok := transport()
 		if !ok {
@@ -141,18 +143,16 @@ server_check_url=http://www.gstatic.com/generate_204
 server=223.5.5.5
 
 [policy]
-static=节点选择, 自动选择{{ range .Regions }}, {{ .Name }}{{ end }}, direct{{ .NamesCSV }}
-url-latency-benchmark=自动选择{{ .NamesCSV }}, check-interval=600, tolerance=50
-{{- range .Regions }}
-url-latency-benchmark={{ .Name }}, {{ join .Names ", " }}, check-interval=600
-{{- end }}
+{{ .ProxyGroups }}
 
 [server_local]
 {{ .Proxies }}
 
+[filter_remote]
+{{ .RemoteRules }}
+
 [filter_local]
-geoip, cn, direct
-final, 节点选择
+{{ .Rules }}
 `
 
 type quanxRenderer struct{}
@@ -169,7 +169,9 @@ func (quanxRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error)
 			kept = append(kept, n)
 		}
 	}
-	return execTemplate(orDefault(tpl, DefaultQuanxTemplate), templateData(kept, info, strings.Join(lines, "\n")))
+	data := templateData(kept, info, strings.Join(lines, "\n"))
+	data["ProxyGroups"], data["RemoteRules"], data["Rules"] = quanxScheme(schemeOf(info), kept)
+	return execTemplate(orDefault(tpl, DefaultQuanxTemplate), data)
 }
 
 // QuanxLine renders a Quantumult X [server_local] line, or "" when unsupported.
@@ -242,6 +244,9 @@ func QuanxLine(n Node) string {
 		parts = []string{"socks5=" + hp, "username=" + n.Username, "password=" + n.Password, "udp-relay=true"}
 	default:
 		return ""
+	}
+	if n.ForceUDP && (n.Protocol == model.ProtoVMess || n.Protocol == model.ProtoVLESS) {
+		parts = append(parts, "udp-relay=true")
 	}
 	if n.TLS.Insecure {
 		parts = append(parts, "tls-verification=false")

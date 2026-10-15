@@ -58,6 +58,7 @@ type Server struct {
 	subLimit     *ipLimiter
 	callbacks    callbackStore
 	nodeUserSets nodeUsersCache
+	schemes      schemeCache
 	webFS        http.FileSystem
 	bg           context.Context
 	sinks        []chan Event
