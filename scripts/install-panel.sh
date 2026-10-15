@@ -64,6 +64,13 @@ running() { systemctl is-active --quiet polaris; }
 # polaris_cmd runs a panel maintenance subcommand as the service user with
 # the service's environment (so SQLite files keep the right owner).
 polaris_cmd() {
+  # Releases before v0.1.0-beta.2 lack these subcommands and would ignore the
+  # arguments and start a second panel instead, so never run them blindly.
+  # (Detected from the usage text compiled into the binary.)
+  if ! grep -qaF 'polaris admin reset-password' "$BIN"; then
+    red "当前安装的版本（$("$BIN" --version 2>/dev/null | awk '{print $2}')）不支持此功能，请先执行 polaris update 升级" >&2
+    return 1
+  fi
   # shellcheck source=/dev/null
   (cd "$DATA" && set -a && . "$ENV_FILE" && set +a && runuser -u polaris -- "$BIN" "$@")
 }
