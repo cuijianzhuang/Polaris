@@ -204,6 +204,7 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 .drawer.wide { width: min(760px, 100%); }
 .modal { width: min(560px, 100%); background: var(--card); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 16px; box-shadow: var(--shadow-3); }
 .modal.wide { width: min(880px, 100%); }
+.modal.xwide { width: min(1180px, 100%); }
 .dhead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .dfoot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
@@ -368,3 +369,16 @@ html[data-mode="dark"] .overlay { background: rgba(0, 0, 0, .55); }
 .swatch:hover { transform: scale(1.08); }
 .swatch.on { box-shadow: 0 0 0 2px var(--ink); }
 .side-foot .theme-btn { display: inline-flex; align-items: center; padding: 4px 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 40px; padding: 5px 8px; border: 1px solid var(--input); border-radius: 8px; background: var(--card); cursor: text; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.tags:focus-within { border-color: var(--pri); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pri) 14%, transparent); }
+.tags input { flex: 1; min-width: 120px; border: none; outline: none; background: none; color: var(--ink); font-size: 13px; padding: 4px 2px; }
+.tag-item { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 6px; background: var(--soft); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); animation: pop-in .2s var(--ease-out); }
+.tag-item button { border: none; background: none; color: var(--mute); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; border-radius: 4px; }
+.tag-item button:hover { color: var(--bad); background: var(--bad-bg); }
+.joined { display: flex; }
+.joined .input { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.joined .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
+.scan-table { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.scan-table thead th { position: sticky; top: 0; background: var(--soft); z-index: 1; }
+.btn.link { border-color: transparent; background: none; color: var(--pri); box-shadow: none; }
+.btn.link:hover { background: var(--pri-soft); color: var(--pri-ink); }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -29,7 +30,11 @@ func TestACMEHTTP01(t *testing.T) {
 		t.Skip("POLARIS_PEBBLE_DIR not set")
 	}
 	dir := t.TempDir()
-	acmePort, challengePort := freePort(t), freePort(t)
+	// All ports are reserved together: freePort releases its port at once,
+	// so separate calls can hand out the same number twice (the HTTP-01
+	// port then collides with a listener of this process).
+	ports := distinctPorts(t, 7)
+	acmePort, challengePort, mgmtPort, httpPort, agentPort, authPort, apiBase := ports[0], ports[1], ports[2], ports[3], ports[4], ports[5], ports[6]
 	var pcfg map[string]map[string]any
 	raw, _ := os.ReadFile(filepath.Join(pdir, "config.json"))
 	if err := json.Unmarshal(raw, &pcfg); err != nil {
@@ -37,7 +42,7 @@ func TestACMEHTTP01(t *testing.T) {
 	}
 	p := pcfg["pebble"]
 	p["listenAddress"] = fmt.Sprintf("127.0.0.1:%d", acmePort)
-	p["managementListenAddress"] = fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	p["managementListenAddress"] = fmt.Sprintf("127.0.0.1:%d", mgmtPort)
 	p["certificate"], p["privateKey"] = filepath.Join(pdir, "cert.pem"), filepath.Join(pdir, "key.pem")
 	p["httpPort"] = challengePort
 	b, _ := json.Marshal(pcfg)
@@ -54,7 +59,6 @@ func TestACMEHTTP01(t *testing.T) {
 	defer peb.Process.Kill()
 	t.Setenv("LEGO_CA_CERTIFICATES", filepath.Join(pdir, "pebble.minica.pem"))
 
-	httpPort, agentPort := freePort(t), freePort(t)
 	cfg := &panel.Config{
 		Listen: fmt.Sprintf("127.0.0.1:%d", httpPort), AgentListen: fmt.Sprintf("127.0.0.1:%d", agentPort),
 		AgentHosts: []string{"127.0.0.1"}, PublicURL: fmt.Sprintf("http://127.0.0.1:%d", httpPort),
@@ -94,8 +98,8 @@ func TestACMEHTTP01(t *testing.T) {
 	if _, err := agent.Enroll(ctx, panelURL, created.Token, settings["ca_sha256"].(string), agentDir, "test"); err != nil {
 		t.Fatal(err)
 	}
-	ag, err := agent.New(agent.Config{PanelURL: panelURL, DataDir: agentDir, AuthListen: fmt.Sprintf("127.0.0.1:%d", freePort(t)),
-		Heartbeat: time.Second, APIPortBase: freePort(t), DisableIPDetect: true}, log)
+	ag, err := agent.New(agent.Config{PanelURL: panelURL, DataDir: agentDir, AuthListen: fmt.Sprintf("127.0.0.1:%d", authPort),
+		Heartbeat: time.Second, APIPortBase: apiBase, DisableIPDetect: true}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,4 +142,34 @@ func TestACMEHTTP01(t *testing.T) {
 	if code := a.do("POST", "/certificates/"+cert.ID+"/renew", nil, nil); code >= 300 {
 		t.Fatalf("renew: %d", code)
 	}
+}
+
+// distinctPorts reserves n free ports at once, away from each other's
+// neighbourhood (the agent uses apiBase+0..+20 for core APIs).
+func distinctPorts(t *testing.T, n int) []int {
+	var ls []net.Listener
+	defer func() {
+		for _, l := range ls {
+			l.Close()
+		}
+	}()
+	var out []int
+	for len(out) < n {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ls = append(ls, l)
+		p := l.Addr().(*net.TCPAddr).Port
+		near := false
+		for _, q := range out {
+			if p > q-32 && p < q+32 {
+				near = true
+			}
+		}
+		if !near {
+			out = append(out, p)
+		}
+	}
+	return out
 }

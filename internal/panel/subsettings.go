@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/base64"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -27,7 +28,52 @@ func (s *Server) subBase() string {
 	if s.cfg.PublicURL != "" {
 		return strings.TrimRight(s.cfg.PublicURL, "/")
 	}
-	return "http://" + s.cfg.Listen
+	// Without a configured URL, use the address the admin reaches the
+	// panel at: "http://" + Listen is ":8080" by default, which clients
+	// cannot fetch.
+	if b, _ := s.seenBase.Load().(string); b != "" {
+		return b
+	}
+	if b := s.st.GetSetting("seen_base_url", ""); b != "" {
+		s.seenBase.Store(b)
+		return b
+	}
+	return "http://" + listenHost(s.cfg.Listen)
+}
+
+// noteBase remembers the public address of an admin request (not loopback:
+// that is an SSH tunnel or the server itself) for subscription links.
+func (s *Server) noteBase(r *http.Request) {
+	if s.cfg.PublicURL != "" || r == nil || !validHost.MatchString(r.Host) {
+		return
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if ip := net.ParseIP(host); host == "localhost" || ip != nil && (ip.IsLoopback() || ip.IsUnspecified()) {
+		return
+	}
+	b := s.requestBase(r)
+	if old, _ := s.seenBase.Load().(string); old == b {
+		return
+	}
+	s.seenBase.Store(b)
+	_ = s.st.SetSetting("seen_base_url", b)
+}
+
+// listenHost turns a listen address such as ":8080" or "0.0.0.0:8080" into
+// something dialable (the best effort when nothing else is known).
+func listenHost(listen string) string {
+	h, p, err := net.SplitHostPort(listen)
+	if err != nil {
+		return listen
+	}
+	if ip := net.ParseIP(h); h == "" || ip != nil && ip.IsUnspecified() {
+		h = "127.0.0.1"
+	}
+	return net.JoinHostPort(h, p)
 }
 
 func (s *Server) subTitle(fallback string) string {

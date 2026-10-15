@@ -1,6 +1,7 @@
 package realityscan
 
 import (
+	"context"
 	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
@@ -34,5 +35,19 @@ func TestProbe(t *testing.T) {
 		if x.TLS == "" {
 			t.Fatalf("range scan kept a non-answer: %+v", x)
 		}
+	}
+}
+
+func TestScanTargetList(t *testing.T) {
+	// Unreachable names fail fast; the point is parsing and dedupe.
+	rs, err := Scan(context.Background(), "a.invalid, b.invalid:8443\na.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 2 {
+		t.Fatalf("want 2 deduplicated results, got %+v", rs)
+	}
+	if _, err := Scan(context.Background(), "a.invalid,10.0.0.0/33"); err == nil {
+		t.Fatal("bad CIDR must fail")
 	}
 }

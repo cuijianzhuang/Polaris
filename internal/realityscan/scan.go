@@ -38,7 +38,9 @@ type Result struct {
 	// the target's certificate message).
 	MLDSA     bool     `json:"mldsa"`
 	CertName  string   `json:"certName,omitempty"`
-	Names     []string `json:"names,omitempty"` // certificate names usable as serverNames
+	Issuer    string   `json:"issuer,omitempty"`
+	NotAfter  string   `json:"notAfter,omitempty"` // certificate expiry (RFC 3339)
+	Names     []string `json:"names,omitempty"`    // certificate names usable as serverNames
 	ChainSize int      `json:"chainSize,omitempty"`
 	LatencyMs int64    `json:"latencyMs,omitempty"`
 	Problem   string   `json:"problem,omitempty"`
@@ -54,25 +56,37 @@ const MLDSAMinChain = 3600
 // roots verifies certificates (nil: the system pool); tests replace it.
 var roots *x509.CertPool
 
-// Scan probes target: empty (the candidates), a host or host:port, an IP,
-// or a CIDR (at most 256 addresses, port 443).
+// maxTotal caps the addresses probed by one scan.
+const maxTotal = 512
+
+// Scan probes target: empty (the candidates) or a list separated by commas,
+// spaces or newlines of hosts, host:ports, IPs and CIDRs (at most 256
+// addresses each, port 443).
 func Scan(ctx context.Context, target string) ([]Result, error) {
-	target = strings.TrimSpace(target)
+	tokens := strings.FieldsFunc(target, func(r rune) bool { return r == ',' || r == '，' || r == ' ' || r == '\n' || r == '\r' || r == '\t' })
+	if len(tokens) == 0 {
+		tokens = Candidates
+	}
 	var hosts []string
-	switch {
-	case target == "":
-		hosts = Candidates
-	case strings.Contains(target, "/"):
-		p, err := netip.ParsePrefix(target)
+	bulk := map[int]bool{} // addresses from a range: only answers are kept
+	for _, t := range tokens {
+		if !strings.Contains(t, "/") {
+			if len(hosts) < maxTotal {
+				hosts = append(hosts, t)
+			}
+			continue
+		}
+		p, err := netip.ParsePrefix(t)
 		if err != nil {
-			return nil, fmt.Errorf("CIDR 无效：%w", err)
+			return nil, fmt.Errorf("CIDR %s 无效：%w", t, err)
 		}
 		p = p.Masked()
-		for a := p.Addr(); p.Contains(a) && len(hosts) < maxHosts; a = a.Next() {
+		n := 0
+		for a := p.Addr(); p.Contains(a) && n < maxHosts && len(hosts) < maxTotal; a = a.Next() {
+			bulk[len(hosts)] = true
 			hosts = append(hosts, a.String())
+			n++
 		}
-	default:
-		hosts = []string{target}
 	}
 	results := make([]Result, len(hosts))
 	sem := make(chan struct{}, 32)
@@ -87,16 +101,24 @@ func Scan(ctx context.Context, target string) ([]Result, error) {
 		}()
 	}
 	wg.Wait()
-	if len(hosts) > 1 && strings.Contains(target, "/") {
-		// Only answers from a range are interesting.
-		out := results[:0]
-		for _, r := range results {
-			if r.TLS != "" {
-				out = append(out, r)
-			}
+	// Only answers from a range are interesting; a target found twice (a
+	// name and an address discovering it) keeps its better result.
+	out := results[:0]
+	seen := map[string]int{}
+	for i, r := range results {
+		if bulk[i] && r.TLS == "" {
+			continue
 		}
-		results = out
+		if j, ok := seen[r.Target]; ok {
+			if better(r, out[j]) {
+				out[j] = r
+			}
+			continue
+		}
+		seen[r.Target] = len(out)
+		out = append(out, r)
 	}
+	results = out
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].OK != results[j].OK {
 			return results[i].OK
@@ -107,6 +129,13 @@ func Scan(ctx context.Context, target string) ([]Result, error) {
 		return results[i].LatencyMs < results[j].LatencyMs
 	})
 	return results, nil
+}
+
+func better(a, b Result) bool {
+	if a.OK != b.OK {
+		return a.OK
+	}
+	return a.LatencyMs > 0 && (b.LatencyMs == 0 || a.LatencyMs < b.LatencyMs)
 }
 
 // Probe checks one host or host:port.
@@ -156,6 +185,11 @@ func Probe(ctx context.Context, hostport string) Result {
 	}
 	leaf := st.PeerCertificates[0]
 	r.CertName = leaf.Subject.CommonName
+	r.Issuer = leaf.Issuer.CommonName
+	if len(leaf.Issuer.Organization) > 0 {
+		r.Issuer = leaf.Issuer.Organization[0]
+	}
+	r.NotAfter = leaf.NotAfter.UTC().Format(time.RFC3339)
 	if r.CertName == "" && len(leaf.DNSNames) > 0 {
 		r.CertName = leaf.DNSNames[0]
 	}
@@ -184,6 +218,17 @@ func Probe(ctx context.Context, hostport string) Result {
 		r.Problem = "证书对该域名无效"
 		return r
 	}
+	if !isIP {
+		// The probed name is valid for the certificate (possibly through a
+		// wildcard): it is the first serverName clients should use.
+		names := []string{host}
+		for _, n := range r.Names {
+			if !strings.EqualFold(n, host) {
+				names = append(names, n)
+			}
+		}
+		r.Names = names
+	}
 	switch {
 	case st.Version != tls.VersionTLS13:
 		r.Problem = "不支持 TLS 1.3"
@@ -210,6 +255,12 @@ func shortErr(err error) string {
 		return "连接超时"
 	case strings.Contains(err.Error(), "refused"):
 		return "连接被拒绝"
+	case strings.Contains(err.Error(), "no such host") || strings.Contains(err.Error(), "server misbehaving"):
+		return "域名解析失败"
+	case strings.Contains(err.Error(), "network is unreachable") || strings.Contains(err.Error(), "no route to host"):
+		return "网络不可达"
+	case strings.Contains(err.Error(), "connection reset"):
+		return "连接被重置"
 	}
 	s := err.Error()
 	if len(s) > 120 {
