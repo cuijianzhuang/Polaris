@@ -267,6 +267,16 @@ function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; o
   const [type, setType] = useState<CoreType>(core?.type ?? (node.cores.find((c) => c.type === 'singbox') ? 'xray' : 'singbox'))
   const [version, setVersion] = useState(core?.version ?? DEFAULT_VERSIONS[type] ?? '')
   const [isDefault, setDefault] = useState(core?.isDefault ?? false)
+  const [available, setAvailable] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    setAvailable(null)
+    get<{ versions: string[] }>('/core-versions?type=' + type)
+      .then((r) => { if (live) setAvailable(r.versions) })
+      .catch(() => { if (live) setAvailable([]) })
+    return () => { live = false }
+  }, [type])
+  const installed = core?.installedVersions ?? []
   const { busy, run } = useAction()
   return (
     <Modal title={core ? `切换 ${coreLabel[core.type]} 版本` : '安装内核'} onClose={onClose} footer={<>
@@ -290,8 +300,17 @@ function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; o
       )}
       <Field label="版本" htmlFor="c-ver" hint={core?.installedVersions?.length ? `已安装：${core.installedVersions.join('、')}（切回旧版本可秒级回滚）` : '从官方 GitHub Release 下载，并校验 SHA256'}>
         <input id="c-ver" className="input mono" value={version} onChange={(e) => setVersion(e.target.value)} list="core-versions" />
-        <datalist id="core-versions">{(core?.installedVersions ?? []).map((v) => <option key={v} value={v} />)}</datalist>
+        <datalist id="core-versions">{[...new Set([...(available ?? []), ...installed])].map((v) => <option key={v} value={v} />)}</datalist>
       </Field>
+      <div className="chips" style={{ marginBottom: 12 }} aria-label="可选版本">
+        {available === null && <span className="sub">正在获取官方版本列表…</span>}
+        {available?.length === 0 && <span className="sub">无法获取版本列表（可在设置中配置 GitHub 镜像），请手动填写版本号</span>}
+        {available?.slice(0, 10).map((v, i) => (
+          <button key={v} type="button" className={'chip' + (version === v ? ' on' : '')} onClick={() => setVersion(v)}>
+            v{v}{i === 0 ? ' · 最新' : ''}{installed.includes(v) ? ' · 已安装' : ''}{core?.version === v ? ' · 当前' : ''}
+          </button>
+        ))}
+      </div>
       <label className="chk"><input type="checkbox" checked={isDefault} onChange={(e) => setDefault(e.target.checked)} />设为节点默认内核</label>
     </Modal>
   )

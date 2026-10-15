@@ -85,7 +85,7 @@ func TestLatestRelease(t *testing.T) {
 	githubAPI, githubWeb = api.URL, web.URL
 	defer func() { githubAPI, githubWeb = "https://api.github.com", "https://github.com" }()
 	s := &Server{}
-	for repo, want := range map[string]string{"apernet/hysteria": "2.6.10", "XTLS/Xray-core": "26.5.3", "SagerNet/sing-box": "1.14.2"} {
+	for repo, want := range map[string]string{"apernet/hysteria": "2.6.10", "XTLS/Xray-core": "26.6.1", "SagerNet/sing-box": "1.14.2"} {
 		prefix := "v"
 		if repo == "apernet/hysteria" {
 			prefix = "app/v"
@@ -93,5 +93,34 @@ func TestLatestRelease(t *testing.T) {
 		if got, err := s.latestRelease(t.Context(), repo, prefix); err != nil || got != want {
 			t.Errorf("%s: %q %v (want %s)", repo, got, err, want)
 		}
+	}
+}
+
+// Xray flags every release as a GitHub pre-release: its plain tags count.
+func TestXrayPrereleaseFlagIgnored(t *testing.T) {
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"tag_name":"v26.10.10","prerelease":true},{"tag_name":"v26.9.30","prerelease":true},{"tag_name":"v27.0.0-beta","prerelease":true}]`))
+	}))
+	defer api.Close()
+	githubAPI = api.URL
+	defer func() { githubAPI = "https://api.github.com" }()
+	vs, err := (&Server{}).releaseVersions(t.Context(), "XTLS/Xray-core", "v")
+	if err != nil || len(vs) != 2 || vs[0] != "26.10.10" {
+		t.Fatalf("versions = %v %v", vs, err)
+	}
+	if vs, _ := (&Server{}).releaseVersions(t.Context(), "SagerNet/sing-box", "v"); len(vs) != 0 {
+		t.Fatalf("other repos must still skip pre-releases: %v", vs)
+	}
+}
+
+func TestVersionsFromAtom(t *testing.T) {
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<feed><entry><link href="https://github.com/XTLS/Xray-core/releases/tag/v26.9.9"/></entry>` +
+			`<entry><link href="https://github.com/XTLS/Xray-core/releases/tag/v26.10.10"/></entry></feed>`))
+	}))
+	defer web.Close()
+	vs, err := versionsFromAtom(t.Context(), web.URL, "XTLS/Xray-core", "v")
+	if err != nil || len(vs) != 2 || vs[0] != "26.10.10" {
+		t.Fatalf("versions = %v %v", vs, err)
 	}
 }

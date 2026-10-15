@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -203,6 +206,46 @@ func (s *Server) coreLatest(c *gin.Context) {
 	c.JSON(http.StatusOK, latestVersions.vers)
 }
 
+var versionLists struct {
+	mu sync.Mutex
+	m  map[model.CoreType]versionList
+}
+
+type versionList struct {
+	at   time.Time
+	vers []string
+}
+
+// coreVersions is GET /core-versions?type=xray: recent stable releases,
+// newest first, for the version picker (cached for an hour).
+func (s *Server) coreVersions(c *gin.Context) {
+	t := model.CoreType(c.Query("type"))
+	r, ok := coreRepos[t]
+	if !ok {
+		badRequest(c, fmt.Errorf("unknown core type %q", t))
+		return
+	}
+	versionLists.mu.Lock()
+	defer versionLists.mu.Unlock()
+	if versionLists.m == nil {
+		versionLists.m = map[model.CoreType]versionList{}
+	}
+	if l, ok := versionLists.m[t]; ok && time.Since(l.at) < time.Hour && c.Query("refresh") != "1" {
+		c.JSON(http.StatusOK, gin.H{"versions": l.vers})
+		return
+	}
+	vs, err := s.releaseVersions(c.Request.Context(), r.repo, r.tagPrefix)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "无法获取版本列表：" + err.Error(), "versions": []string{}})
+		return
+	}
+	if len(vs) > 15 {
+		vs = vs[:15]
+	}
+	versionLists.m[t] = versionList{time.Now(), vs}
+	c.JSON(http.StatusOK, gin.H{"versions": vs})
+}
+
 // GitHub endpoints (variables so tests can point them at a fake).
 var (
 	githubAPI = "https://api.github.com"
@@ -213,11 +256,27 @@ var (
 // when that fails (rate limit, blocked network), from the redirect of
 // github.com/<repo>/releases/latest, through github_mirror when set.
 func (s *Server) latestRelease(ctx context.Context, repo, prefix string) (string, error) {
+	vs, err := s.releaseVersions(ctx, repo, prefix)
+	if err != nil {
+		return "", err
+	}
+	return vs[0], nil
+}
+
+// flagsEveryRelease lists repositories that mark every build as a GitHub
+// "pre-release" (Xray since 26.7): there, only the tag tells a test build
+// ("-beta", "+…") from a regular one.
+var flagsEveryRelease = map[string]bool{"XTLS/Xray-core": true}
+
+// releaseVersions lists recent stable versions, newest first: from the
+// GitHub API, else the releases Atom feed, else the "latest" redirect (all
+// through github_mirror when the API is unreachable).
+func (s *Server) releaseVersions(ctx context.Context, repo, prefix string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	v, err := latestFromAPI(ctx, repo, prefix)
+	vs, err := versionsFromAPI(ctx, repo, prefix)
 	if err == nil {
-		return v, nil
+		return vs, nil
 	}
 	web := githubWeb
 	if s.st != nil {
@@ -225,23 +284,69 @@ func (s *Server) latestRelease(ctx context.Context, repo, prefix string) (string
 			web = m + "/" + githubWeb
 		}
 	}
-	if v2, err2 := latestFromRedirect(ctx, web, repo, prefix); err2 == nil {
-		return v2, nil
+	if vs, err2 := versionsFromAtom(ctx, web, repo, prefix); err2 == nil {
+		return vs, nil
 	}
-	return "", err
+	if v2, err2 := latestFromRedirect(ctx, web, repo, prefix); err2 == nil {
+		return []string{v2}, nil
+	}
+	return nil, err
 }
 
-func latestFromAPI(ctx context.Context, repo, prefix string) (string, error) {
-	// Hysteria tags more than the app ("app/v2.6.1"), so scan recent releases.
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, githubAPI+"/repos/"+repo+"/releases?per_page=20", nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
+// sortVersions dedupes and orders versions newest first.
+func sortVersions(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range in {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return versionLess(out[j], out[i]) })
+	return out
+}
+
+var atomTag = regexp.MustCompile(`/releases/tag/([^"<>\s]+)`)
+
+func versionsFromAtom(ctx context.Context, web, repo, prefix string) ([]string, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, web+"/"+repo+"/releases.atom", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("github: %s", resp.Status)
+		return nil, fmt.Errorf("releases feed: %s", resp.Status)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return nil, err
+	}
+	var vs []string
+	for _, m := range atomTag.FindAllStringSubmatch(string(b), -1) {
+		tag, _ := url.PathUnescape(m[1])
+		if v, ok := stableVersion(tag, prefix); ok {
+			vs = append(vs, v)
+		}
+	}
+	if len(vs) == 0 {
+		return nil, fmt.Errorf("no stable release in feed")
+	}
+	return sortVersions(vs), nil
+}
+
+func versionsFromAPI(ctx context.Context, repo, prefix string) ([]string, error) {
+	// Hysteria tags more than the app ("app/v2.6.1"), so scan recent releases.
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, githubAPI+"/repos/"+repo+"/releases?per_page=30", nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("github: %s", resp.Status)
 	}
 	var rels []struct {
 		Tag        string `json:"tag_name"`
@@ -249,21 +354,21 @@ func latestFromAPI(ctx context.Context, repo, prefix string) (string, error) {
 		Draft      bool   `json:"draft"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rels); err != nil {
-		return "", err
+		return nil, err
 	}
-	best := ""
+	var vs []string
 	for _, r := range rels {
-		if r.Prerelease || r.Draft {
+		if r.Draft || (r.Prerelease && !flagsEveryRelease[repo]) {
 			continue
 		}
-		if v, ok := stableVersion(r.Tag, prefix); ok && (best == "" || versionLess(best, v)) {
-			best = v
+		if v, ok := stableVersion(r.Tag, prefix); ok {
+			vs = append(vs, v)
 		}
 	}
-	if best == "" {
-		return "", fmt.Errorf("no stable release")
+	if len(vs) == 0 {
+		return nil, fmt.Errorf("no stable release")
 	}
-	return best, nil
+	return sortVersions(vs), nil
 }
 
 func latestFromRedirect(ctx context.Context, web, repo, prefix string) (string, error) {
