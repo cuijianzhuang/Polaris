@@ -67,7 +67,7 @@ export interface TemplateItem {
 export interface InboundTemplate { id: string; name: string; builtin: boolean; description: string; items: TemplateItem[]; groups: string[]; boundLabels: string[]; inbounds: number; nodes: number }
 export interface PlannedInbound { nodeId: string; nodeName: string; itemKey: string; tag: string; core?: CoreType; port?: number; network?: string; cert: string; entries: string; result: 'new' | 'fix' | 'skip'; reason?: string }
 export interface NodePlan { nodeId: string; nodeName: string; summary: string; items: PlannedInbound[]; error?: string }
-export interface Certificate { id: string; domain: string; provider: string; cert: string; expireAt?: string; autoRenew: boolean; lastError: string; usedBy: number }
+export interface Certificate { id: string; domain: string; provider: string; challenge?: string; nodeId?: string; cert: string; expireAt?: string; autoRenew: boolean; lastError: string; usedBy: number }
 export interface Revision { id: number; nodeId: string; rev: number; reason: string; status: string; method: string; error: string; createdAt: string }
 export interface AuditLog { id: number; admin: string; action: string; target: string; detail: string; ip: string; createdAt: string }
 export interface SubTemplate { id: string; format: string; name: string; content: string; isDefault: boolean; updatedAt: string }

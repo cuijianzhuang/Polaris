@@ -19,6 +19,13 @@ jobs:
           curl -fsSL -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip && unzip -q xray.zip -d xray
           curl -fsSL https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz | tar xz
           curl -fsSL https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz | gunzip > mihomo && chmod +x mihomo
+          mkdir -p pebble && curl -fsSL https://github.com/letsencrypt/pebble/releases/download/v2.7.0/pebble-linux-amd64.tar.gz | tar xz -C pebble --strip-components=3
+          B=https://raw.githubusercontent.com/letsencrypt/pebble/v2.7.0/test
+          curl -fsSL -o pebble/config.json $B/config/pebble-config.json
+          curl -fsSL -o pebble/cert.pem $B/certs/localhost/cert.pem
+          curl -fsSL -o pebble/key.pem $B/certs/localhost/key.pem
+          curl -fsSL -o pebble/pebble.minica.pem $B/certs/pebble.minica.pem
+          chmod +x pebble/pebble
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - run: go test -count=1 ./...
@@ -26,6 +33,7 @@ jobs:
           POLARIS_XRAY_BIN: /tmp/cores/xray/xray
           POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
+          POLARIS_PEBBLE_DIR: /tmp/cores/pebble
   web:
     runs-on: ubuntu-latest
     steps:

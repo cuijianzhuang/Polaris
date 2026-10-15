@@ -118,7 +118,15 @@ curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <一次性 
 | `POLARIS_DECOY` | 非后台路径反代到的伪装站 | 返回 404 |
 | `POLARIS_SUB_RATE_LIMIT` | 订阅接口每 IP 每分钟请求数 | 30 |
 
-ACME（DNS-01，Cloudflare）在后台「设置」中填写邮箱与 DNS Token 后启用，证书到期前 30 天自动续期并下发到使用它的节点。
+ACME（Let's Encrypt）在后台「设置」填写邮箱即可启用：
+
+- **HTTP 验证**（只需邮箱）：域名解析到节点，签发时主控让该节点的 Agent 在 80 端口临时应答 `/.well-known/acme-challenge/`（几秒后关闭；80 端口被占用时会提示是哪个程序）。节点按域名 / 地址自动匹配，也可手动指定。
+- **DNS 验证**（再填 Cloudflare DNS Token）：支持泛域名 `*.example.com`，不需要 80 端口。
+- **IP 证书**：域名处填节点 IP，按 Let's Encrypt 短期证书签发（约 6 天）。
+
+证书在剩余不足 1/3 有效期时自动续期（90 天证书提前 30 天，IP 证书提前 2 天），并下发到使用它的节点。
+
+**回落（一个端口多个协议）**：Xray 上的 VLESS / Trojan + TCP + TLS / REALITY 入站可配置回落，把不是本协议的连接按路径 / ALPN 转给同节点、监听 127.0.0.1、不开 TLS 的子入站（如 VLESS-WS、Trojan），实现 443 一个端口同时承载多种协议；子入站的订阅链接自动使用主入站的端口与 TLS。
 
 ## 开发
 

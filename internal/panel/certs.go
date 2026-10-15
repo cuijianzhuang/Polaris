@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -49,6 +50,10 @@ func (s *Server) issueSelfSigned(host string) (*store.Certificate, error) {
 	return &c, nil
 }
 
+// acmeHTTPReady reports whether ACME HTTP-01 issuance is possible (only an
+// account email is needed; a node answers the challenge).
+func (s *Server) acmeHTTPReady() bool { return s.st.GetSetting("acme_email", "") != "" }
+
 // acmeConfigured reports whether ACME DNS-01 issuance is possible.
 func (s *Server) acmeConfigured() bool {
 	return s.st.GetSetting("acme_email", "") != "" && s.st.Box.MustOpen(s.st.GetSetting("acme_cf_token", "")) != ""
@@ -64,12 +69,51 @@ func (u *acmeUser) GetEmail() string                        { return u.email }
 func (u *acmeUser) GetRegistration() *registration.Resource { return u.reg }
 func (u *acmeUser) GetPrivateKey() crypto.PrivateKey        { return u.key }
 
-// issueACME obtains a certificate via DNS-01 (Cloudflare) and stores it.
-func (s *Server) issueACME(domain string, existing *store.Certificate) (*store.Certificate, error) {
+// acmeOpts selects the challenge: "dns" (Cloudflare DNS-01, needed for
+// wildcards), "http" (HTTP-01 answered by NodeID on port 80) or "" (DNS when
+// a Cloudflare token is set, else HTTP).
+type acmeOpts struct {
+	Challenge string
+	NodeID    string
+}
+
+// issueACME obtains a certificate and stores it.
+func (s *Server) issueACME(domain string, existing *store.Certificate, opt acmeOpts) (*store.Certificate, error) {
 	email := s.st.GetSetting("acme_email", "")
 	token := s.st.Box.MustOpen(s.st.GetSetting("acme_cf_token", ""))
-	if email == "" || token == "" {
-		return nil, errors.New("ACME is not configured: set acme_email and a Cloudflare DNS token in settings")
+	if email == "" {
+		return nil, errors.New("ACME 未配置：请在「设置」填写 ACME 邮箱")
+	}
+	isIP := net.ParseIP(domain) != nil
+	if opt.Challenge == "" {
+		opt.Challenge = "http"
+		if token != "" && !isIP {
+			opt.Challenge = "dns"
+		}
+	}
+	if isIP {
+		opt.Challenge = "http" // IP certificates can only be validated over HTTP
+	}
+	switch opt.Challenge {
+	case "dns":
+		if token == "" {
+			return nil, errors.New("DNS 验证需要在「设置」填写 Cloudflare DNS Token")
+		}
+	case "http":
+		if strings.HasPrefix(domain, "*.") {
+			return nil, errors.New("泛域名证书只能用 DNS 验证（Cloudflare）")
+		}
+		if opt.NodeID == "" {
+			opt.NodeID = s.nodeForDomain(domain)
+		}
+		if opt.NodeID == "" {
+			return nil, fmt.Errorf("找不到 %s 对应的节点：请选择由哪个节点应答 HTTP 验证（该域名需解析到这个节点）", domain)
+		}
+		if !s.hub.Online(opt.NodeID) {
+			return nil, errors.New("应答 HTTP 验证的节点不在线")
+		}
+	default:
+		return nil, fmt.Errorf("unknown challenge %q", opt.Challenge)
 	}
 	user := &acmeUser{email: email}
 	if raw := s.st.Box.MustOpen(s.st.GetSetting("acme_account_key", "")); raw != "" {
@@ -101,7 +145,12 @@ func (s *Server) issueACME(domain string, existing *store.Certificate) (*store.C
 	if err != nil {
 		return nil, err
 	}
-	if err := client.Challenge.SetDNS01Provider(&cfDNSProvider{cf: newCF(token)}); err != nil {
+	if opt.Challenge == "dns" {
+		err = client.Challenge.SetDNS01Provider(&cfDNSProvider{cf: newCF(token)})
+	} else {
+		err = client.Challenge.SetHTTP01Provider(&agentHTTP01{s: s, nodeID: opt.NodeID, port: s.st.GetSetting("acme_http_port", "80")})
+	}
+	if err != nil {
 		return nil, err
 	}
 	if user.reg == nil {
@@ -113,7 +162,11 @@ func (s *Server) issueACME(domain string, existing *store.Certificate) (*store.C
 		b, _ := json.Marshal(reg)
 		_ = s.st.SetSetting("acme_registration", string(b))
 	}
-	res, err := client.Certificate.Obtain(certificate.ObtainRequest{Domains: []string{domain}, Bundle: true})
+	req := certificate.ObtainRequest{Domains: []string{domain}, Bundle: true}
+	if isIP {
+		req.Profile = "shortlived" // Let's Encrypt only issues IP certificates (about 6 days) under this profile
+	}
+	res, err := client.Certificate.Obtain(req)
 	if err != nil {
 		return nil, fmt.Errorf("acme obtain %s: %w", domain, err)
 	}
@@ -123,6 +176,7 @@ func (s *Server) issueACME(domain string, existing *store.Certificate) (*store.C
 		c = &store.Certificate{ID: store.NewID(), Domain: domain, Provider: "acme", AutoRenew: true}
 	}
 	c.Cert, c.Key, c.ExpireAt, c.LastError = string(res.Certificate), s.st.Box.Seal(string(res.PrivateKey)), &exp, ""
+	c.Challenge, c.NodeID = opt.Challenge, opt.NodeID
 	if err := s.st.DB.Save(c).Error; err != nil {
 		return nil, err
 	}
@@ -177,8 +231,8 @@ func (s *Server) certForPolicy(policy, domain string) (*store.Certificate, strin
 		if err := s.st.DB.Where("domain = ? AND provider = ?", domain, "acme").First(&c).Error; err == nil {
 			return &c, "ACME（已有）", nil
 		}
-		if s.acmeConfigured() && domain != "" {
-			c, err := s.issueACME(domain, nil)
+		if domain != "" && (s.acmeConfigured() || (s.acmeHTTPReady() && s.nodeForDomain(domain) != "")) {
+			c, err := s.issueACME(domain, nil, acmeOpts{})
 			if err != nil {
 				return nil, "", err
 			}
@@ -198,22 +252,44 @@ func (s *Server) certForPolicy(policy, domain string) (*store.Certificate, strin
 	}
 }
 
-// renewCertificates renews certificates expiring within 30 days and pushes
-// them to every node that uses them.
+// renewCertificates renews certificates that have used two thirds of their
+// lifetime (30 days before expiry for 90-day certificates, 2 days for the
+// 6-day IP certificates, which keeps those under Let's Encrypt's duplicate
+// certificate limit) and pushes them to every node that uses them.
 func (s *Server) renewCertificates() {
 	var cs []store.Certificate
 	s.st.DB.Where("auto_renew = ? AND expire_at < ?", true, time.Now().Add(30*24*time.Hour)).Find(&cs)
 	for i := range cs {
+		if !renewDue(&cs[i], time.Now()) {
+			continue
+		}
 		if err := s.renewCertificate(&cs[i]); err != nil {
 			s.log.Error("renew certificate", "domain", cs[i].Domain, "err", err)
 		}
 	}
 }
 
+// renewDue reports whether less than a third of the certificate's lifetime
+// (capped at 30 days) remains.
+func renewDue(c *store.Certificate, now time.Time) bool {
+	if c.ExpireAt == nil {
+		return true
+	}
+	window := 30 * 24 * time.Hour
+	if blk, _ := pem.Decode([]byte(c.Cert)); blk != nil {
+		if leaf, err := x509.ParseCertificate(blk.Bytes); err == nil {
+			if third := leaf.NotAfter.Sub(leaf.NotBefore) / 3; third < window {
+				window = third
+			}
+		}
+	}
+	return c.ExpireAt.Sub(now) < window
+}
+
 func (s *Server) renewCertificate(c *store.Certificate) error {
 	switch c.Provider {
 	case "acme":
-		if _, err := s.issueACME(c.Domain, c); err != nil {
+		if _, err := s.issueACME(c.Domain, c, acmeOpts{Challenge: c.Challenge, NodeID: c.NodeID}); err != nil {
 			s.st.DB.Model(c).Update("last_error", truncate(err.Error(), 1900))
 			s.notify(Event{Kind: "cert_failed", Text: "🔐 证书 " + c.Domain + " 续期失败：" + truncate(err.Error(), 200)})
 			return err

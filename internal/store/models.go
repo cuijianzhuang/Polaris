@@ -182,6 +182,8 @@ type Certificate struct {
 	ID        string     `gorm:"primaryKey;size:32" json:"id"`
 	Domain    string     `gorm:"size:255;index" json:"domain"`
 	Provider  string     `gorm:"size:32" json:"provider"` // acme / selfsigned / manual / cf-origin
+	Challenge string     `gorm:"size:8" json:"challenge"` // acme: dns (Cloudflare) / http (node port 80)
+	NodeID    string     `gorm:"size:32" json:"nodeId"`   // acme http: node that answers the challenge
 	Cert      string     `gorm:"type:text" json:"cert"`
 	Key       string     `gorm:"type:text" json:"-"` // sealed
 	ExpireAt  *time.Time `json:"expireAt"`

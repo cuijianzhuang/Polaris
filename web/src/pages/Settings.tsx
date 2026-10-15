@@ -31,10 +31,11 @@ export default function Settings() {
             <Field label="默认 Xray 版本"><input className="input mono" value={f.default_xray ?? ''} onChange={(e) => set('default_xray', e.target.value)} /></Field>
             <Field label="默认 sing-box 版本"><input className="input mono" value={f.default_singbox ?? ''} onChange={(e) => set('default_singbox', e.target.value)} /></Field>
           </div>
-          <h2 style={{ marginTop: 8 }}>ACME（DNS-01 · Cloudflare）</h2>
+          <h2 style={{ marginTop: 8 }}>ACME（Let's Encrypt）</h2>
+          <div className="hint" style={{ marginTop: -6 }}>只填邮箱即可用 HTTP 验证签发（由域名指向的节点在 80 端口应答）；再填 Cloudflare Token 则改用 DNS 验证，支持泛域名、无需 80 端口。</div>
           <div className="form-grid">
             <Field label="邮箱"><input className="input" type="email" value={f.acme_email ?? ''} onChange={(e) => set('acme_email', e.target.value)} /></Field>
-            <Field label="Cloudflare DNS Token" hint={s.data?.acme_cf_token_set ? '已保存（留空不修改）' : '需要 Zone.DNS 编辑权限'}>
+            <Field label="Cloudflare DNS Token" hint={s.data?.acme_cf_token_set ? '已保存（留空不修改）' : '可选 · 需要 Zone.DNS 编辑权限'}>
               <input className="input mono" type="password" autoComplete="off" value={f.acme_cf_token ?? ''} onChange={(e) => set('acme_cf_token', e.target.value)} />
             </Field>
           </div>

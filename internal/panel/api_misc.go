@@ -35,10 +35,12 @@ func (s *Server) listCerts(c *gin.Context) {
 // createCert uploads a PEM pair (manual), issues self-signed, or requests ACME.
 func (s *Server) createCert(c *gin.Context) {
 	var req struct {
-		Domain   string `json:"domain" binding:"required"`
-		Provider string `json:"provider"` // manual / selfsigned / acme
-		Cert     string `json:"cert"`
-		Key      string `json:"key"`
+		Domain    string `json:"domain" binding:"required"`
+		Provider  string `json:"provider"`  // manual / selfsigned / acme
+		Challenge string `json:"challenge"` // acme: "" (auto) / dns / http
+		NodeID    string `json:"nodeId"`    // acme http: node that answers
+		Cert      string `json:"cert"`
+		Key       string `json:"key"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -57,7 +59,7 @@ func (s *Server) createCert(c *gin.Context) {
 			Key: s.st.Box.Seal(req.Key), ExpireAt: &exp}
 		err = s.st.DB.Create(out).Error
 	case "acme":
-		out, err = s.issueACME(req.Domain, nil)
+		out, err = s.issueACME(req.Domain, nil, acmeOpts{Challenge: req.Challenge, NodeID: req.NodeID})
 	default:
 		out, err = s.issueSelfSigned(req.Domain)
 	}
@@ -99,7 +101,7 @@ var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true}
 
 var editableSettings = map[string]bool{
 	"site_title": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
-	"acme_email": true, "acme_cf_token": true, "acme_directory": true, "default_xray": true, "default_singbox": true,
+	"acme_email": true, "acme_cf_token": true, "acme_directory": true, "acme_http_port": true, "default_xray": true, "default_singbox": true,
 	"converter_mode": true, "converter_backend": true, "converter_config": true, "converter_params": true,
 	"converter_for_users": true, "sub_operators": true, "sub_apply_ops_users": true, "allow_private_sources": true,
 	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,
@@ -128,6 +130,7 @@ func (s *Server) getSettings(c *gin.Context) {
 	out["ca_sha256"] = s.ca.Fingerprint()
 	out["version"] = Version
 	out["acme_ready"] = s.acmeConfigured()
+	out["acme_http_ready"] = s.acmeHTTPReady()
 	c.JSON(http.StatusOK, out)
 }
 
