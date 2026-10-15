@@ -1,10 +1,22 @@
 import { useEffect, useState } from 'react'
-import { get, post, put, setToken } from '../api'
-import { CopyBox, Field, QR, useAction, useLoad } from '../components/ui'
+import { get, post, put, setToken, takeOAuthResult } from '../api'
+import { Icon } from '../components/Icons'
+import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 
 export default function Settings() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
-  const me = useLoad(() => get<{ username: string; totpEnabled: boolean }>('/auth/me'))
+  const me = useLoad(() => get<{ username: string; totpEnabled: boolean; githubLogin?: string }>('/auth/me'))
+  const gh = useLoad(() => get<{ enabled: boolean; clientId: string; callbackUrl: string }>('/auth/github'))
+  const [ghForm, setGhForm] = useState({ id: '', secret: '' })
+  const toast = useToast()
+  const confirm = useConfirm()
+  useEffect(() => {
+    const r = takeOAuthResult()
+    if (r.bound) toast('已绑定 GitHub 账号 ' + r.bound)
+    if (r.error) toast(r.error, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])
   const [f, setF] = useState<Record<string, string>>({})
   const [pw, setPw] = useState({ old: '', new: '' })
   const [totp, setTotp] = useState<{ secret: string; url: string } | null>(null)
@@ -73,6 +85,36 @@ export default function Settings() {
               </div>
             </>
           )}
+          <h2 style={{ marginTop: 8 }}><span className="row" style={{ gap: 8 }}><Icon.GitHub />GitHub 登录</span></h2>
+          {me.data?.githubLogin ? (
+            <div className="row">
+              <span className="small">当前账号已绑定 <b>@{me.data.githubLogin}</b>，可在登录页用 GitHub 登录{me.data.totpEnabled ? '（仍需二次验证码）' : ''}</span>
+              <span className="spacer" />
+              <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
+                if (await confirm('解除 GitHub 绑定？之后只能用密码登录。')) run(async () => { await post('/auth/github/unbind'); me.reload() }, '已解除绑定')
+              }}>解除绑定</button>
+            </div>
+          ) : gh.data?.enabled ? (
+            <div className="row">
+              <span className="small mute">绑定后可在登录页一键用 GitHub 登录</span><span className="spacer" />
+              <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { location.href = (await post<{ url: string }>('/auth/github/bind-url')).url })}><Icon.GitHub />绑定 GitHub</button>
+            </div>
+          ) : null}
+          <details className="more" open={!gh.data?.enabled}>
+            <summary>OAuth App 设置{gh.data?.enabled ? '（已配置）' : ''}</summary>
+            <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
+              <div className="hint">在 GitHub → Settings → Developer settings → OAuth Apps 新建应用，「Authorization callback URL」填写下方地址，然后填入 Client ID 与 Client Secret。</div>
+              <CopyBox text={gh.data?.callbackUrl ?? ''} />
+              <div className="form-grid">
+                <Field label="Client ID"><input className="input mono" value={ghForm.id} onChange={(e) => setGhForm({ ...ghForm, id: e.target.value.trim() })} /></Field>
+                <Field label="Client Secret" hint={gh.data?.enabled ? '已保存（留空不修改）' : undefined}><input className="input mono" type="password" autoComplete="off" value={ghForm.secret} onChange={(e) => setGhForm({ ...ghForm, secret: e.target.value.trim() })} /></Field>
+              </div>
+              <div><button className="btn sm pri" type="button" disabled={busy || !ghForm.id} onClick={() => run(async () => {
+                await put('/settings', ghForm.secret ? { github_client_id: ghForm.id, github_client_secret: ghForm.secret } : { github_client_id: ghForm.id })
+                setGhForm((x) => ({ ...x, secret: '' })); gh.reload()
+              }, 'GitHub 登录配置已保存')}>保存</button></div>
+            </div>
+          </details>
           {me.data?.totpEnabled && !totp && (
             <div className="row">
               <input className="input mono" style={{ width: 140 }} placeholder="验证码" value={code} onChange={(e) => setCode(e.target.value)} />

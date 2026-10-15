@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { BASE, get, getToken, onInflight, setToken, setUnauthorizedHandler, wsURL } from './api'
+import { BASE, get, getToken, onInflight, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import type { Node } from './types'
@@ -102,7 +102,11 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
 }
 
 export default function App() {
-  const [user, setUser] = useState<string | null>(getToken() ? '…' : null)
+  const [user, setUser] = useState<string | null>(() => {
+    const r = takeOAuthResult() // GitHub sign-in lands here with a session token
+    if (r.token) { setToken(r.token); return r.user ?? '…' }
+    return getToken() ? '…' : null
+  })
   useEffect(() => {
     setUnauthorizedHandler(() => { setToken(null); setUser(null) })
     if (getToken()) get<{ username: string }>('/auth/me').then((m) => setUser(m.username)).catch(() => {})

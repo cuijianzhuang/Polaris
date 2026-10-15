@@ -222,6 +222,8 @@ type Admin struct {
 	FailedAttempts int        `json:"-"`
 	LockedUntil    *time.Time `json:"-"`
 	LastLoginAt    *time.Time `json:"lastLoginAt"`
+	GitHubID       int64      `gorm:"index" json:"-"`             // bound GitHub account (sign-in)
+	GitHubLogin    string     `gorm:"size:64" json:"githubLogin"` // its username, for display
 	CreatedAt      time.Time  `json:"createdAt"`
 }
 

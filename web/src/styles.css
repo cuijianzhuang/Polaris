@@ -263,6 +263,12 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 .subcheck { display: flex; flex-direction: column; gap: 10px; animation: fade-up .25s var(--ease-out) both; }
 .subcheck table { border: 1px solid var(--line); border-radius: 8px; }
 
+/* login extras */
+.or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.btn.github { background: #24292F; border-color: #24292F; color: #fff; }
+.btn.github:hover { background: #32383F; color: #fff; }
+
 /* agent upgrade */
 .badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); position: relative; }
 .badge-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--warn); animation: ping 1.8s var(--ease-out) infinite; }
