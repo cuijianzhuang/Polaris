@@ -196,6 +196,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		sort.Slice(m.Users, func(a, b int) bool { return m.Users[a].ID < m.Users[b].ID })
 		spec.Inbounds = append(spec.Inbounds, m)
 	}
+	resolveFallbacks(spec.Inbounds)
 
 	if spec.Outbounds, err = s.buildOutbounds(node.ID); err != nil {
 		return nil, err

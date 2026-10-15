@@ -92,6 +92,27 @@ type ProtocolSpec struct {
 	Detour          string `json:"detour,omitempty"`          // shadowtls: tag of the inner inbound
 
 	UDP bool `json:"udp,omitempty"` // socks
+
+	// Fallbacks route handshakes this inbound does not accept to other
+	// inbounds (xray "fallbacks"), so several protocols share one TLS port.
+	Fallbacks []Fallback `json:"fallbacks,omitempty"`
+}
+
+// Fallback sends unmatched traffic on a VLESS / Trojan TCP + TLS / REALITY
+// inbound to a child inbound, optionally matched by HTTP path or TLS ALPN.
+type Fallback struct {
+	InboundID string `json:"inboundId"`      // child inbound (panel side)
+	Path      string `json:"path,omitempty"` // e.g. /ws
+	ALPN      string `json:"alpn,omitempty"` // h2 / http/1.1
+	Dest      string `json:"dest,omitempty"` // child address, resolved into the NodeSpec
+	Xver      int    `json:"xver,omitempty"` // PROXY protocol version sent to the child
+}
+
+// FallbackCapable reports whether the inbound can carry fallbacks.
+func (in *Inbound) FallbackCapable() bool {
+	return (in.Protocol.Type == ProtoVLESS || in.Protocol.Type == ProtoTrojan) &&
+		(in.Transport.Type == "" || in.Transport.Type == TransTCP) &&
+		(in.Security.Type == SecTLS || in.Security.Type == SecReality)
 }
 
 // TransportSpec carries transport-level settings.

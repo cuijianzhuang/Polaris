@@ -254,6 +254,9 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 
 .pick-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; padding: 4px 12px; }
 
+.fb-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.2fr) minmax(0, 1fr) 36px; gap: 8px; align-items: center; animation: fade-up .2s var(--ease-out) both; }
+@media (max-width: 760px) { .fb-row { grid-template-columns: minmax(0, 1fr) 36px; } }
+
 /* agent upgrade */
 .badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); position: relative; }
 .badge-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--warn); animation: ping 1.8s var(--ease-out) infinite; }

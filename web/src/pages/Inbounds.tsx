@@ -5,7 +5,7 @@ import { useNodes } from '../App'
 import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
-import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Group, Inbound, Node, Outbound } from '../types'
+import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, Node, Outbound } from '../types'
 
 const emptyDraft = (): InboundDraft => ({
   core: 'xray',
@@ -76,6 +76,37 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
         <Field label="备注"><input className="input" value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></Field>
       </div>
       <div><button className="btn sm" type="button" disabled={busy} onClick={add}>+ 添加入口</button></div>
+    </section>
+  )
+}
+
+const loopback = (l?: string) => l === 'localhost' || /^127\./.test(l ?? '') || l === '::1'
+
+/** Fallbacks: other protocols on this inbound's port, routed by path / ALPN. */
+function FallbackEditor({ value, onChange, candidates, selfId }: { value: Fallback[]; onChange: (v: Fallback[]) => void; candidates: Inbound[]; selfId?: string }) {
+  const usable = candidates.filter((i) => i.id !== selfId && i.security.type === 'none' && loopback(i.listen))
+  const set = (i: number, p: Partial<Fallback>) => onChange(value.map((f, j) => (j === i ? { ...f, ...p } : f)))
+  return (
+    <section className="field">
+      <span className="lbl">回落（同一端口承载多个协议）</span>
+      <div className="hint">不是本入站协议的连接，按路径 / ALPN 转给子入站。子入站需在同一节点、监听 127.0.0.1、不开 TLS；客户端链接自动使用本入站的端口与 TLS。</div>
+      {value.map((f, i) => (
+        <div key={i} className="fb-row">
+          <select className="input" value={f.inboundId} onChange={(e) => set(i, { inboundId: e.target.value })} aria-label="子入站">
+            <option value="">选择子入站</option>
+            {usable.map((c) => <option key={c.id} value={c.id}>{c.tag} · {inboundSummary(c)} · :{c.port}</option>)}
+          </select>
+          <input className="input mono" value={f.path ?? ''} placeholder="路径，如 /ws（空 = 不限）" onChange={(e) => set(i, { path: e.target.value || undefined })} aria-label="路径" />
+          <select className="input" value={f.alpn ?? ''} onChange={(e) => set(i, { alpn: e.target.value || undefined })} aria-label="ALPN">
+            <option value="">ALPN 不限</option><option value="h2">h2</option><option value="http/1.1">http/1.1</option>
+          </select>
+          <button className="icon-btn" type="button" aria-label="删除回落" onClick={() => onChange(value.filter((_, j) => j !== i))}>×</button>
+        </div>
+      ))}
+      <div className="row">
+        <button className="btn sm" type="button" disabled={!usable.length} onClick={() => onChange([...value, { inboundId: usable[0]?.id ?? '' }])}>+ 添加回落</button>
+        {!usable.length && <span className="hint">该节点还没有可作回落目标的入站：新建一个监听 127.0.0.1、不开 TLS 的入站（如 VLESS-WS、Trojan）</span>}
+      </div>
     </section>
   )
 }
@@ -159,6 +190,11 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
         <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
         <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
       </div>
+      {draft.core === 'xray' && (draft.protocol.type === 'vless' || draft.protocol.type === 'trojan') && draft.transport.type === 'tcp' &&
+        (draft.security.type === 'tls' || draft.security.type === 'reality') && (
+        <FallbackEditor value={draft.protocol.fallbacks ?? []} candidates={nodeInbounds.data ?? []} selfId={editing?.id}
+          onChange={(fallbacks) => setDraft((d) => ({ ...d, protocol: { ...d.protocol, fallbacks: fallbacks.length ? fallbacks : undefined } }))} />
+      )}
       <Field label="出口" htmlFor="ib-out" hint="绑定后此入站的全部流量走指定出站（含负载均衡组），不再经过路由规则；默认由路由规则决定">
         <select id="ib-out" className="input" value={outboundTag} onChange={(e) => setOutboundTag(e.target.value)}>
           <option value="">按路由规则</option>
@@ -199,6 +235,11 @@ export default function Inbounds() {
   const toast = useToast()
   const rows = useMemo(() => (list.data ?? []).filter((i) => (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node)), [list.data, filter])
   const usedCores = [...new Set((list.data ?? []).map((i) => i.core))]
+  const masterOf = useMemo(() => {
+    const m: Record<string, string> = {}
+    for (const i of list.data ?? []) for (const f of i.protocol.fallbacks ?? []) m[f.inboundId] = i.tag
+    return m
+  }, [list.data])
 
   const toggle = async (i: Inbound) => {
     try {
@@ -225,7 +266,9 @@ export default function Inbounds() {
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
-                  <td style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}</td>
+                  <td style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}
+                    {(i.protocol.fallbacks?.length ?? 0) > 0 && <span className="tag xray" style={{ marginLeft: 6 }}>{i.protocol.fallbacks!.length} 个回落</span>}
+                    {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>经 {masterOf[i.id]} 回落</span>}</td>
                   <td>{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
                   <td>{inboundSummary(i).split(' · ')[0]}</td>
                   <td>{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>

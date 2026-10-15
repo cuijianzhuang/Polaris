@@ -116,6 +116,9 @@ func (s *Server) validateInbound(node *store.Node, m *model.Inbound, excludeID s
 	if err := s.assignCore(node, m); err != nil {
 		return err
 	}
+	if err := s.validateFallbacks(m, excludeID); err != nil {
+		return err
+	}
 	return s.portConflict(node.ID, m, excludeID)
 }
 
@@ -262,6 +265,10 @@ func (s *Server) deleteInbound(c *gin.Context) {
 	s.st.DB.Model(&store.Outbound{}).Where("node_ref_inbound_id = ?", row.ID).Count(&refs)
 	if refs > 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("有 %d 个出站 / 链路引用该入站，请先删除", refs)})
+		return
+	}
+	if m := s.referencingMaster(row.ID); m != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("入站「%s」把它作为回落目标，请先在该入站中移除", m)})
 		return
 	}
 	nodes := s.nodesForInbounds(row.ID)

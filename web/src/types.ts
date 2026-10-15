@@ -3,10 +3,12 @@ export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2
 export type Transport = 'tcp' | 'ws' | 'grpc' | 'httpupgrade' | 'xhttp' | 'kcp' | 'quic'
 export type Security = 'none' | 'tls' | 'reality'
 
+export interface Fallback { inboundId: string; path?: string; alpn?: string; xver?: number }
 export interface ProtocolSpec {
   type: Protocol; flow?: string; method?: string; congestionControl?: string
   upMbps?: number; downMbps?: number; obfs?: string; obfsPassword?: string
   handshakeServer?: string; detour?: string; udp?: boolean
+  fallbacks?: Fallback[]
 }
 export interface TransportSpec { type: Transport; path?: string; host?: string; serviceName?: string; mode?: string; headerType?: string; seed?: string }
 export interface SecuritySpec {
