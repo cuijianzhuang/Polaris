@@ -110,7 +110,10 @@ type User struct {
 	OnlineAt     *time.Time     `json:"onlineAt"`
 	BannedUntil  *time.Time     `json:"bannedUntil"`
 	OnlineIPs    JSON[[]string] `json:"onlineIps"`
-	IsService    bool           `gorm:"index" json:"isService"` // chain service account
+	IsService    bool           `gorm:"index" json:"isService"`  // chain service account
+	TelegramID   int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
+	WarnedUsage  bool           `json:"-"`                       // 80% traffic warning sent this cycle
+	WarnedExpire *time.Time     `json:"-"`
 	Remark       string         `gorm:"size:255" json:"remark"`
 	GroupIDs     []string       `gorm:"-" json:"groupIds"`
 	CreatedAt    time.Time      `json:"createdAt"`
@@ -439,12 +442,24 @@ type SubProfile struct {
 	UpdatedAt     time.Time               `json:"updatedAt"`
 }
 
+// TGAdmin is a Telegram chat allowed to administer the panel. Owners see
+// everything; operators only the nodes they are bound to.
+type TGAdmin struct {
+	ID        string         `gorm:"primaryKey;size:32" json:"id"`
+	ChatID    int64          `gorm:"uniqueIndex" json:"chatId"`
+	Name      string         `gorm:"size:64" json:"name"`
+	Role      string         `gorm:"size:16" json:"role"` // owner / operator
+	NodeIDs   JSON[[]string] `json:"nodeIds"`
+	Notify    bool           `json:"notify"`
+	CreatedAt time.Time      `json:"createdAt"`
+}
+
 // AllModels lists every table for migration.
 func AllModels() []any {
 	return []any{
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
-		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{},
+		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 	}
 }

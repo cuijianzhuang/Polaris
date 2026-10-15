@@ -59,6 +59,8 @@ type Server struct {
 	bg       context.Context
 	sinks    []chan Event
 	health   healthState
+	tg       *tgBot
+	tgEvents chan Event
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.
@@ -86,6 +88,10 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		subLimit: newIPLimiter(cfg.SubRateLimit), webFS: web, bg: context.Background(),
 	}
 	s.rt.snap = func() any { return s.nodeViews() }
+	s.tg = newTGBot(s)
+	tgEvents := make(chan Event, 256)
+	s.sinks = append(s.sinks, tgEvents)
+	s.tgEvents = tgEvents
 	if cfg.RedisURL != "" {
 		rb, err := newRedisBuffer(cfg.RedisURL)
 		if err != nil {
@@ -135,6 +141,8 @@ func (s *Server) Run(ctx context.Context) error {
 	s.bg = ctx
 	go s.runReconciler(ctx)
 	go s.rt.run(ctx)
+	go s.tg.run(ctx)
+	go s.tg.runNotifications(ctx, s.tgEvents)
 	stopJobs := s.startJobs()
 	defer stopJobs()
 
@@ -224,6 +232,7 @@ func (s *Server) startJobs() func() {
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)
 	add("45 * * * * *", "health", s.probeChains)
 	add("15 * * * * *", "sub-sources", s.refreshDueSources)
+	add("0 33 * * * *", "reminders", s.remindUsers)
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }

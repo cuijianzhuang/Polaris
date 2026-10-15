@@ -276,29 +276,33 @@ func (s *Server) rollbackNode(c *gin.Context) {
 		return
 	}
 	target := req.Rev
+	rev, err := s.rollbackTo(&n, target)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
+	s.auditCtx(c, "node.rollback", n.Name, fmt.Sprintf("-> rev %d", rev))
+	c.JSON(http.StatusOK, gin.H{"rev": rev})
+}
+
+// rollbackTo republishes revision target (0 = the previous applied one) as a new revision.
+func (s *Server) rollbackTo(n *store.Node, target int64) (int64, error) {
 	if target == 0 {
 		var r store.ConfigRevision
 		err := s.st.DB.Where("node_id = ? AND rev < ? AND status = ?", n.ID, n.AppliedRev, "applied").Order("rev desc").First(&r).Error
 		if err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": "没有可回滚的已应用版本"})
-			return
+			return 0, fmt.Errorf("没有可回滚的已应用版本")
 		}
 		target = r.Rev
 	}
 	spec, err := s.loadRevision(n.ID, target)
 	if err != nil {
-		dbError(c, err)
-		return
+		return 0, err
 	}
 	s.pubMu.Lock()
-	rev, _, err := s.storeRevision(&n, spec, fmt.Sprintf("rollback to rev %d", target))
-	s.pubMu.Unlock()
-	if err != nil {
-		serverError(c, err)
-		return
-	}
-	s.auditCtx(c, "node.rollback", n.Name, fmt.Sprintf("rev %d -> %d", target, rev))
-	c.JSON(http.StatusOK, gin.H{"rev": rev, "from": target})
+	defer s.pubMu.Unlock()
+	rev, _, err := s.storeRevision(n, spec, fmt.Sprintf("rollback to rev %d", target))
+	return rev, err
 }
 
 // revokeNode invalidates the node's client certificate.
