@@ -76,6 +76,10 @@ type Agent struct {
 	sendMu  sync.Mutex
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
 	wantRev chan int64
+
+	restartMu sync.Mutex
+	restart   bool // set by a self-update: Run returns ErrRestart
+	cancel    context.CancelFunc
 }
 
 // New creates an agent from saved credentials.
@@ -110,8 +114,14 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	return a, nil
 }
 
-// Run blocks until ctx is cancelled.
+// Run blocks until ctx is cancelled. After a self-update it stops the cores
+// and returns ErrRestart.
 func (a *Agent) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	a.restartMu.Lock()
+	a.cancel = cancel
+	a.restartMu.Unlock()
 	a.log.Info("agent starting", "node", a.id.NodeID, "panel", a.cfg.PanelURL, "version", Version)
 	// Serve immediately from the last applied spec, even if the panel is down.
 	if spec := a.loadSpec(); spec != nil {
@@ -143,6 +153,11 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 	}
 	a.shutdown()
+	a.restartMu.Lock()
+	defer a.restartMu.Unlock()
+	if a.restart {
+		return ErrRestart
+	}
 	return nil
 }
 
@@ -470,6 +485,20 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 		}
 		if l, ok := m.adapter.(interface{ Logs(int) []string }); ok {
 			res.Output = strings.Join(l.Logs(n), "\n")
+		}
+	case "upgrade_agent":
+		out, err := a.selfUpdate(ctx, c.Args)
+		if err != nil {
+			fail(err)
+			break
+		}
+		res.Output = out
+		if !strings.HasPrefix(out, "already") {
+			a.log.Info("agent binary updated, restarting", "change", out)
+			_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_CommandResult{CommandResult: res}})
+			time.Sleep(300 * time.Millisecond) // let the result reach the panel
+			a.requestRestart()
+			return
 		}
 	case "probe":
 		ms, err := probe(ctx, c.Args)

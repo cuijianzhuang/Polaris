@@ -243,6 +243,14 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 .topbar.on { opacity: 1; animation: progress 1.1s linear infinite; }
 .note { animation: fade-in .25s var(--ease) both; }
 
+/* agent upgrade */
+.badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); position: relative; }
+.badge-dot::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--warn); animation: ping 1.8s var(--ease-out) infinite; }
+.tag.info-tag { background: var(--pri-soft); color: var(--pri-ink); }
+.ncard .tag { margin: 0 0 0 6px; }
+.spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* install dialog */
 .isteps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; counter-reset: st; }
 .isteps li { counter-increment: st; position: relative; padding: 12px 12px 12px 46px; border: 1px solid var(--line); border-radius: 10px; background: #FAFBF9; transition: border-color .3s var(--ease), background-color .3s var(--ease); }

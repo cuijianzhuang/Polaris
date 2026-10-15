@@ -196,6 +196,7 @@ func (s *Server) agentServer() (*http.Server, error) {
 	mux := http.NewServeMux()
 	path, h := polarisv1connect.NewAgentServiceHandler(&agentService{s: s})
 	mux.Handle(path, withPeerCert(h))
+	mux.Handle("/agent/binary/", withPeerCert(http.HandlerFunc(s.serveAgentBinary)))
 	srv := &http.Server{
 		Addr:              s.cfg.AgentListen,
 		Handler:           mux,

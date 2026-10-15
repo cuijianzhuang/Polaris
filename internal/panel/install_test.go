@@ -101,3 +101,14 @@ func TestAgentCacheVersionMarker(t *testing.T) {
 		t.Fatal("binaries of another version reported current")
 	}
 }
+
+func TestAgentBinaryNeedsNodeCert(t *testing.T) {
+	s := newTestServer(t)
+	os.MkdirAll(s.downloadsDir(), 0o755)
+	os.WriteFile(filepath.Join(s.downloadsDir(), "polaris-agent-linux-amd64"), []byte("bin"), 0o755)
+	w := httptest.NewRecorder()
+	s.serveAgentBinary(w, httptest.NewRequest("GET", "/agent/binary/amd64", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("download without a node certificate: %d", w.Code)
+	}
+}
