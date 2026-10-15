@@ -55,17 +55,22 @@ type Server struct {
 	onlineIPs map[string]map[string]map[string]time.Time // user -> node -> ip
 	alerts    map[string]time.Time
 
-	subLimit *ipLimiter
-	webFS    http.FileSystem
-	bg       context.Context
-	sinks    []chan Event
-	health   healthState
-	tg       *tgBot
-	tgEvents chan Event
+	subLimit     *ipLimiter
+	callbacks    callbackStore
+	nodeUserSets nodeUsersCache
+	webFS        http.FileSystem
+	bg           context.Context
+	sinks        []chan Event
+	health       healthState
+	tg           *tgBot
+	tgEvents     chan Event
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.
 func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
+	if cfg.AdminPath == "/" {
+		log.Warn("admin UI is served at / — set POLARIS_ADMIN_PATH to a hard-to-guess path so scanners only see 404 or the decoy site")
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}

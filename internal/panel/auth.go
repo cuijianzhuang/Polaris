@@ -23,6 +23,7 @@ const (
 type claims struct {
 	jwt.RegisteredClaims
 	Username string `json:"usr"`
+	Version  int    `json:"ver"`
 }
 
 func (s *Server) issueToken(a *store.Admin) (string, error) {
@@ -33,6 +34,7 @@ func (s *Server) issueToken(a *store.Admin) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenTTL)),
 		},
 		Username: a.Username,
+		Version:  a.TokenVersion,
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
 }
@@ -51,14 +53,21 @@ func (s *Server) parseToken(tok string) (*claims, error) {
 	return &c, nil
 }
 
-// authRequired validates the bearer token (or ?token= for WebSocket).
+// authRequired validates the bearer token. Browsers cannot set headers on
+// WebSocket upgrades, so only the /ws endpoint also accepts ?token=.
 func (s *Server) authRequired(c *gin.Context) {
 	tok := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
-	if tok == "" {
+	if tok == "" && strings.HasSuffix(c.Request.URL.Path, "/ws") {
 		tok = c.Query("token")
 	}
 	cl, err := s.parseToken(tok)
 	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	// Sessions die with the admin account and on password change.
+	var a store.Admin
+	if s.st.DB.Select("id", "token_version").First(&a, "id = ?", cl.Subject).Error != nil || a.TokenVersion != cl.Version {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
@@ -156,12 +165,19 @@ func (s *Server) changePassword(c *gin.Context) {
 		return
 	}
 	h, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
-	s.st.DB.Model(&a).Update("password_hash", string(h))
-	s.auditCtx(c, "admin.password", a.Username, "")
-	c.Status(http.StatusNoContent)
+	a.TokenVersion++
+	s.st.DB.Model(&a).Updates(map[string]any{"password_hash": string(h), "token_version": a.TokenVersion})
+	s.auditCtx(c, "admin.password", a.Username, "other sessions revoked")
+	tok, err := s.issueToken(&a) // keep this session, revoke the rest
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"token": tok})
 }
 
-// totpSetup generates a new secret (not yet enabled).
+// totpSetup generates a pending secret. The current secret (if any) stays
+// active until a code from the new one is verified.
 func (s *Server) totpSetup(c *gin.Context) {
 	var a store.Admin
 	if err := s.st.DB.First(&a, "id = ?", c.GetString("adminID")).Error; err != nil {
@@ -173,7 +189,7 @@ func (s *Server) totpSetup(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.st.DB.Model(&a).Updates(map[string]any{"totp_secret": s.st.Box.Seal(key.Secret()), "totp_enabled": false})
+	s.st.DB.Model(&a).Update("totp_pending", s.st.Box.Seal(key.Secret()))
 	c.JSON(http.StatusOK, gin.H{"secret": key.Secret(), "url": key.URL()})
 }
 
@@ -192,11 +208,24 @@ func (s *Server) totpEnable(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	if !totp.Validate(req.Code, s.st.Box.MustOpen(a.TOTPSecret)) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
-		return
+	if req.Enable {
+		// Turning on (or re-binding) requires a code from the pending secret.
+		if a.TOTPPending == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请先生成新的二次验证密钥"})
+			return
+		}
+		if !totp.Validate(req.Code, s.st.Box.MustOpen(a.TOTPPending)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+			return
+		}
+		s.st.DB.Model(&a).Updates(map[string]any{"totp_secret": a.TOTPPending, "totp_pending": "", "totp_enabled": true})
+	} else {
+		if !a.TOTPEnabled || !totp.Validate(req.Code, s.st.Box.MustOpen(a.TOTPSecret)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
+			return
+		}
+		s.st.DB.Model(&a).Updates(map[string]any{"totp_enabled": false, "totp_pending": ""})
 	}
-	s.st.DB.Model(&a).Update("totp_enabled", req.Enable)
 	s.auditCtx(c, "admin.totp", a.Username, map[bool]string{true: "enabled", false: "disabled"}[req.Enable])
 	c.Status(http.StatusNoContent)
 }

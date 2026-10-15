@@ -16,7 +16,7 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"bytes": HumanBytes,
 }).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
 <title>{{.Title}} · 订阅</title>
 <style>
 :root{--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--up:#7DD3E3;--ok:#15803D;--warn:#B45309;--bad:#B91C1C;--note:#ECF7F9}

@@ -49,17 +49,28 @@ func (s *Server) auditCtx(c *gin.Context, action, target, detail string) {
 	s.audit(c.GetString("admin"), action, target, detail, clientIP(c.Request))
 }
 
+// securityHeaders keeps secrets in URLs (admin path, subscription tokens) out
+// of Referer headers and blocks framing / MIME sniffing.
+func securityHeaders(c *gin.Context) {
+	h := c.Writer.Header()
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	c.Next()
+}
+
 // Router builds the HTTP handler: admin UI + API under the admin path,
 // public subscription/installer routes, and a decoy for everything else.
 func (s *Server) Router() http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Recovery())
+	r.Use(gin.Recovery(), securityHeaders)
 	r.RemoveExtraSlash = true
 
 	// Public routes.
 	r.GET("/sub/:token", s.subscription)
 	r.GET("/sub/p/:token", s.profileSubscription)
+	r.GET("/sub/cb/:token", s.subCallbackHandler)
 	r.GET("/install.sh", s.installScript)
 	r.GET("/download/:file", s.download)
 

@@ -81,6 +81,10 @@ func LoadConfig(path string) (*Config, error) {
 	if c.SecretKey == "" {
 		return nil, fmt.Errorf("secret_key (POLARIS_SECRET_KEY) is required")
 	}
+	// The key encrypts stored secrets and signs sessions; reject guessable ones.
+	if len(c.SecretKey) < 16 || strings.Contains(c.SecretKey, "change-me") {
+		return nil, fmt.Errorf("secret_key must be a random string of at least 16 characters, not the example value (generate one with: openssl rand -hex 32)")
+	}
 	return c, nil
 }
 

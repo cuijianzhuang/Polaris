@@ -379,7 +379,7 @@ function ConvertSettings({ meta }: { meta?: Meta }) {
           <button type="button" className={'opt' + (f.converter_mode === 'external' ? ' on' : '')} onClick={() => set('converter_mode', 'external')}>第三方后端<small>subconverter 兼容 API（ACL4SSR 等远程配置）</small></button>
         </div>
         {f.converter_mode === 'external' && <>
-          <div className="note warn">第三方后端会回调主控拉取节点链接（一次性签名地址），即节点信息会经过该后端。请使用自建或可信的服务。</div>
+          <div className="note warn">第三方后端通过短时效回调地址（3 分钟内最多 3 次）从主控拉取节点链接，拿不到用户的永久订阅地址；但节点信息本身会经过该后端，请使用自建或可信的服务。</div>
           <Field label="后端地址"><input className="input mono" value={f.converter_backend ?? ''} onChange={(e) => set('converter_backend', e.target.value)} placeholder="https://sub.example.com" /></Field>
           <Field label="远程配置 URL" hint="config 参数"><input className="input mono" value={f.converter_config ?? ''} onChange={(e) => set('converter_config', e.target.value)} placeholder="https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online.ini" /></Field>
           <Field label="附加参数"><input className="input mono" value={f.converter_params ?? ''} onChange={(e) => set('converter_params', e.target.value)} placeholder="emoji=true&udp=true&scv=true" /></Field>

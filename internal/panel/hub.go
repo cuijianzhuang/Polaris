@@ -78,13 +78,14 @@ func (h *Hub) NotifySpec(nodeID string, rev int64) {
 // Command sends a structured command and waits for its result.
 func (h *Hub) Command(ctx context.Context, nodeID, kind string, args map[string]string, timeout time.Duration) (*polarisv1.CommandResult, error) {
 	id := store.NewID()
+	key := nodeID + "/" + id // results are only accepted from the node that got the command
 	ch := make(chan *polarisv1.CommandResult, 1)
 	h.mu.Lock()
-	h.pending[id] = ch
+	h.pending[key] = ch
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
-		delete(h.pending, id)
+		delete(h.pending, key)
 		h.mu.Unlock()
 	}()
 	ok := h.send(nodeID, &polarisv1.PanelMessage{Msg: &polarisv1.PanelMessage_Command{Command: &polarisv1.Command{Id: id, Kind: kind, Args: args}}})
@@ -101,9 +102,9 @@ func (h *Hub) Command(ctx context.Context, nodeID, kind string, args map[string]
 	}
 }
 
-func (h *Hub) resolve(r *polarisv1.CommandResult) {
+func (h *Hub) resolve(nodeID string, r *polarisv1.CommandResult) {
 	h.mu.Lock()
-	ch, ok := h.pending[r.Id]
+	ch, ok := h.pending[nodeID+"/"+r.Id]
 	h.mu.Unlock()
 	if ok {
 		select {

@@ -74,6 +74,11 @@ func (a *agentService) Enroll(ctx context.Context, req *connect.Request[polarisv
 	if n.TokenExpires == nil || time.Now().After(*n.TokenExpires) {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("token expired"))
 	}
+	// Burn the token atomically so two concurrent enrolments cannot both win.
+	if res := a.s.st.DB.Model(&store.Node{}).Where("id = ? AND token_hash = ?", n.ID, hashToken(tok)).
+		Update("token_hash", ""); res.Error != nil || res.RowsAffected != 1 {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("invalid token"))
+	}
 	certPEM, serial, err := a.s.ca.SignCSR(req.Msg.CsrPem, n.ID, 10*365*24*time.Hour)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -154,7 +159,7 @@ func (a *agentService) handle(nodeID string, msg *polarisv1.AgentMessage) {
 	case *polarisv1.AgentMessage_ApplyResult:
 		a.s.handleApplyResult(nodeID, m.ApplyResult)
 	case *polarisv1.AgentMessage_CommandResult:
-		a.s.hub.resolve(m.CommandResult)
+		a.s.hub.resolve(nodeID, m.CommandResult)
 	case *polarisv1.AgentMessage_OnlineIps:
 		a.s.handleOnlineIPs(nodeID, m.OnlineIps)
 	}
@@ -193,6 +198,7 @@ func (a *agentService) ReportTraffic(ctx context.Context, req *connect.Request[p
 		return nil, err
 	}
 	resp := &polarisv1.ReportTrafficResponse{}
+	allowed := a.s.nodeUsers(n.ID)
 	for _, b := range req.Msg.Batches {
 		if b.BatchId == "" || a.s.traffic.Seen(n.ID+"/"+b.BatchId) {
 			resp.AcceptedBatchIds = append(resp.AcceptedBatchIds, b.BatchId)
@@ -200,6 +206,9 @@ func (a *agentService) ReportTraffic(ctx context.Context, req *connect.Request[p
 		}
 		ds := make([]model.TrafficDelta, 0, len(b.Users))
 		for _, u := range b.Users {
+			if !allowed[u.UserId] {
+				continue // not a user of this node
+			}
 			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: u.Up, Down: u.Down})
 		}
 		if err := a.s.traffic.Add(n.ID, ds); err != nil {

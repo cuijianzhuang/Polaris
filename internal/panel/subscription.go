@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -62,7 +63,7 @@ func (s *Server) subscription(c *gin.Context) {
 			}
 		}
 	}
-	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.subURL(u.SubToken)+"?raw=1", &u)
+	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), "/sub/"+u.SubToken, &u)
 }
 
 // subNodes expands every authorised inbound × endpoint into client nodes.
@@ -254,12 +255,19 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 func (s *Server) installScript(c *gin.Context) {
 	base := s.cfg.PublicURL
 	if base == "" {
+		// The Host header ends up inside a shell script: only allow host[:port].
+		if !validHost.MatchString(c.Request.Host) {
+			c.String(http.StatusBadRequest, "invalid Host header; set POLARIS_PUBLIC_URL")
+			return
+		}
 		base = "http://" + c.Request.Host
 	}
 	script := strings.NewReplacer("__PANEL_HTTP__", base, "__PANEL_VERSION__", Version,
 		"__SHA_AMD64__", s.agentSHA("amd64"), "__SHA_ARM64__", s.agentSHA("arm64")).Replace(installSh)
 	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(script))
 }
+
+var validHost = regexp.MustCompile(`^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?$`)
 
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 

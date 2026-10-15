@@ -30,6 +30,11 @@ const defaultSourceUA = "v2rayN/7.0"
 
 var errPrivateTarget = errors.New("refusing to fetch a private / loopback address")
 
+var (
+	_, cgnat, _   = net.ParseCIDR("100.64.0.0/10") // carrier-grade NAT / Tailscale
+	_, thisNet, _ = net.ParseCIDR("0.0.0.0/8")
+)
+
 // safeClient refuses to connect to private ranges unless allowed (SSRF guard).
 func (s *Server) safeClient(timeout time.Duration) *http.Client {
 	allowPrivate := s.st.GetSetting("allow_private_sources", "false") == "true"
@@ -42,7 +47,8 @@ func (s *Server) safeClient(timeout time.Duration) *http.Client {
 			return err
 		}
 		ip := net.ParseIP(host)
-		if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+		if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() ||
+			ip.IsInterfaceLocalMulticast() || cgnat.Contains(ip) || thisNet.Contains(ip) {
 			return errPrivateTarget
 		}
 		return nil
@@ -308,7 +314,7 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	ctype := ""
 	if cc.External && !raw && format != "links" {
 		var err error
-		body, ctype, err = s.renderExternal(c.Request.Context(), cc, format, callback)
+		body, ctype, err = s.renderExternal(c.Request.Context(), cc, format, s.callbackURL(callback))
 		if err != nil {
 			s.log.Warn("external converter failed, using built-in", "err", err)
 			body = nil
@@ -362,7 +368,7 @@ func (s *Server) profileSubscription(c *gin.Context) {
 			pu = &u
 		}
 	}
-	s.serveNodes(c, nodes, info, p.Templates.V, s.converterFor(&p), s.profileURL(p.Token)+"?raw=1", pu)
+	s.serveNodes(c, nodes, info, p.Templates.V, s.converterFor(&p), "/sub/p/"+p.Token, pu)
 }
 
 // refreshDueSources runs every minute.

@@ -324,7 +324,11 @@ func (s *Server) resetTrafficCycles() {
 // handleOnlineIPs records source IPs and enforces ip_limit.
 func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	banMinutes, _ := strconv.Atoi(s.st.GetSetting("ip_ban_minutes", "0"))
+	allowed := s.nodeUsers(nodeID)
 	for _, u := range m.Users {
+		if !allowed[u.UserId] {
+			continue // not a user of this node
+		}
 		s.onlineMu.Lock()
 		cur := s.onlineIPs[u.UserId]
 		if cur == nil {

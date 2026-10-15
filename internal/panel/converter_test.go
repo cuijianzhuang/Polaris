@@ -86,10 +86,11 @@ func TestProfileConversion(t *testing.T) {
 	}
 
 	// External converter: backend receives our raw callback and fetches it.
-	var gotTarget string
+	var gotTarget, gotCB string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotTarget = r.URL.Query().Get("target")
 		cb := r.URL.Query().Get("url")
+		gotCB = cb
 		resp, err := http.Get(cb)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -104,6 +105,16 @@ func TestProfileConversion(t *testing.T) {
 	body, _ = get("")
 	if gotTarget != "clash" || body != "converted:3" {
 		t.Fatalf("external converter: target=%q body=%q", gotTarget, body)
+	}
+	// The backend gets a short-lived callback, never the permanent token.
+	if strings.Contains(gotCB, "profile-token-abcdefgh") || !strings.Contains(gotCB, "/sub/cb/") {
+		t.Fatalf("callback leaks the subscription token: %s", gotCB)
+	}
+	for i := 0; i < callbackUses; i++ {
+		http.Get(gotCB)
+	}
+	if resp, err := http.Get(gotCB); err != nil || resp.StatusCode != 404 {
+		t.Fatalf("callback should be exhausted after %d uses", callbackUses)
 	}
 	// Backend failure falls back to the built-in renderer.
 	s.st.DB.Model(&p).Update("backend", "http://127.0.0.1:1")

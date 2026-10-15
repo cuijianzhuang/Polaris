@@ -139,10 +139,15 @@ func clientIP(r *http.Request) string {
 	}
 	ip := net.ParseIP(host)
 	if ip != nil && (ip.IsLoopback() || ip.IsPrivate()) {
+		// Behind a local reverse proxy: the right-most X-Forwarded-For entry is
+		// the one the proxy appended; entries to its left are client-supplied.
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			return strings.TrimSpace(strings.Split(xff, ",")[0])
+			parts := strings.Split(xff, ",")
+			if v := strings.TrimSpace(parts[len(parts)-1]); net.ParseIP(v) != nil {
+				return v
+			}
 		}
-		if xr := r.Header.Get("X-Real-IP"); xr != "" {
+		if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); net.ParseIP(xr) != nil {
 			return xr
 		}
 	}

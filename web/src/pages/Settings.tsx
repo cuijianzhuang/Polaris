@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { get, post, put } from '../api'
+import { get, post, put, setToken } from '../api'
 import { CopyBox, Field, QR, useAction, useLoad } from '../components/ui'
 
 export default function Settings() {
@@ -55,7 +55,7 @@ export default function Settings() {
           <h2>修改密码 · {me.data?.username}</h2>
           <Field label="原密码"><input className="input" type="password" autoComplete="current-password" value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
           <Field label="新密码" hint="至少 8 位"><input className="input" type="password" autoComplete="new-password" value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} /></Field>
-          <div><button className="btn" type="button" disabled={busy || pw.new.length < 8} onClick={() => run(async () => { await post('/auth/password', pw); setPw({ old: '', new: '' }) }, '密码已修改')}>修改密码</button></div>
+          <div><button className="btn" type="button" disabled={busy || pw.new.length < 8} onClick={() => run(async () => { const r = await post<{ token: string }>('/auth/password', pw); setToken(r.token); setPw({ old: '', new: '' }) }, '密码已修改，其他设备上的登录已退出')}>修改密码</button></div>
         </section>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>二次验证（TOTP）</h2>

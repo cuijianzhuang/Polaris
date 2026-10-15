@@ -194,6 +194,8 @@ type Admin struct {
 	PasswordHash   string     `gorm:"size:100" json:"-"`
 	TOTPSecret     string     `gorm:"size:255" json:"-"` // sealed
 	TOTPEnabled    bool       `json:"totpEnabled"`
+	TOTPPending    string     `gorm:"size:255" json:"-"` // sealed; becomes TOTPSecret once a code verifies
+	TokenVersion   int        `json:"-"`                 // bumped to revoke every issued session
 	FailedAttempts int        `json:"-"`
 	LockedUntil    *time.Time `json:"-"`
 	LastLoginAt    *time.Time `json:"lastLoginAt"`

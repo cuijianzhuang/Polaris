@@ -312,15 +312,25 @@ func (b *tgBot) handle(u tgUpdate) {
 			b.s.log.Error("telegram handler panic", "panic", r)
 		}
 	}()
+	// Identity is the chat ID, so only private chats (where chat ID == the
+	// person's user ID) are served: in a group every member would otherwise
+	// act with the group's binding.
 	if u.Callback != nil && u.Callback.Message != nil {
-		b.onCallback(u.Callback.ID, u.Callback.Message.Chat.ID, u.Callback.Message.MessageID, u.Callback.Data)
+		m := u.Callback.Message
+		if m.Chat.Type != "private" || u.Callback.From.ID != m.Chat.ID {
+			return
+		}
+		b.onCallback(u.Callback.ID, m.Chat.ID, m.MessageID, u.Callback.Data)
 		return
 	}
 	if u.Message == nil || u.Message.Text == "" {
 		return
 	}
 	chat := u.Message.Chat.ID
-	if u.Message.Chat.Type != "private" && !strings.HasPrefix(u.Message.Text, "/") {
+	if u.Message.Chat.Type != "private" {
+		if strings.HasPrefix(u.Message.Text, "/") {
+			b.send(chat, "出于安全考虑，请私聊机器人使用。")
+		}
 		return
 	}
 	cmd, arg, _ := strings.Cut(strings.TrimSpace(u.Message.Text), " ")

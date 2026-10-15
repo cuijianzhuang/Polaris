@@ -70,7 +70,7 @@ curl -fsSL https://panel.example.com/install.sh | bash -s -- \
 
 | 变量 | 说明 | 默认 |
 | --- | --- | --- |
-| `POLARIS_SECRET_KEY` | 列加密与会话签名密钥，**必填且需备份** | — |
+| `POLARIS_SECRET_KEY` | 列加密与会话签名密钥，**必填且需备份**；至少 16 位随机字符（`openssl rand -hex 32`），示例值会被拒绝 | — |
 | `POLARIS_ADMIN_PATH` | 后台与 API 前缀 | `/` |
 | `POLARIS_PUBLIC_URL` | 订阅链接中的外部地址 | — |
 | `POLARIS_LISTEN` / `POLARIS_AGENT_LISTEN` | HTTP / Agent mTLS 监听 | `:8080` / `:9443` |
@@ -107,6 +107,21 @@ cd web && npm run dev   # 前端开发服务器，/api 代理到 127.0.0.1:8080
 ```
 
 接口文档：登录后访问 `<admin_path>/api/v1/openapi.json`（由路由自动生成）。实时节点数据走 WebSocket `<admin_path>/api/v1/ws`。
+
+## 安全说明
+
+发布前做过一轮安全复查，修复项都有回归测试（`internal/panel/security_test.go`）。部署时请注意：
+
+- `POLARIS_SECRET_KEY` 至少 16 位随机字符，示例值会被拒绝；`POLARIS_ADMIN_PATH` 请设为难猜的路径（为 `/` 时启动会告警）。
+- 主控前面放 Caddy / Nginx 终止 HTTPS；只信任来自本机或内网反代的 `X-Forwarded-For`（取最右一项）。
+- Telegram 机器人只在私聊中响应；修改密码会让其他会话全部失效；重新绑定 TOTP 时旧验证器在新验证器确认前一直有效。
+- Agent 安装脚本会校验二进制 SHA-256（主控提供的文件用主控下发的校验值，GitHub 回退用对应版本的 `checksums.txt`）。
+
+已知并接受的风险：
+
+- 登录失败锁定按账号计，知道用户名的人可以让管理员 15 分钟内无法登录（后台路径隐藏可缓解）。
+- 管理员视为完全可信：订阅模板、Webhook 地址、CDN 优选 IP 来源等由管理员填写的内容不做沙箱限制。
+- 后台会话 token 存在浏览器 localStorage 中，前端未启用 CSP；React 默认转义，代码中没有使用 `dangerouslySetInnerHTML`。
 
 ## 为什么内核以子进程运行，而不是引入 Xray / sing-box 的 Go 模块
 

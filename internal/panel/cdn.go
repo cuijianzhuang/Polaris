@@ -364,7 +364,7 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) (
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.safeClient(20 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}
