@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -212,5 +213,41 @@ func TestGeodataSettings(t *testing.T) {
 	spec, _ := s.BuildSpec("n1")
 	if spec.Geodata == nil || spec.Geodata.Cron != "0 4 * * *" || spec.Geodata.Assets[0].File != "geosite_IR.dat" {
 		t.Fatalf("geodata spec = %+v", spec.Geodata)
+	}
+}
+
+// Without POLARIS_PUBLIC_URL the default listen ":8080" produced
+// "http://:8080/sub/…", which v2rayN / v2rayNG cannot fetch; subscription
+// links now use the public address the admin reaches the panel at.
+func TestSubURLUsesAdminHost(t *testing.T) {
+	s := newTestServer(t)
+	s.cfg.Listen = ":8080"
+	if got := s.subURL("tok"); got != "http://127.0.0.1:8080/sub/tok" {
+		t.Fatalf("fallback = %q", got)
+	}
+	req := func(host, proto string) *http.Request {
+		r := httptest.NewRequest("GET", "/api", nil)
+		r.Host = host
+		if proto != "" {
+			r.Header.Set("X-Forwarded-Proto", proto)
+		}
+		return r
+	}
+	s.noteBase(req("127.0.0.1:8080", "")) // SSH tunnel: ignored
+	if got := s.subURL("tok"); got != "http://127.0.0.1:8080/sub/tok" {
+		t.Fatalf("loopback was remembered: %q", got)
+	}
+	s.noteBase(req("panel.example.com", "https"))
+	if got := s.subURL("tok"); got != "https://panel.example.com/sub/tok" {
+		t.Fatalf("subURL = %q", got)
+	}
+	// Survives a restart.
+	s.seenBase.Store("")
+	if got := s.subURL("tok"); got != "https://panel.example.com/sub/tok" {
+		t.Fatalf("after restart = %q", got)
+	}
+	s.cfg.PublicURL = "https://pub.example.com/"
+	if got := s.subURL("tok"); got != "https://pub.example.com/sub/tok" {
+		t.Fatalf("public URL must win: %q", got)
 	}
 }

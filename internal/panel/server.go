@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -66,6 +67,7 @@ type Server struct {
 	health       healthState
 	tg           *tgBot
 	tgEvents     chan Event
+	seenBase     atomic.Value // string: public base URL the admin UI is reached at
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.

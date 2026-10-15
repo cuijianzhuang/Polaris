@@ -71,6 +71,7 @@ func (s *Server) authRequired(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	s.noteBase(c.Request)
 	c.Set("admin", cl.Username)
 	c.Set("adminID", cl.Subject)
 	c.Set("tokenVersion", cl.Version)
