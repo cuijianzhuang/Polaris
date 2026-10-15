@@ -211,6 +211,37 @@ export function ErrorNote({ error }: { error?: string }) {
   return error ? <div className="note bad">{error}</div> : null
 }
 
+// TagInput edits a list of short strings as removable chips; Enter, comma,
+// space or paste adds, Backspace on an empty input removes the last one.
+export function TagInput({ value, onChange, placeholder, id }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string; id?: string }) {
+  const [text, setText] = useState('')
+  const add = (raw: string) => {
+    const items = raw.split(/[\s,，]+/).map((x) => x.trim()).filter(Boolean)
+    if (!items.length) return
+    const next = [...value]
+    for (const x of items) if (!next.some((v) => v.toLowerCase() === x.toLowerCase())) next.push(x)
+    onChange(next)
+    setText('')
+  }
+  return (
+    <div className="tags" onClick={(e) => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}>
+      {value.map((v, i) => (
+        <span key={v} className="tag-item mono">{v}
+          <button type="button" aria-label={'移除 ' + v} onClick={() => onChange(value.filter((_, j) => j !== i))}>×</button>
+        </span>
+      ))}
+      <input id={id} className="mono" value={text} placeholder={value.length ? '' : placeholder}
+        onChange={(e) => { const v = e.target.value; if (/[\s,，]$/.test(v)) add(v); else setText(v) }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); add(text) }
+          if (e.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1))
+        }}
+        onBlur={() => add(text)}
+        onPaste={(e) => { e.preventDefault(); add(text + ' ' + e.clipboardData.getData('text')) }} />
+    </div>
+  )
+}
+
 // lines <-> textarea helpers
 export const toLines = (v?: string[]) => (v ?? []).join('\n')
 export const fromLines = (s: string) => s.split(/[\n,]/).map((x) => x.trim()).filter(Boolean)

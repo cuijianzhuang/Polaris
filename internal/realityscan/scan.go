@@ -184,6 +184,17 @@ func Probe(ctx context.Context, hostport string) Result {
 		r.Problem = "证书对该域名无效"
 		return r
 	}
+	if !isIP {
+		// The probed name is valid for the certificate (possibly through a
+		// wildcard): it is the first serverName clients should use.
+		names := []string{host}
+		for _, n := range r.Names {
+			if !strings.EqualFold(n, host) {
+				names = append(names, n)
+			}
+		}
+		r.Names = names
+	}
 	switch {
 	case st.Version != tls.VersionTLS13:
 		r.Problem = "不支持 TLS 1.3"

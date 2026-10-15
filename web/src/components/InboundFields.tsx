@@ -2,7 +2,7 @@
 // cannot serve are greyed out; the matrix comes from GET /capabilities.
 import type { CapSet, Certificate, CoreType, Protocol, ProtocolSpec, Security, SecuritySpec, SniffSpec, Transport, TransportSpec } from '../types'
 import { coreLabel, protoLabel, secLabel, transLabel } from '../format'
-import { Field, Switch, fromLines, toLines } from './ui'
+import { Field, Switch, TagInput, fromLines } from './ui'
 import { useState } from 'react'
 import { RealityAdvanced, RealityScanner, SniffExtras, TestSeed, VlessEncryption, hasFeature } from './XrayExtras'
 
@@ -61,6 +61,17 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
   const setP = (x: Partial<ProtocolSpec>) => onChange({ ...draft, protocol: { ...p, ...x } })
   const setT = (x: Partial<TransportSpec>) => onChange({ ...draft, transport: { ...t, ...x } })
   const setS = (x: Partial<SecuritySpec>) => onChange({ ...draft, security: { ...s, ...x } })
+  // REALITY: the SNI must be a name on the target's certificate.
+  const destHost = hostOf(s.realityDest)
+  const first = s.realityServerNames?.[0] ?? ''
+  const snMismatch = s.type === 'reality' && !!first && isDomain(destHost) && baseDomain(first) !== baseDomain(destHost)
+  const setDest = (dest: string) => {
+    const prev = hostOf(s.realityDest), next = hostOf(dest)
+    const names = s.realityServerNames ?? []
+    // Names that came from the previous target follow the new one.
+    const derived = names.length === 0 || (!!prev && names.every((n) => baseDomain(n) === baseDomain(prev)))
+    setS(derived && isDomain(next) && baseDomain(next) !== baseDomain(prev) ? { realityDest: dest, realityServerNames: [next] } : { realityDest: dest })
+  }
   const flowable = p.type === 'vless' && t.type === 'tcp' && s.type !== 'none'
 
   return (
@@ -192,15 +203,21 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
         <>
           <Field label="REALITY 目标站点" htmlFor="f-dest" hint="私钥 / 公钥 / shortId 自动生成，私钥加密存储。目标需支持 TLS 1.3 + h2，最好支持 X25519MLKEM768">
             <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input id="f-dest" className="input mono" style={{ flex: 1 }} value={s.realityDest ?? ''} onChange={(e) => setS({ realityDest: e.target.value })} placeholder="www.microsoft.com:443" />
+              <input id="f-dest" className="input mono" style={{ flex: 1 }} value={s.realityDest ?? ''} onChange={(e) => setDest(e.target.value)} placeholder="www.microsoft.com:443" />
               <button className="btn" type="button" onClick={() => setScanning(true)}>扫描</button>
             </div>
           </Field>
           {scanning && <RealityScanner nodeId={nodeId} initial={(s.realityDest ?? '').replace(/:443$/, '')} onClose={() => setScanning(false)}
             onPick={(target, names) => setS({ realityDest: target, realityServerNames: names.length ? names : undefined })} />}
-          <Field label="Server Names" htmlFor="f-sn" hint="每行一个，默认取目标站点域名">
-            <textarea id="f-sn" className="input" style={{ minHeight: 64 }} value={toLines(s.realityServerNames)} onChange={(e) => setS({ realityServerNames: fromLines(e.target.value) })} />
+          <Field label="SNI（Server Names）" htmlFor="f-sn" hint="必须是目标站点证书里的域名；回车或逗号添加。扫描结果点「使用」会自动填入证书中的全部域名，订阅给客户端用第一个">
+            <TagInput id="f-sn" value={s.realityServerNames ?? []} onChange={(v) => setS({ realityServerNames: v.length ? v : undefined })} placeholder={destHost || 'www.microsoft.com'} />
           </Field>
+          {snMismatch && (
+            <div className="note warn">SNI 与目标站点 {destHost} 不一致：客户端用 {first} 握手时，目标站点会拒绝或返回别的证书，节点将连不上。
+              <button className="btn sm" type="button" style={{ marginLeft: 8 }} onClick={() => setS({ realityServerNames: [destHost] })}>改为 {destHost}</button>
+              <button className="btn sm" type="button" style={{ marginLeft: 6 }} onClick={() => setScanning(true)}>扫描证书域名</button>
+            </div>
+          )}
           {s.realityPublicKey && <div className="hint mono">公钥：{s.realityPublicKey} · shortId：{(s.realityShortIds ?? []).join(', ')}</div>}
           {isXray && hasFeature(caps, 'reality-pq-only') && (
             <div className="note warn">当前 Xray 版本（26.9.8 起）的 REALITY 只接受带 X25519MLKEM768 密钥交换的客户端：sing-box、Clash / mihomo 客户端无法连接，其订阅会自动跳过此节点。需要兼容这些客户端时，请把该入站放到 sing-box 内核，或把节点 Xray 切换到 26.7.28 及更早版本。</div>
@@ -215,4 +232,21 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
       )}
     </>
   )
+}
+
+// hostOf strips the port from a REALITY target ("host:443", "[v6]:443").
+function hostOf(dest?: string): string {
+  const d = (dest ?? '').trim()
+  if (d.startsWith('[')) return d.slice(1, d.indexOf(']') > 0 ? d.indexOf(']') : undefined)
+  const i = d.lastIndexOf(':')
+  return (i > 0 && d.indexOf(':') === i ? d.slice(0, i) : d).toLowerCase()
+}
+
+const isDomain = (h: string) => /[a-z]/i.test(h) && !h.includes(':') && h.includes('.')
+
+// baseDomain is the last two labels (three for co.uk-style suffixes).
+function baseDomain(h: string): string {
+  const p = h.toLowerCase().replace(/\.$/, '').split('.')
+  const n = p.length >= 3 && /^(co|com|net|org|gov|edu|ac)$/.test(p[p.length - 2]) && p[p.length - 1].length === 2 ? 3 : 2
+  return p.slice(-n).join('.')
 }

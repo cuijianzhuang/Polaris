@@ -368,3 +368,9 @@ html[data-mode="dark"] .overlay { background: rgba(0, 0, 0, .55); }
 .swatch:hover { transform: scale(1.08); }
 .swatch.on { box-shadow: 0 0 0 2px var(--ink); }
 .side-foot .theme-btn { display: inline-flex; align-items: center; padding: 4px 6px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 40px; padding: 5px 8px; border: 1px solid var(--input); border-radius: 8px; background: var(--card); cursor: text; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.tags:focus-within { border-color: var(--pri); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pri) 14%, transparent); }
+.tags input { flex: 1; min-width: 120px; border: none; outline: none; background: none; color: var(--ink); font-size: 13px; padding: 4px 2px; }
+.tag-item { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border-radius: 6px; background: var(--soft); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); animation: pop-in .2s var(--ease-out); }
+.tag-item button { border: none; background: none; color: var(--mute); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 4px; border-radius: 4px; }
+.tag-item button:hover { color: var(--bad); background: var(--bad-bg); }

@@ -77,8 +77,13 @@ export function RealityAdvanced({ s, setS, mldsa }: { s: SecuritySpec; setS: (x:
         <Field label="最小客户端版本" hint="留空则不限制（Xray 26.7.x 自带的 26.3.27 下限会拒绝 sing-box / Clash 客户端，面板会自动放开）">
           <input className="input mono" value={s.realityMinClientVer ?? ''} onChange={(e) => setS({ realityMinClientVer: e.target.value || undefined })} placeholder="x.y.z" />
         </Field>
-        <Field label="最大客户端版本"><input className="input mono" value={s.realityMaxClientVer ?? ''} onChange={(e) => setS({ realityMaxClientVer: e.target.value || undefined })} placeholder="x.y.z" /></Field>
+        <Field label="最大客户端版本" hint="一般留空：设置后更高版本的客户端都会被拒绝"><input className="input mono" value={s.realityMaxClientVer ?? ''} onChange={(e) => setS({ realityMaxClientVer: e.target.value || undefined })} placeholder="x.y.z" /></Field>
       </div>
+      {s.realityMaxClientVer && verLess(s.realityMaxClientVer, '26.0.0') && (
+        <div className="note bad">最大客户端版本 {s.realityMaxClientVer} 会拒绝所有新版 Xray 客户端（v2rayN、Xray 26.x 等），这些客户端将连不上。
+          <button className="btn sm" type="button" style={{ marginLeft: 8 }} onClick={() => setS({ realityMaxClientVer: undefined })}>清空</button>
+        </div>
+      )}
       <Field label="ML-DSA-65 签名" hint={mldsa
         ? '服务端用后量子签名证明身份；客户端填入校验公钥（订阅中的 pqv）后才会校验。目标站证书链需至少约 3.5 KB（扫描结果中标「ML-DSA 可用」），否则连接会失败。种子加密存储、不回显'
         : '需要 Xray 25.9.11 及以上的内核'}>
@@ -158,4 +163,11 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
       )}
     </Modal>
   )
+}
+
+// verLess compares dotted versions numerically.
+function verLess(a: string, b: string): boolean {
+  const x = a.split('.').map((n) => Number(n) || 0), y = b.split('.').map((n) => Number(n) || 0)
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) < (y[i] ?? 0)
+  return false
 }
