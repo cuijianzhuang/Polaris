@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -160,4 +161,55 @@ func (s *Server) statsTraffic(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"series": out, "top": tops})
+}
+
+// tagStats is GET /stats/tags?kind=inbound|outbound: bytes per inbound /
+// outbound of every node since its last reset.
+func (s *Server) tagStats(c *gin.Context) {
+	q := s.st.DB.Order("kind, node_id, tag")
+	if k := c.Query("kind"); k != "" {
+		q = q.Where("kind = ?", k)
+	}
+	var rows []store.TagTraffic
+	q.Find(&rows)
+	names := s.nodeNames()
+	type row struct {
+		store.TagTraffic
+		NodeName string `json:"nodeName"`
+	}
+	out := make([]row, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, row{r, names[r.NodeID]})
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// resetTagStats is POST /stats/tags/reset {kind, nodeId, tag}: empty fields
+// match everything (e.g. {kind: "outbound"} resets every outbound).
+func (s *Server) resetTagStats(c *gin.Context) {
+	var req struct {
+		Kind   string `json:"kind"`
+		NodeID string `json:"nodeId"`
+		Tag    string `json:"tag"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	q := s.st.DB.Where("1 = 1")
+	if req.Kind != "" {
+		q = q.Where("kind = ?", req.Kind)
+	}
+	if req.NodeID != "" {
+		q = q.Where("node_id = ?", req.NodeID)
+	}
+	if req.Tag != "" {
+		q = q.Where("tag = ?", req.Tag)
+	}
+	if err := q.Delete(&store.TagTraffic{}).Error; err != nil {
+		serverError(c, err)
+		return
+	}
+	s.auditCtx(c, "stats.reset", strings.TrimSpace(req.Kind+" "+req.Tag), req.NodeID)
+	c.Status(http.StatusNoContent)
 }

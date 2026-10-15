@@ -7,6 +7,7 @@ import (
 	"time"
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
+	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -88,5 +89,34 @@ func TestDeviceLimit(t *testing.T) {
 	s.st.DB.First(&got, "id = ?", u.ID)
 	if got.LastSubAt == nil || got.LastSubUA != "Happ/3.0" {
 		t.Fatalf("last fetch not recorded: %+v", got)
+	}
+}
+
+func TestTagTrafficSettleAndReset(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	n := store.Node{ID: "n1", Name: "tokyo", TrafficRate: 2}
+	s.st.DB.Create(&n)
+	s.traffic.Add("n1", []model.TrafficDelta{{UserID: "inbound>>>vless", Up: 10, Down: 20}, {UserID: "outbound>>>direct", Up: 5, Down: 7}})
+	if err := s.settleTraffic(); err != nil {
+		t.Fatal(err)
+	}
+	s.traffic.Add("n1", []model.TrafficDelta{{UserID: "inbound>>>vless", Up: 1, Down: 2}})
+	s.settleTraffic()
+	var rows []store.TagTraffic
+	s.st.DB.Order("kind").Find(&rows)
+	if len(rows) != 2 || rows[0].Kind != "inbound" || rows[0].Up != 11 || rows[0].Down != 22 || rows[1].Tag != "direct" {
+		t.Fatalf("tag traffic = %+v (raw bytes expected, no multiplier)", rows)
+	}
+	var hourly int64
+	s.st.DB.Model(&store.TrafficHourly{}).Count(&hourly)
+	if hourly != 0 {
+		t.Fatal("tag counters leaked into per-user traffic")
+	}
+	if code, _ := c.do("POST", "/stats/tags/reset", map[string]any{"kind": "outbound"}); code != 204 {
+		t.Fatalf("reset %d", code)
+	}
+	s.st.DB.Find(&rows)
+	if len(rows) != 1 || rows[0].Kind != "inbound" {
+		t.Fatalf("after reset: %+v", rows)
 	}
 }

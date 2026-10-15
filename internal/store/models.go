@@ -505,7 +505,7 @@ func AllModels() []any {
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
-		&UserDevice{},
+		&UserDevice{}, &TagTraffic{},
 	}
 }
 
@@ -520,4 +520,15 @@ type UserDevice struct {
 	IP        string    `gorm:"size:64" json:"ip"`
 	FirstSeen time.Time `json:"firstSeen"`
 	LastSeen  time.Time `json:"lastSeen"`
+}
+
+// TagTraffic accumulates the bytes an inbound or outbound of a node carried
+// since its last reset (Kind "inbound" / "outbound").
+type TagTraffic struct {
+	NodeID    string    `gorm:"size:32;uniqueIndex:idx_tag_traffic" json:"nodeId"`
+	Kind      string    `gorm:"size:16;uniqueIndex:idx_tag_traffic" json:"kind"`
+	Tag       string    `gorm:"size:128;uniqueIndex:idx_tag_traffic" json:"tag"`
+	Up        int64     `json:"up"`
+	Down      int64     `json:"down"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }

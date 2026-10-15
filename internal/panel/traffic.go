@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
+	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -202,6 +203,19 @@ func (s *Server) settleTraffic() error {
 				rate = 1
 			}
 			for uid, v := range users {
+				if isTagCounter(uid) {
+					// Inbound / outbound totals: raw bytes, no multiplier.
+					kind, tag, _ := strings.Cut(uid, ">>>")
+					if err := tx.Clauses(clause.OnConflict{
+						Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}},
+						DoUpdates: clause.Assignments(map[string]any{
+							"up": gorm.Expr("tag_traffics.up + ?", v[0]), "down": gorm.Expr("tag_traffics.down + ?", v[1]), "updated_at": now,
+						}),
+					}).Create(&store.TagTraffic{NodeID: nodeID, Kind: kind, Tag: tag, Up: v[0], Down: v[1], UpdatedAt: now}).Error; err != nil {
+						return err
+					}
+					continue
+				}
 				up := int64(math.Round(float64(v[0]) * rate))
 				down := int64(math.Round(float64(v[1]) * rate))
 				if up == 0 && down == 0 {
@@ -504,4 +518,10 @@ func (l netList) contains(ip string) bool {
 		}
 	}
 	return false
+}
+
+// isTagCounter reports a per-inbound / per-outbound counter in a traffic
+// delta (see core.TagPrefixInbound).
+func isTagCounter(id string) bool {
+	return strings.HasPrefix(id, core.TagPrefixInbound) || strings.HasPrefix(id, core.TagPrefixOutbound)
 }

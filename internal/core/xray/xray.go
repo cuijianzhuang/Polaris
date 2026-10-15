@@ -112,7 +112,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			"levels": map[string]any{"0": map[string]any{
 				"statsUserUplink": true, "statsUserDownlink": true, "statsUserOnline": true,
 			}},
-			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true},
+			"system": map[string]any{"statsInboundUplink": true, "statsInboundDownlink": true,
+				"statsOutboundUplink": true, "statsOutboundDownlink": true},
 		},
 	}
 	var inbounds []any
@@ -798,12 +799,15 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	if err != nil {
 		return nil, err
 	}
-	stats, err := c.QueryStats(ctx, statsService, "user>>>", true)
+	stats, err := c.QueryStats(ctx, statsService, "", true) // users, inbounds and outbounds
 	if err != nil {
 		return nil, err
 	}
 	var out []model.TrafficDelta
-	for id, v := range core.UserTraffic(stats) {
+	for id, v := range core.AllTraffic(stats) {
+		if v[0] == 0 && v[1] == 0 {
+			continue
+		}
 		out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
 	}
 	return out, nil
