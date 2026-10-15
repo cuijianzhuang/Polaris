@@ -1,0 +1,21 @@
+services:
+  polaris:
+    build: .
+    image: polaris:latest
+    restart: unless-stopped
+    env_file: deploy/polaris.env
+    environment:
+      POLARIS_LISTEN: ":8080"
+      POLARIS_AGENT_LISTEN: ":9443"
+      POLARIS_DATA_DIR: /data
+    ports:
+      - "127.0.0.1:8080:8080" # put Caddy/Nginx in front for HTTPS
+      - "9443:9443"           # agent mTLS endpoint
+    volumes:
+      - polaris-data:/data
+  # Optional traffic counter buffer:
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+volumes:
+  polaris-data:

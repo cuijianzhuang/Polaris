@@ -1,0 +1,145 @@
+syntax = "proto3";
+
+package polaris.v1;
+
+option go_package = "github.com/cuijianzhuang/polaris/api/gen/polaris/v1;polarisv1";
+
+// AgentService is served by the panel; agents always dial out, so nodes never
+// expose a management port and NAT'd hosts can join.
+service AgentService {
+  // Enroll exchanges a one-time install token for a client certificate.
+  // It is the only RPC callable without a client certificate.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+  // Connect is the long-lived bidirectional stream (mTLS).
+  rpc Connect(stream AgentMessage) returns (stream PanelMessage);
+  // GetSpec pulls the desired NodeSpec.
+  rpc GetSpec(GetSpecRequest) returns (GetSpecResponse);
+  // ReportTraffic uploads traffic batches; accepted batch ids are idempotent.
+  rpc ReportTraffic(ReportTrafficRequest) returns (ReportTrafficResponse);
+}
+
+message EnrollRequest {
+  string token = 1;
+  bytes csr_pem = 2;
+  string hostname = 3;
+  string agent_version = 4;
+}
+
+message EnrollResponse {
+  string node_id = 1;
+  bytes cert_pem = 2;
+  bytes ca_pem = 3;
+}
+
+message AgentMessage {
+  oneof msg {
+    Heartbeat heartbeat = 1;
+    ApplyResult apply_result = 2;
+    CommandResult command_result = 3;
+    OnlineIPs online_ips = 4;
+  }
+}
+
+message Heartbeat {
+  int64 applied_rev = 1;
+  string agent_version = 2;
+  SystemStats system = 3;
+  repeated CoreState cores = 4;
+  // Public addresses detected by the agent (for DDNS); empty if unknown.
+  string public_ipv4 = 5;
+  string public_ipv6 = 6;
+}
+
+message SystemStats {
+  double cpu_percent = 1;
+  double mem_percent = 2;
+  uint64 rx_bps = 3;
+  uint64 tx_bps = 4;
+  uint64 uptime_seconds = 5;
+  double load1 = 6;
+}
+
+message CoreState {
+  string type = 1;
+  string version = 2;
+  bool running = 3;
+  int32 pid = 4;
+  int64 started_at = 5;
+  string error = 6;
+  int32 inbounds = 7;
+  repeated string installed_versions = 8;
+}
+
+message ApplyResult {
+  int64 rev = 1;
+  bool ok = 2;
+  string error = 3;
+  bool rolled_back = 4;
+  // "hot" when only users changed and every core hot-updated, else "reload".
+  string method = 5;
+}
+
+message CommandResult {
+  string id = 1;
+  bool ok = 2;
+  string error = 3;
+  string output = 4;
+}
+
+message OnlineIPs {
+  repeated UserIPs users = 1;
+}
+
+message UserIPs {
+  string user_id = 1;
+  repeated string ips = 2;
+}
+
+message PanelMessage {
+  oneof msg {
+    SpecChanged spec_changed = 1;
+    Command command = 2;
+  }
+}
+
+message SpecChanged {
+  int64 rev = 1;
+}
+
+// Command is a structured instruction; the agent never runs arbitrary shell.
+message Command {
+  string id = 1;
+  // restart_core | install_core | core_logs | probe | rollback
+  string kind = 2;
+  map<string, string> args = 3;
+}
+
+message GetSpecRequest {
+  // 0 means the latest revision.
+  int64 rev = 1;
+}
+
+message GetSpecResponse {
+  int64 rev = 1;
+  bytes spec_json = 2;
+}
+
+message ReportTrafficRequest {
+  repeated TrafficBatch batches = 1;
+}
+
+message TrafficBatch {
+  string batch_id = 1;
+  int64 collected_at = 2;
+  repeated UserTraffic users = 3;
+}
+
+message UserTraffic {
+  string user_id = 1;
+  int64 up = 2;
+  int64 down = 3;
+}
+
+message ReportTrafficResponse {
+  repeated string accepted_batch_ids = 1;
+}

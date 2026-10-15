@@ -1,0 +1,6 @@
+# Caddy terminates HTTPS for the panel UI, API and subscriptions.
+# The agent endpoint (:9443) uses its own mTLS and must NOT be proxied.
+panel.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8080
+}
