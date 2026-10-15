@@ -178,6 +178,30 @@ export default function Nodes() {
 
   useEffect(() => { if (params.get('new')) { setParams({}, { replace: true }) } }, [params, setParams])
 
+  // Agent upgrades: nodes whose agent differs from the panel version.
+  const info = useLoad(() => get<{ version: string }>('/info'))
+  const panelVer = info.data?.version ?? ''
+  const vnorm = (v: string) => v.replace(/^v/, '')
+  const outdated = (n: Node) => !!panelVer && panelVer !== 'dev' && n.status === 'online' && !!n.agentVersion && vnorm(n.agentVersion) !== vnorm(panelVer)
+  const outdatedNodes = nodes.filter(outdated)
+  const [upgrading, setUpgrading] = useState<Record<string, boolean>>({})
+  const upgradeOne = async (n: Node) => {
+    if (!(await confirm(`把 ${n.name} 的 Agent 从 v${vnorm(n.agentVersion)} 升级到 v${vnorm(panelVer)}？\n升级时内核会重启，节点上的连接会中断几秒。`))) return
+    setUpgrading((x) => ({ ...x, [n.id]: true }))
+    await run(() => post(`/nodes/${n.id}/upgrade-agent`), `${n.name} 已升级，正在重新连接`)
+    setUpgrading((x) => ({ ...x, [n.id]: false }))
+  }
+  const upgradeAll = async () => {
+    if (!(await confirm(`升级 ${outdatedNodes.length} 个节点的 Agent 到 v${vnorm(panelVer)}？\n每个节点的内核会重启，连接会中断几秒。`))) return
+    setUpgrading(Object.fromEntries(outdatedNodes.map((n) => [n.id, true])))
+    await run(async () => {
+      const r = await post<{ results: { node: string; ok: boolean; error?: string }[] }>('/nodes/upgrade-agents')
+      const bad = r.results.filter((x) => !x.ok)
+      if (bad.length) throw new Error(`${r.results.length - bad.length} 个成功，失败：` + bad.map((x) => `${x.node}（${x.error}）`).join('；'))
+    }, '全部节点已升级')
+    setUpgrading({})
+  }
+
   const showInstall = (n: Node) => run(async () => {
     const r = await post<{ command: string }>(`/nodes/${n.id}/install-token`)
     setInstall({ cmd: r.command, nodeId: n.id })
@@ -187,7 +211,14 @@ export default function Nodes() {
     <>
       <div className="top">
         <div><h1>节点与内核</h1><div className="sub">每个节点运行一个 Agent，Agent 托管一个或多个内核子进程</div></div>
-        <button className="btn pri" type="button" onClick={() => setEditing('new')}>+ 添加节点</button>
+        <div className="row">
+          {outdatedNodes.length > 0 && (
+            <button className="btn" type="button" disabled={busy} onClick={upgradeAll}>
+              <span className="badge-dot" />升级全部 Agent（{outdatedNodes.length}）
+            </button>
+          )}
+          <button className="btn pri" type="button" onClick={() => setEditing('new')}>+ 添加节点</button>
+        </div>
       </div>
       {nodes.length === 0 ? <div className="card"><Empty>还没有节点。点击「添加节点」生成一行安装命令，在服务器上执行即可接入。</Empty></div> : (
         <>
@@ -197,7 +228,8 @@ export default function Nodes() {
               return (
                 <button key={n.id} type="button" className={'ncard' + (sel?.id === n.id ? ' on' : '')} aria-pressed={sel?.id === n.id} onClick={() => setSelId(n.id)}>
                   <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
-                  <div className="sub">{[n.region, n.address].filter(Boolean).join(' · ') || '未填写地址'} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}</div>
+                  <div className="sub">{[n.region, n.address].filter(Boolean).join(' · ') || '未填写地址'} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
+                    {upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) && <span className="tag warn">可升级</span>}</div>
                 </button>
               )
             })}
@@ -206,12 +238,18 @@ export default function Nodes() {
             <>
               <section className="card">
                 <div className="sync">
-                  <div><span className="sub" style={{ margin: 0 }}>Agent</span><div className="mono">{sel.agentVersion ? 'v' + sel.agentVersion.replace(/^v/, '') : '未接入'}</div></div>
+                  <div><span className="sub" style={{ margin: 0 }}>Agent</span><div className="mono">{sel.agentVersion ? 'v' + vnorm(sel.agentVersion) : '未接入'}
+                    {outdated(sel) && <span className="small" style={{ color: 'var(--warn)', marginLeft: 6 }}>→ v{vnorm(panelVer)}</span>}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>期望 / 已应用版本</span><div className="mono" style={sel.appliedRev < sel.desiredRev ? { color: 'var(--warn)' } : undefined}>rev {sel.desiredRev} / rev {sel.appliedRev}{sel.appliedRev === sel.desiredRev && sel.desiredRev ? ' ✓' : ''}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>最后心跳</span><div className="mono">{ago(sel.lastSeen)}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>公网 IP{sel.ddns ? ' · DDNS' : ''}</span><div className="mono">{[sel.publicIpv4, sel.publicIpv6].filter(Boolean).join(' / ') || '—'}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>系统</span><div className="mono">{sel.connected ? `CPU ${sel.system.cpu}% · 内存 ${sel.system.mem}% · 运行 ${uptime(sel.system.uptime)}` : '—'}</div></div>
                   <div className="row" style={{ marginLeft: 'auto' }}>
+                    {outdated(sel) && (
+                      <button className="btn sm pri" type="button" disabled={busy || upgrading[sel.id]} onClick={() => upgradeOne(sel)}>
+                        {upgrading[sel.id] ? <><span className="spinner" />升级中…</> : '升级 Agent'}
+                      </button>
+                    )}
                     <button className="btn sm" type="button" disabled={busy} onClick={() => run(() => post(`/nodes/${sel.id}/sync`), '已强制同步')}>强制同步</button>
                     <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                       if (await confirm('回滚到上一个成功应用的配置版本？')) run(() => post(`/nodes/${sel.id}/rollback`, {}), '已回滚')

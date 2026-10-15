@@ -95,7 +95,7 @@ curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <一次性 
 主控地址与 CA 指纹由主控写进 `install.sh`，命令里只需令牌（24 小时有效、一次性）。脚本会先检查与主控接入端口的连通性（不通时直接提示放行端口），再下载并校验 Agent、注册拿到客户端证书、写入 systemd 服务；弹窗会实时显示节点上线。Agent 数据在 `/var/lib/polaris-agent`，按期望状态下载内核到 `cores/{type}/{version}/` 并校验 SHA256，切换版本只改 `current` 软链。
 
 - 国内机器可加 `--mirror https://<github 镜像前缀>`（Agent 与内核下载都会使用）
-- 升级 Agent 到面板版本：`… | bash -s -- --upgrade`（已注册的机器不带令牌重跑也会升级）
+- 升级 Agent：面板升级后，「节点与内核」会标出 Agent 版本落后的节点，点「升级 Agent」或「升级全部 Agent」即可。Agent 经已有的 mTLS 通道从主控下载新版本，校验 SHA256 并试运行后替换自身、原地重启（内核随之重启，连接中断数秒）。也可在节点上执行 `… | bash -s -- --upgrade`
 - 卸载：`… | bash -s -- --uninstall [--purge]`
 - 主控服务器本机做节点：执行同一条命令即可（自动改用 127.0.0.1 连接），或在主控上运行 `polaris node`
 

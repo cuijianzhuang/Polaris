@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -27,6 +28,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debug := flag.Bool("debug", false, "debug logging")
 	flag.Parse()
+	exe, _ := os.Executable() // before any self-update replaces the file
 	if *showVersion {
 		fmt.Println("polaris-agent", agent.Version)
 		return
@@ -67,6 +69,15 @@ func main() {
 		os.Exit(1)
 	}
 	if err := a.Run(ctx); err != nil {
+		if errors.Is(err, agent.ErrRestart) {
+			// Replace this process with the updated binary (same PID, so
+			// systemd keeps tracking it; works without systemd too).
+			log.Info("re-executing updated agent", "path", exe)
+			if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+				log.Error("re-exec failed; exiting so the supervisor restarts the agent", "err", err)
+			}
+			os.Exit(1)
+		}
 		log.Error("agent", "err", err)
 		os.Exit(1)
 	}

@@ -96,6 +96,8 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/nodes/:id", s.deleteNode)
 	p.POST("/nodes/:id/install-token", s.installToken)
 	p.POST("/nodes/:id/sync", s.syncNode)
+	p.POST("/nodes/:id/upgrade-agent", s.upgradeAgentAPI)
+	p.POST("/nodes/upgrade-agents", s.upgradeAllAgents)
 	p.POST("/nodes/:id/rollback", s.rollbackNode)
 	p.POST("/nodes/:id/revoke", s.revokeNode)
 	p.GET("/nodes/:id/revisions", s.listRevisions)
