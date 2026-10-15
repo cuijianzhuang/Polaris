@@ -141,7 +141,7 @@ func opRename(nodes []Node, op Operator) ([]Node, error) {
 			n.Name = NameVars(op.Template, map[string]string{
 				"emoji": Flag(code), "region": code, "regionZh": r.Zh, "regionEn": r.En,
 				"protocol": ProtocolLabel(*n), "index": fmt.Sprintf("%02d", counters[key]), "name": n.Name,
-				"server": n.Server, "port": strconv.Itoa(n.Port),
+				"server": n.Server, "port": strconv.Itoa(n.Port), "source": n.Source,
 			})
 		}
 		n.Name = strings.TrimSpace(n.Name)

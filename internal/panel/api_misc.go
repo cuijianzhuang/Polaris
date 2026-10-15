@@ -198,6 +198,8 @@ func (s *Server) updateSubTemplate(c *gin.Context) {
 	}
 	if req.Reset {
 		req.Content = defaultTemplate(t.Format)
+	} else if req.Content == "" {
+		req.Content = t.Content // name / default-flag only
 	}
 	if req.Name != "" {
 		t.Name = req.Name

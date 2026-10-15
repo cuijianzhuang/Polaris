@@ -5,7 +5,7 @@ import { useNodes } from '../App'
 import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
-import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Group, Inbound, Node } from '../types'
+import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Group, Inbound, Node, Outbound } from '../types'
 
 const emptyDraft = (): InboundDraft => ({
   core: 'xray',
@@ -97,6 +97,8 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
   const [extra, setExtra] = useState(editing?.extra ? JSON.stringify(editing.extra, null, 2) : '')
   const [enabled, setEnabled] = useState(editing?.enabled ?? true)
   const [remark, setRemark] = useState(editing?.remark ?? '')
+  const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
+  const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -123,7 +125,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
     let ex: any = undefined
     if (extra.trim()) ex = JSON.parse(extra)
     return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
-      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds }
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag }
   }
   const save = () => run(async () => {
     if (editing) await put('/inbounds/' + editing.id, body())
@@ -157,6 +159,14 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
         <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
         <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
       </div>
+      <Field label="出口" htmlFor="ib-out" hint="绑定后此入站的全部流量走指定出站（含负载均衡组），不再经过路由规则；默认由路由规则决定">
+        <select id="ib-out" className="input" value={outboundTag} onChange={(e) => setOutboundTag(e.target.value)}>
+          <option value="">按路由规则</option>
+          <option value="direct">direct · 直连</option>
+          <option value="block">block · 拦截</option>
+          {(outbounds.data ?? []).map((o) => <option key={o.id} value={o.tag}>{o.tag} · {o.type === 'balancer' ? '负载均衡' : o.type}</option>)}
+        </select>
+      </Field>
       <Field label="授权分组" hint="分组内的用户获得此入站">
         <div className="row">
           {(groups.data ?? []).map((g) => (

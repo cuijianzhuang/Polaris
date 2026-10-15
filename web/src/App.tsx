@@ -15,6 +15,9 @@ import SubTemplates from './pages/SubTemplates'
 import Certificates from './pages/Certificates'
 import Settings from './pages/Settings'
 import Audit from './pages/Audit'
+import Convert from './pages/Convert'
+import Domains from './pages/Domains'
+import Telegram from './pages/Telegram'
 
 // Live node list shared by pages, fed by the WebSocket.
 const NodesCtx = createContext<{ nodes: Node[]; refresh: () => void }>({ nodes: [], refresh: () => {} })
@@ -52,9 +55,12 @@ const nav = [
   { to: '/templates', label: '入站模板', icon: <Icon.Template /> },
   { to: '/users', label: '用户', icon: <Icon.Users /> },
   { to: '/sub-templates', label: '订阅模板', icon: <Icon.Sub /> },
+  { to: '/convert', label: '订阅转换', icon: <Icon.Convert /> },
+  { to: '/domains', label: '域名与 DDNS', icon: <Icon.Globe /> },
 ]
 const sysNav = [
   { to: '/certificates', label: '证书', icon: <Icon.Lock /> },
+  { to: '/telegram', label: 'Telegram 机器人', icon: <Icon.Bot /> },
   { to: '/settings', label: '设置', icon: <Icon.Gear /> },
   { to: '/audit', label: '审计日志', icon: <Icon.Log /> },
 ]
@@ -104,6 +110,9 @@ export default function App() {
                   <Route path="/certificates" element={<Certificates />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/audit" element={<Audit />} />
+                  <Route path="/convert" element={<Convert />} />
+                  <Route path="/domains" element={<Domains />} />
+                  <Route path="/telegram" element={<Telegram />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Layout>

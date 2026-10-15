@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
-import { CopyBox, Drawer, Empty, Field, Modal, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime } from '../format'
 import type { CapSet, Core, CoreType, Node, Revision } from '../types'
 
-const DEFAULT_VERSIONS: Record<string, string> = { xray: '26.3.27', singbox: '1.13.5', hysteria: '2.6.1', forwarder: '2.7.0' }
+const DEFAULT_VERSIONS: Record<string, string> = { xray: '26.3.27', singbox: '1.13.5', hysteria: '2.6.1', forwarder: '2.7.0', mihomo: '1.19.15', caddy: '2.10.2' }
 
 function capsSummary(c?: CapSet): string[] {
   if (!c) return []
@@ -25,14 +25,14 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1,
-    defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false,
+    defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false,
   })
   const { busy, run } = useAction()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
     const body: any = {
       name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate),
-      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore,
+      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns,
     }
     if (node) {
       await put('/nodes/' + node.id, body)
@@ -57,6 +57,9 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         <Field label="节点域名" htmlFor="n-domain" hint="用于 ACME 证书与 {node.domain}"><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
         <Field label="国家代码" htmlFor="n-flag" hint="如 JP，订阅显示旗帜"><input id="n-flag" className="input mono" maxLength={2} value={f.flag} onChange={(e) => set('flag', e.target.value.toUpperCase())} /></Field>
         <Field label="流量倍率" htmlFor="n-rate" hint="结算时按倍率换算"><input id="n-rate" className="input mono" type="number" step="0.1" min="0.1" value={f.trafficRate} onChange={(e) => set('trafficRate', e.target.value)} /></Field>
+        <Field label="DDNS" full hint="开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP">
+          <label className="row small"><Switch label="DDNS" on={f.ddns} onChange={(v) => set('ddns', v)} />自动跟随节点公网 IP</label>
+        </Field>
         <Field label="标签" htmlFor="n-labels" full hint="逗号分隔；模板可绑定标签，新节点上线后自动套用"><input id="n-labels" className="input" value={f.labels} onChange={(e) => set('labels', e.target.value)} placeholder="asia, cn2" /></Field>
       </div>
       {!node && (
@@ -77,6 +80,11 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   )
 }
 
+const coreHint: Record<string, string> = {
+  xray: 'gRPC 热增删用户', singbox: 'SIGHUP 重载', hysteria: '官方服务端 · 多入站 · HTTP 认证回调',
+  mihomo: 'listeners · 控制器热重载', caddy: 'CDN 443 端口共享回源（按需自动安装）', forwarder: 'L4 端口转发 · 中转链路',
+}
+
 function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
   const [type, setType] = useState<CoreType>(core?.type ?? (node.cores.find((c) => c.type === 'singbox') ? 'xray' : 'singbox'))
   const [version, setVersion] = useState(core?.version ?? DEFAULT_VERSIONS[type] ?? '')
@@ -93,10 +101,10 @@ function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; o
       {!core && (
         <Field label="内核">
           <div className="seg">
-            {(['xray', 'singbox', 'hysteria', 'mihomo'] as CoreType[]).map((c) => (
-              <button key={c} type="button" className={'opt' + (type === c ? ' on' : '')} disabled={c === 'mihomo'}
+            {(['xray', 'singbox', 'hysteria', 'mihomo', 'caddy', 'forwarder'] as CoreType[]).map((c) => (
+              <button key={c} type="button" className={'opt' + (type === c ? ' on' : '')}
                 onClick={() => { setType(c); setVersion(DEFAULT_VERSIONS[c] ?? '') }}>
-                {coreLabel[c]}<small>{c === 'mihomo' ? '适配器开发中' : c === 'hysteria' ? '官方服务端 · HTTP 认证回调' : c === 'xray' ? 'gRPC 热增删用户' : 'SIGHUP 重载'}</small>
+                {coreLabel[c]}<small>{coreHint[c]}</small>
               </button>
             ))}
           </div>
@@ -159,6 +167,7 @@ export default function Nodes() {
                   <div><span className="sub" style={{ margin: 0 }}>Agent</span><div className="mono">{sel.agentVersion ? 'v' + sel.agentVersion.replace(/^v/, '') : '未接入'}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>期望 / 已应用版本</span><div className="mono" style={sel.appliedRev < sel.desiredRev ? { color: 'var(--warn)' } : undefined}>rev {sel.desiredRev} / rev {sel.appliedRev}{sel.appliedRev === sel.desiredRev && sel.desiredRev ? ' ✓' : ''}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>最后心跳</span><div className="mono">{ago(sel.lastSeen)}</div></div>
+                  <div><span className="sub" style={{ margin: 0 }}>公网 IP{sel.ddns ? ' · DDNS' : ''}</span><div className="mono">{[sel.publicIpv4, sel.publicIpv6].filter(Boolean).join(' / ') || '—'}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>系统</span><div className="mono">{sel.connected ? `CPU ${sel.system.cpu}% · 内存 ${sel.system.mem}% · 运行 ${uptime(sel.system.uptime)}` : '—'}</div></div>
                   <div className="row" style={{ marginLeft: 'auto' }}>
                     <button className="btn sm" type="button" disabled={busy} onClick={() => run(() => post(`/nodes/${sel.id}/sync`), '已强制同步')}>强制同步</button>
@@ -209,7 +218,7 @@ export default function Nodes() {
                 })}
                 <article className="core add">
                   <div className="cname" style={{ fontSize: 15 }}>安装更多内核</div>
-                  <div className="sub" style={{ margin: 0 }}>sing-box · Hysteria2 官方服务端 · mihomo（预留）</div>
+                  <div className="sub" style={{ margin: 0 }}>sing-box · Hysteria2 官方服务端 · mihomo · Caddy 回源 · realm 转发</div>
                   <button className="btn sm" type="button" style={{ marginTop: 8 }} onClick={() => setCoreForm({})}>选择内核与版本</button>
                 </article>
                 <div className="card flush" style={{ gridColumn: '1 / -1' }}>

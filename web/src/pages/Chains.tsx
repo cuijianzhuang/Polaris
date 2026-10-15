@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
-import { Drawer, Empty, Field, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
+import { Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
-import type { CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule } from '../types'
+import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset } from '../types'
 
 type Tab = 'chains' | 'cdn' | 'routing'
 
@@ -157,7 +157,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
       </div>
       <div className="toggle"><span>订阅按优选 IP 展开（一个 IP 一个节点）</span><Switch label="展开" on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
       <div className="toggle"><span>自动同步 DNS 记录（开启代理）</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
-      <div className="toggle"><span>Agent 内置 Caddy 统一回源（规划中）</span><Switch label="Caddy" on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
+      <div className="toggle"><span>Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享 443，按路径分流）</span><Switch label="Caddy" on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
     </Drawer>
   )
 }
@@ -195,13 +195,19 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
 
 const RESERVED = ['direct', 'block']
 
+const lbStrategies: [string, string, string][] = [
+  ['leastPing', '延迟最低', '持续探测，选最快'], ['leastLoad', '最稳定', '延迟 + 抖动综合（Xray）'], ['fallback', '故障转移', '按顺序选第一个可用'],
+  ['roundRobin', '轮询', '逐连接轮换（仅 Xray）'], ['random', '随机', '逐连接随机（仅 Xray）'],
+]
+
 function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved }: { node: Node; outbound?: Outbound; inbounds: Inbound[]; outbounds: Outbound[]; onClose: () => void; onSaved: () => void }) {
   const s = outbound?.settings ?? {}
   const [f, setF] = useState({
     tag: outbound?.tag ?? '', type: outbound?.type ?? 'socks', nodeRefInboundId: outbound?.nodeRefInboundId ?? '', detour: outbound?.detour ?? '', remark: outbound?.remark ?? '',
     server: s.server ?? '', port: String(s.port ?? ''), username: s.username ?? '', password: s.password ?? '', uuid: s.uuid ?? '', method: s.method ?? '2022-blake3-aes-128-gcm',
     privateKey: s.privateKey ?? '', peerPublicKey: s.peerPublicKey ?? '', localAddress: (s.localAddress ?? []).join(', '), reserved: (s.reserved ?? []).join(','),
-    members: (s.members ?? []).join(', '), sni: s.security?.serverName ?? '', tls: !!s.security,
+    members: (s.members ?? []) as string[], sni: s.security?.serverName ?? '', tls: !!s.security,
+    strategy: s.strategy ?? 'leastPing', testUrl: s.testUrl ?? '', interval: s.interval ?? '', tolerance: String(s.tolerance ?? ''), fallback: s.fallback ?? '',
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -212,11 +218,13 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
       case 'trojan': case 'hysteria2': return { server: f.server, port: Number(f.port), password: f.password, security: { type: 'tls', serverName: f.sni || undefined } }
       case 'vless': case 'vmess': return { server: f.server, port: Number(f.port), uuid: f.uuid, security: f.tls ? { type: 'tls', serverName: f.sni || undefined } : undefined }
       case 'wireguard': return { server: f.server, port: Number(f.port), privateKey: f.privateKey, peerPublicKey: f.peerPublicKey, localAddress: fromLines(f.localAddress), reserved: f.reserved ? f.reserved.split(',').map(Number) : undefined }
-      case 'urltest': case 'selector': return { members: fromLines(f.members) }
+      case 'urltest': case 'selector': return { members: f.members, testUrl: f.testUrl || undefined, interval: f.interval || undefined, tolerance: Number(f.tolerance) || undefined }
+      case 'balancer': return { members: f.members, strategy: f.strategy, testUrl: f.testUrl || undefined, interval: f.interval || undefined, tolerance: Number(f.tolerance) || undefined, fallback: f.fallback || undefined }
       default: return {}
     }
   }
   const remote = inbounds.filter((i) => i.nodeId !== node.id)
+  const caps = useLoad(() => get<CapSet[]>('/capabilities?node=' + node.id), [node.id]).data ?? []
   return (
     <Drawer title={outbound ? '编辑出站 · ' + outbound.tag : '新建出站'} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>取消</button>
@@ -234,7 +242,7 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
             <option value="socks">SOCKS5（住宅代理等）</option><option value="http">HTTP</option><option value="wireguard">WireGuard（WARP）</option>
             <option value="shadowsocks">Shadowsocks</option><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
             <option value="hysteria2">Hysteria2（仅 sing-box）</option><option value="node_ref">面板内另一节点</option>
-            <option value="urltest">自动选择组（urltest / balancer）</option><option value="selector">手动选择组</option><option value="direct">直连</option>
+            <option value="balancer">负载均衡组</option><option value="urltest">自动选择组（延迟最低）</option><option value="selector">手动选择组</option><option value="direct">直连</option>
           </select>
         </Field>
       </div>
@@ -245,9 +253,45 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
             {remote.map((i) => <option key={i.id} value={i.id}>{i.nodeName} · {i.tag} · {inboundSummary(i)}</option>)}
           </select>
         </Field>
-      ) : f.type === 'urltest' || f.type === 'selector' ? (
-        <Field label="成员出站" hint="逗号分隔的出站标签；失败的落地自动移出、恢复后加回"><input className="input mono" value={f.members} onChange={(e) => set('members', e.target.value)} /></Field>
-      ) : f.type !== 'direct' && (
+      ) : f.type === 'urltest' || f.type === 'selector' || f.type === 'balancer' ? (<>
+        <Field label="成员出站" hint="点击选择，按选择顺序排列（故障转移按此顺序）；健康检查失败的成员自动移出、恢复后加回">
+          <div className="row">
+            {outbounds.filter((o) => o.tag !== f.tag && o.type !== 'balancer' && o.type !== 'urltest' && o.type !== 'selector').map((o) => {
+              const i = f.members.indexOf(o.tag)
+              return <button key={o.id} type="button" className={'chip' + (i >= 0 ? ' on' : '')} aria-pressed={i >= 0}
+                onClick={() => set('members', i >= 0 ? f.members.filter((m) => m !== o.tag) : [...f.members, o.tag])}>{i >= 0 ? `${i + 1}. ` : ''}{o.tag}</button>
+            })}
+            {['direct'].map((t) => {
+              const i = f.members.indexOf(t)
+              return <button key={t} type="button" className={'chip' + (i >= 0 ? ' on' : '')} onClick={() => set('members', i >= 0 ? f.members.filter((m) => m !== t) : [...f.members, t])}>{i >= 0 ? `${i + 1}. ` : ''}{t}</button>
+            })}
+          </div>
+        </Field>
+        {f.type === 'balancer' && (
+          <Field label="均衡策略" hint={caps.find((c) => c.core === 'singbox') && !caps.find((c) => c.core === 'xray') ? 'sing-box 仅支持延迟最低 / 最稳定 / 故障转移' : 'Xray 支持全部策略；sing-box 节点上随机 / 轮询不可用'}>
+            <div className="seg c3">
+              {lbStrategies.map(([k, l, h]) => (
+                <button key={k} type="button" className={'opt' + (f.strategy === k ? ' on' : '')} onClick={() => set('strategy', k)}>{l}<small>{h}</small></button>
+              ))}
+            </div>
+          </Field>
+        )}
+        {f.type !== 'selector' && (
+          <div className="form-grid">
+            <Field label="探测地址" hint="默认 gstatic generate_204"><input className="input mono" value={f.testUrl} onChange={(e) => set('testUrl', e.target.value)} placeholder="https://www.gstatic.com/generate_204" /></Field>
+            <Field label="探测间隔"><input className="input mono" value={f.interval} onChange={(e) => set('interval', e.target.value)} placeholder="1m" /></Field>
+            <Field label="容差（ms）" hint="延迟差小于此值不切换"><input className="input mono" value={f.tolerance} onChange={(e) => set('tolerance', e.target.value)} placeholder="50" /></Field>
+            {f.type === 'balancer' && (
+              <Field label="兜底出站" hint="所有成员都不可用时使用">
+                <select className="input" value={f.fallback} onChange={(e) => set('fallback', e.target.value)}>
+                  <option value="">无</option><option value="direct">direct</option><option value="block">block</option>
+                  {outbounds.filter((o) => o.tag !== f.tag && !f.members.includes(o.tag)).map((o) => <option key={o.id} value={o.tag}>{o.tag}</option>)}
+                </select>
+              </Field>
+            )}
+          </div>
+        )}
+      </>) : f.type !== 'direct' && (
         <div className="form-grid">
           <Field label="服务器"><input className="input mono" value={f.server} onChange={(e) => set('server', e.target.value)} /></Field>
           <Field label="端口"><input className="input mono" value={f.port} onChange={(e) => set('port', e.target.value)} /></Field>
@@ -293,8 +337,16 @@ function matchText(m: RouteMatch, groupName: (id: string) => string) {
 
 function Routing({ nodes }: { nodes: Node[] }) {
   const [nodeId, setNodeId] = useState(nodes[0]?.id ?? '')
+  const global = nodeId === '*'
   const node = nodes.find((n) => n.id === nodeId)
-  const outs = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
+  const outs = useLoad(() => (global
+    ? Promise.all(nodes.map((n) => get<Outbound[]>(`/nodes/${n.id}/outbounds`))).then((ls) => {
+      const seen = new Set<string>()
+      return ls.flat().filter((o) => !o.chainId && !seen.has(o.tag) && !!seen.add(o.tag))
+    })
+    : nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId, nodes.length])
+  const presets = useLoad(() => get<RulePreset[]>('/routing/presets'))
+  const [preset, setPreset] = useState<{ key: string; outbound: string; nodeIds: string[] } | null>(null)
   const rules = useLoad(() => (nodeId ? get<RoutingRule[]>(`/nodes/${nodeId}/routing`) : Promise.resolve([])), [nodeId])
   const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
   const groups = useLoad(() => get<{ id: string; name: string }[]>('/groups'))
@@ -312,12 +364,15 @@ function Routing({ nodes }: { nodes: Node[] }) {
       <div className="row">
         <label className="lbl" htmlFor="rt-node">节点</label>
         <select id="rt-node" className="input" style={{ width: 'auto', minWidth: 200 }} value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
+          <option value="*">全局规则（所有节点）</option>
           {nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
         </select>
         <span className="spacer" />
+        <button className="btn" type="button" onClick={() => setPreset({ key: presets.data?.[0]?.key ?? '', outbound: '', nodeIds: [nodeId] })}>应用规则预设</button>
         <button className="btn pri" type="button" disabled={!node} onClick={() => setDrawer('new')}>+ 出站</button>
       </div>
-      <section className="card flush">
+      {global && <div className="note">全局规则下发到每个节点，排在节点自身规则之后（同优先级时节点规则优先）；引用的出站在某节点不存在时，该节点自动跳过这条规则。</div>}
+      {!global && <section className="card flush">
         <div className="ctitle" style={{ padding: '12px 16px 4px' }}><span>出站 · {node?.name}</span><span className="sub" style={{ margin: 0 }}>detour 串成出口链（Xray: dialerProxy · sing-box: detour）</span></div>
         <table>
           <thead><tr><th>标签</th><th>类型</th><th>目标</th><th>下一跳</th><th></th></tr></thead>
@@ -339,9 +394,9 @@ function Routing({ nodes }: { nodes: Node[] }) {
             ))}
           </tbody>
         </table>
-      </section>
+      </section>}
       <section className="card">
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>路由规则 · {node?.name}</h2>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>路由规则 · {global ? '全局' : node?.name}</h2>
           <button className="btn sm" type="button" onClick={() => setDraft({ priority: (manual[manual.length - 1]?.priority ?? 0) + 10, outboundTag: tags[2] ?? 'direct', key: 'geosite', value: '' })}>+ 规则</button></div>
         <div className="scroll" style={{ marginTop: 8 }}>
           <table>
@@ -351,7 +406,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
                 <tr key={r.id}>
                   <td className="mono">{r.priority}</td>
                   <td>{matchText(r.match, gname).map((t) => <span key={t} className="tag">{t}</span>)}{r.chainId && <span className="tag xray">链路自动</span>}</td>
-                  <td>{r.outboundTag === 'block' ? '拦截' : r.outboundTag === 'direct' ? '直连' : r.outboundTag}</td>
+                  <td>{r.outboundTag === 'block' ? '拦截' : r.outboundTag === 'direct' ? '直连' : r.outboundTag}{r.remark && <div className="small mute">{r.remark}</div>}</td>
                   <td style={{ textAlign: 'right' }}>{!r.chainId && <button className="link" type="button" style={{ color: 'var(--bad)' }} onClick={() =>
                     saveRules(manual.filter((x) => x.id !== r.id).map((x) => ({ match: x.match, outboundTag: x.outboundTag, priority: x.priority, remark: x.remark })))}>删除</button>}</td>
                 </tr>
@@ -391,6 +446,40 @@ function Routing({ nodes }: { nodes: Node[] }) {
           </div>
         )}
       </section>
+      {preset && (() => {
+        const p = presets.data?.find((x) => x.key === preset.key)
+        return (
+          <Modal title="应用规则预设" onClose={() => setPreset(null)} footer={<>
+            <button className="btn" type="button" onClick={() => setPreset(null)}>取消</button>
+            <button className="btn pri" type="button" disabled={busy || !p || (!p.outbound && !preset.outbound) || !preset.nodeIds.length} onClick={() => run(async () => {
+              await post('/routing/presets/apply', preset); setPreset(null); rules.reload()
+            }, '规则已追加并下发')}>应用</button>
+          </>}>
+            <Field label="预设">
+              <div className="seg">
+                {(presets.data ?? []).map((x) => (
+                  <button key={x.key} type="button" className={'opt' + (preset.key === x.key ? ' on' : '')} onClick={() => setPreset({ ...preset, key: x.key, outbound: '' })}>{x.name}<small>{x.description}</small></button>
+                ))}
+              </div>
+            </Field>
+            <Field label="出口" hint={p?.outbound ? `默认 ${p.outbound}，可覆盖` : '该预设需要指定出口，例如解锁流媒体的落地或负载均衡组'}>
+              <select className="input" value={preset.outbound} onChange={(e) => setPreset({ ...preset, outbound: e.target.value })}>
+                <option value="">{p?.outbound ? `默认（${p.outbound}）` : '选择出口'}</option>
+                {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="应用到" hint="选择「全局」则写入全局规则">
+              <div className="row">
+                {[{ id: '*', name: '全局' }, ...nodes].map((n) => {
+                  const on = preset.nodeIds.includes(n.id)
+                  return <button key={n.id} type="button" className={'chip' + (on ? ' on' : '')} aria-pressed={on}
+                    onClick={() => setPreset({ ...preset, nodeIds: n.id === '*' ? (on ? [] : ['*']) : on ? preset.nodeIds.filter((x) => x !== n.id) : [...preset.nodeIds.filter((x) => x !== '*'), n.id] })}>{n.name}</button>
+                })}
+              </div>
+            </Field>
+          </Modal>
+        )
+      })()}
       {drawer && node && <OutboundDrawer node={node} outbound={drawer === 'new' ? undefined : drawer} inbounds={inbounds.data ?? []} outbounds={outs.data ?? []}
         onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); outs.reload() }} />}
     </>
