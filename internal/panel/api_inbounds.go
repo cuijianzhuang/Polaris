@@ -28,6 +28,8 @@ type inboundReq struct {
 	Enabled   *bool               `json:"enabled"`
 	Remark    string              `json:"remark"`
 	GroupIDs  []string            `json:"groupIds"`
+	// OutboundTag sends all traffic of the inbound to this egress ("" = routing rules decide).
+	OutboundTag string `json:"outboundTag"`
 }
 
 type inboundView struct {
@@ -156,7 +158,11 @@ func (s *Server) createInbound(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	row := store.Inbound{ID: store.NewID(), Remark: req.Remark, OverriddenFields: store.NewJSON([]string{})}
+	if err := s.checkOutboundTag(node.ID, req.OutboundTag); err != nil {
+		badRequest(c, err)
+		return
+	}
+	row := store.Inbound{ID: store.NewID(), Remark: req.Remark, OutboundTag: req.OutboundTag, OverriddenFields: store.NewJSON([]string{})}
 	fromModel(&m, &row)
 	s.sealInbound(&row)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
@@ -221,8 +227,12 @@ func (s *Server) updateInbound(c *gin.Context) {
 	if row.TemplateID != "" {
 		row.OverriddenFields = store.NewJSON(mergeFields(row.OverriddenFields.V, diffFields(&old, &m)))
 	}
+	if err := s.checkOutboundTag(node.ID, req.OutboundTag); err != nil {
+		badRequest(c, err)
+		return
+	}
 	fromModel(&m, &row)
-	row.Remark = req.Remark
+	row.Remark, row.OutboundTag = req.Remark, req.OutboundTag
 	s.sealInbound(&row)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&row).Error; err != nil {

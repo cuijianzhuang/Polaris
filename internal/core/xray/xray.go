@@ -87,7 +87,8 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 		RealIP:   true,
 		Outbounds: []model.OutboundType{model.OutDirect, model.OutBlock, model.OutSOCKS, model.OutHTTP,
 			model.OutShadowsocks, model.OutVLESS, model.OutVMess, model.OutTrojan, model.OutWireGuard,
-			model.OutURLTest, model.OutSelector},
+			model.OutURLTest, model.OutSelector, model.OutBalancer},
+		Balancers: []string{model.LBLeastPing, model.LBLeastLoad, model.LBRandom, model.LBRoundRobin, model.LBFallback},
 	}
 }
 
@@ -136,8 +137,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		routing["balancers"] = bl
 	}
 	cfg["routing"] = routing
-	if observe != nil {
-		cfg["observatory"] = observe
+	for k, v := range observe {
+		cfg[k] = v
 	}
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -338,7 +339,8 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 		{"tag": "block", "protocol": "blackhole"},
 	}
 	balancers = map[string]map[string]any{}
-	var probe []string
+	var probe, burst []string
+	probeURL := "https://www.gstatic.com/generate_204"
 	for _, o := range obs {
 		s, perr := o.ParseSettings()
 		if perr != nil {
@@ -385,19 +387,37 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 				w["mtu"] = s.MTU
 			}
 			ob = map[string]any{"protocol": "wireguard", "settings": w}
-		case model.OutURLTest, model.OutSelector:
-			strategy := "leastPing"
-			if o.Type == model.OutSelector {
-				strategy = "random"
+		case model.OutURLTest, model.OutSelector, model.OutBalancer:
+			strategy := s.Strategy
+			switch o.Type {
+			case model.OutURLTest:
+				strategy = model.LBLeastPing
+			case model.OutSelector:
+				strategy = model.LBRandom
 				if len(s.Members) > 0 {
 					// Manual choice: pin to the first member; per-group choice is
 					// expressed through routing rules.
 					s.Members = s.Members[:1]
 				}
 			}
-			balancers[o.Tag] = map[string]any{"tag": o.Tag, "selector": s.Members, "strategy": map[string]any{"type": strategy}}
-			if o.Type == model.OutURLTest {
+			if strategy == "" || strategy == model.LBFallback {
+				// Xray has no ordered fallback; leastPing over healthy members
+				// plus fallbackTag gives the same failover behaviour.
+				strategy = model.LBLeastPing
+			}
+			b := map[string]any{"tag": o.Tag, "selector": s.Members, "strategy": map[string]any{"type": strategy}}
+			if s.Fallback != "" {
+				b["fallbackTag"] = s.Fallback
+			}
+			balancers[o.Tag] = b
+			switch strategy {
+			case model.LBLeastPing:
 				probe = append(probe, s.Members...)
+			case model.LBLeastLoad:
+				burst = append(burst, s.Members...)
+			}
+			if s.TestURL != "" {
+				probeURL = s.TestURL
 			}
 			continue
 		default:
@@ -429,8 +449,15 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 		}
 		outs = append(outs, ob)
 	}
-	if len(probe) > 0 {
-		observe = map[string]any{"subjectSelector": dedupe(probe), "probeUrl": "https://www.gstatic.com/generate_204", "probeInterval": "60s"}
+	if len(probe) > 0 || len(burst) > 0 {
+		observe = map[string]any{}
+		if len(probe) > 0 {
+			observe["observatory"] = map[string]any{"subjectSelector": dedupe(probe), "probeUrl": probeURL, "probeInterval": "60s"}
+		}
+		if len(burst) > 0 {
+			observe["burstObservatory"] = map[string]any{"subjectSelector": dedupe(burst),
+				"pingConfig": map[string]any{"destination": probeURL, "interval": "1m", "sampling": 3, "timeout": "5s"}}
+		}
 	}
 	return outs, balancers, observe, nil
 }

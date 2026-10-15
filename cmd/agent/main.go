@@ -22,6 +22,7 @@ func main() {
 	dataDir := flag.String("data", envOr("POLARIS_DATA", "/var/lib/polaris"), "data directory")
 	mirror := flag.String("mirror", os.Getenv("POLARIS_CORE_MIRROR"), "GitHub download mirror prefix for core releases")
 	unverified := flag.Bool("allow-unverified", false, "allow installing cores whose release publishes no SHA-256")
+	noIP := flag.Bool("no-ip-detect", false, "disable public IP detection used by DDNS")
 	enrollOnly := flag.Bool("enroll-only", false, "enrol with --token and exit (used by install.sh)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debug := flag.Bool("debug", false, "debug logging")
@@ -60,7 +61,7 @@ func main() {
 			return
 		}
 	}
-	a, err := agent.New(agent.Config{PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified}, log)
+	a, err := agent.New(agent.Config{PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP}, log)
 	if err != nil {
 		log.Error("startup", "err", err)
 		os.Exit(1)

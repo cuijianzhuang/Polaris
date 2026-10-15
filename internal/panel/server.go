@@ -57,6 +57,8 @@ type Server struct {
 	subLimit *ipLimiter
 	webFS    http.FileSystem
 	bg       context.Context
+	sinks    []chan Event
+	health   healthState
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.
@@ -219,6 +221,8 @@ func (s *Server) startJobs() func() {
 	add("0 17 3 * * *", "cleanup", s.cleanup)
 	add("0 23 4 * * *", "certs", s.renewCertificates)
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
+	add("0 */10 * * * *", "ddns", s.syncAllBindings)
+	add("45 * * * * *", "health", s.probeChains)
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }
@@ -230,6 +234,7 @@ func (s *Server) markOfflineNodes() {
 	for _, n := range ns {
 		if !s.hub.Online(n.ID) {
 			s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Update("status", "offline")
+			s.notify(Event{Kind: "node_offline", NodeID: n.ID, Text: "🔴 节点 " + n.Name + " 心跳超时，已离线"})
 		}
 	}
 	if len(ns) > 0 {

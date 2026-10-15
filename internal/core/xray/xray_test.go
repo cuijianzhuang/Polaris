@@ -51,6 +51,9 @@ func TestRender(t *testing.T) {
 	if n := len(m["inbounds"].([]any)); n != 6 {
 		t.Fatalf("want 6 xray inbounds, got %d", n)
 	}
+	if !strings.Contains(string(cfg), `"burstObservatory"`) || !strings.Contains(string(cfg), `"fallbackTag": "direct"`) {
+		t.Fatalf("missing leastLoad balancer:\n%s", cfg)
+	}
 	if !strings.Contains(string(cfg), `"balancerTag": "auto"`) || !strings.Contains(string(cfg), `"dialerProxy": "resi"`) {
 		t.Fatalf("missing balancer/detour:\n%s", cfg)
 	}

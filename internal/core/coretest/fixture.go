@@ -60,9 +60,12 @@ func Chain() ([]model.Outbound, []model.RouteRule) {
 			Security: &model.ClientTLS{Type: model.SecReality, ServerName: "www.example.com",
 				PublicKey: "Z84J2IelR9ch3k8VtlVhhs5ycBUlXA7wHBWcBrjqnAw", ShortID: "0123abcd"}}), Detour: "resi"},
 		{Tag: "auto", Type: model.OutURLTest, Settings: Settings(model.OutboundSettings{Members: []string{"land", "resi"}})},
+		{Tag: "lb", Type: model.OutBalancer, Settings: Settings(model.OutboundSettings{Members: []string{"land", "resi"},
+			Strategy: model.LBLeastLoad, Fallback: "direct"})},
 	}
 	routes := []model.RouteRule{
 		{Priority: 10, Match: model.RouteMatch{Domain: []string{"example.ai"}, Users: []string{"u1"}}, Outbound: "auto"},
+		{Priority: 15, Match: model.RouteMatch{DomainSuffix: []string{"example.net"}}, Outbound: "lb"},
 		{Priority: 20, Match: model.RouteMatch{IPCIDR: []string{"10.0.0.0/8"}, Port: []string{"443", "1000-2000"}}, Outbound: "block"},
 		{Priority: 100, Outbound: "direct"},
 	}

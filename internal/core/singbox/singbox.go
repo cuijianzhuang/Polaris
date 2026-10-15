@@ -96,7 +96,8 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 		RealIP:   false,
 		Outbounds: []model.OutboundType{model.OutDirect, model.OutBlock, model.OutSOCKS, model.OutHTTP,
 			model.OutShadowsocks, model.OutVLESS, model.OutVMess, model.OutTrojan, model.OutHysteria2,
-			model.OutWireGuard, model.OutURLTest, model.OutSelector},
+			model.OutWireGuard, model.OutURLTest, model.OutSelector, model.OutBalancer},
+		Balancers: []string{model.LBLeastPing, model.LBFallback},
 	}
 }
 
@@ -422,6 +423,22 @@ func renderOutbounds(obs []model.Outbound) ([]any, []any, error) {
 			ob["outbounds"] = s.Members
 			if len(s.Members) > 0 {
 				ob["default"] = s.Members[0]
+			}
+		case model.OutBalancer:
+			switch s.Strategy {
+			case model.LBRandom, model.LBRoundRobin:
+				return nil, nil, fmt.Errorf("outbound %s: sing-box has no %s balancer", o.Tag, s.Strategy)
+			}
+			ob["type"] = "urltest"
+			ob["outbounds"] = s.Members
+			ob["url"] = orDefault(s.TestURL, "https://www.gstatic.com/generate_204")
+			ob["interval"] = orDefault(s.Interval, "1m")
+			tol := s.Tolerance
+			if s.Strategy == model.LBFallback && tol == 0 {
+				tol = 30000 // stay on the current member until it fails
+			}
+			if tol > 0 {
+				ob["tolerance"] = tol
 			}
 		default:
 			return nil, nil, fmt.Errorf("outbound %s: type %s not supported by sing-box", o.Tag, o.Type)

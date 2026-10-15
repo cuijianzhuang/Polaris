@@ -19,7 +19,20 @@ const (
 	OutNodeRef     OutboundType = "node_ref" // resolved by the panel before reaching a core
 	OutURLTest     OutboundType = "urltest"  // auto-select group (xray: balancer + observatory)
 	OutSelector    OutboundType = "selector" // manual group
+	OutBalancer    OutboundType = "balancer" // load balancing group with a strategy
 )
+
+// Load-balancing strategies for OutBalancer.
+const (
+	LBLeastPing  = "leastPing"  // lowest latency (Xray observatory / sing-box urltest)
+	LBLeastLoad  = "leastLoad"  // lowest latency jitter + load (Xray burstObservatory)
+	LBRandom     = "random"     // random per connection (Xray only)
+	LBRoundRobin = "roundRobin" // rotate per connection (Xray only)
+	LBFallback   = "fallback"   // first healthy member in order
+)
+
+// GlobalNodeID marks a routing rule that applies to every node.
+const GlobalNodeID = "*"
 
 // InboundRef points at an inbound on another node managed by this panel.
 type InboundRef struct {
@@ -64,9 +77,17 @@ type OutboundSettings struct {
 	MTU           int      `json:"mtu,omitempty"`
 
 	// groups
-	Members  []string `json:"members,omitempty"`
-	TestURL  string   `json:"testUrl,omitempty"`
-	Interval string   `json:"interval,omitempty"`
+	Members   []string `json:"members,omitempty"`
+	TestURL   string   `json:"testUrl,omitempty"`
+	Interval  string   `json:"interval,omitempty"`
+	Strategy  string   `json:"strategy,omitempty"`  // balancer strategy
+	Tolerance int      `json:"tolerance,omitempty"` // ms, latency difference tolerated before switching
+	Fallback  string   `json:"fallback,omitempty"`  // tag used when every member is down
+}
+
+// IsGroup reports outbound types that select among member outbounds.
+func (t OutboundType) IsGroup() bool {
+	return t == OutURLTest || t == OutSelector || t == OutBalancer
 }
 
 // ClientTLS is the client-side view of a SecuritySpec.

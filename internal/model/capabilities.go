@@ -25,6 +25,18 @@ type CapSet struct {
 	Outbounds []OutboundType `json:"outbounds,omitempty"`
 	// RealIP reports whether the core can read CF-Connecting-IP / X-Forwarded-For.
 	RealIP bool `json:"realIp"`
+	// Balancers lists supported load-balancing strategies.
+	Balancers []string `json:"balancers,omitempty"`
+}
+
+// SupportsBalancer reports whether a load-balancing strategy is available.
+func (c CapSet) SupportsBalancer(strategy string) bool {
+	for _, s := range c.Balancers {
+		if s == strategy {
+			return true
+		}
+	}
+	return false
 }
 
 // Supports reports whether the combination is available.

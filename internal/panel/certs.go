@@ -215,6 +215,7 @@ func (s *Server) renewCertificate(c *store.Certificate) error {
 	case "acme":
 		if _, err := s.issueACME(c.Domain, c); err != nil {
 			s.st.DB.Model(c).Update("last_error", truncate(err.Error(), 1900))
+			s.notify(Event{Kind: "cert_failed", Text: "🔐 证书 " + c.Domain + " 续期失败：" + truncate(err.Error(), 200)})
 			return err
 		}
 	case "selfsigned":

@@ -30,6 +30,10 @@ type Node struct {
 	CertSerial   string           `gorm:"size:64" json:"-"`
 	Revoked      bool             `json:"revoked"`
 	SortOrder    int              `json:"sortOrder"`
+	DDNS         bool             `json:"ddns"` // follow the agent-detected public IP
+	PublicIPv4   string           `gorm:"size:64" json:"publicIpv4"`
+	PublicIPv6   string           `gorm:"size:64" json:"publicIpv6"`
+	IPChangedAt  *time.Time       `json:"ipChangedAt"`
 	CreatedAt    time.Time        `json:"createdAt"`
 	UpdatedAt    time.Time        `json:"updatedAt"`
 }
@@ -79,6 +83,7 @@ type Inbound struct {
 	TemplateID       string                    `gorm:"size:32;index" json:"templateId,omitempty"`
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
 	ServiceOnly      bool                      `json:"serviceOnly"` // relay-only inbound, hidden from subscriptions
+	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
 	Remark           string                    `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time                 `json:"createdAt"`
 	UpdatedAt        time.Time                 `json:"updatedAt"`
@@ -356,12 +361,39 @@ type SubTemplate struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// DNSProvider holds credentials for a DNS API used by domain bindings and DDNS.
+type DNSProvider struct {
+	ID        string    `gorm:"primaryKey;size:32" json:"id"`
+	Name      string    `gorm:"size:64;uniqueIndex" json:"name"`
+	Kind      string    `gorm:"size:16" json:"kind"` // cloudflare / webhook
+	Token     string    `gorm:"size:1000" json:"-"`  // sealed API token (cloudflare)
+	Endpoint  string    `gorm:"size:500" json:"endpoint"`
+	HasToken  bool      `gorm:"-" json:"hasToken"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// DomainBinding points a DNS name at a node's IP and keeps it updated (DDNS).
+type DomainBinding struct {
+	ID         string     `gorm:"primaryKey;size:32" json:"id"`
+	NodeID     string     `gorm:"size:32;index" json:"nodeId"`
+	ProviderID string     `gorm:"size:32;index" json:"providerId"`
+	Domain     string     `gorm:"size:255;uniqueIndex" json:"domain"`
+	Family     string     `gorm:"size:8" json:"family"` // ipv4 / ipv6 / dual
+	Proxied    bool       `json:"proxied"`
+	TTL        int        `json:"ttl"`
+	Current    string     `gorm:"size:200" json:"current"` // last value written
+	Status     string     `gorm:"size:16" json:"status"`   // pending / synced / error
+	LastError  string     `gorm:"size:2000" json:"lastError"`
+	SyncedAt   *time.Time `json:"syncedAt"`
+	CreatedAt  time.Time  `json:"createdAt"`
+}
+
 // AllModels lists every table for migration.
 func AllModels() []any {
 	return []any{
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
-		&Setting{}, &SubTemplate{},
+		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{},
 	}
 }

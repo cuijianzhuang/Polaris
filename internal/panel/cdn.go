@@ -84,21 +84,47 @@ func (c *cfClient) zoneFor(ctx context.Context, host string) (string, error) {
 
 // upsertRecord creates or updates a proxied A/AAAA record.
 func (c *cfClient) upsertRecord(ctx context.Context, zone, name, content string) error {
-	typ := "A"
-	if ip := net.ParseIP(content); ip != nil && ip.To4() == nil {
-		typ = "AAAA"
-	} else if ip == nil {
-		typ = "CNAME"
+	return c.setRecord(ctx, zone, name, recordType(content), content, true, 1)
+}
+
+func recordType(content string) string {
+	if ip := net.ParseIP(content); ip != nil {
+		if ip.To4() == nil {
+			return "AAAA"
+		}
+		return "A"
 	}
+	return "CNAME"
+}
+
+// setRecord upserts one record of the given type (ttl 1 = automatic).
+func (c *cfClient) setRecord(ctx context.Context, zone, name, typ, content string, proxied bool, ttl int) error {
 	var recs []struct{ ID string }
-	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/dns_records?name=%s", zone, name), nil, &recs); err != nil {
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/dns_records?type=%s&name=%s", zone, typ, name), nil, &recs); err != nil {
 		return err
 	}
-	body := map[string]any{"type": typ, "name": name, "content": content, "proxied": true, "ttl": 1, "comment": "managed by Polaris"}
+	if ttl <= 0 {
+		ttl = 1
+	}
+	body := map[string]any{"type": typ, "name": name, "content": content, "proxied": proxied, "ttl": ttl, "comment": "managed by Polaris"}
 	if len(recs) > 0 {
 		return c.do(ctx, http.MethodPut, fmt.Sprintf("/zones/%s/dns_records/%s", zone, recs[0].ID), body, nil)
 	}
 	return c.do(ctx, http.MethodPost, fmt.Sprintf("/zones/%s/dns_records", zone), body, nil)
+}
+
+// deleteRecords removes records of a type for a name.
+func (c *cfClient) deleteRecords(ctx context.Context, zone, name, typ string) error {
+	var recs []struct{ ID string }
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/dns_records?type=%s&name=%s", zone, typ, name), nil, &recs); err != nil {
+		return err
+	}
+	for _, r := range recs {
+		if err := c.do(ctx, http.MethodDelete, fmt.Sprintf("/zones/%s/dns_records/%s", zone, r.ID), nil, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *cfClient) setSSLMode(ctx context.Context, zone, mode string) error {

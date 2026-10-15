@@ -50,6 +50,9 @@ type Config struct {
 	OnlineIPs time.Duration
 	// AllowUnverified permits core installs when no digest is published.
 	AllowUnverified bool
+	// DisableIPDetect turns off public IP discovery (DDNS); IPEcho overrides the echo services.
+	DisableIPDetect bool
+	IPEcho4, IPEcho6 []string
 }
 
 // Agent is the node daemon.
@@ -60,6 +63,7 @@ type Agent struct {
 	client    polarisv1connect.AgentServiceClient
 	installer *Installer
 	sys       sysSampler
+	ips       *ipDetector
 
 	applyMu sync.Mutex
 	current *model.NodeSpec
@@ -98,6 +102,9 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	a.id = id
 	a.client = polarisv1connect.NewAgentServiceClient(httpClient(id.tlsConfig()), cfg.PanelURL, connect.WithGRPC())
 	a.installer = &Installer{Dir: filepath.Join(cfg.DataDir, "cores"), Mirror: cfg.Mirror, AllowUnverified: cfg.AllowUnverified}
+	if !cfg.DisableIPDetect {
+		a.ips = newIPDetector(cfg.IPEcho4, cfg.IPEcho6, 0)
+	}
 	a.loadQueue()
 	return a, nil
 }
@@ -225,6 +232,11 @@ func (a *Agent) appliedRev() int64 {
 
 func (a *Agent) sendHeartbeat() error {
 	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample()}
+	if a.ips != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Get(ctx)
+		cancel()
+	}
 	a.applyMu.Lock()
 	for t, m := range a.cores {
 		st := m.adapter.Health(context.Background())

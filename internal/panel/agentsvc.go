@@ -223,6 +223,12 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 	if n.LastError != "" && hb.AppliedRev < n.DesiredRev {
 		status = "error"
 	}
+	s.observePublicIP(&n, hb.PublicIpv4, hb.PublicIpv6)
+	if n.Status == "offline" || n.Status == "pending" {
+		if n.Status == "offline" && n.LastSeen != nil {
+			s.notify(Event{Kind: "node_online", NodeID: n.ID, Text: "🟢 节点 " + n.Name + " 已恢复在线"})
+		}
+	}
 	sys := n.System.V
 	if hb.System != nil {
 		sys.CPU, sys.Mem, sys.RxBps, sys.TxBps = hb.System.CpuPercent, hb.System.MemPercent, hb.System.RxBps, hb.System.TxBps
@@ -269,6 +275,7 @@ func (s *Server) handleApplyResult(nodeID string, r *polarisv1.ApplyResult) {
 		var n store.Node
 		s.st.DB.Select("name").First(&n, "id = ?", nodeID)
 		s.audit("agent", "spec.apply_failed", n.Name, "rev "+strconv.FormatInt(r.Rev, 10)+": "+r.Error, "")
+		s.notify(Event{Kind: "apply_failed", NodeID: nodeID, Text: "⚠️ 节点 " + n.Name + " 应用 rev " + strconv.FormatInt(r.Rev, 10) + " 失败：" + truncate(r.Error, 300)})
 	}
 	s.broadcastNodes()
 }

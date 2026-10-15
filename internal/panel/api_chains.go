@@ -398,6 +398,12 @@ func (s *Server) saveOutbound(c *gin.Context, o *store.Outbound, req *outboundRe
 			badRequest(c, fmt.Errorf("settings: %w", err))
 			return
 		}
+		if req.Type.IsGroup() {
+			if err := s.validateBalancer(nodeID, req.Tag, tmp); err != nil {
+				badRequest(c, err)
+				return
+			}
+		}
 	}
 	o.NodeID, o.Tag, o.Type, o.Settings, o.NodeRefInboundID, o.Detour, o.Remark =
 		nodeID, req.Tag, req.Type, req.Settings, req.NodeRefInboundID, req.Detour, req.Remark
@@ -532,7 +538,11 @@ func (s *Server) putRouting(c *gin.Context) {
 		return
 	}
 	var tags []string
-	s.st.DB.Model(&store.Outbound{}).Where("node_id = ?", nodeID).Pluck("tag", &tags)
+	q := s.st.DB.Model(&store.Outbound{})
+	if nodeID != model.GlobalNodeID {
+		q = q.Where("node_id = ?", nodeID) // global rules may name any node's egress
+	}
+	q.Pluck("tag", &tags)
 	valid := map[string]bool{"direct": true, "block": true}
 	for _, t := range tags {
 		valid[t] = true
@@ -559,7 +569,7 @@ func (s *Server) putRouting(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.MarkDirty("routing updated", nodeID)
+	s.markRoutingDirty(nodeID)
 	s.auditCtx(c, "routing.update", nodeID, fmt.Sprintf("%d rules", len(req)))
 	s.getRouting(c)
 }

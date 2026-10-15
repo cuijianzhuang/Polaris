@@ -227,6 +227,14 @@ func (s *Server) enforceLimits() {
 			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Update("status", want)
 			changed = append(changed, u.ID)
 			s.audit("system", "user.status", u.Username, u.Status+" -> "+want, "")
+			switch want {
+			case "limited":
+				s.notify(Event{Kind: "user_limited", UserID: u.ID, Text: "⛔ 用户 " + u.Username + " 流量已用尽，已暂停服务"})
+			case "expired":
+				s.notify(Event{Kind: "user_expired", UserID: u.ID, Text: "⌛ 用户 " + u.Username + " 已到期，已暂停服务"})
+			case "active":
+				s.notify(Event{Kind: "user_active", UserID: u.ID, Text: "✅ 用户 " + u.Username + " 已恢复服务"})
+			}
 		}
 	}
 	var unban []store.User
@@ -332,6 +340,7 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		if user.IPLimit > 0 && len(list) > user.IPLimit {
 			if s.alertOnce("ip:"+user.ID, 10*time.Minute) {
 				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", len(list), user.IPLimit, strings.Join(list, ", ")), "")
+				s.notify(Event{Kind: "ip_limit", UserID: user.ID, Text: fmt.Sprintf("🚨 用户 %s 同时在线 IP %d 个，超过限制 %d", user.Username, len(list), user.IPLimit)})
 			}
 			if banMinutes > 0 && user.BannedUntil == nil {
 				until := time.Now().Add(time.Duration(banMinutes) * time.Minute)

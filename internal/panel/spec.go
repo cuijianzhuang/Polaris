@@ -279,7 +279,7 @@ func (s *Server) buildOutbounds(nodeID string) ([]model.Outbound, error) {
 		}
 		out = append(out, m)
 	}
-	return out, nil
+	return s.filterGroupMembers(obs, out), nil
 }
 
 // resolveNodeRef turns a reference to another node's inbound into a concrete
@@ -345,11 +345,29 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 // buildRoutes resolves user-group conditions into user ids.
 func (s *Server) buildRoutes(nodeID string) ([]model.RouteRule, error) {
 	var rs []store.RoutingRule
-	if err := s.st.DB.Where("node_id = ?", nodeID).Order("priority").Find(&rs).Error; err != nil {
+	if err := s.st.DB.Where("node_id IN ?", []string{nodeID, model.GlobalNodeID}).Order("priority").Find(&rs).Error; err != nil {
 		return nil, err
 	}
+	var tags []string
+	s.st.DB.Model(&store.Outbound{}).Where("node_id = ?", nodeID).Pluck("tag", &tags)
+	have := map[string]bool{"direct": true, "block": true}
+	for _, t := range tags {
+		have[t] = true
+	}
 	var out []model.RouteRule
+	// Inbounds bound to an egress come first.
+	var ins []store.Inbound
+	s.st.DB.Where("node_id = ? AND outbound_tag <> ''", nodeID).Find(&ins)
+	for _, in := range ins {
+		if have[in.OutboundTag] {
+			out = append(out, model.RouteRule{ID: "inbound-" + in.ID, NodeID: nodeID, Priority: -1000,
+				Match: model.RouteMatch{Inbound: []string{in.Tag}}, Outbound: in.OutboundTag})
+		}
+	}
 	for _, r := range rs {
+		if r.NodeID == model.GlobalNodeID && !have[r.OutboundTag] {
+			continue // global rule targeting an egress this node does not have
+		}
 		m := r.Match.V
 		if len(m.UserGroups) > 0 {
 			var ids []string
@@ -357,8 +375,9 @@ func (s *Server) buildRoutes(nodeID string) ([]model.RouteRule, error) {
 			sort.Strings(ids)
 			m.Users = append(m.Users, ids...)
 		}
-		out = append(out, model.RouteRule{ID: r.ID, NodeID: r.NodeID, Match: m, Outbound: r.OutboundTag, Priority: r.Priority})
+		out = append(out, model.RouteRule{ID: r.ID, NodeID: nodeID, Match: m, Outbound: r.OutboundTag, Priority: r.Priority})
 	}
+	sortRules(out)
 	return out, nil
 }
 
