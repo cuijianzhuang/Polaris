@@ -70,9 +70,8 @@ func (s *Server) subscription(c *gin.Context) {
 func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	var ins []store.Inbound
 	err := s.st.DB.Table("inbounds").Select("DISTINCT inbounds.*").
-		Joins("JOIN group_inbounds ON group_inbounds.inbound_id = inbounds.id").
-		Joins("JOIN user_groups ON user_groups.group_id = group_inbounds.group_id").
-		Where("user_groups.user_id = ? AND inbounds.enabled = ? AND inbounds.service_only = ?", u.ID, true, false).
+		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
+		Where("grants.user_id = ? AND inbounds.enabled = ? AND inbounds.service_only = ?", u.ID, true, false).
 		Order("inbounds.node_id, inbounds.port").Find(&ins).Error
 	if err != nil {
 		return nil, err

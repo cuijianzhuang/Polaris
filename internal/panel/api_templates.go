@@ -704,6 +704,7 @@ func (s *Server) bulkTemplateInbounds(c *gin.Context) {
 			return
 		}
 		s.st.DB.Where("inbound_id IN ?", ids).Delete(&store.GroupInbound{})
+		s.st.DB.Where("kind = ? AND target_id IN ?", "inbound", ids).Delete(&store.UserAccess{})
 		s.st.DB.Where("inbound_id IN ?", ids).Delete(&store.Endpoint{})
 		s.st.DB.Where("id IN ?", ids).Delete(&store.Inbound{})
 	default:

@@ -267,6 +267,7 @@ func (s *Server) deleteInbound(c *gin.Context) {
 	nodes := s.nodesForInbounds(row.ID)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		tx.Where("inbound_id = ?", row.ID).Delete(&store.GroupInbound{})
+		tx.Where("kind = ? AND target_id = ?", "inbound", row.ID).Delete(&store.UserAccess{})
 		tx.Where("inbound_id = ?", row.ID).Delete(&store.Endpoint{})
 		return tx.Delete(&row).Error
 	})

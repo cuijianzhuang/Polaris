@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
-import { ago, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime } from '../format'
-import type { CapSet, Core, CoreType, Node, Revision } from '../types'
+import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
+import type { CapSet, Core, CoreType, Node, Revision, User } from '../types'
 
 const DEFAULT_VERSIONS: Record<string, string> = { xray: '26.3.27', singbox: '1.13.5', hysteria: '2.6.1', forwarder: '2.7.0', mihomo: '1.19.15', caddy: '2.10.2' }
 
@@ -19,6 +19,86 @@ function capsSummary(c?: CapSet): string[] {
   }
   if (c.flows?.length) out.add('Vision')
   return [...out]
+}
+
+type NodeUser = { id: string; username: string; status: string; via: string[]; inbounds: number; up: number; down: number; onlineIps: string[] }
+
+const viaLabel = (v: string) => (v === 'node' ? '整台节点' : v === 'inbound' ? '单独入站' : '分组 · ' + v.replace(/^group:/, ''))
+
+/** Users authorised on this node, how they got access, and their usage here. */
+function NodeUsers({ node }: { node: Node }) {
+  const list = useLoad(() => get<NodeUser[]>(`/nodes/${node.id}/users`), [node.id])
+  const [picking, setPicking] = useState(false)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const rows = list.data ?? []
+  const online = rows.filter((r) => r.onlineIps.length > 0).length
+  return (
+    <div className="card flush" style={{ gridColumn: '1 / -1' }}>
+      <div className="ctitle" style={{ padding: '12px 16px 4px' }}>
+        <span>用户 <span className="sub" style={{ margin: 0, fontWeight: 400 }}>{rows.length} 个有权使用 · {online} 个在线</span></span>
+        <button className="btn sm" type="button" onClick={() => setPicking(true)}>+ 绑定用户</button>
+      </div>
+      {rows.length === 0 ? <Empty>{list.loading ? '加载中…' : '还没有用户能使用此节点。可在这里绑定用户，或在用户 / 分组中授权。'}</Empty> : (
+        <div className="scroll">
+          <table>
+            <thead><tr><th>用户</th><th>状态</th><th>授权方式</th><th>可用入站</th><th>本节点流量（30 天）</th><th>在线 IP</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((r) => {
+                const st = userStatus[r.status] ?? { label: r.status, cls: 'off' }
+                return (
+                  <tr key={r.id}>
+                    <td style={{ fontWeight: 500 }}>{r.onlineIps.length > 0 && <span className="dot live" style={{ background: 'var(--ok)', color: 'var(--ok)' }} />}{r.username}</td>
+                    <td><span className={'st ' + st.cls}>{st.label}</span></td>
+                    <td>{r.via.map((v) => <span key={v} className={'tag' + (v === 'node' ? ' xray' : '')}>{viaLabel(v)}</span>)}</td>
+                    <td className="mono">{r.inbounds}</td>
+                    <td className="mono">↑ {bytes(r.up)} · ↓ {bytes(r.down)}</td>
+                    <td className="mono small">{r.onlineIps.join(', ') || '—'}</td>
+                    <td style={{ textAlign: 'right' }}>
+                      {r.via.includes('node') && (
+                        <button className="link" type="button" style={{ color: 'var(--bad)' }} disabled={busy} onClick={async () => {
+                          if (await confirm(`解除 ${r.username} 对 ${node.name} 的整台绑定？${r.via.length > 1 ? '\n（通过分组 / 单独入站的授权仍然保留）' : ''}`, { danger: true, ok: '解绑' }))
+                            run(async () => { await post(`/nodes/${node.id}/users`, { userIds: [r.id], detach: true }); list.reload() }, '已解绑')
+                        }}>解绑</button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {picking && <PickUsers exclude={rows.filter((r) => r.via.includes('node')).map((r) => r.id)} onClose={() => setPicking(false)} onPick={(ids) => run(async () => {
+        await post(`/nodes/${node.id}/users`, { userIds: ids }); setPicking(false); list.reload()
+      }, `已绑定 ${ids.length} 个用户`)} />}
+    </div>
+  )
+}
+
+function PickUsers({ exclude, onClose, onPick }: { exclude: string[]; onClose: () => void; onPick: (ids: string[]) => void }) {
+  const [q, setQ] = useState('')
+  const users = useLoad(() => get<{ items: User[] }>('/users?limit=1000'))
+  const [ids, setIds] = useState<string[]>([])
+  const shown = (users.data?.items ?? []).filter((u) => !exclude.includes(u.id) && u.username.toLowerCase().includes(q.toLowerCase()))
+  return (
+    <Modal title="绑定用户到此节点" onClose={onClose} footer={<>
+      <button className="btn" type="button" onClick={onClose}>取消</button>
+      <button className="btn pri" type="button" disabled={!ids.length} onClick={() => onPick(ids)}>绑定 {ids.length || ''}</button>
+    </>}>
+      <div className="sub" style={{ margin: 0 }}>整台绑定：用户可使用本节点的全部入站，以后新增的入站也自动生效。</div>
+      <input className="input" placeholder="搜索用户名" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+      <div className="pick-list">
+        {shown.map((u) => (
+          <label key={u.id} className="chk">
+            <input type="checkbox" checked={ids.includes(u.id)} onChange={(e) => setIds(e.target.checked ? [...ids, u.id] : ids.filter((x) => x !== u.id))} />
+            {u.username}<span className="small mute">{u.remark}</span>
+          </label>
+        ))}
+        {shown.length === 0 && <div className="mute small">{users.loading ? '加载中…' : '没有可绑定的用户'}</div>}
+      </div>
+    </Modal>
+  )
 }
 
 type Install = { cmd: string; nodeId: string }
@@ -301,6 +381,7 @@ export default function Nodes() {
                   <div className="sub" style={{ margin: 0 }}>sing-box · Hysteria2 官方服务端 · mihomo · Caddy 回源 · realm 转发</div>
                   <button className="btn sm" type="button" style={{ marginTop: 8 }} onClick={() => setCoreForm({})}>选择内核与版本</button>
                 </article>
+                <NodeUsers node={sel} />
                 <div className="card flush" style={{ gridColumn: '1 / -1' }}>
                   <div className="ctitle" style={{ padding: '12px 16px 4px' }}><span>配置版本历史</span><span className="sub" style={{ margin: 0 }}>下发方式：hot = 热更新，reload = 重载</span></div>
                   <div className="scroll">

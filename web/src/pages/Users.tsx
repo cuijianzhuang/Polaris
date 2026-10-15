@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
+import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
 import { CopyBox, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { bytes, coreShort, date, daysLeft, GB, isOnline, userStatus } from '../format'
-import type { Group, Inbound, User } from '../types'
+import type { Group, Inbound, Node, User } from '../types'
 
 type Filter = '' | 'online' | 'expiring' | 'limited' | 'disabled'
 const filters: { k: Filter; label: string }[] = [
@@ -23,12 +24,98 @@ function statusBadge(u: User) {
   return <span className={'st ' + s.cls}>{s.label}</span>
 }
 
+const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
+
+/** Authorisation: whole nodes, groups and single inbounds; shows what that adds up to. */
+function Access({ groups, nodeIds, groupIds, inboundIds, onChange }: {
+  groups: Group[]; nodeIds: string[]; groupIds: string[]; inboundIds: string[]
+  onChange: (k: 'nodeIds' | 'groupIds' | 'inboundIds', v: string[]) => void
+}) {
+  const { nodes } = useNodes()
+  const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
+  const ins = (inbounds.data ?? []).filter((i) => i.enabled)
+  const viaGroup = new Set(groups.filter((g) => groupIds.includes(g.id)).flatMap((g) => g.inboundIds))
+  const effective = ins.filter((i) => nodeIds.includes(i.nodeId) || viaGroup.has(i.id) || inboundIds.includes(i.id))
+  const effNodes = new Set(effective.map((i) => i.nodeId))
+  const [showIns, setShowIns] = useState(inboundIds.length > 0)
+  return (
+    <section className="access">
+      <div className="access-head">
+        <b>授权</b>
+        <span className="small mute">可用 <b className="mono">{effective.length}</b> 个入站 · <b className="mono">{effNodes.size}</b> 个节点</span>
+      </div>
+      <Field label="节点" hint="绑定整台节点：包含其全部入站，以后新增的入站也自动生效">
+        <div className="row">
+          {nodes.map((n) => (
+            <button key={n.id} type="button" className={'chip' + (nodeIds.includes(n.id) ? ' on' : '')} aria-pressed={nodeIds.includes(n.id)}
+              onClick={() => onChange('nodeIds', toggle(nodeIds, n.id))}>
+              <span className="dot" style={{ background: n.status === 'online' ? 'var(--ok)' : '#C9CED4' }} />{n.name}
+            </button>
+          ))}
+          {nodes.length === 0 && <span className="hint">还没有节点</span>}
+        </div>
+      </Field>
+      <Field label="分组" hint="按分组授权：分组里的入站对组内所有用户生效">
+        <div className="row">
+          {groups.map((g) => (
+            <button key={g.id} type="button" className={'chip' + (groupIds.includes(g.id) ? ' on' : '')} aria-pressed={groupIds.includes(g.id)}
+              onClick={() => onChange('groupIds', toggle(groupIds, g.id))}>{g.name}<span className="mute small" style={{ marginLeft: 4 }}>{g.inboundIds.length}</span></button>
+          ))}
+          {groups.length === 0 && <span className="hint">还没有分组</span>}
+        </div>
+      </Field>
+      <div>
+        <button type="button" className="link" onClick={() => setShowIns(!showIns)}>{showIns ? '收起' : '单独授权入站'}{inboundIds.length > 0 && `（${inboundIds.length}）`}</button>
+        {showIns && (
+          <div className="access-ins">
+            {nodes.filter((n) => ins.some((i) => i.nodeId === n.id)).map((n) => (
+              <div key={n.id} className="access-node">
+                <div className="small" style={{ fontWeight: 600 }}>{n.name}{nodeIds.includes(n.id) && <span className="tag info-tag" style={{ marginLeft: 6 }}>已整台绑定</span>}</div>
+                <div className="row">
+                  {ins.filter((i) => i.nodeId === n.id).map((i) => {
+                    const covered = nodeIds.includes(n.id) || viaGroup.has(i.id)
+                    const on = inboundIds.includes(i.id)
+                    return (
+                      <button key={i.id} type="button" disabled={covered && !on} title={covered ? '已通过节点或分组授权' : ''}
+                        className={'chip sm' + (on || covered ? ' on' : '')} onClick={() => onChange('inboundIds', toggle(inboundIds, i.id))}>
+                        {i.tag}<span className="mono small" style={{ marginLeft: 4, opacity: .7 }}>:{i.port}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/** Bulk bind / unbind whole nodes for the selected users. */
+function BindNodesModal({ count, detach, onClose, onSubmit }: { count: number; detach?: boolean; onClose: () => void; onSubmit: (ids: string[]) => void }) {
+  const { nodes } = useNodes()
+  const [ids, setIds] = useState<string[]>([])
+  return (
+    <Modal title={`${detach ? '解绑' : '绑定'}节点 · ${count} 个用户`} onClose={onClose} footer={<>
+      <button className="btn" type="button" onClick={onClose}>取消</button>
+      <button className={'btn ' + (detach ? 'danger solid' : 'pri')} type="button" disabled={!ids.length} onClick={() => onSubmit(ids)}>{detach ? '解绑' : '绑定'}</button>
+    </>}>
+      <div className="sub" style={{ margin: 0 }}>{detach ? '移除所选用户对这些节点的整台绑定（分组与单独入站授权不受影响）。' : '所选用户获得这些节点上全部入站的使用权，节点以后新增的入站也自动生效。'}</div>
+      <div className="row">
+        {nodes.map((n: Node) => <button key={n.id} type="button" className={'chip' + (ids.includes(n.id) ? ' on' : '')} onClick={() => setIds(toggle(ids, n.id))}>{n.name}</button>)}
+      </div>
+    </Modal>
+  )
+}
+
 function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     username: user?.username ?? '', limitGB: user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : '',
     expire: user?.expireAt ? date(user.expireAt) : '', ipLimit: String(user?.ipLimit ?? 0), resetPolicy: user?.resetPolicy ?? 'none',
     resetDay: String(user?.resetDay ?? 1), remark: user?.remark ?? '', status: user?.status === 'disabled' ? 'disabled' : 'active',
     groupIds: user?.groupIds ?? (groups[0] ? [groups[0].id] : []), afterDays: String(user?.expireAfterDays || ''),
+    nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [],
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
@@ -39,7 +126,7 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
       username: f.username, trafficLimit: Math.round(Number(f.limitGB || 0) * GB), ipLimit: Number(f.ipLimit) || 0,
       expireAt: f.expireMode === 'date' && f.expire ? new Date(f.expire + 'T23:59:59').toISOString() : null,
       expireAfterDays: f.expireMode === 'first' ? Number(f.afterDays) || 0 : 0, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
-      remark: f.remark, status: f.status, groupIds: f.groupIds,
+      remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
     }
     if (user) await put('/users/' + user.id, body)
     else await post('/users', body)
@@ -88,15 +175,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
         )}
         <Field label="备注" htmlFor="u-remark" full><input id="u-remark" className="input" value={f.remark} onChange={(e) => set('remark', e.target.value)} /></Field>
       </div>
-      <Field label="分组" hint="用户通过分组获得入站授权">
-        <div className="row">
-          {groups.map((g) => (
-            <button key={g.id} type="button" className={'chip' + (f.groupIds.includes(g.id) ? ' on' : '')} aria-pressed={f.groupIds.includes(g.id)}
-              onClick={() => set('groupIds', f.groupIds.includes(g.id) ? f.groupIds.filter((x) => x !== g.id) : [...f.groupIds, g.id])}>{g.name}</button>
-          ))}
-          {groups.length === 0 && <span className="hint">还没有分组，先点「分组」创建</span>}
-        </div>
-      </Field>
+      <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
+        onChange={(k, v) => set(k, v)} />
       <Field label="状态">
         <div className="seg">
           <button type="button" className={'opt' + (f.status === 'active' ? ' on' : '')} onClick={() => set('status', 'active')}>启用</button>
@@ -265,6 +345,9 @@ export default function Users() {
   const toast = useToast()
   const { busy, run } = useAction()
   const gname = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? id
+  const { nodes } = useNodes()
+  const nname = (id: string) => nodes.find((n) => n.id === id)?.name ?? '已删除节点'
+  const [bind, setBind] = useState<'attach' | 'detach' | null>(null)
   const items = list.data?.items ?? []
   const sel = selected ? items.find((u) => u.id === selected.id) ?? selected : items[0]
   useEffect(() => { if (params.get('new')) setParams({}, { replace: true }) }, [params, setParams])
@@ -281,7 +364,7 @@ export default function Users() {
   return (
     <>
       <div className="top">
-        <div><h1>用户</h1><div className="sub">一个用户跨所有内核、所有协议通用 · 通过分组获得入站授权</div></div>
+        <div><h1>用户</h1><div className="sub">一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站</div></div>
         <div className="row">
           <button className="btn" type="button" onClick={() => setModal('groups')}>分组</button>
           <button className="btn" type="button" onClick={() => setModal('bulk')}>批量创建</button>
@@ -300,6 +383,8 @@ export default function Users() {
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('disable')}>禁用</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('reset-traffic')}>重置流量</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('extend', { days: 30 })}>续期 30 天</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('attach')}>绑定节点</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('detach')}>解绑节点</button>
             <button className="btn sm danger" type="button" disabled={busy} onClick={() => bulk('delete')}>删除</button>
           </>
         )}
@@ -309,7 +394,7 @@ export default function Users() {
           <table>
             <thead><tr>
               <th style={{ width: 32 }}><input type="checkbox" aria-label="全选" checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
-              <th>用户</th><th>状态</th><th>分组</th><th>流量（已用 / 总量）</th><th>到期</th><th>在线 IP</th><th>操作</th>
+              <th>用户</th><th>状态</th><th>授权</th><th>流量（已用 / 总量）</th><th>到期</th><th>在线 IP</th><th>操作</th>
             </tr></thead>
             <tbody>
               {items.map((u) => {
@@ -321,7 +406,12 @@ export default function Users() {
                     <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + u.username} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
                     <td><div style={{ fontWeight: 500 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></td>
                     <td>{statusBadge(u)}</td>
-                    <td>{u.groupIds.length ? u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>) : <span className="mute">—</span>}</td>
+                    <td>
+                      {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title="整台节点">{nname(n)}</span>)}
+                      {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
+                      {(u.inboundIds ?? []).length > 0 && <span className="tag" title="单独授权的入站">+{u.inboundIds.length} 入站</span>}
+                      {!u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">未授权</span>}
+                    </td>
                     <td style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : '不限'}</span>
                       <div className="bar" style={{ marginTop: 6 }}><div style={{ width: pct + '%', background: pct >= 100 ? 'var(--bad)' : 'var(--pri)' }} /></div>
@@ -366,6 +456,9 @@ export default function Users() {
         </Modal>
       )}
       {modal === 'groups' && <GroupsModal onClose={() => setModal(null)} onChanged={() => { groups.reload(); list.reload() }} />}
+      {bind && <BindNodesModal count={checked.length} detach={bind === 'detach'} onClose={() => setBind(null)} onSubmit={(ids) => {
+        bulk(bind === 'detach' ? 'detach-nodes' : 'attach-nodes', { nodeIds: ids }); setBind(null)
+      }} />}
       {modal === 'bulk' && groups.data && <BulkModal groups={groups.data} onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
     </>
   )

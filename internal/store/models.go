@@ -119,6 +119,8 @@ type User struct {
 	WarnedExpire    *time.Time     `json:"-"`
 	Remark          string         `gorm:"size:255" json:"remark"`
 	GroupIDs        []string       `gorm:"-" json:"groupIds"`
+	NodeIDs         []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs      []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
 	CreatedAt       time.Time      `json:"createdAt"`
 	UpdatedAt       time.Time      `json:"updatedAt"`
 }
@@ -150,6 +152,21 @@ type UserGroup struct {
 	UserID  string `gorm:"primaryKey;size:32"`
 	GroupID string `gorm:"primaryKey;size:32;index"`
 }
+
+// UserAccess binds a user directly to a whole node (every inbound on it,
+// including ones added later) or to one inbound, alongside group grants.
+type UserAccess struct {
+	UserID   string `gorm:"primaryKey;size:32"`
+	Kind     string `gorm:"primaryKey;size:8"` // node / inbound
+	TargetID string `gorm:"primaryKey;size:32;index"`
+}
+
+// GrantsSQL selects (user_id, inbound_id) for every way a user can be
+// authorised on an inbound: group membership, a direct inbound binding, or a
+// node binding.
+const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id
+UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua WHERE ua.kind = 'inbound'
+UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'`
 
 // TrafficHourly keeps hourly traffic per user and node (90 days).
 type TrafficHourly struct {
@@ -465,7 +482,7 @@ type TGAdmin struct {
 // AllModels lists every table for migration.
 func AllModels() []any {
 	return []any{
-		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{},
+		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},

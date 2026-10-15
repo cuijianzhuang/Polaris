@@ -97,6 +97,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/nodes/:id/install-token", s.installToken)
 	p.POST("/nodes/:id/sync", s.syncNode)
 	p.POST("/nodes/:id/upgrade-agent", s.upgradeAgentAPI)
+	p.GET("/nodes/:id/users", s.nodeUsersAPI)
+	p.POST("/nodes/:id/users", s.bindNodeUsers)
 	p.POST("/nodes/upgrade-agents", s.upgradeAllAgents)
 	p.POST("/nodes/:id/rollback", s.rollbackNode)
 	p.POST("/nodes/:id/revoke", s.revokeNode)
