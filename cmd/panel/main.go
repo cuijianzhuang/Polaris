@@ -17,7 +17,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup":
+		case "admin", "backup", "node-token":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -60,6 +60,8 @@ const usage = `usage:
                                             the account and sign out every session
   polaris admin reset-2fa [-u NAME]         turn off two-factor authentication
   polaris backup FILE                       consistent online copy of the SQLite database
+  polaris node-token [-n NAME]              one-time install token for a node on this server
+                                            (creates the node "本机" unless it exists)
 Configuration is read from the environment (POLARIS_*) or -config FILE.`
 
 // maintenance runs operator subcommands against the configured database.
@@ -68,6 +70,7 @@ func maintenance(cmd string, args []string) int {
 	cfgPath := fs.String("config", os.Getenv("POLARIS_CONFIG"), "path to config.yaml")
 	user := fs.String("u", "", "admin username (default: the first admin)")
 	pass := fs.String("p", "", "new password (default: random)")
+	nodeName := fs.String("n", "", "node name (default: 本机)")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
 	sub := ""
 	if cmd == "admin" {
@@ -96,6 +99,15 @@ func maintenance(cmd string, args []string) int {
 			return fail(err)
 		}
 		fmt.Println("backup written to", fs.Arg(0))
+	case cmd == "node-token":
+		tok, created, err := panel.LocalNodeToken(cfg, *nodeName)
+		if err != nil {
+			return fail(err)
+		}
+		if created {
+			fmt.Fprintln(os.Stderr, "node created")
+		}
+		fmt.Println(tok)
 	case sub == "list":
 		names, err := panel.AdminList(cfg)
 		if err != nil {

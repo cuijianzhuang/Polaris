@@ -15,6 +15,7 @@
 #   set-path PATH | set-port N    change the admin path / panel port
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
 #   backup                        config + consistent database copy to /root/polaris-backup-*.tar.gz
+#   node [-n NAME]                install a node agent on this server (connects over 127.0.0.1)
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
 set -euo pipefail
@@ -30,7 +31,7 @@ UNIT=/etc/systemd/system/polaris.service
 CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
-DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER=""
+DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME=""
 
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -408,6 +409,33 @@ do_reset_2fa() {
   polaris_cmd "${args[@]}" || die "操作失败"
 }
 
+# do_node installs an agent on the panel server itself: the panel issues a
+# token locally (polaris-server node-token) and the agent connects over
+# loopback, so no firewall rule is needed.
+do_node() {
+  need_installed
+  running || die "面板未运行，请先启动"
+  local port; port="$(env_get POLARIS_LISTEN)"; port="${port##*:}"
+  local script=/tmp/polaris-agent-install.$$.sh
+  if systemctl cat polaris-agent >/dev/null 2>&1; then
+    yellow "本机已安装节点 agent，将升级到与面板相同的版本"
+    curl -fsSL "http://127.0.0.1:$port/install.sh" -o "$script" || die "无法从面板获取安装脚本"
+    local rc=0
+    bash "$script" --upgrade ${MIRROR:+--mirror "$MIRROR"} || rc=$?
+    rm -f "$script"; return $rc
+  fi
+  if ! grep -qaF 'polaris node-token' "$BIN"; then
+    die "当前面板版本不支持本机节点一键安装，请先执行 polaris update 升级"
+  fi
+  local tok; tok="$(polaris_cmd node-token ${NODE_NAME:+-n "$NODE_NAME"})" || die "生成安装令牌失败"
+  curl -fsSL "http://127.0.0.1:$port/install.sh" -o "$script" || die "无法从面板获取安装脚本"
+  local rc=0
+  bash "$script" --token "$tok" --local ${MIRROR:+--mirror "$MIRROR"} || rc=$?
+  rm -f "$script"
+  [ $rc = 0 ] || die "本机节点安装失败"
+  green "本机节点「${NODE_NAME:-本机}」已接入，可在后台「节点与内核」中管理"
+}
+
 do_set_path() {
   need_installed
   local p="/${1#/}"
@@ -522,10 +550,10 @@ menu() {
     echo "   7. 运行状态          8. 实时日志          9. 查看后台地址与配置"
     echo "  10. 重置管理员密码   11. 关闭二次验证"
     echo "  12. 修改后台路径     13. 修改面板端口     14. 绑定域名（HTTPS）"
-    echo "  15. 备份配置与数据   16. 开机自启开关"
+    echo "  15. 备份配置与数据   16. 开机自启开关     17. 安装本机节点"
     echo "   0. 退出"
     echo "──────────────────────────────────────────"
-    local c; c="$(ask "请选择 [0-16]：")"
+    local c; c="$(ask "请选择 [0-17]：")"
     echo
     case "$c" in
       1)
@@ -571,6 +599,12 @@ menu() {
           else systemctl enable polaris >/dev/null 2>&1 && green "已开启开机自启"; fi
         fi
         pause ;;
+      17)
+        if need_installed_soft; then
+          NODE_NAME="$(ask "节点名称（留空为「本机」）：")"
+          run_action do_node; NODE_NAME=""
+        fi
+        pause ;;
       0|q|Q) exit 0 ;;
       *) ;;
     esac
@@ -583,20 +617,21 @@ need_installed_soft() { installed || { red "Polaris 尚未安装"; return 1; }; 
 ACTION=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu) ACTION="$1"; shift ;;
+    install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node) ACTION="$1"; shift ;;
+    -n) NODE_NAME="$2"; shift 2 ;;
     set-path|set-port|set-domain) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --no-caddy) CADDY=0; shift ;;
     --version) if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then VERSION="$2"; shift 2; else ACTION=version; shift; fi ;;
     version|-v) ACTION=version; shift ;;
-    help) sed -n '2,20p' "$CTL" 2>/dev/null || sed -n '2,20p' "$0"; exit 0 ;;
+    help) sed -n '2,21p' "$CTL" 2>/dev/null || sed -n '2,21p' "$0"; exit 0 ;;
     --port) PORT="$2"; shift 2 ;;
     --agent-port) AGENT_PORT="$2"; shift 2 ;;
     --admin-path) ADMIN_PATH="$2"; shift 2 ;;
     --mirror) MIRROR="$2"; shift 2 ;;
     --purge) PURGE=1; shift ;;
     -u) ADMIN_USER="$2"; shift 2 ;;
-    -h|--help) sed -n '2,20p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
+    -h|--help) sed -n '2,21p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
     *) die "未知参数：$1（--help 查看用法）" ;;
   esac
 done
@@ -629,4 +664,5 @@ case "$ACTION" in
   set-port) do_set_port "$ARG" ;;
   set-domain) do_set_domain "$ARG" ;;
   backup) do_backup ;;
+  node) do_node ;;
 esac

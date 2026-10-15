@@ -4,7 +4,7 @@ import { Icon } from './Icons'
 import { errMsg } from '../format'
 
 // --- toasts ---
-type Toast = { id: number; text: string; err?: boolean }
+type Toast = { id: number; text: string; err?: boolean; leaving?: boolean }
 const ToastCtx = createContext<(text: string, err?: boolean) => void>(() => {})
 export function useToast() { return useContext(ToastCtx) }
 
@@ -12,14 +12,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([])
   const push = useCallback((text: string, err?: boolean) => {
     const id = Date.now() + Math.random()
-    setItems((x) => [...x, { id, text, err }])
-    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), err ? 6000 : 3000)
+    setItems((x) => [...x.slice(-4), { id, text, err }])
+    const ttl = err ? 6000 : 3000
+    setTimeout(() => setItems((x) => x.map((t) => (t.id === id ? { ...t, leaving: true } : t))), ttl - 220)
+    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), ttl)
   }, [])
   return (
     <ToastCtx.Provider value={push}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
-        {items.map((t) => <div key={t.id} className={'toast' + (t.err ? ' err' : '')}>{t.text}</div>)}
+        {items.map((t) => (
+          <div key={t.id} className={'toast' + (t.err ? ' err' : '') + (t.leaving ? ' leaving' : '')}
+            onClick={() => setItems((x) => x.filter((y) => y.id !== t.id))}>{t.text}</div>
+        ))}
       </div>
     </ToastCtx.Provider>
   )
@@ -66,6 +71,20 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []): { data: 
 }
 
 // --- overlays ---
+
+// useClosing delays onClose until the exit animation has played.
+function useClosing(onClose: () => void): [boolean, () => void] {
+  const [closing, setClosing] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current) }, [])
+  const close = useCallback(() => {
+    if (timer.current) return
+    setClosing(true)
+    timer.current = setTimeout(onClose, 170)
+  }, [onClose])
+  return [closing, close]
+}
+
 function useEscape(onClose: () => void) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -75,11 +94,12 @@ function useEscape(onClose: () => void) {
 }
 
 export function Drawer({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
-  useEscape(onClose)
+  const [closing, close] = useClosing(onClose)
+  useEscape(close)
   return (
-    <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className={'overlay' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
       <aside className={'drawer' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={onClose}><Icon.Close /></button></div>
+        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={close}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </aside>
@@ -88,11 +108,12 @@ export function Drawer({ title, onClose, children, footer, wide }: { title: Reac
 }
 
 export function Modal({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
-  useEscape(onClose)
+  const [closing, close] = useClosing(onClose)
+  useEscape(close)
   return (
-    <div className="overlay center" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className={'overlay center' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
       <div className={'modal' + (wide ? ' wide' : '')} role="dialog" aria-modal="true">
-        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={onClose}><Icon.Close /></button></div>
+        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={close}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </div>

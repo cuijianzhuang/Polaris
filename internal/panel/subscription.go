@@ -253,16 +253,13 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 
 // installScript serves the agent installer.
 func (s *Server) installScript(c *gin.Context) {
-	base := s.cfg.PublicURL
-	if base == "" {
-		// The Host header ends up inside a shell script: only allow host[:port].
-		if !validHost.MatchString(c.Request.Host) {
-			c.String(http.StatusBadRequest, "invalid Host header; set POLARIS_PUBLIC_URL")
-			return
-		}
-		base = "http://" + c.Request.Host
+	// The Host header ends up inside a shell script: only allow host[:port].
+	if s.cfg.PublicURL == "" && !validHost.MatchString(c.Request.Host) {
+		c.String(http.StatusBadRequest, "invalid Host header; set POLARIS_PUBLIC_URL")
+		return
 	}
-	script := strings.NewReplacer("__PANEL_HTTP__", base, "__PANEL_VERSION__", Version,
+	script := strings.NewReplacer("__PANEL_HTTP__", s.requestBase(c.Request), "__PANEL_VERSION__", Version,
+		"__PANEL_AGENT__", s.agentURLFor(c.Request), "__PANEL_CA__", s.ca.Fingerprint(),
 		"__SHA_AMD64__", s.agentSHA("amd64"), "__SHA_ARM64__", s.agentSHA("arm64")).Replace(installSh)
 	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(script))
 }

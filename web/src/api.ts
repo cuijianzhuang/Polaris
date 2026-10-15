@@ -29,7 +29,18 @@ export class ApiError extends Error {
 let onUnauthorized: () => void = () => {}
 export function setUnauthorizedHandler(fn: () => void) { onUnauthorized = fn }
 
+// In-flight request count, for the top progress bar.
+let inflight = 0
+const listeners = new Set<(n: number) => void>()
+export function onInflight(fn: (n: number) => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
+function track(d: number) { inflight += d; listeners.forEach((l) => l(inflight)) }
+
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+  track(1)
+  try { return await request<T>(method, path, body) } finally { track(-1) }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {}
   const tok = getToken()
   if (tok) headers['Authorization'] = 'Bearer ' + tok

@@ -21,7 +21,49 @@ function capsSummary(c?: CapSet): string[] {
   return [...out]
 }
 
-function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (cmd?: string) => void }) {
+type Install = { cmd: string; nodeId: string }
+
+/** Install command with download / mirror variants and a live "waiting for the node" state. */
+function InstallModal({ install, node, onClose }: { install: Install; node?: Node; onClose: () => void }) {
+  const [tool, setTool] = useState<'curl' | 'wget'>('curl')
+  const [mirror, setMirror] = useState('')
+  const [wasOnline] = useState(node?.status === 'online')
+  const script = install.cmd.match(/(\S+\/install\.sh)/)?.[1] ?? ''
+  const args = install.cmd.split('bash -s -- ')[1] ?? ''
+  const fetchCmd = tool === 'curl' ? `curl -fsSL ${script}` : `wget -qO- ${script}`
+  const extra = mirror.trim() ? ` --mirror ${mirror.trim()}` : ''
+  const cmd = `${fetchCmd} | bash -s -- ${args}${extra}`
+  const online = node?.status === 'online' && !wasOnline
+  return (
+    <Modal title={`安装节点 · ${node?.name ?? ''}`} onClose={onClose} wide>
+      <ol className="isteps">
+        <li className="done"><b>复制命令</b><span>24 小时内有效，仅能使用一次</span></li>
+        <li className={online ? 'done' : 'active'}><b>在节点服务器以 root 执行</b><span>自动检查连通性、下载并校验 Agent、注册上线</span></li>
+        <li className={online ? 'done' : ''}><b>{online ? '节点已上线' : '等待节点连接…'}</b><span>{online ? `Agent ${node?.agentVersion ?? ''} 已接入，内核将按需安装` : '执行完成后这里会自动更新'}</span></li>
+      </ol>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="seg" style={{ width: 200 }}>
+          {(['curl', 'wget'] as const).map((t) => <button key={t} type="button" className={'opt' + (tool === t ? ' on' : '')} onClick={() => setTool(t)}>{t}</button>)}
+        </div>
+        <input className="input mono" style={{ flex: 1, minWidth: 220 }} value={mirror} onChange={(e) => setMirror(e.target.value)} placeholder="GitHub 镜像（可选，如 https://ghfast.top/）" aria-label="GitHub 镜像" />
+      </div>
+      <CopyBox text={cmd} />
+      {online ? <div className="note ok-note">节点已成功接入，可以关闭此窗口，到「入站」中为它添加服务。</div>
+        : <div className="wait-line"><span className="pulse" />等待节点连接</div>}
+      <details className="more">
+        <summary>本机安装、升级与卸载</summary>
+        <div className="small" style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+          <div>在<b>主控服务器本机</b>安装节点：直接执行上面的命令即可，脚本会自动改用 127.0.0.1 连接；也可在主控上运行 <span className="mono">polaris node</span>（或菜单 17）一键完成。</div>
+          <div>升级 Agent 到面板版本：<span className="mono">{fetchCmd} | bash -s -- --upgrade</span></div>
+          <div>卸载：<span className="mono">{fetchCmd} | bash -s -- --uninstall</span>（加 <span className="mono">--purge</span> 删除数据）</div>
+          <div className="mute">Agent 主动连接主控，节点无需开放管理端口，NAT 后的机器也能接入；主控需放行节点接入端口（默认 9443）。</div>
+        </div>
+      </details>
+    </Modal>
+  )
+}
+
+function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (install?: Install) => void }) {
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1,
@@ -41,8 +83,8 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
       body.cores = [f.xray && { type: 'xray', version: DEFAULT_VERSIONS.xray }, f.singbox && { type: 'singbox', version: DEFAULT_VERSIONS.singbox }].filter(Boolean)
       if (!body.cores.length) throw new Error('至少选择一个内核')
       if (!body.cores.find((c: any) => c.type === f.defaultCore)) body.defaultCore = body.cores[0].type
-      const r = await post<{ command: string }>('/nodes', body)
-      onSaved(r.command)
+      const r = await post<{ command: string; node: Node }>('/nodes', body)
+      onSaved({ cmd: r.command, nodeId: r.node.id })
     }
   }, node ? '已保存' : '节点已创建')
   return (
@@ -124,7 +166,7 @@ export default function Nodes() {
   const [params, setParams] = useSearchParams()
   const [selId, setSelId] = useState<string | null>(params.get('id'))
   const [editing, setEditing] = useState<Node | 'new' | null>(params.get('new') ? 'new' : null)
-  const [installCmd, setInstallCmd] = useState('')
+  const [install, setInstall] = useState<Install | null>(null)
   const [coreForm, setCoreForm] = useState<{ core?: Core } | null>(null)
   const [preview, setPreview] = useState<{ title: string; text: string } | null>(null)
   const toast = useToast()
@@ -138,7 +180,7 @@ export default function Nodes() {
 
   const showInstall = (n: Node) => run(async () => {
     const r = await post<{ command: string }>(`/nodes/${n.id}/install-token`)
-    setInstallCmd(r.command)
+    setInstall({ cmd: r.command, nodeId: n.id })
   })
 
   return (
@@ -154,7 +196,7 @@ export default function Nodes() {
               const st = nodeStatus[n.status] ?? nodeStatus.pending
               return (
                 <button key={n.id} type="button" className={'ncard' + (sel?.id === n.id ? ' on' : '')} aria-pressed={sel?.id === n.id} onClick={() => setSelId(n.id)}>
-                  <div style={{ fontWeight: 600 }}><span className="dot" style={{ background: st.color }} />{n.name}</div>
+                  <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
                   <div className="sub">{[n.region, n.address].filter(Boolean).join(' · ') || '未填写地址'} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}</div>
                 </button>
               )
@@ -260,15 +302,9 @@ export default function Nodes() {
           )}
         </>
       )}
-      {editing && <NodeForm node={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={(cmd) => { setEditing(null); refresh(); if (cmd) setInstallCmd(cmd) }} />}
+      {editing && <NodeForm node={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={(i) => { setEditing(null); refresh(); if (i) setInstall(i) }} />}
       {coreForm && sel && <CoreForm node={sel} core={coreForm.core} onClose={() => setCoreForm(null)} onSaved={() => { setCoreForm(null); refresh() }} />}
-      {installCmd && (
-        <Modal title="安装命令" onClose={() => setInstallCmd('')} wide>
-          <div className="sub" style={{ margin: 0 }}>在节点服务器上以 root 执行（24 小时内有效，一次性）。Agent 会注册上线、按需下载内核并校验 SHA256。</div>
-          <CopyBox text={installCmd} />
-          <div className="note">Agent 主动连接主控，节点无需开放管理端口，NAT 后的机器也能接入。</div>
-        </Modal>
-      )}
+      {install && <InstallModal install={install} node={nodes.find((n) => n.id === install.nodeId)} onClose={() => setInstall(null)} />}
       {preview && (
         <Modal title={preview.title} onClose={() => setPreview(null)} wide footer={<button className="btn" type="button" onClick={() => { navigator.clipboard.writeText(preview.text).then(() => toast('已复制')) }}>复制</button>}>
           <div className="code">{preview.text}</div>

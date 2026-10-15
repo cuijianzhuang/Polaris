@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { BASE, get, getToken, setToken, setUnauthorizedHandler, wsURL } from './api'
+import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { BASE, get, getToken, onInflight, setToken, setUnauthorizedHandler, wsURL } from './api'
 import { Icon } from './components/Icons'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import type { Node } from './types'
@@ -65,12 +65,30 @@ const sysNav = [
   { to: '/audit', label: '审计日志', icon: <Icon.Log /> },
 ]
 
+// TopProgress is a thin bar shown while API requests are in flight (after a
+// short delay, so fast requests do not flicker).
+function TopProgress() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined
+    const off = onInflight((n) => {
+      clearTimeout(t)
+      if (n > 0) t = setTimeout(() => setShow(true), 150)
+      else setShow(false)
+    })
+    return () => { off(); clearTimeout(t) }
+  }, [])
+  return <div className={'topbar' + (show ? ' on' : '')} aria-hidden="true" />
+}
+
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
   const [title, setTitle] = useState('Polaris')
   useEffect(() => { get<{ title: string }>('/info').then((i) => setTitle(i.title)).catch(() => {}) }, [])
   useEffect(() => { document.title = title }, [title])
+  const loc = useLocation()
   return (
     <div className="app">
+      <TopProgress />
       <nav className="side" aria-label="主导航">
         <div className="brand"><Icon.Logo />{title}</div>
         {nav.map((n) => <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
@@ -78,7 +96,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
         <div className="side-foot"><span>{user}</span><button type="button" onClick={onLogout}>退出</button></div>
       </nav>
-      <main className="main">{children}</main>
+      <main className="main" key={loc.pathname}>{children}</main>
     </div>
   )
 }

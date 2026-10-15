@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
 func TestInstallScriptPinsAgentChecksum(t *testing.T) {
@@ -28,12 +30,74 @@ func TestInstallScriptPinsAgentChecksum(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	script := string(b)
-	for _, want := range []string{`SHA_amd64="` + hex.EncodeToString(sum[:]) + `"`, `SHA_arm64=""`, `PANEL_VERSION="dev"`, "checksum mismatch"} {
+	for _, want := range []string{`SHA_amd64="` + hex.EncodeToString(sum[:]) + `"`, `SHA_arm64=""`, `PANEL_VERSION="dev"`, "SHA256 校验失败",
+		`PANEL="https://127.0.0.1:`, `CA="` + s.ca.Fingerprint() + `"`, `PANEL_HTTP="` + srv.URL + `"`} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("install.sh missing %q", want)
 		}
 	}
 	if strings.Contains(script, "__") {
 		t.Fatal("unreplaced placeholder in install.sh")
+	}
+}
+
+func TestInstallCommandUsesRequestHost(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	code, out := c.do("POST", "/nodes", map[string]any{"name": "tokyo"})
+	if code != 201 {
+		t.Fatalf("create node %d %v", code, out)
+	}
+	cmd := out["command"].(string)
+	host := strings.TrimPrefix(strings.TrimSuffix(c.base, s.cfg.APIBase()), "http://")
+	if want := "curl -fsSL http://" + host + "/install.sh | bash -s -- --token "; !strings.HasPrefix(cmd, want) {
+		t.Fatalf("command %q, want prefix %q", cmd, want)
+	}
+	// Without POLARIS_AGENT_HOSTS / PUBLIC_URL the agent endpoint follows the
+	// host the admin used, never 127.0.0.1.
+	r := httptest.NewRequest("GET", "/install.sh", nil)
+	r.Host = "203.0.113.7:8080"
+	if got := s.agentURLFor(r); got != "https://203.0.113.7:9443" && !strings.HasPrefix(got, "https://203.0.113.7:") {
+		t.Fatalf("agent URL %s", got)
+	}
+	s.cfg.AgentHosts = []string{"panel.example.com"}
+	if got := s.agentURLFor(r); !strings.HasPrefix(got, "https://panel.example.com:") {
+		t.Fatalf("configured agent host ignored: %s", got)
+	}
+}
+
+func TestLocalNodeToken(t *testing.T) {
+	s := newTestServer(t)
+	s.cfg.PublicURL = "https://panel.example.com"
+	tok, created, err := LocalNodeToken(s.cfg, "")
+	if err != nil || !created || len(tok) < 20 {
+		t.Fatalf("%v %v %q", err, created, tok)
+	}
+	tok2, created, err := LocalNodeToken(s.cfg, "")
+	if err != nil || created || tok2 == tok {
+		t.Fatalf("second call should reuse the node with a new token: %v %v", err, created)
+	}
+	var n store.Node
+	s.st.DB.First(&n, "name = ?", "本机")
+	if n.Address != "panel.example.com" || n.TokenHash != hashToken(tok2) {
+		t.Fatalf("node: %+v", n)
+	}
+}
+
+func TestAgentCacheVersionMarker(t *testing.T) {
+	s := newTestServer(t)
+	dir := s.downloadsDir()
+	os.MkdirAll(dir, 0o755)
+	if s.agentCacheCurrent() {
+		t.Fatal("empty cache reported current")
+	}
+	for _, a := range agentArches {
+		os.WriteFile(filepath.Join(dir, "polaris-agent-linux-"+a), []byte("x"), 0o755)
+	}
+	if !s.agentCacheCurrent() {
+		t.Fatal("hand-placed binaries (no marker) should be trusted")
+	}
+	os.WriteFile(filepath.Join(dir, ".version"), []byte("v0.0.1\n"), 0o644)
+	if s.agentCacheCurrent() {
+		t.Fatal("binaries of another version reported current")
 	}
 }
