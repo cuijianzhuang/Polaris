@@ -102,8 +102,10 @@ func TestXrayPrereleaseFlagIgnored(t *testing.T) {
 		w.Write([]byte(`[{"tag_name":"v26.10.10","prerelease":true},{"tag_name":"v26.9.30","prerelease":true},{"tag_name":"v27.0.0-beta","prerelease":true}]`))
 	}))
 	defer api.Close()
-	githubAPI = api.URL
-	defer func() { githubAPI = "https://api.github.com" }()
+	web := httptest.NewServer(http.NotFoundHandler()) // no feed / redirect fallback
+	defer web.Close()
+	githubAPI, githubWeb = api.URL, web.URL
+	defer func() { githubAPI, githubWeb = "https://api.github.com", "https://github.com" }()
 	vs, err := (&Server{}).releaseVersions(t.Context(), "XTLS/Xray-core", "v")
 	if err != nil || len(vs) != 2 || vs[0] != "26.10.10" {
 		t.Fatalf("versions = %v %v", vs, err)

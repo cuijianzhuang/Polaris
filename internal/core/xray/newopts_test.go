@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -72,7 +73,8 @@ func TestRenderNewOptions(t *testing.T) {
 }
 
 // TestLiveVLESSEncryption connects through a client Xray rendered from the
-// panel's outbound model to a server using every new option.
+// panel's outbound model to a server using the new options: VLESS
+// Encryption and REALITY's ML-DSA-65 signature, separately and together.
 func TestLiveVLESSEncryption(t *testing.T) {
 	bin := os.Getenv("POLARIS_XRAY_BIN")
 	if bin == "" || !core.VersionAtLeast(xrayVersion(bin), "25.9.11") {
@@ -81,8 +83,18 @@ func TestLiveVLESSEncryption(t *testing.T) {
 	if _, err := exec.LookPath("curl"); err != nil {
 		t.Skip("curl not installed")
 	}
+	for _, c := range []struct {
+		name       string
+		enc, mldsa bool
+	}{{"encryption", true, false}, {"mldsa65", false, true}, {"both", true, true}} {
+		t.Run(c.name, func(t *testing.T) { liveNewOpts(t, bin, c.enc, c.mldsa) })
+	}
+}
+
+func liveNewOpts(t *testing.T, bin string, enc, mldsa bool) {
 	dest := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	dest.EnableHTTP2 = true
+	dest.Config.ErrorLog = log.New(io.Discard, "", 0) // REALITY probes the target on every handshake
 	dest.StartTLS()
 	defer dest.Close()
 	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "through") }))
@@ -90,6 +102,12 @@ func TestLiveVLESSEncryption(t *testing.T) {
 
 	port := freePort(t)
 	in := newOptsInbound(t, port, strings.TrimPrefix(dest.URL, "https://"))
+	if !enc {
+		in.Protocol.Decryption, in.Protocol.Encryption = "", ""
+	}
+	if !mldsa {
+		in.Security.RealityMldsa65Seed, in.Security.RealityMldsa65Verify = "", ""
+	}
 	srv := New(core.Options{Version: "26.10.10", BinPath: bin, WorkDir: t.TempDir(), APIListen: fmt.Sprintf("127.0.0.1:%d", freePort(t))})
 	start(t, srv, &model.NodeSpec{Inbounds: []model.Inbound{in}})
 
@@ -116,7 +134,8 @@ func TestLiveVLESSEncryption(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("no traffic through VLESS Encryption + ML-DSA-65: %v %q", err, out)
+	t.Errorf("no traffic: %v %q\nserver log:\n%s\nclient log:\n%s", err, out,
+		strings.Join(srv.Logs(40), "\n"), strings.Join(cli.Logs(40), "\n"))
 }
 
 func start(t *testing.T, a *Adapter, spec *model.NodeSpec) {
