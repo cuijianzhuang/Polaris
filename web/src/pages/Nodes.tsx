@@ -6,7 +6,17 @@ import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useC
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
 import type { CapSet, Core, CoreType, Node, Revision, User } from '../types'
 
-const DEFAULT_VERSIONS: Record<string, string> = { xray: '26.3.27', singbox: '1.13.5', hysteria: '2.6.1', forwarder: '2.7.0', mihomo: '1.19.15', caddy: '2.10.2' }
+// useCoreDefaults returns the version each core type gets when added
+// (the configured default, or the newest release when it is "latest").
+function useCoreDefaults(): Record<string, string> {
+  const [d, setD] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let live = true
+    get<Record<string, string>>('/core-defaults').then((r) => { if (live) setD(r) }).catch(() => {})
+    return () => { live = false }
+  }, [])
+  return d
+}
 
 function capsSummary(c?: CapSet): string[] {
   if (!c) return []
@@ -203,6 +213,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
     defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
   })
   const { busy, run } = useAction()
+  const defaults = useCoreDefaults()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
     const body: any = {
@@ -213,7 +224,8 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
       await put('/nodes/' + node.id, body)
       onSaved()
     } else {
-      body.cores = [f.xray && { type: 'xray', version: DEFAULT_VERSIONS.xray }, f.singbox && { type: 'singbox', version: DEFAULT_VERSIONS.singbox }].filter(Boolean)
+      // An empty version is resolved server-side to the configured default.
+      body.cores = [f.xray && { type: 'xray', version: '' }, f.singbox && { type: 'singbox', version: '' }].filter(Boolean)
       if (!body.cores.length) throw new Error('至少选择一个内核')
       if (!body.cores.find((c: any) => c.type === f.defaultCore)) body.defaultCore = body.cores[0].type
       const r = await post<{ command: string; node: Node }>('/nodes', body)
@@ -243,8 +255,8 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
       {!node && (
         <div className="field">
           <span className="lbl">安装内核</span>
-          <label className="chk"><input type="checkbox" checked={f.xray} onChange={(e) => set('xray', e.target.checked)} />Xray-core v{DEFAULT_VERSIONS.xray}</label>
-          <label className="chk"><input type="checkbox" checked={f.singbox} onChange={(e) => set('singbox', e.target.checked)} />sing-box v{DEFAULT_VERSIONS.singbox}</label>
+          <label className="chk"><input type="checkbox" checked={f.xray} onChange={(e) => set('xray', e.target.checked)} />Xray-core{defaults.xray ? ` v${defaults.xray}` : ''}</label>
+          <label className="chk"><input type="checkbox" checked={f.singbox} onChange={(e) => set('singbox', e.target.checked)} />sing-box{defaults.singbox ? ` v${defaults.singbox}` : ''}</label>
         </div>
       )}
       <Field label="默认内核" hint="两个内核都支持某组合时，新入站默认落到这里">
@@ -265,7 +277,9 @@ const coreHint: Record<string, string> = {
 
 function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
   const [type, setType] = useState<CoreType>(core?.type ?? (node.cores.find((c) => c.type === 'singbox') ? 'xray' : 'singbox'))
-  const [version, setVersion] = useState(core?.version ?? DEFAULT_VERSIONS[type] ?? '')
+  const defaults = useCoreDefaults()
+  const [version, setVersion] = useState(core?.version ?? '')
+  useEffect(() => { if (!core && !version && defaults[type]) setVersion(defaults[type]) }, [defaults]) // eslint-disable-line react-hooks/exhaustive-deps
   const [isDefault, setDefault] = useState(core?.isDefault ?? false)
   const [available, setAvailable] = useState<string[] | null>(null)
   useEffect(() => {
@@ -291,7 +305,7 @@ function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; o
           <div className="seg">
             {(['xray', 'singbox', 'hysteria', 'mihomo', 'caddy', 'forwarder'] as CoreType[]).map((c) => (
               <button key={c} type="button" className={'opt' + (type === c ? ' on' : '')}
-                onClick={() => { setType(c); setVersion(DEFAULT_VERSIONS[c] ?? '') }}>
+                onClick={() => { setType(c); setVersion(defaults[c] ?? '') }}>
                 {coreLabel[c]}<small>{coreHint[c]}</small>
               </button>
             ))}

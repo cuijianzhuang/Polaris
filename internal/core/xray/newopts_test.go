@@ -244,3 +244,35 @@ func TestRenderTCPHTTPHeader(t *testing.T) {
 		}
 	}
 }
+
+// Xray 26.7.x defaults REALITY's minClientVer to 26.3.27, refusing sing-box
+// and mihomo clients; the adapter opens it up unless one is configured.
+func TestRealityMinClientVerDefault(t *testing.T) {
+	sec := coretest.Reality(t)
+	sec.RealityDest, sec.RealityServerNames = "127.0.0.1:8443", []string{"example.com"}
+	in := coretest.Inbound(model.CoreXray, "r", 20445, model.ProtocolSpec{Type: model.ProtoVLESS, Flow: "xtls-rprx-vision"},
+		model.TransportSpec{Type: model.TransTCP}, sec)
+	for v, want := range map[string]bool{"26.3.27": false, "26.7.11": true, "26.7.28": true, "26.10.10": false} {
+		a := New(core.Options{Version: v, WorkDir: t.TempDir()})
+		cfg, err := a.Render(&model.NodeSpec{Inbounds: []model.Inbound{in}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Contains(string(cfg), `"minClientVer": "0.0.0"`); got != want {
+			t.Errorf("%s: minClientVer 0.0.0 = %v, want %v", v, got, want)
+		}
+	}
+	if !hasStr(New(core.Options{}).Capabilities("26.10.10").Features, model.FeatureRealityPQOnly) ||
+		hasStr(New(core.Options{}).Capabilities("26.7.28").Features, model.FeatureRealityPQOnly) {
+		t.Error("reality-pq-only feature must start at " + model.XrayPQRealityVersion)
+	}
+}
+
+func hasStr(xs []string, s string) bool {
+	for _, x := range xs {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}

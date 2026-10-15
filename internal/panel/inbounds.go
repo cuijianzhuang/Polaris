@@ -79,6 +79,9 @@ func (s *Server) prepareInbound(m *model.Inbound) error {
 			m.Security.RealityServerNames = []string{host}
 		}
 	}
+	if m.Protocol.Type == model.ProtoTUIC && m.Security.Type == model.SecTLS && len(m.Security.ALPN) == 0 {
+		m.Security.ALPN = []string{"h3"} // clients offer h3; a server without ALPN rejects the handshake
+	}
 	if m.Protocol.Type == model.ProtoShadowsocks {
 		if m.Protocol.Method == "" {
 			m.Protocol.Method = "2022-blake3-aes-128-gcm"

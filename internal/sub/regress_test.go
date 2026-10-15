@@ -65,3 +65,37 @@ func TestVLESSEncryptionNodes(t *testing.T) {
 		t.Fatalf("mihomo proxy: %v", p)
 	}
 }
+
+func TestTCPHTTPHeaderNodes(t *testing.T) {
+	n := Node{Name: "h", Server: "1.2.3.4", Port: 80, Protocol: model.ProtoVMess, UUID: "u",
+		Transport: model.TransportSpec{Type: model.TransTCP, HeaderType: "http", Path: "/p", Host: "a.example"}}
+	got, err := ParseLink(ShareLink(n))
+	if err != nil || got.Transport.HeaderType != "http" || got.Transport.Path != "/p" || got.Transport.Host != "a.example" {
+		t.Fatalf("vmess link lost the http header: %+v %v (%s)", got.Transport, err, ShareLink(n))
+	}
+	if p := ClashProxy(n); p == nil || p["network"] != "http" || p["http-opts"] == nil {
+		t.Fatalf("clash proxy = %v", p)
+	}
+	if SingboxOutbound(n) != nil {
+		t.Fatal("sing-box has no TCP HTTP header and must skip the node")
+	}
+	v := n
+	v.Protocol = model.ProtoVLESS
+	if l := ShareLink(v); !strings.Contains(l, "headerType=http") || !strings.Contains(l, "path=%2Fp") {
+		t.Fatalf("vless link = %s", l)
+	}
+	if ClashProxy(v) != nil {
+		t.Fatal("mihomo has the http header for VMess only")
+	}
+}
+
+func TestPQRealityOnlyNodes(t *testing.T) {
+	n := Node{Name: "r", Server: "1.2.3.4", Port: 443, Protocol: model.ProtoVLESS, UUID: "u", Flow: "xtls-rprx-vision",
+		TLS: model.ClientTLS{Type: model.SecReality, ServerName: "a.example", PublicKey: "pk", ShortID: "ab"}, PQRealityOnly: true}
+	if SingboxOutbound(n) != nil || ClashProxy(n) != nil {
+		t.Fatal("sing-box / mihomo clients cannot reach a PQ-only REALITY server")
+	}
+	if !strings.HasPrefix(ShareLink(n), "vless://") {
+		t.Fatal("share links (Xray clients) keep the node")
+	}
+}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
@@ -100,6 +101,12 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		nodeIDs = append(nodeIDs, in.NodeID)
 	}
 	masters := s.fallbackMasters(nodeIDs)
+	var xrayCores []store.Core
+	s.st.DB.Where("node_id IN ? AND type = ?", nodeIDs, model.CoreXray).Find(&xrayCores)
+	xrayVer := map[string]string{}
+	for _, c := range xrayCores {
+		xrayVer[c.NodeID] = orDefault(c.RunningVersion, c.Version)
+	}
 	nameTpl := s.st.GetSetting("sub_name_template", "{flag} {node} {protocol}")
 	var out []sub.Node
 	for _, in := range ins {
@@ -115,6 +122,9 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		}
 		base := s.clientNode(&m, node, u)
 		base.Region, base.Source = node.Flag, "panel"
+		if in.Core == model.CoreXray && base.TLS.Type == model.SecReality && core.VersionAtLeast(xrayVer[node.ID], model.XrayPQRealityVersion) {
+			base.PQRealityOnly = true
+		}
 		vars := map[string]string{"flag": sub.Flag(node.Flag), "region": node.Region, "node": node.Name,
 			"protocol": sub.ProtocolLabel(base), "tag": in.Tag, "kind": ""}
 		// Proxy-chain relay inbounds are named "[relay] → [landing]".

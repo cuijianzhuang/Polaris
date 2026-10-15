@@ -118,6 +118,9 @@ func execTemplate(tpl string, data any) ([]byte, error) {
 
 // ClashProxy converts a node into a mihomo proxy map, or nil if unsupported.
 func ClashProxy(n Node) map[string]any {
+	if n.PQRealityOnly {
+		return nil // mihomo's REALITY client sends no X25519MLKEM768 key share
+	}
 	p := map[string]any{"name": n.Name, "server": n.Server, "port": n.Port}
 	tlsOn := n.TLS.Type == model.SecTLS || n.TLS.Type == model.SecReality
 	applyTLS := func(sniKey string) {
@@ -171,6 +174,17 @@ func ClashProxy(n Node) map[string]any {
 		}
 		switch n.Transport.Type {
 		case "", model.TransTCP:
+			if n.Transport.HeaderType == "http" {
+				if n.Protocol != model.ProtoVMess {
+					return nil // mihomo only has the HTTP header for VMess
+				}
+				p["network"] = "http"
+				o := map[string]any{"method": "GET", "path": []string{orDefault(n.Transport.Path, "/")}}
+				if n.Transport.Host != "" {
+					o["headers"] = map[string]any{"Host": strings.Split(n.Transport.Host, ",")}
+				}
+				p["http-opts"] = o
+			}
 		case model.TransWS, model.TransHTTPUpgrade:
 			p["network"] = "ws"
 			o := map[string]any{"path": orDefault(n.Transport.Path, "/")}

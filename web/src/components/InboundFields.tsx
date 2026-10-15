@@ -202,6 +202,9 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
             <textarea id="f-sn" className="input" style={{ minHeight: 64 }} value={toLines(s.realityServerNames)} onChange={(e) => setS({ realityServerNames: fromLines(e.target.value) })} />
           </Field>
           {s.realityPublicKey && <div className="hint mono">公钥：{s.realityPublicKey} · shortId：{(s.realityShortIds ?? []).join(', ')}</div>}
+          {isXray && hasFeature(caps, 'reality-pq-only') && (
+            <div className="note warn">当前 Xray 版本（26.9.8 起）的 REALITY 只接受带 X25519MLKEM768 密钥交换的客户端：sing-box、Clash / mihomo 客户端无法连接，其订阅会自动跳过此节点。需要兼容这些客户端时，请把该入站放到 sing-box 内核，或把节点 Xray 切换到 26.7.28 及更早版本。</div>
+          )}
           {isXray &&
             <RealityAdvanced s={s} setS={setS} mldsa={hasFeature(caps, 'reality-mldsa65')} />}
         </>

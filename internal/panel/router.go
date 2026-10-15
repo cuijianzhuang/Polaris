@@ -126,6 +126,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/cores/upgrade", s.upgradeCores)
 	p.GET("/core-latest", s.coreLatest)
 	p.GET("/core-versions", s.coreVersions)
+	p.GET("/core-defaults", s.coreDefaults)
 	p.GET("/cores/:id/logs", s.coreLogs)
 	p.GET("/capabilities", s.capabilities)
 

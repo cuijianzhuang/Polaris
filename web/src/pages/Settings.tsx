@@ -2,7 +2,52 @@ import { useEffect, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
 import GeodataCard from '../components/GeodataCard'
+import { accents, useTheme, type ThemeMode } from '../theme'
 import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+
+// DefaultVersion picks the version new nodes install: "latest" follows the
+// newest stable release, or pin one of the five most recent ones.
+function DefaultVersion({ label, type, value, onChange }: { label: string; type: string; value: string; onChange: (v: string) => void }) {
+  const [vers, setVers] = useState<string[] | null>(null)
+  useEffect(() => {
+    let live = true
+    get<{ versions: string[] }>('/core-versions?type=' + type).then((r) => { if (live) setVers(r.versions ?? []) }).catch(() => { if (live) setVers([]) })
+    return () => { live = false }
+  }, [type])
+  const cur = value.replace(/^v/, '') || 'latest'
+  const recent = (vers ?? []).slice(0, 5)
+  const opts = cur !== 'latest' && !recent.includes(cur) ? [...recent, cur] : recent
+  return (
+    <Field label={label} hint={vers === null ? '正在获取版本列表…' : vers.length === 0 ? '无法获取版本列表（可配置 GitHub 镜像）' : '「自动」时新节点安装最新稳定版'}>
+      <select className="input mono" value={cur} onChange={(e) => onChange(e.target.value)}>
+        <option value="latest">自动（最新{recent[0] ? `：v${recent[0]}` : ''}）</option>
+        {opts.map((v, i) => <option key={v} value={v}>v{v}{i === 0 && recent[0] === v ? ' · 最新' : ''}{!recent.includes(v) ? ' · 自定义' : ''}</option>)}
+      </select>
+    </Field>
+  )
+}
+
+// Appearance is per browser: mode plus an accent palette.
+function Appearance() {
+  const [t, setT] = useTheme()
+  const modes: { id: ThemeMode; label: string }[] = [{ id: 'light', label: '浅色' }, { id: 'dark', label: '深色' }, { id: 'system', label: '跟随系统' }]
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2>外观</h2>
+      <Field label="主题模式" hint="仅保存在当前浏览器">
+        <div className="seg">
+          {modes.map((m) => <button key={m.id} type="button" className={'opt' + (t.mode === m.id ? ' on' : '')} aria-pressed={t.mode === m.id} onClick={() => setT({ ...t, mode: m.id })}>{m.label}</button>)}
+        </div>
+      </Field>
+      <Field label="主题色">
+        <div className="swatches">
+          {accents.map((a) => <button key={a.id} type="button" className={'swatch' + (t.accent === a.id ? ' on' : '')} style={{ background: a.color }}
+            title={a.label} aria-label={'主题色：' + a.label} aria-pressed={t.accent === a.id} onClick={() => setT({ ...t, accent: a.id })} />)}
+        </div>
+      </Field>
+    </section>
+  )
+}
 
 export default function Settings() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
@@ -26,7 +71,7 @@ export default function Settings() {
   useEffect(() => {
     if (s.data) setF({
       site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '12', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
-      acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray ?? '', default_singbox: s.data.default_singbox ?? '',
+      acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray || 'latest', default_singbox: s.data.default_singbox || 'latest',
       ip_limit_trusted: s.data.ip_limit_trusted ?? '',
     })
   }, [s.data])
@@ -45,8 +90,8 @@ export default function Settings() {
             <Field label="IP 限制受信任地址" full hint="每行一个 IP 或 CIDR，不计入用户的同时在线 IP 数（如家庭 / 公司出口、自己的中转节点）">
               <textarea className="input mono" style={{ minHeight: 56 }} value={f.ip_limit_trusted ?? ''} onChange={(e) => set('ip_limit_trusted', e.target.value)} placeholder={'203.0.113.10\n198.51.100.0/24'} />
             </Field>
-            <Field label="默认 Xray 版本"><input className="input mono" value={f.default_xray ?? ''} onChange={(e) => set('default_xray', e.target.value)} /></Field>
-            <Field label="默认 sing-box 版本"><input className="input mono" value={f.default_singbox ?? ''} onChange={(e) => set('default_singbox', e.target.value)} /></Field>
+            <DefaultVersion label="默认 Xray 版本" type="xray" value={f.default_xray ?? ''} onChange={(v) => set('default_xray', v)} />
+            <DefaultVersion label="默认 sing-box 版本" type="singbox" value={f.default_singbox ?? ''} onChange={(v) => set('default_singbox', v)} />
           </div>
           <h2 style={{ marginTop: 8 }}>ACME（Let's Encrypt）</h2>
           <div className="hint" style={{ marginTop: -6 }}>只填邮箱即可用 HTTP 验证签发（由域名指向的节点在 80 端口应答）；再填 Cloudflare Token 则改用 DNS 验证，支持泛域名、无需 80 端口。</div>
@@ -69,6 +114,7 @@ export default function Settings() {
           <Field label="CA 指纹（SHA-256）" hint="安装命令携带此指纹，Agent 首次接入时校验主控身份"><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
+        <Appearance />
         <GeodataCard />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>

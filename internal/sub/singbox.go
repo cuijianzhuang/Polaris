@@ -97,6 +97,9 @@ func (singboxRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, erro
 
 // SingboxOutbound converts a node into a sing-box outbound, or nil.
 func SingboxOutbound(n Node) map[string]any {
+	if n.PQRealityOnly {
+		return nil // sing-box's REALITY client sends no X25519MLKEM768 key share
+	}
 	o := map[string]any{"tag": n.Name, "server": n.Server, "server_port": n.Port}
 	switch n.Protocol {
 	case model.ProtoVLESS:
@@ -147,6 +150,9 @@ func SingboxOutbound(n Node) map[string]any {
 	}
 	switch n.Transport.Type {
 	case "", model.TransTCP, model.TransQUIC:
+		if n.Transport.HeaderType == "http" {
+			return nil // sing-box has no TCP HTTP header camouflage
+		}
 	case model.TransWS:
 		t := map[string]any{"type": "ws", "path": orDefault(n.Transport.Path, "/")}
 		if n.Transport.Host != "" {

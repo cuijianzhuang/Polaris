@@ -206,6 +206,82 @@ func (s *Server) coreLatest(c *gin.Context) {
 	c.JSON(http.StatusOK, latestVersions.vers)
 }
 
+// fallbackVersions are used when a default is "latest" but GitHub (and the
+// mirror) cannot be reached.
+var fallbackVersions = map[model.CoreType]string{
+	model.CoreXray: "26.3.27", model.CoreSingbox: "1.13.5", model.CoreHysteria: "2.6.1",
+	model.CoreForwarder: "2.7.0", model.CoreMihomo: "1.19.15", model.CoreCaddy: "2.10.2",
+}
+
+var coreDefaultKeys = map[model.CoreType]string{model.CoreXray: "default_xray", model.CoreSingbox: "default_singbox"}
+
+// defaultCoreVersion is the version new cores get: the configured default,
+// or the newest stable release when it is "latest" (or unset).
+func (s *Server) defaultCoreVersion(ctx context.Context, t model.CoreType) string {
+	v := ""
+	if k, ok := coreDefaultKeys[t]; ok {
+		v = strings.TrimPrefix(strings.TrimSpace(s.st.GetSetting(k, "latest")), "v")
+	}
+	if v != "" && v != "latest" {
+		return v
+	}
+	if r, ok := coreRepos[t]; ok {
+		if vs := s.cachedVersions(ctx, t, r.repo, r.tagPrefix); len(vs) > 0 {
+			return vs[0]
+		}
+	}
+	return fallbackVersions[t]
+}
+
+// cachedVersions returns recent stable versions, cached for an hour.
+func (s *Server) cachedVersions(ctx context.Context, t model.CoreType, repo, prefix string) []string {
+	versionLists.mu.Lock()
+	if versionLists.m == nil {
+		versionLists.m = map[model.CoreType]versionList{}
+	}
+	if l, ok := versionLists.m[t]; ok && time.Since(l.at) < time.Hour {
+		versionLists.mu.Unlock()
+		return l.vers
+	}
+	versionLists.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	vs, err := s.releaseVersions(ctx, repo, prefix)
+	versionLists.mu.Lock()
+	defer versionLists.mu.Unlock()
+	if err != nil {
+		// Remember the failure for a few minutes so node creation does
+		// not wait on an unreachable GitHub every time.
+		versionLists.m[t] = versionList{time.Now().Add(-55 * time.Minute), nil}
+		return nil
+	}
+	if len(vs) > 15 {
+		vs = vs[:15]
+	}
+	versionLists.m[t] = versionList{time.Now(), vs}
+	return vs
+}
+
+// coreDefaults is GET /core-defaults: the version each core type gets when
+// added without one (resolving "latest").
+func (s *Server) coreDefaults(c *gin.Context) {
+	out := map[model.CoreType]string{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for t := range coreRepos {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			v := s.defaultCoreVersion(c.Request.Context(), t)
+			mu.Lock()
+			out[t] = v
+			mu.Unlock()
+		}()
+	}
+	wg.Wait()
+	c.JSON(http.StatusOK, out)
+}
+
 var versionLists struct {
 	mu sync.Mutex
 	m  map[model.CoreType]versionList
@@ -230,7 +306,7 @@ func (s *Server) coreVersions(c *gin.Context) {
 	if versionLists.m == nil {
 		versionLists.m = map[model.CoreType]versionList{}
 	}
-	if l, ok := versionLists.m[t]; ok && time.Since(l.at) < time.Hour && c.Query("refresh") != "1" {
+	if l, ok := versionLists.m[t]; ok && l.vers != nil && time.Since(l.at) < time.Hour && c.Query("refresh") != "1" {
 		c.JSON(http.StatusOK, gin.H{"versions": l.vers})
 		return
 	}

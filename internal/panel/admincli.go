@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -158,7 +159,8 @@ func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
 		}
 		n = store.Node{ID: store.NewID(), Name: name, Address: addr, Labels: store.NewJSON([]string{"本机"}),
 			DefaultCore: model.CoreXray, TrafficRate: 1, Status: "pending"}
-		xray := st.GetSetting("default_xray", "26.3.27") // read outside the transaction: SQLite allows one connection
+		// Resolved outside the transaction: SQLite allows one connection.
+		xray := (&Server{st: st}).defaultCoreVersion(context.Background(), model.CoreXray)
 		err = st.DB.Transaction(func(tx *gorm.DB) error {
 			if err := tx.Create(&n).Error; err != nil {
 				return err
