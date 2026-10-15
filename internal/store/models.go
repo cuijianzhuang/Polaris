@@ -31,7 +31,8 @@ type Node struct {
 	CertSerial   string           `gorm:"size:64" json:"-"`
 	Revoked      bool             `json:"revoked"`
 	SortOrder    int              `json:"sortOrder"`
-	DDNS         bool             `json:"ddns"` // follow the agent-detected public IP
+	DDNS         bool             `json:"ddns"`       // follow the agent-detected public IP
+	NoFirewall   bool             `json:"noFirewall"` // don't let the agent manage host firewall ports
 	PublicIPv4   string           `gorm:"size:64" json:"publicIpv4"`
 	PublicIPv6   string           `gorm:"size:64" json:"publicIpv6"`
 	IPChangedAt  *time.Time       `json:"ipChangedAt"`

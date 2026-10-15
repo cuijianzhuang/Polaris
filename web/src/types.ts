@@ -31,7 +31,7 @@ export interface Node {
   agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
   cores: Core[]; inboundCount: number; connected: boolean
-  ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string
+  ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
 }
 export interface Inbound {
   id: string; nodeId: string; core: CoreType; tag: string; listen: string; port: number

@@ -200,14 +200,14 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1,
-    defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false,
+    defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
   })
   const { busy, run } = useAction()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
     const body: any = {
       name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate),
-      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns,
+      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall,
     }
     if (node) {
       await put('/nodes/' + node.id, body)
@@ -234,6 +234,9 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         <Field label="流量倍率" htmlFor="n-rate" hint="结算时按倍率换算"><input id="n-rate" className="input mono" type="number" step="0.1" min="0.1" value={f.trafficRate} onChange={(e) => set('trafficRate', e.target.value)} /></Field>
         <Field label="DDNS" full hint="开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP">
           <label className="row small"><Switch label="DDNS" on={f.ddns} onChange={(v) => set('ddns', v)} />自动跟随节点公网 IP</label>
+        </Field>
+        <Field label="防火墙" full hint="Agent 自动在节点的 ufw / firewalld / iptables 中放行入站端口，删除入站后收回；只关闭自己放行的端口，不动已有规则。云厂商的安全组（如 Oracle 安全列表、AWS 安全组）需在云控制台另行放行">
+          <label className="row small"><Switch label="自动放行端口" on={f.firewall} onChange={(v) => set('firewall', v)} />自动放行入站端口</label>
         </Field>
         <Field label="标签" htmlFor="n-labels" full hint="逗号分隔；模板可绑定标签，新节点上线后自动套用"><input id="n-labels" className="input" value={f.labels} onChange={(e) => set('labels', e.target.value)} placeholder="asia, cn2" /></Field>
       </div>
