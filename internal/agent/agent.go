@@ -51,7 +51,7 @@ type Config struct {
 	// AllowUnverified permits core installs when no digest is published.
 	AllowUnverified bool
 	// DisableIPDetect turns off public IP discovery (DDNS); IPEcho overrides the echo services.
-	DisableIPDetect bool
+	DisableIPDetect  bool
 	IPEcho4, IPEcho6 []string
 }
 

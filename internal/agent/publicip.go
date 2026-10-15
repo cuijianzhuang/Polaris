@@ -62,7 +62,9 @@ func (d *ipDetector) Get(ctx context.Context) (string, string) {
 func probeIP(ctx context.Context, network string, urls []string) string {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	client := &http.Client{Timeout: 8 * time.Second, Transport: &http.Transport{
-		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) { return dialer.DialContext(ctx, network, addr) },
+		DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		},
 	}}
 	for _, u := range urls {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

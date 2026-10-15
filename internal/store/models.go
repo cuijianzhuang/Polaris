@@ -82,7 +82,7 @@ type Inbound struct {
 	Enabled          bool                      `json:"enabled"`
 	TemplateID       string                    `gorm:"size:32;index" json:"templateId,omitempty"`
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
-	ServiceOnly      bool                      `json:"serviceOnly"` // relay-only inbound, hidden from subscriptions
+	ServiceOnly      bool                      `json:"serviceOnly"`                // relay-only inbound, hidden from subscriptions
 	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
 	Remark           string                    `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time                 `json:"createdAt"`
