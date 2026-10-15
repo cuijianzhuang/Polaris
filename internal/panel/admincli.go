@@ -3,12 +3,16 @@ package panel
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -130,4 +134,48 @@ func Backup(cfg *Config, path string) error {
 		return err
 	}
 	return st.DB.Exec("VACUUM INTO ?", abs).Error
+}
+
+// LocalNodeToken creates (or reuses) a node record for an agent on the panel
+// server itself and returns a fresh one-time install token. The node's public
+// address defaults to the panel's own host.
+func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
+	st, err := openStore(cfg)
+	if err != nil {
+		return "", false, err
+	}
+	if name == "" {
+		name = "本机"
+	}
+	var n store.Node
+	created := false
+	if err := st.DB.First(&n, "name = ?", name).Error; err != nil {
+		addr := ""
+		if len(cfg.AgentHosts) > 0 {
+			addr = cfg.AgentHosts[0]
+		} else if u, err := url.Parse(cfg.PublicURL); err == nil {
+			addr = u.Hostname()
+		}
+		n = store.Node{ID: store.NewID(), Name: name, Address: addr, Labels: store.NewJSON([]string{"本机"}),
+			DefaultCore: model.CoreXray, TrafficRate: 1, Status: "pending"}
+		xray := st.GetSetting("default_xray", "26.3.27") // read outside the transaction: SQLite allows one connection
+		err = st.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Create(&n).Error; err != nil {
+				return err
+			}
+			return tx.Create(&store.Core{ID: store.NewID(), NodeID: n.ID, Type: model.CoreXray, Version: xray,
+				Status: "installing", IsDefault: true, InstalledVersions: store.NewJSON([]string{})}).Error
+		})
+		if err != nil {
+			return "", false, err
+		}
+		created = true
+	}
+	tok := pki.Token(24)
+	if err := st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
+		"token_hash": hashToken(tok), "token_expires": time.Now().Add(time.Hour)}).Error; err != nil {
+		return "", false, err
+	}
+	st.DB.Create(&store.AuditLog{Admin: "cli", Action: "node.install_token", Target: n.Name})
+	return tok, created, nil
 }

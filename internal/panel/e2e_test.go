@@ -130,7 +130,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 	a.do("POST", "/nodes", map[string]any{"name": "tokyo", "address": "127.0.0.1", "region": "Tokyo", "flag": "jp",
 		"cores": []map[string]string{{"type": "xray", "version": "26.3.27"}}}, &created)
-	if created.Token == "" || !strings.Contains(created.Command, "--ca-sha256") {
+	if created.Token == "" || !strings.HasSuffix(created.Command, "/install.sh | bash -s -- --token "+created.Token) {
 		t.Fatalf("bad install command: %+v", created)
 	}
 	agentDir := filepath.Join(dir, "agent")

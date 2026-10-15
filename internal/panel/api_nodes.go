@@ -123,7 +123,7 @@ func (s *Server) createNode(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	tok, cmd, err := s.newInstallToken(&n)
+	tok, cmd, err := s.newInstallToken(&n, c.Request)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -223,19 +223,16 @@ func (s *Server) agentURL() string {
 	return "https://" + net.JoinHostPort(host, port)
 }
 
-func (s *Server) newInstallToken(n *store.Node) (string, string, error) {
+func (s *Server) newInstallToken(n *store.Node, r *http.Request) (string, string, error) {
 	tok := pki.Token(24)
 	exp := time.Now().Add(24 * time.Hour)
 	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
 		"token_hash": hashToken(tok), "token_expires": exp}).Error; err != nil {
 		return "", "", err
 	}
-	base := s.cfg.PublicURL
-	if base == "" {
-		base = "http://" + s.cfg.Listen
-	}
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | bash -s -- --panel %s --token %s --ca-sha256 %s",
-		base, s.agentURL(), tok, s.ca.Fingerprint())
+	// install.sh carries the agent endpoint and CA fingerprint, so the
+	// command only needs the one-time token.
+	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | bash -s -- --token %s", s.requestBase(r), tok)
 	return tok, cmd, nil
 }
 
@@ -245,7 +242,7 @@ func (s *Server) installToken(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	tok, cmd, err := s.newInstallToken(&n)
+	tok, cmd, err := s.newInstallToken(&n, c.Request)
 	if err != nil {
 		serverError(c, err)
 		return

@@ -63,6 +63,7 @@ polaris reset-2fa            # 丢失验证器：关闭二次验证
 polaris set-domain panel.example.com   # 由 IP + HTTP 切换到域名 + HTTPS
 polaris set-path /my-admin | set-port 8443
 polaris backup               # 配置 + 数据库一致性快照 → /root/polaris-backup-*.tar.gz
+polaris node [-n 名称]       # 在主控本机安装节点（经 127.0.0.1 接入，无需放行端口）
 polaris uninstall [--purge]  # 卸载；--purge 同时删除配置与数据
 polaris help                 # 全部子命令
 ```
@@ -81,21 +82,24 @@ docker compose logs polaris | grep password         # 未设置初始密码时�
 `9443` 是 Agent 的 mTLS 接入端口，需要直接开放，不能经反代。
 
 也可以手动部署单二进制：`make all` 后把 `bin/polaris` 安装为 `/usr/local/bin/polaris-server`，配合 `deploy/polaris.service` 与 `/etc/polaris/polaris.env`。
-把 `bin/polaris-agent-linux-*` 放进 `<data_dir>/downloads/`，安装脚本即可从主控直接下载 Agent。
+主控启动后会把与自身同版本的 Agent（amd64 / arm64，校验 checksums.txt）缓存到 `<data_dir>/downloads/`，节点从主控下载 Agent，不依赖节点访问 GitHub；主控本身访问 GitHub 慢时可在设置项 `github_mirror` 填镜像前缀。也可以手动把 `bin/polaris-agent-linux-*` 放进该目录。
 
 ### 节点
 
 后台「节点与内核 → 添加节点」会生成一行命令，在节点上以 root 执行：
 
 ```bash
-curl -fsSL https://panel.example.com/install.sh | bash -s -- \
-  --panel https://panel.example.com:9443 --token <一次性 token> --ca-sha256 <CA 指纹>
+curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <一次性 token>
 ```
 
-脚本会安装 Agent、注册拿到客户端证书、写入 systemd 服务；Agent 按期望状态下载内核到 `/var/lib/polaris/cores/{type}/{version}/` 并校验 SHA256，切换版本只改 `current` 软链。
-国内机器可加 `--mirror https://<github 镜像前缀>`。
+主控地址与 CA 指纹由主控写进 `install.sh`，命令里只需令牌（24 小时有效、一次性）。脚本会先检查与主控接入端口的连通性（不通时直接提示放行端口），再下载并校验 Agent、注册拿到客户端证书、写入 systemd 服务；弹窗会实时显示节点上线。Agent 数据在 `/var/lib/polaris-agent`，按期望状态下载内核到 `cores/{type}/{version}/` 并校验 SHA256，切换版本只改 `current` 软链。
 
-> sing-box 官方构建不含 `with_v2ray_api`，此时 Agent 会跳过 sing-box 的按用户流量统计（Xray、Hysteria2 不受影响）。需要统计时请使用带该编译标签的构建：把二进制放到 `/var/lib/polaris/cores/singbox/<版本>/sing-box`（已存在时 Agent 不会重新下载），或用 `--mirror` 指向托管该构建的镜像。
+- 国内机器可加 `--mirror https://<github 镜像前缀>`（Agent 与内核下载都会使用）
+- 升级 Agent 到面板版本：`… | bash -s -- --upgrade`（已注册的机器不带令牌重跑也会升级）
+- 卸载：`… | bash -s -- --uninstall [--purge]`
+- 主控服务器本机做节点：执行同一条命令即可（自动改用 127.0.0.1 连接），或在主控上运行 `polaris node`
+
+> sing-box 官方构建不含 `with_v2ray_api`，此时 Agent 会跳过 sing-box 的按用户流量统计（Xray、Hysteria2 不受影响）。需要统计时请使用带该编译标签的构建：把二进制放到 `/var/lib/polaris-agent/cores/singbox/<版本>/sing-box`（已存在时 Agent 不会重新下载），或用 `--mirror` 指向托管该构建的镜像。
 
 ### 配置项
 
