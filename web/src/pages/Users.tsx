@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { CopyBox, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { bytes, coreShort, date, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, User } from '../types'
 
@@ -406,7 +406,7 @@ export default function Users() {
   useEffect(() => { if (params.get('new')) setParams({}, { replace: true }) }, [params, setParams])
 
   const copySub = async (u: User) => {
-    try { await navigator.clipboard.writeText(subURL(u)); toast('订阅链接已复制') } catch { toast('复制失败', true) }
+    try { await copyText(subURL(u)); toast('订阅链接已复制') } catch { window.prompt('复制失败，请手动复制：', subURL(u)) }
   }
   const bulk = (action: string, extra?: object) => run(async () => {
     await post('/users/bulk', { action, ids: checked, ...extra })

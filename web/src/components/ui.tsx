@@ -159,11 +159,36 @@ export function Switch({ on, onChange, label }: { on: boolean; onChange: (v: boo
   return <button type="button" role="switch" aria-checked={on} aria-label={label} className={'switch' + (on ? ' on' : '')} onClick={() => onChange(!on)} />
 }
 
+// copyText copies to the clipboard. navigator.clipboard only exists in a
+// secure context (HTTPS or localhost); panels opened over plain http://IP
+// fall back to a hidden textarea and execCommand.
+export async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try { await navigator.clipboard.writeText(text); return } catch { /* fall back */ }
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.top = '-1000px'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  const sel = document.getSelection()
+  const prev = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null
+  ta.select()
+  ta.setSelectionRange(0, text.length) // iOS
+  let ok = false
+  try { ok = document.execCommand('copy') } catch { ok = false }
+  document.body.removeChild(ta)
+  if (prev && sel) { sel.removeAllRanges(); sel.addRange(prev) }
+  if (!ok) throw new Error('copy failed')
+}
+
 export function Copy({ text, label = '复制' }: { text: string; label?: string }) {
   const toast = useToast()
   return (
     <button className="btn sm" type="button" onClick={async () => {
-      try { await navigator.clipboard.writeText(text); toast('已复制') } catch { toast('复制失败，请手动选择', true) }
+      try { await copyText(text); toast('已复制') } catch { window.prompt('复制失败，请手动复制：', text) }
     }}>{label}</button>
   )
 }

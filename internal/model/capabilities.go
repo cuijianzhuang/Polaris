@@ -75,6 +75,11 @@ func (c CapSet) SupportsInbound(in *Inbound) error {
 			return err
 		}
 	}
+	if in.Transport.HeaderType == "http" && (in.Transport.Type == TransTCP || in.Transport.Type == "") {
+		if err := need(FeatureTCPHTTPHeader, "TCP HTTP header camouflage"); err != nil {
+			return err
+		}
+	}
 	if in.Transport.AcceptProxyProtocol {
 		if err := need(FeatureProxyProtocol, "PROXY protocol"); err != nil {
 			return err
@@ -135,4 +140,5 @@ const (
 	FeatureVLESSEncryption = "vless-encryption"
 	FeatureRealityMLDSA65  = "reality-mldsa65"
 	FeatureProxyProtocol   = "proxy-protocol"
+	FeatureTCPHTTPHeader   = "tcp-http-header"
 )

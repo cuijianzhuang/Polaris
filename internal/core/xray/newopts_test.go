@@ -226,3 +226,21 @@ func mustRead(t *testing.T, p string) []byte {
 	}
 	return b
 }
+
+func TestRenderTCPHTTPHeader(t *testing.T) {
+	in := coretest.Inbound(model.CoreXray, "vmess-http", 20450, model.ProtocolSpec{Type: model.ProtoVMess},
+		model.TransportSpec{Type: model.TransTCP, HeaderType: "http", Host: "a.example.com", Path: "/x", AcceptProxyProtocol: true}, model.SecuritySpec{})
+	a := New(core.Options{Version: "26.3.27", WorkDir: t.TempDir(), BinPath: os.Getenv("POLARIS_XRAY_BIN")})
+	cfg, err := a.Render(&model.NodeSpec{Inbounds: []model.Inbound{in}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := string(cfg); !strings.Contains(s, `"type": "http"`) || !strings.Contains(s, `"a.example.com"`) || !strings.Contains(s, `"acceptProxyProtocol": true`) {
+		t.Fatalf("tcp http header not rendered:\n%s", s)
+	}
+	if os.Getenv("POLARIS_XRAY_BIN") != "" {
+		if err := a.Validate(cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

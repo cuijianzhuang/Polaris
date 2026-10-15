@@ -79,7 +79,7 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	b.Add([]model.Protocol{model.ProtoVLESS, model.ProtoVMess}, []model.Transport{model.TransKCP}, []model.Security{model.SecNone})
 	b.Add([]model.Protocol{model.ProtoShadowsocks, model.ProtoSOCKS, model.ProtoHTTP},
 		[]model.Transport{model.TransTCP}, []model.Security{model.SecNone})
-	features := []string{model.FeatureProxyProtocol}
+	features := []string{model.FeatureProxyProtocol, model.FeatureTCPHTTPHeader}
 	if core.VersionAtLeast(v, "25.9.11") {
 		features = append(features, model.FeatureVLESSEncryption, model.FeatureRealityMLDSA65)
 	}
@@ -290,6 +290,15 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 	switch t.Type {
 	case "", model.TransTCP:
 		st["network"] = "tcp"
+		if t.HeaderType == "http" {
+			// HTTP request/response camouflage; clients send the same header
+			// (headerType=http in share links).
+			req := map[string]any{"path": []string{orDefault(t.Path, "/")}}
+			if t.Host != "" {
+				req["headers"] = map[string]any{"Host": strings.Split(t.Host, ",")}
+			}
+			st["tcpSettings"] = map[string]any{"header": map[string]any{"type": "http", "request": req}}
+		}
 	case model.TransWS:
 		st["network"] = "ws"
 		st["wsSettings"] = pathHost(t)
