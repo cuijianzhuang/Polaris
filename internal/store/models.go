@@ -170,6 +170,7 @@ type ConfigRevision struct {
 	Spec      string    `gorm:"type:text" json:"-"` // sealed JSON
 	Reason    string    `gorm:"size:255" json:"reason"`
 	Status    string    `gorm:"size:16" json:"status"` // pending / applied / failed
+	Method    string    `gorm:"size:8" json:"method"`  // hot / reload
 	Error     string    `gorm:"size:2000" json:"error"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -248,6 +249,7 @@ type Outbound struct {
 	NodeRefInboundID string             `gorm:"size:32;index" json:"nodeRefInboundId"`
 	Detour           string             `gorm:"size:64" json:"detour"`
 	ChainID          string             `gorm:"size:32;index" json:"chainId"` // managed by a chain
+	ServiceUserID    string             `gorm:"size:32" json:"serviceUserId"` // node_ref credentials
 	Remark           string             `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time          `json:"createdAt"`
 	UpdatedAt        time.Time          `json:"updatedAt"`
@@ -289,6 +291,7 @@ type RoutingRule struct {
 	Match       JSON[model.RouteMatch] `json:"match"`
 	OutboundTag string                 `gorm:"size:64" json:"outboundTag"`
 	Priority    int                    `json:"priority"`
+	ChainID     string                 `gorm:"size:32;index" json:"chainId"` // managed by a chain
 	Remark      string                 `gorm:"size:255" json:"remark"`
 	CreatedAt   time.Time              `json:"createdAt"`
 }

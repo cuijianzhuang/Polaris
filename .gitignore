@@ -31,3 +31,11 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Polaris
+/data/
+/bin/
+/dist/
+web/node_modules/
+web/dist/*
+!web/dist/.keep

@@ -1,0 +1,304 @@
+package panel
+
+import (
+	"bytes"
+	"io"
+	"io/fs"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/cuijianzhuang/polaris/internal/store"
+)
+
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("polaris-timing-guard"), bcrypt.DefaultCost)
+
+func badRequest(c *gin.Context, err error) {
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+}
+
+func serverError(c *gin.Context, err error) {
+	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
+
+func notFound(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
+}
+
+func dbError(c *gin.Context, err error) {
+	switch {
+	case store.IsNotFound(err):
+		notFound(c)
+	case store.IsDuplicate(err):
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "名称或标签已存在"})
+	default:
+		serverError(c, err)
+	}
+}
+
+// auditCtx records a write performed by the current admin.
+func (s *Server) auditCtx(c *gin.Context, action, target, detail string) {
+	s.audit(c.GetString("admin"), action, target, detail, clientIP(c.Request))
+}
+
+// Router builds the HTTP handler: admin UI + API under the admin path,
+// public subscription/installer routes, and a decoy for everything else.
+func (s *Server) Router() http.Handler {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+	r.RemoveExtraSlash = true
+
+	// Public routes.
+	r.GET("/sub/:token", s.subscription)
+	r.GET("/install.sh", s.installScript)
+	r.GET("/download/:file", s.download)
+
+	admin := strings.TrimRight(s.cfg.AdminPath, "/")
+	api := r.Group(s.cfg.APIBase())
+	api.POST("/auth/login", s.login)
+	api.GET("/info", s.publicInfo)
+
+	p := api.Group("", s.authRequired)
+	p.GET("/ws", func(c *gin.Context) { s.handleWS(c.Writer, c.Request) })
+	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPI(r)) })
+	p.GET("/auth/me", s.me)
+	p.POST("/auth/password", s.changePassword)
+	p.POST("/auth/totp/setup", s.totpSetup)
+	p.POST("/auth/totp/enable", s.totpEnable)
+
+	p.GET("/nodes", s.listNodes)
+	p.POST("/nodes", s.createNode)
+	p.GET("/nodes/:id", s.getNode)
+	p.PUT("/nodes/:id", s.updateNode)
+	p.DELETE("/nodes/:id", s.deleteNode)
+	p.POST("/nodes/:id/install-token", s.installToken)
+	p.POST("/nodes/:id/sync", s.syncNode)
+	p.POST("/nodes/:id/rollback", s.rollbackNode)
+	p.POST("/nodes/:id/revoke", s.revokeNode)
+	p.GET("/nodes/:id/revisions", s.listRevisions)
+	p.GET("/nodes/:id/spec", s.nodeSpec)
+	p.GET("/nodes/:id/cores", s.listCores)
+	p.POST("/nodes/:id/cores", s.upsertCore)
+	p.DELETE("/cores/:id", s.deleteCore)
+	p.POST("/cores/:id/restart", s.restartCore)
+	p.GET("/cores/:id/logs", s.coreLogs)
+	p.GET("/capabilities", s.capabilities)
+
+	p.GET("/inbounds", s.listInbounds)
+	p.POST("/inbounds", s.createInbound)
+	p.GET("/inbounds/:id", s.getInbound)
+	p.PUT("/inbounds/:id", s.updateInbound)
+	p.DELETE("/inbounds/:id", s.deleteInbound)
+	p.GET("/inbounds/:id/preview", s.previewInbound)
+	p.GET("/inbounds/:id/endpoints", s.listEndpoints)
+	p.POST("/inbounds/:id/endpoints", s.createEndpoint)
+	p.DELETE("/inbounds/:id/endpoints/:eid", s.deleteEndpoint)
+
+	p.GET("/users", s.listUsers)
+	p.POST("/users", s.createUser)
+	p.POST("/users/bulk", s.bulkUsers)
+	p.GET("/users/:id", s.getUser)
+	p.PUT("/users/:id", s.updateUser)
+	p.DELETE("/users/:id", s.deleteUser)
+	p.POST("/users/:id/reset-traffic", s.resetUserTraffic)
+	p.POST("/users/:id/reset-token", s.resetUserToken)
+	p.GET("/users/:id/links", s.userLinks)
+
+	p.GET("/groups", s.listGroups)
+	p.POST("/groups", s.createGroup)
+	p.PUT("/groups/:id", s.updateGroup)
+	p.DELETE("/groups/:id", s.deleteGroup)
+
+	p.GET("/stats/overview", s.statsOverview)
+	p.GET("/stats/traffic", s.statsTraffic)
+
+	p.GET("/certificates", s.listCerts)
+	p.POST("/certificates", s.createCert)
+	p.DELETE("/certificates/:id", s.deleteCert)
+	p.POST("/certificates/:id/renew", s.renewCert)
+
+	p.GET("/cdn-profiles", s.listCDN)
+	p.POST("/cdn-profiles", s.createCDN)
+	p.PUT("/cdn-profiles/:id", s.updateCDN)
+	p.DELETE("/cdn-profiles/:id", s.deleteCDN)
+	p.POST("/cdn-profiles/:id/sync-dns", s.syncCDNDNS)
+	p.POST("/cdn-profiles/:id/refresh-ips", s.refreshCDNIPs)
+
+	p.GET("/chains", s.listChains)
+	p.POST("/chains", s.createChain)
+	p.PUT("/chains/:id", s.updateChain)
+	p.DELETE("/chains/:id", s.deleteChain)
+	p.POST("/chains/:id/probe", s.probeChain)
+	p.GET("/nodes/:id/outbounds", s.listOutbounds)
+	p.POST("/nodes/:id/outbounds", s.createOutbound)
+	p.PUT("/nodes/:id/outbounds/:oid", s.updateOutbound)
+	p.DELETE("/nodes/:id/outbounds/:oid", s.deleteOutbound)
+	p.GET("/nodes/:id/routing", s.getRouting)
+	p.PUT("/nodes/:id/routing", s.putRouting)
+
+	p.GET("/templates", s.listTemplates)
+	p.POST("/templates", s.createTemplate)
+	p.PUT("/templates/:id", s.updateTemplate)
+	p.DELETE("/templates/:id", s.deleteTemplate)
+	p.POST("/templates/:id/preview", s.previewTemplate)
+	p.POST("/templates/:id/apply", s.applyTemplate)
+	p.POST("/templates/:id/sync", s.syncTemplate)
+	p.POST("/templates/:id/bulk", s.bulkTemplateInbounds)
+
+	p.GET("/sub-templates", s.listSubTemplates)
+	p.PUT("/sub-templates/:id", s.updateSubTemplate)
+	p.GET("/settings", s.getSettings)
+	p.PUT("/settings", s.putSettings)
+	p.GET("/audit-logs", s.listAudit)
+
+	// Admin SPA.
+	if s.webFS != nil {
+		spa := s.spaHandler(admin)
+		r.GET(admin, spa)
+		if admin == "" {
+			r.NoRoute(func(c *gin.Context) {
+				if strings.HasPrefix(c.Request.URL.Path, "/api/") {
+					notFound(c)
+					return
+				}
+				spa(c)
+			})
+		} else {
+			r.GET(admin+"/*any", spa)
+		}
+	}
+	if admin != "" {
+		r.NoRoute(s.decoy())
+	}
+	return r
+}
+
+// spaHandler serves the embedded React build, falling back to index.html.
+func (s *Server) spaHandler(prefix string) gin.HandlerFunc {
+	fileServer := http.StripPrefix(prefix, http.FileServer(s.webFS))
+	return func(c *gin.Context) {
+		rel := strings.TrimPrefix(c.Request.URL.Path, prefix)
+		if rel == "" || rel == "/" || path.Ext(rel) == "" {
+			s.serveIndex(c, prefix)
+			return
+		}
+		f, err := s.webFS.Open(rel)
+		if err != nil {
+			s.serveIndex(c, prefix)
+			return
+		}
+		f.Close()
+		if strings.HasPrefix(rel, "/assets/") {
+			c.Header("Cache-Control", "public, max-age=31536000, immutable")
+		}
+		fileServer.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func (s *Server) serveIndex(c *gin.Context, prefix string) {
+	f, err := s.webFS.Open("/index.html")
+	if err != nil {
+		c.String(http.StatusOK, "Polaris API is running; frontend not built.")
+		return
+	}
+	defer f.Close()
+	b, _ := io.ReadAll(f)
+	base := prefix + "/"
+	inject := `<script>window.__POLARIS_BASE__=` + jsString(base) + `;</script>`
+	b = bytes.Replace(b, []byte("<head>"), []byte("<head><base href=\""+base+"\">"+inject), 1)
+	c.Header("Cache-Control", "no-cache")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", b)
+}
+
+func jsString(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "<", `<`)
+	return `"` + r.Replace(s) + `"`
+}
+
+// decoy answers unknown paths with 404 or a reverse-proxied camouflage site.
+func (s *Server) decoy() gin.HandlerFunc {
+	if u, err := url.Parse(s.cfg.Decoy); err == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		proxy := httputil.NewSingleHostReverseProxy(u)
+		orig := proxy.Director
+		proxy.Director = func(r *http.Request) {
+			orig(r)
+			r.Host = u.Host
+		}
+		return func(c *gin.Context) { proxy.ServeHTTP(c.Writer, c.Request) }
+	}
+	return func(c *gin.Context) { c.String(http.StatusNotFound, "404 page not found") }
+}
+
+func (s *Server) publicInfo(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version})
+}
+
+// download serves agent binaries placed in <data_dir>/downloads.
+func (s *Server) download(c *gin.Context) {
+	name := filepath.Base(c.Param("file"))
+	if !strings.HasPrefix(name, "polaris-agent") {
+		notFound(c)
+		return
+	}
+	p := filepath.Join(s.cfg.DataDir, "downloads", name)
+	if _, err := os.Stat(p); err != nil {
+		notFound(c)
+		return
+	}
+	c.FileAttachment(p, name)
+}
+
+// openAPI describes the registered routes (generated from the router).
+func (s *Server) openAPI(r *gin.Engine) map[string]any {
+	paths := map[string]map[string]any{}
+	base := s.cfg.APIBase()
+	routes := r.Routes()
+	sort.Slice(routes, func(i, j int) bool { return routes[i].Path < routes[j].Path })
+	for _, rt := range routes {
+		if !strings.HasPrefix(rt.Path, base) {
+			continue
+		}
+		p := strings.TrimPrefix(rt.Path, base)
+		var params []map[string]any
+		parts := strings.Split(p, "/")
+		for i, seg := range parts {
+			if strings.HasPrefix(seg, ":") {
+				params = append(params, map[string]any{"name": seg[1:], "in": "path", "required": true, "schema": map[string]string{"type": "string"}})
+				parts[i] = "{" + seg[1:] + "}"
+			}
+		}
+		p = strings.Join(parts, "/")
+		if paths[p] == nil {
+			paths[p] = map[string]any{}
+		}
+		op := map[string]any{"operationId": strings.ToLower(rt.Method) + strings.ReplaceAll(strings.ReplaceAll(p, "/", "_"), "{", ""),
+			"responses": map[string]any{"200": map[string]string{"description": "OK"}}}
+		if len(params) > 0 {
+			op["parameters"] = params
+		}
+		if p != "/auth/login" && p != "/info" {
+			op["security"] = []map[string][]string{{"bearer": {}}}
+		}
+		paths[p][strings.ToLower(rt.Method)] = op
+	}
+	return map[string]any{
+		"openapi": "3.0.3",
+		"info":    map[string]string{"title": "Polaris API", "version": Version},
+		"servers": []map[string]string{{"url": base}},
+		"paths":   paths,
+		"components": map[string]any{"securitySchemes": map[string]any{
+			"bearer": map[string]string{"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}}},
+	}
+}
+
+// WebFS adapts an fs.FS (the embedded build) for the server.
+func WebFS(f fs.FS) http.FileSystem { return http.FS(f) }
