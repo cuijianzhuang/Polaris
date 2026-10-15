@@ -79,6 +79,9 @@ func (s *Server) Router() http.Handler {
 	admin := strings.TrimRight(s.cfg.AdminPath, "/")
 	api := r.Group(s.cfg.APIBase())
 	api.POST("/auth/login", s.login)
+	api.POST("/auth/github/login-url", s.githubLoginURL)
+	api.GET("/auth/github/callback", s.githubCallback)
+	api.POST("/auth/github/totp", s.githubTOTP)
 	api.GET("/info", s.publicInfo)
 
 	p := api.Group("", s.authRequired)
@@ -88,6 +91,9 @@ func (s *Server) Router() http.Handler {
 	p.POST("/auth/password", s.changePassword)
 	p.POST("/auth/totp/setup", s.totpSetup)
 	p.POST("/auth/totp/enable", s.totpEnable)
+	p.GET("/auth/github", s.githubInfo)
+	p.POST("/auth/github/bind-url", s.githubBindURL)
+	p.POST("/auth/github/unbind", s.githubUnbind)
 
 	p.GET("/nodes", s.listNodes)
 	p.POST("/nodes", s.createNode)
@@ -129,6 +135,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/users", s.listUsers)
 	p.POST("/users", s.createUser)
 	p.POST("/users/bulk", s.bulkUsers)
+	p.GET("/users/:id/sub-check", s.subDiagnose)
 	p.GET("/users/:id", s.getUser)
 	p.PUT("/users/:id", s.updateUser)
 	p.DELETE("/users/:id", s.deleteUser)
@@ -299,7 +306,7 @@ func (s *Server) decoy() gin.HandlerFunc {
 }
 
 func (s *Server) publicInfo(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version})
+	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version, "githubLogin": s.githubEnabled()})
 }
 
 // download serves agent binaries placed in <data_dir>/downloads.
@@ -345,7 +352,7 @@ func (s *Server) openAPI(r *gin.Engine) map[string]any {
 		if len(params) > 0 {
 			op["parameters"] = params
 		}
-		if p != "/auth/login" && p != "/info" {
+		if p != "/auth/login" && p != "/info" && !strings.HasPrefix(p, "/auth/github/") || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
 			op["security"] = []map[string][]string{{"bearer": {}}}
 		}
 		paths[p][strings.ToLower(rt.Method)] = op

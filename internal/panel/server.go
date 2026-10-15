@@ -59,6 +59,7 @@ type Server struct {
 	callbacks    callbackStore
 	nodeUserSets nodeUsersCache
 	schemes      schemeCache
+	ghAuth       githubAuth
 	webFS        http.FileSystem
 	bg           context.Context
 	sinks        []chan Event

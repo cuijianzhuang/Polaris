@@ -27,6 +27,7 @@ type userReq struct {
 	GroupIDs        []string   `json:"groupIds"`
 	NodeIDs         []string   `json:"nodeIds"`    // nil = unchanged on update
 	InboundIDs      []string   `json:"inboundIds"` // nil = unchanged on update
+	TelegramID      *int64     `json:"telegramId"` // nil = unchanged, 0 = unbind
 	UUID            string     `json:"uuid"`
 	Password        string     `json:"password"`
 }
@@ -170,7 +171,20 @@ func (s *Server) createUser(c *gin.Context) {
 		return
 	}
 	u := newUser(&req)
+	if req.TelegramID != nil && *req.TelegramID < 0 {
+		badRequest(c, fmt.Errorf("Telegram User ID 无效"))
+		return
+	}
+	if req.TelegramID != nil {
+		u.TelegramID = *req.TelegramID
+	}
+	if req.GroupIDs == nil && req.NodeIDs == nil && req.InboundIDs == nil {
+		req.GroupIDs = s.defaultGroupIDs() // outside the transaction (single SQLite connection)
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if u.TelegramID != 0 { // one account per Telegram user, as with /bind
+			tx.Model(&store.User{}).Where("telegram_id = ?", u.TelegramID).Update("telegram_id", 0)
+		}
 		if err := tx.Create(&u).Error; err != nil {
 			return err
 		}
@@ -359,6 +373,13 @@ func (s *Server) updateUser(c *gin.Context) {
 	if req.Password != "" {
 		u.Password = req.Password
 	}
+	if req.TelegramID != nil {
+		if *req.TelegramID < 0 {
+			badRequest(c, fmt.Errorf("Telegram User ID 无效"))
+			return
+		}
+		u.TelegramID = *req.TelegramID
+	}
 	switch req.Status {
 	case "disabled":
 		u.Status = "disabled"
@@ -367,6 +388,9 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	u.Status = computeStatus(&u, time.Now())
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if u.TelegramID != 0 {
+			tx.Model(&store.User{}).Where("telegram_id = ? AND id <> ?", u.TelegramID, u.ID).Update("telegram_id", 0)
+		}
 		if err := tx.Save(&u).Error; err != nil {
 			return err
 		}

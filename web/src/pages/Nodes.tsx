@@ -200,14 +200,14 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1,
-    defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false,
+    defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
   })
   const { busy, run } = useAction()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
     const body: any = {
       name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate),
-      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns,
+      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall,
     }
     if (node) {
       await put('/nodes/' + node.id, body)
@@ -228,12 +228,15 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
       <div className="form-grid">
         <Field label="名称" htmlFor="n-name"><input id="n-name" className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="tokyo-1" /></Field>
         <Field label="地区" htmlFor="n-region"><input id="n-region" className="input" value={f.region} onChange={(e) => set('region', e.target.value)} placeholder="东京" /></Field>
-        <Field label="公网地址" htmlFor="n-addr" hint="订阅里客户端连接的 IP 或域名"><input id="n-addr" className="input mono" value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="203.0.113.10" /></Field>
+        <Field label="公网地址" htmlFor="n-addr" hint="订阅里客户端连接的 IP 或域名；留空则使用 Agent 自动检测到的公网 IP"><input id="n-addr" className="input mono" value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="203.0.113.10" /></Field>
         <Field label="节点域名" htmlFor="n-domain" hint="用于 ACME 证书与 {node.domain}"><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
         <Field label="国家代码" htmlFor="n-flag" hint="如 JP，订阅显示旗帜"><input id="n-flag" className="input mono" maxLength={2} value={f.flag} onChange={(e) => set('flag', e.target.value.toUpperCase())} /></Field>
         <Field label="流量倍率" htmlFor="n-rate" hint="结算时按倍率换算"><input id="n-rate" className="input mono" type="number" step="0.1" min="0.1" value={f.trafficRate} onChange={(e) => set('trafficRate', e.target.value)} /></Field>
         <Field label="DDNS" full hint="开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP">
           <label className="row small"><Switch label="DDNS" on={f.ddns} onChange={(v) => set('ddns', v)} />自动跟随节点公网 IP</label>
+        </Field>
+        <Field label="防火墙" full hint="Agent 自动在节点的 ufw / firewalld / iptables 中放行入站端口，删除入站后收回；只关闭自己放行的端口，不动已有规则。云厂商的安全组（如 Oracle 安全列表、AWS 安全组）需在云控制台另行放行">
+          <label className="row small"><Switch label="自动放行端口" on={f.firewall} onChange={(v) => set('firewall', v)} />自动放行入站端口</label>
         </Field>
         <Field label="标签" htmlFor="n-labels" full hint="逗号分隔；模板可绑定标签，新节点上线后自动套用"><input id="n-labels" className="input" value={f.labels} onChange={(e) => set('labels', e.target.value)} placeholder="asia, cn2" /></Field>
       </div>
@@ -364,7 +367,7 @@ export default function Nodes() {
               return (
                 <button key={n.id} type="button" className={'ncard' + (sel?.id === n.id ? ' on' : '')} aria-pressed={sel?.id === n.id} onClick={() => setSelId(n.id)}>
                   <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
-                  <div className="sub">{[n.region, n.address].filter(Boolean).join(' · ') || '未填写地址'} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
+                  <div className="sub">{[n.region, n.address || n.domain || (n.publicIpv4 || n.publicIpv6 ? `${n.publicIpv4 || n.publicIpv6}（自动检测）` : '')].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
                     {upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) && <span className="tag warn">可升级</span>}</div>
                 </button>
               )

@@ -126,6 +126,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	}
 	a.current = spec
 	a.saveSpec(spec)
+	a.syncFirewall(ctx, spec)
 	return applyResult{ok: true, method: method}
 }
 
@@ -348,4 +349,19 @@ func (a *Agent) loadSpec() *model.NodeSpec {
 		return nil
 	}
 	return &s
+}
+
+// syncFirewall opens / closes host firewall ports for the applied spec. It
+// never fails the apply: a firewall problem is logged, the cores keep running.
+func (a *Agent) syncFirewall(ctx context.Context, spec *model.NodeSpec) {
+	if a.fw == nil {
+		return
+	}
+	summary, err := a.fw.Sync(ctx, spec, spec.AutoFirewall)
+	if summary != "" {
+		a.log.Info("firewall updated", "changes", summary)
+	}
+	if err != nil {
+		a.log.Warn("firewall update incomplete", "err", err)
+	}
 }

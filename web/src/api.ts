@@ -69,3 +69,19 @@ export function wsURL(): string {
   u.searchParams.set('token', getToken() ?? '')
   return u.toString()
 }
+
+// The GitHub sign-in round trip comes back with its result in the URL
+// fragment (never sent to the server). Read it once and clear the address bar.
+export type OAuthResult = { token?: string; user?: string; error?: string; ticket?: string; bound?: string }
+let oauthResult: OAuthResult | null = null
+export function takeOAuthResult(): OAuthResult {
+  if (oauthResult === null) {
+    const h = new URLSearchParams(location.hash.replace(/^#/, ''))
+    oauthResult = { token: h.get('token') ?? undefined, user: h.get('user') ?? undefined, error: h.get('gh_error') ?? undefined,
+      ticket: h.get('gh_ticket') ?? undefined, bound: h.get('gh_bound') ?? undefined }
+    if (h.has('token') || h.has('gh_error') || h.has('gh_ticket') || h.has('gh_bound')) {
+      history.replaceState(null, '', location.pathname + location.search)
+    }
+  }
+  return oauthResult
+}

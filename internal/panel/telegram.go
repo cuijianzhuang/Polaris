@@ -236,7 +236,14 @@ func (b *tgBot) poll(ctx context.Context, token, base string) {
 		err := b.call(pctx, "getUpdates", map[string]any{"offset": offset, "timeout": b.pollTimeout(), "allowed_updates": []string{"message", "callback_query"}}, &ups)
 		cancel()
 		if err != nil {
-			b.setRunning(false, err.Error())
+			msg := err.Error()
+			if strings.Contains(msg, "Conflict") || strings.Contains(msg, "terminated by other getUpdates") {
+				// Another process polls the same bot: messages go to whichever
+				// asks first, e.g. an old panel still running after a reinstall,
+				// which then answers with its own (different) accounts.
+				msg = "另一个程序正在使用同一个 Bot Token 接收消息（常见于重装后旧面板仍在运行，或另一台服务器配置了同一个机器人）。同一个机器人只能由一个面板使用：请停掉另一处，或为本面板创建新的机器人。"
+			}
+			b.setRunning(false, msg)
 			return
 		}
 		b.setRunning(true, "")
@@ -470,21 +477,16 @@ func (b *tgBot) bind(chat int64, from tgUser, arg string, id tgIdentity) {
 		b.send(chat, "✅ 已绑定为"+map[string]string{"owner": "超级管理员", "operator": "节点管理员"}[code.Role]+"。发送 /help 查看命令。")
 		return
 	}
-	tok := arg
-	if i := strings.LastIndex(tok, "/sub/"); i >= 0 {
-		tok = tok[i+5:]
-	}
-	tok = strings.SplitN(strings.SplitN(tok, "?", 2)[0], "#", 2)[0]
-	var u store.User
-	if len(tok) < 16 || b.s.st.DB.First(&u, "sub_token = ? AND is_service = ?", tok, false).Error != nil {
-		b.send(chat, "未找到该订阅对应的账号，请检查链接")
+	u, problem := b.s.userFromSubLink(arg)
+	if u == nil {
+		b.send(chat, problem)
 		return
 	}
 	b.s.st.DB.Model(&store.User{}).Where("telegram_id = ?", chat).Update("telegram_id", 0)
-	b.s.st.DB.Model(&u).Update("telegram_id", chat)
+	b.s.st.DB.Model(u).Update("telegram_id", chat)
 	b.s.audit("telegram", "tg.user_bind", u.Username, fmt.Sprintf("chat %d", chat), "")
 	u.TelegramID = chat
-	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(&u), userButtons(&u)...)
+	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(u), userButtons(u)...)
 }
 
 // --- user views ---

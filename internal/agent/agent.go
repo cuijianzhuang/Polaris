@@ -77,7 +77,8 @@ type Agent struct {
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
 	wantRev chan int64
 
-	acme acmeHTTP // ACME HTTP-01 challenge server (panel-driven)
+	acme acmeHTTP  // ACME HTTP-01 challenge server (panel-driven)
+	fw   *firewall // host firewall rules for the spec's ports
 
 	restartMu sync.Mutex
 	restart   bool // set by a self-update: Run returns ErrRestart
@@ -108,6 +109,7 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	}
 	a.id = id
 	a.client = polarisv1connect.NewAgentServiceClient(httpClient(id.tlsConfig()), cfg.PanelURL, connect.WithGRPC())
+	a.fw = newFirewall(cfg.DataDir)
 	a.installer = &Installer{Dir: filepath.Join(cfg.DataDir, "cores"), Mirror: cfg.Mirror, AllowUnverified: cfg.AllowUnverified}
 	if !cfg.DisableIPDetect {
 		a.ips = newIPDetector(cfg.IPEcho4, cfg.IPEcho6, 0)

@@ -1,4 +1,6 @@
-# Polaris
+<p align="center"><img src="docs/brand/polaris-icon.svg" width="112" alt="Polaris"></p>
+
+<h1 align="center">Polaris</h1>
 
 多内核代理面板：一个主控管理 N 台服务器，每台运行一个 Agent，Agent 通过统一的内核适配层同时驱动 **Xray-core** 与 **sing-box**（并预留 Hysteria2 官方服务端、mihomo）。用户、入站、订阅在主控上只定义一次，由适配器翻译成各内核自己的配置。
 
@@ -33,7 +35,7 @@
 | CDN | 入站可挂多个入口（直连 / CDN / 中转）；CDN 配置档含优选 IP（手填或定时拉取、可按 IP 展开）；Cloudflare 集成：自动建代理 DNS 记录、SSL 设为 Full (strict)、签发 Origin 证书并下发 |
 | 链式代理 | L4 端口转发（realm，不解密）与协议中转（自动创建服务账号、出站与路由）；节点出站可经 WARP / 住宅 SOCKS / 面板内其他节点（`detour` 串链）；路由规则、urltest / selector 出站组；链路探测 |
 | 入站模板 | 内置「REALITY 直连」「Hy2 + TUIC」「CDN WS 备用」「全协议」；选模板 → 选节点 → 预览（改派内核、端口冲突自动调整、跳过原因）→ 生成；改模板后差异同步，手动改过的字段保留；节点标签绑定模板，新节点上线自动套用 |
-| 安全 | 主控 ↔ Agent 全程 mTLS（内置 CA，首次接入用一次性 token + CA 指纹钉扎，可吊销）；后台路径自定义，其余路径 404 或反代伪装站；bcrypt + TOTP + 5 次失败锁 15 分钟；REALITY 私钥 / 证书私钥 / SS 主密钥 / API Token 以 AES-GCM 加密存库；订阅 token 32 字节、接口限速；Agent 只执行结构化指令；内核下载校验官方 SHA256；全部写操作记审计日志 |
+| 安全 | 主控 ↔ Agent 全程 mTLS（内置 CA，首次接入用一次性 token + CA 指纹钉扎，可吊销）；后台路径自定义，其余路径 404 或反代伪装站；bcrypt + TOTP + 5 次失败锁 15 分钟；管理员可绑定 GitHub 账号免密登录（开启二次验证的仍需输入验证码）；REALITY 私钥 / 证书私钥 / SS 主密钥 / API Token 以 AES-GCM 加密存库；订阅 token 32 字节、接口限速；Agent 只执行结构化指令；内核下载校验官方 SHA256；全部写操作记审计日志 |
 
 ## 快速开始
 
@@ -161,6 +163,7 @@ cd web && npm run dev   # 前端开发服务器，/api 代理到 127.0.0.1:8080
 
 - `POLARIS_SECRET_KEY` 至少 16 位随机字符，示例值会被拒绝；`POLARIS_ADMIN_PATH` 请设为难猜的路径（为 `/` 时启动会告警）。
 - 主控前面放 Caddy / Nginx 终止 HTTPS；只信任来自本机或内网反代的 `X-Forwarded-For`（取最右一项）。
+- GitHub 登录：在 GitHub → Settings → Developer settings → OAuth Apps 新建应用，Authorization callback URL 填「设置 → GitHub 登录」中显示的回调地址，把 Client ID / Secret 填回该处；用密码登录后点「绑定 GitHub」，之后登录页即可「使用 GitHub 登录」。
 - Telegram 机器人只在私聊中响应；修改密码会让其他会话全部失效；重新绑定 TOTP 时旧验证器在新验证器确认前一直有效。
 - Agent 安装脚本会校验二进制 SHA-256（主控提供的文件用主控下发的校验值，GitHub 回退用对应版本的 `checksums.txt`）。
 

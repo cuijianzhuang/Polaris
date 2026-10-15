@@ -31,7 +31,8 @@ type Node struct {
 	CertSerial   string           `gorm:"size:64" json:"-"`
 	Revoked      bool             `json:"revoked"`
 	SortOrder    int              `json:"sortOrder"`
-	DDNS         bool             `json:"ddns"` // follow the agent-detected public IP
+	DDNS         bool             `json:"ddns"`       // follow the agent-detected public IP
+	NoFirewall   bool             `json:"noFirewall"` // don't let the agent manage host firewall ports
 	PublicIPv4   string           `gorm:"size:64" json:"publicIpv4"`
 	PublicIPv6   string           `gorm:"size:64" json:"publicIpv6"`
 	IPChangedAt  *time.Time       `json:"ipChangedAt"`
@@ -140,6 +141,7 @@ type Group struct {
 	ID         string    `gorm:"primaryKey;size:32" json:"id"`
 	Name       string    `gorm:"size:64;uniqueIndex" json:"name"`
 	Remark     string    `gorm:"size:255" json:"remark"`
+	IsDefault  bool      `json:"isDefault"` // new users and inbounds join it unless told otherwise
 	InboundIDs []string  `gorm:"-" json:"inboundIds"`
 	UserCount  int64     `gorm:"-" json:"userCount"`
 	CreatedAt  time.Time `json:"createdAt"`
@@ -220,6 +222,8 @@ type Admin struct {
 	FailedAttempts int        `json:"-"`
 	LockedUntil    *time.Time `json:"-"`
 	LastLoginAt    *time.Time `json:"lastLoginAt"`
+	GitHubID       int64      `gorm:"index" json:"-"`             // bound GitHub account (sign-in)
+	GitHubLogin    string     `gorm:"size:64" json:"githubLogin"` // its username, for display
 	CreatedAt      time.Time  `json:"createdAt"`
 }
 

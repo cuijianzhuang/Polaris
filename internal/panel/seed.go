@@ -92,7 +92,7 @@ func (s *Server) seed() error {
 			}
 		}
 	}
-	return nil
+	return s.ensureDefaultGroup()
 }
 
 func builtinTemplates() []store.InboundTemplate {

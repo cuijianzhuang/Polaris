@@ -34,6 +34,8 @@ jobs:
           POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
+      - name: Firewall test with real iptables (isolated network namespace)
+        run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
   web:
     runs-on: ubuntu-latest
     steps:

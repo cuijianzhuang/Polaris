@@ -88,8 +88,11 @@ type NodeSpec struct {
 	Fronts      []FrontRule   `json:"fronts,omitempty"`
 	// IPLimits maps user id -> max concurrent source IPs (0 = unlimited);
 	// the agent uses it to raise alerts.
-	IPLimits  map[string]int `json:"ipLimits,omitempty"`
-	CreatedAt time.Time      `json:"createdAt"`
+	IPLimits map[string]int `json:"ipLimits,omitempty"`
+	// AutoFirewall lets the agent open the spec's ports in the host
+	// firewall (ufw / firewalld / iptables) and close them again.
+	AutoFirewall bool      `json:"autoFirewall,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // InboundsFor returns the enabled inbounds hosted by the given core.

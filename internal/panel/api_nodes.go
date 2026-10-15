@@ -83,6 +83,7 @@ type nodeReq struct {
 	TrafficRate float64          `json:"trafficRate"`
 	SortOrder   int              `json:"sortOrder"`
 	DDNS        bool             `json:"ddns"`
+	NoFirewall  bool             `json:"noFirewall"`
 	Cores       []model.CoreSpec `json:"cores"`
 }
 
@@ -103,7 +104,7 @@ func (s *Server) createNode(c *gin.Context) {
 	}
 	n := store.Node{ID: store.NewID(), Name: req.Name, Address: req.Address, Domain: req.Domain, Region: req.Region,
 		Flag: strings.ToUpper(req.Flag), Labels: store.NewJSON(nonNilStrs(req.Labels)), DefaultCore: req.DefaultCore,
-		TrafficRate: req.TrafficRate, SortOrder: req.SortOrder, Status: "pending", DDNS: req.DDNS}
+		TrafficRate: req.TrafficRate, SortOrder: req.SortOrder, Status: "pending", DDNS: req.DDNS, NoFirewall: req.NoFirewall}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&n).Error; err != nil {
 			return err
@@ -145,7 +146,7 @@ func (s *Server) updateNode(c *gin.Context) {
 	}
 	addrChanged := n.Address != req.Address || n.Domain != req.Domain
 	upd := map[string]any{"name": req.Name, "address": req.Address, "domain": req.Domain, "region": req.Region,
-		"flag": strings.ToUpper(req.Flag), "labels": store.NewJSON(nonNilStrs(req.Labels)), "sort_order": req.SortOrder, "ddns": req.DDNS}
+		"flag": strings.ToUpper(req.Flag), "labels": store.NewJSON(nonNilStrs(req.Labels)), "sort_order": req.SortOrder, "ddns": req.DDNS, "no_firewall": req.NoFirewall}
 	if req.TrafficRate > 0 {
 		upd["traffic_rate"] = req.TrafficRate
 	}
@@ -156,6 +157,9 @@ func (s *Server) updateNode(c *gin.Context) {
 	if err := s.st.DB.Model(&n).Updates(upd).Error; err != nil {
 		dbError(c, err)
 		return
+	}
+	if n.NoFirewall != req.NoFirewall {
+		s.MarkDirty("firewall management changed", n.ID)
 	}
 	if addrChanged {
 		// Upstream nodes reference this node's address in their outbounds/forwards.
