@@ -195,7 +195,7 @@ func (s *Server) profileNodes(ctx context.Context, p *store.SubProfile) ([]sub.N
 		}
 	}
 	ops := p.Operators.V
-	if p.UseGlobalOps || len(ops) == 0 {
+	if p.UseGlobalOps {
 		ops = append(s.globalOperators(), ops...)
 	}
 	out, err := sub.ApplyChain(nodes, ops)

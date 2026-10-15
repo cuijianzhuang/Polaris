@@ -119,6 +119,7 @@ curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <一次性 
 | `POLARIS_REDIS_URL` | 流量计数缓冲 | 内存 |
 | `POLARIS_DECOY` | 非后台路径反代到的伪装站 | 返回 404 |
 | `POLARIS_SUB_RATE_LIMIT` | 订阅接口每 IP 每分钟请求数 | 30 |
+| `POLARIS_TRUSTED_PROXIES` | 信任其 `X-Forwarded-For` 的反代地址（IP 或 CIDR，逗号分隔） | 本机与内网地址 |
 
 ACME（Let's Encrypt）在后台「设置」填写邮箱即可启用：
 
@@ -162,7 +163,7 @@ cd web && npm run dev   # 前端开发服务器，/api 代理到 127.0.0.1:8080
 发布前做过一轮安全复查，修复项都有回归测试（`internal/panel/security_test.go`）。部署时请注意：
 
 - `POLARIS_SECRET_KEY` 至少 16 位随机字符，示例值会被拒绝；`POLARIS_ADMIN_PATH` 请设为难猜的路径（为 `/` 时启动会告警）。
-- 主控前面放 Caddy / Nginx 终止 HTTPS；只信任来自本机或内网反代的 `X-Forwarded-For`（取最右一项）。
+- 主控前面放 Caddy / Nginx 终止 HTTPS；只信任来自本机或内网反代的 `X-Forwarded-For`（取最右一项）；若主控端口能被内网其他机器或 Docker 网关直连，请用 `POLARIS_TRUSTED_PROXIES` 只列出真正的反代地址。
 - GitHub 登录：在 GitHub → Settings → Developer settings → OAuth Apps 新建应用，Authorization callback URL 填「设置 → GitHub 登录」中显示的回调地址，把 Client ID / Secret 填回该处；用密码登录后点「绑定 GitHub」，之后登录页即可「使用 GitHub 登录」。
 - Telegram 机器人只在私聊中响应；修改密码会让其他会话全部失效；重新绑定 TOTP 时旧验证器在新验证器确认前一直有效。
 - Agent 安装脚本会校验二进制 SHA-256（主控提供的文件用主控下发的校验值，GitHub 回退用对应版本的 `checksums.txt`）。

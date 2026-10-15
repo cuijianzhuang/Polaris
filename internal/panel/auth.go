@@ -73,6 +73,7 @@ func (s *Server) authRequired(c *gin.Context) {
 	}
 	c.Set("admin", cl.Username)
 	c.Set("adminID", cl.Subject)
+	c.Set("tokenVersion", cl.Version)
 	c.Next()
 }
 
@@ -102,14 +103,7 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 	fail := func(msg string) {
-		a.FailedAttempts++
-		upd := map[string]any{"failed_attempts": a.FailedAttempts}
-		if a.FailedAttempts >= maxLoginFailures {
-			t := now.Add(lockDuration)
-			upd["locked_until"] = t
-			upd["failed_attempts"] = 0
-		}
-		s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(upd)
+		s.countLoginFailure(&a, now)
 		s.audit(a.Username, "admin.login_failed", a.Username, msg, clientIP(c.Request))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 	}
@@ -228,4 +222,20 @@ func (s *Server) totpEnable(c *gin.Context) {
 	}
 	s.auditCtx(c, "admin.totp", a.Username, map[bool]string{true: "enabled", false: "disabled"}[req.Enable])
 	c.Status(http.StatusNoContent)
+}
+
+// countLoginFailure records a failed sign-in (password, TOTP, or the TOTP step
+// of a GitHub sign-in) and locks the account after maxLoginFailures.
+func (s *Server) countLoginFailure(a *store.Admin, now time.Time) {
+	a.FailedAttempts++
+	upd := map[string]any{"failed_attempts": a.FailedAttempts}
+	if a.FailedAttempts >= maxLoginFailures {
+		upd["locked_until"] = now.Add(lockDuration)
+		upd["failed_attempts"] = 0
+	}
+	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(upd)
+}
+
+func lockedOut(a *store.Admin, now time.Time) bool {
+	return a.LockedUntil != nil && now.Before(*a.LockedUntil)
 }

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +43,9 @@ type Config struct {
 	} `koanf:"initial_admin"`
 	// SubRateLimit is the per-IP subscription request rate (requests/minute).
 	SubRateLimit int `koanf:"sub_rate_limit"`
+	// TrustedProxies lists the reverse proxies (IPs or CIDRs) whose
+	// X-Forwarded-For is trusted. Empty: any loopback or private peer.
+	TrustedProxies []string `koanf:"trusted_proxies"`
 	// Decoy is served for unknown paths: "404" (default) or a URL to reverse-proxy.
 	Decoy string `koanf:"decoy"`
 }
@@ -73,6 +77,25 @@ func LoadConfig(path string) (*Config, error) {
 	if v := k.String("agent_hosts"); v != "" && len(c.AgentHosts) <= 1 {
 		c.AgentHosts = splitList(v)
 	}
+	if v := k.String("trusted_proxies"); v != "" && len(c.TrustedProxies) <= 1 {
+		c.TrustedProxies = splitList(v)
+	}
+	trusted := make([]*net.IPNet, 0, len(c.TrustedProxies))
+	for _, p := range c.TrustedProxies {
+		if !strings.Contains(p, "/") {
+			if ip := net.ParseIP(p); ip != nil && ip.To4() != nil {
+				p += "/32"
+			} else {
+				p += "/128"
+			}
+		}
+		_, n, err := net.ParseCIDR(p)
+		if err != nil {
+			return nil, fmt.Errorf("trusted_proxies: %q: %w", p, err)
+		}
+		trusted = append(trusted, n)
+	}
+	trustedProxies = trusted
 	c.AdminPath = "/" + strings.Trim(c.AdminPath, "/")
 	if c.DB.DSN == "" {
 		c.DB.DSN = filepath.Join(c.DataDir, "polaris.db")

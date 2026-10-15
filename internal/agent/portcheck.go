@@ -75,11 +75,13 @@ func orDefault(v, d string) string {
 }
 
 // portConflicts returns the ports next needs that are neither held by our
-// own cores (prev, the applied spec) nor free to bind.
-func portConflicts(prev, next *model.NodeSpec) []string {
+// own cores (the specs they run) nor free to bind.
+func portConflicts(held []*model.NodeSpec, next *model.NodeSpec) []string {
 	ours := map[string]bool{}
-	for _, p := range portsOf(prev) {
-		ours[p.key()] = true
+	for _, s := range held {
+		for _, p := range portsOf(s) {
+			ours[p.key()] = true
+		}
 	}
 	var msgs []string
 	checked := map[string]bool{}

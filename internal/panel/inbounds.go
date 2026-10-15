@@ -70,6 +70,9 @@ func (s *Server) prepareInbound(m *model.Inbound) error {
 				return err
 			}
 			m.Protocol.ServerKey = k
+		} else if m.Protocol.ServerKey == "" {
+			// Legacy ciphers: only mihomo's single-user listener uses it.
+			m.Protocol.ServerKey = pki.Password(16)
 		}
 	}
 	switch m.Transport.Type {
@@ -145,6 +148,12 @@ func (s *Server) assignCore(node *store.Node, m *model.Inbound) error {
 // portConflict reports another inbound or relay forward using the same port
 // and L4 network on the node.
 func (s *Server) portConflict(nodeID string, m *model.Inbound, excludeID string) error {
+	return s.portConflictExcept(nodeID, m, excludeID, "")
+}
+
+// portConflictExcept is portConflict ignoring the hops of one chain (the
+// chain being edited).
+func (s *Server) portConflictExcept(nodeID string, m *model.Inbound, excludeID, excludeChain string) error {
 	var ins []store.Inbound
 	if err := s.st.DB.Where("node_id = ? AND port = ? AND id <> ?", nodeID, m.Port, excludeID).Find(&ins).Error; err != nil {
 		return err
@@ -161,6 +170,9 @@ func (s *Server) portConflict(nodeID string, m *model.Inbound, excludeID string)
 		return err
 	}
 	for _, c := range chains {
+		if c.ID == excludeChain {
+			continue
+		}
 		for _, h := range c.Hops.V {
 			if h.NodeID == nodeID && h.Port == m.Port && h.InboundID == "" {
 				return fmt.Errorf("port %d is used by relay chain %s", m.Port, c.Name)
@@ -231,4 +243,19 @@ func (s *Server) tlsInsecure(certID string) bool {
 		return false
 	}
 	return c.Provider == "selfsigned"
+}
+
+// ssClientPassword is the password a client (or chain hop) uses for a
+// shadowsocks inbound. mihomo's listener is single-user, so everyone uses
+// the server key there; other cores take the 2022 "server:user" pair or the
+// user's own legacy key.
+func ssClientPassword(m *model.Inbound, u *model.User) string {
+	if m.Core == model.CoreMihomo {
+		return m.Protocol.ServerKey
+	}
+	pw := u.SSKey(m.Protocol.Method)
+	if model.SS2022KeyLen(m.Protocol.Method) > 0 {
+		pw = m.Protocol.ServerKey + ":" + pw
+	}
+	return pw
 }

@@ -85,6 +85,7 @@ type Inbound struct {
 	Extra            json.RawMessage           `gorm:"type:text" json:"extra,omitempty"`
 	Enabled          bool                      `json:"enabled"`
 	TemplateID       string                    `gorm:"size:32;index" json:"templateId,omitempty"`
+	TemplateItemKey  string                    `gorm:"size:64" json:"templateItemKey,omitempty"` // which template item generated it
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
 	ServiceOnly      bool                      `json:"serviceOnly"`                // relay-only inbound, hidden from subscriptions
 	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound

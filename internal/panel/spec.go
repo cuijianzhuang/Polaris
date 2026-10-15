@@ -303,6 +303,11 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 		return nil, fmt.Errorf("service account: %w", err)
 	}
 	m := s.toModelInbound(&in)
+	if master := s.fallbackMasters([]string{in.NodeID})[in.ID]; master != nil {
+		// Fallback child: reachable only through the master's port and TLS.
+		mm := s.toModelInbound(master)
+		m.Port, m.Security = mm.Port, mm.Security
+	}
 	set := model.OutboundSettings{Server: nodeHost(&target), Port: m.Port}
 	var typ model.OutboundType
 	switch m.Protocol.Type {
@@ -315,12 +320,12 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 	case model.ProtoShadowsocks:
 		typ, set.Method = model.OutShadowsocks, m.Protocol.Method
 		u := svc.ToModel()
-		set.Password = u.SSKey(m.Protocol.Method)
-		if model.SS2022KeyLen(m.Protocol.Method) > 0 {
-			set.Password = m.Protocol.ServerKey + ":" + set.Password
-		}
+		set.Password = ssClientPassword(&m, &u)
 	case model.ProtoHysteria2:
 		typ, set.Password, set.ObfsPassword = model.OutHysteria2, svc.Password, m.Protocol.ObfsPassword
+		if m.Protocol.Obfs == "" {
+			set.ObfsPassword = ""
+		}
 	case model.ProtoSOCKS:
 		typ, set.Username, set.Password = model.OutSOCKS, svc.ID, svc.Password
 	case model.ProtoHTTP:

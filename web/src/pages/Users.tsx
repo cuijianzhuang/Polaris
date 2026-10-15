@@ -153,8 +153,9 @@ function SubCheck({ userId }: { userId: string }) {
 }
 
 function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void }) {
+  const initLimitGB = user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : ''
   const [f, setF] = useState({
-    username: user?.username ?? '', limitGB: user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : '',
+    username: user?.username ?? '', limitGB: initLimitGB,
     expire: user?.expireAt ? date(user.expireAt) : '', ipLimit: String(user?.ipLimit ?? 0), resetPolicy: user?.resetPolicy ?? 'none',
     resetDay: String(user?.resetDay ?? 1), remark: user?.remark ?? '', status: user?.status === 'disabled' ? 'disabled' : 'active',
     groupIds: user?.groupIds ?? groups.filter((g) => g.isDefault).map((g) => g.id), afterDays: String(user?.expireAfterDays || ''),
@@ -166,7 +167,9 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
   const confirm = useConfirm()
   const save = () => run(async () => {
     const body = {
-      username: f.username, trafficLimit: Math.round(Number(f.limitGB || 0) * GB), ipLimit: Number(f.ipLimit) || 0,
+      username: f.username,
+      // The field shows a rounded value: keep the exact quota unless it was edited.
+      trafficLimit: user && f.limitGB === initLimitGB ? user.trafficLimit : Math.round(Number(f.limitGB || 0) * GB), ipLimit: Number(f.ipLimit) || 0,
       expireAt: f.expireMode === 'date' && f.expire ? new Date(f.expire + 'T23:59:59').toISOString() : null,
       expireAfterDays: f.expireMode === 'first' ? Number(f.afterDays) || 0 : 0, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
       remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
@@ -178,7 +181,8 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
     onSaved()
   }, user ? '已保存' : '用户已创建')
   const extend = (days: number) => {
-    const base = f.expire && new Date(f.expire) > new Date() ? new Date(f.expire) : new Date()
+    const cur = f.expire ? new Date(f.expire + 'T00:00:00') : null // local midnight, not UTC
+    const base = cur && cur > new Date() ? cur : new Date()
     base.setDate(base.getDate() + days)
     set('expire', date(base.toISOString()))
   }
@@ -347,7 +351,7 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
 }
 
 function BulkModal({ groups, onClose, onDone }: { groups: Group[]; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ prefix: 'user', count: '10', limitGB: '100', days: '30', groupIds: groups[0] ? [groups[0].id] : [] as string[] })
+  const [f, setF] = useState({ prefix: 'user', count: '10', limitGB: '100', days: '30', groupIds: groups.filter((g) => g.isDefault).map((g) => g.id) })
   const { busy, run } = useAction()
   return (
     <Modal title="批量创建" onClose={onClose} footer={<>

@@ -109,7 +109,7 @@ export default function Domains() {
             {nodes.map((n) => (
               <tr key={n.id}>
                 <td style={{ fontWeight: 500 }}>{n.name}</td>
-                <td><Switch label={`${n.name} DDNS`} on={n.ddns} onChange={(v) => run(async () => { await put(`/nodes/${n.id}`, { name: n.name, address: n.address, domain: n.domain, region: n.region, flag: n.flag, labels: n.labels, defaultCore: n.defaultCore, trafficRate: n.trafficRate, sortOrder: n.sortOrder, ddns: v }); refresh() })} /></td>
+                <td><Switch label={`${n.name} DDNS`} on={n.ddns} onChange={(v) => run(async () => { await put(`/nodes/${n.id}`, { name: n.name, address: n.address, domain: n.domain, region: n.region, flag: n.flag, labels: n.labels, defaultCore: n.defaultCore, trafficRate: n.trafficRate, sortOrder: n.sortOrder, noFirewall: n.noFirewall, ddns: v }); refresh() })} /></td>
                 <td className="mono small">{n.publicIpv4 || '—'}</td>
                 <td className="mono small">{n.publicIpv6 || '—'}</td>
                 <td className="small">{n.ipChangedAt ? ago(n.ipChangedAt) : '—'}</td>

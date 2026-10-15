@@ -232,6 +232,9 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	if len(req.IDs) > 0 {
 		before = s.nodesForUsers(req.IDs...)
 	}
+	if t := req.Template; req.Action == "create" && t != nil && t.GroupIDs == nil && t.NodeIDs == nil && t.InboundIDs == nil {
+		t.GroupIDs = s.defaultGroupIDs()
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		switch req.Action {
 		case "create":
@@ -391,7 +394,10 @@ func (s *Server) updateUser(c *gin.Context) {
 		if u.TelegramID != 0 {
 			tx.Model(&store.User{}).Where("telegram_id = ? AND id <> ?", u.TelegramID, u.ID).Update("telegram_id", 0)
 		}
-		if err := tx.Save(&u).Error; err != nil {
+		// Only the edited columns: traffic settlement, IP bans and resets
+		// update the counters concurrently and must not be overwritten.
+		if err := tx.Model(&u).Select("username", "traffic_limit", "expire_at", "ip_limit", "expire_after_days",
+			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "status").Updates(&u).Error; err != nil {
 			return err
 		}
 		if req.GroupIDs != nil {

@@ -140,12 +140,12 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 		Username: u.ID, Flow: m.Protocol.Flow, Transport: m.Transport,
 		UpMbps: m.Protocol.UpMbps, DownMbps: m.Protocol.DownMbps, Obfs: m.Protocol.Obfs, ObfsPassword: m.Protocol.ObfsPassword,
 		CongestionControl: m.Protocol.CongestionControl}
+	if m.Protocol.Obfs == "" {
+		n.ObfsPassword = "" // the server has obfs off
+	}
 	if m.Protocol.Type == model.ProtoShadowsocks {
 		n.Method = m.Protocol.Method
-		n.Password = um.SSKey(m.Protocol.Method)
-		if model.SS2022KeyLen(m.Protocol.Method) > 0 {
-			n.Password = m.Protocol.ServerKey + ":" + n.Password
-		}
+		n.Password = ssClientPassword(m, &um)
 	}
 	switch m.Security.Type {
 	case model.SecTLS:

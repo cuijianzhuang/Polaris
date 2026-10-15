@@ -209,6 +209,10 @@ func (s *Server) githubCallback(c *gin.Context) {
 			fail("GitHub 账号 " + gu.Login + " 未绑定任何管理员：请先用密码登录，在「设置」中绑定")
 			return
 		}
+		if lockedOut(&a, time.Now()) {
+			fail("登录失败次数过多，请 15 分钟后再试")
+			return
+		}
 		if a.TOTPEnabled {
 			back("gh_ticket=" + s.ghAuth.ticket(a.ID))
 			return
@@ -245,12 +249,17 @@ func (s *Server) githubTOTP(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "登录已过期，请重新使用 GitHub 登录"})
 		return
 	}
+	if lockedOut(&a, time.Now()) {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录失败次数过多，请 15 分钟后再试"})
+		return
+	}
 	if !totp.Validate(req.TOTP, s.st.Box.MustOpen(a.TOTPSecret)) {
+		s.countLoginFailure(&a, time.Now())
 		s.audit(a.Username, "admin.login_failed", a.Username, "github: bad totp", clientIP(c.Request))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "二次验证码错误，请重新使用 GitHub 登录"})
 		return
 	}
-	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Update("last_login_at", time.Now())
+	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(map[string]any{"failed_attempts": 0, "last_login_at": time.Now()})
 	tok, err := s.issueToken(&a)
 	if err != nil {
 		serverError(c, err)
