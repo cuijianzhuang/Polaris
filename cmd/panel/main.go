@@ -15,6 +15,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "admin", "backup":
+			os.Exit(maintenance(os.Args[1], os.Args[2:]))
+		}
+	}
 	cfgPath := flag.String("config", os.Getenv("POLARIS_CONFIG"), "path to config.yaml (optional)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debug := flag.Bool("debug", false, "debug logging")
@@ -44,4 +50,75 @@ func main() {
 		log.Error("server", "err", err)
 		os.Exit(1)
 	}
+}
+
+const usage = `usage:
+  polaris                                   run the panel
+  polaris admin list                        list admin accounts
+  polaris admin reset-password [-u NAME] [-p PASSWORD]
+                                            set a new password (random if -p is empty), unlock
+                                            the account and sign out every session
+  polaris admin reset-2fa [-u NAME]         turn off two-factor authentication
+  polaris backup FILE                       consistent online copy of the SQLite database
+Configuration is read from the environment (POLARIS_*) or -config FILE.`
+
+// maintenance runs operator subcommands against the configured database.
+func maintenance(cmd string, args []string) int {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	cfgPath := fs.String("config", os.Getenv("POLARIS_CONFIG"), "path to config.yaml")
+	user := fs.String("u", "", "admin username (default: the first admin)")
+	pass := fs.String("p", "", "new password (default: random)")
+	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
+	sub := ""
+	if cmd == "admin" {
+		if len(args) == 0 {
+			fs.Usage()
+			return 2
+		}
+		sub, args = args[0], args[1:]
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	cfg, err := panel.LoadConfig(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		return 1
+	}
+	fail := func(err error) int { fmt.Fprintln(os.Stderr, "error:", err); return 1 }
+	switch {
+	case cmd == "backup":
+		if fs.NArg() != 1 {
+			fs.Usage()
+			return 2
+		}
+		if err := panel.Backup(cfg, fs.Arg(0)); err != nil {
+			return fail(err)
+		}
+		fmt.Println("backup written to", fs.Arg(0))
+	case sub == "list":
+		names, err := panel.AdminList(cfg)
+		if err != nil {
+			return fail(err)
+		}
+		for _, n := range names {
+			fmt.Println(n)
+		}
+	case sub == "reset-password":
+		name, pw, err := panel.AdminResetPassword(cfg, *user, *pass)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("username: %s\npassword: %s\n", name, pw)
+	case sub == "reset-2fa":
+		name, err := panel.AdminDisable2FA(cfg, *user)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("two-factor authentication disabled for %s\n", name)
+	default:
+		fs.Usage()
+		return 2
+	}
+	return 0
 }

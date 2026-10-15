@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 EnvironmentFile=/etc/polaris/polaris.env
-ExecStart=/usr/local/bin/polaris
+ExecStart=/usr/local/bin/polaris-server
 Restart=always
 RestartSec=3
 User=polaris

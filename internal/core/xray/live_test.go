@@ -48,7 +48,18 @@ func TestLiveHotUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Stop(ctx)
-	time.Sleep(300 * time.Millisecond)
+	// Wait for the gRPC API to listen instead of a fixed sleep (slow under load).
+	for i := 0; ; i++ {
+		c, err := net.DialTimeout("tcp", api, 100*time.Millisecond)
+		if err == nil {
+			c.Close()
+			break
+		}
+		if i == 50 {
+			t.Fatalf("xray API never came up: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	newUser := model.User{ID: "u3", UUID: "11111111-2222-4333-8444-555555555555"}
 	if err := a.AddUsers(ctx, "vless", []model.User{newUser}); err != nil {
