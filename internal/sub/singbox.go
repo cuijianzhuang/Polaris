@@ -100,6 +100,9 @@ func SingboxOutbound(n Node) map[string]any {
 	o := map[string]any{"tag": n.Name, "server": n.Server, "server_port": n.Port}
 	switch n.Protocol {
 	case model.ProtoVLESS:
+		if n.Encryption != "" {
+			return nil // sing-box has no VLESS Encryption
+		}
 		o["type"] = "vless"
 		o["uuid"] = n.UUID
 		if n.Flow != "" {

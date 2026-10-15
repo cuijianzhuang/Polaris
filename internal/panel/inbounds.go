@@ -2,6 +2,7 @@ package panel
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
@@ -20,13 +21,31 @@ func (s *Server) toModelInbound(in *store.Inbound) model.Inbound {
 	}
 	m.Security.RealityPrivateKey = s.st.Box.MustOpen(m.Security.RealityPrivateKey)
 	m.Protocol.ServerKey = s.st.Box.MustOpen(m.Protocol.ServerKey)
+	m.Protocol.Decryption = s.st.Box.MustOpen(m.Protocol.Decryption)
+	m.Security.RealityMldsa65Seed = s.st.Box.MustOpen(m.Security.RealityMldsa65Seed)
 	return m
+}
+
+// keepSecrets carries the old inbound's write-only secrets into an edit that
+// left them blank (the API never returns them): the VLESS decryption key
+// while the client key is unchanged, and the ML-DSA-65 seed while its
+// verify key is unchanged.
+func keepSecrets(m, old *model.Inbound) {
+	if m.Protocol.Decryption == "" && m.Protocol.Encryption != "" && m.Protocol.Encryption == old.Protocol.Encryption {
+		m.Protocol.Decryption = old.Protocol.Decryption
+	}
+	if m.Security.RealityMldsa65Seed == "" && m.Security.RealityMldsa65Verify != "" &&
+		m.Security.RealityMldsa65Verify == old.Security.RealityMldsa65Verify {
+		m.Security.RealityMldsa65Seed = old.Security.RealityMldsa65Seed
+	}
 }
 
 // sealInbound encrypts secret fields before persisting.
 func (s *Server) sealInbound(in *store.Inbound) {
 	in.Security.V.RealityPrivateKey = s.st.Box.Seal(in.Security.V.RealityPrivateKey)
 	in.Protocol.V.ServerKey = s.st.Box.Seal(in.Protocol.V.ServerKey)
+	in.Protocol.V.Decryption = s.st.Box.Seal(in.Protocol.V.Decryption)
+	in.Security.V.RealityMldsa65Seed = s.st.Box.Seal(in.Security.V.RealityMldsa65Seed)
 	// Never persist resolved PEM inside the inbound row.
 	in.Security.V.CertPEM, in.Security.V.KeyPEM = "", ""
 }
@@ -87,6 +106,9 @@ func (s *Server) prepareInbound(m *model.Inbound) error {
 	}
 	if m.Protocol.Type == model.ProtoHysteria2 && m.Protocol.Obfs == "salamander" && m.Protocol.ObfsPassword == "" {
 		m.Protocol.ObfsPassword = pki.Password(16)
+	}
+	if err := prepareXrayExtras(m); err != nil {
+		return err
 	}
 	if m.Sniffing.Enabled && len(m.Sniffing.DestOverride) == 0 {
 		m.Sniffing.DestOverride = []string{"http", "tls", "quic"}
@@ -259,3 +281,53 @@ func ssClientPassword(m *model.Inbound, u *model.User) string {
 	}
 	return pw
 }
+
+// prepareXrayExtras checks the newer Xray-only options and fills derivable
+// values (the ML-DSA-65 verify key from its seed).
+func prepareXrayExtras(m *model.Inbound) error {
+	p := &m.Protocol
+	if p.Decryption == "none" {
+		p.Decryption = ""
+	}
+	if p.Encryption == "none" {
+		p.Encryption = ""
+	}
+	if p.Decryption != "" || p.Encryption != "" {
+		if p.Type != model.ProtoVLESS {
+			return fmt.Errorf("VLESS Encryption 仅适用于 VLESS")
+		}
+		if p.Decryption == "" || p.Encryption == "" {
+			return fmt.Errorf("VLESS Encryption 需要同时填写 decryption 与 encryption（可在表单中一键生成）")
+		}
+	}
+	if n := len(p.TestSeed); n != 0 && n != 4 {
+		return fmt.Errorf("Vision testseed 需要 4 个数字")
+	}
+	sec := &m.Security
+	if sec.Type != model.SecReality {
+		sec.RealityMldsa65Seed, sec.RealityMldsa65Verify, sec.RealitySpiderX = "", "", ""
+		sec.RealityLimitUpload, sec.RealityLimitDownload = nil, nil
+		sec.RealityMinClientVer, sec.RealityMaxClientVer, sec.RealityMaxTimeDiff = "", "", 0
+		return nil
+	}
+	if sec.RealityMldsa65Seed != "" {
+		if sec.RealityMldsa65Seed == sec.RealityPrivateKey {
+			return fmt.Errorf("mldsa65 seed 不能与 REALITY 私钥相同")
+		}
+		v, err := pki.MLDSA65Verify(sec.RealityMldsa65Seed)
+		if err != nil {
+			return err
+		}
+		sec.RealityMldsa65Verify = v
+	} else {
+		sec.RealityMldsa65Verify = ""
+	}
+	for _, v := range []string{sec.RealityMinClientVer, sec.RealityMaxClientVer} {
+		if v != "" && !clientVerRe.MatchString(v) {
+			return fmt.Errorf("客户端版本应为 x.y.z（每段 0–255）：%s", v)
+		}
+	}
+	return nil
+}
+
+var clientVerRe = regexp.MustCompile(`^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){0,2}$`)

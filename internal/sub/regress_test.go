@@ -49,3 +49,19 @@ func TestQuanxBracketsIPv6(t *testing.T) {
 		t.Errorf("IPv6 server not bracketed: %s", l)
 	}
 }
+
+func TestVLESSEncryptionNodes(t *testing.T) {
+	n := Node{Name: "pq", Server: "1.2.3.4", Port: 443, Protocol: model.ProtoVLESS, UUID: "6f1d3c1c-7a0e-4a9f-9a52-6b8f6e4f1a01",
+		Flow: "xtls-rprx-vision", Encryption: "mlkem768x25519plus.native.0rtt.abc",
+		TLS: model.ClientTLS{Type: model.SecReality, ServerName: "a.example", PublicKey: "pbk", ShortID: "ab", SpiderX: "/x", Mldsa65Verify: "pqvkey"}}
+	got, err := ParseLink(ShareLink(n))
+	if err != nil || got.Encryption != n.Encryption || got.TLS.Mldsa65Verify != "pqvkey" || got.TLS.SpiderX != "/x" {
+		t.Fatalf("round trip: %+v %v (%s)", got, err, ShareLink(n))
+	}
+	if SingboxOutbound(n) != nil || LoonLine(n) != "" || QuanxLine(n) != "" {
+		t.Fatal("clients without VLESS Encryption must skip the node")
+	}
+	if p := ClashProxy(n); p == nil || p["encryption"] != n.Encryption {
+		t.Fatalf("mihomo proxy: %v", p)
+	}
+}

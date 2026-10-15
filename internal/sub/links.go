@@ -37,7 +37,7 @@ func ShareLink(n Node) string {
 	switch n.Protocol {
 	case model.ProtoVLESS:
 		q := streamQuery(n)
-		q.Set("encryption", "none")
+		q.Set("encryption", orDefault(n.Encryption, "none"))
 		if n.Flow != "" {
 			q.Set("flow", n.Flow)
 		}
@@ -160,6 +160,8 @@ func streamQuery(n Node) url.Values {
 		q.Set("fp", orDefault(n.TLS.Fingerprint, "chrome"))
 		setNE(q, "pbk", n.TLS.PublicKey)
 		setNE(q, "sid", n.TLS.ShortID)
+		setNE(q, "spx", n.TLS.SpiderX)
+		setNE(q, "pqv", n.TLS.Mldsa65Verify)
 	default:
 		q.Set("security", "none")
 	}

@@ -19,6 +19,8 @@ type CapSet struct {
 	Combos  []Combo  `json:"combos"`
 	// Flows lists supported VLESS flows.
 	Flows []string `json:"flows,omitempty"`
+	// Features lists optional inbound features (Feature* constants).
+	Features []string `json:"features,omitempty"`
 	// HotUsers reports whether users can be added/removed without a reload.
 	HotUsers bool `json:"hotUsers"`
 	// Outbounds lists supported outbound types (for chain validation).
@@ -54,6 +56,29 @@ func (c CapSet) SupportsInbound(in *Inbound) error {
 	if !c.Supports(in.Protocol.Type, in.Transport.Type, in.Security.Type) {
 		return fmt.Errorf("%s %s does not support %s+%s+%s", c.Core, c.Version,
 			in.Protocol.Type, in.Transport.Type, in.Security.Type)
+	}
+	need := func(f, what string) error {
+		for _, x := range c.Features {
+			if x == f {
+				return nil
+			}
+		}
+		return fmt.Errorf("%s %s does not support %s", c.Core, c.Version, what)
+	}
+	if in.Protocol.Decryption != "" && in.Protocol.Decryption != "none" {
+		if err := need(FeatureVLESSEncryption, "VLESS Encryption"); err != nil {
+			return err
+		}
+	}
+	if in.Security.RealityMldsa65Seed != "" {
+		if err := need(FeatureRealityMLDSA65, "REALITY ML-DSA-65 signatures"); err != nil {
+			return err
+		}
+	}
+	if in.Transport.AcceptProxyProtocol {
+		if err := need(FeatureProxyProtocol, "PROXY protocol"); err != nil {
+			return err
+		}
 	}
 	if in.Protocol.Flow != "" {
 		ok := false
@@ -104,3 +129,10 @@ func (b *CapBuilder) Add(ps []Protocol, ts []Transport, ss []Security) *CapBuild
 }
 
 func (b *CapBuilder) Combos() []Combo { return b.combos }
+
+// Optional inbound features a core may list in CapSet.Features.
+const (
+	FeatureVLESSEncryption = "vless-encryption"
+	FeatureRealityMLDSA65  = "reality-mldsa65"
+	FeatureProxyProtocol   = "proxy-protocol"
+)

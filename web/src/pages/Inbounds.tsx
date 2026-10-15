@@ -186,7 +186,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
         </select>
       </Field>
       {proxyCores.length === 0 ? <div className="note warn">该节点还没有可承载入站的内核，请先在「节点与内核」安装。</div> : (
-        <InboundFields draft={draft} onChange={setDraft} caps={coreCaps} allCaps={proxyCores} certs={certs.data}
+        <InboundFields draft={draft} onChange={setDraft} caps={coreCaps} allCaps={proxyCores} certs={certs.data} nodeId={nodeId}
           coreChoices={proxyCores.map((c) => ({ core: c.core, version: c.version, hint: `v${c.version} · ${c.hotUsers ? '支持热增删用户' : '用户变更需重载'}` }))} />
       )}
       <div className="form-grid">

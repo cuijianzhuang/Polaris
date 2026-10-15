@@ -312,7 +312,7 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 	var typ model.OutboundType
 	switch m.Protocol.Type {
 	case model.ProtoVLESS:
-		typ, set.UUID, set.Flow = model.OutVLESS, svc.UUID, m.Protocol.Flow
+		typ, set.UUID, set.Flow, set.Encryption = model.OutVLESS, svc.UUID, m.Protocol.Flow, m.Protocol.Encryption
 	case model.ProtoVMess:
 		typ, set.UUID = model.OutVMess, svc.UUID
 	case model.ProtoTrojan:
@@ -345,6 +345,7 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 			ct.PublicKey = m.Security.RealityPublicKey
 			ct.ShortID = first(m.Security.RealityShortIDs)
 			ct.Fingerprint = "chrome"
+			ct.SpiderX, ct.Mldsa65Verify = m.Security.RealitySpiderX, m.Security.RealityMldsa65Verify
 		}
 		set.Security = ct
 	}

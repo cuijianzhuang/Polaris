@@ -46,7 +46,8 @@ func (s *Server) inboundView(in store.Inbound, nodes map[string]string, users ma
 	m := s.toModelInbound(&in)
 	v := inboundView{Inbound: in, NodeName: nodes[in.NodeID], UserCount: len(users[in.ID]), Network: m.Network(), CDN: m.CDNCapable()}
 	v.Security.V.RealityPrivateKey = ""
-	v.Protocol.V.ServerKey = ""
+	v.Protocol.V.ServerKey, v.Protocol.V.Decryption = "", ""
+	v.Security.V.RealityMldsa65Seed = ""
 	s.st.DB.Model(&store.GroupInbound{}).Where("inbound_id = ?", in.ID).Pluck("group_id", &v.GroupIDs)
 	if v.GroupIDs == nil {
 		v.GroupIDs = []string{}
@@ -219,6 +220,7 @@ func (s *Server) updateInbound(c *gin.Context) {
 	if m.Protocol.Type == model.ProtoShadowsocks && m.Protocol.ServerKey == "" && m.Protocol.Method == old.Protocol.Method {
 		m.Protocol.ServerKey = old.Protocol.ServerKey
 	}
+	keepSecrets(&m, &old)
 	if err := s.validateInbound(&node, &m, row.ID); err != nil {
 		badRequest(c, err)
 		return
@@ -350,6 +352,7 @@ func (s *Server) previewDraftInbound(c *gin.Context) {
 			if m.Protocol.ServerKey == "" {
 				m.Protocol.ServerKey = om.Protocol.ServerKey
 			}
+			keepSecrets(&m, &om)
 		}
 	}
 	if err := s.validateInbound(&node, &m, exclude); err != nil {

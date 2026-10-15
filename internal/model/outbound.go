@@ -59,6 +59,8 @@ type OutboundSettings struct {
 	UUID     string `json:"uuid,omitempty"`
 	Flow     string `json:"flow,omitempty"`
 	Method   string `json:"method,omitempty"`
+	// Encryption is a VLESS client's "encryption" ("" = none).
+	Encryption string `json:"encryption,omitempty"`
 
 	Transport *TransportSpec `json:"transport,omitempty"`
 	Security  *ClientTLS     `json:"security,omitempty"`
@@ -99,6 +101,10 @@ type ClientTLS struct {
 	Insecure    bool     `json:"insecure,omitempty"`
 	PublicKey   string   `json:"publicKey,omitempty"` // reality
 	ShortID     string   `json:"shortId,omitempty"`   // reality
+	SpiderX     string   `json:"spiderX,omitempty"`   // reality
+	// Mldsa65Verify is the REALITY server's ML-DSA-65 public key: the
+	// client then checks the server's post-quantum signature.
+	Mldsa65Verify string `json:"mldsa65Verify,omitempty"`
 }
 
 // ParseSettings decodes Settings into the typed view.

@@ -243,6 +243,12 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 		// Per-node secrets: never share keys between nodes.
 		m.Security.RealityPrivateKey, m.Security.RealityPublicKey = "", ""
 		m.Protocol.ServerKey = ""
+		if auth := pki.VLESSAuthOf(item.Protocol.Decryption); auth != "" {
+			m.Protocol.Decryption, m.Protocol.Encryption, _ = pki.VLESSEncPair(auth)
+		}
+		if item.Security.RealityMldsa65Seed != "" {
+			m.Security.RealityMldsa65Seed, m.Security.RealityMldsa65Verify, _ = pki.MLDSA65Pair()
+		}
 		m.Port = 1 // placeholder until the port policy runs below
 		m.Normalize()
 		if err := s.prepareInbound(&m); err != nil {
@@ -601,6 +607,12 @@ func (s *Server) syncTemplate(c *gin.Context) {
 		s.st.DB.First(&node, "id = ?", in.NodeID)
 		wantProto := item.Protocol
 		wantProto.ServerKey = cur.Protocol.ServerKey
+		if (wantProto.Decryption != "") == (cur.Protocol.Decryption != "") {
+			// Keys are per node: keep this node's, only on/off syncs.
+			wantProto.Decryption, wantProto.Encryption = cur.Protocol.Decryption, cur.Protocol.Encryption
+		} else if auth := pki.VLESSAuthOf(wantProto.Decryption); auth != "" {
+			wantProto.Decryption, wantProto.Encryption, _ = pki.VLESSEncPair(auth)
+		}
 		if wantProto.Type == model.ProtoHysteria2 && wantProto.Obfs != "" && wantProto.ObfsPassword == "" {
 			wantProto.ObfsPassword = cur.Protocol.ObfsPassword
 		}
@@ -622,6 +634,11 @@ func (s *Server) syncTemplate(c *gin.Context) {
 			wantS.ServerName = cur.Security.ServerName
 		}
 		wantS.CertificateID, wantS.RealityPrivateKey, wantS.RealityPublicKey = cur.Security.CertificateID, cur.Security.RealityPrivateKey, cur.Security.RealityPublicKey
+		if (wantS.RealityMldsa65Seed != "") == (cur.Security.RealityMldsa65Seed != "") {
+			wantS.RealityMldsa65Seed, wantS.RealityMldsa65Verify = cur.Security.RealityMldsa65Seed, cur.Security.RealityMldsa65Verify
+		} else if wantS.RealityMldsa65Seed != "" {
+			wantS.RealityMldsa65Seed, wantS.RealityMldsa65Verify, _ = pki.MLDSA65Pair()
+		}
 		if len(wantS.RealityShortIDs) == 0 || strings.Contains(strings.Join(wantS.RealityShortIDs, ""), "{") {
 			wantS.RealityShortIDs = cur.Security.RealityShortIDs
 		}

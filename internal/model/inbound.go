@@ -78,6 +78,14 @@ type ProtocolSpec struct {
 
 	Flow string `json:"flow,omitempty"` // vless: "xtls-rprx-vision"
 
+	// VLESS Encryption (xray): the server's "decryption" (secret, sealed at
+	// rest) and the matching client "encryption", e.g.
+	// "mlkem768x25519plus.native.0rtt.<key>". Empty means "none".
+	Decryption string `json:"decryption,omitempty"`
+	Encryption string `json:"encryption,omitempty"`
+	// TestSeed tunes Vision padding (xray "testseed", four numbers).
+	TestSeed []int `json:"testSeed,omitempty"`
+
 	Method    string `json:"method,omitempty"`    // shadowsocks cipher, e.g. 2022-blake3-aes-128-gcm
 	ServerKey string `json:"serverKey,omitempty"` // shadowsocks 2022 server PSK (encrypted at rest)
 
@@ -124,6 +132,9 @@ type TransportSpec struct {
 	Mode        string    `json:"mode,omitempty"`        // xhttp: auto / packet-up / stream-up / stream-one
 	HeaderType  string    `json:"headerType,omitempty"`  // kcp / tcp header obfuscation
 	Seed        string    `json:"seed,omitempty"`        // kcp
+	// AcceptProxyProtocol reads the PROXY protocol header sent by a load
+	// balancer or relay in front (raw / ws / httpupgrade).
+	AcceptProxyProtocol bool `json:"acceptProxyProtocol,omitempty"`
 }
 
 // SecuritySpec carries TLS / REALITY settings.
@@ -143,13 +154,34 @@ type SecuritySpec struct {
 	RealityPrivateKey  string   `json:"realityPrivateKey,omitempty"` // encrypted at rest
 	RealityPublicKey   string   `json:"realityPublicKey,omitempty"`
 	RealityShortIDs    []string `json:"realityShortIds,omitempty"`
+	// Optional REALITY server limits (xray): accepted clock skew, the
+	// client version range, and rate limits for traffic sent to the target.
+	RealityMaxTimeDiff   int            `json:"realityMaxTimeDiff,omitempty"` // ms
+	RealityMinClientVer  string         `json:"realityMinClientVer,omitempty"`
+	RealityMaxClientVer  string         `json:"realityMaxClientVer,omitempty"`
+	RealityLimitUpload   *LimitFallback `json:"realityLimitUpload,omitempty"`
+	RealityLimitDownload *LimitFallback `json:"realityLimitDownload,omitempty"`
+	RealitySpiderX       string         `json:"realitySpiderX,omitempty"`       // client crawler path
+	RealityMldsa65Seed   string         `json:"realityMldsa65Seed,omitempty"`   // ML-DSA-65 signing seed (sealed)
+	RealityMldsa65Verify string         `json:"realityMldsa65Verify,omitempty"` // its public key, for clients
+}
+
+// LimitFallback rate-limits what REALITY forwards to its target once the
+// first AfterBytes bytes have passed.
+type LimitFallback struct {
+	AfterBytes       int64 `json:"afterBytes,omitempty"`
+	BytesPerSec      int64 `json:"bytesPerSec,omitempty"`
+	BurstBytesPerSec int64 `json:"burstBytesPerSec,omitempty"`
 }
 
 // SniffSpec controls traffic sniffing.
 type SniffSpec struct {
-	Enabled      bool     `json:"enabled"`
-	DestOverride []string `json:"destOverride,omitempty"`
-	RouteOnly    bool     `json:"routeOnly,omitempty"`
+	Enabled         bool     `json:"enabled"`
+	DestOverride    []string `json:"destOverride,omitempty"`
+	RouteOnly       bool     `json:"routeOnly,omitempty"`
+	MetadataOnly    bool     `json:"metadataOnly,omitempty"`
+	IPsExcluded     []string `json:"ipsExcluded,omitempty"`     // xray: IP / CIDR / geoip:
+	DomainsExcluded []string `json:"domainsExcluded,omitempty"` // xray: domain: / geosite:
 }
 
 // Inbound is one listener on one node, owned by exactly one core.

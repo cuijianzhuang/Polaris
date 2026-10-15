@@ -1,6 +1,10 @@
 package panel
 
 import (
+	"encoding/base64"
+	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -129,5 +133,59 @@ func TestTemplateSyncIsQuietAfterApply(t *testing.T) {
 		if f := ch.(map[string]any)["fields"]; f != nil && len(f.([]any)) > 0 {
 			t.Errorf("sync reports changes right after apply: %v", ch)
 		}
+	}
+}
+
+// VLESS Encryption / ML-DSA-65 secrets are sealed, never returned, kept on
+// edits that leave them blank, and their public halves reach subscriptions.
+func TestXrayPostQuantumOptions(t *testing.T) {
+	s, srv, c := newAdminClient(t)
+	db := s.st.DB
+	db.Create(&store.Node{ID: "n1", Name: "tokyo", Address: "203.0.113.9"})
+	db.Create(&store.Core{ID: "c1", NodeID: "n1", Type: model.CoreXray, Version: "26.10.10", InstalledVersions: store.NewJSON([]string{})})
+	_, enc := c.do("POST", "/tools/vlessenc", map[string]any{"auth": "x25519"})
+	_, ml := c.do("POST", "/tools/mldsa65", nil)
+	body := func(dec, encr, seed, verify any) map[string]any {
+		return map[string]any{"nodeId": "n1", "core": "xray", "tag": "pq", "port": 2443,
+			"protocol":  map[string]any{"type": "vless", "flow": "xtls-rprx-vision", "decryption": dec, "encryption": encr},
+			"transport": map[string]any{"type": "tcp"},
+			"security": map[string]any{"type": "reality", "realityDest": "www.example.com:443", "realityServerNames": []string{"www.example.com"},
+				"realityMldsa65Seed": seed, "realityMldsa65Verify": verify}}
+	}
+	code, out := c.do("POST", "/inbounds", body(enc["decryption"], enc["encryption"], ml["seed"], nil))
+	if code != 201 && code != 200 {
+		t.Fatalf("create %d %v", code, out)
+	}
+	var row store.Inbound
+	db.First(&row, "tag = ?", "pq")
+	if row.Protocol.V.Decryption == enc["decryption"] || row.Security.V.RealityMldsa65Seed == ml["seed"] {
+		t.Fatal("secrets stored in clear")
+	}
+	if row.Security.V.RealityMldsa65Verify != ml["verify"] {
+		t.Fatal("verify key not derived from the seed")
+	}
+	_, list := c.do("GET", "/inbounds", nil)
+	if strings.Contains(fmt.Sprint(list), enc["decryption"].(string)) || strings.Contains(fmt.Sprint(list), ml["seed"].(string)) {
+		t.Fatal("secrets returned by the API")
+	}
+	// Edit without the write-only halves: kept.
+	if code, out := c.do("PUT", "/inbounds/"+row.ID, body("", enc["encryption"], "", ml["verify"])); code != 200 {
+		t.Fatalf("update %d %v", code, out)
+	}
+	m := s.toModelInbound(func() *store.Inbound { var r store.Inbound; db.First(&r, "id = ?", row.ID); return &r }())
+	if m.Protocol.Decryption != enc["decryption"] || m.Security.RealityMldsa65Seed != ml["seed"] {
+		t.Fatal("blank edit dropped the secrets")
+	}
+	_, u := c.do("POST", "/users", map[string]any{"username": "alice"})
+	resp, err := http.Get(srv.URL + "/sub/" + u["subToken"].(string) + "?format=links")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	raw, _ := base64.StdEncoding.DecodeString(string(b))
+	link := string(raw)
+	if !strings.Contains(link, "encryption=mlkem768x25519plus.native.0rtt.") || !strings.Contains(link, "pqv=") {
+		t.Fatalf("share link lacks encryption / pqv: %s", link)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cuijianzhuang/polaris/internal/realityscan"
 	"log/slog"
 	"net"
 	"net/http"
@@ -513,6 +514,14 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			fail(err)
 		}
 		a.applyMu.Unlock()
+	case "reality_scan":
+		rs, err := realityscan.Scan(ctx, c.Args["target"])
+		if err != nil {
+			fail(err)
+			break
+		}
+		b, _ := json.Marshal(rs)
+		res.Output = string(b)
 	case "core_logs":
 		m := a.coreSnapshot()[model.CoreType(c.Args["type"])]
 		n, _ := strconv.Atoi(c.Args["lines"])

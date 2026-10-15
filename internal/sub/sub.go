@@ -25,6 +25,9 @@ type Node struct {
 	Username string // socks / http / naive
 	Method   string // shadowsocks cipher
 	Flow     string
+	// Encryption is the VLESS Encryption client key ("" = none); clients
+	// that cannot speak it skip the node.
+	Encryption string
 
 	Transport model.TransportSpec
 	TLS       model.ClientTLS

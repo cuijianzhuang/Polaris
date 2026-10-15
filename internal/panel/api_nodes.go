@@ -385,6 +385,12 @@ func redactSpec(spec *model.NodeSpec) {
 		if in.Protocol.ServerKey != "" {
 			in.Protocol.ServerKey = "<redacted>"
 		}
+		if in.Protocol.Decryption != "" {
+			in.Protocol.Decryption = "<redacted>"
+		}
+		if in.Security.RealityMldsa65Seed != "" {
+			in.Security.RealityMldsa65Seed = "<redacted>"
+		}
 		for j := range in.Users {
 			in.Users[j].Password, in.Users[j].SSSeed = "<redacted>", ""
 		}
