@@ -165,7 +165,7 @@ function Updates() {
         <dt>当前版本</dt><dd className="mono">{d?.current ?? '…'}</dd>
         <dt>最新版本</dt><dd className="mono">{d?.latest ? <>{d.latest}{d.newer ? <span className="tag warn" style={{ marginLeft: 8 }}>可升级</span> : <span className="tag ok" style={{ marginLeft: 8 }}>已是最新</span>}</> : d?.error ? <span style={{ color: 'var(--bad)' }}>获取失败：{d.error}</span> : '…'}</dd>
       </dl>
-      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线升级组件：在服务器上执行一次 <code>polaris update</code>（之后的版本都能在这里或 Telegram 里一键升级）。Docker 部署请更新镜像。</div>}
+      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线升级组件：在服务器上执行 <code>polaris update --force</code> 安装（只需一次，之后的版本都能在这里或 Telegram 里一键升级）。Docker 部署请更新镜像。</div>}
       {d?.pending && <div className="note">升级进行中…完成后刷新页面。</div>}
       <div className="row">
         <button className="btn pri" type="button" disabled={busy || !d?.newer || !d?.updater || !!d?.pending} onClick={() => start(false)}>升级面板</button>
@@ -258,7 +258,7 @@ function Access() {
         <dt>后台地址</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{d ? here : '…'}</dd>
         <dt>监听</dt><dd className="mono">{d?.listen ?? '…'}{d?.domain ? <span className="small mute">（由 Caddy 提供 HTTPS）</span> : null}</dd>
       </dl>
-      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线配置组件：在服务器上执行一次 <code>polaris update</code> 后就能在这里修改。Docker 部署请改环境变量。</div>}
+      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线配置组件：在服务器上执行 <code>polaris update --force</code> 安装（只需一次）后就能在这里修改。Docker 部署请改环境变量。</div>}
       {d?.pending && <div className="note">上一项更改正在执行…</div>}
       {d?.last && <div className={'note ' + (d.last.ok ? '' : 'bad')}>{d.last.ok ? '✓' : '✗'} {accessLabel[d.last.action] ?? d.last.action}：{d.last.value}{d.last.ok ? ' 已生效' : ' 修改失败'}{!d.last.ok && d.last.log ? <div className="mono small" style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{d.last.log}</div> : null}</div>}
       <div className="form-grid">
@@ -270,7 +270,7 @@ function Access() {
                 normPath === '/' ? '关闭后台路径后，任何人打开这个地址都能看到登录页。请确认已使用强密码并开启二次验证。' : `后台路径改为 ${normPath}，旧的书签将失效。`)}>应用</button>
           </div>
         </Field>
-        <Field label="面板域名（HTTPS）" hint="先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书，并放行 80 / 443">
+        <Field label="面板域名（HTTPS）" hint="先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书并放行 80 / 443。已有 Nginx / OpenResty / 宝塔等占用 443 时不要用这里：在它们里反代到本机面板端口，再改下方「公开地址」">
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input className="input mono" value={f.domain ?? d?.domain ?? ''} placeholder="panel.example.com" onChange={(e) => setF({ ...f, domain: e.target.value })} />
             <button className="btn" type="button" disabled={busy || !d?.updater || !f.domain?.trim() || f.domain.trim() === d?.domain}

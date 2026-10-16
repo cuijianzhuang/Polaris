@@ -37,7 +37,7 @@ const panelRepo = "cuijianzhuang/polaris"
 // updaterUnit is where the root path unit lives (a variable for tests).
 var updaterUnit = "/etc/systemd/system/polaris-update.path"
 
-var errUpdaterMissing = errors.New("这台服务器还没有安装自动更新组件：在服务器上执行一次 polaris update（v0.1.17 起会自动安装）；Docker 部署请更新镜像")
+var errUpdaterMissing = errors.New("这台服务器还没有安装在线升级 / 配置组件：在服务器上执行 polaris update --force 安装（只需一次）；Docker 部署请更新镜像")
 
 func (s *Server) updateRequestPath() string { return filepath.Join(s.cfg.DataDir, "update-request") }
 func (s *Server) updateResultPath() string  { return filepath.Join(s.cfg.DataDir, "update-result") }
