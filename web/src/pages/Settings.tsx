@@ -270,7 +270,7 @@ function Access() {
                 normPath === '/' ? '关闭后台路径后，任何人打开这个地址都能看到登录页。请确认已使用强密码并开启二次验证。' : `后台路径改为 ${normPath}，旧的书签将失效。`)}>应用</button>
           </div>
         </Field>
-        <Field label="面板域名（HTTPS）" hint="先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书，并放行 80 / 443">
+        <Field label="面板域名（HTTPS）" hint="先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书并放行 80 / 443。已有 Nginx / OpenResty / 宝塔等占用 443 时不要用这里：在它们里反代到本机面板端口，再改下方「公开地址」">
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input className="input mono" value={f.domain ?? d?.domain ?? ''} placeholder="panel.example.com" onChange={(e) => setF({ ...f, domain: e.target.value })} />
             <button className="btn" type="button" disabled={busy || !d?.updater || !f.domain?.trim() || f.domain.trim() === d?.domain}

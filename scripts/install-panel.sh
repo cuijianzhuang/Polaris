@@ -914,9 +914,19 @@ do_set_domain() {
   local domain="$1" port hosts
   valid_domain "$domain" || die "域名格式不正确：$domain"
   port="$(env_get POLARIS_LISTEN)"; port="${port##*:}"
+  # Another web server on 80/443 (nginx, OpenResty, a control panel) would keep
+  # Caddy from starting and leave the panel unreachable: stop before changing anything.
+  local p owner
+  for p in 80 443; do
+    if port_busy "$p" && ! systemctl is-active --quiet caddy; then
+      owner="$(port_owner "$p")"
+      die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 127.0.0.1:$port，再执行 polaris set-url https://$domain（面板配置未做任何修改）"
+    fi
+  done
   install_caddy
   step "配置 Caddy 站点 $domain"
   caddy_site "$domain" "$port"
+  systemctl is-active --quiet caddy || die "Caddy 未能启动（journalctl -u caddy 查看原因），面板配置未做修改"
   env_set POLARIS_PUBLIC_URL "https://$domain"
   env_set POLARIS_LISTEN "127.0.0.1:$port"
   hosts="$(env_get POLARIS_AGENT_HOSTS)"
