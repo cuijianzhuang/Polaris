@@ -77,7 +77,18 @@ dwidth() {
 # pad TEXT WIDTH prints TEXT followed by spaces up to WIDTH columns.
 pad() { dwidth "$1"; local n=$(($2 - REPLY)); [ $n -gt 0 ] || n=0; printf '%s%*s' "$1" "$n" ''; }
 rep() { local s; printf -v s '%*s' "$2" ''; printf '%s' "${s// /$1}"; }
-UI_W=66
+# UI_W: width of dividers and frames, fitted to the terminal so nothing wraps
+# on a phone SSH client (at most 60 columns, at least 32).
+term_cols() {
+  local c=""
+  c="$(stty size 2>/dev/null </dev/tty | awk '{print $2}')" || true
+  [ -n "$c" ] || c="$(tput cols 2>/dev/null)" || true
+  [[ "$c" =~ ^[0-9]+$ ]] || c=80
+  echo "$c"
+}
+UI_W=$(($(term_cols) - 4))
+[ "$UI_W" -gt 60 ] && UI_W=60
+[ "$UI_W" -lt 32 ] && UI_W=32
 # section TITLE: a "── title ─────" divider.
 section() { dwidth "$1"; printf '\n  %s── %s%s%s %s%s\n' "$C_D" "$C_0$C_BD" "$1" "$C_0$C_D" "$(rep ─ $((UI_W - 6 - REPLY)))" "$C_0"; }
 # kv LABEL VALUE: an aligned "label   value" line.
@@ -1042,11 +1053,12 @@ agent_menu() {
 # role_menu: first run on a bare server: panel or node?
 role_menu() {
   clear 2>/dev/null || true
-  banner "Polaris · 选择本机角色"
+  banner "选择本机角色"
   kv 系统 "$(sys_line)"
   section "这台服务器要做什么"
   menu_row "1|主控面板" "2|节点 Agent"
-  dim "  主控：管理节点、用户和订阅的后台；节点：运行代理内核，由主控远程管理"
+  dim "  主控：管理节点、用户和订阅的后台"
+  dim "  节点：运行代理内核，由主控远程管理"
   echo
   local c; c="$(ask "  请选择 [1-2]：")"
   case "$c" in
@@ -1078,13 +1090,11 @@ ask_port() {
 # called as part of && / || lists: bash ignores set -e in such contexts.
 run_action() { ( set -e; "$@" ); }
 
-# menu_row "N|label" ...: up to three numbered items on one line.
+# menu_row "N|label" ...: numbered items, one per line (columns break apart
+# when a narrow terminal wraps them).
 menu_row() {
-  local it out="  "
-  for it; do
-    out+="$(printf '%s%3s.%s ' "$C_C" "${it%%|*}" "$C_0")$(pad "${it#*|}" 17)"
-  done
-  printf '%s\n' "${out%"${out##*[! ]}"}"
+  local it
+  for it; do printf '  %s%3s.%s %s\n' "$C_C" "${it%%|*}" "$C_0" "${it#*|}"; done
 }
 
 menu_header() {
