@@ -187,11 +187,21 @@ sys_line() {
 }
 disk_line() { df -h "$1" 2>/dev/null | awk 'NR == 2 {printf "已用 %s / %s（%s），剩余 %s", $3, $2, $5, $4}'; }
 
-# latest_version: newest release tag (pre-releases included), empty if offline.
+# latest_version [TIMEOUT]: newest release tag (pre-releases included), empty
+# when offline. If api.github.com is blocked or rate-limited, fall back to the
+# github.com/…/releases/latest redirect (stable releases), direct or via mirrors.
 latest_version() {
-  curl -fsSL --max-time "${1:-8}" "https://api.github.com/repos/$REPO/releases?per_page=1" 2>/dev/null |
-    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1
-  return 0
+  local t="${1:-8}" v m
+  v="$(curl -fsSL --max-time "$t" "https://api.github.com/repos/$REPO/releases?per_page=1" 2>/dev/null |
+    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1 || true)"
+  if [ -z "$v" ]; then
+    for m in "${MIRROR:-}" "" "${MIRRORS[@]}"; do
+      v="$(curl -fsSIL -o /dev/null -w '%{url_effective}' --max-time "$t" "${m:+${m%/}/}https://github.com/$REPO/releases/latest" 2>/dev/null |
+        sed -n 's|.*/releases/tag/\([^/?#[:space:]]*\).*|\1|p' || true)"
+      [ -n "$v" ] && break
+    done
+  fi
+  echo "$v"
 }
 
 # open_port PORT: allow PORT/tcp in an active ufw or firewalld. Cloud security
@@ -238,17 +248,47 @@ wait_active() {
 
 # --- download ------------------------------------------------------------------
 
-gh() { printf '%s%s' "$MIRROR" "$1"; }
-fetch() { curl -fsSL --retry 3 --connect-timeout 15 -o "$2" "$1"; }
+# Public GitHub download mirrors, tried in order when github.com is blocked or
+# too slow (common on servers in mainland China). --mirror puts one first.
+MIRRORS=(https://ghfast.top/ https://gh-proxy.com/ https://ghproxy.net/)
+MIRROR_FILE=$ETC/mirror # the mirror that last worked, reused by later updates
+
+is_github() { case "$1" in https://github.com/*|https://raw.githubusercontent.com/*) return 0 ;; esac; return 1; }
+gh() { if [ -n "$MIRROR" ] && is_github "$1"; then printf '%s%s' "${MIRROR%/}/" "$1"; else printf '%s' "$1"; fi; }
+# dl URL OUT [progress]: one download attempt; a transfer that stays under
+# 10 KB/s for 30 s is aborted instead of hanging, so the next source is tried.
+dl() {
+  local show=(-sS)
+  [ "${3:-}" = progress ] && [ -t 2 ] && show=(--progress-bar)
+  curl -fL "${show[@]}" --retry 1 --connect-timeout 10 --speed-limit 10240 --speed-time 30 -o "$2" "$1"
+}
+# fetch URL OUT [progress]: direct (or via --mirror) first; GitHub URLs then
+# fall back to the public mirrors, and a mirror that works is kept for the rest.
+fetch() {
+  local url="$1" out="$2" m
+  dl "$(gh "$url")" "$out" "${3:-}" && return 0
+  is_github "$url" || return 1
+  for m in "" "${MIRRORS[@]}"; do
+    [ "${m%/}" = "${MIRROR%/}" ] && continue
+    if [ -n "$m" ]; then warn "下载失败，改用镜像 $m 重试"; else warn "下载失败，改用 GitHub 直连重试"; fi
+    if dl "${m:+${m%/}/}$url" "$out" "${3:-}"; then
+      MIRROR="$m"
+      [ -z "$m" ] && rm -f "$MIRROR_FILE" 2>/dev/null
+      [ -n "$m" ] && [ -d "$ETC" ] && { echo "$m" > "$MIRROR_FILE"; dim "    之后的升级会优先使用该镜像（polaris update --mirror none 恢复直连）"; }
+      return 0
+    fi
+  done
+  return 1
+}
 
 resolve_version() {
   if [ -z "$VERSION" ]; then
     step "查询最新版本"
-    # /releases/latest skips pre-releases, so take the newest entry of the list.
-    VERSION="$(latest_version 20)"
-    [ -n "$VERSION" ] || die "无法获取版本号（GitHub API 不可达？可用 --version 指定）"
+    VERSION="$(latest_version 15)"
+    [ -n "$VERSION" ] || die "无法获取最新版本号（GitHub 不可达）。可指定版本与镜像重试：polaris update --version v0.1.6 --mirror https://ghfast.top/"
+    ok "最新版本 $VERSION"
   fi
-  RELEASE="${POLARIS_RELEASE_URL:-$(gh "https://github.com/$REPO/releases/download/$VERSION")}"
+  RELEASE="${POLARIS_RELEASE_URL:-https://github.com/$REPO/releases/download/$VERSION}"
 }
 
 # download_release fetches and verifies the panel, both agents and this script.
@@ -256,15 +296,17 @@ download_release() {
   resolve_version
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  step "下载 Polaris $VERSION ($ARCH)"
+  step "下载 Polaris $VERSION ($ARCH)${MIRROR:+ · 镜像 $MIRROR}"
   PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
-  fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" || die "下载 checksums.txt 失败：$RELEASE"
+  fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
+    die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
   local f want got
   local files=("$PANEL_TGZ" polaris-agent-linux-amd64 polaris-agent-linux-arm64)
   # Releases before the installer existed do not ship it; only fetch what is listed.
   grep -q ' \*\?install-panel.sh$' "$TMP/checksums.txt" && files+=(install-panel.sh)
   for f in "${files[@]}"; do
-    fetch "$RELEASE/$f" "$TMP/$f" || die "下载 $f 失败"
+    dim "    $f"
+    fetch "$RELEASE/$f" "$TMP/$f" progress || die "下载 $f 失败（直连与镜像均不可用；可用 --mirror 指定其他镜像）"
     want="$(awk -v f="$f" '$2 == f || $2 == "*"f {print $1}' "$TMP/checksums.txt")"
     got="$(sha256sum "$TMP/$f" | awk '{print $1}')"
     [ -n "$want" ] && [ "$want" = "$got" ] || die "$f 校验失败（期望 ${want:-无}，实际 $got）"
@@ -960,6 +1002,10 @@ while [ $# -gt 0 ]; do
     *) die "未知参数：$1（--help 查看用法）" ;;
   esac
 done
+
+# --mirror none forgets a saved mirror; otherwise reuse the one that last worked.
+if [ "$MIRROR" = none ]; then MIRROR=""; rm -f "$MIRROR_FILE" 2>/dev/null || true
+elif [ -z "$MIRROR" ] && [ -s "$MIRROR_FILE" ]; then MIRROR="$(head -n1 "$MIRROR_FILE")"; fi
 
 [ "$ACTION" = version ] && { echo "polaris $( [ -x "$BIN" ] && "$BIN" --version | awk '{print $2}' || echo 未安装)"; exit 0; }
 preflight
