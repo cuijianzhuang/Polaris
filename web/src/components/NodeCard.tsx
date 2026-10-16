@@ -115,7 +115,7 @@ export function NodeActivity({ n, compact }: { n: Node; compact?: boolean }) {
 // CPU and memory rings, today's traffic and cores.
 export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; on: boolean; onClick: () => void; traffic?: NodeTraffic; badge?: ReactNode }) {
   const st = nodeStatus[n.status] ?? nodeStatus.pending
-  const addr = n.address || n.domain || n.publicIpv4 || n.publicIpv6
+  const addr = n.domain || n.address || n.publicIpv4 || n.publicIpv6 // same order as the subscription
   return (
     <button type="button" className={'ncard' + (on ? ' on' : '') + (n.connected ? '' : ' down')} aria-pressed={on} onClick={onClick}>
       <div className="nc-head">

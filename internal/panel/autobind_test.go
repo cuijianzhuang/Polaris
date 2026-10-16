@@ -51,8 +51,8 @@ func TestAutoBindNode(t *testing.T) {
 	}
 	var n store.Node
 	s.st.DB.First(&n, "id = ?", "n1abcdefgh")
-	if n.Domain != b.Domain || n.Address != b.Domain || n.DDNS {
-		t.Fatalf("node should use the domain as its address: %+v", n)
+	if n.Domain != b.Domain || n.Address != "198.51.100.1" || !n.DDNS || nodeHost(&n) != b.Domain {
+		t.Fatalf("node should get the domain (preferred by subscriptions) and follow its IP: %+v", n)
 	}
 	mu.Lock()
 	if len(writes) == 0 || writes[len(writes)-1]["content"] != "198.51.100.1" {
@@ -99,5 +99,23 @@ func TestSyncAllBindings(t *testing.T) {
 	defer mu.Unlock()
 	if n == 0 {
 		t.Fatal("an already synced record must still be rewritten")
+	}
+}
+
+func TestNodeHostPrefersDomain(t *testing.T) {
+	n := store.Node{Domain: "hk.example.com", Address: "198.51.100.1", PublicIPv4: "198.51.100.2"}
+	if nodeHost(&n) != "hk.example.com" || nodeOrigin(&n) != "198.51.100.1" {
+		t.Fatalf("with domain: host %q origin %q", nodeHost(&n), nodeOrigin(&n))
+	}
+	n.Domain = ""
+	if nodeHost(&n) != "198.51.100.1" {
+		t.Fatalf("without domain: %q", nodeHost(&n))
+	}
+	n = store.Node{Domain: "hk.example.com", PublicIPv4: "198.51.100.2"}
+	if nodeOrigin(&n) != "198.51.100.2" {
+		t.Fatalf("origin falls back to the detected IP: %q", nodeOrigin(&n))
+	}
+	if nodeHost(&store.Node{PublicIPv6: "2001:db8::1"}) != "2001:db8::1" {
+		t.Fatal("detected IPv6 as last resort")
 	}
 }

@@ -113,7 +113,7 @@ export default function Domains() {
             </select>
           </Field>
           <label className="row small" style={{ alignSelf: 'end', paddingBottom: 10 }}>
-            <Switch label="订阅使用域名" on={a.address} onChange={(v) => setAuto({ ...a, address: v })} />订阅里用域名代替 IP（换 IP 后客户端无需更新订阅）
+            <Switch label="设为节点域名" on={a.address} onChange={(v) => setAuto({ ...a, address: v })} />设为节点域名：订阅优先用域名（换 IP 后客户端无需更新订阅）
           </label>
         </div>
         <div className="row" style={{ marginTop: 8 }}>

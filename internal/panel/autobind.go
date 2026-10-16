@@ -15,8 +15,8 @@ import (
 // Automatic domain binding: with a DNS provider and a parent zone set
 // (ddns_auto_provider / ddns_auto_zone), every node gets
 // <slug of its name>.<zone> when it enrols, kept pointing at its public IP
-// like any other binding. ddns_auto_address also makes the domain the
-// node's address, so subscriptions keep working when the IP changes.
+// like any other binding. ddns_auto_address also makes it the node's
+// domain, which subscriptions use, so clients survive IP changes.
 
 type autoBindConfig struct {
 	Provider string
@@ -99,10 +99,12 @@ func (s *Server) autoBindNode(ctx context.Context, nodeID string) (*store.Domain
 	if err := s.st.DB.Create(&b).Error; err != nil {
 		return nil, err
 	}
-	upd := map[string]any{"domain": domain}
+	// The address follows the detected IP (it is also what the record is
+	// written from); with ddns_auto_address the domain becomes the node's
+	// domain, which subscriptions prefer (see nodeHost).
+	upd := map[string]any{"d_dns": true}
 	if cfg.Address {
-		// The domain follows the IP now; the address no longer has to.
-		upd["address"], upd["d_dns"] = domain, false
+		upd["domain"] = domain
 	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(upd)
 	s.MarkDirty("node domain bound automatically", n.ID)

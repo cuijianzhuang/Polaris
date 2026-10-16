@@ -441,13 +441,31 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 // nodeHost is the address clients use for a node: the configured address,
 // else its domain, else the public IP the agent detected (so a node added
 // without an address still yields working links).
+// nodeHost is the address clients and other nodes dial: the node's domain
+// when it has one (it survives IP changes), else its address, else the
+// IP the agent detected.
 func nodeHost(n *store.Node) string {
-	for _, h := range []string{n.Address, n.Domain, n.PublicIPv4, n.PublicIPv6} {
+	for _, h := range []string{n.Domain, n.Address, n.PublicIPv4, n.PublicIPv6} {
 		if h = strings.TrimSpace(h); h != "" {
 			return h
 		}
 	}
 	return ""
+}
+
+// nodeOrigin is what a DNS record pointing at the node should hold: an IP
+// when one is known (a CNAME to the node's own domain could loop back to
+// the record being written), else nodeHost.
+func nodeOrigin(n *store.Node) string {
+	if ip := net.ParseIP(strings.TrimSpace(n.Address)); ip != nil {
+		return ip.String()
+	}
+	for _, h := range []string{n.PublicIPv4, n.PublicIPv6} {
+		if h = strings.TrimSpace(h); h != "" {
+			return h
+		}
+	}
+	return nodeHost(n)
 }
 
 // nodesForInbounds returns node ids hosting the inbounds plus nodes whose

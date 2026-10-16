@@ -282,11 +282,11 @@ func (s *Server) syncCDNDNS(c *gin.Context) {
 			continue
 		}
 		host := orDefault(ep.Host, p.OriginDomain)
-		if prev, ok := records[host]; ok && prev != nodeHost(&n) {
-			badRequest(c, fmt.Errorf("回源域名 %s 同时指向多个节点（%s / %s），请为入口单独设置 Host", host, prev, nodeHost(&n)))
+		if prev, ok := records[host]; ok && prev != nodeOrigin(&n) {
+			badRequest(c, fmt.Errorf("回源域名 %s 同时指向多个节点（%s / %s），请为入口单独设置 Host", host, prev, nodeOrigin(&n)))
 			return
 		}
-		records[host] = nodeHost(&n)
+		records[host] = nodeOrigin(&n)
 		inboundIDs = append(inboundIDs, in.ID)
 	}
 	var done []string
