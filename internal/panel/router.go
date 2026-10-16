@@ -2,6 +2,7 @@ package panel
 
 import (
 	"bytes"
+	"context"
 	"html"
 	"io"
 	"io/fs"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -75,6 +77,7 @@ func (s *Server) Router() http.Handler {
 	r.GET("/sub/scheme/:name", s.serveSchemeINI)
 	r.GET("/sub/rs/:sig/:enc", s.serveRuleSet)
 	r.GET("/install.sh", s.installScript)
+	r.GET("/j/:token", s.joinScript)
 	r.GET("/download/:file", s.download)
 
 	admin := strings.TrimRight(s.cfg.AdminPath, "/")
@@ -346,7 +349,31 @@ func (s *Server) publicInfo(c *gin.Context) {
 // download serves agent binaries placed in <data_dir>/downloads.
 func (s *Server) download(c *gin.Context) {
 	name := filepath.Base(c.Param("file"))
-	if !strings.HasPrefix(name, "polaris-agent") {
+	// polaris-agent-linux-<arch>[.sha256]: fetched from the release on first
+	// request when this architecture is not cached yet.
+	if arch, ok := strings.CutPrefix(strings.TrimSuffix(name, ".sha256"), "polaris-agent-linux-"); ok {
+		if !validArch(arch) {
+			notFound(c)
+			return
+		}
+		if !s.agentCurrent(arch) {
+			if !s.subLimit.Allow(clientIP(c.Request)) {
+				c.String(http.StatusTooManyRequests, "too many requests")
+				return
+			}
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 4*time.Minute)
+			err := s.ensureAgent(ctx, arch)
+			cancel()
+			if err != nil {
+				c.String(http.StatusNotFound, "agent for %s unavailable: %v", arch, err)
+				return
+			}
+		}
+		if strings.HasSuffix(name, ".sha256") {
+			c.String(http.StatusOK, s.agentSHA(arch)+"\n")
+			return
+		}
+	} else if name != "install-panel.sh" { // the polaris tool for nodes
 		notFound(c)
 		return
 	}

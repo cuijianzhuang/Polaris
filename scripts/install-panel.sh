@@ -17,6 +17,8 @@
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
 #   backup                        config + consistent database copy to /root/polaris-backup-*.tar.gz
 #   node [-n NAME]                install a node agent on this server (connects over 127.0.0.1)
+#   join LINK                     install the node agent from the panel's one-click link (or move to another panel)
+#   agent [status|log|start|stop|restart|upgrade|uninstall [--purge]]   manage the node agent
 #   doctor                        check service, ports, firewall, DNS/HTTPS, clock and disk
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
@@ -33,7 +35,7 @@ UNIT=/etc/systemd/system/polaris.service
 CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
-FORCE=0 DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME=""
+FORCE=0 DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
 
 shopt -s extglob
 
@@ -75,7 +77,18 @@ dwidth() {
 # pad TEXT WIDTH prints TEXT followed by spaces up to WIDTH columns.
 pad() { dwidth "$1"; local n=$(($2 - REPLY)); [ $n -gt 0 ] || n=0; printf '%s%*s' "$1" "$n" ''; }
 rep() { local s; printf -v s '%*s' "$2" ''; printf '%s' "${s// /$1}"; }
-UI_W=66
+# UI_W: width of dividers and frames, fitted to the terminal so nothing wraps
+# on a phone SSH client (at most 60 columns, at least 32).
+term_cols() {
+  local c=""
+  c="$(stty size 2>/dev/null </dev/tty | awk '{print $2}')" || true
+  [ -n "$c" ] || c="$(tput cols 2>/dev/null)" || true
+  [[ "$c" =~ ^[0-9]+$ ]] || c=80
+  echo "$c"
+}
+UI_W=$(($(term_cols) - 4))
+[ "$UI_W" -gt 60 ] && UI_W=60
+[ "$UI_W" -lt 32 ] && UI_W=32
 # section TITLE: a "── title ─────" divider.
 section() { dwidth "$1"; printf '\n  %s── %s%s%s %s%s\n' "$C_D" "$C_0$C_BD" "$1" "$C_0$C_D" "$(rep ─ $((UI_W - 6 - REPLY)))" "$C_0"; }
 # kv LABEL VALUE: an aligned "label   value" line.
@@ -138,7 +151,7 @@ print_credentials() { # password
     "$(pad 地址 8)${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}" \
     "$(pad 用户名 8)${C_BD}admin${C_0}" \
     "$(pad 密码 8)${C_BD}$1${C_0}" \
-    "${C_D}密码只显示这一次；忘记后执行 polaris reset-password 重置${C_0}"
+    "${C_D}密码只显示这一次（双击可整段选中复制，区分大小写）；忘记后执行 polaris reset-password 重置${C_0}"
 }
 
 # banner TITLE: the script header with the installed version on the right.
@@ -302,7 +315,9 @@ download_release() {
   fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
     die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
   local f want got
-  local files=("$PANEL_TGZ" polaris-agent-linux-amd64 polaris-agent-linux-arm64)
+  # Only this machine's architecture: the panel fetches another agent build
+  # itself the first time a node of that architecture needs it.
+  local files=("$PANEL_TGZ" "polaris-agent-linux-$ARCH")
   # Releases before the installer existed do not ship it; only fetch what is listed.
   grep -q ' \*\?install-panel.sh$' "$TMP/checksums.txt" && files+=(install-panel.sh)
   for f in "${files[@]}"; do
@@ -320,8 +335,24 @@ install_files() {
   install -m 0755 "$TMP/polaris" "$BIN"
   # Agent binaries served at /download/ so node installs pull them from this panel.
   install -d -m 0755 -o polaris -g polaris "$DATA" "$DATA/downloads"
-  install -m 0755 -o polaris -g polaris "$TMP/polaris-agent-linux-amd64" "$TMP/polaris-agent-linux-arm64" "$DATA/downloads/"
+  install -m 0755 -o polaris -g polaris "$TMP/polaris-agent-linux-$ARCH" "$DATA/downloads/"
+  printf '%s\n' "$VERSION" > "$DATA/downloads/.version-$ARCH"
+  chown polaris:polaris "$DATA/downloads/.version-$ARCH"
+  # Builds of the other architecture from an older version would be served
+  # with a stale checksum: drop them (re-fetched on demand), and the old
+  # shared marker with them.
+  local a
+  for a in amd64 arm64; do
+    [ "$a" = "$ARCH" ] && continue
+    if [ "$(cat "$DATA/downloads/.version-$a" 2>/dev/null)" != "$VERSION" ]; then
+      rm -f "$DATA/downloads/polaris-agent-linux-$a" "$DATA/downloads/.version-$a"
+    fi
+  done
+  rm -f "$DATA/downloads/.version"
   install_ctl
+  # Nodes install the same tool as their `polaris` command from this panel.
+  [ -f "$CTL" ] && install -m 0644 -o polaris -g polaris "$CTL" "$DATA/downloads/install-panel.sh"
+  return 0
 }
 
 # install_ctl registers this tool as the "polaris" command (and polaris-ctl).
@@ -661,8 +692,18 @@ do_reset_password() {
   need_installed
   local args=(admin reset-password)
   [ -n "$ADMIN_USER" ] && args+=(-u "$ADMIN_USER")
-  polaris_cmd "${args[@]}" || die "重置失败"
-  warn "已解除登录锁定，所有已登录会话已失效"
+  local out user pass
+  out="$(polaris_cmd "${args[@]}")" || die "重置失败"
+  user="$(printf '%s\n' "$out" | sed -n 's/^username: //p')"
+  pass="$(printf '%s\n' "$out" | sed -n 's/^password: //p')"
+  [ -n "$pass" ] || { printf '%s\n' "$out"; die "无法读取新密码"; }
+  echo
+  box "$C_G" "新的登录信息（请立即保存）" \
+    "$(pad 地址 8)${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}" \
+    "$(pad 用户名 8)${C_BD}${user}${C_0}" \
+    "$(pad 密码 8)${C_BD}${pass}${C_0}" \
+    "${C_D}双击密码即可整段选中复制；只含字母和数字，区分大小写${C_0}"
+  warn "已解除登录锁定，所有已登录会话已失效；浏览器若自动填入了旧密码，请手动改成上面的新密码"
 }
 
 do_reset_2fa() {
@@ -843,6 +884,190 @@ do_log() {
   trap - INT
 }
 
+# --- node agent --------------------------------------------------------------
+# The same tool manages a node: the agent is installed by the panel's
+# install.sh (one-click link), which also drops this script in as `polaris`.
+
+AGENT_BIN=/usr/local/bin/polaris-agent
+AGENT_UNIT=/etc/systemd/system/polaris-agent.service
+agent_installed() { [ -x "$AGENT_BIN" ] && [ -f "$AGENT_UNIT" ]; }
+or_dash() { if [ -n "$1" ]; then echo "$1"; else echo "未知"; fi; }
+need_agent() { agent_installed || die "本机未安装节点 Agent（在面板「节点」中生成一键安装链接后执行）"; }
+agent_data() {
+  local d; d="$(sed -n 's/^ExecStart=.* --data \([^ ]*\).*/\1/p' "$AGENT_UNIT" 2>/dev/null | head -n1)"
+  echo "${d:-/var/lib/polaris-agent}"
+}
+agent_version() { [ -x "$AGENT_BIN" ] && "$AGENT_BIN" --version 2>/dev/null | awk '{print $2}'; return 0; }
+agent_panel() { cat "$(agent_data)/agent/panel-url" 2>/dev/null || true; }
+# agent_panel_http: the panel's web address, for fetching install.sh. Saved by
+# install.sh; on the panel server itself the local listener works too.
+agent_panel_http() {
+  local f; f="$(agent_data)/agent/panel-http"
+  if [ -s "$f" ]; then head -n1 "$f"; return; fi
+  if installed; then local p; p="$(env_get POLARIS_LISTEN)"; echo "http://127.0.0.1:${p##*:}"; fi
+}
+
+show_agent_info() {
+  need_agent
+  section "节点 Agent"
+  kv 服务 "$(svc_line polaris-agent)"
+  kv 版本 "$(agent_version)"
+  kv 主控 "$(or_dash "$(agent_panel)")"
+  kv 面板地址 "$(or_dash "$(agent_panel_http)")"
+  kv 数据目录 "$(agent_data)"
+  section "最近日志"
+  journalctl -u polaris-agent -n 8 --no-pager -o cat 2>/dev/null | sed 's/^/  /' || true
+}
+
+# run_panel_script URL ARGS...: download a panel-served script and run it.
+run_panel_script() {
+  local url="$1" f; shift
+  f="$(mktemp)"
+  local code msg
+  code="$(curl -sSL --connect-timeout 10 -o "$f" -w '%{http_code}' "$url")" || { rm -f "$f"; die "无法连接 $url"; }
+  if [ "$code" != 200 ]; then
+    # Rejected links come back as a tiny script whose only line explains why.
+    msg="$(sed -n "s/^echo '✗ \(.*\)' >&2$/\1/p" "$f" | head -n1)"
+    rm -f "$f"; die "${msg:-下载 $url 失败（HTTP $code）}"
+  fi
+  head -c 2 "$f" | grep -q '#!' || { rm -f "$f"; die "$url 返回的不是安装脚本"; }
+  local rc=0
+  bash "$f" "$@" || rc=$?
+  rm -f "$f"
+  return $rc
+}
+
+do_agent_upgrade() {
+  need_agent
+  local http; http="$(agent_panel_http)"
+  if [ -z "$http" ]; then
+    http="$(ask "主控面板地址（如 http://1.2.3.4:8080）：")"
+    [ -n "$http" ] || die "未提供主控地址"
+  fi
+  step "从 ${http%/} 升级 Agent"
+  run_panel_script "${http%/}/install.sh" --upgrade ${MIRROR:+--mirror "$MIRROR"}
+}
+
+# do_agent_join LINK: install the agent, or move it to another panel, from the
+# one-click link the panel shows (the URL or the whole command both work).
+do_agent_join() {
+  local link="$1" url tok
+  [ -n "$link" ] || die "请提供面板「节点」页生成的一键安装链接"
+  url="$(printf '%s' "$link" | grep -oE 'https?://[^ |"'"'"']+' | head -n1)"
+  [ -n "$url" ] || die "没有找到链接：请粘贴类似 curl -fsSL http://主控/j/xxxx | bash 的命令或其中的地址"
+  if agent_installed; then
+    warn "本机已接入主控 $(agent_panel)；继续将改为接入新的主控（旧主控中的该节点会离线）"
+  fi
+  case "$url" in
+    */j/*) run_panel_script "$url" ${MIRROR:+--mirror "$MIRROR"} ;;
+    */install.sh)
+      tok="$(printf '%s' "$link" | sed -n 's/.*--token[ =]\([A-Za-z0-9_-]*\).*/\1/p')"
+      [ -n "$tok" ] || die "命令中没有 --token"
+      run_panel_script "$url" --token "$tok" ${MIRROR:+--mirror "$MIRROR"} ;;
+    *) run_panel_script "$url" ${MIRROR:+--mirror "$MIRROR"} ;;
+  esac
+}
+
+do_agent_uninstall() {
+  need_agent
+  local data; data="$(agent_data)"
+  step "卸载节点 Agent"
+  systemctl disable --now polaris-agent >/dev/null 2>&1 || true
+  rm -f "$AGENT_UNIT" "$AGENT_BIN"
+  systemctl daemon-reload
+  if [ "$PURGE" = 1 ]; then
+    if ls "$data"/*.db >/dev/null 2>&1; then rm -rf "$data/agent" "$data/cores" "$data/run"
+    else rm -rf "$data"; fi
+    ok "已卸载并删除 Agent 数据"
+  else
+    ok "已卸载；数据保留在 $data（加 --purge 一并删除）"
+  fi
+  dim "  记得在面板中删除该节点"
+}
+
+agent_cli() { # agent SUBCOMMAND [ARG]
+  case "${1:-menu}" in
+    menu) agent_menu ;;
+    info|status) banner "节点 Agent"; show_agent_info ;;
+    log) need_agent; trap 'echo' INT; journalctl -u polaris-agent -n 50 -f --no-pager || true ;;
+    start|stop|restart) need_agent; systemctl "$1" polaris-agent && ok "已执行 $1" ;;
+    upgrade|update) do_agent_upgrade ;;
+    join) do_agent_join "${2:-}" ;;
+    uninstall) [ "${2:-}" = --purge ] && PURGE=1; do_agent_uninstall ;;
+    *) die "未知的 agent 子命令：$1（status / log / start / stop / restart / upgrade / join 链接 / uninstall）" ;;
+  esac
+}
+
+agent_menu() {
+  set +e
+  while true; do
+    clear 2>/dev/null || true
+    banner "节点 Agent · 管理脚本"
+    if agent_installed; then
+      kv Agent "$(svc_line polaris-agent)"
+      kv 主控 "$(or_dash "$(agent_panel)")"
+      kv 版本 "$(agent_version)"
+    else
+      kv Agent "$(dot) ${C_Y}未安装${C_0}（选 1，粘贴面板生成的一键安装链接）"
+    fi
+    installed && kv 主控面板 "$(svc_line polaris)（本机）"
+    kv 系统 "$(sys_line)"
+    section "节点 Agent"
+    if agent_installed; then
+      menu_row "1|运行状态" "2|实时日志" "3|重启"
+      menu_row "4|停止" "5|启动" "6|升级 Agent"
+      menu_row "7|更换主控" "8|卸载 Agent"
+    else
+      menu_row "1|用一键链接安装"
+    fi
+    echo
+    if installed; then menu_row "m|切换到主控面板菜单" "0|退出"; else menu_row "p|安装主控面板" "0|退出"; fi
+    echo
+    local c; c="$(ask "  请选择：")"
+    echo
+    if ! agent_installed; then
+      case "$c" in
+        1) local l; l="$(ask "粘贴一键安装链接或命令：")"; [ -n "$l" ] && run_action do_agent_join "$l"; pause ;;
+        m|M) installed && { menu; return; } ;;
+        p|P) menu; return ;;
+        0|q|Q) exit 0 ;;
+      esac
+      continue
+    fi
+    case "$c" in
+      1) (show_agent_info) || true; pause ;;
+      2) dim "按 Ctrl+C 返回菜单"; trap 'echo' INT; journalctl -u polaris-agent -n 50 -f --no-pager; trap - INT ;;
+      3) systemctl restart polaris-agent && ok "已重启"; pause ;;
+      4) systemctl stop polaris-agent && ok "已停止"; pause ;;
+      5) systemctl start polaris-agent && ok "已启动"; pause ;;
+      6) run_action do_agent_upgrade; pause ;;
+      7) local l; l="$(ask "粘贴新主控的一键安装链接或命令：")"
+         if [ -n "$l" ] && confirm "改为接入新的主控？"; then run_action do_agent_join "$l"; fi; pause ;;
+      8) if confirm "确定卸载节点 Agent？"; then confirm "同时删除 Agent 数据？" && PURGE=1; run_action do_agent_uninstall; PURGE=0; fi; pause ;;
+      m|M) installed && { menu; return; } ;;
+      0|q|Q) exit 0 ;;
+    esac
+  done
+}
+
+# role_menu: first run on a bare server: panel or node?
+role_menu() {
+  clear 2>/dev/null || true
+  banner "选择本机角色"
+  kv 系统 "$(sys_line)"
+  section "这台服务器要做什么"
+  menu_row "1|主控面板" "2|节点 Agent"
+  dim "  主控：管理节点、用户和订阅的后台"
+  dim "  节点：运行代理内核，由主控远程管理"
+  echo
+  local c; c="$(ask "  请选择 [1-2]：")"
+  case "$c" in
+    1) menu ;;
+    2) agent_menu ;;
+    *) exit 0 ;;
+  esac
+}
+
 # --- interactive menu --------------------------------------------------------
 
 pause() { echo; read -r -p "按回车返回菜单…" _ || true; }
@@ -865,13 +1090,11 @@ ask_port() {
 # called as part of && / || lists: bash ignores set -e in such contexts.
 run_action() { ( set -e; "$@" ); }
 
-# menu_row "N|label" ...: up to three numbered items on one line.
+# menu_row "N|label" ...: numbered items, one per line (columns break apart
+# when a narrow terminal wraps them).
 menu_row() {
-  local it out="  "
-  for it; do
-    out+="$(printf '%s%3s.%s ' "$C_C" "${it%%|*}" "$C_0")$(pad "${it#*|}" 17)"
-  done
-  printf '%s\n' "${out%"${out##*[! ]}"}"
+  local it
+  for it; do printf '  %s%3s.%s %s\n' "$C_C" "${it%%|*}" "$C_0" "${it#*|}"; done
 }
 
 menu_header() {
@@ -915,7 +1138,7 @@ menu() {
     section "工具"
     menu_row "17|备份配置与数据" "18|$node" "19|系统诊断"
     echo
-    menu_row "0|退出"
+    if agent_installed; then menu_row "a|切换到节点 Agent 菜单" "0|退出"; else menu_row "0|退出"; fi
     echo
     local c; c="$(ask "  请选择 [0-19]：")"
     echo
@@ -972,6 +1195,7 @@ menu() {
         fi
         pause ;;
       19) run_action do_doctor; pause ;;
+      a|A) agent_installed && { agent_menu; return; } ;;
       0|q|Q) exit 0 ;;
       *) ;;
     esac
@@ -985,6 +1209,8 @@ ACTION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node|doctor|check-update) ACTION="$1"; shift ;;
+    agent) ACTION=agent; shift; AGENT_SUB="${1:-menu}"; [ $# -gt 0 ] && shift; AGENT_ARG="${1:-}"; [ $# -gt 0 ] && shift ;;
+    join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
     set-path|set-port|set-domain) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
@@ -1016,11 +1242,19 @@ if [ -z "$ACTION" ]; then
   if [ -n "$DOMAIN" ] || [ "$PORT" != 8080 ] || [ -n "$VERSION" ] || [ -n "$ADMIN_PATH" ]; then ACTION=install
   elif [ -t 0 ]; then ACTION=menu
   elif installed; then ACTION=info
+  elif agent_installed; then ACTION=agent AGENT_SUB=info
   else ACTION=install; fi
 fi
 
 case "$ACTION" in
-  menu) migrate_layout; menu ;;
+  menu)
+    migrate_layout
+    # The panel menu on a panel server, the node menu on a node, and a role
+    # choice on a bare server.
+    if installed; then menu
+    elif agent_installed; then agent_menu
+    else role_menu; fi ;;
+  agent) agent_cli "$AGENT_SUB" "$AGENT_ARG" ;;
   install) do_install ;;
   update) do_update ;;
   uninstall) do_uninstall ;;

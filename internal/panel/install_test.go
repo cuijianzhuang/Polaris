@@ -3,6 +3,7 @@ package panel
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -51,8 +52,29 @@ func TestInstallCommandUsesRequestHost(t *testing.T) {
 	}
 	cmd := out["command"].(string)
 	host := strings.TrimPrefix(strings.TrimSuffix(c.base, s.cfg.APIBase()), "http://")
-	if want := "curl -fsSL http://" + host + "/install.sh | bash -s -- --token "; !strings.HasPrefix(cmd, want) {
-		t.Fatalf("command %q, want prefix %q", cmd, want)
+	tok := out["token"].(string)
+	if want := "curl -fsSL http://" + host + "/j/" + tok + " | bash"; cmd != want {
+		t.Fatalf("command %q, want %q", cmd, want)
+	}
+	// The one-click link serves install.sh with the token inside; unknown
+	// tokens get a script that only explains.
+	get := func(path string) (int, string) {
+		resp, err := http.Get("http://" + host + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if st, body := get("/j/" + tok); st != 200 || !strings.Contains(body, `TOKEN="`+tok+`"`) || strings.Contains(body, "__PANEL") {
+		t.Fatalf("join script %d:\n%.300s", st, body)
+	}
+	if st, body := get("/j/NotARealToken12345"); st != 404 || !strings.Contains(body, "exit 1") || strings.Contains(body, "polaris-agent") {
+		t.Fatalf("unknown token %d: %s", st, body)
+	}
+	if _, body := get("/install.sh"); !strings.Contains(body, `TOKEN="" DATA=""`) {
+		t.Fatal("plain install.sh must not carry a token")
 	}
 	// Without POLARIS_AGENT_HOSTS / PUBLIC_URL the agent endpoint follows the
 	// host the admin used, never 127.0.0.1.
@@ -138,5 +160,70 @@ func TestRenewDue(t *testing.T) {
 		if got := renewDue(mk(c.life, c.left), now); got != c.want {
 			t.Errorf("life %s, left %s: got %v", c.life, c.left, got)
 		}
+	}
+}
+
+// Another architecture's agent is fetched from the release on first request,
+// verified against checksums.txt, and cached with its own version marker.
+func TestAgentFetchedOnDemand(t *testing.T) {
+	old := Version
+	Version = "v9.9.9"
+	t.Cleanup(func() { Version = old })
+	bin := []byte("arm64-agent")
+	sum := sha256.Sum256(bin)
+	good := true
+	var hits int
+	rel := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/v9.9.9/checksums.txt"):
+			sha := hex.EncodeToString(sum[:])
+			if !good {
+				sha = strings.Repeat("0", 64)
+			}
+			fmt.Fprintf(w, "%s  polaris-agent-linux-arm64\n", sha)
+		case strings.HasSuffix(r.URL.Path, "/v9.9.9/polaris-agent-linux-arm64"):
+			w.Write(bin)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer rel.Close()
+	s := newTestServer(t)
+	s.st.SetSetting("github_mirror", rel.URL)
+	srv := httptest.NewServer(s.Router())
+	defer srv.Close()
+	get := func(path string) (int, string) {
+		resp, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	good = false
+	if st, _ := get("/download/polaris-agent-linux-arm64.sha256"); st != 404 {
+		t.Fatalf("checksum mismatch must not be cached: %d", st)
+	}
+	good = true
+	st, body := get("/download/polaris-agent-linux-arm64.sha256")
+	if st != 200 || strings.TrimSpace(body) != hex.EncodeToString(sum[:]) {
+		t.Fatalf("sha %d %q", st, body)
+	}
+	if st, body := get("/download/polaris-agent-linux-arm64"); st != 200 || body != string(bin) {
+		t.Fatalf("binary %d %q", st, body)
+	}
+	if v, _ := os.ReadFile(filepath.Join(s.downloadsDir(), ".version-arm64")); strings.TrimSpace(string(v)) != "v9.9.9" {
+		t.Fatalf("marker %q", v)
+	}
+	before := hits
+	get("/download/polaris-agent-linux-arm64")
+	if hits != before {
+		t.Fatal("cached build must not be fetched again")
+	}
+	if st, _ := get("/download/polaris-agent-linux-mips"); st != 404 {
+		t.Fatalf("unknown arch: %d", st)
 	}
 }

@@ -3,8 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
 import TrafficChart from '../components/TrafficChart'
+import NodeCard from '../components/NodeCard'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
-import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
+import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
 import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
 
@@ -173,11 +174,16 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
   const [tool, setTool] = useState<'curl' | 'wget'>('curl')
   const [mirror, setMirror] = useState('')
   const [wasOnline] = useState(node?.status === 'online')
-  const script = install.cmd.match(/(\S+\/install\.sh)/)?.[1] ?? ''
-  const args = install.cmd.split('bash -s -- ')[1] ?? ''
+  // The panel hands out a one-click link (…/j/<token>) that serves install.sh
+  // with the token inside; older panels gave `install.sh | bash -s -- --token`.
+  const link = install.cmd.match(/(https?:\/\/\S+\/j\/[A-Za-z0-9_-]+)/)?.[1] ?? ''
+  const base = (link ? link.replace(/\/j\/[^/]+$/, '') : install.cmd.match(/(\S+)\/install\.sh/)?.[1]) ?? ''
+  const token = link ? link.split('/j/')[1] : install.cmd.match(/--token\s+(\S+)/)?.[1] ?? ''
+  const script = `${base}/install.sh`
   const fetchCmd = tool === 'curl' ? `curl -fsSL ${script}` : `wget -qO- ${script}`
   const extra = mirror.trim() ? ` --mirror ${mirror.trim()}` : ''
-  const cmd = `${fetchCmd} | bash -s -- ${args}${extra}`
+  const get = (u: string) => (tool === 'curl' ? `curl -fsSL ${u}` : `wget -qO- ${u}`)
+  const cmd = link ? `${get(link)} | bash${extra ? ' -s --' + extra : ''}` : `${fetchCmd} | bash -s -- --token ${token}${extra}`
   const online = node?.status === 'online' && !wasOnline
   return (
     <Modal title={`安装节点 · ${node?.name ?? ''}`} onClose={onClose} wide>
@@ -193,14 +199,17 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
         <input className="input mono" style={{ flex: 1, minWidth: 220 }} value={mirror} onChange={(e) => setMirror(e.target.value)} placeholder="GitHub 镜像（可选，如 https://ghfast.top/）" aria-label="GitHub 镜像" />
       </div>
       <CopyBox text={cmd} />
+      {link && <div className="hint">节点上已有 <span className="mono">polaris</span> 命令时，也可以执行 <span className="mono">polaris join {link}</span>，或在 polaris 菜单「更换主控」里粘贴这条链接。</div>}
       {online ? <div className="note ok-note">节点已成功接入，可以关闭此窗口，到「入站」中为它添加服务。</div>
         : <div className="wait-line"><span className="pulse" />等待节点连接</div>}
       <details className="more">
         <summary>本机安装、升级与卸载</summary>
         <div className="small" style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-          <div>在<b>主控服务器本机</b>安装节点：直接执行上面的命令即可，脚本会自动改用 127.0.0.1 连接；也可在主控上运行 <span className="mono">polaris node</span>（或菜单 17）一键完成。</div>
-          <div>升级 Agent 到面板版本：<span className="mono">{fetchCmd} | bash -s -- --upgrade</span></div>
-          <div>卸载：<span className="mono">{fetchCmd} | bash -s -- --uninstall</span>（加 <span className="mono">--purge</span> 删除数据）</div>
+          <div>在<b>主控服务器本机</b>安装节点：直接执行上面的命令即可，脚本会自动改用 127.0.0.1 连接；也可在主控上运行 <span className="mono">polaris node</span>（或菜单 18）一键完成。</div>
+          <div>安装后在节点上输入 <span className="mono">polaris</span> 打开节点管理菜单：状态、日志、升级、更换主控、卸载。</div>
+          <div>完整写法（不用一键链接时）：<span className="mono">{fetchCmd} | bash -s -- --token {token}</span></div>
+          <div>升级 Agent 到面板版本：<span className="mono">polaris agent upgrade</span>，或 <span className="mono">{fetchCmd} | bash -s -- --upgrade</span></div>
+          <div>卸载：<span className="mono">polaris agent uninstall</span>，或 <span className="mono">{fetchCmd} | bash -s -- --uninstall</span>（加 <span className="mono">--purge</span> 删除数据）</div>
           <div className="mute">Agent 主动连接主控，节点无需开放管理端口，NAT 后的机器也能接入；主控需放行节点接入端口（默认 9443）。</div>
         </div>
       </details>
@@ -381,17 +390,8 @@ export default function Nodes() {
       {nodes.length === 0 ? <div className="card"><Empty>{scoped ? '没有分配给你的节点，请联系超级管理员。' : '还没有节点。'}{scoped ? null : '点击「添加节点」生成一行安装命令，在服务器上执行即可接入。'}</Empty></div> : (
         <>
           <div className="nodes" role="group" aria-label="选择节点">
-            {nodes.map((n) => {
-              const st = nodeStatus[n.status] ?? nodeStatus.pending
-              return (
-                <button key={n.id} type="button" className={'ncard' + (sel?.id === n.id ? ' on' : '')} aria-pressed={sel?.id === n.id} onClick={() => setSelId(n.id)}>
-                  <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
-                  <div className="sub">{[n.region, n.address || n.domain || (n.publicIpv4 || n.publicIpv6 ? `${n.publicIpv4 || n.publicIpv6}（自动检测）` : '')].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
-                    {upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) && <span className="tag warn">可升级</span>}</div>
-                  {traffic.data?.[n.id] && <div className="small mute mono" style={{ marginTop: 4 }}>今日 ↑ {bytes(traffic.data[n.id].todayUp)} · ↓ {bytes(traffic.data[n.id].todayDown)}</div>}
-                </button>
-              )
-            })}
+            {nodes.map((n) => <NodeCard key={n.id} n={n} on={sel?.id === n.id} onClick={() => setSelId(n.id)} traffic={traffic.data?.[n.id]}
+              badge={upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) ? <span className="tag warn">可升级</span> : null} />)}
           </div>
           {sel && (
             <>

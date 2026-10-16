@@ -6,7 +6,7 @@ import { downloadJSON } from '../components/UserTools'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
-import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast, Section, useUndo } from '../components/ui'
 import { bytes, coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
 import type { TagTrafficRow } from '../components/TagTraffic'
 import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, Node, Outbound } from '../types'
@@ -115,7 +115,7 @@ function FallbackEditor({ value, onChange, candidates, selfId }: { value: Fallba
   )
 }
 
-function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; editing?: Inbound; onClose: () => void; onSaved: () => void }) {
+function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
   const [nodeId, setNodeId] = useState(editing?.nodeId ?? nodes[0]?.id ?? '')
   const node = nodes.find((n) => n.id === nodeId)
   const caps = useLoad(() => (nodeId ? get<CapSet[]>('/capabilities?node=' + nodeId) : Promise.resolve([])), [nodeId])
@@ -141,7 +141,6 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
-  const confirm = useConfirm()
 
   const proxyCores = (caps.data ?? []).filter((c) => c.combos.length > 0)
   const coreCaps = proxyCores.filter((c) => c.core === draft.core)
@@ -175,65 +174,70 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
 
   return (
     <Drawer title={editing ? '编辑入站 · ' + editing.tag : '新建入站'} onClose={onClose} footer={<>
-      {editing && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={async () => {
-        if (await confirm(`删除入站 ${editing.tag}？`, { danger: true, ok: '删除' })) run(async () => { await del('/inbounds/' + editing.id); onSaved() }, '已删除')
-      }}>删除</button>}
+      {editing && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={() => onDelete(editing)}>删除</button>}
       <button className="btn" type="button" disabled={busy} onClick={() => run(async () => {
         const r = await post<{ config: string }>('/inbounds/preview' + (editing ? '?id=' + editing.id : ''), body())
         setPreview(r.config)
       })}>预览内核配置</button>
       <button className="btn pri" type="button" disabled={busy || !tag || !nodeId} onClick={save}>保存并下发</button>
     </>}>
-      <Field label="节点" htmlFor="ib-node">
-        <select id="ib-node" className="input" value={nodeId} disabled={!!editing} onChange={(e) => setNodeId(e.target.value)}>
-          {nodes.map((n) => <option key={n.id} value={n.id}>{n.name} · 已装 {n.cores.map((c) => `${coreShort[c.type]} v${c.version}`).join(' / ') || '无内核'}</option>)}
-        </select>
-      </Field>
-      {proxyCores.length === 0 ? <div className="note warn">该节点还没有可承载入站的内核，请先在「节点与内核」安装。</div> : (
-        <InboundFields draft={draft} onChange={setDraft} caps={coreCaps} allCaps={proxyCores} certs={certs.data} nodeId={nodeId}
-          coreChoices={proxyCores.map((c) => ({ core: c.core, version: c.version, hint: `v${c.version} · ${c.hotUsers ? '支持热增删用户' : '用户变更需重载'}` }))} />
-      )}
-      <div className="form-grid">
-        <Field label="标签" htmlFor="ib-tag"><input id="ib-tag" className="input mono" value={tag} onChange={(e) => setTag(e.target.value)} /></Field>
-        <Field label="端口" htmlFor="ib-port" hint="点「随机」选一个节点上未被占用的端口（含其他程序占用的端口）；保存后自动在节点防火墙放行">
-          <div className="joined">
-            <input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
-            <button className="btn" type="button" disabled={!nodeId} onClick={() => run(async () => {
-              const r = await get<{ port: number }>(`/nodes/${nodeId}/free-port`)
-              if (r.port) setPort(String(r.port))
-            })}>随机</button>
+      <Section step={1} title="基础" summary={[node?.name, tag, port && ':' + port, enabled ? '' : '已停用'].filter(Boolean).join(' · ')}>
+        <Field label="节点" htmlFor="ib-node">
+          <select id="ib-node" className="input" value={nodeId} disabled={!!editing} onChange={(e) => setNodeId(e.target.value)}>
+            {nodes.map((n) => <option key={n.id} value={n.id}>{n.name} · 已装 {n.cores.map((c) => `${coreShort[c.type]} v${c.version}`).join(' / ') || '无内核'}</option>)}
+          </select>
+        </Field>
+        <div className="form-grid">
+          <Field label="标签" htmlFor="ib-tag"><input id="ib-tag" className="input mono" value={tag} onChange={(e) => setTag(e.target.value)} /></Field>
+          <Field label="端口" htmlFor="ib-port" hint="点「随机」选一个节点上未被占用的端口（含其他程序占用的端口）；保存后自动在节点防火墙放行">
+            <div className="joined">
+              <input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
+              <button className="btn" type="button" disabled={!nodeId} onClick={() => run(async () => {
+                const r = await get<{ port: number }>(`/nodes/${nodeId}/free-port`)
+                if (r.port) setPort(String(r.port))
+              })}>随机</button>
+            </div>
+          </Field>
+          <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
+          <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
+        </div>
+        <div className="toggle"><span>启用</span><Switch label="启用" on={enabled} onChange={setEnabled} /></div>
+      </Section>
+      <Section step={2} title="协议与传输" summary={[draft.protocol.type, draft.transport.type, draft.security.type].filter((x) => x && x !== 'none').join(' · ')}>
+        {proxyCores.length === 0 ? <div className="note warn">该节点还没有可承载入站的内核，请先在「节点与内核」安装。</div> : (
+          <InboundFields draft={draft} onChange={setDraft} caps={coreCaps} allCaps={proxyCores} certs={certs.data} nodeId={nodeId}
+            coreChoices={proxyCores.map((c) => ({ core: c.core, version: c.version, hint: `v${c.version} · ${c.hotUsers ? '支持热增删用户' : '用户变更需重载'}` }))} />
+        )}
+        {draft.core === 'xray' && (draft.protocol.type === 'vless' || draft.protocol.type === 'trojan') && draft.transport.type === 'tcp' &&
+          (draft.security.type === 'tls' || draft.security.type === 'reality') && (
+          <FallbackEditor value={draft.protocol.fallbacks ?? []} candidates={nodeInbounds.data ?? []} selfId={editing?.id}
+            onChange={(fallbacks) => setDraft((d) => ({ ...d, protocol: { ...d.protocol, fallbacks: fallbacks.length ? fallbacks : undefined } }))} />
+        )}
+      </Section>
+      <Section step={3} title="授权与出口" summary={[groupIds.length ? `${groupIds.length} 个分组` : '未授权分组', outboundTag ? '出口 ' + outboundTag : '按路由规则'].join(' · ')}>
+        <Field label="授权分组" hint="分组内的用户获得此入站">
+          <div className="row">
+            {(groups.data ?? []).map((g) => (
+              <button key={g.id} type="button" className={'chip' + (groupIds.includes(g.id) ? ' on' : '')} aria-pressed={groupIds.includes(g.id)}
+                onClick={() => setGroupIds((x) => x.includes(g.id) ? x.filter((y) => y !== g.id) : [...x, g.id])}>{g.name}</button>
+            ))}
+            {groups.data?.length === 0 && <span className="hint">还没有分组，可在「用户」页创建</span>}
           </div>
         </Field>
-        <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
-        <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
-      </div>
-      {draft.core === 'xray' && (draft.protocol.type === 'vless' || draft.protocol.type === 'trojan') && draft.transport.type === 'tcp' &&
-        (draft.security.type === 'tls' || draft.security.type === 'reality') && (
-        <FallbackEditor value={draft.protocol.fallbacks ?? []} candidates={nodeInbounds.data ?? []} selfId={editing?.id}
-          onChange={(fallbacks) => setDraft((d) => ({ ...d, protocol: { ...d.protocol, fallbacks: fallbacks.length ? fallbacks : undefined } }))} />
-      )}
-      <Field label="出口" htmlFor="ib-out" hint="绑定后此入站的全部流量走指定出站（含负载均衡组），不再经过路由规则；默认由路由规则决定">
-        <select id="ib-out" className="input" value={outboundTag} onChange={(e) => setOutboundTag(e.target.value)}>
-          <option value="">按路由规则</option>
-          <option value="direct">direct · 直连</option>
-          <option value="block">block · 拦截</option>
-          {(outbounds.data ?? []).map((o) => <option key={o.id} value={o.tag}>{o.tag} · {o.type === 'balancer' ? '负载均衡' : o.type}</option>)}
-        </select>
-      </Field>
-      <Field label="授权分组" hint="分组内的用户获得此入站">
-        <div className="row">
-          {(groups.data ?? []).map((g) => (
-            <button key={g.id} type="button" className={'chip' + (groupIds.includes(g.id) ? ' on' : '')} aria-pressed={groupIds.includes(g.id)}
-              onClick={() => setGroupIds((x) => x.includes(g.id) ? x.filter((y) => y !== g.id) : [...x, g.id])}>{g.name}</button>
-          ))}
-          {groups.data?.length === 0 && <span className="hint">还没有分组，可在「用户」页创建</span>}
-        </div>
-      </Field>
-      <div className="toggle"><span>启用</span><Switch label="启用" on={enabled} onChange={setEnabled} /></div>
-      <details>
-        <summary className="lbl" style={{ cursor: 'pointer' }}>高级：Extra（原样合并进内核配置）</summary>
-        <textarea className="input" style={{ marginTop: 8 }} value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='{"sniffing": {"routeOnly": true}}' />
-      </details>
+        <Field label="出口" htmlFor="ib-out" hint="绑定后此入站的全部流量走指定出站（含负载均衡组），不再经过路由规则；默认由路由规则决定">
+          <select id="ib-out" className="input" value={outboundTag} onChange={(e) => setOutboundTag(e.target.value)}>
+            <option value="">按路由规则</option>
+            <option value="direct">direct · 直连</option>
+            <option value="block">block · 拦截</option>
+            {(outbounds.data ?? []).map((o) => <option key={o.id} value={o.tag}>{o.tag} · {o.type === 'balancer' ? '负载均衡' : o.type}</option>)}
+          </select>
+        </Field>
+      </Section>
+      <Section step={4} title="高级" defaultOpen={!!extra.trim()} summary={extra.trim() ? '已设置 Extra' : 'Extra（原样合并进内核配置）'}>
+        <Field label="Extra" hint="原样合并进内核配置的 JSON">
+          <textarea className="input" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='{"sniffing": {"routeOnly": true}}' />
+        </Field>
+      </Section>
       {conflict ? <div className="note bad">端口 {port} 与 {node?.name} 上的入站 {conflict.tag} 冲突</div> : (
         <div className="note">与 {node?.name ?? '节点'} 上已有入站无端口冲突 · 预计下发方式：{editing ? (draft.core === 'xray' ? '结构变更，重启 Xray' : draft.core === 'singbox' ? '结构变更，SIGHUP 重载' : '重载') : '新增入站需重载内核'}；之后的用户增删{coreHot ? '走热更新' : '会触发重载'}</div>
       )}
@@ -251,6 +255,13 @@ export default function Inbounds() {
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<{ core?: CoreType; node?: string }>(params.get('node') ? { node: params.get('node')! } : {})
   const list = useLoad(() => get<Inbound[]>('/inbounds'))
+  const [hidden, setHidden] = useState<string[]>([])
+  const undo = useUndo()
+  const removeInbound = (i: Inbound) => {
+    setHidden((h) => [...h, i.id])
+    setDrawer(null)
+    undo(`已删除入站 ${i.tag}`, async () => { await del('/inbounds/' + i.id); list.reload() }, () => setHidden((h) => h.filter((x) => x !== i.id)))
+  }
   const tagStats = useLoad(() => get<TagTrafficRow[]>('/stats/tags?kind=inbound').catch(() => [] as TagTrafficRow[]))
   const trafficOf = useMemo(() => {
     const m = new Map<string, { up: number; down: number }>()
@@ -268,7 +279,7 @@ export default function Inbounds() {
   const traffic = (i: Inbound) => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? t.up + t.down : 0 }
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase()
-    const out = (list.data ?? []).filter((i) => (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node) &&
+    const out = (list.data ?? []).filter((i) => !hidden.includes(i.id) && (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node) &&
       (!s || [i.tag, i.remark ?? '', String(i.port), i.nodeName, i.protocol.type, i.transport.type].some((x) => x.toLowerCase().includes(s))))
     const key: Record<string, (i: Inbound) => string | number> = { tag: (i) => i.tag, node: (i) => i.nodeName, port: (i) => i.port, users: (i) => i.userCount, traffic }
     if (sort.k && key[sort.k]) {
@@ -276,7 +287,7 @@ export default function Inbounds() {
       out.sort((a, b) => { const x = f(a), y = f(b); const r = x < y ? -1 : x > y ? 1 : 0; return sort.desc ? -r : r })
     }
     return out
-  }, [list.data, filter, q, sort, trafficOf]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [list.data, filter, q, sort, trafficOf, hidden]) // eslint-disable-line react-hooks/exhaustive-deps
   const th = (k: string, label: string) => (
     <th className="sortable" aria-sort={sort.k === k ? (sort.desc ? 'descending' : 'ascending') : 'none'}
       onClick={() => setSort((s) => (s.k === k ? { k, desc: !s.desc } : { k, desc: k === 'users' || k === 'traffic' }))}>
@@ -360,7 +371,7 @@ export default function Inbounds() {
       </div>
       {cloning && <CloneModal inbound={cloning} nodes={nodes} onClose={() => setCloning(null)} onDone={() => { setCloning(null); list.reload() }} />}
       {importing && <ImportInboundModal nodes={nodes} onClose={() => setImporting(false)} onDone={() => { setImporting(false); list.reload() }} />}
-      {drawer && <InboundDrawer nodes={nodes} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} />}
+      {drawer && <InboundDrawer nodes={nodes} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} onDelete={removeInbound} />}
     </>
   )
 }

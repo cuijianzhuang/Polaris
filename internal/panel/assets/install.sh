@@ -3,6 +3,7 @@
 # in its own agent endpoint and CA fingerprint, so a node only needs a token:
 #
 #   curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <one-time>
+#   curl -fsSL https://panel.example.com/j/<one-time> | bash     (one-click link)
 #
 # Other uses:
 #   … | bash -s -- --upgrade              replace the binary, keep the enrolment
@@ -18,7 +19,7 @@ CA="__PANEL_CA__"
 PANEL_VERSION="__PANEL_VERSION__"
 SHA_amd64="__SHA_AMD64__"
 SHA_arm64="__SHA_ARM64__"
-TOKEN="" DATA="" MIRROR="" MODE="install" PURGE="" LOCAL=""
+TOKEN="__PANEL_TOKEN__" DATA="" MIRROR="" MODE="install" PURGE="" LOCAL=""
 BIN="/usr/local/bin/polaris-agent"
 UNIT="/etc/systemd/system/polaris-agent.service"
 
@@ -163,6 +164,12 @@ TMP="$(mktemp)" SUMS="$(mktemp)"
 trap 'rm -f "$TMP" "$SUMS"' EXIT
 case "$ARCH" in amd64) WANT="$SHA_amd64" ;; arm64) WANT="$SHA_arm64" ;; esac
 step "下载 polaris-agent（$ARCH，版本 $PANEL_VERSION）"
+# The panel caches only its own architecture up front; ask it to fetch this
+# one (it may reach GitHub when the node cannot).
+if [ -z "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH.sha256" "$SUMS" 2>/dev/null; then
+  WANT="$(tr -dc '0-9a-f' < "$SUMS" | head -c 64)"
+  [ ${#WANT} = 64 ] || WANT=""
+fi
 if [ -n "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TMP" 2>/dev/null; then
   info "来源：主控 $PANEL_HTTP"
 else
@@ -187,6 +194,21 @@ if [ "$MODE" = install ]; then
   "$BIN" --panel "$PANEL" --token "$TOKEN" --ca-sha256 "$CA" --data "$DATA" --enroll-only ||
     die "注册失败：令牌可能已使用或过期（24 小时有效、一次性），请在面板重新生成安装命令"
   ok "注册成功"
+fi
+# Remember the panel's HTTP address: `polaris` upgrades the agent from it.
+mkdir -p "$DATA/agent" && printf '%s\n' "$PANEL_HTTP" > "$DATA/agent/panel-http" 2>/dev/null || true
+
+# Install the polaris management command (the same tool as on the panel) so
+# the node can be managed with `polaris`; never replace an existing copy.
+CTL=/usr/local/bin/polaris
+if ! { [ -f "$CTL" ] && head -c 2 "$CTL" | grep -q '#!'; }; then
+  CTL_TMP="$(mktemp)"
+  if fetch "$PANEL_HTTP/download/install-panel.sh" "$CTL_TMP" 2>/dev/null || fetch "$RELEASE_URL/install-panel.sh" "$CTL_TMP" 2>/dev/null; then
+    if head -c 2 "$CTL_TMP" | grep -q '#!' && grep -q 'polaris' "$CTL_TMP"; then
+      install -m 0755 "$CTL_TMP" "$CTL" && ln -sf "$CTL" /usr/local/bin/polaris-ctl
+    fi
+  fi
+  rm -f "$CTL_TMP"
 fi
 
 EXTRA=""
@@ -234,7 +256,11 @@ if [ "$MODE" = install ]; then
 fi
 kv 主控 "$(cat "$DATA/agent/panel-url" 2>/dev/null || echo "$PANEL")"
 kv 数据目录 "$DATA"
-kv 查看日志 "journalctl -u polaris-agent -f"
-kv 升级 "重新执行安装命令并加 --upgrade"
-kv 卸载 "重新执行安装命令并加 --uninstall [--purge]"
+if [ -x /usr/local/bin/polaris ]; then
+  kv 管理 "输入 ${B}polaris${N} 打开管理菜单（状态、日志、升级、更换主控、卸载）"
+else
+  kv 查看日志 "journalctl -u polaris-agent -f"
+  kv 升级 "重新执行安装命令并加 --upgrade"
+  kv 卸载 "重新执行安装命令并加 --uninstall [--purge]"
+fi
 echo

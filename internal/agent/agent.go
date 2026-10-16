@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -261,7 +262,7 @@ func (a *Agent) send(m *polarisv1.AgentMessage) error {
 func (a *Agent) appliedRev() int64 { return a.rev.Load() }
 
 func (a *Agent) sendHeartbeat() error {
-	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample()}
+	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample(), Arch: runtime.GOARCH}
 	if a.ips != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Get(ctx)

@@ -89,11 +89,11 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.LogoTile size={40} />Polaris</div>
         <div className="field">
           <label className="lbl" htmlFor="u">用户名</label>
-          <input className="input" id="u" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+          <input className="input" id="u" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
         </div>
         <div className="field">
           <label className="lbl" htmlFor="p">密码</label>
-          <input className="input" id="p" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <input className="input" id="p" type="password" autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} required />
         </div>
         {needTotp && (
           <div className="field">

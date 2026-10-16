@@ -237,16 +237,22 @@ func (s *Server) agentURL() string {
 }
 
 func (s *Server) newInstallToken(n *store.Node, r *http.Request) (string, string, error) {
-	tok := pki.Token(24)
+	// 16 alphanumerics (~95 bits, one-time, 24 h) keep the one-click link short.
+	tok := pki.Password(16)
 	exp := time.Now().Add(24 * time.Hour)
 	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
 		"token_hash": hashToken(tok), "token_expires": exp}).Error; err != nil {
 		return "", "", err
 	}
-	// install.sh carries the agent endpoint and CA fingerprint, so the
-	// command only needs the one-time token.
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | bash -s -- --token %s", s.requestBase(r), tok)
-	return tok, cmd, nil
+	return tok, s.joinCommand(r, tok), nil
+}
+
+// joinURL is the one-click link: /j/<token> serves install.sh with the token
+// filled in, so a node needs nothing but `curl … | bash`.
+func (s *Server) joinURL(r *http.Request, tok string) string { return s.requestBase(r) + "/j/" + tok }
+
+func (s *Server) joinCommand(r *http.Request, tok string) string {
+	return "curl -fsSL " + s.joinURL(r, tok) + " | bash"
 }
 
 func (s *Server) installToken(c *gin.Context) {
@@ -261,7 +267,10 @@ func (s *Server) installToken(c *gin.Context) {
 		return
 	}
 	s.auditCtx(c, "node.install_token", n.Name, "")
-	c.JSON(http.StatusOK, gin.H{"token": tok, "command": cmd, "expiresIn": 86400})
+	c.JSON(http.StatusOK, gin.H{"token": tok, "command": cmd, "url": s.joinURL(c.Request, tok),
+		"wget":      "wget -qO- " + s.joinURL(c.Request, tok) + " | bash",
+		"long":      fmt.Sprintf("curl -fsSL %s/install.sh | bash -s -- --token %s", s.requestBase(c.Request), tok),
+		"expiresIn": 86400})
 }
 
 func (s *Server) syncNode(c *gin.Context) {

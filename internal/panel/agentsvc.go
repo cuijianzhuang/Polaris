@@ -248,7 +248,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		sys.Uptime, sys.Load1 = hb.System.UptimeSeconds, hb.System.Load1
 	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Updates(map[string]any{
-		"status": status, "last_seen": now, "applied_rev": hb.AppliedRev, "agent_version": hb.AgentVersion,
+		"status": status, "last_seen": now, "applied_rev": hb.AppliedRev, "agent_version": hb.AgentVersion, "arch": hb.Arch,
 		"system": store.NewJSON(sys),
 	})
 	// Core state rarely changes; with heartbeats every few seconds only write

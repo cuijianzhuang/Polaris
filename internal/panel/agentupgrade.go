@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +35,11 @@ func (s *Server) serveAgentBinary(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	p := filepath.Join(s.downloadsDir(), "polaris-agent-linux-"+arch)
+	if err := s.ensureAgent(r.Context(), arch); err != nil && !s.agentCurrent(arch) {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	p := s.agentPath(arch)
 	if _, err := os.Stat(p); err != nil {
 		http.NotFound(w, r)
 		return
@@ -51,6 +54,17 @@ func (s *Server) upgradeAgent(ctx context.Context, n *store.Node) error {
 	}
 	if n.AgentVersion == Version && Version != "dev" {
 		return nil
+	}
+	// Fetch the build this node runs on (all of them for agents too old to
+	// report their architecture); the others go along if already cached.
+	need := agentArches
+	if validArch(n.Arch) {
+		need = []string{n.Arch}
+	}
+	for _, a := range need {
+		if err := s.ensureAgent(ctx, a); err != nil {
+			s.log.Warn("cache agent for upgrade", "arch", a, "err", err)
+		}
 	}
 	args := map[string]string{"version": Version}
 	for _, a := range agentArches {

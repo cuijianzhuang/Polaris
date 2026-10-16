@@ -57,7 +57,7 @@ function Backups() {
     <section className="card"><h2>备份与恢复</h2><div className="note">当前使用 PostgreSQL，请用 pg_dump 备份数据库。</div></section>
   )
   return (
-    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, gridColumn: '1 / -1' }}>
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>备份与恢复</h2>
         <span className="sub" style={{ margin: 0 }}>数据库 {bytes(info.data?.dbSize)} · 保存在 <code>{info.data?.dir}</code></span>
@@ -109,6 +109,13 @@ function Backups() {
   )
 }
 
+const settingTabs = [
+  { id: 'general', label: '常规', hint: '站点、版本、ACME', icon: <Icon.Gear /> },
+  { id: 'security', label: '账号安全', hint: '密码、二次验证、GitHub', icon: <Icon.Lock /> },
+  { id: 'backup', label: '备份与恢复', hint: '自动备份、恢复', icon: <Icon.Download /> },
+  { id: 'appearance', label: '外观', hint: '主题与配色', icon: <Icon.Sun /> },
+]
+
 // Appearance is per browser: mode plus an accent palette.
 function Appearance() {
   const [t, setT] = useTheme()
@@ -146,7 +153,8 @@ export default function Settings() {
   }, [])
   useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])
   const [f, setF] = useState<Record<string, string>>({})
-  const [pw, setPw] = useState({ old: '', new: '' })
+  const [pw, setPw] = useState({ old: '', new: '', again: '' })
+  const [showPw, setShowPw] = useState(false)
   const [totp, setTotp] = useState<{ secret: string; url: string } | null>(null)
   const [code, setCode] = useState('')
   const { busy, run } = useAction()
@@ -158,11 +166,18 @@ export default function Settings() {
     })
   }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
+  const [tab, setTab] = useState<string>(() => settingTabs.some((t) => '#' + t.id === location.hash) ? location.hash.slice(1) : 'general')
+  const go = (id: string) => { setTab(id); history.replaceState(null, '', '#' + id) }
 
   return (
     <>
-      <div className="top"><div><h1>设置</h1><div className="sub">面板、订阅、证书与账号安全</div></div></div>
-      <div className="grid g2">
+      <div className="top"><div><h1>设置</h1><div className="sub">面板、证书、账号安全、备份与外观</div></div></div>
+      <div className="settings">
+        <nav className="snav" aria-label="设置分区">
+          {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
+        </nav>
+        <div className="spane" key={tab}>
+        {tab === 'general' && <>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>常规</h2>
           <div className="form-grid">
@@ -196,13 +211,17 @@ export default function Settings() {
           <Field label="CA 指纹（SHA-256）" hint="安装命令携带此指纹，Agent 首次接入时校验主控身份"><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
-        <Appearance />
-        <Backups />
+        </>}
+        {tab === 'appearance' && <Appearance />}
+        {tab === 'backup' && <Backups />}
+        {tab === 'security' && <>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>
-          <Field label="原密码"><input className="input" type="password" autoComplete="current-password" value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
-          <Field label="新密码" hint="至少 8 位"><input className="input" type="password" autoComplete="new-password" value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} /></Field>
-          <div><button className="btn" type="button" disabled={busy || pw.new.length < 8} onClick={() => run(async () => { const r = await post<{ token: string }>('/auth/password', pw); setToken(r.token); setPw({ old: '', new: '' }) }, '密码已修改，其他设备上的登录已退出')}>修改密码</button></div>
+          <Field label="原密码"><input className="input" type={showPw ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" spellCheck={false} value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
+          <Field label="新密码" hint={pw.new && pw.new.trim() !== pw.new ? '首尾不能有空格' : '至少 8 位'}><input className="input" type={showPw ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} /></Field>
+          <Field label="确认新密码" hint={pw.again && pw.again !== pw.new ? '两次输入的新密码不一致' : undefined}><input className="input" type={showPw ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} /></Field>
+          <label className="chk"><input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} />显示密码</label>
+          <div><button className="btn" type="button" disabled={busy || !pw.old || pw.new.length < 8 || pw.new !== pw.again || pw.new.trim() !== pw.new} onClick={() => run(async () => { const r = await post<{ token: string }>('/auth/password', { old: pw.old, new: pw.new }); setToken(r.token); setPw({ old: '', new: '', again: '' }) }, '密码已修改，下次请用新密码登录；其他设备上的登录已退出')}>修改密码</button></div>
         </section>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>二次验证（TOTP）</h2>
@@ -256,6 +275,8 @@ export default function Settings() {
             </div>
           )}
         </section>
+        </>}
+        </div>
       </div>
     </>
   )

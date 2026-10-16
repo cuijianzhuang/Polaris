@@ -48,6 +48,9 @@ message Heartbeat {
   // Public addresses detected by the agent (for DDNS); empty if unknown.
   string public_ipv4 = 5;
   string public_ipv6 = 6;
+  // CPU architecture (GOARCH: amd64 / arm64), so the panel only caches the
+  // agent builds its nodes need. Empty from older agents.
+  string arch = 7;
 }
 
 message SystemStats {

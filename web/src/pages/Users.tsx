@@ -4,7 +4,7 @@ import TrafficChart from '../components/TrafficChart'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
+import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast, SkeletonRows, Section, useUndo, useToastApi, runBatch } from '../components/ui'
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
@@ -16,6 +16,13 @@ const filters: { k: Filter; label: string; sum: string }[] = [
   { k: 'disabled', label: '已禁用', sum: 'disabled' },
 ]
 const PAGE = 100
+
+// avatarColor gives each username a stable hue.
+function avatarColor(name: string) {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360
+  return `linear-gradient(135deg, hsl(${h} 65% 52%), hsl(${(h + 40) % 360} 70% 45%))`
+}
 
 let subBase = location.origin
 function subURL(u: User) { return `${subBase}/sub/${u.subToken}` }
@@ -157,7 +164,7 @@ function SubCheck({ userId }: { userId: string }) {
   )
 }
 
-function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void }) {
+function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void; onDelete: (u: User) => void }) {
   const initLimitGB = user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : ''
   const [f, setF] = useState({
     username: user?.username ?? '', limitGB: initLimitGB,
@@ -171,7 +178,6 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
-  const confirm = useConfirm()
   const save = () => run(async () => {
     const body = {
       username: f.username,
@@ -196,68 +202,80 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
   }
   return (
     <Drawer title={user ? '编辑用户 · ' + user.username : '新建用户'} onClose={onClose} footer={<>
-      {user && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={async () => {
-        if (await confirm(`删除用户 ${user.username}？`, { danger: true, ok: '删除' })) run(async () => { await del('/users/' + user.id); onSaved() }, '已删除')
-      }}>删除</button>}
+      {user && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={() => onDelete(user)}>删除</button>}
       <button className="btn" type="button" onClick={onClose}>取消</button>
       <button className="btn pri" type="button" disabled={busy || !f.username} onClick={save}>保存</button>
     </>}>
-      <div className="form-grid">
-        <Field label="用户名" htmlFor="u-name" full><input id="u-name" className="input" value={f.username} onChange={(e) => set('username', e.target.value)} /></Field>
-        <Field label="流量配额 (GB)" htmlFor="u-limit" hint="留空或 0 为不限"><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
-        <Field label="同时在线 IP 数" htmlFor="u-ip" hint="0 为不限；受信任地址（设置中配置）不计入"><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
-        <Field label="设备数（HWID）" htmlFor="u-dev" hint="0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数"><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
-        <Field label="有效期" full>
+      <Section step={1} title="基本信息" summary={[f.username || '未命名', f.status === 'disabled' ? '已禁用' : '启用', f.remark].filter(Boolean).join(' · ')}>
+        <div className="form-grid">
+          <Field label="用户名" htmlFor="u-name" full><input id="u-name" className="input" value={f.username} onChange={(e) => set('username', e.target.value)} /></Field>
+          <Field label="备注" htmlFor="u-remark" full><input id="u-remark" className="input" value={f.remark} onChange={(e) => set('remark', e.target.value)} /></Field>
+        </div>
+        <Field label="状态">
           <div className="seg">
-            <button type="button" className={'opt' + (f.expireMode === 'date' ? ' on' : '')} onClick={() => set('expireMode', 'date')}>固定到期日<small>留空为永不到期</small></button>
-            <button type="button" className={'opt' + (f.expireMode === 'first' ? ' on' : '')} onClick={() => set('expireMode', 'first')}>首次使用后开始计时<small>产生第一笔流量时才开始算天数</small></button>
+            <button type="button" className={'opt' + (f.status === 'active' ? ' on' : '')} onClick={() => set('status', 'active')}>启用</button>
+            <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>禁用</button>
           </div>
         </Field>
-        {f.expireMode === 'date' ? <>
-          <Field label="到期日期" htmlFor="u-exp" hint="留空为永不到期"><input id="u-exp" className="input mono" type="date" value={f.expire} onChange={(e) => set('expire', e.target.value)} /></Field>
-          <Field label="快捷续期">
-            <div className="row">{[30, 90, 365].map((d) => <button key={d} type="button" className="btn sm" onClick={() => extend(d)}>+{d} 天</button>)}</div>
-          </Field>
-        </> : (
-          <Field label="有效天数" htmlFor="u-after" hint="首次连接后生效，到期日自动写入"><input id="u-after" className="input mono" inputMode="numeric" value={f.afterDays} onChange={(e) => set('afterDays', e.target.value)} placeholder="30" /></Field>
-        )}
-        <Field label="流量重置" htmlFor="u-reset">
-          <select id="u-reset" className="input" value={f.resetPolicy} onChange={(e) => set('resetPolicy', e.target.value)}>
-            <option value="none">不重置</option><option value="daily">每天</option><option value="weekly">每周固定日</option>
-            <option value="monthly">每月固定日</option><option value="cycle">按周期滚动</option>
-          </select>
-        </Field>
-        {f.resetPolicy === 'weekly' && (
-          <Field label="每周几" htmlFor="u-rday">
-            <select id="u-rday" className="input" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)}>
-              {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => <option key={d} value={String(i + 1)}>周{d}</option>)}
+      </Section>
+      <Section step={2} title="流量与限制" summary={[Number(f.limitGB) ? f.limitGB + ' GB' : '不限流量', Number(f.ipLimit) ? f.ipLimit + ' 个 IP' : '', Number(f.deviceLimit) ? f.deviceLimit + ' 台设备' : '', { none: '', daily: '每日重置', weekly: '每周重置', monthly: '每月重置', cycle: '周期重置' }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
+        <div className="form-grid">
+          <Field label="流量配额 (GB)" htmlFor="u-limit" hint="留空或 0 为不限"><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
+          <Field label="同时在线 IP 数" htmlFor="u-ip" hint="0 为不限；受信任地址（设置中配置）不计入"><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
+          <Field label="设备数（HWID）" htmlFor="u-dev" hint="0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数"><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
+          <Field label="流量重置" htmlFor="u-reset">
+            <select id="u-reset" className="input" value={f.resetPolicy} onChange={(e) => set('resetPolicy', e.target.value)}>
+              <option value="none">不重置</option><option value="daily">每天</option><option value="weekly">每周固定日</option>
+              <option value="monthly">每月固定日</option><option value="cycle">按周期滚动</option>
             </select>
           </Field>
-        )}
-        {(f.resetPolicy === 'monthly' || f.resetPolicy === 'cycle') && (
-          <Field label={f.resetPolicy === 'monthly' ? '每月几号' : '周期（天）'} htmlFor="u-rday" hint={f.resetPolicy === 'monthly' ? '29–31 在小月按月末' : undefined}>
-            <input id="u-rday" className="input mono" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)} inputMode="numeric" />
-          </Field>
-        )}
-        <Field label="到期自动续订（天）" htmlFor="u-renew" hint="到期时自动顺延这么多天并清零流量；留空不续订">
-          <input id="u-renew" className="input mono" value={f.renewDays} onChange={(e) => set('renewDays', e.target.value)} inputMode="numeric" placeholder="例如 30" />
-        </Field>
-        <Field label="最多续订次数" htmlFor="u-rmax" hint={user?.renewDays ? `已续订 ${user.renewCount} 次；留空不限` : '留空不限'}>
-          <input id="u-rmax" className="input mono" value={f.renewMax} disabled={!f.renewDays} onChange={(e) => set('renewMax', e.target.value)} inputMode="numeric" />
-        </Field>
-        <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? '已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒' : '纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定'}>
-          <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder="例如 123456789" />
-        </Field>
-        <Field label="备注" htmlFor="u-remark" full><input id="u-remark" className="input" value={f.remark} onChange={(e) => set('remark', e.target.value)} /></Field>
-      </div>
-      <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
-        onChange={(k, v) => set(k, v)} />
-      <Field label="状态">
-        <div className="seg">
-          <button type="button" className={'opt' + (f.status === 'active' ? ' on' : '')} onClick={() => set('status', 'active')}>启用</button>
-          <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>禁用</button>
+          {f.resetPolicy === 'weekly' && (
+            <Field label="每周几" htmlFor="u-rday">
+              <select id="u-rday" className="input" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)}>
+                {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => <option key={d} value={String(i + 1)}>周{d}</option>)}
+              </select>
+            </Field>
+          )}
+          {(f.resetPolicy === 'monthly' || f.resetPolicy === 'cycle') && (
+            <Field label={f.resetPolicy === 'monthly' ? '每月几号' : '周期（天）'} htmlFor="u-rday" hint={f.resetPolicy === 'monthly' ? '29–31 在小月按月末' : undefined}>
+              <input id="u-rday" className="input mono" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)} inputMode="numeric" />
+            </Field>
+          )}
         </div>
-      </Field>
+      </Section>
+      <Section step={3} title="有效期与续订" summary={f.expireMode === 'first' ? `首次使用后 ${f.afterDays || '?'} 天` : f.expire ? `${f.expire} 到期` : '永不到期'}>
+        <div className="form-grid">
+          <Field label="有效期" full>
+            <div className="seg">
+              <button type="button" className={'opt' + (f.expireMode === 'date' ? ' on' : '')} onClick={() => set('expireMode', 'date')}>固定到期日<small>留空为永不到期</small></button>
+              <button type="button" className={'opt' + (f.expireMode === 'first' ? ' on' : '')} onClick={() => set('expireMode', 'first')}>首次使用后开始计时<small>产生第一笔流量时才开始算天数</small></button>
+            </div>
+          </Field>
+          {f.expireMode === 'date' ? <>
+            <Field label="到期日期" htmlFor="u-exp" hint="留空为永不到期"><input id="u-exp" className="input mono" type="date" value={f.expire} onChange={(e) => set('expire', e.target.value)} /></Field>
+            <Field label="快捷续期">
+              <div className="row">{[30, 90, 365].map((d) => <button key={d} type="button" className="btn sm" onClick={() => extend(d)}>+{d} 天</button>)}</div>
+            </Field>
+          </> : (
+            <Field label="有效天数" htmlFor="u-after" hint="首次连接后生效，到期日自动写入"><input id="u-after" className="input mono" inputMode="numeric" value={f.afterDays} onChange={(e) => set('afterDays', e.target.value)} placeholder="30" /></Field>
+          )}
+          <Field label="到期自动续订（天）" htmlFor="u-renew" hint="到期时自动顺延这么多天并清零流量；留空不续订">
+            <input id="u-renew" className="input mono" value={f.renewDays} onChange={(e) => set('renewDays', e.target.value)} inputMode="numeric" placeholder="例如 30" />
+          </Field>
+          <Field label="最多续订次数" htmlFor="u-rmax" hint={user?.renewDays ? `已续订 ${user.renewCount} 次；留空不限` : '留空不限'}>
+            <input id="u-rmax" className="input mono" value={f.renewMax} disabled={!f.renewDays} onChange={(e) => set('renewMax', e.target.value)} inputMode="numeric" />
+          </Field>
+        </div>
+      </Section>
+      <Section step={4} title="节点授权">
+        <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
+          onChange={(k, v) => set(k, v)} />
+      </Section>
+      <Section step={5} title="Telegram" defaultOpen={!!user?.telegramId} summary={f.telegramId ? '已绑定 ' + f.telegramId : '未绑定'}>
+          <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? '已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒' : '纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定'}>
+            <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder="例如 123456789" />
+          </Field>
+      </Section>
       {user && <UserLinks userId={user.id} />}
       {user && <Devices userId={user.id} limit={user.deviceLimit} />}
       {user && <SubCheck userId={user.id} />}
@@ -401,6 +419,7 @@ export default function Users() {
   const [filter, setFilter] = useState<Filter>(() => (filters.some((f) => f.k === params.get('filter')) ? params.get('filter') as Filter : ''))
   const [query, setQuery] = useState('')
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t) }, [q])
+  useEffect(() => { const v = params.get('q'); if (v !== null) setQ(v) }, [params])
   const [group, setGroup] = useState('')
   const [sort, setSort] = useState<{ k: string; desc: boolean }>({ k: '', desc: true })
   const [page, setPage] = useState(0)
@@ -433,18 +452,39 @@ export default function Users() {
   const { nodes } = useNodes()
   const nname = (id: string) => nodes.find((n) => n.id === id)?.name ?? '已删除节点'
   const [bind, setBind] = useState<'attach' | 'detach' | null>(null)
-  const items = list.data?.items ?? []
+  const [hidden, setHidden] = useState<string[]>([])
+  const items = (list.data?.items ?? []).filter((u) => !hidden.includes(u.id))
+  const undo = useUndo()
+  const toastApi = useToastApi()
   const sel = selected ? items.find((u) => u.id === selected.id) ?? selected : items[0]
   useEffect(() => { if (params.get('new')) setParams({}, { replace: true }) }, [params, setParams])
 
   const copySub = async (u: User) => {
     try { await copyText(subURL(u)); toast('订阅链接已复制') } catch { window.prompt('复制失败，请手动复制：', subURL(u)) }
   }
+  // Large selections go in chunks so the progress toast can show real progress.
   const bulk = (action: string, extra?: object) => run(async () => {
-    await post('/users/bulk', { action, ids: checked, ...extra })
+    const ids = checked
+    if (ids.length <= 25) await post('/users/bulk', { action, ids, ...extra })
+    else {
+      const chunks: string[][] = []
+      for (let i = 0; i < ids.length; i += 25) chunks.push(ids.slice(i, i + 25))
+      await runBatch(toastApi, '正在处理用户', chunks, (c) => post('/users/bulk', { action, ids: c, ...extra }), 2)
+    }
     setChecked([])
     list.reload()
-  }, '已完成')
+  }, checked.length <= 25 ? '已完成' : undefined)
+  // Deleting hides the rows at once; the request goes out after 5 s unless undone.
+  const removeUsers = (us: User[]) => {
+    const ids = us.map((u) => u.id)
+    setHidden((h) => [...h, ...ids])
+    setChecked((c) => c.filter((x) => !ids.includes(x)))
+    setDrawer(null)
+    undo(us.length === 1 ? `已删除用户 ${us[0].username}` : `已删除 ${us.length} 个用户`, async () => {
+      for (let i = 0; i < ids.length; i += 100) await post('/users/bulk', { action: 'delete', ids: ids.slice(i, i + 100) })
+      list.reload()
+    }, () => setHidden((h) => h.filter((x) => !ids.includes(x))))
+  }
 
   return (
     <>
@@ -494,12 +534,12 @@ export default function Users() {
             <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => downloadJSON('polaris-users.json', await get('/users/export?ids=' + checked.join(','))), '已导出')}>导出</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('attach')}>绑定节点</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('detach')}>解绑节点</button>
-            <button className="btn sm danger" type="button" disabled={busy} onClick={() => bulk('delete')}>删除</button>
+            <button className="btn sm danger" type="button" disabled={busy} onClick={() => removeUsers(items.filter((u) => checked.includes(u.id)))}>删除</button>
           </>
         )}
       </div>
       <div className="card flush scroll">
-        {items.length === 0 ? <Empty>{list.loading ? '加载中…' : '没有匹配的用户'}</Empty> : (
+        {items.length === 0 ? (list.loading && !list.data ? <SkeletonRows rows={6} cols={5} /> : <Empty icon={<Icon.Users />}>没有匹配的用户</Empty>) : (
           <table className="rtable">
             <thead><tr>
               <th style={{ width: 32 }}><input type="checkbox" aria-label="全选" checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
@@ -513,7 +553,7 @@ export default function Users() {
                 return (
                   <tr key={u.id} className="clickable" onClick={() => setSelected(u)}>
                     <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + u.username} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
-                    <td className="rt-head"><div style={{ fontWeight: 500 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></td>
+                    <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
                     <td data-label="状态">{statusBadge(u)}</td>
                     <td data-label="授权">
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title="整台节点">{nname(n)}</span>)}
@@ -565,7 +605,7 @@ export default function Users() {
           </div>
         </div>
       )}
-      {drawer && groups.data && <UserDrawer user={drawer === 'new' ? undefined : drawer} groups={groups.data} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); list.reload() }} />}
+      {drawer && groups.data && <UserDrawer user={drawer === 'new' ? undefined : drawer} groups={groups.data} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); list.reload() }} onDelete={(u) => removeUsers([u])} />}
       {qr && (
         <Modal title={'订阅 · ' + qr.username} onClose={() => setQr(null)}>
           <QR text={subURL(qr)} size={220} />
