@@ -23,7 +23,6 @@ function Trend({ data }: { data: Overview['trend'] }) {
   const x = (i: number) => L + (i * (R - L)) / Math.max(1, data.length - 1)
   const y = (v: number) => B - (v / max) * (B - T)
   const line = (k: 'up' | 'down') => data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(d[k]).toFixed(1)}`).join(' ')
-  const last = data[data.length - 1]
   return (
     <svg className="trend" viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 220, marginTop: 12 }} role="img" aria-label="近 7 天流量趋势">
       <g style={{ stroke: 'var(--line-2)' }}>{[T, (T + B) / 2, B].map((v) => <line key={v} x1={L} y1={v} x2={R} y2={v} style={v === B ? { stroke: 'var(--input)' } : undefined} />)}</g>
@@ -34,10 +33,6 @@ function Trend({ data }: { data: Overview['trend'] }) {
       </g>
       <path d={line('down')} fill="none" style={{ stroke: 'var(--pri)' }} strokeWidth="2.5" />
       <path d={line('up')} fill="none" style={{ stroke: 'var(--warn)' }} strokeWidth="2" strokeDasharray="5 4" />
-      {last && <g fontSize="12">
-        <text x={R - 4} y={y(last.down) - 8} style={{ fill: 'var(--pri)' }} textAnchor="end">下行</text>
-        <text x={R - 4} y={y(last.up) + 16} style={{ fill: 'var(--warn)' }} textAnchor="end">上行</text>
-      </g>}
     </svg>
   )
 }
@@ -85,7 +80,7 @@ export default function Dashboard() {
       </section>
       <section className="grid g3">
         <div className="card" style={{ gridColumn: 'span 2' }}>
-          <div className="ctitle"><span>流量趋势 · 近 7 天</span><span className="sub" style={{ margin: 0 }}>上行 / 下行</span></div>
+          <div className="ctitle"><span>流量趋势 · 近 7 天</span><span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />下行<i className="dash" style={{ borderColor: 'var(--warn)' }} />上行</span></div>
           {data && <Trend data={data.trend} />}
         </div>
         <div className="card">

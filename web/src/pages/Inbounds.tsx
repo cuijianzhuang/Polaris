@@ -321,29 +321,31 @@ export default function Inbounds() {
       </div>
       <div className="row" role="group" aria-label="筛选">
         <input className="input search" placeholder="搜索标签 / 备注 / 端口 / 节点" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} aria-label="搜索入站" />
-        <button className={'chip' + (!filter.core && !filter.node ? ' on' : '')} type="button" onClick={() => setFilter({})}>全部</button>
-        {usedCores.map((c) => <button key={c} className={'chip' + (filter.core === c ? ' on' : '')} type="button" onClick={() => setFilter({ core: c })}>{coreLabel[c]}</button>)}
-        {nodes.map((n) => <button key={n.id} className={'chip' + (filter.node === n.id ? ' on' : '')} type="button" onClick={() => setFilter({ node: n.id })}>{n.name}</button>)}
+        <div className="chips">
+          <button className={'chip' + (!filter.core && !filter.node ? ' on' : '')} type="button" onClick={() => setFilter({})}>全部</button>
+          {usedCores.map((c) => <button key={c} className={'chip' + (filter.core === c ? ' on' : '')} type="button" onClick={() => setFilter({ core: c })}>{coreLabel[c]}</button>)}
+          {nodes.map((n) => <button key={n.id} className={'chip' + (filter.node === n.id ? ' on' : '')} type="button" onClick={() => setFilter({ node: n.id })}>{n.name}</button>)}
+        </div>
       </div>
       <div className="card flush scroll">
         {rows.length === 0 ? <Empty>{list.loading ? '加载中…' : '还没有入站'}</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr>{th('tag', '标签')}{th('node', '节点 / 内核')}<th>协议</th><th>传输 · 安全</th>{th('port', '端口')}{th('users', '授权用户')}{th('traffic', `流量 ↑${bytes(totals.up)} ↓${bytes(totals.down)}`)}<th>入口</th><th>启用</th><th /></tr></thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
-                  <td style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}
+                  <td className="rt-head" style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}
                     {(i.protocol.fallbacks?.length ?? 0) > 0 && <span className="tag xray" style={{ marginLeft: 6 }}>{i.protocol.fallbacks!.length} 个回落</span>}
                     {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>经 {masterOf[i.id]} 回落</span>}</td>
-                  <td>{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
-                  <td>{inboundSummary(i).split(' · ')[0]}</td>
-                  <td>{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
-                  <td className="mono">{portLabel(i)}</td>
-                  <td className="mono">{i.userCount}</td>
-                  <td className="mono small">{(() => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? <>↑ {bytes(t.up)}<br />↓ {bytes(t.down)}</> : '—' })()}</td>
-                  <td className="mono">{i.endpoints}</td>
-                  <td onClick={(e) => e.stopPropagation()}><Switch label="启用" on={i.enabled} onChange={() => toggle(i)} /></td>
-                  <td onClick={(e) => e.stopPropagation()}>
+                  <td data-label="节点">{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
+                  <td data-label="协议">{inboundSummary(i).split(' · ')[0]}</td>
+                  <td data-label="传输 · 安全">{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
+                  <td data-label="端口" className="mono">{portLabel(i)}</td>
+                  <td data-label="授权用户" className="mono">{i.userCount}</td>
+                  <td data-label="流量" className="mono small">{(() => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? <>↑ {bytes(t.up)}<br />↓ {bytes(t.down)}</> : '—' })()}</td>
+                  <td data-label="入口" className="mono">{i.endpoints}</td>
+                  <td data-label="启用" onClick={(e) => e.stopPropagation()}><Switch label="启用" on={i.enabled} onChange={() => toggle(i)} /></td>
+                  <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
                     <div className="row" style={{ flexWrap: 'nowrap', gap: 2 }}>
                       <button className="icon-btn" type="button" title="复制到…（同节点或其他节点）" aria-label="复制入站" onClick={() => setCloning(i)}><Icon.Copy /></button>
                       <button className="icon-btn" type="button" title="导出 JSON" aria-label="导出入站" onClick={() => exportOne(i)}><Icon.Download /></button>
