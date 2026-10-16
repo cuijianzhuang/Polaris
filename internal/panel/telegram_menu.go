@@ -75,6 +75,11 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 		return b.trafficText(), [][]button{backRow("v:top")}
 	case "help":
 		return b.helpText(id), [][]button{backRow("")}
+	case "update":
+		if !id.owner() {
+			return "仅超级管理员可用", [][]button{backRow("")}
+		}
+		return b.updateView()
 	}
 	return b.homeText(id), b.homeButtons(id)
 }
@@ -115,7 +120,8 @@ func (b *tgBot) homeButtons(id tgIdentity) [][]button {
 	if id.admin != nil {
 		rows = append(rows, []button{{Text: "📈 概览", Data: "v:status"}, {Text: "🖥 节点管理", Data: "n:l"}})
 		if id.owner() {
-			rows = append(rows, []button{{Text: "👥 用户", Data: "v:users:0"}, {Text: "🏆 今日排行", Data: "v:top"}})
+			rows = append(rows, []button{{Text: "👥 用户", Data: "v:users:0"}, {Text: "🏆 今日排行", Data: "v:top"}},
+				[]button{{Text: "⬆️ 版本更新", Data: "v:update"}})
 		}
 		notify := "🔔 告警：开"
 		if !id.admin.Notify {
@@ -135,7 +141,7 @@ func (b *tgBot) helpText(id tgIdentity) string {
 		sb.WriteString("\n<b>管理员</b>\n/status 概览\n/nodes 节点管理\n/node 名称 — 节点详情\n/login 登录网页面板\n/notify on|off 告警\n")
 	}
 	if id.owner() {
-		sb.WriteString("/users 关键词 — 搜索用户\n/traffic 今日流量排行\n")
+		sb.WriteString("/users 关键词 — 搜索用户\n/traffic 今日流量排行\n/update 版本更新（升级面板与节点、自动更新）\n")
 	}
 	return sb.String()
 }

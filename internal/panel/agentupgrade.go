@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -99,40 +98,7 @@ func (s *Server) upgradeAgentAPI(c *gin.Context) {
 
 // upgradeAllAgents upgrades every online node running another version.
 func (s *Server) upgradeAllAgents(c *gin.Context) {
-	var nodes []store.Node
-	s.st.DB.Find(&nodes)
-	type result struct {
-		Node  string `json:"node"`
-		Ok    bool   `json:"ok"`
-		Error string `json:"error,omitempty"`
-	}
-	var (
-		mu  sync.Mutex
-		wg  sync.WaitGroup
-		out = []result{}
-		sem = make(chan struct{}, 4)
-	)
-	for i := range nodes {
-		n := &nodes[i]
-		if !s.hub.Online(n.ID) || n.AgentVersion == Version {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			err := s.upgradeAgent(c.Request.Context(), n)
-			r := result{Node: n.Name, Ok: err == nil}
-			if err != nil {
-				r.Error = err.Error()
-			}
-			mu.Lock()
-			out = append(out, r)
-			mu.Unlock()
-		}()
-	}
-	wg.Wait()
+	out := s.upgradeOutdatedAgents(c.Request.Context())
 	s.auditCtx(c, "node.upgrade_agent_all", fmt.Sprintf("%d", len(out)), Version)
 	c.JSON(http.StatusOK, gin.H{"version": Version, "results": out})
 }

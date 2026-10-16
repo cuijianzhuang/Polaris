@@ -110,8 +110,9 @@ function Backups() {
 }
 
 const settingTabs = [
-  { id: 'general', label: '常规', hint: '站点、版本、ACME', icon: <Icon.Gear /> },
+  { id: 'general', label: '常规', hint: '站点、默认内核、ACME', icon: <Icon.Gear /> },
   { id: 'security', label: '账号安全', hint: '密码、二次验证、GitHub', icon: <Icon.Lock /> },
+  { id: 'update', label: '版本与更新', hint: '在线升级、自动更新', icon: <Icon.Refresh /> },
   { id: 'backup', label: '备份与恢复', hint: '自动备份、恢复', icon: <Icon.Download /> },
   { id: 'appearance', label: '外观', hint: '主题与配色', icon: <Icon.Sun /> },
 ]
@@ -134,6 +135,61 @@ function Appearance() {
             title={a.label} aria-label={'主题色：' + a.label} aria-pressed={t.accent === a.id} onClick={() => setT({ ...t, accent: a.id })} />)}
         </div>
       </Field>
+    </section>
+  )
+}
+
+type UpdateInfo = { current: string; latest?: string; newer?: boolean; updater: boolean; pending?: boolean; error?: string }
+
+// Updates: the running and latest versions, update now (panel, or panel and
+// then every agent), and auto update. The panel restarts while updating;
+// the outcome arrives as a Telegram message and in the audit log.
+function Updates() {
+  const info = useLoad(() => get<UpdateInfo>('/system/update?fresh=1'))
+  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const [mode, setMode] = useState<string | null>(null)
+  const [hour, setHour] = useState<string | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const m = mode ?? (s.data?.auto_update || 'notify')
+  const h = hour ?? (s.data?.auto_update_hour || '4')
+  const d = info.data
+  const start = async (agents: boolean) => {
+    if (!await confirm(`升级面板到 ${d?.latest}？${agents ? '\n完成后会接着升级所有在线节点的 Agent。' : ''}\n升级约需 1 分钟，期间面板会重启、网页短暂断开；结果会通过 Telegram 通知并记入审计日志。`)) return
+    run(async () => { await post('/system/update', { agents }); info.reload() }, '已开始升级，稍后刷新页面')
+  }
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2>版本与更新</h2>
+      <dl className="kv" style={{ margin: 0, gridTemplateColumns: '120px minmax(0,1fr)' }}>
+        <dt>当前版本</dt><dd className="mono">{d?.current ?? '…'}</dd>
+        <dt>最新版本</dt><dd className="mono">{d?.latest ? <>{d.latest}{d.newer ? <span className="tag warn" style={{ marginLeft: 8 }}>可升级</span> : <span className="tag ok" style={{ marginLeft: 8 }}>已是最新</span>}</> : d?.error ? <span style={{ color: 'var(--bad)' }}>获取失败：{d.error}</span> : '…'}</dd>
+      </dl>
+      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线升级组件：在服务器上执行一次 <code>polaris update</code>（之后的版本都能在这里或 Telegram 里一键升级）。Docker 部署请更新镜像。</div>}
+      {d?.pending && <div className="note">升级进行中…完成后刷新页面。</div>}
+      <div className="row">
+        <button className="btn pri" type="button" disabled={busy || !d?.newer || !d?.updater || !!d?.pending} onClick={() => start(false)}>升级面板</button>
+        <button className="btn" type="button" disabled={busy || !d?.newer || !d?.updater || !!d?.pending} onClick={() => start(true)}>升级面板和全部节点</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => info.reload()}>检查更新</button>
+      </div>
+      <div className="form-grid">
+        <Field label="自动更新" hint="新版本发布后：通知会发给 Telegram 超级管理员（每个版本一次）">
+          <select className="input" value={m} onChange={(e) => setMode(e.target.value)}>
+            <option value="off">关闭</option>
+            <option value="notify">只通知新版本</option>
+            <option value="panel">自动升级面板</option>
+            <option value="all">自动升级面板和全部节点</option>
+          </select>
+        </Field>
+        <Field label="自动升级时间" hint="服务器本地时间；某个版本自动升级失败后不再自动重试，可手动升级">
+          <select className="input mono" value={h} disabled={m !== 'panel' && m !== 'all'} onChange={(e) => setHour(e.target.value)}>
+            {Array.from({ length: 24 }, (_, i) => <option key={i} value={String(i)}>{String(i).padStart(2, '0')}:41</option>)}
+          </select>
+        </Field>
+      </div>
+      <div><button className="btn pri" type="button" disabled={busy || (mode === null && hour === null)} onClick={() => run(async () => {
+        await put('/settings', { auto_update: m, auto_update_hour: h }); setMode(null); setHour(null); s.reload()
+      }, '已保存')}>保存</button></div>
     </section>
   )
 }
@@ -212,6 +268,7 @@ export default function Settings() {
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
         </>}
+        {tab === 'update' && <Updates />}
         {tab === 'appearance' && <Appearance />}
         {tab === 'backup' && <Backups />}
         {tab === 'security' && <>

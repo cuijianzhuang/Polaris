@@ -8,6 +8,7 @@
 #   install [--domain NAME] [--no-caddy] [--version TAG] [--port N] [--agent-port N] [--admin-path P]
 #   update [--version TAG] [--force]  upgrade binaries, keep config and data (database backed up first)
 #   check-update                  compare the installed version with the latest release
+#   update-request                run an update the panel asked for (used by polaris-update.service)
 #   uninstall [--purge]           remove; --purge also deletes config and data
 #   start | stop | restart | status | log
 #   info                          admin URL, ports and config summary
@@ -32,6 +33,12 @@ CTL_ALIAS=/usr/local/bin/polaris-ctl
 ETC=/etc/polaris
 ENV_FILE=$ETC/polaris.env
 DATA=/var/lib/polaris
+# Updates requested from the panel (web, Telegram bot, auto update): the panel
+# runs unprivileged, so it drops a request file that a root path unit acts on.
+UPD_REQ=$DATA/update-request
+UPD_RES=$DATA/update-result
+UPD_SVC=/etc/systemd/system/polaris-update.service
+UPD_PATH=/etc/systemd/system/polaris-update.path
 UNIT=/etc/systemd/system/polaris.service
 CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
@@ -415,6 +422,60 @@ migrate_layout() {
 install_unit() {
   install -m 0644 "$TMP/polaris.service" "$UNIT"
   sed -i "s|^ExecStart=/usr/local/bin/polaris$|ExecStart=$BIN|" "$UNIT"
+  install_updater
+}
+
+# install_updater: the root side of updates requested from the panel.
+install_updater() {
+  cat > "$UPD_SVC" <<UNIT
+[Unit]
+Description=Polaris update requested from the panel
+
+[Service]
+Type=oneshot
+ExecStart=$CTL update-request
+UNIT
+  cat > "$UPD_PATH" <<UNIT
+[Unit]
+Description=Watch for Polaris update requests
+
+[Path]
+PathExists=$UPD_REQ
+Unit=polaris-update.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now polaris-update.path >/dev/null 2>&1 || true
+}
+
+# do_update_request: run by polaris-update.service. The request holds
+# "latest" or a version tag; the outcome goes to update-result for the panel.
+do_update_request() {
+  [ -f "$UPD_REQ" ] || return 0
+  local want cur rc=0 log="$DATA/update.log"
+  want="$(head -n1 "$UPD_REQ" | tr -cd 'A-Za-z0-9.+-')"
+  rm -f "$UPD_REQ" # first: the path unit would fire again while it exists
+  cur="$(panel_version)"
+  case "$want" in
+    ""|latest) VERSION="" ;;
+    v*) VERSION="$want" ;;
+    *) VERSION="v$want" ;;
+  esac
+  # set -e must stay on inside the update ("cmd || x" would switch it off).
+  set +e
+  ( set -e; do_update ) >"$log" 2>&1
+  rc=$?
+  set -e
+  {
+    printf 'ok=%s\nfrom=%s\nto=%s\n' "$([ "$rc" = 0 ] && echo 1 || echo 0)" "$cur" "$(panel_version)"
+    echo "log:"
+    sed 's/\x1b\[[0-9;]*m//g' "$log" | tail -n 12
+  } > "$UPD_RES.tmp"
+  mv -f "$UPD_RES.tmp" "$UPD_RES"
+  chown polaris:polaris "$UPD_RES" "$log" 2>/dev/null || true
+  return "$rc"
 }
 
 # --- helpers -------------------------------------------------------------------
@@ -703,7 +764,8 @@ do_check_update() {
 do_uninstall() {
   step "停止并移除 polaris 服务"
   systemctl disable --now polaris 2>/dev/null || true
-  rm -f "$UNIT" "$BIN"
+  systemctl disable --now polaris-update.path 2>/dev/null || true
+  rm -f "$UNIT" "$BIN" "$UPD_SVC" "$UPD_PATH"
   systemctl daemon-reload
   if [ "$PURGE" = 1 ]; then
     warn "删除配置与数据：$ETC $DATA"
@@ -1253,6 +1315,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node|doctor|check-update) ACTION="$1"; shift ;;
     self-update) ACTION=self-update; shift ;;
+    update-request) ACTION=update-request; shift ;;
     agent) ACTION=agent; shift; AGENT_SUB="${1:-menu}"; [ $# -gt 0 ] && shift; AGENT_ARG="${1:-}"; [ $# -gt 0 ] && shift ;;
     join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
@@ -1302,6 +1365,7 @@ case "$ACTION" in
   self-update) banner "更新管理脚本"; update_self ;;
   install) do_install ;;
   update) do_update ;;
+  update-request) do_update_request ;;
   uninstall) do_uninstall ;;
   start) need_installed; systemctl start polaris; wait_active && ok "已启动" ;;
   stop) need_installed; systemctl stop polaris; ok "已停止" ;;
