@@ -99,7 +99,7 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/tg/start", s.loginGuard, s.tgWebLoginStart)
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
 
-	p := api.Group("", s.authRequired, s.scopeGuard)
+	p := api.Group("", s.authRequired, s.scopeGuard, s.trackChanges)
 	p.GET("/ws", func(c *gin.Context) {
 		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})
@@ -157,6 +157,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/inbounds", s.createInbound)
 	p.POST("/inbounds/preview", s.previewDraftInbound)
 	p.GET("/inbounds/:id", s.getInbound)
+	p.POST("/inbounds/:id/probe", s.probeInboundAPI)
+	p.POST("/inbounds/bulk", s.bulkInbounds)
 	p.PUT("/inbounds/:id", s.updateInbound)
 	p.DELETE("/inbounds/:id", s.deleteInbound)
 	p.GET("/inbounds/:id/preview", s.previewInbound)
@@ -280,6 +282,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/telegram/admins/:id", s.requireSudo, s.deleteTGAdmin)
 	p.POST("/telegram/test", s.tgTest)
 	p.POST("/telegram/broadcast", s.tgBroadcast)
+	p.POST("/telegram/template-preview", s.previewReminder)
 	p.GET("/backup", s.backupInfo)
 	p.POST("/backup", s.backupCreate)
 	p.POST("/backup/restore", s.requireSudo, s.backupRestore)

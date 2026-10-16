@@ -9,7 +9,7 @@ import InboundFields, { normalizeDraft, type InboundDraft } from '../components/
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast, Section, useUndo } from '../components/ui'
 import { bytes, coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
 import type { TagTrafficRow } from '../components/TagTraffic'
-import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, Node, Outbound } from '../types'
+import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, Node, Outbound } from '../types'
 
 const emptyDraft = (): InboundDraft => ({
   core: 'xray',
@@ -115,6 +115,66 @@ function FallbackEditor({ value, onChange, candidates, selfId }: { value: Fallba
   )
 }
 
+type BulkResult = { id: string; tag: string; node: string; port?: number; error?: string }
+
+// BulkModal: change ports or the speed limit of the selected inbounds.
+function BulkModal({ kind, ids, onClose, onDone }: { kind: 'port' | 'speed'; ids: string[]; onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState<'sequential' | 'offset' | 'random'>('random')
+  const [v, setV] = useState({ start: '30000', offset: '1', min: '20000', max: '60000', mbps: '' })
+  const [res, setRes] = useState<BulkResult[] | null>(null)
+  const { busy, run } = useAction()
+  const num = (x: string) => Number(x) || 0
+  const go = () => run(async () => {
+    const body = kind === 'speed' ? { ids, action: 'speed', mbps: num(v.mbps) }
+      : { ids, action: 'port', mode, start: num(v.start), offset: num(v.offset), min: num(v.min), max: num(v.max) }
+    const r = await post<BulkResult[]>('/inbounds/bulk', body)
+    setRes(r); onDone()
+  })
+  const failed = res?.filter((r) => r.error) ?? []
+  return (
+    <Modal title={kind === 'port' ? `修改端口（${ids.length} 个入站）` : `设置限速（${ids.length} 个入站）`} onClose={onClose} footer={res
+      ? <button className="btn pri" type="button" onClick={onClose}>完成</button>
+      : <><button className="btn" type="button" onClick={onClose}>取消</button><button className="btn pri" type="button" disabled={busy} onClick={go}>应用并下发</button></>}>
+      {res ? (
+        <div style={{ display: 'grid', gap: 6 }}>
+          <div className={'note' + (failed.length ? ' warn' : '')}>{res.length - failed.length} 个已修改{failed.length ? `，${failed.length} 个未改（见下）` : ''}；节点会自动重新下发，防火墙端口随之更新。</div>
+          {res.map((r) => <div key={r.id} className="row small" style={{ flexWrap: 'nowrap' }}>
+            <span style={{ flex: 1, minWidth: 0 }}>{r.node} · {r.tag}</span>
+            {r.error ? <span style={{ color: 'var(--bad)' }}>{r.error}</span> : r.port ? <span className="mono">→ {r.port}</span> : <span className="mute">✓</span>}
+          </div>)}
+        </div>
+      ) : kind === 'speed' ? (
+        <Field label="限速（Mbps）" hint="每个入站端口各自的上下行上限，所有用户共享；0 或留空为不限速">
+          <input className="input mono" inputMode="numeric" autoFocus placeholder="不限速" value={v.mbps} onChange={(e) => setV({ ...v, mbps: e.target.value.replace(/\D/g, '') })} />
+        </Field>
+      ) : (
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div className="seg c3">
+            {([['random', '随机', '在范围内随机换一个空闲端口，常用于端口被封'], ['sequential', '顺序编号', '从起始端口开始依次分配'], ['offset', '整体偏移', '每个端口加上同一个数']] as const).map(([k, l, h]) => (
+              <button key={k} type="button" className={'opt' + (mode === k ? ' on' : '')} onClick={() => setMode(k)}>{l}<small>{h}</small></button>
+            ))}
+          </div>
+          {mode === 'random' && <div className="form-grid">
+            <Field label="最小端口"><input className="input mono" inputMode="numeric" value={v.min} onChange={(e) => setV({ ...v, min: e.target.value })} /></Field>
+            <Field label="最大端口"><input className="input mono" inputMode="numeric" value={v.max} onChange={(e) => setV({ ...v, max: e.target.value })} /></Field>
+          </div>}
+          {mode === 'sequential' && <Field label="起始端口" hint="按列表顺序依次 +1"><input className="input mono" inputMode="numeric" value={v.start} onChange={(e) => setV({ ...v, start: e.target.value })} /></Field>}
+          {mode === 'offset' && <Field label="偏移量" hint="可为负数，如 -1000"><input className="input mono" value={v.offset} onChange={(e) => setV({ ...v, offset: e.target.value })} /></Field>}
+          <div className="hint">与同节点其他入站冲突的会跳过并列出原因。改端口后用户需要更新订阅（客户端自动更新时无需操作）。</div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// HealthDot: the panel's latest reachability probe of an inbound.
+function HealthDot({ h }: { h?: InboundHealth }) {
+  if (!h || !h.checkedAt) return null
+  if (h.error && h.ok) return <span className="small mute" title={h.error} style={{ marginLeft: 6 }}>UDP</span>
+  const tip = `${h.ok ? `可连接，延迟 ${h.latencyMs} ms` : `无法连接：${h.error}（连续 ${h.fails} 次）`} · 检查于 ${new Date(h.checkedAt).toLocaleTimeString()}`
+  return <span title={tip} style={{ marginLeft: 6, whiteSpace: 'nowrap', fontSize: 12, color: h.ok ? 'var(--ok)' : 'var(--bad)' }}>● {h.ok ? `${h.latencyMs}ms` : '不通'}</span>
+}
+
 function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
   const [nodeId, setNodeId] = useState(editing?.nodeId ?? nodes[0]?.id ?? '')
   const node = nodes.find((n) => n.id === nodeId)
@@ -142,6 +202,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
+  const toast = useToast()
 
   const proxyCores = (caps.data ?? []).filter((c) => c.combos.length > 0)
   const coreCaps = proxyCores.filter((c) => c.core === draft.core)
@@ -176,6 +237,12 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   return (
     <Drawer title={editing ? '编辑入站 · ' + editing.tag : '新建入站'} onClose={onClose} footer={<>
       {editing && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={() => onDelete(editing)}>删除</button>}
+      {editing && <button className="btn" type="button" disabled={busy} title="从面板连接这个入站（TCP，TLS / REALITY 再握手）" onClick={() => run(async () => {
+        const h = await post<InboundHealth>(`/inbounds/${editing.id}/probe`)
+        if (h.error && h.ok) toast(h.error)
+        else if (h.ok) toast(`可以连接，延迟 ${h.latencyMs} ms`)
+        else toast('无法连接：' + h.error, true)
+      })}>探测</button>}
       <button className="btn" type="button" disabled={busy} onClick={() => run(async () => {
         const r = await post<{ config: string }>('/inbounds/preview' + (editing ? '?id=' + editing.id : ''), body())
         setPreview(r.config)
@@ -277,6 +344,8 @@ export default function Inbounds() {
   const [importing, setImporting] = useState(false)
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ k: string; desc: boolean }>({ k: '', desc: false })
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [bulk, setBulk] = useState<'port' | 'speed' | null>(null)
   const toast = useToast()
   const confirm = useConfirm()
   const { run } = useAction()
@@ -342,13 +411,26 @@ export default function Inbounds() {
           {nodes.map((n) => <button key={n.id} className={'chip' + (filter.node === n.id ? ' on' : '')} type="button" onClick={() => setFilter({ node: n.id })}>{n.name}</button>)}
         </div>
       </div>
+      {sel.size > 0 && (
+        <div className="card row" style={{ gap: 8, padding: '10px 14px', position: 'sticky', top: 8, zIndex: 3 }}>
+          <b>已选 {sel.size} 个</b><span className="spacer" />
+          <button className="btn sm" type="button" onClick={() => setBulk('port')}>修改端口</button>
+          <button className="btn sm" type="button" onClick={() => setBulk('speed')}>设置限速</button>
+          <button className="btn sm" type="button" onClick={() => run(async () => { await post('/inbounds/bulk', { ids: [...sel], action: 'enable' }); list.reload() }, '已启用')}>启用</button>
+          <button className="btn sm" type="button" onClick={() => run(async () => { await post('/inbounds/bulk', { ids: [...sel], action: 'disable' }); list.reload() }, '已停用')}>停用</button>
+          <button className="btn sm" type="button" onClick={() => setSel(new Set())}>取消选择</button>
+        </div>
+      )}
       <div className="card flush scroll">
         {rows.length === 0 ? <Empty>{list.loading ? '加载中…' : '还没有入站'}</Empty> : (
           <table className="rtable">
-            <thead><tr>{th('tag', '标签')}{th('node', '节点 / 内核')}<th>协议</th><th>传输 · 安全</th>{th('port', '端口')}{th('users', '授权用户')}{th('traffic', `流量 ↑${bytes(totals.up)} ↓${bytes(totals.down)}`)}<th>入口</th><th>启用</th><th /></tr></thead>
+            <thead><tr><th style={{ width: 32 }} onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label="全选" checked={rows.length > 0 && rows.every((i) => sel.has(i.id))}
+              onChange={(e) => setSel(e.target.checked ? new Set(rows.map((i) => i.id)) : new Set())} /></th>{th('tag', '标签')}{th('node', '节点 / 内核')}<th>协议</th><th>传输 · 安全</th>{th('port', '端口')}{th('users', '授权用户')}{th('traffic', `流量 ↑${bytes(totals.up)} ↓${bytes(totals.down)}`)}<th>入口</th><th>启用</th><th /></tr></thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
+                  <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + i.tag} checked={sel.has(i.id)}
+                    onChange={(e) => setSel((x) => { const n = new Set(x); if (e.target.checked) n.add(i.id); else n.delete(i.id); return n })} /></td>
                   <td className="rt-head" style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}
                     {(i.protocol.fallbacks?.length ?? 0) > 0 && <span className="tag xray" style={{ marginLeft: 6 }}>{i.protocol.fallbacks!.length} 个回落</span>}
                     {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>经 {masterOf[i.id]} 回落</span>}
@@ -356,7 +438,7 @@ export default function Inbounds() {
                   <td data-label="节点">{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
                   <td data-label="协议">{inboundSummary(i).split(' · ')[0]}</td>
                   <td data-label="传输 · 安全">{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
-                  <td data-label="端口" className="mono">{portLabel(i)}</td>
+                  <td data-label="端口" className="mono">{portLabel(i)}<HealthDot h={i.health} /></td>
                   <td data-label="授权用户" className="mono">{i.userCount}</td>
                   <td data-label="流量" className="mono small">{(() => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? <>↑ {bytes(t.up)}<br />↓ {bytes(t.down)}</> : '—' })()}</td>
                   <td data-label="入口" className="mono">{i.endpoints}</td>
@@ -374,6 +456,7 @@ export default function Inbounds() {
           </table>
         )}
       </div>
+      {bulk && <BulkModal kind={bulk} ids={[...sel]} onClose={() => setBulk(null)} onDone={() => list.reload()} />}
       {cloning && <CloneModal inbound={cloning} nodes={nodes} onClose={() => setCloning(null)} onDone={() => { setCloning(null); list.reload() }} />}
       {importing && <ImportInboundModal nodes={nodes} onClose={() => setImporting(false)} onDone={() => { setImporting(false); list.reload() }} />}
       {drawer && <InboundDrawer nodes={nodes} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} onDelete={removeInbound} />}

@@ -76,6 +76,8 @@ type Server struct {
 	tg           *tgBot
 	tgEvents     chan Event
 	seenBase     atomic.Value // string: public base URL the admin UI is reached at
+	auditChanges atomic.Bool  // record row changes made by admins (audit_changes)
+	changes      changeLog
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.
@@ -90,15 +92,11 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok, err := applyPendingRestore(cfg); err != nil {
-		return nil, fmt.Errorf("apply restored backup: %w", err)
-	} else if ok {
-		log.Warn("restored database and CA from backup; previous files kept in " + filepath.Join(cfg.DataDir, backupDir))
-	}
 	st, err := store.Open(cfg.DB.DSN, box, cfg.DB.Debug)
 	if err != nil {
 		return nil, err
 	}
+	applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
 	ca, err := loadOrCreateCA(cfg.DataDir, box)
 	if err != nil {
 		return nil, err
@@ -112,6 +110,8 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	}
 	s.rt.snap = func() any { return s.nodeViews() }
 	s.tg = newTGBot(s)
+	s.auditChanges.Store(st.GetSetting("audit_changes", "false") == "true")
+	s.registerChangeLog()
 	tgEvents := make(chan Event, 256)
 	s.sinks = append(s.sinks, tgEvents)
 	s.tgEvents = tgEvents
@@ -265,6 +265,7 @@ func (s *Server) startJobs() func() {
 	add("0 41 * * * *", "auto-update", s.autoUpdateTick)
 	add("*/20 * * * * *", "update-result", s.checkUpdateResult)
 	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
+	add("30 */2 * * * *", "inbound-probe", s.probeInbounds)
 	go s.backfillDaily()
 	c.Start()
 	return func() { <-c.Stop().Done() }

@@ -45,12 +45,14 @@ export interface Node {
 // What the node's agent is doing right now (applying a revision, installing
 // a core, upgrading itself); a finished one stays for about a minute.
 export interface NodeProgress { active: boolean; stage: string; done: number; total: number; rev?: number; startedAt: number; error?: string; at: string }
+export interface InboundHealth { ok: boolean; latencyMs: number; error: string; fails: number; since: string; checkedAt: string }
 export interface Inbound {
   id: string; nodeId: string; core: CoreType; tag: string; listen: string; port: number
   protocol: ProtocolSpec; transport: TransportSpec; security: SecuritySpec; sniffing: SniffSpec; extra?: any
   enabled: boolean; templateId?: string; overriddenFields: string[]; remark: string
   nodeName: string; userCount: number; groupIds: string[]; endpoints: number; network: string; cdnCapable: boolean
   outboundTag: string; speedLimitMbps: number
+  health?: InboundHealth
 }
 export interface NodeQuota { userId: string; nodeId: string; nodeName: string; extra: number; extraUsed: number; limit: number; used: number }
 export interface User {

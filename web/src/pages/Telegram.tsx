@@ -103,6 +103,8 @@ export default function Telegram() {
         )}
       </section>
 
+      <ReminderTemplates />
+
       {bind && !code && (
         <Modal title="绑定 Telegram 管理员" onClose={() => setBind(null)} footer={<>
           <button className="btn" type="button" onClick={() => setBind(null)}>取消</button>
@@ -131,6 +133,47 @@ export default function Telegram() {
         </Modal>
       )}
     </>
+  )
+}
+
+const tplKinds = [
+  { k: 'traffic_warn', label: '流量提醒', ph: '{user}，本期流量已用 {percent}%（{used} / {total}），剩余 {left}。{reset}' },
+  { k: 'expire_warn', label: '到期提醒', ph: '{user}，你的账号将于 {expire} 到期（还剩 {days} 天），续费请联系 {support}' },
+  { k: 'user_limited', label: '流量用尽', ph: '{user}，本期流量已用完，服务已暂停。{reset}' },
+  { k: 'user_expired', label: '已到期', ph: '{user}，你的账号已于 {expire} 到期，服务已暂停。' },
+  { k: 'user_active', label: '已恢复', ph: '{user}，你的服务已恢复，祝使用愉快！' },
+] as const
+const tplVars = ['user', 'used', 'total', 'left', 'percent', 'expire', 'days', 'reset', 'site', 'sub_url', 'support']
+
+// ReminderTemplates: custom wording for what users receive on Telegram.
+function ReminderTemplates() {
+  const settings = useLoad(() => get<Record<string, string>>('/settings'))
+  const [f, setF] = useState<Record<string, string>>({})
+  const [kind, setKind] = useState<string>('traffic_warn')
+  const [preview, setPreview] = useState<{ text: string; user: string } | null>(null)
+  const { busy, run } = useAction()
+  useEffect(() => { if (settings.data) setF(Object.fromEntries(tplKinds.map((t) => [t.k, settings.data?.['tpl_' + t.k] ?? '']))) }, [settings.data])
+  const cur = tplKinds.find((t) => t.k === kind)!
+  const text = f[kind] ?? ''
+  useEffect(() => {
+    if (!text.trim()) { setPreview(null); return }
+    const t = setTimeout(() => post<{ text: string; user: string }>('/telegram/template-preview', { text }).then(setPreview).catch(() => {}), 300)
+    return () => clearTimeout(t)
+  }, [text])
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <h2>提醒文案</h2>
+      <div className="sub" style={{ margin: 0 }}>自定义发给用户的提醒与状态通知；留空使用内置文案。变量会按每个用户替换：{tplVars.map((v) => <code key={v} style={{ marginRight: 6 }}>{'{' + v + '}'}</code>)}</div>
+      <div className="seg" style={{ gridTemplateColumns: `repeat(${tplKinds.length}, minmax(0, 1fr))` }}>
+        {tplKinds.map((t) => <button key={t.k} type="button" className={'opt' + (kind === t.k ? ' on' : '')} onClick={() => setKind(t.k)}>{t.label}{f[t.k]?.trim() ? <small>已自定义</small> : <small>内置</small>}</button>)}
+      </div>
+      <textarea className="input" style={{ minHeight: 90 }} value={text} placeholder={cur.ph} onChange={(e) => setF({ ...f, [kind]: e.target.value })} />
+      {preview && <div className="note" style={{ whiteSpace: 'pre-wrap' }}><span className="small mute">预览（{preview.user}）：</span>{'\n'}{preview.text}</div>}
+      <div className="row">
+        <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', Object.fromEntries(tplKinds.map((t) => ['tpl_' + t.k, f[t.k] ?? '']))); settings.reload() }, '提醒文案已保存')}>保存</button>
+        {!text && <button className="btn" type="button" onClick={() => setF({ ...f, [kind]: cur.ph })}>以示例为起点</button>}
+      </div>
+    </section>
   )
 }
 

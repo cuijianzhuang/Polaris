@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
+import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { LoginProtection, RecoveryCodesModal, Sessions } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
 import { accents, useTheme, type ThemeMode } from '../theme'
-import { CopyBox, Empty, Field, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { CopyBox, Empty, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { bytes, datetime } from '../format'
 
 // DefaultVersion picks the version new nodes install: "latest" follows the
@@ -28,16 +28,26 @@ function DefaultVersion({ label, type, value, onChange }: { label: string; type:
   )
 }
 
-type BackupInfo = { supported: boolean; dbSize: number; dir: string; files: { name: string; size: number; created: string }[] }
+type BackupInfo = { supported: boolean; db: string; dbSize: number; dir: string; encrypted: boolean; targets: string[] | null
+  files: { name: string; size: number; created: string; encrypted: boolean }[] }
 
-// Backups: on-demand and scheduled archives (database + internal CA), download,
-// upload-and-restore. A restore restarts the panel.
+const backupKeys = ['backup_schedule', 'backup_hour', 'backup_keep', 'backup_tg', 'backup_webdav_url', 'backup_webdav_user',
+  'backup_s3_endpoint', 'backup_s3_region', 'backup_s3_bucket', 'backup_s3_prefix', 'backup_s3_access_key'] as const
+const secretKeys = ['backup_passphrase', 'backup_webdav_pass', 'backup_s3_secret_key'] as const
+const targetLabel: Record<string, string> = { telegram: 'Telegram', webdav: 'WebDAV', s3: 'S3' }
+
+// Backups: on-demand and scheduled archives (all data + internal CA),
+// optionally encrypted and pushed off-site; download, upload-and-restore.
+// A restore restarts the panel.
 function Backups() {
   const info = useLoad(() => get<BackupInfo>('/backup'))
-  const s = useLoad(() => get<Record<string, string>>('/settings'))
+  const s = useLoad(() => get<Record<string, any>>('/settings'))
   const [f, setF] = useState<Record<string, string>>({})
+  const [sec, setSec] = useState<Record<string, string>>({})
+  const [ask, setAsk] = useState<{ label: string; go: (pass: string) => Promise<unknown> } | null>(null)
+  const [pass, setPass] = useState('')
   useEffect(() => {
-    if (s.data) setF({ backup_schedule: s.data.backup_schedule || 'off', backup_hour: s.data.backup_hour || '4', backup_keep: s.data.backup_keep || '7', backup_tg: s.data.backup_tg || 'false' })
+    if (s.data) setF(Object.fromEntries(backupKeys.map((k) => [k, String(s.data?.[k] ?? '')])))
   }, [s.data])
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -47,57 +57,96 @@ function Backups() {
     setRestoring(true)
     // The panel re-executes itself; wait for it to answer again.
     const t0 = Date.now()
-    const ping = () => get('/backup').then(() => location.reload()).catch(() => { if (Date.now() - t0 < 60000) setTimeout(ping, 1500); else { setRestoring(false); toast('面板未在 60 秒内恢复，请检查服务状态', true) } })
+    const ping = () => get('/info').then(() => location.reload()).catch(() => { if (Date.now() - t0 < 90000) setTimeout(ping, 1500); else { setRestoring(false); toast('面板未在 90 秒内恢复，请检查服务状态', true) } })
     setTimeout(ping, 2500)
   }
-  const restore = async (label: string, fn: () => Promise<unknown>) => {
-    if (!await confirm(`用「${label}」覆盖当前全部数据并重启面板？\n当前数据会先自动备份一份；恢复后需要重新登录。`, { danger: true })) return
-    run(async () => { await fn(); afterRestore() }, '备份校验通过，面板正在重启…')
+  // restore runs fn(passphrase); an encrypted archive without one asks for it.
+  const restore = async (label: string, fn: (pass: string) => Promise<unknown>) => {
+    if (!await confirm(`用「${label}」覆盖当前全部数据并重启面板？\n当前数据会先自动保存一份快照；恢复后需要重新登录。`, { danger: true })) return
+    const attempt = async (p: string) => {
+      try { await fn(p); setAsk(null); toast('备份校验通过，面板正在重启…'); afterRestore() } catch (e) {
+        if (e instanceof ApiError && e.data?.needPassphrase) { setPass(''); setAsk({ label, go: fn }); if (p) toast(e.message, true); return }
+        toast(e instanceof Error ? e.message : String(e), true)
+      }
+    }
+    attempt('')
   }
-  if (info.data && !info.data.supported) return (
-    <section className="card"><h2>备份与恢复</h2><div className="note">当前使用 PostgreSQL，请用 pg_dump 备份数据库。</div></section>
-  )
+  const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
+  const save = () => run(async () => {
+    const body: Record<string, string> = { ...f }
+    for (const k of secretKeys) if (sec[k]) body[k] = sec[k]
+    await put('/settings', body); setSec({}); s.reload(); info.reload()
+  }, '备份设置已保存')
+  const isSet = (k: string) => !!s.data?.[k + '_set']
+  const d = info.data
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>备份与恢复</h2>
-        <span className="sub" style={{ margin: 0 }}>数据库 {bytes(info.data?.dbSize)} · 保存在 <code>{info.data?.dir}</code></span>
+        <span className="sub" style={{ margin: 0 }}>{d?.db === 'postgres' ? 'PostgreSQL' : `SQLite ${bytes(d?.dbSize)}`} · 保存在 <code>{d?.dir}</code></span>
       </div>
       {restoring && <div className="note warn"><span className="spinner" /> 正在应用备份并重启面板，完成后自动刷新…</div>}
       <div className="form-grid">
         <Field label="自动备份">
-          <select className="input" value={f.backup_schedule ?? 'off'} onChange={(e) => setF({ ...f, backup_schedule: e.target.value })}>
+          <select className="input" value={f.backup_schedule || 'off'} onChange={(e) => set('backup_schedule', e.target.value)}>
             <option value="off">关闭</option><option value="daily">每天</option><option value="weekly">每周一</option>
           </select>
         </Field>
-        <Field label="备份时间（点）" hint="服务器本地时间 0–23"><input className="input mono" inputMode="numeric" value={f.backup_hour ?? ''} onChange={(e) => setF({ ...f, backup_hour: e.target.value })} /></Field>
-        <Field label="保留份数" hint="超出后删除最旧的"><input className="input mono" inputMode="numeric" value={f.backup_keep ?? ''} onChange={(e) => setF({ ...f, backup_keep: e.target.value })} /></Field>
-        <div className="toggle" style={{ alignSelf: 'end' }}><span>自动备份发送到 Telegram（超级管理员）</span><Switch label="发送到 Telegram" on={f.backup_tg === 'true'} onChange={(v) => setF({ ...f, backup_tg: String(v) })} /></div>
+        <Field label="备份时间（点）" hint="服务器本地时间 0–23"><input className="input mono" inputMode="numeric" value={f.backup_hour || ''} placeholder="4" onChange={(e) => set('backup_hour', e.target.value)} /></Field>
+        <Field label="保留份数" hint="超出后删除最旧的；恢复前快照不会被删除"><input className="input mono" inputMode="numeric" value={f.backup_keep || ''} placeholder="7" onChange={(e) => set('backup_keep', e.target.value)} /></Field>
+        <Field label="备份口令" hint={isSet('backup_passphrase') ? '已设置：备份已加密（留空不修改）' : '设置后备份用口令加密（scrypt + AES-GCM）并附带密钥，可恢复到任何服务器；口令丢失无法找回'}>
+          <input className="input mono" type="password" autoComplete="new-password" value={sec.backup_passphrase ?? ''} placeholder={isSet('backup_passphrase') ? '••••••••' : '不加密'} onChange={(e) => setSec({ ...sec, backup_passphrase: e.target.value })} />
+        </Field>
       </div>
+      <details className="more" open={!!(d?.targets?.length)}>
+        <summary>推送到其他位置{d?.targets?.length ? `（${d.targets.map((t) => targetLabel[t] ?? t).join('、')}）` : ''}</summary>
+        <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
+          <div className="hint">自动备份完成后推送到下列已配置的位置；也可以点「立即备份并推送」。服务器坏了也能从这里取回。</div>
+          <div className="toggle"><span>发送到 Telegram（超级管理员，单个文件 50 MB 以内）</span><Switch label="Telegram" on={f.backup_tg === 'true'} onChange={(v) => set('backup_tg', String(v))} /></div>
+          <div className="form-grid">
+            <Field label="WebDAV 文件夹地址" hint="如坚果云 https://dav.jianguoyun.com/dav/polaris/（文件夹需已存在）"><input className="input mono" value={f.backup_webdav_url || ''} placeholder="https://dav.example.com/backups/" onChange={(e) => set('backup_webdav_url', e.target.value.trim())} /></Field>
+            <Field label="WebDAV 用户名"><input className="input mono" value={f.backup_webdav_user || ''} onChange={(e) => set('backup_webdav_user', e.target.value.trim())} /></Field>
+            <Field label="WebDAV 密码" hint={isSet('backup_webdav_pass') ? '已保存（留空不修改）' : '应用密码'}><input className="input mono" type="password" autoComplete="off" value={sec.backup_webdav_pass ?? ''} onChange={(e) => setSec({ ...sec, backup_webdav_pass: e.target.value })} /></Field>
+          </div>
+          <div className="form-grid">
+            <Field label="S3 端点" hint="AWS 留空；Cloudflare R2：https://<账户 ID>.r2.cloudflarestorage.com；MinIO / B2 填其地址"><input className="input mono" value={f.backup_s3_endpoint || ''} placeholder="https://s3.amazonaws.com" onChange={(e) => set('backup_s3_endpoint', e.target.value.trim())} /></Field>
+            <Field label="区域" hint="R2 填 auto"><input className="input mono" value={f.backup_s3_region || ''} placeholder="us-east-1" onChange={(e) => set('backup_s3_region', e.target.value.trim())} /></Field>
+            <Field label="存储桶"><input className="input mono" value={f.backup_s3_bucket || ''} onChange={(e) => set('backup_s3_bucket', e.target.value.trim())} /></Field>
+            <Field label="路径前缀" hint="如 polaris/"><input className="input mono" value={f.backup_s3_prefix || ''} onChange={(e) => set('backup_s3_prefix', e.target.value.trim())} /></Field>
+            <Field label="Access Key ID"><input className="input mono" value={f.backup_s3_access_key || ''} onChange={(e) => set('backup_s3_access_key', e.target.value.trim())} /></Field>
+            <Field label="Secret Access Key" hint={isSet('backup_s3_secret_key') ? '已保存（留空不修改）' : undefined}><input className="input mono" type="password" autoComplete="off" value={sec.backup_s3_secret_key ?? ''} onChange={(e) => setSec({ ...sec, backup_s3_secret_key: e.target.value })} /></Field>
+          </div>
+        </div>
+      </details>
       <div className="row">
-        <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', f); s.reload() }, '备份设置已保存')}>保存设置</button>
+        <button className="btn pri" type="button" disabled={busy} onClick={save}>保存设置</button>
         <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post('/backup'); info.reload() }, '已创建备份')}>立即备份</button>
-        <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post('/backup?telegram=1'); info.reload() }, '已创建并发送到 Telegram')}>备份并发送到 Telegram</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => run(async () => {
+          const r = await post<{ push?: Record<string, string> }>('/backup?push=1'); info.reload()
+          const bad = Object.entries(r.push ?? {}).filter(([, v]) => v !== 'ok')
+          if (bad.length) toast(bad.map(([k, v]) => `${targetLabel[k] ?? k}：${v}`).join('；'), true)
+          else toast(Object.keys(r.push ?? {}).length ? `已备份并推送到 ${Object.keys(r.push ?? {}).map((k) => targetLabel[k] ?? k).join('、')}` : '已备份（没有配置推送位置）')
+        })}>立即备份并推送</button>
         <label className="btn" style={{ cursor: 'pointer' }}>
           上传备份并恢复
-          <input type="file" accept=".gz,.tar.gz,.db" style={{ display: 'none' }} onChange={(e) => {
+          <input type="file" accept=".gz,.enc,.db" style={{ display: 'none' }} onChange={(e) => {
             const file = e.target.files?.[0]; e.target.value = ''
-            if (file) restore(file.name, () => upload('/backup/restore', file))
+            if (file) restore(file.name, (p) => upload('/backup/restore', file, p ? { passphrase: p } : {}))
           }} />
         </label>
       </div>
       <div className="card flush scroll">
-        {info.data?.files.length === 0 ? <Empty>还没有备份</Empty> : (
+        {d?.files.length === 0 ? <Empty>还没有备份</Empty> : (
           <table className="rtable">
             <thead><tr><th>文件</th><th>大小</th><th>时间</th><th></th></tr></thead>
-            <tbody>{(info.data?.files ?? []).map((b) => (
+            <tbody>{(d?.files ?? []).map((b) => (
               <tr key={b.name}>
-                <td className="rt-head mono">{b.name}{b.name.includes('-auto') && <span className="tag" style={{ marginLeft: 6 }}>自动</span>}{b.name.includes('-prerestore') && <span className="tag warn" style={{ marginLeft: 6 }}>恢复前</span>}</td>
+                <td className="rt-head mono" style={{ wordBreak: 'break-all', minWidth: 200 }}>{b.name}{b.name.includes('-auto') && <span className="tag" style={{ marginLeft: 6 }}>自动</span>}{b.name.includes('-prerestore') && <span className="tag warn" style={{ marginLeft: 6 }}>恢复前快照</span>}{b.encrypted && <span className="tag ok" style={{ marginLeft: 6 }}>已加密</span>}</td>
                 <td data-label="大小" className="mono">{bytes(b.size)}</td>
                 <td data-label="时间">{datetime(b.created)}</td>
                 <td className="rt-actions"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
                   <button className="btn sm" type="button" onClick={() => run(() => download('/backup/files/' + b.name, b.name))}>下载</button>
-                  <button className="btn sm" type="button" disabled={busy} onClick={() => restore(b.name, () => post(`/backup/files/${b.name}/restore`))}>恢复</button>
+                  <button className="btn sm" type="button" disabled={busy} onClick={() => restore(b.name, (p) => post(`/backup/files/${b.name}/restore`, p ? { passphrase: p } : {}))}>恢复</button>
                   <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(`删除备份 ${b.name}？`, { danger: true })) run(async () => { await del('/backup/files/' + b.name); info.reload() }) }}>删除</button>
                 </div></td>
               </tr>
@@ -105,7 +154,18 @@ function Backups() {
           </table>
         )}
       </div>
-      <div className="hint">备份包含数据库与内部 CA 证书（迁移到新服务器后已接入的节点无需重装）。数据用 secret_key 加密，恢复到新服务器时需配置相同的 POLARIS_SECRET_KEY。</div>
+      <div className="hint">备份包含全部数据与内部 CA 证书（迁移后已接入的节点无需重装），SQLite 与 PostgreSQL 之间可互相恢复。未加密的备份只能恢复到同一 secret_key 的面板；加密备份附带密钥，新服务器执行 <code>polaris install --restore 文件</code> 或安装后 <code>polaris restore 文件</code> 即可。</div>
+      {ask && (
+        <Modal title="输入备份口令" onClose={() => setAsk(null)} footer={<>
+          <button className="btn" type="button" onClick={() => setAsk(null)}>取消</button>
+          <button className="btn pri" type="submit" form="bk-pass" disabled={!pass || busy}>恢复</button>
+        </>}>
+          <form id="bk-pass" style={{ display: 'grid', gap: 10 }} onSubmit={(e) => { e.preventDefault(); const go = ask.go; run(async () => { try { await go(pass); setAsk(null); afterRestore() } catch (err) { if (err instanceof ApiError && err.data?.needPassphrase) throw err; setAsk(null); throw err } }, '备份校验通过，面板正在重启…') }}>
+            <div className="sub" style={{ margin: 0 }}>「{ask.label}」是加密备份，请输入创建它时的备份口令。</div>
+            <input className="input mono" type="password" autoFocus value={pass} onChange={(e) => setPass(e.target.value)} />
+          </form>
+        </Modal>
+      )}
     </section>
   )
 }

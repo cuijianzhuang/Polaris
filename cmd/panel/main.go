@@ -17,7 +17,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup", "node-token":
+		case "admin", "backup", "restore", "node-token":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -59,7 +59,9 @@ const usage = `usage:
                                             set a new password (random if -p is empty), unlock
                                             the account and sign out every session
   polaris admin reset-2fa [-u NAME]         turn off two-factor authentication
-  polaris backup FILE                       consistent online copy of the SQLite database
+  polaris backup FILE [-passphrase P]       backup archive (SQLite or PostgreSQL); encrypted with a
+                                            passphrase it carries the secret key and restores anywhere
+  polaris restore FILE [-passphrase P]      replace the data with a backup (stop the panel first)
   polaris node-token [-n NAME]              one-time install token for a node on this server
                                             (creates the node "本机" unless it exists)
 Configuration is read from the environment (POLARIS_*) or -config FILE.`
@@ -71,6 +73,7 @@ func maintenance(cmd string, args []string) int {
 	user := fs.String("u", "", "admin username (default: the first admin)")
 	pass := fs.String("p", "", "new password (default: random)")
 	nodeName := fs.String("n", "", "node name (default: 本机)")
+	passphrase := fs.String("passphrase", os.Getenv("POLARIS_BACKUP_PASSPHRASE"), "backup passphrase")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
 	sub := ""
 	if cmd == "admin" {
@@ -80,8 +83,16 @@ func maintenance(cmd string, args []string) int {
 		}
 		sub, args = args[0], args[1:]
 	}
-	if err := fs.Parse(args); err != nil {
-		return 2
+	// Flags may follow the file name (polaris restore FILE -passphrase P).
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return 2
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		pos, args = append(pos, fs.Arg(0)), fs.Args()[1:]
 	}
 	cfg, err := panel.LoadConfig(*cfgPath)
 	if err != nil {
@@ -91,14 +102,24 @@ func maintenance(cmd string, args []string) int {
 	fail := func(err error) int { fmt.Fprintln(os.Stderr, "error:", err); return 1 }
 	switch {
 	case cmd == "backup":
-		if fs.NArg() != 1 {
+		if len(pos) != 1 {
 			fs.Usage()
 			return 2
 		}
-		if err := panel.Backup(cfg, fs.Arg(0)); err != nil {
+		if err := panel.Backup(cfg, pos[0], *passphrase); err != nil {
 			return fail(err)
 		}
-		fmt.Println("backup written to", fs.Arg(0))
+		fmt.Println("backup written to", pos[0])
+	case cmd == "restore":
+		if len(pos) != 1 {
+			fs.Usage()
+			return 2
+		}
+		snap, err := panel.Restore(cfg, pos[0], *passphrase)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Println("restored; the previous data was saved to", snap)
 	case cmd == "node-token":
 		tok, created, err := panel.LocalNodeToken(cfg, *nodeName)
 		if err != nil {

@@ -114,14 +114,21 @@ export async function download(path: string, name: string) {
 }
 
 // upload posts a file as multipart form field "file".
-export async function upload<T = any>(path: string, file: File): Promise<T> {
-  const fd = new FormData()
-  fd.append('file', file)
-  track(1)
-  try {
+export async function upload<T = any>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
+  const send = async () => {
+    const fd = new FormData()
+    fd.append('file', file)
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v)
     const resp = await fetch(API + path, { method: 'POST', headers: { Authorization: 'Bearer ' + (getToken() ?? '') }, body: fd })
     const data = await resp.json().catch(() => ({}))
     if (!resp.ok) throw new ApiError(resp.status, data.error || resp.statusText, data)
     return data as T
+  }
+  track(1)
+  try {
+    try { return await send() } catch (e) {
+      if (needsSudo(e) && onSudo && await onSudo()) return await send()
+      throw e
+    }
   } finally { track(-1) }
 }

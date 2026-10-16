@@ -97,11 +97,13 @@ func (s *Server) renewCert(c *gin.Context) {
 
 // --- settings ---
 
-var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true}
+var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true,
+	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true}
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
-var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true}
+var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true, "audit_changes": true,
+	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true}
 
 var editableSettings = map[string]bool{
 	"site_title": true, "reality_scan_candidates": true, "expire_warn_days": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
@@ -110,9 +112,13 @@ var editableSettings = map[string]bool{
 	"converter_for_users": true, "sub_operators": true, "sub_apply_ops_users": true, "allow_private_sources": true,
 	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,
 	"backup_schedule": true, "backup_hour": true, "backup_keep": true, "backup_tg": true,
+	"backup_passphrase": true, "backup_webdav_url": true, "backup_webdav_user": true, "backup_webdav_pass": true,
+	"backup_s3_endpoint": true, "backup_s3_region": true, "backup_s3_bucket": true, "backup_s3_prefix": true, "backup_s3_access_key": true, "backup_s3_secret_key": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "login_allowlist": true, "login_ban_failures": true,
+	"inbound_probe": true, "audit_changes": true,
+	"tpl_traffic_warn": true, "tpl_expire_warn": true, "tpl_user_limited": true, "tpl_user_expired": true, "tpl_user_active": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
 	"auto_update": true, "auto_update_hour": true,
@@ -198,6 +204,7 @@ func (s *Server) putSettings(c *gin.Context) {
 		keys = append(keys, k)
 	}
 	s.auditCtx(c, "settings.update", strings.Join(keys, ","), "")
+	s.auditChanges.Store(s.st.GetSetting("audit_changes", "false") == "true")
 	for _, k := range keys {
 		if geodataSettings[k] { // part of every node's spec
 			var ids []string

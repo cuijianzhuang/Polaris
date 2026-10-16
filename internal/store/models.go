@@ -261,6 +261,19 @@ type AdminSession struct {
 	Revoked   bool       `json:"revoked"`
 }
 
+// InboundHealth is the latest reachability probe of an inbound from the
+// panel (TCP connect, plus a TLS handshake for TLS / REALITY).
+type InboundHealth struct {
+	InboundID string    `gorm:"primaryKey;size:32" json:"-"`
+	OK        bool      `json:"ok"`
+	LatencyMs int       `json:"latencyMs"`
+	Error     string    `gorm:"size:255" json:"error"`
+	Fails     int       `json:"fails"` // consecutive failures
+	Alerted   bool      `json:"-"`
+	Since     time.Time `json:"since"` // when the current state began
+	CheckedAt time.Time `json:"checkedAt"`
+}
+
 // LoginBan tracks failed sign-ins per client IP; past the threshold the IP
 // is banned, for longer each time it happens again.
 type LoginBan struct {
@@ -581,7 +594,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{},
 	}
 }
 

@@ -192,7 +192,11 @@ func (b *tgBot) sendBackup(path string) {
 	var owners []store.TGAdmin
 	b.s.st.DB.Where("role = ?", "owner").Find(&owners)
 	name := filepath.Base(path)
-	caption := fmt.Sprintf("🗄 <b>面板备份</b>\n%s\n📄 %s\n📦 %s\n\n包含数据库与内部 CA，恢复需使用同一 secret_key。请妥善保管。", tgRule, esc(name), sub.HumanBytes(int64(len(data))))
+	note := "包含数据库与内部 CA，未加密：恢复需使用同一 secret_key 的面板。请妥善保管。"
+	if strings.HasSuffix(name, ".enc") {
+		note = "已用备份口令加密，附带密钥：可恢复到任何服务器（需要口令）。"
+	}
+	caption := fmt.Sprintf("🗄 <b>面板备份</b>\n%s\n📄 %s\n📦 %s\n\n%s", tgRule, esc(name), sub.HumanBytes(int64(len(data))), note)
 	for _, a := range owners {
 		if len(data) > 49<<20 {
 			b.send(a.ChatID, "⚠️ 备份 "+esc(name)+" 超过 Telegram 50 MB 限制，未发送；请在面板「设置 → 备份与恢复」下载。")
@@ -856,6 +860,8 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 				if b.s.st.DB.First(&u, "id = ?", e.UserID).Error == nil && u.TelegramID != 0 {
 					if e.UserOnly { // reminders are pre-formatted HTML
 						b.send(u.TelegramID, e.Text)
+					} else if custom := b.s.customReminder(e.Kind, &u); custom != "" {
+						b.send(u.TelegramID, custom)
 					} else {
 						b.send(u.TelegramID, esc(userFacing(e)))
 					}
@@ -899,9 +905,12 @@ func (s *Server) remindUsers() {
 			pct := float64(u.Used()) * 100 / float64(u.TrafficLimit)
 			if pct >= float64(pctAt) && !u.WarnedUsage {
 				s.st.DB.Model(&u).Update("warned_usage", true)
-				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, UserOnly: true, Text: fmt.Sprintf(
-					"📊 <b>流量提醒</b>\n%s\n已使用 <b>%.0f%%</b>（%s / %s）\n剩余 <b>%s</b>\n%s",
-					tgRule, pct, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit), sub.HumanBytes(max(u.TrafficLimit-u.Used(), 0)), resetHint(&u))})
+				text := s.customReminder("traffic_warn", &u)
+				if text == "" {
+					text = fmt.Sprintf("📊 <b>流量提醒</b>\n%s\n已使用 <b>%.0f%%</b>（%s / %s）\n剩余 <b>%s</b>\n%s",
+						tgRule, pct, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit), sub.HumanBytes(max(u.TrafficLimit-u.Used(), 0)), resetHint(&u))
+				}
+				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, UserOnly: true, Text: text})
 			} else if pct < float64(pctAt) && u.WarnedUsage {
 				s.st.DB.Model(&u).Update("warned_usage", false)
 			}
@@ -909,9 +918,12 @@ func (s *Server) remindUsers() {
 		if expDays > 0 && u.ExpireAt != nil && u.ExpireAt.Sub(now) < time.Duration(expDays)*24*time.Hour && u.ExpireAt.After(now) &&
 			(u.WarnedExpire == nil || now.Sub(*u.WarnedExpire) > 23*time.Hour) {
 			s.st.DB.Model(&u).Update("warned_expire", now)
-			s.notify(Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: fmt.Sprintf(
-				"⏰ <b>到期提醒</b>\n%s\n账号将于 <b>%s</b> 到期（%s）\n到期后服务会自动暂停，请及时续费。",
-				tgRule, u.ExpireAt.Local().Format("2006-01-02 15:04"), sub.ExpiryLeft(sub.Info{Expire: u.ExpireAt}))})
+			text := s.customReminder("expire_warn", &u)
+			if text == "" {
+				text = fmt.Sprintf("⏰ <b>到期提醒</b>\n%s\n账号将于 <b>%s</b> 到期（%s）\n到期后服务会自动暂停，请及时续费。",
+					tgRule, u.ExpireAt.Local().Format("2006-01-02 15:04"), sub.ExpiryLeft(sub.Info{Expire: u.ExpireAt}))
+			}
+			s.notify(Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: text})
 		}
 	}
 }
