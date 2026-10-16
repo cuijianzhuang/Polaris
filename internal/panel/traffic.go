@@ -189,6 +189,7 @@ func (s *Server) settleTraffic() error {
 	}
 	now := time.Now()
 	hour := now.UTC().Truncate(time.Hour)
+	day := now.Format("2006-01-02")
 	rates := map[string]float64{}
 	var nodes []store.Node
 	s.st.DB.Select("id", "traffic_rate").Find(&nodes)
@@ -214,6 +215,14 @@ func (s *Server) settleTraffic() error {
 							"up": gorm.Expr("tag_traffics.up + ?", v[0]), "down": gorm.Expr("tag_traffics.down + ?", v[1]), "updated_at": now,
 						}),
 					}).Create(&store.TagTraffic{NodeID: nodeID, Kind: kind, Tag: tag, Up: v[0], Down: v[1], UpdatedAt: now}).Error; err != nil {
+						return err
+					}
+					if err := tx.Clauses(clause.OnConflict{
+						Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}, {Name: "day"}},
+						DoUpdates: clause.Assignments(map[string]any{
+							"up": gorm.Expr("tag_traffic_dailies.up + ?", v[0]), "down": gorm.Expr("tag_traffic_dailies.down + ?", v[1]),
+						}),
+					}).Create(&store.TagTrafficDaily{NodeID: nodeID, Kind: kind, Tag: tag, Day: day, Up: v[0], Down: v[1]}).Error; err != nil {
 						return err
 					}
 					continue
@@ -245,6 +254,14 @@ func (s *Server) settleTraffic() error {
 						"up": gorm.Expr("traffic_hourlies.up + ?", up), "down": gorm.Expr("traffic_hourlies.down + ?", down),
 					}),
 				}).Create(&store.TrafficHourly{UserID: uid, NodeID: nodeID, Hour: hour, Up: up, Down: down}).Error; err != nil {
+					return err
+				}
+				if err := tx.Clauses(clause.OnConflict{
+					Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "day"}},
+					DoUpdates: clause.Assignments(map[string]any{
+						"up": gorm.Expr("traffic_dailies.up + ?", up), "down": gorm.Expr("traffic_dailies.down + ?", down),
+					}),
+				}).Create(&store.TrafficDaily{UserID: uid, NodeID: nodeID, Day: day, Up: up, Down: down}).Error; err != nil {
 					return err
 				}
 			}

@@ -549,7 +549,40 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{},
 	}
+}
+
+// TrafficDaily is a user's traffic on a node per day (panel local time). It
+// outlives the hourly rows, which expire after 90 days.
+type TrafficDaily struct {
+	UserID string `gorm:"primaryKey;size:32"`
+	NodeID string `gorm:"primaryKey;size:32"`
+	Day    string `gorm:"primaryKey;size:10;index"` // YYYY-MM-DD
+	Up     int64
+	Down   int64
+}
+
+// TagTrafficDaily is an inbound's or outbound's traffic per day (raw bytes).
+type TagTrafficDaily struct {
+	NodeID string `gorm:"primaryKey;size:32"`
+	Kind   string `gorm:"primaryKey;size:16"`
+	Tag    string `gorm:"primaryKey;size:128"`
+	Day    string `gorm:"primaryKey;size:10;index"`
+	Up     int64
+	Down   int64
+}
+
+// NodeMetric is a node's resource usage averaged over a 5-minute slot.
+type NodeMetric struct {
+	NodeID string    `gorm:"primaryKey;size:32" json:"-"`
+	At     time.Time `gorm:"primaryKey" json:"t"`
+	CPU    float64   `json:"cpu"`
+	Mem    float64   `json:"mem"`
+	RxBps  uint64    `json:"rx"`
+	TxBps  uint64    `json:"tx"`
+	Load1  float64   `json:"load"`
+	N      int       `json:"-"` // samples averaged so far
 }
 
 // UserNodeQuota is a user's traffic on one node beyond the account quota:

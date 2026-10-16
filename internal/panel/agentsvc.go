@@ -250,6 +250,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 	if hb.System != nil {
 		sys.CPU, sys.Mem, sys.RxBps, sys.TxBps = hb.System.CpuPercent, hb.System.MemPercent, hb.System.RxBps, hb.System.TxBps
 		sys.Uptime, sys.Load1 = hb.System.UptimeSeconds, hb.System.Load1
+		s.recordMetric(nodeID, sys, now)
 	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Updates(map[string]any{
 		"status": status, "last_seen": now, "applied_rev": hb.AppliedRev, "agent_version": hb.AgentVersion, "arch": hb.Arch,

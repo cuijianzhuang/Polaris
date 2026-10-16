@@ -9,6 +9,7 @@ import { ConfirmProvider, ToastProvider } from './components/ui'
 import type { Node } from './types'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Stats from './pages/Stats'
 import Nodes from './pages/Nodes'
 import Cores from './pages/Cores'
 import Forwards from './pages/Forwards'
@@ -61,6 +62,7 @@ type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; chil
 
 const nav: NavItem[] = [
   { to: '/', label: '仪表盘', icon: <Icon.Dashboard />, end: true },
+  { to: '/stats', label: '统计', icon: <Icon.Chart /> },
   { to: '/nodes', label: '节点与内核', icon: <Icon.Nodes />, children: [
     { to: '/nodes', label: '节点', icon: <Icon.Server /> },
     { to: '/cores', label: '内核', icon: <Icon.Cpu /> },
@@ -249,6 +251,7 @@ export default function App() {
                   ) : (
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
+                      <Route path="/stats" element={<Stats />} />
                       <Route path="/nodes" element={<Nodes />} />
                       <Route path="/cores" element={<Cores />} />
                       <Route path="/forwards" element={<Forwards />} />
