@@ -5,7 +5,7 @@ import { useNodes } from '../App'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
-import type { CapSet, Core, CoreType, Node, Revision, User } from '../types'
+import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
 
 // useCoreDefaults returns the version each core type gets when added
 // (the configured default, or the newest release when it is "latest").
@@ -328,6 +328,10 @@ export default function Nodes() {
 
   useEffect(() => { if (params.get('new')) { setParams({}, { replace: true }) } }, [params, setParams])
 
+  // Per-node traffic, refreshed every 30 s.
+  const [tick, setTick] = useState(0)
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 30000); return () => clearInterval(t) }, [])
+  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [tick])
   const latest = useLoad(() => get<Record<string, string>>('/core-latest').catch(() => ({} as Record<string, string>)))
   const [batchCore, setBatchCore] = useState(false)
   // Agent upgrades: nodes whose agent differs from the panel version.
@@ -383,6 +387,7 @@ export default function Nodes() {
                   <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
                   <div className="sub">{[n.region, n.address || n.domain || (n.publicIpv4 || n.publicIpv6 ? `${n.publicIpv4 || n.publicIpv6}（自动检测）` : '')].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
                     {upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) && <span className="tag warn">可升级</span>}</div>
+                  {traffic.data?.[n.id] && <div className="small mute mono" style={{ marginTop: 4 }}>今日 ↑ {bytes(traffic.data[n.id].todayUp)} · ↓ {bytes(traffic.data[n.id].todayDown)}</div>}
                 </button>
               )
             })}
@@ -396,6 +401,14 @@ export default function Nodes() {
                   <div><span className="sub" style={{ margin: 0 }}>期望 / 已应用版本</span><div className="mono" style={sel.appliedRev < sel.desiredRev ? { color: 'var(--warn)' } : undefined}>rev {sel.desiredRev} / rev {sel.appliedRev}{sel.appliedRev === sel.desiredRev && sel.desiredRev ? ' ✓' : ''}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>最后心跳</span><div className="mono">{ago(sel.lastSeen)}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>公网 IP{sel.ddns ? ' · DDNS' : ''}</span><div className="mono">{[sel.publicIpv4, sel.publicIpv6].filter(Boolean).join(' / ') || '—'}</div></div>
+                  <div><span className="sub" style={{ margin: 0 }}>用户流量 今日 / 30 天</span><div className="mono">{(() => {
+                    const t = traffic.data?.[sel.id]
+                    return t ? `↑ ${bytes(t.todayUp)} ↓ ${bytes(t.todayDown)} / ↑ ${bytes(t.monthUp)} ↓ ${bytes(t.monthDown)}` : '—'
+                  })()}</div></div>
+                  <div title="内核按入站统计的原始字节（不含倍率，可在仪表盘「流量统计」中重置）"><span className="sub" style={{ margin: 0 }}>入站累计</span><div className="mono">{(() => {
+                    const t = traffic.data?.[sel.id]
+                    return t ? `↑ ${bytes(t.rawUp)} ↓ ${bytes(t.rawDown)}` : '—'
+                  })()}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>系统</span><div className="mono">{sel.connected ? `CPU ${sel.system.cpu}% · 内存 ${sel.system.mem}% · 运行 ${uptime(sel.system.uptime)}` : '—'}</div></div>
                   <div className="row" style={{ marginLeft: 'auto' }}>
                     {outdated(sel) && (

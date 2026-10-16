@@ -1,7 +1,8 @@
 // Package singbox adapts sing-box (>= 1.11 config format). sing-box has no
 // public user-management API, so user changes fall back to a SIGHUP reload.
-// Traffic comes from the v2ray_api stats service, which requires a build with
-// the with_v2ray_api tag.
+// Per-user traffic comes from the v2ray_api stats service, which requires a
+// build with the with_v2ray_api tag. Official builds lack it but ship the
+// Clash API, which still yields inbound / outbound totals (see clashapi.go).
 package singbox
 
 import (
@@ -40,6 +41,8 @@ type Adapter struct {
 	service string
 	seen    map[string][2]int64 // cumulative counters at last collection
 	stats   bool                // binary built with with_v2ray_api
+	secret  string              // Clash API secret (builds without v2ray_api)
+	conns   map[string][2]int64 // Clash API per-connection counters at last poll
 }
 
 // New constructs a sing-box adapter.
@@ -50,12 +53,13 @@ func New(o core.Options) *Adapter {
 	if o.APIListen == "" {
 		o.APIListen = "127.0.0.1:10086"
 	}
-	a := &Adapter{opt: o, seen: map[string][2]int64{}, stats: true}
+	a := &Adapter{opt: o, seen: map[string][2]int64{}, stats: true, conns: map[string][2]int64{}}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("sing-box", o.BinPath, o.WorkDir, o.Logger, "run", "-c", a.configPath(), "-D", o.WorkDir)
 		a.stats = hasBuildTag(o.BinPath, "with_v2ray_api")
 		if !a.stats {
-			o.Logger.Warn("sing-box built without with_v2ray_api: per-user traffic is unavailable", "bin", o.BinPath)
+			o.Logger.Warn("sing-box built without with_v2ray_api: per-user traffic is unavailable, counting inbound/outbound totals via the Clash API", "bin", o.BinPath)
+			a.secret = clashSecret(o.WorkDir)
 		}
 	}
 	return a
@@ -143,6 +147,11 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		"inbounds":  nonNil(inbounds),
 		"outbounds": outs,
 		"route":     route,
+	}
+	if !a.stats && a.secret != "" {
+		cfg["experimental"] = map[string]any{
+			"clash_api": map[string]any{"external_controller": a.opt.APIListen, "secret": a.secret},
+		}
 	}
 	if a.stats {
 		cfg["experimental"] = map[string]any{
@@ -613,7 +622,10 @@ func (a *Adapter) client() (*core.APIClient, error) {
 // which case the current value is the delta.
 func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, error) {
 	if !a.stats {
-		return nil, core.ErrNotSupported
+		if a.secret == "" {
+			return nil, core.ErrNotSupported
+		}
+		return a.clashTraffic(ctx)
 	}
 	c, err := a.client()
 	if err != nil {

@@ -213,3 +213,55 @@ func (s *Server) resetTagStats(c *gin.Context) {
 	s.auditCtx(c, "stats.reset", strings.TrimSpace(req.Kind+" "+req.Tag), req.NodeID)
 	c.Status(http.StatusNoContent)
 }
+
+// nodeTraffic sums traffic per node: billed user traffic (after the node's
+// multiplier) for today and the last 30 days, plus the raw inbound byte
+// counters, which also cover cores that cannot attribute bytes to users.
+type nodeTraffic struct {
+	TodayUp   int64 `json:"todayUp"`
+	TodayDown int64 `json:"todayDown"`
+	MonthUp   int64 `json:"monthUp"`
+	MonthDown int64 `json:"monthDown"`
+	RawUp     int64 `json:"rawUp"`
+	RawDown   int64 `json:"rawDown"`
+}
+
+func (s *Server) nodeTrafficStats() map[string]*nodeTraffic {
+	now := time.Now()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UTC()
+	out := map[string]*nodeTraffic{}
+	get := func(id string) *nodeTraffic {
+		if out[id] == nil {
+			out[id] = &nodeTraffic{}
+		}
+		return out[id]
+	}
+	type row struct {
+		NodeID   string
+		Up, Down int64
+	}
+	var rows []row
+	s.st.DB.Model(&store.TrafficHourly{}).Select("node_id, COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+		Where("hour >= ?", now.AddDate(0, 0, -30).UTC()).Group("node_id").Scan(&rows)
+	for _, r := range rows {
+		t := get(r.NodeID)
+		t.MonthUp, t.MonthDown = r.Up, r.Down
+	}
+	rows = nil
+	s.st.DB.Model(&store.TrafficHourly{}).Select("node_id, COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+		Where("hour >= ?", dayStart).Group("node_id").Scan(&rows)
+	for _, r := range rows {
+		t := get(r.NodeID)
+		t.TodayUp, t.TodayDown = r.Up, r.Down
+	}
+	rows = nil
+	s.st.DB.Model(&store.TagTraffic{}).Select("node_id, COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+		Where("kind = ?", "inbound").Group("node_id").Scan(&rows)
+	for _, r := range rows {
+		t := get(r.NodeID)
+		t.RawUp, t.RawDown = r.Up, r.Down
+	}
+	return out
+}
+
+func (s *Server) nodeTrafficAPI(c *gin.Context) { c.JSON(http.StatusOK, s.nodeTrafficStats()) }

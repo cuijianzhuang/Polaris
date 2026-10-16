@@ -173,6 +173,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/stats/overview", s.statsOverview)
 	p.GET("/stats/traffic", s.statsTraffic)
 	p.GET("/stats/tags", s.tagStats)
+	p.GET("/stats/nodes", s.nodeTrafficAPI)
 	p.POST("/stats/tags/reset", s.resetTagStats)
 
 	p.GET("/certificates", s.listCerts)

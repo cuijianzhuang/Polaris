@@ -1,5 +1,5 @@
 // Per-inbound / per-outbound traffic since the last reset (Xray; sing-box
-// builds with v2ray_api), with reset controls.
+// Clash API), with reset controls.
 import { useState } from 'react'
 import { get, post } from '../api'
 import { bytes, ago } from '../format'
@@ -32,7 +32,7 @@ export default function TagTraffic() {
         </div>
       </div>
       <div className="scroll" style={{ marginTop: 8 }}>
-        {rows.length === 0 ? <div className="empty">暂无数据（需要 Xray，或带 v2ray_api 编译的 sing-box；节点 Agent 需为最新版）</div> : (
+        {rows.length === 0 ? <div className="empty">暂无数据（节点有流量经过后显示；节点 Agent 需为最新版）</div> : (
           <table>
             <thead><tr><th>节点</th><th>{kind === 'inbound' ? '入站' : '出站'}</th><th>上传</th><th>下载</th><th>合计</th><th>更新</th><th /></tr></thead>
             <tbody>
