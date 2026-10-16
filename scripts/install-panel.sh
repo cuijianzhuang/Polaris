@@ -14,7 +14,7 @@
 #   info                          admin URL, ports and config summary
 #   reset-password [-u NAME]      new random admin password, unlocks the account, signs out sessions
 #   reset-2fa [-u NAME]           turn off two-factor authentication
-#   set-path PATH | set-port N    change the admin path / panel port
+#   set-path PATH | set-port N    change the admin path (/ turns it off) / panel port
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
 #   backup                        config + consistent database copy to /root/polaris-backup-*.tar.gz
 #   node [-n NAME]                install a node agent on this server (connects over 127.0.0.1)
@@ -833,10 +833,17 @@ do_node() {
 do_set_path() {
   need_installed
   local p="/${1#/}"
-  [[ "$p" =~ ^/[A-Za-z0-9_-]{4,64}$ ]] || die "路径只能包含字母、数字、- 和 _，长度 4–64"
+  # "/" (or "none") turns the secret path off: the admin UI answers at the root.
+  case "$p" in /none|/off) p=/ ;; esac
+  if [ "$p" != / ]; then
+    [[ "$p" =~ ^/[A-Za-z0-9_-]{4,64}$ ]] || die "路径只能包含字母、数字、- 和 _，长度 4–64；关闭路径用 /"
+  fi
   env_set POLARIS_ADMIN_PATH "$p"
   systemctl restart polaris && wait_active || die "重启失败"
-  ok "后台地址：${C_BD}$(env_get POLARIS_PUBLIC_URL)$p/${C_0}"
+  ok "后台地址：${C_BD}$(env_get POLARIS_PUBLIC_URL)${p%/}/${C_0}"
+  if [ "$p" = / ]; then
+    warn "已关闭后台路径：任何人打开这个地址都能看到登录页，请使用强密码并开启二次验证"
+  fi
 }
 
 do_set_port() {
@@ -1276,7 +1283,7 @@ menu() {
         pause ;;
       11) (show_info) || true; pause ;;
       12)
-        local np; np="$(ask "新的后台路径（留空随机生成）：")"
+        local np; np="$(ask "新的后台路径（留空随机生成，输入 / 关闭路径）：")"
         run_action do_set_path "${np:-$(rand 12)}"; pause ;;
       13)
         local nport; nport="$(ask "新的面板端口：")"
