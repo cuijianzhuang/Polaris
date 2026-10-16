@@ -52,6 +52,7 @@ export interface Inbound {
   nodeName: string; userCount: number; groupIds: string[]; endpoints: number; network: string; cdnCapable: boolean
   outboundTag: string; speedLimitMbps: number
 }
+export interface NodeQuota { userId: string; nodeId: string; nodeName: string; extra: number; extraUsed: number; limit: number; used: number }
 export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number

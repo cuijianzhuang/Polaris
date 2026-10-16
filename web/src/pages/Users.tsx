@@ -6,7 +6,7 @@ import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
 import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast, SkeletonRows, Section, useUndo, useToastApi, runBatch } from '../components/ui'
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
-import type { Group, Inbound, Node, User, UserDevice } from '../types'
+import type { Group, Inbound, Node, NodeQuota, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
@@ -277,6 +277,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           </Field>
       </Section>
       {user && <UserLinks userId={user.id} />}
+      {user && <NodeQuotas userId={user.id} />}
       {user && <Devices userId={user.id} limit={user.deviceLimit} />}
       {user && <SubCheck userId={user.id} />}
       {user && <div className="field"><TrafficChart query={'user=' + user.id} title="流量统计" /></div>}
@@ -311,6 +312,59 @@ function UserLinks({ userId }: { userId: string }) {
           </div>
         ))}
         {qr && <div style={{ justifySelf: 'center' }}><QR text={qr} size={200} /></div>}
+      </div>
+    </details>
+  )
+}
+
+// NodeQuotas: per-node traffic packs (node-only, spent before the account
+// quota, one-off) and per-node caps (each traffic period).
+function NodeQuotas({ userId }: { userId: string }) {
+  const data = useLoad(() => get<NodeQuota[]>(`/users/${userId}/node-quotas`), [userId])
+  const { nodes } = useNodes()
+  const { busy, run } = useAction()
+  const [f, setF] = useState({ nodeId: '', add: '', limit: '' })
+  const qs = data.data ?? []
+  const gb = (v: string) => Math.round((Number(v) || 0) * GB)
+  const save = () => run(async () => {
+    const body: Record<string, number> = {}
+    if (f.add) body.addExtra = gb(f.add)
+    if (f.limit !== '') body.limit = gb(f.limit)
+    await put(`/users/${userId}/node-quotas/${f.nodeId}`, body)
+    setF({ nodeId: '', add: '', limit: '' }); data.reload()
+  }, '已保存')
+  return (
+    <details className="more" open={qs.length > 0}>
+      <summary>节点流量（{qs.length}）</summary>
+      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+        <div className="hint">流量包：只能在该节点使用，先于总流量扣除，总流量用完后仍可用，用完为止（重置流量不补回）。节点上限：每个流量周期在该节点最多用多少，超出后只停这个节点。按节点倍率换算。</div>
+        {qs.map((q) => (
+          <div key={q.nodeId} className="row" style={{ flexWrap: 'nowrap' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="small" style={{ fontWeight: 500 }}>{q.nodeName || q.nodeId}</div>
+              <div className="hint">
+                {q.extra > 0 && <>流量包 剩余 {bytes(Math.max(q.extra - q.extraUsed, 0))} / {bytes(q.extra)}</>}
+                {q.extra > 0 && q.limit > 0 && ' · '}
+                {q.limit > 0 && <span style={q.used >= q.limit ? { color: 'var(--bad)' } : undefined}>本期 {bytes(q.used)} / {bytes(q.limit)}{q.used >= q.limit ? '（已停用该节点）' : ''}</span>}
+                {!q.extra && !q.limit && '未设置'}
+              </div>
+            </div>
+            {q.limit > 0 && q.used > 0 && <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await put(`/users/${userId}/node-quotas/${q.nodeId}`, { resetUsed: true }); data.reload() }, '已清零')}>清零本期</button>}
+            <button className="btn sm" type="button" onClick={() => setF({ nodeId: q.nodeId, add: '', limit: q.limit ? String(+(q.limit / GB).toFixed(2)) : '' })}>编辑</button>
+            <button className="btn sm danger" type="button" disabled={busy} onClick={() => run(async () => { await del(`/users/${userId}/node-quotas/${q.nodeId}`); data.reload() }, '已移除')}>移除</button>
+          </div>
+        ))}
+        <div className="form-grid">
+          <Field label="节点">
+            <select className="input" value={f.nodeId} onChange={(e) => setF({ ...f, nodeId: e.target.value })}>
+              <option value="">选择节点</option>
+              {nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+            </select>
+          </Field>
+          <Field label="增加流量包（GB）"><input className="input mono" inputMode="decimal" placeholder="不增加" value={f.add} onChange={(e) => setF({ ...f, add: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
+          <Field label="节点上限（GB / 周期）"><input className="input mono" inputMode="decimal" placeholder="不变；0 为不限" value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
+        </div>
+        <div><button className="btn sm primary" type="button" disabled={busy || !f.nodeId || (!f.add && f.limit === '')} onClick={save}>保存</button></div>
       </div>
     </details>
   )

@@ -177,6 +177,9 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/users/:id", s.deleteUser)
 	p.POST("/users/:id/reset-traffic", s.resetUserTraffic)
 	p.POST("/users/:id/reset-token", s.resetUserToken)
+	p.GET("/users/:id/node-quotas", s.listNodeQuotas)
+	p.PUT("/users/:id/node-quotas/:node", s.putNodeQuota)
+	p.DELETE("/users/:id/node-quotas/:node", s.deleteNodeQuota)
 	p.GET("/users/:id/links", s.userLinks)
 
 	p.GET("/groups", s.listGroups)

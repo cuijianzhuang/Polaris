@@ -800,6 +800,7 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			done = map[string]string{"d": "已禁用", "e": "已启用"}[parts[1]]
 		case "t":
 			b.s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now(), "warned_usage": false})
+			b.s.resetNodeUsage(u.ID)
 			b.s.recomputeStatus(u.ID)
 			done = "流量已重置"
 		case "x":

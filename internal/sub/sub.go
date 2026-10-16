@@ -64,6 +64,8 @@ type Info struct {
 	// Portal renders the page as the signed-in user center (reset link and
 	// sign-out actions instead of the bot binding button).
 	Portal bool
+	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").
+	NodeQuotas []NodeQuotaLine
 	// ExpireAfterDays: validity starts on first use (no Expire yet).
 	ExpireAfterDays int
 	// UpdateHours is how often clients should refetch (Surge's managed
@@ -77,6 +79,13 @@ type Info struct {
 
 	// Scheme is the rule scheme for client configs (nil = minimal default).
 	Scheme *Scheme `json:"-"`
+}
+
+// NodeQuotaLine is one node's extra traffic on the info page.
+type NodeQuotaLine struct {
+	Node string
+	Text string
+	Bad  bool // cap reached
 }
 
 // DayUsage is one day of traffic on the info page.

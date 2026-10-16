@@ -113,7 +113,7 @@ func (s *Server) portalPage(c *gin.Context) {
 	info := sub.Info{Title: s.st.GetSetting("site_title", "Polaris"), Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown,
 		Total: u.TrafficLimit, Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
 	var nodes []sub.Node
-	if u.Status == "active" {
+	if s.servedUser(u) {
 		var err error
 		if nodes, err = s.subNodes(u); err != nil {
 			serverError(c, err)

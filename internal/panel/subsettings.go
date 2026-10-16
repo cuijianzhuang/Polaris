@@ -163,6 +163,7 @@ func (s *Server) pageExtras(info *sub.Info, u *store.User, nodes []sub.Node) {
 		}
 	}
 	info.Daily = s.dailyUsage(u.ID, 30)
+	info.NodeQuotas = s.nodeQuotaLines(u.ID)
 }
 
 // dailyUsage returns the last n days of a user's traffic, oldest first.

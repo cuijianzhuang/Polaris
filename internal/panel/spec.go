@@ -167,7 +167,8 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	for _, i := range ins {
 		inIDs = append(inIDs, i.ID)
 	}
-	users, err := s.inboundUsers(inIDs)
+	capped, packIDs := s.nodeQuotaUsers(node.ID)
+	users, err := s.inboundUsers(inIDs, packIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +191,9 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 			}
 		}
 		for _, u := range users[m.ID] {
+			if capped[u.ID] {
+				continue // per-node cap reached
+			}
 			m.Users = append(m.Users, u.ToModel())
 			if u.IPLimit > 0 {
 				spec.IPLimits[u.ID] = u.IPLimit
@@ -227,7 +231,8 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 
 // inboundUsers maps inbound id -> authorised users: active users granted via
 // groups or direct node / inbound bindings, plus service accounts of outbounds/chains that target the inbound.
-func (s *Server) inboundUsers(inboundIDs []string) (map[string][]store.User, error) {
+// packIDs are limited users still served by a node traffic pack.
+func (s *Server) inboundUsers(inboundIDs []string, packIDs ...string) (map[string][]store.User, error) {
 	out := map[string][]store.User{}
 	if len(inboundIDs) == 0 {
 		return out, nil
@@ -241,8 +246,8 @@ func (s *Server) inboundUsers(inboundIDs []string) (map[string][]store.User, err
 	err := s.st.DB.Table("users").
 		Select("DISTINCT grants.inbound_id AS inbound_id, users.*").
 		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.user_id = users.id").
-		Where("grants.inbound_id IN ? AND users.status = ? AND users.is_service = ? AND (users.banned_until IS NULL OR users.banned_until < ?)",
-			inboundIDs, "active", false, now).
+		Where("grants.inbound_id IN ? AND (users.status = ? OR (users.status = ? AND users.id IN ?)) AND users.is_service = ? AND (users.banned_until IS NULL OR users.banned_until < ?)",
+			inboundIDs, "active", "limited", append(packIDs, ""), false, now).
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err

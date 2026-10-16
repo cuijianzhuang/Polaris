@@ -397,6 +397,9 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			if err := tx.Model(&store.User{}).Where("id IN ?", req.IDs).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
 				return err
 			}
+			if err := tx.Model(&store.UserNodeQuota{}).Where("user_id IN ?", req.IDs).Update("used", 0).Error; err != nil {
+				return err
+			}
 		case "extend":
 			affected = req.IDs
 			var us []store.User
@@ -579,6 +582,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 	nodes := s.nodesForUsers(u.ID)
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserGroup{})
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserAccess{})
+	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserNodeQuota{})
 	s.st.DB.Delete(&u)
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")
@@ -592,6 +596,7 @@ func (s *Server) resetUserTraffic(c *gin.Context) {
 		return
 	}
 	s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()})
+	s.resetNodeUsage(u.ID)
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("traffic reset", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.reset_traffic", u.Username, "")

@@ -54,7 +54,7 @@ func (s *Server) subscription(c *gin.Context) {
 	info := sub.Info{Title: title, Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown, Total: u.TrafficLimit,
 		Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
 	var nodes []sub.Node
-	if u.Status == "active" && deviceOK {
+	if s.servedUser(&u) && deviceOK {
 		var err error
 		if nodes, err = s.subNodes(&u); err != nil {
 			serverError(c, err)
@@ -87,6 +87,16 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Per-node quotas: no node past its cap; out of account quota, only the
+	// nodes with a traffic pack left.
+	capped, pack := s.nodeAccess(u.ID)
+	kept := ins[:0]
+	for _, in := range ins {
+		if !capped[in.NodeID] && (u.Status == "active" || pack[in.NodeID]) {
+			kept = append(kept, in)
+		}
+	}
+	ins = kept
 	nodes := map[string]*store.Node{}
 	var ns []store.Node
 	s.st.DB.Where("revoked = ?", false).Order("sort_order, name").Find(&ns)
