@@ -9,7 +9,7 @@ import InboundFields, { normalizeDraft, type InboundDraft } from '../components/
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast, Section, useUndo } from '../components/ui'
 import { bytes, coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
 import type { TagTrafficRow } from '../components/TagTraffic'
-import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, Node, Outbound } from '../types'
+import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, Node, Outbound } from '../types'
 
 const emptyDraft = (): InboundDraft => ({
   core: 'xray',
@@ -115,6 +115,14 @@ function FallbackEditor({ value, onChange, candidates, selfId }: { value: Fallba
   )
 }
 
+// HealthDot: the panel's latest reachability probe of an inbound.
+function HealthDot({ h }: { h?: InboundHealth }) {
+  if (!h || !h.checkedAt) return null
+  if (h.error && h.ok) return <span className="small mute" title={h.error} style={{ marginLeft: 6 }}>UDP</span>
+  const tip = `${h.ok ? `可连接，延迟 ${h.latencyMs} ms` : `无法连接：${h.error}（连续 ${h.fails} 次）`} · 检查于 ${new Date(h.checkedAt).toLocaleTimeString()}`
+  return <span title={tip} style={{ marginLeft: 6, whiteSpace: 'nowrap', fontSize: 12, color: h.ok ? 'var(--ok)' : 'var(--bad)' }}>● {h.ok ? `${h.latencyMs}ms` : '不通'}</span>
+}
+
 function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
   const [nodeId, setNodeId] = useState(editing?.nodeId ?? nodes[0]?.id ?? '')
   const node = nodes.find((n) => n.id === nodeId)
@@ -142,6 +150,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
+  const toast = useToast()
 
   const proxyCores = (caps.data ?? []).filter((c) => c.combos.length > 0)
   const coreCaps = proxyCores.filter((c) => c.core === draft.core)
@@ -176,6 +185,12 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   return (
     <Drawer title={editing ? '编辑入站 · ' + editing.tag : '新建入站'} onClose={onClose} footer={<>
       {editing && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={() => onDelete(editing)}>删除</button>}
+      {editing && <button className="btn" type="button" disabled={busy} title="从面板连接这个入站（TCP，TLS / REALITY 再握手）" onClick={() => run(async () => {
+        const h = await post<InboundHealth>(`/inbounds/${editing.id}/probe`)
+        if (h.error && h.ok) toast(h.error)
+        else if (h.ok) toast(`可以连接，延迟 ${h.latencyMs} ms`)
+        else toast('无法连接：' + h.error, true)
+      })}>探测</button>}
       <button className="btn" type="button" disabled={busy} onClick={() => run(async () => {
         const r = await post<{ config: string }>('/inbounds/preview' + (editing ? '?id=' + editing.id : ''), body())
         setPreview(r.config)
@@ -356,7 +371,7 @@ export default function Inbounds() {
                   <td data-label="节点">{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
                   <td data-label="协议">{inboundSummary(i).split(' · ')[0]}</td>
                   <td data-label="传输 · 安全">{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
-                  <td data-label="端口" className="mono">{portLabel(i)}</td>
+                  <td data-label="端口" className="mono">{portLabel(i)}<HealthDot h={i.health} /></td>
                   <td data-label="授权用户" className="mono">{i.userCount}</td>
                   <td data-label="流量" className="mono small">{(() => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? <>↑ {bytes(t.up)}<br />↓ {bytes(t.down)}</> : '—' })()}</td>
                   <td data-label="入口" className="mono">{i.endpoints}</td>

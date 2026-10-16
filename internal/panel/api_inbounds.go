@@ -54,12 +54,13 @@ func checkSpeedLimit(mbps int) error {
 
 type inboundView struct {
 	store.Inbound
-	NodeName  string   `json:"nodeName"`
-	UserCount int      `json:"userCount"`
-	GroupIDs  []string `json:"groupIds"`
-	Endpoints int64    `json:"endpoints"`
-	Network   string   `json:"network"`
-	CDN       bool     `json:"cdnCapable"`
+	NodeName  string               `json:"nodeName"`
+	UserCount int                  `json:"userCount"`
+	GroupIDs  []string             `json:"groupIds"`
+	Endpoints int64                `json:"endpoints"`
+	Network   string               `json:"network"`
+	CDN       bool                 `json:"cdnCapable"`
+	Health    *store.InboundHealth `json:"health,omitempty"`
 }
 
 func (s *Server) inboundView(in store.Inbound, nodes map[string]string, users map[string][]store.User) inboundView {
@@ -73,6 +74,10 @@ func (s *Server) inboundView(in store.Inbound, nodes map[string]string, users ma
 		v.GroupIDs = []string{}
 	}
 	s.st.DB.Model(&store.Endpoint{}).Where("inbound_id = ?", in.ID).Count(&v.Endpoints)
+	var h store.InboundHealth
+	if s.st.DB.First(&h, "inbound_id = ?", in.ID).Error == nil {
+		v.Health = &h
+	}
 	return v
 }
 
