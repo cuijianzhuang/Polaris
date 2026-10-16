@@ -51,7 +51,9 @@ svg{display:block;width:100%;height:auto}
 details summary{cursor:pointer;list-style:none}details summary::-webkit-details-marker{display:none}
 .nw{flex-wrap:nowrap}.nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{white-space:nowrap;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--bg);color:var(--mute)}
+.who{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
 </style></head><body><main>
+{{if .Portal}}<div class="who"><span>👤 已通过 Telegram 登录</span><span class="sp"></span><button class="btn sm" type="button" data-portal="reset">重置订阅链接</button><button class="btn sm" type="button" data-portal="logout">退出</button></div>{{end}}
 {{if .Announce}}<section class="note" role="note">📢 {{.Announce}}</section>{{end}}
 <section class="card">
 <div class="row"><h1>{{.Title}}</h1><span class="sp"></span>{{if .Status}}<span class="st {{.Status}}">{{.StatusLabel}}</span>{{end}}</div>
@@ -68,6 +70,7 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 <div><span>⏳ 到期</span><b class="{{.ExpireLevel}}">{{.ExpiryText}}</b></div>
 {{if .Expire}}<div><span>🕒 到期时间</span><b>{{.Expire}}</b></div>{{end}}
 {{if .ResetNote}}<div><span>♻️ 流量重置</span><b>{{.ResetNote}}</b></div>{{end}}
+{{range .NodeQuotas}}<div><span>📍 {{.Node}}</span><b{{if .Bad}} class="bad"{{end}}>{{.Text}}</b></div>{{end}}
 </div>
 </section>
 {{if .Chart}}<section class="card"><h2>近 {{.ChartDays}} 天流量</h2>{{.Chart}}
@@ -91,6 +94,9 @@ function legacyCopy(t){var a=document.createElement('textarea');a.value=t;a.setA
 function copyText(t){if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(t).catch(function(){if(!legacyCopy(t))throw 0})}return legacyCopy(t)?Promise.resolve():Promise.reject()}
 document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;e.preventDefault();var t=b.getAttribute('data-copy'),l=b.textContent;
 copyText(t).then(function(){b.textContent='已复制';setTimeout(function(){b.textContent=l},1500)},function(){prompt('复制以下内容',t)})});
+{{if .Portal}}document.addEventListener('click',function(e){var b=e.target.closest('[data-portal]');if(!b)return;var a=b.getAttribute('data-portal');
+if(a==='reset'&&!confirm('重置后旧订阅链接和已导入的节点立即失效，所有客户端都需要重新导入。确定重置？'))return;b.disabled=true;
+fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1'},credentials:'same-origin'}).then(function(r){if(!r.ok)throw 0;location.replace('/u')}).catch(function(){b.disabled=false;alert('操作失败，请刷新后重试')})});{{end}}
 </script></body></html>`))
 
 type pageClient struct {
@@ -156,7 +162,7 @@ func RenderPage(info Info) ([]byte, error) {
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": ExpiryLeft(info), "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote,
-		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL),
+		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "NodeQuotas": info.NodeQuotas,
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
 		"Clients": clientLinks(info), "Links": links, "Chart": chart, "ChartMax": max, "ChartDays": len(info.Daily),
 	}

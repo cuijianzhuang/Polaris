@@ -29,6 +29,27 @@ func freePort(t *testing.T) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// freeMixedPort returns a port free for both TCP and UDP: a client's mixed
+// (http+socks) inbound binds both, and a TCP-only check can hand out a port a
+// UDP server inbound (TUIC, Hysteria 2) already holds.
+func freeMixedPort(t *testing.T) int {
+	for i := 0; i < 50; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := l.Addr().(*net.TCPAddr).Port
+		u, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", p))
+		l.Close()
+		if err == nil {
+			u.Close()
+			return p
+		}
+	}
+	t.Fatal("no port free for both tcp and udp")
+	return 0
+}
+
 type api struct {
 	t     *testing.T
 	base  string

@@ -395,6 +395,10 @@ func (b *tgBot) handle(u tgUpdate) {
 	id := b.identify(chat)
 	switch cmd {
 	case "/start", "/menu":
+		if cmd == "/start" && strings.HasPrefix(arg, portalLoginPrefix) { // user center
+			b.portalLoginPrompt(chat, strings.TrimPrefix(arg, portalLoginPrefix), id)
+			return
+		}
 		if cmd == "/start" && strings.HasPrefix(arg, tgWebLoginPrefix) { // login page
 			b.webLoginPrompt(chat, strings.TrimPrefix(arg, tgWebLoginPrefix), id)
 			return
@@ -553,7 +557,11 @@ func (b *tgBot) sendSub(chat int64, u *store.User) {
 	if png, err := qrcode.Encode(link, qrcode.Medium, 512); err == nil {
 		b.sendPhoto(chat, png, "📷 用客户端扫码导入订阅")
 	}
-	b.send(chat, "🔗 <b>订阅链接</b>\n"+tgRule+"\n<code>"+esc(link)+"</code>\n\n点按链接即可复制，客户端类型自动识别（Clash / sing-box / v2rayN / Shadowrocket 等）。",
+	center := ""
+	if b.s.portalEnabled() {
+		center = "\n\n🌐 用户中心（用 Telegram 登录）：\n" + esc(b.s.portalURL())
+	}
+	b.send(chat, "🔗 <b>订阅链接</b>\n"+tgRule+"\n<code>"+esc(link)+"</code>\n\n点按链接即可复制，客户端类型自动识别（Clash / sing-box / v2rayN / Shadowrocket 等）。"+center,
 		[]button{{Text: "♻️ 重置链接", Data: "me:reset"}, btnHome})
 }
 
@@ -668,18 +676,23 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 		case "nodes":
 			b.edit(chat, msg, b.userNodesText(id.user), backRow("v:nodes"))
 		case "reset":
-			b.send(chat, "⚠️ 确定重置订阅链接？\n旧链接将立即失效，所有客户端都需要重新导入。", []button{{Text: "确认重置", Data: "me:reset!"}, btnHome})
+			b.send(chat, "⚠️ 确定重置订阅链接？\n旧链接和已导入的节点将立即失效，所有客户端都需要重新导入。", []button{{Text: "确认重置", Data: "me:reset!"}, btnHome})
 		case "reset!":
-			tok := pki.Token(32)
-			b.s.st.DB.Model(&store.User{}).Where("id = ?", id.user.ID).Update("sub_token", tok)
+			if err := b.s.rotateUserCredentials(id.user); err != nil {
+				b.send(chat, "重置失败："+esc(err.Error()))
+				break
+			}
 			b.s.audit("telegram", "user.reset_token", id.user.Username, "self-service", "")
-			id.user.SubToken = tok
 			b.sendSub(chat, id.user)
 		}
 		answer("")
 	case "up": // version update: up:<panel|all|agents|mode>
 		if len(parts) == 2 {
 			b.onUpdateCallback(chat, msg, parts[1], id, answer)
+		}
+	case "ul": // user center sign-in: ul:<request>:<number|x>
+		if len(parts) == 3 {
+			b.portalLoginAnswer(chat, msg, parts[1], parts[2], id, answer)
 		}
 	case "wl": // login page sign-in: wl:<request>:<number|x>
 		if len(parts) == 3 {
@@ -787,6 +800,7 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			done = map[string]string{"d": "已禁用", "e": "已启用"}[parts[1]]
 		case "t":
 			b.s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now(), "warned_usage": false})
+			b.s.resetNodeUsage(u.ID)
 			b.s.recomputeStatus(u.ID)
 			done = "流量已重置"
 		case "x":
@@ -798,7 +812,10 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.s.recomputeStatus(u.ID)
 			done = "已续期 30 天"
 		case "k":
-			b.s.st.DB.Model(&u).Update("sub_token", pki.Token(32))
+			if err := b.s.rotateUserCredentials(&u); err != nil {
+				answer("重置失败")
+				return
+			}
 			done = "订阅已重置"
 		}
 		if done != "" {

@@ -308,7 +308,8 @@ export default function Settings() {
   useEffect(() => {
     const r = takeOAuthResult()
     if (r.bound) toast('已绑定 GitHub 账号 ' + r.bound)
-    if (r.error) toast(r.error, true)
+    if (r.error) toast('GitHub 绑定失败：' + r.error, true)
+    r.bound = r.error = undefined // shown once, not on every visit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])

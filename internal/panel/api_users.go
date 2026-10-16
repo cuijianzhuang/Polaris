@@ -397,6 +397,9 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			if err := tx.Model(&store.User{}).Where("id IN ?", req.IDs).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
 				return err
 			}
+			if err := tx.Model(&store.UserNodeQuota{}).Where("user_id IN ?", req.IDs).Update("used", 0).Error; err != nil {
+				return err
+			}
 		case "extend":
 			affected = req.IDs
 			var us []store.User
@@ -579,6 +582,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 	nodes := s.nodesForUsers(u.ID)
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserGroup{})
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserAccess{})
+	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserNodeQuota{})
 	s.st.DB.Delete(&u)
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")
@@ -592,23 +596,42 @@ func (s *Server) resetUserTraffic(c *gin.Context) {
 		return
 	}
 	s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()})
+	s.resetNodeUsage(u.ID)
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("traffic reset", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.reset_traffic", u.Username, "")
 	c.Status(http.StatusNoContent)
 }
 
-// resetUserToken rotates the subscription token; the old link stops working at once.
+// resetUserToken rotates the subscription token and the node credentials:
+// the old link and every node imported from it stop working at once.
 func (s *Server) resetUserToken(c *gin.Context) {
 	var u store.User
 	if err := s.st.DB.First(&u, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
 		return
 	}
-	tok := pki.Token(32)
-	s.st.DB.Model(&u).Update("sub_token", tok)
+	if err := s.rotateUserCredentials(&u); err != nil {
+		serverError(c, err)
+		return
+	}
 	s.auditCtx(c, "user.reset_token", u.Username, "")
-	c.JSON(http.StatusOK, gin.H{"subToken": tok, "url": s.subURL(tok)})
+	c.JSON(http.StatusOK, gin.H{"subToken": u.SubToken, "url": s.subURL(u.SubToken)})
+}
+
+// rotateUserCredentials gives u a new subscription token and new protocol
+// credentials (UUID, password, Shadowsocks seed), then pushes the change to
+// its nodes. A leaked link is useless afterwards, and so are the nodes
+// already imported from it: they still carry the old credentials.
+func (s *Server) rotateUserCredentials(u *store.User) error {
+	u.SubToken, u.UUID, u.Password, u.SSSeed = pki.Token(32), pki.UUID(), pki.Password(20), pki.Token(24)
+	err := s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{
+		"sub_token": u.SubToken, "uuid": u.UUID, "password": u.Password, "ss_seed": u.SSSeed}).Error
+	if err != nil {
+		return err
+	}
+	s.MarkDirty("credentials reset", s.nodesForUsers(u.ID)...)
+	return nil
 }
 
 func (s *Server) subURL(token string) string {

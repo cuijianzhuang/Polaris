@@ -167,7 +167,7 @@ func (s *Server) profileNodes(ctx context.Context, p *store.SubProfile) ([]sub.N
 	if p.PanelUserID != "" {
 		var u store.User
 		if err := s.st.DB.First(&u, "id = ?", p.PanelUserID).Error; err == nil {
-			if u.Status == "active" {
+			if s.servedUser(&u) {
 				pn, err := s.subNodes(&u)
 				if err != nil {
 					return nil, info, err

@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -53,7 +54,7 @@ func (s *Server) subscription(c *gin.Context) {
 	info := sub.Info{Title: title, Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown, Total: u.TrafficLimit,
 		Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
 	var nodes []sub.Node
-	if u.Status == "active" && deviceOK {
+	if s.servedUser(&u) && deviceOK {
 		var err error
 		if nodes, err = s.subNodes(&u); err != nil {
 			serverError(c, err)
@@ -86,6 +87,16 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Per-node quotas: no node past its cap; out of account quota, only the
+	// nodes with a traffic pack left.
+	capped, pack := s.nodeAccess(u.ID)
+	kept := ins[:0]
+	for _, in := range ins {
+		if !capped[in.NodeID] && (u.Status == "active" || pack[in.NodeID]) {
+			kept = append(kept, in)
+		}
+	}
+	ins = kept
 	nodes := map[string]*store.Node{}
 	var ns []store.Node
 	s.st.DB.Where("revoked = ?", false).Order("sort_order, name").Find(&ns)
@@ -108,6 +119,7 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		xrayVer[c.NodeID] = orDefault(c.RunningVersion, c.Version)
 	}
 	nameTpl := s.st.GetSetting("sub_name_template", "{flag} {node} {protocol}")
+	showRate := s.st.GetSetting("sub_show_rate", "true") == "true"
 	var out []sub.Node
 	for _, in := range ins {
 		node, ok := nodes[in.NodeID]
@@ -126,7 +138,10 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 			base.PQRealityOnly = true
 		}
 		vars := map[string]string{"flag": sub.Flag(node.Flag), "region": node.Region, "node": node.Name,
-			"protocol": sub.ProtocolLabel(base), "tag": in.Tag, "kind": ""}
+			"protocol": sub.ProtocolLabel(base), "tag": in.Tag, "kind": "", "rate": ""}
+		if showRate {
+			vars["rate"] = rateLabel(node.TrafficRate)
+		}
 		// Proxy-chain relay inbounds are named "[relay] → [landing]".
 		for _, ch := range chains {
 			hops := ch.Hops.V
@@ -146,6 +161,15 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		}
 	}
 	return sub.Dedupe(out), nil
+}
+
+// rateLabel shows a node's traffic multiplier in node names ("×2"); empty
+// at the normal rate.
+func rateLabel(rate float64) string {
+	if rate <= 0 || rate == 1 {
+		return ""
+	}
+	return "×" + strconv.FormatFloat(rate, 'f', -1, 64)
 }
 
 // clientNode builds the client view of an inbound for a user (direct entry).
@@ -186,6 +210,9 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n := sub.NameVars(nameTpl, v)
 		if kind != "" && !strings.Contains(nameTpl, "{kind}") {
 			n += " " + kind
+		}
+		if r := v["rate"]; r != "" && !strings.Contains(nameTpl, "{rate}") {
+			n += " " + r
 		}
 		if ep.Remark != "" {
 			n += " " + ep.Remark

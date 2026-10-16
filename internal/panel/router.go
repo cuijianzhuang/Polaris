@@ -81,6 +81,14 @@ func (s *Server) Router() http.Handler {
 	r.GET("/download/:file", s.download)
 
 	admin := strings.TrimRight(s.cfg.AdminPath, "/")
+	decoy := s.decoy()
+	if admin != portalPath { // user center (off by default: the decoy answers)
+		r.GET(portalPath, s.portalGate(decoy, s.portalPage))
+		r.POST(portalPath+"/login", s.portalGate(decoy, s.portalLoginStart))
+		r.POST(portalPath+"/poll", s.portalGate(decoy, s.portalLoginPoll))
+		r.POST(portalPath+"/logout", s.portalGate(decoy, s.portalLogout))
+		r.POST(portalPath+"/reset", s.portalGate(decoy, s.portalReset))
+	}
 	api := r.Group(s.cfg.APIBase())
 	api.POST("/auth/login", s.login)
 	api.POST("/auth/github/login-url", s.githubLoginURL)
@@ -169,6 +177,9 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/users/:id", s.deleteUser)
 	p.POST("/users/:id/reset-traffic", s.resetUserTraffic)
 	p.POST("/users/:id/reset-token", s.resetUserToken)
+	p.GET("/users/:id/node-quotas", s.listNodeQuotas)
+	p.PUT("/users/:id/node-quotas/:node", s.putNodeQuota)
+	p.DELETE("/users/:id/node-quotas/:node", s.deleteNodeQuota)
 	p.GET("/users/:id/links", s.userLinks)
 
 	p.GET("/groups", s.listGroups)
@@ -273,7 +284,6 @@ func (s *Server) Router() http.Handler {
 	if s.webFS != nil {
 		spa = s.spaHandler(admin)
 	}
-	decoy := s.decoy()
 	apiPrefix := s.cfg.APIBase() + "/"
 	r.NoRoute(func(c *gin.Context) {
 		p := c.Request.URL.Path

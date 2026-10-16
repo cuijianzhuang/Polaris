@@ -27,7 +27,7 @@ func (s *Server) exportInbound(c *gin.Context) {
 	enabled := row.Enabled
 	req := inboundReq{NodeID: row.NodeID, Core: m.Core, Tag: m.Tag, Listen: m.Listen, Port: m.Port, Protocol: m.Protocol,
 		Transport: m.Transport, Security: m.Security, Sniffing: m.Sniffing, Extra: m.Extra, Enabled: &enabled,
-		Remark: row.Remark, GroupIDs: groups, OutboundTag: row.OutboundTag}
+		Remark: row.Remark, GroupIDs: groups, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps}
 	req.Security.CertPEM, req.Security.KeyPEM = "", ""
 	s.auditCtx(c, "inbound.export", row.Tag, "")
 	c.Header("Content-Disposition", "attachment; filename=inbound-"+row.Tag+".json")
@@ -87,7 +87,7 @@ func (s *Server) cloneInbound(c *gin.Context) {
 			}
 			m.Port++
 		}
-		r, err := s.insertInbound(&node, &m, row.Remark, row.OutboundTag, groups)
+		r, err := s.insertInbound(&node, &m, inboundMeta{Remark: row.Remark, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps}, groups)
 		if err != nil {
 			out = append(out, result{Node: node.Name, Error: err.Error()})
 			continue

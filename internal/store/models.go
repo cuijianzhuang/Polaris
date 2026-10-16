@@ -91,6 +91,7 @@ type Inbound struct {
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
 	ServiceOnly      bool                      `json:"serviceOnly"`                // relay-only inbound, hidden from subscriptions
 	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
+	SpeedLimitMbps   int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
 	Remark           string                    `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time                 `json:"createdAt"`
 	UpdatedAt        time.Time                 `json:"updatedAt"`
@@ -547,9 +548,29 @@ func AllModels() []any {
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
-		&UserDevice{}, &TagTraffic{}, &ForwardRule{},
+		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 	}
 }
+
+// UserNodeQuota is a user's traffic on one node beyond the account quota:
+// a node-only traffic pack (used before the account quota, one-off: it does
+// not refill on a traffic reset) and a per-period cap on the node. Bytes are
+// counted after the node's multiplier.
+type UserNodeQuota struct {
+	UserID    string    `gorm:"primaryKey;size:32" json:"userId"`
+	NodeID    string    `gorm:"primaryKey;size:32;index" json:"nodeId"`
+	Extra     int64     `json:"extra"`     // traffic pack size
+	ExtraUsed int64     `json:"extraUsed"` // drawn from the pack so far
+	Limit     int64     `json:"limit"`     // cap on this node per period, 0 = none
+	Used      int64     `json:"used"`      // traffic on this node this period
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// PackLeft is what remains of the traffic pack.
+func (q UserNodeQuota) PackLeft() int64 { return max(q.Extra-q.ExtraUsed, 0) }
+
+// Capped reports whether the per-node cap is reached.
+func (q UserNodeQuota) Capped() bool { return q.Limit > 0 && q.Used >= q.Limit }
 
 // UserDevice is a client device (HWID) that fetched a user's subscription.
 type UserDevice struct {

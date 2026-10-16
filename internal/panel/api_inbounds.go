@@ -30,6 +30,26 @@ type inboundReq struct {
 	GroupIDs  []string            `json:"groupIds"`
 	// OutboundTag sends all traffic of the inbound to this egress ("" = routing rules decide).
 	OutboundTag string `json:"outboundTag"`
+	// SpeedLimitMbps caps the port's bandwidth on the node (0 = none).
+	SpeedLimitMbps int `json:"speedLimitMbps"`
+}
+
+// inboundMeta is what an inbound row carries besides the model.
+type inboundMeta struct {
+	Remark         string
+	OutboundTag    string
+	SpeedLimitMbps int
+}
+
+func (r *inboundReq) meta() inboundMeta {
+	return inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps}
+}
+
+func checkSpeedLimit(mbps int) error {
+	if mbps < 0 || mbps > 100000 {
+		return fmt.Errorf("限速应在 0–100000 Mbps 之间（0 为不限速）")
+	}
+	return nil
 }
 
 type inboundView struct {
@@ -151,7 +171,7 @@ func (s *Server) createInbound(c *gin.Context) {
 		return
 	}
 	m := req.toModel()
-	row, err := s.insertInbound(&node, &m, req.Remark, req.OutboundTag, req.GroupIDs)
+	row, err := s.insertInbound(&node, &m, req.meta(), req.GroupIDs)
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -163,14 +183,18 @@ func (s *Server) createInbound(c *gin.Context) {
 
 // insertInbound validates and stores a new inbound with its direct endpoint
 // and group bindings (nil groups = the default groups).
-func (s *Server) insertInbound(node *store.Node, m *model.Inbound, remark, outboundTag string, groupIDs []string) (store.Inbound, error) {
+func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundMeta, groupIDs []string) (store.Inbound, error) {
 	if err := s.validateInbound(node, m, ""); err != nil {
 		return store.Inbound{}, err
 	}
-	if err := s.checkOutboundTag(node.ID, outboundTag); err != nil {
+	if err := s.checkOutboundTag(node.ID, meta.OutboundTag); err != nil {
 		return store.Inbound{}, err
 	}
-	row := store.Inbound{ID: store.NewID(), Remark: remark, OutboundTag: outboundTag, OverriddenFields: store.NewJSON([]string{})}
+	if err := checkSpeedLimit(meta.SpeedLimitMbps); err != nil {
+		return store.Inbound{}, err
+	}
+	row := store.Inbound{ID: store.NewID(), Remark: meta.Remark, OutboundTag: meta.OutboundTag, SpeedLimitMbps: meta.SpeedLimitMbps,
+		OverriddenFields: store.NewJSON([]string{})}
 	fromModel(m, &row)
 	s.sealInbound(&row)
 	if groupIDs == nil {
@@ -237,8 +261,12 @@ func (s *Server) updateInbound(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if err := checkSpeedLimit(req.SpeedLimitMbps); err != nil {
+		badRequest(c, err)
+		return
+	}
 	fromModel(&m, &row)
-	row.Remark, row.OutboundTag = req.Remark, req.OutboundTag
+	row.Remark, row.OutboundTag, row.SpeedLimitMbps = req.Remark, req.OutboundTag, req.SpeedLimitMbps
 	s.sealInbound(&row)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(&row).Error; err != nil {

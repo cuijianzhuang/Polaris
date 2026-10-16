@@ -196,6 +196,8 @@ func (s *Server) settleTraffic() error {
 		rates[n.ID] = n.TrafficRate
 	}
 	perUser := map[string][2]int64{}
+	quotas := s.loadNodeQuotas(data)
+	var quotaNodes []string // nodes where a user hit a cap or ran out of a pack
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		for nodeID, users := range data {
 			rate := rates[nodeID]
@@ -221,9 +223,21 @@ func (s *Server) settleTraffic() error {
 				if up == 0 && down == 0 {
 					continue
 				}
+				cu, cd := up, down // charged to the account quota
+				if q := quotas[uid+"|"+nodeID]; q != nil {
+					var flipped bool
+					cu, cd, flipped = chargeNodeQuota(q, up, down)
+					if err := tx.Model(&store.UserNodeQuota{}).Where("user_id = ? AND node_id = ?", uid, nodeID).
+						Updates(map[string]any{"used": q.Used, "extra_used": q.ExtraUsed, "updated_at": now}).Error; err != nil {
+						return err
+					}
+					if flipped {
+						quotaNodes = append(quotaNodes, nodeID)
+					}
+				}
 				cur := perUser[uid]
-				cur[0] += up
-				cur[1] += down
+				cur[0] += cu
+				cur[1] += cd
 				perUser[uid] = cur
 				if err := tx.Clauses(clause.OnConflict{
 					Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "hour"}},
@@ -269,6 +283,9 @@ func (s *Server) settleTraffic() error {
 			_ = s.traffic.Add(nodeID, ds)
 		}
 		return err
+	}
+	if len(quotaNodes) > 0 {
+		s.MarkDirty("node quota reached", quotaNodes...)
 	}
 	s.enforceLimits()
 	return nil
@@ -325,6 +342,7 @@ func (s *Server) autoRenew(u *store.User, now time.Time) bool {
 	u.WarnedUsage, u.WarnedExpire = false, nil
 	s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
 		"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil})
+	s.resetNodeUsage(u.ID)
 	s.audit("system", "user.renew", u.Username, fmt.Sprintf("+%d 天，至 %s（第 %d 次）", u.RenewDays, exp.Format("2006-01-02"), u.RenewCount), "")
 	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
 	return true
@@ -391,6 +409,7 @@ func (s *Server) resetTrafficCycles() {
 		}
 		if due {
 			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": now})
+			s.resetNodeUsage(u.ID)
 			s.audit("system", "user.reset_traffic", u.Username, u.ResetPolicy, "")
 			if u.Status == "limited" {
 				changed = append(changed, u.ID)

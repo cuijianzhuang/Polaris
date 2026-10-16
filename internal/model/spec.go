@@ -156,10 +156,21 @@ type NodeSpec struct {
 	// AutoFirewall lets the agent open the spec's ports in the host
 	// firewall (ufw / firewalld / iptables) and close them again.
 	AutoFirewall bool `json:"autoFirewall,omitempty"`
+	// SpeedLimits caps the bandwidth of inbound ports with tc on the node;
+	// everyone on the port shares the cap.
+	SpeedLimits []SpeedLimit `json:"speedLimits,omitempty"`
 	// Geodata makes Xray download its .dat files on a schedule and reload
 	// them without a restart (Xray 26.4.25+).
 	Geodata   *GeodataSpec `json:"geodata,omitempty"`
 	CreatedAt time.Time    `json:"createdAt"`
+}
+
+// SpeedLimit is one port's bandwidth cap, each direction.
+type SpeedLimit struct {
+	Tag     string `json:"tag"`
+	Port    int    `json:"port"`
+	Network string `json:"network"` // "tcp", "udp" or "tcp,udp"
+	Mbps    int    `json:"mbps"`
 }
 
 // GeodataSpec is Xray's "geodata" block.
