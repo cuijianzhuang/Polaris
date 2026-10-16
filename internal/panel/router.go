@@ -75,6 +75,7 @@ func (s *Server) Router() http.Handler {
 	r.GET("/sub/scheme/:name", s.serveSchemeINI)
 	r.GET("/sub/rs/:sig/:enc", s.serveRuleSet)
 	r.GET("/install.sh", s.installScript)
+	r.GET("/j/:token", s.joinScript)
 	r.GET("/download/:file", s.download)
 
 	admin := strings.TrimRight(s.cfg.AdminPath, "/")
@@ -346,7 +347,7 @@ func (s *Server) publicInfo(c *gin.Context) {
 // download serves agent binaries placed in <data_dir>/downloads.
 func (s *Server) download(c *gin.Context) {
 	name := filepath.Base(c.Param("file"))
-	if !strings.HasPrefix(name, "polaris-agent") {
+	if !strings.HasPrefix(name, "polaris-agent") && name != "install-panel.sh" { // agents, and the polaris tool for nodes
 		notFound(c)
 		return
 	}

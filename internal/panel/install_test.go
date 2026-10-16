@@ -51,8 +51,29 @@ func TestInstallCommandUsesRequestHost(t *testing.T) {
 	}
 	cmd := out["command"].(string)
 	host := strings.TrimPrefix(strings.TrimSuffix(c.base, s.cfg.APIBase()), "http://")
-	if want := "curl -fsSL http://" + host + "/install.sh | bash -s -- --token "; !strings.HasPrefix(cmd, want) {
-		t.Fatalf("command %q, want prefix %q", cmd, want)
+	tok := out["token"].(string)
+	if want := "curl -fsSL http://" + host + "/j/" + tok + " | bash"; cmd != want {
+		t.Fatalf("command %q, want %q", cmd, want)
+	}
+	// The one-click link serves install.sh with the token inside; unknown
+	// tokens get a script that only explains.
+	get := func(path string) (int, string) {
+		resp, err := http.Get("http://" + host + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	if st, body := get("/j/" + tok); st != 200 || !strings.Contains(body, `TOKEN="`+tok+`"`) || strings.Contains(body, "__PANEL") {
+		t.Fatalf("join script %d:\n%.300s", st, body)
+	}
+	if st, body := get("/j/NotARealToken12345"); st != 404 || !strings.Contains(body, "exit 1") || strings.Contains(body, "polaris-agent") {
+		t.Fatalf("unknown token %d: %s", st, body)
+	}
+	if _, body := get("/install.sh"); !strings.Contains(body, `TOKEN="" DATA=""`) {
+		t.Fatal("plain install.sh must not carry a token")
 	}
 	// Without POLARIS_AGENT_HOSTS / PUBLIC_URL the agent endpoint follows the
 	// host the admin used, never 127.0.0.1.

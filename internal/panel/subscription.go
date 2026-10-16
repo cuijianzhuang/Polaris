@@ -288,10 +288,39 @@ func (s *Server) installScript(c *gin.Context) {
 		c.String(http.StatusBadRequest, "invalid Host header; set POLARIS_PUBLIC_URL")
 		return
 	}
-	script := strings.NewReplacer("__PANEL_HTTP__", s.requestBase(c.Request), "__PANEL_VERSION__", Version,
-		"__PANEL_AGENT__", s.agentURLFor(c.Request), "__PANEL_CA__", s.ca.Fingerprint(),
+	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(s.renderInstallScript(c.Request, "")))
+}
+
+var joinTokenRe = regexp.MustCompile(`^[A-Za-z0-9_-]{12,64}$`)
+
+// joinScript serves install.sh with a one-time token baked in (GET /j/:token).
+// Unknown or expired tokens get a script that explains instead of installing.
+func (s *Server) joinScript(c *gin.Context) {
+	tok := c.Param("token")
+	fail := func(msg string) {
+		c.Data(http.StatusNotFound, "text/x-shellscript; charset=utf-8", []byte("#!/usr/bin/env bash\necho '✗ "+msg+"' >&2\nexit 1\n"))
+	}
+	if !s.subLimit.Allow(clientIP(c.Request)) {
+		fail("请求过于频繁，请稍后再试")
+		return
+	}
+	var n store.Node
+	if !joinTokenRe.MatchString(tok) || s.st.DB.First(&n, "token_hash = ?", hashToken(tok)).Error != nil ||
+		n.TokenExpires == nil || time.Now().After(*n.TokenExpires) {
+		fail("安装链接无效或已过期（24 小时有效、只能使用一次），请在面板「节点」中重新生成")
+		return
+	}
+	if s.cfg.PublicURL == "" && !validHost.MatchString(c.Request.Host) {
+		fail("invalid Host header; set POLARIS_PUBLIC_URL")
+		return
+	}
+	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(s.renderInstallScript(c.Request, tok)))
+}
+
+func (s *Server) renderInstallScript(r *http.Request, tok string) string {
+	return strings.NewReplacer("__PANEL_HTTP__", s.requestBase(r), "__PANEL_VERSION__", Version, "__PANEL_TOKEN__", tok,
+		"__PANEL_AGENT__", s.agentURLFor(r), "__PANEL_CA__", s.ca.Fingerprint(),
 		"__SHA_AMD64__", s.agentSHA("amd64"), "__SHA_ARM64__", s.agentSHA("arm64")).Replace(installSh)
-	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(script))
 }
 
 var validHost = regexp.MustCompile(`^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?$`)
