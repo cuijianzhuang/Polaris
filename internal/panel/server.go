@@ -90,15 +90,11 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ok, err := applyPendingRestore(cfg); err != nil {
-		return nil, fmt.Errorf("apply restored backup: %w", err)
-	} else if ok {
-		log.Warn("restored database and CA from backup; previous files kept in " + filepath.Join(cfg.DataDir, backupDir))
-	}
 	st, err := store.Open(cfg.DB.DSN, box, cfg.DB.Debug)
 	if err != nil {
 		return nil, err
 	}
+	applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
 	ca, err := loadOrCreateCA(cfg.DataDir, box)
 	if err != nil {
 		return nil, err

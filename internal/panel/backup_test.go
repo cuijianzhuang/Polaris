@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,9 +91,16 @@ func TestBackupRestore(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(s.cfg.DataDir, restoreDir)); !os.IsNotExist(err) {
 		t.Fatal("staging dir left behind")
 	}
-	pre, _ := filepath.Glob(filepath.Join(s.cfg.DataDir, backupDir, "pre-restore-*", "p.db"))
+	pre, _ := filepath.Glob(filepath.Join(s.cfg.DataDir, backupDir, "polaris-*-prerestore.tar.gz"))
 	if len(pre) != 1 {
-		t.Fatalf("replaced database not kept: %v", pre)
+		t.Fatalf("snapshot before restore not kept: %v", pre)
+	}
+	// Retention never deletes the snapshot.
+	s2.st.SetSetting("backup_keep", "1")
+	s2.createBackup("")
+	s2.createBackup("x")
+	if pre2, _ := filepath.Glob(filepath.Join(s.cfg.DataDir, backupDir, "polaris-*-prerestore.tar.gz")); len(pre2) != 1 {
+		t.Fatal("retention deleted the pre-restore snapshot")
 	}
 
 	// A backup from a panel with another secret key is refused.
@@ -104,13 +112,107 @@ func TestBackupRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	o2.st.DB.Create(&store.Admin{ID: "a", Username: "x"})
+	o2.st.SetSetting("tg_token", o2.st.Box.Seal("123:secret-bot-token"))
 	foreign := filepath.Join(t.TempDir(), "f.tar.gz")
-	if err := o2.writeBackup(foreign); err != nil {
+	if err := o2.writeBackup(foreign, ""); err != nil {
 		t.Fatal(err)
 	}
 	f, _ := os.Open(foreign)
 	defer f.Close()
-	if err := s2.stageRestore(f); err == nil {
-		t.Fatal("foreign-key backup accepted")
+	if err := s2.stageRestore(f, ""); err == nil || !strings.Contains(err.Error(), "secret_key") {
+		t.Fatalf("foreign-key backup accepted: %v", err)
+	}
+
+	// Encrypted, it carries the key: it restores here, re-sealed with ours.
+	enc := filepath.Join(t.TempDir(), "f.tar.gz.enc")
+	if err := o2.writeBackup(enc, "correct horse"); err != nil {
+		t.Fatal(err)
+	}
+	for _, pass := range []string{"", "wrong"} {
+		f, _ := os.Open(enc)
+		err := s2.stageRestore(f, pass)
+		f.Close()
+		if err == nil {
+			t.Fatalf("passphrase %q accepted", pass)
+		}
+	}
+	f2, _ := os.Open(enc)
+	if err := s2.stageRestore(f2, "correct horse"); err != nil {
+		t.Fatal(err)
+	}
+	f2.Close()
+	s2.st.Close()
+	s3, err := New(s.cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var x store.Admin
+	if s3.st.DB.First(&x, "username = ?", "x").Error != nil {
+		t.Fatal("restored data missing")
+	}
+	var before int64
+	if s3.st.DB.Model(&store.User{}).Where("username = ?", "before").Count(&before); before != 0 {
+		t.Fatal("old data left after restore")
+	}
+	if got := s3.st.Box.MustOpen(s3.st.GetSetting("tg_token", "")); got != "123:secret-bot-token" {
+		t.Fatalf("secret not re-sealed for this panel: %q", got)
+	}
+	if s3.ca == nil || string(s3.ca.CertPEM) != string(o2.ca.CertPEM) {
+		t.Fatal("CA not restored")
+	}
+	s3.st.Close()
+}
+
+// TestLegacyBackupRestore: a format-1 backup (a bare SQLite file) still restores.
+func TestLegacyBackupRestore(t *testing.T) {
+	s, _, _ := newAdminClient(t)
+	s.st.DB.Create(&store.User{ID: "u1", Username: "legacy", UUID: "22222222-2222-2222-2222-222222222222", Password: "p", Status: "active", SubToken: "t2"})
+	db := filepath.Join(t.TempDir(), "old.db")
+	if err := s.st.DB.Exec("VACUUM INTO ?", db).Error; err != nil {
+		t.Fatal(err)
+	}
+	s.st.DB.Where("id = ?", "u1").Delete(&store.User{})
+	f, _ := os.Open(db)
+	defer f.Close()
+	arc, err := readArchive(f, "", s.st.Box)
+	if err != nil || arc.Manifest.Format != 1 {
+		t.Fatalf("legacy archive: %v %+v", err, arc)
+	}
+	if err := restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box); err != nil {
+		t.Fatal(err)
+	}
+	var u store.User
+	if s.st.DB.First(&u, "id = ?", "u1").Error != nil || u.Username != "legacy" {
+		t.Fatal("legacy restore lost the user")
+	}
+}
+
+func TestBackupEncryption(t *testing.T) {
+	plain := bytes.Repeat([]byte("polaris backup "), 20000) // several chunks
+	var buf bytes.Buffer
+	w, err := encryptWriter(&buf, "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Write(plain)
+	w.Close()
+	if bytes.Contains(buf.Bytes(), []byte("polaris backup")) {
+		t.Fatal("plaintext visible")
+	}
+	r, err := decryptReader(bytes.NewReader(buf.Bytes()), "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(r)
+	if err != nil || !bytes.Equal(got, plain) {
+		t.Fatalf("roundtrip: %v (%d bytes)", err, len(got))
+	}
+	r, _ = decryptReader(bytes.NewReader(buf.Bytes()), "nope")
+	if _, err := io.ReadAll(r); err == nil {
+		t.Fatal("wrong passphrase decrypted")
+	}
+	r, _ = decryptReader(bytes.NewReader(buf.Bytes()[:buf.Len()-100]), "pw") // truncated
+	if _, err := io.ReadAll(r); err == nil {
+		t.Fatal("truncated archive accepted")
 	}
 }

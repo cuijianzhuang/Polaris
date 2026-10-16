@@ -5,7 +5,7 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh)
 #
 # With no arguments an interactive menu opens. Non-interactive commands:
-#   install [--domain NAME] [--no-caddy] [--version TAG] [--port N] [--agent-port N] [--admin-path P]
+#   install [--domain NAME] [--no-caddy] [--version TAG] [--port N] [--agent-port N] [--admin-path P] [--restore FILE]
 #   update [--version TAG] [--force]  upgrade binaries, keep config and data (database backed up first)
 #   check-update                  compare the installed version with the latest release
 #   update-request                run an update the panel asked for (used by polaris-update.service)
@@ -17,7 +17,8 @@
 #   set-path PATH | set-port N    change the admin path (/ turns it off) / panel port
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
 #   set-url URL                   public address used in subscription / install links
-#   backup                        config + consistent database copy to /root/polaris-backup-*.tar.gz
+#   backup [--passphrase P]       backup to /root (with a passphrase: encrypted, restores on any server)
+#   restore FILE [--passphrase P] replace the data with a backup (made here or on another server)
 #   node [-n NAME]                install a node agent on this server (connects over 127.0.0.1)
 #   self-update                   update this management tool to the latest release
 #   join LINK                     install the node agent from the panel's one-click link (or move to another panel)
@@ -45,6 +46,7 @@ CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
 FORCE=0 DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
+BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 
 shopt -s extglob
 
@@ -726,6 +728,11 @@ EOF
   echo "  2. 「节点」中添加节点；或执行 ${C_C}polaris node${C_0} 把本机作为节点"
   echo "  3. 随时输入 ${C_C}polaris${C_0} 打开管理菜单（polaris help 查看全部命令）"
   echo
+  if [ -n "$RESTORE_FILE" ]; then
+    section "从备份恢复"
+    do_restore "$RESTORE_FILE"
+    warn "已恢复备份：上面显示的初始管理员不再有效，请用备份里的管理员登录"
+  fi
 }
 
 do_update() {
@@ -940,21 +947,48 @@ do_set_domain() {
 
 do_backup() {
   need_installed
-  local ts out tmpdb
+  local ts out file
   ts="$(date +%Y%m%d-%H%M%S)"
-  out="/root/polaris-backup-$ts.tar.gz"
-  tmpdb="$DATA/backup-$ts.db"
-  if [ -n "$(env_get POLARIS_DB_DSN)" ] && env_get POLARIS_DB_DSN | grep -q '^postgres'; then
-    warn "使用 PostgreSQL：请另行用 pg_dump 备份数据库，这里只备份配置"
-    tar -czf "$out" -C / "${ETC#/}"
-  else
-    polaris_cmd backup "$tmpdb" >/dev/null || die "数据库备份失败"
-    tar -czf "$out" -C / "${ETC#/}" -C "$DATA" "$(basename "$tmpdb")"
-    rm -f "$tmpdb"
+  if [ -z "$BK_PASS" ] && [ -t 0 ]; then
+    read -r -s -p "备份口令（加密后可恢复到任何服务器；留空不加密）：" BK_PASS; echo
   fi
+  file="$DATA/polaris-$ts.tar.gz"; [ -n "$BK_PASS" ] && file="$file.enc"
+  out="/root/$(basename "$file")"
+  POLARIS_BACKUP_PASSPHRASE="$BK_PASS" polaris_cmd backup "$file" >/dev/null || die "备份失败"
+  mv -f "$file" "$out"
   chmod 600 "$out"
   ok "已备份到 $out（$(human_bytes "$(stat -c %s "$out")")）"
-  warn "备份包含加密密钥，请妥善保管；恢复时把 $ENV_FILE 与数据库放回原处后执行 polaris update"
+  if [ -n "$BK_PASS" ]; then
+    dim "  已加密并附带密钥：新服务器上安装后执行 polaris restore $out 即可（需要口令）"
+  else
+    warn "未加密：只能恢复到使用同一密钥（$ENV_FILE 中的 POLARIS_SECRET_KEY）的面板"
+  fi
+}
+
+# do_restore replaces the panel's data with a backup (this server's or
+# another's): the panel stops, the data is swapped (a snapshot of the current
+# data is kept in $DATA/backups) and the panel starts again.
+do_restore() {
+  need_installed
+  local src="$1" tmp
+  [ -f "$src" ] || die "找不到备份文件：$src"
+  if [ -z "$BK_PASS" ] && [ "$(head -c 8 "$src")" = "PLRSENC1" ]; then
+    [ -t 0 ] || die "这是加密备份，请加 --passphrase 口令"
+    read -r -s -p "备份口令：" BK_PASS; echo
+  fi
+  tmp="$DATA/restore-upload-$$"
+  install -m 600 -o polaris -g polaris "$src" "$tmp"
+  dim "  停止面板并恢复数据…"
+  systemctl stop polaris 2>/dev/null || true
+  if ! POLARIS_BACKUP_PASSPHRASE="$BK_PASS" polaris_cmd restore "$tmp"; then
+    rm -f "$tmp"
+    systemctl start polaris 2>/dev/null || true
+    die "恢复失败，原数据未改动"
+  fi
+  rm -f "$tmp"
+  systemctl start polaris && wait_active || die "面板启动失败（polaris log 查看）"
+  ok "已恢复：管理员账号、节点与用户均来自备份；已接入的节点无需重装"
+  dim "  恢复前的数据已另存在 $DATA/backups（恢复前快照）"
 }
 
 # do_doctor checks the things that usually break a panel: the service, its
@@ -1378,7 +1412,9 @@ while [ $# -gt 0 ]; do
     join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
-    set-path|set-port|set-domain|set-url) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    set-path|set-port|set-domain|set-url|restore) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    --passphrase) BK_PASS="$2"; shift 2 ;;
+    --restore) RESTORE_FILE="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --no-caddy) CADDY=0; shift ;;
     --version) if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then VERSION="$2"; shift 2; else ACTION=version; shift; fi ;;
@@ -1440,5 +1476,6 @@ case "$ACTION" in
   set-domain) do_set_domain "$ARG" ;;
   set-url) do_set_url "$ARG" ;;
   backup) do_backup ;;
+  restore) do_restore "$ARG" ;;
   node) do_node ;;
 esac

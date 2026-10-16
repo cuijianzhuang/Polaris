@@ -120,23 +120,56 @@ func AdminList(cfg *Config) ([]string, error) {
 }
 
 // Backup writes a consistent copy of a SQLite database (VACUUM INTO) to path.
-func Backup(cfg *Config, path string) error {
-	dsn := cfg.DB.DSN
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
-		return errors.New("PostgreSQL: use pg_dump to back up the database")
-	}
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("%s already exists", path)
-	}
-	abs, err := filepath.Abs(path)
+func Backup(cfg *Config, path, pass string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
 	st, err := openStore(cfg)
-	if err != nil {
-		return err
+	if err == nil {
+		err = writeArchive(f, st, cfg.DataDir, cfg.SecretKey, pass)
 	}
-	return st.DB.Exec("VACUUM INTO ?", abs).Error
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+	}
+	return err
+}
+
+// Restore replaces the database and CA with a backup's (stop the panel
+// first). A snapshot of the current data is written next to the backups.
+func Restore(cfg *Config, path, pass string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	st, err := openStore(cfg)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	arc, err := readArchive(f, pass, st.Box)
+	if err != nil {
+		return "", err
+	}
+	if err := arc.validate(st.Box); err != nil {
+		return "", err
+	}
+	snap := filepath.Join(cfg.DataDir, backupDir, backupName("prerestore", false))
+	if err := os.MkdirAll(filepath.Dir(snap), 0o700); err != nil {
+		return "", err
+	}
+	if out, err := os.OpenFile(snap, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); err == nil {
+		err = writeArchive(out, st, cfg.DataDir, cfg.SecretKey, "")
+		out.Close()
+		if err != nil {
+			return "", fmt.Errorf("snapshot before restore: %w", err)
+		}
+	}
+	return snap, restoreArchive(st, cfg.DataDir, arc, st.Box)
 }
 
 // LocalNodeToken creates (or reuses) a node record for an agent on the panel

@@ -192,7 +192,11 @@ func (b *tgBot) sendBackup(path string) {
 	var owners []store.TGAdmin
 	b.s.st.DB.Where("role = ?", "owner").Find(&owners)
 	name := filepath.Base(path)
-	caption := fmt.Sprintf("🗄 <b>面板备份</b>\n%s\n📄 %s\n📦 %s\n\n包含数据库与内部 CA，恢复需使用同一 secret_key。请妥善保管。", tgRule, esc(name), sub.HumanBytes(int64(len(data))))
+	note := "包含数据库与内部 CA，未加密：恢复需使用同一 secret_key 的面板。请妥善保管。"
+	if strings.HasSuffix(name, ".enc") {
+		note = "已用备份口令加密，附带密钥：可恢复到任何服务器（需要口令）。"
+	}
+	caption := fmt.Sprintf("🗄 <b>面板备份</b>\n%s\n📄 %s\n📦 %s\n\n%s", tgRule, esc(name), sub.HumanBytes(int64(len(data))), note)
 	for _, a := range owners {
 		if len(data) > 49<<20 {
 			b.send(a.ChatID, "⚠️ 备份 "+esc(name)+" 超过 Telegram 50 MB 限制，未发送；请在面板「设置 → 备份与恢复」下载。")

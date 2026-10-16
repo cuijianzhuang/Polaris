@@ -39,19 +39,22 @@ func TestAdminMaintenanceCommands(t *testing.T) {
 		t.Fatalf("2fa not reset: %+v", a)
 	}
 
-	out := filepath.Join(t.TempDir(), "backup.db")
-	if err := Backup(s.cfg, out); err != nil {
+	out := filepath.Join(t.TempDir(), "backup.tar.gz.enc")
+	if err := Backup(s.cfg, out, "pw"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Backup(s.cfg, out); err == nil {
+	if err := Backup(s.cfg, out, "pw"); err == nil {
 		t.Fatal("backup overwrote an existing file")
 	}
-	cp, err := store.Open(out, s.st.Box, false)
-	if err != nil {
+	s.st.DB.Model(&store.Admin{}).Where("username = ?", "root").Update("username", "renamed")
+	if _, err := Restore(s.cfg, out, "wrong"); err == nil {
+		t.Fatal("wrong passphrase restored")
+	}
+	if _, err := Restore(s.cfg, out, "pw"); err != nil {
 		t.Fatal(err)
 	}
 	var b store.Admin
-	if err := cp.DB.First(&b, "username = ?", "root").Error; err != nil || b.TOTPEnabled {
-		t.Fatalf("backup content: %+v %v", b, err)
+	if err := s.st.DB.First(&b, "username = ?", "root").Error; err != nil || b.TOTPEnabled {
+		t.Fatalf("restored content: %+v %v", b, err)
 	}
 }
