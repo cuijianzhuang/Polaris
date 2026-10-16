@@ -71,6 +71,19 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []): { data: 
   return { data, error, loading, reload: () => setTick((t) => t + 1) }
 }
 
+// usePoll re-runs reload every ms while the tab is visible, and right away
+// when the tab comes back, so live numbers keep moving without a refresh.
+export function usePoll(reload: () => void, ms: number) {
+  const ref = useRef(reload)
+  ref.current = reload
+  useEffect(() => {
+    const t = setInterval(() => { if (!document.hidden) ref.current() }, ms)
+    const vis = () => { if (!document.hidden) ref.current() }
+    document.addEventListener('visibilitychange', vis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis) }
+  }, [ms])
+}
+
 // --- overlays ---
 
 // useClosing delays onClose until the exit animation has played.

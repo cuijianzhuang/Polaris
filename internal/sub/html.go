@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +34,10 @@ h1{font-size:22px;margin:0}h2{font-size:15px;margin:0 0 10px}
 .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:8px}.bar>div{height:100%;background:var(--pri)}
 .kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}
 .kv div{background:var(--bg);border-radius:8px;padding:8px 10px}.kv b{display:block;font-size:15px}
+.usage{margin-top:14px;display:flex;align-items:baseline;gap:2px;flex-wrap:wrap}.usage b{font-size:28px;font-weight:600;letter-spacing:-.01em}.usage .pct{margin-left:auto;font-weight:600;font-size:15px;color:var(--pri)}
+.pct.warn{color:var(--warn)}.pct.bad{color:var(--bad)}.bar>div.warn{background:var(--warn)}.bar>div.bad{background:var(--bad)}
+.plan{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:6px}
+.plan div{display:flex;justify-content:space-between;gap:12px;font-size:13px}.plan span{color:var(--mute)}.plan b{font-weight:500;text-align:right}.plan b.warn{color:var(--warn)}.plan b.bad{color:var(--bad)}
 .note{background:var(--note);border:1px solid var(--line);border-radius:10px;padding:12px 14px;white-space:pre-wrap}
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 a.btn,button.btn{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;font:inherit;font-weight:500;cursor:pointer;padding:0 10px;text-align:center}
@@ -51,14 +56,19 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 <section class="card">
 <div class="row"><h1>{{.Title}}</h1><span class="sp"></span>{{if .Status}}<span class="st {{.Status}}">{{.StatusLabel}}</span>{{end}}</div>
 {{if .Username}}<div class="mute">{{.Username}}</div>{{end}}
-<div style="margin-top:12px">已用 <b>{{bytes .Used}}</b> / {{if .Total}}{{bytes .Total}}{{else}}不限{{end}}</div>
-{{if .Total}}<div class="bar" role="progressbar" aria-valuenow="{{.Percent}}" aria-valuemin="0" aria-valuemax="100"><div style="width:{{.Percent}}%"></div></div>{{end}}
+<div class="usage"><b>{{bytes .Used}}</b><span class="mute"> / {{if .Total}}{{bytes .Total}}{{else}}不限流量{{end}}</span>{{if .Total}}<span class="pct {{.Level}}">{{.Percent}}%</span>{{end}}</div>
+{{if .Total}}<div class="bar" role="progressbar" aria-valuenow="{{.Percent}}" aria-valuemin="0" aria-valuemax="100"><div class="{{.Level}}" style="width:{{.Percent}}%"></div></div>{{end}}
 <div class="kv">
+<div><span class="mute">剩余流量</span><b>{{if .Total}}{{bytes .Left}}{{else}}不限{{end}}</b></div>
 <div><span class="mute">上传</span><b>{{bytes .Upload}}</b></div>
 <div><span class="mute">下载</span><b>{{bytes .Download}}</b></div>
-<div><span class="mute">{{if .Total}}剩余{{else}}到期{{end}}</span><b>{{if .Total}}{{bytes .Left}}{{else}}{{.DaysLeft}}{{end}}</b></div>
 </div>
-<div class="mute" style="margin-top:10px">到期：{{if .Expire}}{{.Expire}}（{{.DaysLeft}}）{{else}}永不{{end}}{{if .ResetNote}} · {{.ResetNote}}{{end}}</div>
+<div class="plan">
+<div><span>📦 套餐</span><b>{{if .Total}}{{bytes .Total}}{{else}}不限流量{{end}}</b></div>
+<div><span>⏳ 到期</span><b class="{{.ExpireLevel}}">{{.ExpiryText}}</b></div>
+{{if .Expire}}<div><span>🕒 到期时间</span><b>{{.Expire}}</b></div>{{end}}
+{{if .ResetNote}}<div><span>♻️ 流量重置</span><b>{{.ResetNote}}</b></div>{{end}}
+</div>
 </section>
 {{if .Chart}}<section class="card"><h2>近 {{.ChartDays}} 天流量</h2>{{.Chart}}
 <div class="legend"><span><i style="background:var(--pri)"></i>下载</span><span><i style="background:var(--up)"></i>上传</span><span class="sp"></span><span>峰值 {{bytes .ChartMax}}</span></div></section>{{end}}
@@ -114,15 +124,22 @@ func RenderPage(info Info) ([]byte, error) {
 			left = 0
 		}
 	}
-	exp, days := "", "永久"
+	exp, expLevel := "", ""
 	if info.Expire != nil {
 		exp = info.Expire.Local().Format("2006-01-02 15:04")
-		d := int(time.Until(*info.Expire).Hours() / 24)
-		if d < 0 {
-			days = "已到期"
-		} else {
-			days = fmt.Sprintf("剩 %d 天", d)
+		switch d := time.Until(*info.Expire); {
+		case d <= 0:
+			expLevel = "bad"
+		case d < 7*24*time.Hour:
+			expLevel = "warn"
 		}
+	}
+	level := ""
+	switch {
+	case pct >= 95:
+		level = "bad"
+	case pct >= 80:
+		level = "warn"
 	}
 	links := make([]pageLink, 0, len(info.Links))
 	for i, l := range info.Links {
@@ -137,7 +154,7 @@ func RenderPage(info Info) ([]byte, error) {
 	chart, max := dailyChart(info.Daily)
 	data := map[string]any{
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
-		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "DaysLeft": days, "URL": info.URL,
+		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": ExpiryLeft(info), "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote,
 		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
@@ -238,15 +255,28 @@ func dailyChart(days []DayUsage) (template.HTML, int64) {
 }
 
 // HumanBytes formats a byte count.
+//
+// Units read like the panel ("1.5 GB", "70 GB", "512 MB"): 1024-based, at
+// most three significant digits, trailing zeros dropped.
 func HumanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
+	if n < 1024 {
+		return fmt.Sprintf("%d B", max(n, 0))
 	}
-	div, exp := int64(unit), 0
-	for m := n / unit; m >= unit; m /= unit {
-		div *= unit
+	v, exp := float64(n), -1
+	for v >= 1024 && exp < 5 {
+		v /= 1024
 		exp++
 	}
-	return fmt.Sprintf("%.2f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+	prec := 2
+	switch {
+	case v >= 100:
+		prec = 0
+	case v >= 10:
+		prec = 1
+	}
+	s := strconv.FormatFloat(v, 'f', prec, 64)
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	}
+	return s + " " + string("KMGTPE"[exp]) + "B"
 }

@@ -101,7 +101,7 @@ func (s *Server) decorateNodes(nodes []sub.Node, info sub.Info) []sub.Node {
 // subHeaders writes the client-facing profile headers.
 func (s *Server) subHeaders(c *gin.Context, info sub.Info) {
 	c.Header("subscription-userinfo", sub.UserInfoHeader(info))
-	c.Header("profile-update-interval", s.st.GetSetting("sub_update_interval", "12"))
+	c.Header("profile-update-interval", s.st.GetSetting("sub_update_interval", "1"))
 	c.Header("profile-title", "base64:"+b64(info.Title))
 	c.Header("profile-web-page-url", info.URL)
 	if v := s.st.GetSetting("sub_support_url", ""); v != "" {
@@ -143,15 +143,7 @@ func (s *Server) pageExtras(info *sub.Info, u *store.User, nodes []sub.Node) {
 		return
 	}
 	info.Status = u.Status
-	switch u.ResetPolicy {
-	case "monthly":
-		info.ResetNote = fmt.Sprintf("每月 %d 日重置流量", max(1, u.ResetDay))
-	case "cycle":
-		info.ResetNote = fmt.Sprintf("每 %d 天重置流量", max(1, u.ResetDay))
-	}
-	if u.ExpireAt == nil && u.ExpireAfterDays > 0 {
-		info.ResetNote = strings.TrimPrefix(info.ResetNote+fmt.Sprintf(" · 首次使用后 %d 天有效", u.ExpireAfterDays), " · ")
-	}
+	planInfo(info, u)
 	if s.tg != nil && s.tg.isRunning() {
 		s.tg.mu.Lock()
 		me := s.tg.me
@@ -223,4 +215,25 @@ func (s *Server) tgBroadcast(c *gin.Context) {
 	}()
 	s.auditCtx(c, "tg.broadcast", fmt.Sprintf("%d chats", len(uniq)), req.Text)
 	c.JSON(http.StatusOK, gin.H{"queued": len(uniq)})
+}
+
+// planInfo fills the plan details shown in info nodes and on the info page.
+func planInfo(info *sub.Info, u *store.User) {
+	if u == nil {
+		return
+	}
+	info.ResetNote = ""
+	switch u.ResetPolicy {
+	case "daily":
+		info.ResetNote = "每日重置流量"
+	case "weekly":
+		info.ResetNote = fmt.Sprintf("每周%s重置流量", []string{"一", "一", "二", "三", "四", "五", "六", "日"}[min(max(u.ResetDay, 1), 7)])
+	case "monthly":
+		info.ResetNote = fmt.Sprintf("每月 %d 日重置流量", max(1, u.ResetDay))
+	case "cycle":
+		info.ResetNote = fmt.Sprintf("每 %d 天重置流量", max(1, u.ResetDay))
+	}
+	if u.ExpireAt == nil {
+		info.ExpireAfterDays = u.ExpireAfterDays
+	}
 }

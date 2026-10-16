@@ -56,13 +56,15 @@ type Info struct {
 	URL      string // the subscription URL itself
 
 	// Extras shown on the browser info page only.
-	Status     string     // active / limited / expired / disabled
-	Announce   string     // announcement text
-	SupportURL string     // support / contact link
-	BotURL     string     // Telegram deep link for one-tap binding
-	ResetNote  string     // e.g. "每月 1 日重置"
-	Daily      []DayUsage // recent daily traffic, oldest first
-	Links      []PageLink // per-node share links
+	Status     string // active / limited / expired / disabled
+	Announce   string // announcement text
+	SupportURL string // support / contact link
+	BotURL     string // Telegram deep link for one-tap binding
+	ResetNote  string // e.g. "每月 1 日重置"
+	// ExpireAfterDays: validity starts on first use (no Expire yet).
+	ExpireAfterDays int
+	Daily           []DayUsage // recent daily traffic, oldest first
+	Links           []PageLink // per-node share links
 
 	// Scheme is the rule scheme for client configs (nil = minimal default).
 	Scheme *Scheme `json:"-"`
@@ -82,20 +84,60 @@ type PageLink struct {
 	Link     string
 }
 
-// InfoNodes returns pseudo nodes that carry remaining traffic and expiry in
-// their names (for clients that do not read subscription-userinfo).
+// usage summarises the plan: used, total, left and percent.
+func usage(i Info) (used, left int64, pct int) {
+	used = i.Upload + i.Download
+	if i.Total > 0 {
+		left = max(i.Total-used, 0)
+		pct = int(min(used*100/i.Total, 100))
+	}
+	return
+}
+
+// ExpiryLeft reads like "剩 30 天" / "已到期" / "长期有效".
+func ExpiryLeft(i Info) string {
+	switch {
+	case i.Expire != nil:
+		switch d := time.Until(*i.Expire); {
+		case d >= 24*time.Hour:
+			return fmt.Sprintf("剩 %d 天", int(d.Hours()/24))
+		case d > 0:
+			return fmt.Sprintf("剩 %d 小时", max(int(d.Hours()), 1))
+		}
+		return "已到期"
+	case i.ExpireAfterDays > 0:
+		return fmt.Sprintf("首次使用后 %d 天到期", i.ExpireAfterDays)
+	}
+	return "长期有效"
+}
+
+// ExpiryText reads like "2026-11-15 到期 · 剩 30 天" / "长期有效 · 无到期时间".
+func ExpiryText(i Info) string {
+	switch {
+	case i.Expire != nil:
+		return i.Expire.Local().Format("2006-01-02") + " 到期 · " + ExpiryLeft(i)
+	case i.ExpireAfterDays > 0:
+		return fmt.Sprintf("首次使用后 %d 天到期", i.ExpireAfterDays)
+	}
+	return "长期有效 · 无到期时间"
+}
+
+// InfoNodes returns pseudo nodes that carry the plan, remaining traffic and
+// expiry in their names (for clients that do not read subscription-userinfo).
 func InfoNodes(i Info) []Node {
+	used, left, pct := usage(i)
 	var names []string
 	if i.Total > 0 {
-		left := i.Total - i.Upload - i.Download
-		if left < 0 {
-			left = 0
+		names = append(names, fmt.Sprintf("📦 套餐 %s · 已用 %s（%d%%）", HumanBytes(i.Total), HumanBytes(used), pct))
+		r := "📊 剩余流量 " + HumanBytes(left)
+		if i.ResetNote != "" {
+			r += " · " + i.ResetNote
 		}
-		names = append(names, "📊 剩余流量 "+HumanBytes(left)+" / "+HumanBytes(i.Total))
+		names = append(names, r)
+	} else {
+		names = append(names, "📦 套餐 不限流量 · 已用 "+HumanBytes(used))
 	}
-	if i.Expire != nil {
-		names = append(names, "⏳ 到期 "+i.Expire.Local().Format("2006-01-02"))
-	}
+	names = append(names, "⏳ "+ExpiryText(i))
 	if i.Announce != "" {
 		a := []rune(strings.ReplaceAll(i.Announce, "\n", " "))
 		if len(a) > 40 {
@@ -111,22 +153,15 @@ func InfoNodes(i Info) []Node {
 }
 
 // InfoSuffix is appended to node names when info nodes are disabled but
-// usage should still be visible (3x-ui "show info" style).
+// usage should still be visible (3x-ui "show info" style): " | 剩 70 GB · 30 天".
 func InfoSuffix(i Info) string {
 	var parts []string
 	if i.Total > 0 {
-		left := i.Total - i.Upload - i.Download
-		if left < 0 {
-			left = 0
-		}
-		parts = append(parts, HumanBytes(left))
+		_, left, _ := usage(i)
+		parts = append(parts, "剩 "+HumanBytes(left))
 	}
 	if i.Expire != nil {
-		d := int(time.Until(*i.Expire).Hours() / 24)
-		if d < 0 {
-			d = 0
-		}
-		parts = append(parts, fmt.Sprintf("%dD", d))
+		parts = append(parts, fmt.Sprintf("%d 天", max(int(time.Until(*i.Expire).Hours()/24), 0)))
 	}
 	if len(parts) == 0 {
 		return ""

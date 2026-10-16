@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { useNodes } from '../App'
-import { useLoad } from '../components/ui'
+import { useLoad, usePoll } from '../components/ui'
 import TagTraffic from '../components/TagTraffic'
 import { bps, bytes, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
 import type { Node, NodeTraffic } from '../types'
@@ -151,8 +151,10 @@ export default function Dashboard() {
   const { nodes } = useNodes()
   const nav = useNavigate()
   const [days, setDays] = useState(7)
-  const { data } = useLoad(() => get<Overview>('/stats/overview?days=' + days), [nodes.length, days])
+  const overview = useLoad(() => get<Overview>('/stats/overview?days=' + days), [nodes.length, days])
+  const data = overview.data
   const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [nodes.length])
+  usePoll(() => { overview.reload(); traffic.reload() }, 10000)
   const live = nodes.filter((n) => n.connected)
   const rx = live.reduce((s, n) => s + n.system.rxBps, 0), tx = live.reduce((s, n) => s + n.system.txBps, 0)
   const cores = Object.entries(data?.cores ?? {}).filter(([, n]) => n > 0)

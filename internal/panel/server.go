@@ -47,6 +47,8 @@ type Server struct {
 	traffic  TrafficBuffer
 	tgLogins tgLoginCodes // one-time Telegram sign-in codes
 	tgWeb    tgWebLogins  // login-page Telegram sign-in requests
+	hbMu     sync.Mutex
+	hbCores  map[string]hbCoreState // last core state written per node
 	jwtKey   []byte
 	rt       *realtime
 
@@ -233,13 +235,13 @@ func (s *Server) startJobs() func() {
 			fn()
 		})
 	}
-	add("0 * * * * *", "settle", func() {
+	add("*/10 * * * * *", "settle", func() { // keeps usage, quotas and the dashboard near real time
 		if err := s.settleTraffic(); err != nil {
 			s.log.Error("settle traffic", "err", err)
 		}
 		s.enforceLimits()
 	})
-	add("30 * * * * *", "offline", s.markOfflineNodes)
+	add("*/15 * * * * *", "offline", s.markOfflineNodes)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
 	add("0 23 4 * * *", "certs", s.renewCertificates)

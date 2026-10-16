@@ -15,7 +15,7 @@ import (
 var defaultSettings = map[string]string{
 	"site_title":            "Polaris",
 	"sub_name_template":     "{flag} {node} {protocol}",
-	"sub_update_interval":   "12",
+	"sub_update_interval":   "1",
 	"ip_ban_minutes":        "0",
 	"acme_email":            "",
 	"default_xray":          "latest",

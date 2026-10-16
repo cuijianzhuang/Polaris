@@ -109,6 +109,9 @@ func (a *agentService) Connect(ctx context.Context, stream *connect.BidiStream[p
 	conn := a.s.hub.register(n.ID)
 	defer func() {
 		a.s.hub.unregister(conn)
+		a.s.hbMu.Lock()
+		delete(a.s.hbCores, n.ID)
+		a.s.hbMu.Unlock()
 		if !a.s.hub.Online(n.ID) {
 			a.s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Update("status", "offline")
 			a.s.broadcastNodes()
@@ -248,7 +251,27 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		"status": status, "last_seen": now, "applied_rev": hb.AppliedRev, "agent_version": hb.AgentVersion,
 		"system": store.NewJSON(sys),
 	})
+	// Core state rarely changes; with heartbeats every few seconds only write
+	// it when it does (or once a minute).
+	var kb strings.Builder
 	for _, c := range hb.Cores {
+		fmt.Fprintf(&kb, "%s|%s|%t|%d|%d|%s|%v|%t;", c.Type, c.Version, c.Running, c.Pid, c.StartedAt, c.Error, c.InstalledVersions, c.NoUserTraffic)
+	}
+	key := kb.String()
+	s.hbMu.Lock()
+	last := s.hbCores[nodeID]
+	fresh := last.key == key && now.Sub(last.at) < time.Minute
+	if !fresh {
+		if s.hbCores == nil {
+			s.hbCores = map[string]hbCoreState{}
+		}
+		s.hbCores[nodeID] = hbCoreState{key: key, at: now}
+	}
+	s.hbMu.Unlock()
+	for _, c := range hb.Cores {
+		if fresh {
+			break
+		}
 		st := "stopped"
 		if c.Running {
 			st = "running"
@@ -289,4 +312,9 @@ func (s *Server) handleApplyResult(nodeID string, r *polarisv1.ApplyResult) {
 		s.notify(Event{Kind: "apply_failed", NodeID: nodeID, Text: "⚠️ 节点 " + n.Name + " 应用 rev " + strconv.FormatInt(r.Rev, 10) + " 失败：" + truncate(r.Error, 300)})
 	}
 	s.broadcastNodes()
+}
+
+type hbCoreState struct {
+	key string
+	at  time.Time
 }
