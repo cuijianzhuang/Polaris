@@ -84,14 +84,14 @@ export function wsURL(): string {
 
 // The GitHub sign-in round trip comes back with its result in the URL
 // fragment (never sent to the server). Read it once and clear the address bar.
-export type OAuthResult = { token?: string; user?: string; error?: string; ticket?: string; bound?: string; tg?: string }
+export type OAuthResult = { token?: string; user?: string; error?: string; ticket?: string; bound?: string; ssoBound?: string; tg?: string }
 let oauthResult: OAuthResult | null = null
 export function takeOAuthResult(): OAuthResult {
   if (oauthResult === null) {
     const h = new URLSearchParams(location.hash.replace(/^#/, ''))
     oauthResult = { token: h.get('token') ?? undefined, user: h.get('user') ?? undefined, error: h.get('gh_error') ?? undefined,
-      ticket: h.get('gh_ticket') ?? undefined, bound: h.get('gh_bound') ?? undefined, tg: h.get('tg') ?? undefined }
-    if (h.has('token') || h.has('gh_error') || h.has('gh_ticket') || h.has('gh_bound') || h.has('tg')) {
+      ticket: h.get('gh_ticket') ?? undefined, bound: h.get('gh_bound') ?? undefined, ssoBound: h.get('sso_bound') ?? undefined, tg: h.get('tg') ?? undefined }
+    if (h.has('token') || h.has('gh_error') || h.has('gh_ticket') || h.has('gh_bound') || h.has('sso_bound') || h.has('tg')) {
       history.replaceState(null, '', location.pathname + location.search)
     }
   }

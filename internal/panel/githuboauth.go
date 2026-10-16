@@ -30,9 +30,11 @@ var (
 const oauthTTL = 10 * time.Minute
 
 type oauthState struct {
-	mode    string // login / bind
-	adminID string // bind: the signed-in admin
-	expires time.Time
+	mode     string // login / bind
+	adminID  string // bind: the signed-in admin
+	provider string // SSO provider id ("" = GitHub)
+	verifier string // SSO: PKCE code verifier
+	expires  time.Time
 }
 
 type oauthTicket struct {
