@@ -34,6 +34,8 @@ var defaultSettings = map[string]string{
 	"sub_show_bot":          "true",
 	"portal_enabled":        "false",
 	"sub_show_rate":         "true",
+	"traffic_spike_factor":  "5",
+	"traffic_spike_min_gb":  "5",
 	"sub_scheme":            "",
 	"sub_skip_cert":         "false",
 	"sub_force_udp":         "false",

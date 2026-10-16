@@ -264,6 +264,8 @@ func (s *Server) startJobs() func() {
 	add("0 1 * * * *", "daily-report", s.dailyReport)
 	add("0 41 * * * *", "auto-update", s.autoUpdateTick)
 	add("*/20 * * * * *", "update-result", s.checkUpdateResult)
+	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
+	go s.backfillDaily()
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }
@@ -285,6 +287,9 @@ func (s *Server) markOfflineNodes() {
 
 func (s *Server) cleanup() {
 	s.st.DB.Where("hour < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.TrafficHourly{})
+	s.st.DB.Where("at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.NodeMetric{})
+	s.st.DB.Where("expires_at < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.AdminSession{}) // kept a while: new-address alerts compare against them
+	s.st.DB.Where("(until IS NULL OR until < ?) AND updated_at < ?", time.Now(), time.Now().AddDate(0, 0, -30)).Delete(&store.LoginBan{})
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -180)).Delete(&store.AuditLog{})
 }
 

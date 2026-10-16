@@ -694,3 +694,5 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .nact-bar.indet span { width: 35%; animation: nact-slide 1.2s var(--ease) infinite; }
 @keyframes nact-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 @media (prefers-reduced-motion: reduce) { .nact-bar.indet span { animation: none; width: 100%; opacity: .5; } }
+.legend { display: inline-flex; align-items: center; gap: 4px; }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }

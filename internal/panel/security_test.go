@@ -62,6 +62,11 @@ func newAdminClient(t *testing.T) (*Server, *httptest.Server, *apiClient) {
 		t.Fatalf("login %d %v", code, out)
 	}
 	c.tok = out["token"].(string)
+	// Re-verified, as an admin is right after confirming the password: the
+	// sensitive routes are open (TestSudo covers the gate itself).
+	if code, out := c.do("POST", "/auth/sudo", map[string]string{"password": "old-password"}); code != 200 {
+		t.Fatalf("sudo %d %v", code, out)
+	}
 	return s, srv, c
 }
 
@@ -73,8 +78,8 @@ func TestTOTPRebindKeepsProtection(t *testing.T) {
 	}
 	first := out["secret"].(string)
 	now, _ := totp.GenerateCode(first, time.Now())
-	if code, _ := c.do("POST", "/auth/totp/enable", map[string]any{"code": now, "enable": true}); code != 204 {
-		t.Fatalf("enable %d", code)
+	if code, out := c.do("POST", "/auth/totp/enable", map[string]any{"code": now, "enable": true}); code != 200 || len(out["recoveryCodes"].([]any)) != recoveryCount {
+		t.Fatalf("enable %d %v", code, out)
 	}
 	// Starting a re-bind must not switch 2FA off.
 	c.do("POST", "/auth/totp/setup", nil)

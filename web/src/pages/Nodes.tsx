@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
 import TrafficChart from '../components/TrafficChart'
+import NodeMetrics from '../components/NodeMetrics'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus } from '../format'
@@ -430,6 +431,7 @@ export default function Nodes() {
                 {sel.lastError && !sel.progress?.active && !sel.progress?.error && <div className="note bad" style={{ marginTop: 12 }}>最近一次下发失败：{sel.lastError}</div>}
               </section>
               <section className="card"><TrafficChart query={'node=' + sel.id} title="节点用户流量" /></section>
+              <section className="card"><NodeMetrics nodeId={sel.id} /></section>
               <h2>内核</h2>
               <div className="grid g2">
                 {sel.cores.map((c) => {

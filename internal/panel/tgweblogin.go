@@ -104,7 +104,7 @@ func (s *Server) tgWebLoginPoll(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "denied"})
 		return
 	}
-	tok, err := s.issueTGToken(&a)
+	tok, err := s.issueTGToken(&a, c)
 	if err != nil {
 		serverError(c, err)
 		return

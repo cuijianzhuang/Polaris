@@ -99,6 +99,10 @@ func (s *Server) renewCert(c *gin.Context) {
 
 var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true}
 
+// sudoSettings change who can sign in, or hold credentials: saving them
+// needs a recent re-verification (secrets only when a new value is set).
+var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true}
+
 var editableSettings = map[string]bool{
 	"site_title": true, "reality_scan_candidates": true, "expire_warn_days": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
 	"acme_email": true, "acme_cf_token": true, "acme_directory": true, "acme_http_port": true, "github_client_id": true, "github_client_secret": true, "default_xray": true, "default_singbox": true,
@@ -108,7 +112,7 @@ var editableSettings = map[string]bool{
 	"backup_schedule": true, "backup_hour": true, "backup_keep": true, "backup_tg": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
-	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true,
+	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "login_allowlist": true, "login_ban_failures": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
 	"auto_update": true, "auto_update_hour": true,
@@ -145,6 +149,15 @@ func (s *Server) putSettings(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
+	}
+	for k, v := range req {
+		if editableSettings[k] && (sudoSettings[k] || secretSettings[k] && v != "") && !s.sudoOK(c) {
+			if cur := s.st.GetSetting(k, ""); sudoSettings[k] && cur == v {
+				continue // unchanged: the settings form sends every field
+			}
+			sudoRequired(c)
+			return
+		}
 	}
 	var keys []string
 	for k, v := range req {

@@ -238,7 +238,39 @@ type Admin struct {
 	LastLoginAt    *time.Time `json:"lastLoginAt"`
 	GitHubID       int64      `gorm:"index" json:"-"`             // bound GitHub account (sign-in)
 	GitHubLogin    string     `gorm:"size:64" json:"githubLogin"` // its username, for display
-	CreatedAt      time.Time  `json:"createdAt"`
+	// RecoveryCodes are SHA-256 hashes of one-time codes that stand in for
+	// a TOTP code when the authenticator is lost; each works once.
+	RecoveryCodes JSON[[]string] `json:"-"`
+	CreatedAt     time.Time      `json:"createdAt"`
+}
+
+// AdminSession is one signed-in browser (the JWT carries its id): listed in
+// the settings, revocable one by one. Sudo marks a recent re-verification
+// that unlocks sensitive actions for a few minutes.
+type AdminSession struct {
+	ID        string     `gorm:"primaryKey;size:32" json:"id"`
+	AdminID   string     `gorm:"size:40;index" json:"-"` // admin id, or "tg:" + Telegram admin id
+	Username  string     `gorm:"size:64" json:"username"`
+	Via       string     `gorm:"size:16" json:"via"` // password / github / telegram
+	IP        string     `gorm:"size:64;index" json:"ip"`
+	UserAgent string     `gorm:"size:255" json:"userAgent"`
+	CreatedAt time.Time  `json:"createdAt"`
+	LastSeen  time.Time  `json:"lastSeen"`
+	ExpiresAt time.Time  `json:"expiresAt"`
+	SudoUntil *time.Time `json:"-"`
+	Revoked   bool       `json:"revoked"`
+}
+
+// LoginBan tracks failed sign-ins per client IP; past the threshold the IP
+// is banned, for longer each time it happens again.
+type LoginBan struct {
+	IP        string     `gorm:"primaryKey;size:64" json:"ip"`
+	Failures  int        `json:"failures"` // in the current window
+	WindowAt  time.Time  `json:"-"`
+	Bans      int        `json:"bans"` // times banned so far
+	Until     *time.Time `json:"until"`
+	Reason    string     `gorm:"size:255" json:"reason"`
+	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
 // AuditLog records every write operation.
@@ -549,7 +581,40 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{},
 	}
+}
+
+// TrafficDaily is a user's traffic on a node per day (panel local time). It
+// outlives the hourly rows, which expire after 90 days.
+type TrafficDaily struct {
+	UserID string `gorm:"primaryKey;size:32"`
+	NodeID string `gorm:"primaryKey;size:32"`
+	Day    string `gorm:"primaryKey;size:10;index"` // YYYY-MM-DD
+	Up     int64
+	Down   int64
+}
+
+// TagTrafficDaily is an inbound's or outbound's traffic per day (raw bytes).
+type TagTrafficDaily struct {
+	NodeID string `gorm:"primaryKey;size:32"`
+	Kind   string `gorm:"primaryKey;size:16"`
+	Tag    string `gorm:"primaryKey;size:128"`
+	Day    string `gorm:"primaryKey;size:10;index"`
+	Up     int64
+	Down   int64
+}
+
+// NodeMetric is a node's resource usage averaged over a 5-minute slot.
+type NodeMetric struct {
+	NodeID string    `gorm:"primaryKey;size:32" json:"-"`
+	At     time.Time `gorm:"primaryKey" json:"t"`
+	CPU    float64   `json:"cpu"`
+	Mem    float64   `json:"mem"`
+	RxBps  uint64    `json:"rx"`
+	TxBps  uint64    `json:"tx"`
+	Load1  float64   `json:"load"`
+	N      int       `json:"-"` // samples averaged so far
 }
 
 // UserNodeQuota is a user's traffic on one node beyond the account quota:

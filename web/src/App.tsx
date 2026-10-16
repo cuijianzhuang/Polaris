@@ -6,9 +6,11 @@ import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { recordRates } from './components/NodeCard'
 import { useTheme } from './theme'
 import { ConfirmProvider, ToastProvider } from './components/ui'
+import SudoPrompt from './components/SudoPrompt'
 import type { Node } from './types'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import Stats from './pages/Stats'
 import Nodes from './pages/Nodes'
 import Cores from './pages/Cores'
 import Forwards from './pages/Forwards'
@@ -61,6 +63,7 @@ type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; chil
 
 const nav: NavItem[] = [
   { to: '/', label: '仪表盘', icon: <Icon.Dashboard />, end: true },
+  { to: '/stats', label: '统计', icon: <Icon.Chart /> },
   { to: '/nodes', label: '节点与内核', icon: <Icon.Nodes />, children: [
     { to: '/nodes', label: '节点', icon: <Icon.Server /> },
     { to: '/cores', label: '内核', icon: <Icon.Cpu /> },
@@ -229,11 +232,12 @@ export default function App() {
     if (!user || !getToken()) return
     get<{ username: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setScoped(!!m.nodeIds) }).catch(() => {})
   }, [user === null])
-  const logout = () => { setToken(null); setUser(null); setScoped(false) }
+  const logout = () => { post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false) }) }
   if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>正在通过 Telegram 登录…</div></div>
   return (
     <ToastProvider>
       <ConfirmProvider>
+        <SudoPrompt />
         <BrowserRouter basename={BASE.replace(/\/$/, '') || '/'}>
           {!user ? (
             <Login onLogin={(u) => setUser(u)} />
@@ -249,6 +253,7 @@ export default function App() {
                   ) : (
                     <Routes>
                       <Route path="/" element={<Dashboard />} />
+                      <Route path="/stats" element={<Stats />} />
                       <Route path="/nodes" element={<Nodes />} />
                       <Route path="/cores" element={<Cores />} />
                       <Route path="/forwards" element={<Forwards />} />
