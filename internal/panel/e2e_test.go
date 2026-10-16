@@ -84,7 +84,8 @@ func TestEndToEnd(t *testing.T) {
 		t.Skip("POLARIS_XRAY_BIN not set")
 	}
 	dir := t.TempDir()
-	httpPort, agentPort := freePort(t), freePort(t)
+	panelPorts := distinctPorts(t, 2) // reserved together: two freePort calls can return the same port
+	httpPort, agentPort := panelPorts[0], panelPorts[1]
 	cfg := &panel.Config{
 		Listen: fmt.Sprintf("127.0.0.1:%d", httpPort), AgentListen: fmt.Sprintf("127.0.0.1:%d", agentPort),
 		AgentHosts: []string{"127.0.0.1"}, PublicURL: fmt.Sprintf("http://127.0.0.1:%d", httpPort),
