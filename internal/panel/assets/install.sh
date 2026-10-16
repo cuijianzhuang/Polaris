@@ -22,11 +22,28 @@ TOKEN="" DATA="" MIRROR="" MODE="install" PURGE="" LOCAL=""
 BIN="/usr/local/bin/polaris-agent"
 UNIT="/etc/systemd/system/polaris-agent.service"
 
-if [ -t 1 ]; then R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' B=$'\e[1m' N=$'\e[0m'; else R="" G="" Y="" B="" N=""; fi
-step() { echo "${B}==>${N} $*"; }
-ok() { echo "${G}✓${N} $*"; }
-warn() { echo "${Y}!${N} $*" >&2; }
-die() { echo "${R}✗ $*${N}" >&2; exit 1; }
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  R=$'\e[31m' G=$'\e[32m' Y=$'\e[33m' C=$'\e[36m' D=$'\e[2m' B=$'\e[1m' N=$'\e[0m'
+else
+  R="" G="" Y="" C="" D="" B="" N=""
+fi
+STEP_N=0 STEP_TOTAL=0
+step() {
+  STEP_N=$((STEP_N + 1))
+  if [ "$STEP_TOTAL" -gt 0 ]; then echo "  ${C}[$STEP_N/$STEP_TOTAL]${N} ${B}$*${N}"; else echo "  ${C}==>${N} ${B}$*${N}"; fi
+}
+ok() { echo "  ${G}✓${N} $*"; }
+info() { echo "    ${D}$*${N}"; }
+warn() { echo "  ${Y}!${N} $*" >&2; }
+die() { echo "  ${R}✗ $*${N}" >&2; exit 1; }
+line() { printf '  %s%s%s\n' "$1" "────────────────────────────────────────────────────────────────" "$N"; }
+# kv LABEL VALUE: aligned line; CJK labels are 2 columns per character
+# (width = chars + (bytes - chars) / 2 in UTF-8, whatever the locale).
+kv() {
+  local LC_ALL=C l="$1" b c
+  b=${#l}; c=${l//[$'\x80'-$'\xbf']/}; c=${#c}
+  printf '  %s%s%*s%s  %s\n' "$D" "$1" $((8 - c - (b - c) / 2)) '' "$N" "$2"
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,7 +87,7 @@ if [ "$MODE" = uninstall ]; then
   else
     ok "已卸载；数据保留在 $DATA（加 --purge 一并删除）"
   fi
-  echo "  记得在面板中删除该节点。"
+  info "记得在面板中删除该节点。"
   exit 0
 fi
 
@@ -99,6 +116,16 @@ else
   die "需要 curl 或 wget"
 fi
 
+# install: check panel, download, enrol, start; upgrade: download, start.
+if [ "$MODE" = install ]; then STEP_TOTAL=4; else STEP_TOTAL=2; fi
+echo
+echo "  ${C}${B}Polaris 节点 Agent${N}  ${D}$([ "$MODE" = install ] && echo 安装 || echo 升级) · $ARCH · 版本 $PANEL_VERSION${N}"
+line "$C"
+kv 主机 "$(hostname 2>/dev/null) · $(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-Linux}")"
+kv 主控 "${PANEL:-未指定}"
+kv 数据目录 "$DATA"
+echo
+
 # The agent dials the panel; check the endpoint before touching anything so
 # a closed firewall port is reported plainly instead of as an enrol error.
 if [ "$MODE" = install ]; then
@@ -112,7 +139,7 @@ if [ "$MODE" = install ]; then
   if [ -z "$LOCAL" ] && [ -f /etc/polaris/polaris.env ] && command -v timeout >/dev/null &&
     timeout 3 bash -c ">/dev/tcp/127.0.0.1/$port" 2>/dev/null; then
     LOCAL=1
-    echo "  检测到本机运行着 Polaris 主控，节点将通过 127.0.0.1 连接"
+    info "检测到本机运行着 Polaris 主控，节点将通过 127.0.0.1 连接"
   fi
   if [ -n "$LOCAL" ]; then
     host=127.0.0.1
@@ -137,9 +164,9 @@ trap 'rm -f "$TMP" "$SUMS"' EXIT
 case "$ARCH" in amd64) WANT="$SHA_amd64" ;; arm64) WANT="$SHA_arm64" ;; esac
 step "下载 polaris-agent（$ARCH，版本 $PANEL_VERSION）"
 if [ -n "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TMP" 2>/dev/null; then
-  echo "  来源：主控 $PANEL_HTTP"
+  info "来源：主控 $PANEL_HTTP"
 else
-  echo "  来源：$RELEASE_URL"
+  info "来源：$RELEASE_URL"
   fetch "$RELEASE_URL/polaris-agent-linux-$ARCH" "$TMP" || die "下载失败；国内服务器可加 --mirror https://ghfast.top/ 等 GitHub 镜像"
   fetch "$RELEASE_URL/checksums.txt" "$SUMS" || die "下载 checksums.txt 失败"
   WANT="$(awk -v f="polaris-agent-linux-$ARCH" '$2 == f || $2 == "*"f {print $1}' "$SUMS")"
@@ -185,6 +212,7 @@ KillMode=mixed
 [Install]
 WantedBy=multi-user.target
 EOF
+step "启动 polaris-agent 服务"
 systemctl daemon-reload
 systemctl enable polaris-agent >/dev/null 2>&1
 systemctl restart polaris-agent
@@ -197,10 +225,16 @@ if ! systemctl is-active --quiet polaris-agent; then
   journalctl -u polaris-agent -n 20 --no-pager >&2 || true
   die "polaris-agent 启动失败（日志见上）"
 fi
+ok "服务已启动"
 echo
 ok "${B}polaris-agent $("$BIN" --version | awk '{print $2}') 运行中${N}"
+line "$G"
 if [ "$MODE" = install ]; then
-  echo "  回到面板，节点会在几秒内显示为在线；内核按需自动下载。"
+  kv 下一步 "回到面板，节点会在几秒内显示为在线；内核按需自动下载"
 fi
-echo "  日志：journalctl -u polaris-agent -f"
-echo "  升级：重新执行本脚本并加 --upgrade；卸载：加 --uninstall"
+kv 主控 "$(cat "$DATA/agent/panel-url" 2>/dev/null || echo "$PANEL")"
+kv 数据目录 "$DATA"
+kv 查看日志 "journalctl -u polaris-agent -f"
+kv 升级 "重新执行安装命令并加 --upgrade"
+kv 卸载 "重新执行安装命令并加 --uninstall [--purge]"
+echo
