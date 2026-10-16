@@ -137,6 +137,17 @@ func TestAgentBinaryNeedsNodeCert(t *testing.T) {
 	}
 }
 
+func TestToolNeedsNodeCert(t *testing.T) {
+	s := newTestServer(t)
+	os.MkdirAll(s.downloadsDir(), 0o755)
+	os.WriteFile(s.toolPath(), []byte("#!/bin/sh\n"), 0o644)
+	w := httptest.NewRecorder()
+	s.serveTool(w, httptest.NewRequest("GET", "/agent/tool", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("tool download without a node certificate: %d", w.Code)
+	}
+}
+
 func TestRenewDue(t *testing.T) {
 	now := time.Now()
 	mk := func(life, left time.Duration) *store.Certificate {

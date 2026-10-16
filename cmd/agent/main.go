@@ -63,7 +63,7 @@ func main() {
 			return
 		}
 	}
-	a, err := agent.New(agent.Config{PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP}, log)
+	a, err := agent.New(agent.Config{PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP, ToolPath: "/usr/local/bin/polaris"}, log)
 	if err != nil {
 		log.Error("startup", "err", err)
 		os.Exit(1)
