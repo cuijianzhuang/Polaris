@@ -860,6 +860,8 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 				if b.s.st.DB.First(&u, "id = ?", e.UserID).Error == nil && u.TelegramID != 0 {
 					if e.UserOnly { // reminders are pre-formatted HTML
 						b.send(u.TelegramID, e.Text)
+					} else if custom := b.s.customReminder(e.Kind, &u); custom != "" {
+						b.send(u.TelegramID, custom)
 					} else {
 						b.send(u.TelegramID, esc(userFacing(e)))
 					}
@@ -903,9 +905,12 @@ func (s *Server) remindUsers() {
 			pct := float64(u.Used()) * 100 / float64(u.TrafficLimit)
 			if pct >= float64(pctAt) && !u.WarnedUsage {
 				s.st.DB.Model(&u).Update("warned_usage", true)
-				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, UserOnly: true, Text: fmt.Sprintf(
-					"📊 <b>流量提醒</b>\n%s\n已使用 <b>%.0f%%</b>（%s / %s）\n剩余 <b>%s</b>\n%s",
-					tgRule, pct, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit), sub.HumanBytes(max(u.TrafficLimit-u.Used(), 0)), resetHint(&u))})
+				text := s.customReminder("traffic_warn", &u)
+				if text == "" {
+					text = fmt.Sprintf("📊 <b>流量提醒</b>\n%s\n已使用 <b>%.0f%%</b>（%s / %s）\n剩余 <b>%s</b>\n%s",
+						tgRule, pct, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit), sub.HumanBytes(max(u.TrafficLimit-u.Used(), 0)), resetHint(&u))
+				}
+				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, UserOnly: true, Text: text})
 			} else if pct < float64(pctAt) && u.WarnedUsage {
 				s.st.DB.Model(&u).Update("warned_usage", false)
 			}
@@ -913,9 +918,12 @@ func (s *Server) remindUsers() {
 		if expDays > 0 && u.ExpireAt != nil && u.ExpireAt.Sub(now) < time.Duration(expDays)*24*time.Hour && u.ExpireAt.After(now) &&
 			(u.WarnedExpire == nil || now.Sub(*u.WarnedExpire) > 23*time.Hour) {
 			s.st.DB.Model(&u).Update("warned_expire", now)
-			s.notify(Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: fmt.Sprintf(
-				"⏰ <b>到期提醒</b>\n%s\n账号将于 <b>%s</b> 到期（%s）\n到期后服务会自动暂停，请及时续费。",
-				tgRule, u.ExpireAt.Local().Format("2006-01-02 15:04"), sub.ExpiryLeft(sub.Info{Expire: u.ExpireAt}))})
+			text := s.customReminder("expire_warn", &u)
+			if text == "" {
+				text = fmt.Sprintf("⏰ <b>到期提醒</b>\n%s\n账号将于 <b>%s</b> 到期（%s）\n到期后服务会自动暂停，请及时续费。",
+					tgRule, u.ExpireAt.Local().Format("2006-01-02 15:04"), sub.ExpiryLeft(sub.Info{Expire: u.ExpireAt}))
+			}
+			s.notify(Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: text})
 		}
 	}
 }

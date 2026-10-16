@@ -102,7 +102,8 @@ var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "g
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
-var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "inbound_probe": true, "github_client_id": true,
+var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "inbound_probe": true,
+	"tpl_traffic_warn": true, "tpl_expire_warn": true, "tpl_user_limited": true, "tpl_user_expired": true, "tpl_user_active": true, "github_client_id": true,
 	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true}
 
 var editableSettings = map[string]bool{

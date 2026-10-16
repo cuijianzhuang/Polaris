@@ -282,6 +282,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/telegram/admins/:id", s.requireSudo, s.deleteTGAdmin)
 	p.POST("/telegram/test", s.tgTest)
 	p.POST("/telegram/broadcast", s.tgBroadcast)
+	p.POST("/telegram/template-preview", s.previewReminder)
 	p.GET("/backup", s.backupInfo)
 	p.POST("/backup", s.backupCreate)
 	p.POST("/backup/restore", s.requireSudo, s.backupRestore)
