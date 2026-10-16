@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import { BASE, get, getToken, onInflight, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
+import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
 import { useTheme } from './theme'
 import { ConfirmProvider, ToastProvider } from './components/ui'
@@ -21,6 +21,10 @@ import Audit from './pages/Audit'
 import Convert from './pages/Convert'
 import Domains from './pages/Domains'
 import Telegram from './pages/Telegram'
+
+// Scope of the session: Telegram node operators see only their own nodes.
+const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
+export function useScope() { return useContext(ScopeCtx) }
 
 // Live node list shared by pages, fed by the WebSocket.
 const NodesCtx = createContext<{ nodes: Node[]; refresh: () => void }>({ nodes: [], refresh: () => {} })
@@ -144,6 +148,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
     document.body.classList.add('noscroll')
     return () => { document.removeEventListener('keydown', esc); document.body.classList.remove('noscroll') }
   }, [menu])
+  const { scoped } = useScope()
   const inTabs = tabs.some((t) => (t.end ? loc.pathname === t.to : loc.pathname.startsWith(t.to)))
   return (
     <div className="app">
@@ -156,16 +161,25 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
       <nav className={'side' + (menu ? ' open' : '')} aria-label="主导航">
         <div className="brand"><Icon.Logo />{title}<button type="button" className="side-close" aria-label="关闭菜单" onClick={() => setMenu(false)}><Icon.Close /></button></div>
-        {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
-        <div className="navsec">系统</div>
-        {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
+        {scoped ? (
+          <>
+            <NavLink to="/nodes" className="nav"><Icon.Server />我的节点</NavLink>
+            <div className="navsec">Telegram 节点管理员 · 仅可查看分配给你的节点</div>
+          </>
+        ) : (
+          <>
+            {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
+            <div className="navsec">系统</div>
+            {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
+          </>
+        )}
         <div className="side-foot"><span>{user}</span><span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" onClick={onLogout}>退出</button></span></div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>
-      <nav className="mtabs" aria-label="快捷导航">
+      {!scoped && <nav className="mtabs" aria-label="快捷导航">
         {tabs.map((t) => <NavLink key={t.to} to={t.to} end={t.end} className="mtab">{t.icon}<span>{t.label}</span></NavLink>)}
         <button type="button" className={'mtab' + (!inTabs || menu ? ' active' : '')} onClick={() => setMenu(true)}><Icon.More /><span>更多</span></button>
-      </nav>
+      </nav>}
     </div>
   )
 }
@@ -174,13 +188,28 @@ export default function App() {
   const [user, setUser] = useState<string | null>(() => {
     const r = takeOAuthResult() // GitHub sign-in lands here with a session token
     if (r.token) { setToken(r.token); return r.user ?? '…' }
+    if (r.tg) return null // Telegram sign-in link: exchanged below
     return getToken() ? '…' : null
   })
+  const [scoped, setScoped] = useState(false)
+  const [tgBusy, setTgBusy] = useState(() => !!takeOAuthResult().tg)
   useEffect(() => {
-    setUnauthorizedHandler(() => { setToken(null); setUser(null) })
-    if (getToken()) get<{ username: string }>('/auth/me').then((m) => setUser(m.username)).catch(() => {})
+    setUnauthorizedHandler(() => { setToken(null); setUser(null); setScoped(false) })
+    const r = takeOAuthResult()
+    if (r.tg) {
+      setToken(null)
+      post<{ token: string; username: string }>('/auth/tg', { code: r.tg })
+        .then((x) => { setToken(x.token); setUser(x.username) })
+        .catch((e) => { r.error = e instanceof Error ? e.message : String(e) })
+        .finally(() => setTgBusy(false))
+    }
   }, [])
-  const logout = () => { setToken(null); setUser(null) }
+  useEffect(() => {
+    if (!user || !getToken()) return
+    get<{ username: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setScoped(!!m.nodeIds) }).catch(() => {})
+  }, [user === null])
+  const logout = () => { setToken(null); setUser(null); setScoped(false) }
+  if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>正在通过 Telegram 登录…</div></div>
   return (
     <ToastProvider>
       <ConfirmProvider>
@@ -188,28 +217,37 @@ export default function App() {
           {!user ? (
             <Login onLogin={(u) => setUser(u)} />
           ) : (
-            <NodesProvider>
-              <Layout user={user} onLogout={logout}>
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/nodes" element={<Nodes />} />
-                  <Route path="/cores" element={<Cores />} />
-                  <Route path="/forwards" element={<Forwards />} />
-                  <Route path="/inbounds" element={<Inbounds />} />
-                  <Route path="/chains" element={<Chains />} />
-                  <Route path="/templates" element={<Templates />} />
-                  <Route path="/users" element={<Users />} />
-                  <Route path="/sub-templates" element={<SubTemplates />} />
-                  <Route path="/certificates" element={<Certificates />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/audit" element={<Audit />} />
-                  <Route path="/convert" element={<Convert />} />
-                  <Route path="/domains" element={<Domains />} />
-                  <Route path="/telegram" element={<Telegram />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Layout>
-            </NodesProvider>
+            <ScopeCtx.Provider value={{ scoped }}>
+              <NodesProvider>
+                <Layout user={user} onLogout={logout}>
+                  {scoped ? (
+                    <Routes>
+                      <Route path="/nodes" element={<Nodes />} />
+                      <Route path="*" element={<Navigate to="/nodes" replace />} />
+                    </Routes>
+                  ) : (
+                    <Routes>
+                      <Route path="/" element={<Dashboard />} />
+                      <Route path="/nodes" element={<Nodes />} />
+                      <Route path="/cores" element={<Cores />} />
+                      <Route path="/forwards" element={<Forwards />} />
+                      <Route path="/inbounds" element={<Inbounds />} />
+                      <Route path="/chains" element={<Chains />} />
+                      <Route path="/templates" element={<Templates />} />
+                      <Route path="/users" element={<Users />} />
+                      <Route path="/sub-templates" element={<SubTemplates />} />
+                      <Route path="/certificates" element={<Certificates />} />
+                      <Route path="/settings" element={<Settings />} />
+                      <Route path="/audit" element={<Audit />} />
+                      <Route path="/convert" element={<Convert />} />
+                      <Route path="/domains" element={<Domains />} />
+                      <Route path="/telegram" element={<Telegram />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  )}
+                </Layout>
+              </NodesProvider>
+            </ScopeCtx.Provider>
           )}
         </BrowserRouter>
       </ConfirmProvider>

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
-import { useNodes } from '../App'
+import { useNodes, useScope } from '../App'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
-import type { CapSet, Core, CoreType, Node, Revision, User } from '../types'
+import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
 
 // useCoreDefaults returns the version each core type gets when added
 // (the configured default, or the newest release when it is "latest").
@@ -313,6 +313,7 @@ export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: 
 
 export default function Nodes() {
   const { nodes, refresh } = useNodes()
+  const { scoped } = useScope() // Telegram node operator: view, sync, rollback, restart only
   const [params, setParams] = useSearchParams()
   const [selId, setSelId] = useState<string | null>(params.get('id'))
   const [editing, setEditing] = useState<Node | 'new' | null>(params.get('new') ? 'new' : null)
@@ -328,10 +329,14 @@ export default function Nodes() {
 
   useEffect(() => { if (params.get('new')) { setParams({}, { replace: true }) } }, [params, setParams])
 
-  const latest = useLoad(() => get<Record<string, string>>('/core-latest').catch(() => ({} as Record<string, string>)))
+  // Per-node traffic, refreshed every 30 s.
+  const [tick, setTick] = useState(0)
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 30000); return () => clearInterval(t) }, [])
+  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [tick])
+  const latest = useLoad(() => (scoped ? Promise.resolve({} as Record<string, string>) : get<Record<string, string>>('/core-latest')).catch(() => ({} as Record<string, string>)))
   const [batchCore, setBatchCore] = useState(false)
   // Agent upgrades: nodes whose agent differs from the panel version.
-  const info = useLoad(() => get<{ version: string }>('/info'))
+  const info = useLoad(() => (scoped ? Promise.resolve({ version: '' }) : get<{ version: string }>('/info')))
   const panelVer = info.data?.version ?? ''
   const vnorm = (v: string) => v.replace(/^v/, '')
   const outdated = (n: Node) => !!panelVer && panelVer !== 'dev' && n.status === 'online' && !!n.agentVersion && vnorm(n.agentVersion) !== vnorm(panelVer)
@@ -362,8 +367,8 @@ export default function Nodes() {
   return (
     <>
       <div className="top">
-        <div><h1>节点与内核</h1><div className="sub">每个节点运行一个 Agent，Agent 托管一个或多个内核子进程</div></div>
-        <div className="row">
+        <div><h1>{scoped ? '我的节点' : '节点与内核'}</h1><div className="sub">{scoped ? '通过 Telegram 登录：仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核' : '每个节点运行一个 Agent，Agent 托管一个或多个内核子进程'}</div></div>
+        {!scoped && <div className="row">
           {outdatedNodes.length > 0 && (
             <button className="btn" type="button" disabled={busy} onClick={upgradeAll}>
               <span className="badge-dot" />升级全部 Agent（{outdatedNodes.length}）
@@ -371,9 +376,9 @@ export default function Nodes() {
           )}
           {nodes.some((n) => n.cores.length > 0) && <button className="btn" type="button" onClick={() => setBatchCore(true)}>批量升级内核</button>}
           <button className="btn pri" type="button" onClick={() => setEditing('new')}>+ 添加节点</button>
-        </div>
+        </div>}
       </div>
-      {nodes.length === 0 ? <div className="card"><Empty>还没有节点。点击「添加节点」生成一行安装命令，在服务器上执行即可接入。</Empty></div> : (
+      {nodes.length === 0 ? <div className="card"><Empty>{scoped ? '没有分配给你的节点，请联系超级管理员。' : '还没有节点。'}{scoped ? null : '点击「添加节点」生成一行安装命令，在服务器上执行即可接入。'}</Empty></div> : (
         <>
           <div className="nodes" role="group" aria-label="选择节点">
             {nodes.map((n) => {
@@ -383,6 +388,7 @@ export default function Nodes() {
                   <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
                   <div className="sub">{[n.region, n.address || n.domain || (n.publicIpv4 || n.publicIpv6 ? `${n.publicIpv4 || n.publicIpv6}（自动检测）` : '')].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
                     {upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) && <span className="tag warn">可升级</span>}</div>
+                  {traffic.data?.[n.id] && <div className="small mute mono" style={{ marginTop: 4 }}>今日 ↑ {bytes(traffic.data[n.id].todayUp)} · ↓ {bytes(traffic.data[n.id].todayDown)}</div>}
                 </button>
               )
             })}
@@ -396,9 +402,17 @@ export default function Nodes() {
                   <div><span className="sub" style={{ margin: 0 }}>期望 / 已应用版本</span><div className="mono" style={sel.appliedRev < sel.desiredRev ? { color: 'var(--warn)' } : undefined}>rev {sel.desiredRev} / rev {sel.appliedRev}{sel.appliedRev === sel.desiredRev && sel.desiredRev ? ' ✓' : ''}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>最后心跳</span><div className="mono">{ago(sel.lastSeen)}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>公网 IP{sel.ddns ? ' · DDNS' : ''}</span><div className="mono">{[sel.publicIpv4, sel.publicIpv6].filter(Boolean).join(' / ') || '—'}</div></div>
+                  <div><span className="sub" style={{ margin: 0 }}>用户流量 今日 / 30 天</span><div className="mono">{(() => {
+                    const t = traffic.data?.[sel.id]
+                    return t ? `↑ ${bytes(t.todayUp)} ↓ ${bytes(t.todayDown)} / ↑ ${bytes(t.monthUp)} ↓ ${bytes(t.monthDown)}` : '—'
+                  })()}</div></div>
+                  <div title="内核按入站统计的原始字节（不含倍率，可在仪表盘「流量统计」中重置）"><span className="sub" style={{ margin: 0 }}>入站累计</span><div className="mono">{(() => {
+                    const t = traffic.data?.[sel.id]
+                    return t ? `↑ ${bytes(t.rawUp)} ↓ ${bytes(t.rawDown)}` : '—'
+                  })()}</div></div>
                   <div><span className="sub" style={{ margin: 0 }}>系统</span><div className="mono">{sel.connected ? `CPU ${sel.system.cpu}% · 内存 ${sel.system.mem}% · 运行 ${uptime(sel.system.uptime)}` : '—'}</div></div>
                   <div className="row" style={{ marginLeft: 'auto' }}>
-                    {outdated(sel) && (
+                    {!scoped && outdated(sel) && (
                       <button className="btn sm pri" type="button" disabled={busy || upgrading[sel.id]} onClick={() => upgradeOne(sel)}>
                         {upgrading[sel.id] ? <><span className="spinner" />升级中…</> : '升级 Agent'}
                       </button>
@@ -407,8 +421,8 @@ export default function Nodes() {
                     <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                       if (await confirm('回滚到上一个成功应用的配置版本？')) run(() => post(`/nodes/${sel.id}/rollback`, {}), '已回滚')
                     }}>回滚到上一版</button>
-                    <button className="btn sm" type="button" onClick={() => showInstall(sel)}>安装命令</button>
-                    <button className="btn sm" type="button" onClick={() => setEditing(sel)}>编辑</button>
+                    {!scoped && <button className="btn sm" type="button" onClick={() => showInstall(sel)}>安装命令</button>}
+                    {!scoped && <button className="btn sm" type="button" onClick={() => setEditing(sel)}>编辑</button>}
                   </div>
                 </div>
                 {sel.lastError && <div className="note bad" style={{ marginTop: 12 }}>最近一次下发失败：{sel.lastError}</div>}
@@ -425,7 +439,7 @@ export default function Nodes() {
                         <span className={'st ' + (running ? 'ok' : c.status === 'installing' ? 'warn' : 'off')}>{running ? '● 运行中' : c.status === 'installing' ? '安装中' : c.inbounds ? '已停止' : '空闲'}</span>
                       </div>
                       <div className="meta">
-                        <div><span>版本</span><button className="link mono" type="button" onClick={() => setCoreForm({ core: c })}>v{c.version}</button>
+                        <div><span>版本</span>{scoped ? <span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>v{c.version}</span> : <button className="link mono" type="button" onClick={() => setCoreForm({ core: c })}>v{c.version}</button>}
                           {c.runningVersion && c.runningVersion !== c.version && <div className="small" style={{ color: 'var(--warn)' }}>切换中 · 运行 v{c.runningVersion}</div>}</div>
                         <div><span>入站</span><span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>{c.inbounds}</span></div>
                         <div><span>运行时长</span><span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>{running && c.startedAt ? ago(c.startedAt).replace('前', '') : '—'}</span></div>
@@ -433,7 +447,8 @@ export default function Nodes() {
                       <div className="caps">{capsSummary(cap).map((x) => <span key={x} className="tag">{x}</span>)}</div>
                       <div className="sub" style={{ margin: 0 }}>用户变更：{cap?.hotUsers ? (c.type === 'xray' ? 'gRPC 热更新，不中断连接' : 'HTTP 认证回调，无需重载') : c.type === 'singbox' ? 'SIGHUP 重载' : '重启进程'}</div>
                       {c.error && <div className="note bad">{c.error}</div>}
-                      {(() => {
+                      {c.noUserTraffic && <div className="note warn">官方版 sing-box 不能按用户统计流量（只统计入站总量）。Polaris 构建的同版本发布后，重启 Agent 或切换版本即自动替换。</div>}
+                      {!scoped && (() => {
                         const lv = latest.data?.[c.type]
                         const canUp = lv && versionLess(c.version, lv)
                         const canBack = c.prevVersion && c.prevVersion !== c.version
@@ -454,33 +469,33 @@ export default function Nodes() {
                       })()}
                       <div className="row">
                         <button className="btn sm" type="button" disabled={!sel.connected} onClick={() => run(() => post(`/cores/${c.id}/restart`), '已重启')}>重启</button>
-                        <button className="btn sm" type="button" onClick={() => run(async () => {
+                        {!scoped && <button className="btn sm" type="button" onClick={() => run(async () => {
                           const r = await get<{ config: string }>(`/nodes/${sel.id}/render?core=${c.type}`)
                           setPreview({ title: `${coreLabel[c.type]} 原生配置`, text: r.config })
-                        })}>查看原生配置</button>
+                        })}>查看原生配置</button>}
                         <button className="btn sm" type="button" disabled={!sel.connected} onClick={() => run(async () => {
                           const r = await get<{ logs: string; error: string }>(`/cores/${c.id}/logs?lines=300`)
                           setPreview({ title: `${coreLabel[c.type]} 日志`, text: r.logs || r.error || '（暂无日志）' })
                         })}>日志</button>
-                        {c.type === 'xray' && (
+                        {!scoped && c.type === 'xray' && (
                           <button className="btn sm" type="button" disabled={!sel.connected} title="立即下载设置中配置的 .dat 文件并重载 Xray" onClick={() => run(async () => {
                             const r = await post<{ output: string }>(`/nodes/${sel.id}/geodata-update`, {})
                             setPreview({ title: '更新 Geo 文件', text: r.output || '完成' })
                           })}>更新 Geo 文件</button>
                         )}
-                        <button className="btn sm danger" type="button" onClick={async () => {
+                        {!scoped && <button className="btn sm danger" type="button" onClick={async () => {
                           if (await confirm(`卸载 ${coreLabel[c.type]}？仍承载入站时会被拒绝。`, { danger: true })) run(async () => { await del('/cores/' + c.id); refresh() }, '已卸载')
-                        }}>卸载</button>
+                        }}>卸载</button>}
                       </div>
                     </article>
                   )
                 })}
-                <article className="core add">
+                {!scoped && <article className="core add">
                   <div className="cname" style={{ fontSize: 15 }}>安装更多内核</div>
                   <div className="sub" style={{ margin: 0 }}>sing-box · Hysteria2 官方服务端 · mihomo · Caddy 回源 · realm 转发</div>
                   <button className="btn sm" type="button" style={{ marginTop: 8 }} onClick={() => setCoreForm({})}>选择内核与版本</button>
-                </article>
-                <NodeUsers node={sel} />
+                </article>}
+                {!scoped && <NodeUsers node={sel} />}
                 <div className="card flush" style={{ gridColumn: '1 / -1' }}>
                   <div className="ctitle" style={{ padding: '12px 16px 4px' }}><span>配置版本历史</span><span className="sub" style={{ margin: 0 }}>下发方式：hot = 热更新，reload = 重载</span></div>
                   <div className="scroll">
@@ -506,7 +521,7 @@ export default function Nodes() {
                   </div>
                 </div>
               </div>
-              <div className="row">
+              {!scoped && <div className="row">
                 <button className="btn sm danger" type="button" onClick={async () => {
                   if (await confirm(`吊销 ${sel.name} 的客户端证书？Agent 将无法再连接，需重新安装。`, { danger: true, ok: '吊销' }))
                     run(() => post(`/nodes/${sel.id}/revoke`), '已吊销')
@@ -515,7 +530,7 @@ export default function Nodes() {
                   if (await confirm(`删除节点 ${sel.name} 及其所有入站？此操作不可恢复。`, { danger: true, ok: '删除' }))
                     run(async () => { await del('/nodes/' + sel.id); setSelId(null); refresh() }, '已删除')
                 }}>删除节点</button>
-              </div>
+              </div>}
             </>
           )}
         </>

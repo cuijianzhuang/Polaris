@@ -39,14 +39,15 @@ var Version = "dev"
 
 // Server is the panel.
 type Server struct {
-	cfg     *Config
-	st      *store.Store
-	ca      *pki.CA
-	log     *slog.Logger
-	hub     *Hub
-	traffic TrafficBuffer
-	jwtKey  []byte
-	rt      *realtime
+	cfg      *Config
+	st       *store.Store
+	ca       *pki.CA
+	log      *slog.Logger
+	hub      *Hub
+	traffic  TrafficBuffer
+	tgLogins tgLoginCodes // one-time Telegram sign-in codes
+	jwtKey   []byte
+	rt       *realtime
 
 	dirtyMu sync.Mutex
 	dirty   map[string]string

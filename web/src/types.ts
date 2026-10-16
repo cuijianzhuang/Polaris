@@ -33,7 +33,7 @@ export interface SystemInfo { cpu: number; mem: number; rxBps: number; txBps: nu
 export interface Core {
   id: string; nodeId: string; type: CoreType; version: string; status: string; pid: number; isDefault: boolean
   startedAt?: string; error: string; installedVersions: string[]; inbounds: number
-  runningVersion?: string; prevVersion?: string
+  runningVersion?: string; prevVersion?: string; noUserTraffic?: boolean
 }
 export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; labels: string[]
@@ -109,3 +109,12 @@ export interface SubProfile {
 export interface NodeRow { name: string; protocol: string; server: string; port: number; region: string; source: string; network: string; security: string }
 export interface TGAdmin { id: string; chatId: number; name: string; role: 'owner' | 'operator'; nodeIds: string[]; notify: boolean; createdAt: string }
 export interface RulePreset { key: string; name: string; description: string; outbound: string; priority: number; rules: RouteMatch[] }
+
+export interface NodeTraffic {
+  todayUp: number
+  todayDown: number
+  monthUp: number
+  monthDown: number
+  rawUp: number
+  rawDown: number
+}

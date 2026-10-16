@@ -60,10 +60,12 @@ func (s *Server) nodeViews() []nodeView {
 	return out
 }
 
-func (s *Server) listNodes(c *gin.Context) { c.JSON(http.StatusOK, s.nodeViews()) }
+func (s *Server) listNodes(c *gin.Context) {
+	c.JSON(http.StatusOK, scopedNodeViews(s.nodeViews(), nodeScope(c)))
+}
 
 func (s *Server) getNode(c *gin.Context) {
-	for _, v := range s.nodeViews() {
+	for _, v := range scopedNodeViews(s.nodeViews(), nodeScope(c)) {
 		if v.ID == c.Param("id") {
 			c.JSON(http.StatusOK, v)
 			return

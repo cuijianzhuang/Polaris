@@ -192,8 +192,9 @@ disk_line() { df -h "$1" 2>/dev/null | awk 'NR == 2 {printf "已用 %s / %s（%s
 # github.com/…/releases/latest redirect (stable releases), direct or via mirrors.
 latest_version() {
   local t="${1:-8}" v m
-  v="$(curl -fsSL --max-time "$t" "https://api.github.com/repos/$REPO/releases?per_page=1" 2>/dev/null |
-    sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1 || true)"
+  # Only "v…" tags are panel releases ("sing-box-v…" hold core builds).
+  v="$(curl -fsSL --max-time "$t" "https://api.github.com/repos/$REPO/releases?per_page=20" 2>/dev/null |
+    sed -n 's/.*"tag_name": *"\(v[0-9][^"]*\)".*/\1/p' | head -n1 || true)"
   if [ -z "$v" ]; then
     for m in "${MIRROR:-}" "" "${MIRRORS[@]}"; do
       v="$(curl -fsSIL -o /dev/null -w '%{url_effective}' --max-time "$t" "${m:+${m%/}/}https://github.com/$REPO/releases/latest" 2>/dev/null |

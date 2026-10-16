@@ -49,6 +49,10 @@ func TestReleaseURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if rt, err := releaseByURL(r.url); err != nil || rt.repo != StatsBuildRepo || rt.tag != "sing-box-v1.13.5" {
+		t.Fatalf("stats build %+v %v", rt, err)
+	}
+	r = r.fallback
 	rt, err := releaseByURL(r.url)
 	if err != nil || rt.repo != "SagerNet/sing-box" || rt.tag != "v1.13.5" {
 		t.Fatalf("%+v %v", rt, err)

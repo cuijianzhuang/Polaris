@@ -68,6 +68,9 @@ message CoreState {
   string error = 6;
   int32 inbounds = 7;
   repeated string installed_versions = 8;
+  // no_user_traffic: the core cannot attribute traffic to users (an official
+  // sing-box build without v2ray_api). Older agents never set it.
+  bool no_user_traffic = 9;
 }
 
 message ApplyResult {

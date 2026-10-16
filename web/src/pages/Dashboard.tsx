@@ -4,7 +4,7 @@ import { useNodes } from '../App'
 import { useLoad } from '../components/ui'
 import TagTraffic from '../components/TagTraffic'
 import { bps, bytes, coreColor, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
-import type { Node } from '../types'
+import type { Node, NodeTraffic } from '../types'
 
 interface Overview {
   nodes: { online: number; total: number; timeout: number; error?: number }
@@ -42,7 +42,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
   )
 }
 
-export function NodeRow({ n, onClick }: { n: Node; onClick?: () => void }) {
+export function NodeRow({ n, t, onClick }: { n: Node; t?: NodeTraffic; onClick?: () => void }) {
   const st = nodeStatus[n.status] ?? nodeStatus.pending
   const syncing = n.appliedRev < n.desiredRev
   return (
@@ -52,6 +52,7 @@ export function NodeRow({ n, onClick }: { n: Node; onClick?: () => void }) {
       <td>{n.cores.length ? n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>) : '—'}</td>
       <td className="mono">{n.connected ? `${n.system.cpu}% / ${n.system.mem}%` : '—'}</td>
       <td className="mono">{n.connected ? `↓ ${bps(n.system.rxBps)} ↑ ${bps(n.system.txBps)}` : '—'}</td>
+      <td className="mono">{t ? `↑ ${bytes(t.todayUp)} ↓ ${bytes(t.todayDown)}` : '—'}</td>
       <td className="mono" style={syncing ? { color: 'var(--warn)' } : undefined}>
         {syncing ? `rev ${n.appliedRev} → ${n.desiredRev}` : `rev ${n.appliedRev}${n.appliedRev ? ' ✓' : ''}`}
       </td>
@@ -64,6 +65,7 @@ export default function Dashboard() {
   const { nodes } = useNodes()
   const nav = useNavigate()
   const { data } = useLoad(() => get<Overview>('/stats/overview'), [nodes.length])
+  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [nodes.length])
   const allCores = ['xray', 'singbox', 'mihomo', 'hysteria']
   const totalCores = Math.max(1, nodes.length)
   return (
@@ -109,8 +111,8 @@ export default function Dashboard() {
         <div className="scroll" style={{ marginTop: 8 }}>
           {nodes.length === 0 ? <div className="empty">还没有节点，<Link to="/nodes?new=1">添加第一个节点</Link></div> : (
             <table>
-              <thead><tr><th>节点</th><th>地区</th><th>内核</th><th>CPU / 内存</th><th>实时速率</th><th>配置版本</th><th>状态</th></tr></thead>
-              <tbody>{nodes.map((n) => <NodeRow key={n.id} n={n} onClick={() => nav('/nodes?id=' + n.id)} />)}</tbody>
+              <thead><tr><th>节点</th><th>地区</th><th>内核</th><th>CPU / 内存</th><th>实时速率</th><th>今日流量</th><th>配置版本</th><th>状态</th></tr></thead>
+              <tbody>{nodes.map((n) => <NodeRow key={n.id} n={n} t={traffic.data?.[n.id]} onClick={() => nav('/nodes?id=' + n.id)} />)}</tbody>
             </table>
           )}
         </div>

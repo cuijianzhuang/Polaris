@@ -12,18 +12,33 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 )
 
 // realtime fans node snapshots out to WebSocket clients (/api/v1/ws).
 type realtime struct {
 	mu      sync.Mutex
-	clients map[*websocket.Conn]chan []byte
+	clients map[*websocket.Conn]*rtClient
 	dirty   atomic.Bool
 	snap    func() any
 }
 
-func newRealtime() *realtime { return &realtime{clients: map[*websocket.Conn]chan []byte{}} }
+// rtClient is one WebSocket stream; scope limits the nodes it sees (nil = all).
+type rtClient struct {
+	ch    chan []byte
+	scope map[string]bool
+}
+
+func newRealtime() *realtime { return &realtime{clients: map[*websocket.Conn]*rtClient{}} }
+
+// nodesMessage renders the snapshot for one scope.
+func nodesMessage(data any, scope map[string]bool) ([]byte, error) {
+	if vs, ok := data.([]nodeView); ok && scope != nil {
+		data = scopedNodeViews(vs, scope)
+	}
+	return json.Marshal(map[string]any{"type": "nodes", "data": data})
+}
 
 func (r *realtime) run(ctx context.Context) {
 	t := time.NewTicker(2 * time.Second)
@@ -36,14 +51,21 @@ func (r *realtime) run(ctx context.Context) {
 			if !r.dirty.Swap(false) || r.snap == nil {
 				continue
 			}
-			b, err := json.Marshal(map[string]any{"type": "nodes", "data": r.snap()})
+			data := r.snap()
+			all, err := nodesMessage(data, nil)
 			if err != nil {
 				continue
 			}
 			r.mu.Lock()
-			for _, ch := range r.clients {
+			for _, cl := range r.clients {
+				b := all
+				if cl.scope != nil {
+					if b, err = nodesMessage(data, cl.scope); err != nil {
+						continue
+					}
+				}
 				select {
-				case ch <- b:
+				case cl.ch <- b:
 				default:
 				}
 			}
@@ -54,17 +76,35 @@ func (r *realtime) run(ctx context.Context) {
 
 func (s *Server) broadcastNodes() { s.rt.dirty.Store(true) }
 
-// handleWS upgrades an authenticated request.
-// The session is re-checked every ping: a password change or deleted admin
-// closes the stream.
-func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, adminID string, version int) {
+// sessionCheck reports, when called later, whether the request's session is
+// still valid: a password change, a deleted admin or a removed Telegram admin
+// ends it.
+func (s *Server) sessionCheck(c *gin.Context) func() bool {
+	if v, ok := c.Get("tgAdmin"); ok {
+		id := v.(*store.TGAdmin).ID
+		return func() bool {
+			var n int64
+			s.st.DB.Model(&store.TGAdmin{}).Where("id = ?", id).Count(&n)
+			return n > 0
+		}
+	}
+	adminID, version := c.GetString("adminID"), c.GetInt("tokenVersion")
+	return func() bool {
+		var a store.Admin
+		return s.st.DB.Select("id", "token_version").First(&a, "id = ?", adminID).Error == nil && a.TokenVersion == version
+	}
+}
+
+// handleWS upgrades an authenticated request. The session is re-checked
+// every ping and closes the stream once revoked.
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, valid func() bool, scope map[string]bool) {
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}
 	ch := make(chan []byte, 8)
 	s.rt.mu.Lock()
-	s.rt.clients[c] = ch
+	s.rt.clients[c] = &rtClient{ch: ch, scope: scope}
 	s.rt.mu.Unlock()
 	defer func() {
 		s.rt.mu.Lock()
@@ -73,7 +113,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, adminID string
 		c.CloseNow()
 	}()
 	ctx := c.CloseRead(r.Context())
-	if b, err := json.Marshal(map[string]any{"type": "nodes", "data": s.rt.snap()}); err == nil {
+	if b, err := nodesMessage(s.rt.snap(), scope); err == nil {
 		_ = c.Write(ctx, websocket.MessageText, b)
 	}
 	ping := time.NewTicker(30 * time.Second)
@@ -90,8 +130,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, adminID string
 				return
 			}
 		case <-ping.C:
-			var a store.Admin
-			if s.st.DB.Select("id", "token_version").First(&a, "id = ?", adminID).Error != nil || a.TokenVersion != version {
+			if !valid() {
 				c.Close(websocket.StatusPolicyViolation, "session revoked")
 				return
 			}

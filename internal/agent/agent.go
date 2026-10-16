@@ -61,13 +61,16 @@ type Config struct {
 
 // Agent is the node daemon.
 type Agent struct {
-	cfg       Config
-	id        *Identity
-	log       *slog.Logger
-	client    polarisv1connect.AgentServiceClient
-	installer *Installer
-	sys       sysSampler
-	ips       *ipDetector
+	cfg Config
+	id  *Identity
+	log *slog.Logger
+
+	collectWarnMu sync.Mutex
+	collectWarned map[string]time.Time // last warning per core type
+	client        polarisv1connect.AgentServiceClient
+	installer     *Installer
+	sys           sysSampler
+	ips           *ipDetector
 
 	applyMu sync.Mutex
 	current *model.NodeSpec
@@ -265,6 +268,9 @@ func (a *Agent) sendHeartbeat() error {
 		st := m.adapter.Health(context.Background())
 		cs := &polarisv1.CoreState{Type: string(t), Version: m.spec.Version, Running: st.Running, Pid: int32(st.PID),
 			Error: st.Error, Inbounds: int32(st.Inbounds), InstalledVersions: a.installer.Installed(t)}
+		if r, ok := m.adapter.(interface{ PerUserTraffic() bool }); ok {
+			cs.NoUserTraffic = !r.PerUserTraffic()
+		}
 		if !st.StartedAt.IsZero() {
 			cs.StartedAt = st.StartedAt.Unix()
 		}
@@ -411,7 +417,7 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 		ds, err := m.adapter.CollectTraffic(ctx)
 		if err != nil {
 			if !errors.Is(err, core.ErrNotSupported) {
-				a.log.Debug("collect traffic", "core", m.spec.Type, "err", err)
+				a.warnCollect(string(m.spec.Type), err)
 			}
 			continue
 		}
@@ -432,6 +438,22 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 	}
 	a.saveQueue()
 	a.queueMu.Unlock()
+}
+
+// warnCollect logs a traffic collection failure at most every 10 minutes
+// per core: lost counters are silent otherwise, and user traffic goes missing.
+func (a *Agent) warnCollect(coreType string, err error) {
+	a.collectWarnMu.Lock()
+	defer a.collectWarnMu.Unlock()
+	if a.collectWarned == nil {
+		a.collectWarned = map[string]time.Time{}
+	}
+	if time.Since(a.collectWarned[coreType]) < 10*time.Minute {
+		a.log.Debug("collect traffic", "core", coreType, "err", err)
+		return
+	}
+	a.collectWarned[coreType] = time.Now()
+	a.log.Warn("collect traffic failed; user traffic from this core is not counted", "core", coreType, "err", err)
 }
 
 func (a *Agent) flushTraffic(ctx context.Context) {
