@@ -727,6 +727,9 @@ do_update() {
   resolve_version
   if [ -n "$cur" ] && [ "$cur" = "$VERSION" ] && [ "$FORCE" = 0 ] && [ -f "$UNIT" ]; then
     ok "已是最新版本 $cur（加 --force 可重新安装）"
+    # A tool older than the updater replaced itself during the update but
+    # never set it up: do it now.
+    if [ ! -f "$UPD_PATH" ]; then install_updater && ok "已安装在线升级 / 配置组件"; fi
     update_self
     return 0
   fi
