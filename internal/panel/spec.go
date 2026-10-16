@@ -431,7 +431,7 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 			})
 		}
 	}
-	return out, nil
+	return append(out, s.standaloneForwards(nodeID)...), nil
 }
 
 // nodeHost is the address other nodes and clients use to reach a node.

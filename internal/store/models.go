@@ -312,6 +312,41 @@ type ChainHop struct {
 	Port      int    `json:"port,omitempty"`      // l4 mode: listen port on the relay
 }
 
+// ForwardRemote is one target of a standalone forward rule.
+type ForwardRemote struct {
+	Addr    string `json:"addr"` // host:port
+	Weight  int    `json:"weight,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
+// ForwardRule is a standalone L4 port forward on a node (realm).
+type ForwardRule struct {
+	ID         string                `gorm:"primaryKey;size:32" json:"id"`
+	NodeID     string                `gorm:"size:32;index" json:"nodeId"`
+	Name       string                `gorm:"size:64" json:"name"`
+	ListenIP   string                `gorm:"size:64" json:"listenIp"`
+	ListenPort int                   `json:"listenPort"`
+	Network    string                `gorm:"size:16" json:"network"` // tcp / udp / tcp,udp
+	Remotes    JSON[[]ForwardRemote] `json:"remotes"`
+	Balance    string                `gorm:"size:16" json:"balance"` // "" (first only, extras as fallback list) / roundrobin / iphash
+	Failover   bool                  `json:"failover"`               // drop unreachable remotes (probed from the node)
+	Through    string                `gorm:"size:64" json:"through"`
+	// Tunnel between a relay realm (role client) and a landing realm (role
+	// server): ws / tls / wss with Host / Path / SNI.
+	TunnelRole  string                `gorm:"size:8" json:"tunnelRole"` // "" / client / server
+	TunnelType  string                `gorm:"size:8" json:"tunnelType"` // ws / tls / wss
+	TunnelHost  string                `gorm:"size:255" json:"tunnelHost"`
+	TunnelPath  string                `gorm:"size:255" json:"tunnelPath"`
+	TunnelSNI   string                `gorm:"size:255" json:"tunnelSni"`
+	SendProxy   int                   `json:"sendProxy"`
+	AcceptProxy bool                  `json:"acceptProxy"`
+	Enabled     bool                  `json:"enabled"`
+	Health      JSON[map[string]bool] `json:"health"` // remote -> down (failover)
+	Remark      string                `gorm:"size:255" json:"remark"`
+	CreatedAt   time.Time             `json:"createdAt"`
+	UpdatedAt   time.Time             `json:"updatedAt"`
+}
+
 // HopProbe is the latest latency measurement of one hop.
 type HopProbe struct {
 	NodeID    string `json:"nodeId"`
@@ -505,7 +540,7 @@ func AllModels() []any {
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
-		&UserDevice{}, &TagTraffic{},
+		&UserDevice{}, &TagTraffic{}, &ForwardRule{},
 	}
 }
 

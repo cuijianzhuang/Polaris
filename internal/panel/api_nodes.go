@@ -188,7 +188,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 	s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", id).Pluck("id", &inIDs)
 	upstream := s.nodesForInbounds(inIDs...)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		for _, m := range []any{&store.Core{}, &store.Inbound{}, &store.Outbound{}, &store.RoutingRule{}, &store.ConfigRevision{}} {
+		for _, m := range []any{&store.Core{}, &store.Inbound{}, &store.Outbound{}, &store.RoutingRule{}, &store.ConfigRevision{}, &store.ForwardRule{}} {
 			if err := tx.Where("node_id = ?", id).Delete(m).Error; err != nil {
 				return err
 			}

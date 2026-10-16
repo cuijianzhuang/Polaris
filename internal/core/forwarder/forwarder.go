@@ -48,16 +48,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	var b strings.Builder
 	b.WriteString("[log]\nlevel = \"warn\"\n\n[network]\nno_tcp = false\nuse_udp = true\n\n")
 	for _, f := range spec.Forwards {
-		if f.Listen <= 0 || f.Target == "" {
-			return nil, fmt.Errorf("forward %s: listen and target are required", f.Tag)
+		if err := renderEndpoint(&b, &f); err != nil {
+			return nil, err
 		}
-		fmt.Fprintf(&b, "[[endpoints]]\nlisten = \"[::]:%d\"\nremote = %q\n", f.Listen, f.Target)
-		if f.Network == "tcp" {
-			b.WriteString("network = { use_udp = false }\n")
-		} else if f.Network == "udp" {
-			b.WriteString("network = { no_tcp = true, use_udp = true }\n")
-		}
-		b.WriteString("\n")
 	}
 	a.mu.Lock()
 	a.n = len(spec.Forwards)
@@ -113,4 +106,65 @@ func (a *Adapter) Health(context.Context) model.CoreStatus {
 	st.Inbounds = a.n
 	a.mu.Unlock()
 	return st
+}
+
+// renderEndpoint writes one [[endpoints]] table.
+func renderEndpoint(b *strings.Builder, f *model.ForwardRule) error {
+	if f.Listen <= 0 || f.Target == "" {
+		return fmt.Errorf("forward %s: listen and target are required", f.Tag)
+	}
+	host := "[::]"
+	if f.ListenIP != "" {
+		host = f.ListenIP
+		if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+			host = "[" + host + "]"
+		}
+	}
+	fmt.Fprintf(b, "[[endpoints]]\nlisten = \"%s:%d\"\nremote = %q\n", host, f.Listen, f.Target)
+	if len(f.ExtraTargets) > 0 {
+		q := make([]string, len(f.ExtraTargets))
+		for i, t := range f.ExtraTargets {
+			q[i] = fmt.Sprintf("%q", t)
+		}
+		fmt.Fprintf(b, "extra_remotes = [%s]\n", strings.Join(q, ", "))
+		if f.Balance == "roundrobin" || f.Balance == "iphash" {
+			w := make([]string, 1+len(f.ExtraTargets))
+			for i := range w {
+				n := 1
+				if i < len(f.Weights) && f.Weights[i] > 0 {
+					n = f.Weights[i]
+				}
+				w[i] = fmt.Sprint(n)
+			}
+			fmt.Fprintf(b, "balance = \"%s: %s\"\n", f.Balance, strings.Join(w, ", "))
+		}
+	}
+	if f.Through != "" {
+		fmt.Fprintf(b, "through = %q\n", f.Through)
+	}
+	tcp := f.Network != "udp"
+	if tcp && f.ListenTransport != "" {
+		fmt.Fprintf(b, "listen_transport = %q\n", f.ListenTransport)
+	}
+	if tcp && f.RemoteTransport != "" {
+		fmt.Fprintf(b, "remote_transport = %q\n", f.RemoteTransport)
+	}
+	var net []string
+	switch f.Network {
+	case "tcp":
+		net = append(net, "use_udp = false")
+	case "udp":
+		net = append(net, "no_tcp = true", "use_udp = true")
+	}
+	if tcp && f.SendProxy > 0 {
+		net = append(net, "send_proxy = true", fmt.Sprintf("send_proxy_version = %d", min(f.SendProxy, 2)))
+	}
+	if tcp && f.AcceptProxy {
+		net = append(net, "accept_proxy = true", "accept_proxy_timeout = 5")
+	}
+	if len(net) > 0 {
+		fmt.Fprintf(b, "network = { %s }\n", strings.Join(net, ", "))
+	}
+	b.WriteString("\n")
+	return nil
 }
