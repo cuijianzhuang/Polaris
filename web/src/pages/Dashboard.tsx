@@ -25,7 +25,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
   const line = (k: 'up' | 'down') => data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(d[k]).toFixed(1)}`).join(' ')
   const last = data[data.length - 1]
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 220, marginTop: 12 }} role="img" aria-label="近 7 天流量趋势">
+    <svg className="trend" viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 220, marginTop: 12 }} role="img" aria-label="近 7 天流量趋势">
       <g style={{ stroke: 'var(--line-2)' }}>{[T, (T + B) / 2, B].map((v) => <line key={v} x1={L} y1={v} x2={R} y2={v} style={v === B ? { stroke: 'var(--input)' } : undefined} />)}</g>
       <g style={{ fill: 'var(--mute)' }} fontSize="11" fontFamily="IBM Plex Mono">
         <text x={L - 8} y={T + 4} textAnchor="end">{bytes(max)}</text>

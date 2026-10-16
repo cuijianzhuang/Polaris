@@ -180,7 +180,7 @@ svc_line() {
 }
 sys_line() {
   local os mem load
-  os="$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-Linux}")"
+  os="$(. /etc/os-release 2>/dev/null && echo "${NAME%% *} ${VERSION_ID:-}")" # "Debian 13": short enough for phone terminals
   mem="$(awk '/^MemTotal/ {t=$2} /^MemAvailable/ {a=$2} END {printf "%.1f/%.1fG", (t-a)/1048576, t/1048576}' /proc/meminfo 2>/dev/null)"
   load="$(cut -d' ' -f1 /proc/loadavg 2>/dev/null)"
   printf '%s · %s · %s核 · 内存 %s · 负载 %s' "${os:-Linux}" "$(uname -m)" "$(nproc 2>/dev/null || echo '?')" "$mem" "$load"
