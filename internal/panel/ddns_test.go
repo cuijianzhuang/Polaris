@@ -7,9 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -68,4 +72,28 @@ func TestDDNSFollowsAgentIP(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatal("binding never synced")
+}
+
+// Editing a node (the DDNS switch included) used to fail with "no such
+// column: ddns": GORM names the DDNS field d_dns.
+func TestUpdateNodeSavesDDNS(t *testing.T) {
+	s := newTestServer(t)
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "jp"})
+	for _, on := range []bool{true, false} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Params = gin.Params{{Key: "id", Value: "n1"}}
+		body := `{"name":"jp2","ddns":` + strconv.FormatBool(on) + `}`
+		c.Request = httptest.NewRequest("PUT", "/nodes/n1", strings.NewReader(body))
+		c.Request.Header.Set("Content-Type", "application/json")
+		s.updateNode(c)
+		if w.Code != http.StatusOK {
+			t.Fatalf("update node (ddns=%v): %d %s", on, w.Code, w.Body)
+		}
+		var n store.Node
+		s.st.DB.First(&n, "id = ?", "n1")
+		if n.DDNS != on || n.Name != "jp2" {
+			t.Fatalf("not saved (ddns=%v): %+v", on, n)
+		}
+	}
 }

@@ -154,7 +154,7 @@ func (s *Server) updateNode(c *gin.Context) {
 	}
 	addrChanged := n.Address != req.Address || n.Domain != req.Domain
 	upd := map[string]any{"name": req.Name, "address": req.Address, "domain": req.Domain, "region": req.Region,
-		"flag": strings.ToUpper(req.Flag), "labels": store.NewJSON(nonNilStrs(req.Labels)), "sort_order": req.SortOrder, "ddns": req.DDNS, "no_firewall": req.NoFirewall}
+		"flag": strings.ToUpper(req.Flag), "labels": store.NewJSON(nonNilStrs(req.Labels)), "sort_order": req.SortOrder, "d_dns": req.DDNS, "no_firewall": req.NoFirewall} // GORM names the DDNS field d_dns
 	if req.TrafficRate > 0 {
 		upd["traffic_rate"] = req.TrafficRate
 	}
