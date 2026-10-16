@@ -96,3 +96,95 @@ export function LoginProtection() {
     </section>
   )
 }
+
+type Provider = { id: string; name: string; kind: 'oidc' | 'oauth2'; issuer: string; authUrl: string; tokenUrl: string; userInfoUrl: string
+  clientId: string; scopes: string; subjectField: string; loginField: string; enabled: boolean }
+type ProviderForm = Partial<Provider> & { clientSecret?: string }
+
+// Presets fill the usual endpoints; the tenant / realm parts are placeholders to edit.
+const ssoPresets: { label: string; f: ProviderForm }[] = [
+  { label: 'Google', f: { name: 'Google', kind: 'oidc', issuer: 'https://accounts.google.com' } },
+  { label: 'Microsoft', f: { name: 'Microsoft', kind: 'oidc', issuer: 'https://login.microsoftonline.com/<租户 ID>/v2.0' } },
+  { label: 'GitLab', f: { name: 'GitLab', kind: 'oidc', issuer: 'https://gitlab.com', scopes: 'openid profile email', loginField: 'nickname' } },
+  { label: 'Keycloak', f: { name: 'Keycloak', kind: 'oidc', issuer: 'https://<keycloak 主机>/realms/<realm>' } },
+  { label: 'Authentik', f: { name: 'Authentik', kind: 'oidc', issuer: 'https://<authentik 主机>/application/o/<应用 slug>' } },
+  { label: 'Okta', f: { name: 'Okta', kind: 'oidc', issuer: 'https://<你的域>.okta.com' } },
+  { label: 'Auth0', f: { name: 'Auth0', kind: 'oidc', issuer: 'https://<你的租户>.auth0.com' } },
+  { label: 'GitHub', f: { name: 'GitHub', kind: 'oauth2', authUrl: 'https://github.com/login/oauth/authorize', tokenUrl: 'https://github.com/login/oauth/access_token', userInfoUrl: 'https://api.github.com/user', scopes: 'read:user', subjectField: 'id', loginField: 'login' } },
+  { label: '其他 OIDC', f: { name: '', kind: 'oidc' } },
+  { label: '其他 OAuth 2.0', f: { name: '', kind: 'oauth2', subjectField: 'id', loginField: 'login' } },
+]
+
+// SSOProviders: single sign-on buttons for the login page, and this admin's
+// bindings to them.
+export function SSOProviders() {
+  const list = useLoad(() => get<{ providers: Provider[]; callbackUrl: string }>('/sso/providers'))
+  const mine = useLoad(() => get<{ providerId: string; login: string }[]>('/auth/sso/bindings'))
+  const [edit, setEdit] = useState<ProviderForm | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const ps = list.data?.providers ?? []
+  const bound = (id: string) => (mine.data ?? []).find((b) => b.providerId === id)
+  const set = (k: keyof ProviderForm, v: string | boolean) => setEdit((x) => ({ ...x, [k]: v }))
+  const save = () => run(async () => {
+    if (edit?.id) await put('/sso/providers/' + edit.id, edit); else await post('/sso/providers', edit)
+    setEdit(null); list.reload()
+  }, '已保存')
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="ctitle"><span>单点登录</span><button className="btn sm" type="button" onClick={() => setEdit({ kind: 'oidc', name: '' })}>+ 添加登录方式</button></div>
+      <div className="sub" style={{ margin: 0 }}>为登录页添加「使用 … 登录」：任意 OpenID Connect 提供方（Google、Microsoft、GitLab、Keycloak、Authentik、Okta、Auth0…）或 OAuth 2.0 服务。添加后点「绑定」把你的外部账号关联到当前管理员；开启了二次验证时仍需输入验证码。</div>
+      {ps.length === 0 && <div className="hint">还没有添加单点登录。</div>}
+      {ps.map((p) => {
+        const b = bound(p.id)
+        return (
+          <div key={p.id} className="row" style={{ flexWrap: 'nowrap', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 500 }}>{p.name} <span className="tag">{p.kind === 'oidc' ? 'OIDC' : 'OAuth 2.0'}</span>{!p.enabled && <span className="tag warn" style={{ marginLeft: 4 }}>已停用</span>}</div>
+              <div className="hint">{b ? `已绑定：${b.login}` : '当前管理员未绑定'} · {p.issuer || p.authUrl}</div>
+            </div>
+            {b ? <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await del('/auth/sso/bindings/' + p.id); mine.reload() }, '已解除绑定')}>解绑</button>
+              : <button className="btn sm" type="button" disabled={busy || !p.enabled} onClick={() => run(async () => { location.href = (await post<{ url: string }>(`/auth/sso/${p.id}/bind-url`)).url })}>绑定</button>}
+            <button className="btn sm" type="button" onClick={() => setEdit({ ...p })}>编辑</button>
+            <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(`删除登录方式 ${p.name}？已绑定的账号一并解除。`, { danger: true })) run(async () => { await del('/sso/providers/' + p.id); list.reload(); mine.reload() }) }}>删除</button>
+          </div>
+        )
+      })}
+      {edit && (
+        <Modal title={edit.id ? `编辑 ${edit.name}` : '添加登录方式'} wide onClose={() => setEdit(null)} footer={<>
+          <button className="btn" type="button" onClick={() => setEdit(null)}>取消</button>
+          <button className="btn pri" type="button" disabled={busy || !edit.name || !edit.clientId} onClick={save}>保存</button>
+        </>}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {!edit.id && <div className="chips">{ssoPresets.map((pr) => <button key={pr.label} type="button" className="chip sm" onClick={() => setEdit({ ...pr.f })}>{pr.label}</button>)}</div>}
+            <div className="hint">在提供方创建应用，回调地址（Redirect URI）填：</div>
+            <CopyBoxInline text={list.data?.callbackUrl ?? ''} />
+            <div className="form-grid">
+              <Field label="按钮名称"><input className="input" value={edit.name ?? ''} onChange={(e) => set('name', e.target.value)} placeholder="公司 SSO" /></Field>
+              <Field label="类型">
+                <select className="input" value={edit.kind} onChange={(e) => set('kind', e.target.value)}><option value="oidc">OpenID Connect（自动发现）</option><option value="oauth2">OAuth 2.0（手动填写地址）</option></select>
+              </Field>
+              {edit.kind === 'oidc'
+                ? <Field label="Issuer" hint="会自动读取 /.well-known/openid-configuration"><input className="input mono" value={edit.issuer ?? ''} onChange={(e) => set('issuer', e.target.value.trim())} /></Field>
+                : <>
+                  <Field label="授权地址"><input className="input mono" value={edit.authUrl ?? ''} onChange={(e) => set('authUrl', e.target.value.trim())} /></Field>
+                  <Field label="令牌地址"><input className="input mono" value={edit.tokenUrl ?? ''} onChange={(e) => set('tokenUrl', e.target.value.trim())} /></Field>
+                  <Field label="用户信息地址"><input className="input mono" value={edit.userInfoUrl ?? ''} onChange={(e) => set('userInfoUrl', e.target.value.trim())} /></Field>
+                </>}
+              <Field label="Client ID"><input className="input mono" value={edit.clientId ?? ''} onChange={(e) => set('clientId', e.target.value.trim())} /></Field>
+              <Field label="Client Secret" hint={edit.id ? '留空不修改' : undefined}><input className="input mono" type="password" autoComplete="off" value={edit.clientSecret ?? ''} onChange={(e) => set('clientSecret', e.target.value.trim())} /></Field>
+              <Field label="Scope" hint={edit.kind === 'oidc' ? '默认 openid profile email' : '按提供方要求填写'}><input className="input mono" value={edit.scopes ?? ''} onChange={(e) => set('scopes', e.target.value)} /></Field>
+              <Field label="账号标识字段" hint={edit.kind === 'oidc' ? '默认 sub' : '用户信息里唯一不变的字段，如 id'}><input className="input mono" value={edit.subjectField ?? ''} onChange={(e) => set('subjectField', e.target.value.trim())} /></Field>
+              <Field label="显示名字段" hint="如 preferred_username / email / login"><input className="input mono" value={edit.loginField ?? ''} onChange={(e) => set('loginField', e.target.value.trim())} /></Field>
+            </div>
+            {edit.id && <label className="chk"><input type="checkbox" checked={edit.enabled ?? true} onChange={(e) => set('enabled', e.target.checked)} />在登录页显示</label>}
+          </div>
+        </Modal>
+      )}
+    </section>
+  )
+}
+
+function CopyBoxInline({ text }: { text: string }) {
+  return <div className="row" style={{ flexWrap: 'nowrap' }}><code style={{ flex: 1, wordBreak: 'break-all' }}>{text}</code><button className="btn sm" type="button" onClick={() => copyText(text)}>复制</button></div>
+}

@@ -261,6 +261,34 @@ type AdminSession struct {
 	Revoked   bool       `json:"revoked"`
 }
 
+// SSOProvider is a single sign-on provider for the admin login page: an
+// OpenID Connect issuer (endpoints discovered) or a plain OAuth 2.0 server.
+type SSOProvider struct {
+	ID           string    `gorm:"primaryKey;size:32" json:"id"`
+	Name         string    `gorm:"size:64" json:"name"` // button label
+	Kind         string    `gorm:"size:16" json:"kind"` // oidc / oauth2
+	Issuer       string    `gorm:"size:255" json:"issuer"`
+	AuthURL      string    `gorm:"size:255" json:"authUrl"`
+	TokenURL     string    `gorm:"size:255" json:"tokenUrl"`
+	UserInfoURL  string    `gorm:"size:255" json:"userInfoUrl"`
+	ClientID     string    `gorm:"size:255" json:"clientId"`
+	ClientSecret string    `gorm:"size:512" json:"-"` // sealed
+	Scopes       string    `gorm:"size:255" json:"scopes"`
+	SubjectField string    `gorm:"size:64" json:"subjectField"` // userinfo field identifying the account
+	LoginField   string    `gorm:"size:64" json:"loginField"`   // userinfo field shown as the account name
+	Enabled      bool      `json:"enabled"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// SSOBinding ties an external account to a panel admin.
+type SSOBinding struct {
+	ProviderID string    `gorm:"primaryKey;size:32" json:"providerId"`
+	Subject    string    `gorm:"primaryKey;size:255" json:"-"`
+	AdminID    string    `gorm:"size:32;index" json:"-"`
+	Login      string    `gorm:"size:255" json:"login"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
 // InboundHealth is the latest reachability probe of an inbound from the
 // panel (TCP connect, plus a TLS handshake for TLS / REALITY).
 type InboundHealth struct {
@@ -594,7 +622,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{},
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,12 +22,29 @@ import (
 )
 
 func freePort(t *testing.T) int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	return distinctPorts(t, 1)[0]
+}
+
+// handedOut holds every port given to a test in this process. Ports are
+// released before the code under test binds them, so without this two
+// parallel tests could be handed the same one (or one inside another's
+// agent API range) and talk to each other's servers.
+var (
+	portsMu   sync.Mutex
+	handedOut []int
+)
+
+// claimPort records p unless it lies within 32 of a port already handed out.
+func claimPort(p int) bool {
+	portsMu.Lock()
+	defer portsMu.Unlock()
+	for _, q := range handedOut {
+		if p > q-32 && p < q+32 {
+			return false
+		}
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	handedOut = append(handedOut, p)
+	return true
 }
 
 // freeMixedPort returns a port free for both TCP and UDP: a client's mixed
@@ -41,6 +59,10 @@ func freeMixedPort(t *testing.T) int {
 		p := l.Addr().(*net.TCPAddr).Port
 		u, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", p))
 		l.Close()
+		if err == nil && !claimPort(p) {
+			u.Close()
+			continue
+		}
 		if err == nil {
 			u.Close()
 			return p

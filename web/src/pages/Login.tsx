@@ -13,9 +13,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const [github, setGithub] = useState(false)
   const [ticket, setTicket] = useState('') // GitHub verified, 2FA code still needed
   const [telegram, setTelegram] = useState(false)
+  const [sso, setSso] = useState<{ id: string; name: string }[]>([])
   const [tg, setTg] = useState<TGRequest | null>(null)
   useEffect(() => {
-    get<{ githubLogin?: boolean; telegramLogin?: boolean }>('/info').then((i) => { setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin) }).catch(() => {})
+    get<{ githubLogin?: boolean; telegramLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
@@ -23,6 +24,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const githubLogin = async () => {
     setBusy(true); setErr('')
     try { location.href = (await post<{ url: string }>('/auth/github/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
+  }
+  const ssoLogin = async (id: string) => {
+    setBusy(true); setErr('')
+    try { location.href = (await post<{ url: string }>(`/auth/sso/${id}/login-url`)).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
   }
   const telegramLogin = async () => {
     setBusy(true); setErr('')
@@ -106,9 +111,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         )}
         {err && <div className="note bad">{err}</div>}
         <button className="btn pri" type="submit" disabled={busy}>{busy ? '登录中…' : '登录'}</button>
-        {(github || telegram) && <div className="or"><span>或</span></div>}
+        {(github || telegram || sso.length > 0) && <div className="or"><span>或</span></div>}
         {github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />使用 GitHub 登录</button>}
         {telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />使用 Telegram 登录</button>}
+        {sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />使用 {p.name} 登录</button>)}
       </form>
     </div>
   )

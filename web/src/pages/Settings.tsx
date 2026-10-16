@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
-import { LoginProtection, RecoveryCodesModal, Sessions } from '../components/SecurityCards'
+import { LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
 import { accents, useTheme, type ThemeMode } from '../theme'
 import { CopyBox, Empty, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
@@ -370,8 +370,9 @@ export default function Settings() {
   useEffect(() => {
     const r = takeOAuthResult()
     if (r.bound) toast('已绑定 GitHub 账号 ' + r.bound)
-    if (r.error) toast('GitHub 绑定失败：' + r.error, true)
-    r.bound = r.error = undefined // shown once, not on every visit
+    if (r.ssoBound) toast('已绑定 ' + r.ssoBound)
+    if (r.error) toast('绑定失败：' + r.error, true)
+    r.bound = r.error = r.ssoBound = undefined // shown once, not on every visit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])
@@ -505,6 +506,7 @@ export default function Settings() {
             </div>
           )}
         </section>
+        <SSOProviders />
         <Sessions />
         <LoginProtection />
         </>}

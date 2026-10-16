@@ -144,8 +144,9 @@ func TestACMEHTTP01(t *testing.T) {
 	}
 }
 
-// distinctPorts reserves n free ports at once, away from each other's
-// neighbourhood (the agent uses apiBase+0..+20 for core APIs).
+// distinctPorts reserves n free ports at once, away from each other's and
+// every earlier port's neighbourhood (the agent uses apiBase+0..+20 for
+// core APIs).
 func distinctPorts(t *testing.T, n int) []int {
 	var ls []net.Listener
 	defer func() {
@@ -160,15 +161,11 @@ func distinctPorts(t *testing.T, n int) []int {
 			t.Fatal(err)
 		}
 		ls = append(ls, l)
-		p := l.Addr().(*net.TCPAddr).Port
-		near := false
-		for _, q := range out {
-			if p > q-32 && p < q+32 {
-				near = true
-			}
-		}
-		if !near {
+		if p := l.Addr().(*net.TCPAddr).Port; claimPort(p) {
 			out = append(out, p)
+		}
+		if len(ls) > 500 {
+			t.Fatal("no free port left")
 		}
 	}
 	return out

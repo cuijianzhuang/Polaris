@@ -98,6 +98,8 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/tg", s.loginGuard, s.tgLogin)
 	api.POST("/auth/tg/start", s.loginGuard, s.tgWebLoginStart)
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
+	api.POST("/auth/sso/:id/login-url", s.loginGuard, s.ssoLoginURL)
+	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
 
 	p := api.Group("", s.authRequired, s.scopeGuard, s.trackChanges)
 	p.GET("/ws", func(c *gin.Context) {
@@ -118,6 +120,13 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/auth/sessions/:id", s.revokeSession)
 	p.POST("/auth/sessions/revoke-others", s.revokeOtherSessions)
 	p.GET("/security", s.securityInfo)
+	p.GET("/sso/providers", s.listSSOProviders)
+	p.POST("/sso/providers", s.requireSudo, s.createSSOProvider)
+	p.PUT("/sso/providers/:id", s.requireSudo, s.updateSSOProvider)
+	p.DELETE("/sso/providers/:id", s.requireSudo, s.deleteSSOProvider)
+	p.GET("/auth/sso/bindings", s.mySSOBindings)
+	p.POST("/auth/sso/:id/bind-url", s.requireSudo, s.ssoBindURL)
+	p.DELETE("/auth/sso/bindings/:id", s.requireSudo, s.ssoUnbind)
 	p.DELETE("/security/bans/:ip", s.requireSudo, s.unbanIP)
 
 	p.GET("/nodes", s.listNodes)
@@ -373,7 +382,8 @@ func (s *Server) decoy() gin.HandlerFunc {
 }
 
 func (s *Server) publicInfo(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled()})
+	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
+		"sso": s.publicSSOProviders()})
 }
 
 // download serves agent binaries placed in <data_dir>/downloads.
@@ -451,7 +461,9 @@ func (s *Server) openAPI(r *gin.Engine) map[string]any {
 		if len(params) > 0 {
 			op["parameters"] = params
 		}
-		if p != "/auth/login" && p != "/info" && !strings.HasPrefix(p, "/auth/github/") && !strings.HasPrefix(p, "/auth/tg") || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
+		public := p == "/auth/login" || p == "/info" || strings.HasPrefix(p, "/auth/github/") || strings.HasPrefix(p, "/auth/tg") ||
+			p == "/auth/sso/callback" || strings.HasPrefix(p, "/auth/sso/") && strings.HasSuffix(p, "/login-url")
+		if !public || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
 			op["security"] = []map[string][]string{{"bearer": {}}}
 		}
 		paths[p][strings.ToLower(rt.Method)] = op
