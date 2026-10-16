@@ -58,6 +58,9 @@ type Config struct {
 	// DisableIPDetect turns off public IP discovery (DDNS); IPEcho overrides the echo services.
 	DisableIPDetect  bool
 	IPEcho4, IPEcho6 []string
+	// ToolPath is where the `polaris` management script is kept in step
+	// with the panel (empty: never touched). Skipped on the panel host.
+	ToolPath string
 }
 
 // Agent is the node daemon.
@@ -65,6 +68,8 @@ type Agent struct {
 	cfg Config
 	id  *Identity
 	log *slog.Logger
+
+	toolOnce sync.Once // refresh the polaris tool once per process
 
 	collectWarnMu sync.Mutex
 	collectWarned map[string]time.Time // last warning per core type
@@ -213,6 +218,7 @@ func (a *Agent) session(ctx context.Context) error {
 	if err := a.sendHeartbeat(); err != nil {
 		return err
 	}
+	a.toolOnce.Do(func() { go a.syncTool(ctx) })
 	go func() {
 		t := time.NewTicker(a.cfg.Heartbeat)
 		defer t.Stop()
@@ -577,6 +583,7 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			fail(err)
 		}
 	case "upgrade_agent":
+		a.syncTool(ctx)
 		out, err := a.selfUpdate(ctx, c.Args)
 		if err != nil {
 			fail(err)

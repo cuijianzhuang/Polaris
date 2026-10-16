@@ -376,6 +376,14 @@ func (s *Server) download(c *gin.Context) {
 	} else if name != "install-panel.sh" { // the polaris tool for nodes
 		notFound(c)
 		return
+	} else if _, err := os.Stat(s.toolPath()); err != nil { // fetch it once from the release
+		if !s.subLimit.Allow(clientIP(c.Request)) {
+			c.String(http.StatusTooManyRequests, "too many requests")
+			return
+		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), time.Minute)
+		_ = s.ensureTool(ctx)
+		cancel()
 	}
 	p := filepath.Join(s.cfg.DataDir, "downloads", name)
 	if _, err := os.Stat(p); err != nil {

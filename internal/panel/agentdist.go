@@ -74,6 +74,16 @@ func (s *Server) ensureAgent(ctx context.Context, arch string) error {
 	if s.agentCurrent(arch) {
 		return nil
 	}
+	if err := s.fetchRelease(ctx, "polaris-agent-linux-"+arch, s.agentPath(arch), 0o755, 200<<20); err != nil {
+		return err
+	}
+	s.log.Info("cached agent binary", "arch", arch, "version", Version)
+	return os.WriteFile(filepath.Join(s.downloadsDir(), ".version-"+arch), []byte(Version+"\n"), 0o644)
+}
+
+// fetchRelease downloads one asset of this version's release (through the
+// configured GitHub mirror) into dst, verified against checksums.txt.
+func (s *Server) fetchRelease(ctx context.Context, name, dst string, mode os.FileMode, limit int64) error {
 	base := agentRepo + Version + "/"
 	if m := strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/"); m != "" {
 		base = m + "/" + base
@@ -99,7 +109,6 @@ func (s *Server) ensureAgent(ctx context.Context, arch string) error {
 	if err := get(base+"checksums.txt", &sums, 1<<20); err != nil {
 		return err
 	}
-	name := "polaris-agent-linux-" + arch
 	want := ""
 	sc := bufio.NewScanner(strings.NewReader(sums.String()))
 	for sc.Scan() {
@@ -110,29 +119,66 @@ func (s *Server) ensureAgent(ctx context.Context, arch string) error {
 	if want == "" {
 		return fmt.Errorf("checksums.txt has no %s", name)
 	}
-	if err := os.MkdirAll(s.downloadsDir(), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(s.downloadsDir(), ".dl-*")
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".dl-*")
 	if err != nil {
 		return err
 	}
 	h := sha256.New()
-	err = get(base+name, io.MultiWriter(tmp, h), 200<<20)
+	err = get(base+name, io.MultiWriter(tmp, h), limit)
 	tmp.Close()
 	if err == nil && hex.EncodeToString(h.Sum(nil)) != want {
 		err = fmt.Errorf("%s: checksum mismatch", name)
 	}
 	if err == nil {
-		os.Chmod(tmp.Name(), 0o755)
-		err = os.Rename(tmp.Name(), s.agentPath(arch))
+		os.Chmod(tmp.Name(), mode)
+		err = os.Rename(tmp.Name(), dst)
 	}
 	if err != nil {
 		os.Remove(tmp.Name())
+	}
+	return err
+}
+
+// toolPath is the polaris management script handed to nodes. The panel's
+// own script keeps it current on install and update; a panel updated by an
+// older script may lack it, so it is fetched from the release on demand.
+func (s *Server) toolPath() string { return filepath.Join(s.downloadsDir(), "install-panel.sh") }
+
+var toolFetchMu sync.Mutex
+
+func (s *Server) ensureTool(ctx context.Context) error {
+	if _, err := os.Stat(s.toolPath()); err == nil {
+		return nil
+	}
+	if Version == "dev" {
+		return errors.New("development build: no release script to fetch")
+	}
+	toolFetchMu.Lock()
+	defer toolFetchMu.Unlock()
+	if _, err := os.Stat(s.toolPath()); err == nil {
+		return nil
+	}
+	if err := s.fetchRelease(ctx, "install-panel.sh", s.toolPath(), 0o644, 4<<20); err != nil {
 		return err
 	}
-	s.log.Info("cached agent binary", "arch", arch, "version", Version)
-	return os.WriteFile(filepath.Join(s.downloadsDir(), ".version-"+arch), []byte(Version+"\n"), 0o644)
+	s.log.Info("cached polaris management script", "version", Version)
+	return nil
+}
+
+// serveTool is GET /agent/tool on the agent endpoint (enrolled nodes only).
+func (s *Server) serveTool(w http.ResponseWriter, r *http.Request) {
+	if _, err := (&agentService{s: s}).node(r.Context()); err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := s.ensureTool(r.Context()); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, s.toolPath())
 }
 
 // syncAgentBinaries caches the panel's own architecture and drops builds of

@@ -152,8 +152,13 @@ func TestEndToEnd(t *testing.T) {
 	if _, err := agent.Enroll(ctx, panelURL, created.Token, settings["ca_sha256"].(string), agentDir, "test"); err != nil {
 		t.Fatal(err)
 	}
+	// The node gets the panel's polaris management script over the agent endpoint.
+	os.MkdirAll(filepath.Join(cfg.DataDir, "downloads"), 0o755)
+	toolScript := "#!/usr/bin/env bash\n# polaris test tool\n"
+	os.WriteFile(filepath.Join(cfg.DataDir, "downloads", "install-panel.sh"), []byte(toolScript), 0o644)
+	toolPath := filepath.Join(dir, "bin", "polaris")
 	ag, err := agent.New(agent.Config{PanelURL: panelURL, DataDir: agentDir, AuthListen: fmt.Sprintf("127.0.0.1:%d", freePort(t)),
-		Heartbeat: time.Second, Traffic: time.Second, APIPortBase: freePort(t), DisableIPDetect: true}, log)
+		Heartbeat: time.Second, Traffic: time.Second, APIPortBase: freePort(t), DisableIPDetect: true, ToolPath: toolPath}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,6 +183,10 @@ func TestEndToEnd(t *testing.T) {
 		return rev
 	}
 	waitFor(t, "node online", 10*time.Second, func() bool { s, _, _ := nodeState(); return s == "online" })
+	waitFor(t, "polaris tool installed on the node", 10*time.Second, func() bool {
+		b, err := os.ReadFile(toolPath)
+		return err == nil && string(b) == toolScript
+	})
 
 	// Group + inbound + user.
 	var group struct{ ID string }
