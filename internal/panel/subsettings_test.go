@@ -74,7 +74,8 @@ func TestSubscriptionSettings(t *testing.T) {
 	}
 
 	_, body, _ = get("/sub/p/profile-token-abcdefgh", "Shadowrocket/2070 CFNetwork/1568 Darwin/24.0.0")
-	if dec, err := base64.StdEncoding.DecodeString(body); err != nil || !strings.HasPrefix(string(dec), "STATUS=已用 30 GB / 100 GB（30%） · 剩余 70 GB · ") {
+	if dec, err := base64.StdEncoding.DecodeString(body); err != nil || !strings.Contains(string(dec), "\nSTATUS=已用 30 GB / 100 GB（30%） · 剩余 70 GB · ") ||
+		!strings.HasPrefix(string(dec), "REMARKS=") {
 		t.Fatalf("shadowrocket status line: %v %.200q", err, dec)
 	}
 
