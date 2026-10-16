@@ -49,12 +49,14 @@ func TestGitHubLogin(t *testing.T) {
 		t.Fatalf("secret leaked through settings: %v", v)
 	}
 	// callback follows the GitHub redirect: returns the fragment the browser lands on.
+	lastLoc := ""
 	callback := func(state, code string) url.Values {
 		resp, err := noFollow.Get(c.base + "/auth/github/callback?state=" + url.QueryEscape(state) + "&code=" + code)
 		if err != nil {
 			t.Fatal(err)
 		}
 		loc := resp.Header.Get("Location")
+		lastLoc = loc
 		frag, _ := url.ParseQuery(loc[strings.Index(loc, "#")+1:])
 		return frag
 	}
@@ -76,6 +78,9 @@ func TestGitHubLogin(t *testing.T) {
 	st := stateOf(out["url"].(string))
 	if f := callback(st, "good"); f.Get("gh_bound") != "octo" {
 		t.Fatalf("bind: %v", f)
+	}
+	if !strings.Contains(lastLoc, "/settings#") {
+		t.Fatalf("bind result must land on the settings page: %s", lastLoc)
 	}
 	// A state works once.
 	if f := callback(st, "good"); !strings.Contains(f.Get("gh_error"), "过期") {

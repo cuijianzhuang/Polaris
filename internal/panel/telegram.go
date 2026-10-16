@@ -395,6 +395,10 @@ func (b *tgBot) handle(u tgUpdate) {
 	id := b.identify(chat)
 	switch cmd {
 	case "/start", "/menu":
+		if cmd == "/start" && strings.HasPrefix(arg, portalLoginPrefix) { // user center
+			b.portalLoginPrompt(chat, strings.TrimPrefix(arg, portalLoginPrefix), id)
+			return
+		}
 		if cmd == "/start" && strings.HasPrefix(arg, tgWebLoginPrefix) { // login page
 			b.webLoginPrompt(chat, strings.TrimPrefix(arg, tgWebLoginPrefix), id)
 			return
@@ -553,7 +557,11 @@ func (b *tgBot) sendSub(chat int64, u *store.User) {
 	if png, err := qrcode.Encode(link, qrcode.Medium, 512); err == nil {
 		b.sendPhoto(chat, png, "📷 用客户端扫码导入订阅")
 	}
-	b.send(chat, "🔗 <b>订阅链接</b>\n"+tgRule+"\n<code>"+esc(link)+"</code>\n\n点按链接即可复制，客户端类型自动识别（Clash / sing-box / v2rayN / Shadowrocket 等）。",
+	center := ""
+	if b.s.portalEnabled() {
+		center = "\n\n🌐 用户中心（用 Telegram 登录）：\n" + esc(b.s.portalURL())
+	}
+	b.send(chat, "🔗 <b>订阅链接</b>\n"+tgRule+"\n<code>"+esc(link)+"</code>\n\n点按链接即可复制，客户端类型自动识别（Clash / sing-box / v2rayN / Shadowrocket 等）。"+center,
 		[]button{{Text: "♻️ 重置链接", Data: "me:reset"}, btnHome})
 }
 
@@ -680,6 +688,10 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 	case "up": // version update: up:<panel|all|agents|mode>
 		if len(parts) == 2 {
 			b.onUpdateCallback(chat, msg, parts[1], id, answer)
+		}
+	case "ul": // user center sign-in: ul:<request>:<number|x>
+		if len(parts) == 3 {
+			b.portalLoginAnswer(chat, msg, parts[1], parts[2], id, answer)
 		}
 	case "wl": // login page sign-in: wl:<request>:<number|x>
 		if len(parts) == 3 {

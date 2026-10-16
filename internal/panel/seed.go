@@ -32,6 +32,7 @@ var defaultSettings = map[string]string{
 	"sub_show_info":         "auto",
 	"sub_routing_enabled":   "false",
 	"sub_show_bot":          "true",
+	"portal_enabled":        "false",
 	"sub_scheme":            "",
 	"sub_skip_cert":         "false",
 	"sub_force_udp":         "false",

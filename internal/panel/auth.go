@@ -25,6 +25,10 @@ type claims struct {
 	Username string `json:"usr"`
 	Version  int    `json:"ver"`
 	TG       string `json:"tg,omitempty"` // Telegram admin id for bot sign-ins
+	// User center sessions (portal.go): never valid for the admin API.
+	User  string `json:"u,omitempty"`
+	Chat  int64  `json:"ch,omitempty"`
+	SubFP string `json:"sfp,omitempty"`
 }
 
 func (s *Server) issueToken(a *store.Admin) (string, error) {
@@ -62,7 +66,7 @@ func (s *Server) authRequired(c *gin.Context) {
 		tok = c.Query("token")
 	}
 	cl, err := s.parseToken(tok)
-	if err != nil {
+	if err != nil || cl.User != "" {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}

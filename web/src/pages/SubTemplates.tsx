@@ -97,7 +97,7 @@ export default function SubTemplates() {
   )
 }
 
-const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
+const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
 
 const routingExample = `{
   "Name": "直连国内",
@@ -138,6 +138,8 @@ function SubSettings() {
         </div>
       </Field>
       <div className="toggle"><span>信息页显示 Telegram 一键绑定（机器人运行时）</span><Switch label="机器人绑定" on={on('sub_show_bot', true)} onChange={(v) => set('sub_show_bot', String(v))} /></div>
+      <div className="toggle"><span>用户中心：用户用 Telegram 登录查看流量、到期和订阅，可自助重置链接（需先绑定机器人；不设密码）</span><Switch label="用户中心" on={on('portal_enabled')} onChange={(v) => set('portal_enabled', String(v))} /></div>
+      {on('portal_enabled') && s.data?.portal_url && <div className="hint">用户中心地址：<a className="mono" href={s.data.portal_url} target="_blank" rel="noreferrer">{s.data.portal_url}</a>（保存后生效；机器人发送订阅链接时也会附上）</div>}
       <Field label="公告" hint="显示在订阅信息页顶部，并通过 announce 头推送给支持的客户端（Happ、Streisand 等）；开启「信息节点」时也会出现在节点列表">
         <textarea className="input" style={{ minHeight: 70 }} value={f.sub_announce ?? ''} onChange={(e) => set('sub_announce', e.target.value)} placeholder="例：本周六 02:00–04:00 维护，请提前更新订阅" />
       </Field>

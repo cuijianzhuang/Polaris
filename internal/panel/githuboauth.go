@@ -108,7 +108,12 @@ func (s *Server) githubCallbackURL(r *http.Request) string {
 
 // adminURL is where the browser lands after the GitHub round trip.
 func (s *Server) adminURL(r *http.Request, fragment string) string {
-	return s.requestBase(r) + strings.TrimRight(s.cfg.AdminPath, "/") + "/#" + fragment
+	return s.adminPageURL(r, "", fragment)
+}
+
+// adminPageURL is adminURL for a page of the admin UI (e.g. "settings").
+func (s *Server) adminPageURL(r *http.Request, page, fragment string) string {
+	return s.requestBase(r) + strings.TrimRight(s.cfg.AdminPath, "/") + "/" + page + "#" + fragment
 }
 
 // githubAuthURL starts a round trip: POST /auth/github/url {mode}. Binding
@@ -171,9 +176,13 @@ func (s *Server) githubIdentity(ctx context.Context, code, redirect string) (*gi
 
 // githubCallback is GET /auth/github/callback (public: GitHub redirects here).
 func (s *Server) githubCallback(c *gin.Context) {
-	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminURL(c.Request, fragment)) }
+	page := ""
+	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(c.Request, page, fragment)) }
 	fail := func(msg string) { back("gh_error=" + url.QueryEscape(msg)) }
 	st, ok := s.ghAuth.take(c.Query("state"))
+	if ok && st.mode == "bind" {
+		page = "settings" // the bind result is shown where binding started
+	}
 	if !ok {
 		fail("登录请求已过期，请重试")
 		return

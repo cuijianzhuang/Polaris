@@ -39,8 +39,8 @@ type tgWebLogin struct {
 	IP      string
 	UA      string
 	Expires time.Time
-	Chat    int64  // admin chat that opened it; 0 = not yet
-	AdminID string // set once approved
+	Chat    int64  // chat that opened it; 0 = not yet
+	Subject string // who signed in (Telegram admin or user id), set once approved
 	Denied  bool
 }
 
@@ -56,7 +56,12 @@ func (s *Server) tgWebLoginStart(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Telegram 机器人未运行"})
 		return
 	}
-	w := &s.tgWeb
+	s.startWebLogin(c, &s.tgWeb, tgWebLoginPrefix)
+}
+
+// startWebLogin opens a sign-in request in w; the bot is reached with
+// /start <prefix><id>. Shared by the admin login page and the user center.
+func (s *Server) startWebLogin(c *gin.Context, w *tgWebLogins, prefix string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.m == nil {
@@ -81,7 +86,7 @@ func (s *Server) tgWebLoginStart(c *gin.Context) {
 	s.tg.mu.Unlock()
 	c.JSON(http.StatusOK, gin.H{
 		"id": id, "secret": req.Secret, "code": req.Code,
-		"url":       "https://t.me/" + bot + "?start=" + tgWebLoginPrefix + id,
+		"url":       "https://t.me/" + bot + "?start=" + prefix + id,
 		"bot":       bot,
 		"expiresIn": int(tgWebLoginTTL.Seconds()),
 	})
@@ -90,42 +95,10 @@ func (s *Server) tgWebLoginStart(c *gin.Context) {
 // tgWebLoginPoll: POST /auth/tg/poll {id, secret} (public).
 // status: pending | ok (with token) | denied | expired.
 func (s *Server) tgWebLoginPoll(c *gin.Context) {
-	var r struct {
-		ID     string `json:"id" binding:"required"`
-		Secret string `json:"secret" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&r); err != nil {
-		badRequest(c, err)
+	adminID, _, ok := s.pollWebLogin(c, &s.tgWeb)
+	if !ok {
 		return
 	}
-	w := &s.tgWeb
-	w.mu.Lock()
-	req, ok := w.m[r.ID]
-	if !ok || subtle.ConstantTimeCompare([]byte(req.Secret), []byte(r.Secret)) != 1 {
-		w.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"status": "expired"})
-		return
-	}
-	switch {
-	case req.Denied:
-		delete(w.m, r.ID)
-		w.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"status": "denied"})
-		return
-	case req.AdminID != "":
-		delete(w.m, r.ID) // single use
-	case time.Now().After(req.Expires):
-		delete(w.m, r.ID)
-		w.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"status": "expired"})
-		return
-	default:
-		w.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"status": "pending", "opened": req.Chat != 0})
-		return
-	}
-	adminID := req.AdminID
-	w.mu.Unlock()
 	var a store.TGAdmin
 	if s.st.DB.First(&a, "id = ?", adminID).Error != nil {
 		c.JSON(http.StatusOK, gin.H{"status": "denied"})
@@ -140,21 +113,73 @@ func (s *Server) tgWebLoginPoll(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "token": tok, "username": "tg:" + a.Name, "expiresIn": int(tgSessionTTL.Seconds())})
 }
 
+// pollWebLogin answers a poll for a request in w. Until the request is
+// approved it writes the response itself and returns ok=false; once approved
+// (single use) it returns the subject and the chat that approved it.
+func (s *Server) pollWebLogin(c *gin.Context, w *tgWebLogins) (subject string, chat int64, ok bool) {
+	var r struct {
+		ID     string `json:"id" binding:"required"`
+		Secret string `json:"secret" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&r); err != nil {
+		badRequest(c, err)
+		return "", 0, false
+	}
+	w.mu.Lock()
+	req, found := w.m[r.ID]
+	if !found || subtle.ConstantTimeCompare([]byte(req.Secret), []byte(r.Secret)) != 1 {
+		w.mu.Unlock()
+		c.JSON(http.StatusOK, gin.H{"status": "expired"})
+		return "", 0, false
+	}
+	switch {
+	case req.Denied:
+		delete(w.m, r.ID)
+		w.mu.Unlock()
+		c.JSON(http.StatusOK, gin.H{"status": "denied"})
+		return "", 0, false
+	case req.Subject != "":
+		delete(w.m, r.ID) // single use
+	case time.Now().After(req.Expires):
+		delete(w.m, r.ID)
+		w.mu.Unlock()
+		c.JSON(http.StatusOK, gin.H{"status": "expired"})
+		return "", 0, false
+	default:
+		w.mu.Unlock()
+		c.JSON(http.StatusOK, gin.H{"status": "pending", "opened": req.Chat != 0})
+		return "", 0, false
+	}
+	subject, chat = req.Subject, req.Chat
+	w.mu.Unlock()
+	return subject, chat, true
+}
+
 // webLoginPrompt answers /start weblogin_<id> with the number choices.
 func (b *tgBot) webLoginPrompt(chat int64, reqID string, id tgIdentity) {
 	if id.admin == nil {
 		b.send(chat, "🚫 只有已绑定的管理员可以用 Telegram 登录面板。", backRow(""))
 		return
 	}
-	w := &b.s.tgWeb
+	scope := "完整权限"
+	if !id.owner() {
+		scope = fmt.Sprintf("仅分配给你的 %d 个节点", len(id.admin.NodeIDs.V))
+	}
+	b.loginPrompt(&b.s.tgWeb, chat, reqID, "wl", "网页登录请求", "🛡 权限："+scope, "⌛ 登录请求已失效，请在网页上重新点击「使用 Telegram 登录」。")
+}
+
+// loginPrompt claims a sign-in request for chat and sends the number choices
+// (callback <cb>:<id>:<n|x>). A request belongs to the first chat that opens
+// it, so a forwarded link cannot be answered by someone else.
+func (b *tgBot) loginPrompt(w *tgWebLogins, chat int64, reqID, cb, title, extra, stale string) {
 	w.mu.Lock()
 	req, ok := w.m[reqID]
-	if ok && (time.Now().After(req.Expires) || req.Denied || req.AdminID != "" || (req.Chat != 0 && req.Chat != chat)) {
+	if ok && (time.Now().After(req.Expires) || req.Denied || req.Subject != "" || (req.Chat != 0 && req.Chat != chat)) {
 		ok = false
 	}
 	if !ok {
 		w.mu.Unlock()
-		b.send(chat, "⌛ 登录请求已失效，请在网页上重新点击「使用 Telegram 登录」。", backRow(""))
+		b.send(chat, stale, backRow(""))
 		return
 	}
 	req.Chat = chat
@@ -175,48 +200,64 @@ func (b *tgBot) webLoginPrompt(chat int64, reqID string, id tgIdentity) {
 	rand.Shuffle(len(choices), func(i, j int) { choices[i], choices[j] = choices[j], choices[i] })
 	nums := make([]button, len(choices))
 	for i, n := range choices {
-		nums[i] = button{Text: fmt.Sprint(n), Data: fmt.Sprintf("wl:%s:%d", reqID, n)}
+		nums[i] = button{Text: fmt.Sprint(n), Data: fmt.Sprintf("%s:%s:%d", cb, reqID, n)}
 	}
-	scope := "完整权限"
-	if !id.owner() {
-		scope = fmt.Sprintf("仅分配给你的 %d 个节点", len(id.admin.NodeIDs.V))
+	text := fmt.Sprintf("🔐 <b>%s</b>\n%s\n🌐 IP：<code>%s</code>\n💻 设备：%s\n%s\n\n请点击<b>网页上显示的数字</b>完成登录。\n不是你本人操作？点「拒绝」。",
+		title, tgRule, esc(orDefault(ip, "未知")), esc(shortUA(ua)), extra)
+	b.send(chat, text, nums, []button{{Text: "❌ 拒绝", Data: cb + ":" + reqID + ":x"}})
+}
+
+// loginPick records the number chat tapped for a request: subject signs in
+// when it matches. The result is "ok", "denied" (rejected or wrong number:
+// "wrong") or "stale".
+func (b *tgBot) loginPick(w *tgWebLogins, chat int64, reqID, pick, subject string) (result, ip string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	req, ok := w.m[reqID]
+	if !ok || req.Chat != chat || req.Denied || req.Subject != "" || time.Now().After(req.Expires) || subject == "" {
+		return "stale", ""
 	}
-	text := fmt.Sprintf("🔐 <b>网页登录请求</b>\n%s\n🌐 IP：<code>%s</code>\n💻 设备：%s\n🛡 权限：%s\n\n请点击<b>网页上显示的数字</b>完成登录。\n不是你本人操作？点「拒绝」。",
-		tgRule, esc(orDefault(ip, "未知")), esc(shortUA(ua)), scope)
-	b.send(chat, text, nums, []button{{Text: "❌ 拒绝", Data: "wl:" + reqID + ":x"}})
+	switch {
+	case pick == fmt.Sprint(req.Code):
+		req.Subject = subject
+		return "ok", req.IP
+	case pick == "x":
+		req.Denied = true
+		return "denied", req.IP
+	default:
+		req.Denied = true
+		return "wrong", req.IP
+	}
 }
 
 // webLoginAnswer handles the wl:<id>:<n|x> callback.
 func (b *tgBot) webLoginAnswer(chat, msg int64, reqID, pick string, id tgIdentity, answer func(string)) {
-	w := &b.s.tgWeb
-	w.mu.Lock()
-	req, ok := w.m[reqID]
-	if !ok || req.Chat != chat || req.Denied || req.AdminID != "" || time.Now().After(req.Expires) || id.admin == nil {
-		w.mu.Unlock()
-		answer("请求已失效")
-		b.edit(chat, msg, "⌛ 登录请求已失效。", backRow(""))
-		return
+	subject := ""
+	if id.admin != nil {
+		subject = id.admin.ID
 	}
-	approved := pick == fmt.Sprint(req.Code)
-	if approved {
-		req.AdminID = id.admin.ID
-	} else {
-		req.Denied = true
+	res, ip := b.loginPick(&b.s.tgWeb, chat, reqID, pick, subject)
+	b.loginResult(chat, msg, res, ip, "网页将自动进入面板。", answer)
+	if res == "denied" || res == "wrong" {
+		b.s.audit("tg:"+id.admin.Name, "admin.login_denied", "tg:"+id.admin.Name, map[string]string{"denied": "telegram web", "wrong": "telegram web: wrong number"}[res], ip)
 	}
-	ip := req.IP
-	w.mu.Unlock()
-	switch {
-	case approved:
+}
+
+// loginResult edits the prompt to show what the tap did.
+func (b *tgBot) loginResult(chat, msg int64, res, ip, next string, answer func(string)) {
+	switch res {
+	case "ok":
 		answer("已确认")
-		b.edit(chat, msg, fmt.Sprintf("✅ <b>已确认登录</b>\n%s\n🌐 IP：<code>%s</code>\n网页将自动进入面板。", tgRule, esc(ip)), backRow(""))
-	case pick == "x":
+		b.edit(chat, msg, fmt.Sprintf("✅ <b>已确认登录</b>\n%s\n🌐 IP：<code>%s</code>\n%s", tgRule, esc(ip), next), backRow(""))
+	case "denied":
 		answer("已拒绝")
 		b.edit(chat, msg, "🚫 已拒绝本次登录。", backRow(""))
-		b.s.audit("tg:"+id.admin.Name, "admin.login_denied", "tg:"+id.admin.Name, "telegram web", ip)
-	default:
+	case "wrong":
 		answer("数字不匹配")
 		b.edit(chat, msg, "⚠️ 数字与网页不一致，已拒绝本次登录。\n如果不是你本人发起的请求，可能有人试图冒用你的账号。", backRow(""))
-		b.s.audit("tg:"+id.admin.Name, "admin.login_denied", "tg:"+id.admin.Name, "telegram web: wrong number", ip)
+	default:
+		answer("请求已失效")
+		b.edit(chat, msg, "⌛ 登录请求已失效。", backRow(""))
 	}
 }
 

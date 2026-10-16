@@ -61,6 +61,9 @@ type Info struct {
 	SupportURL string // support / contact link
 	BotURL     string // Telegram deep link for one-tap binding
 	ResetNote  string // e.g. "每月 1 日重置"
+	// Portal renders the page as the signed-in user center (reset link and
+	// sign-out actions instead of the bot binding button).
+	Portal bool
 	// ExpireAfterDays: validity starts on first use (no Expire yet).
 	ExpireAfterDays int
 	// UpdateHours is how often clients should refetch (Surge's managed
