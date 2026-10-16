@@ -73,15 +73,15 @@ export default function Domains() {
       <section className="card flush scroll">
         <div style={{ padding: '14px 16px 0' }}><h2>DNS 服务商</h2></div>
         {provs.data?.length === 0 ? <Empty>先添加一个 DNS 服务商：Cloudflare（API Token，Zone.DNS 编辑权限）或自定义 Webhook。</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr><th>名称</th><th>类型</th><th>凭据 / 地址</th><th></th></tr></thead>
             <tbody>
               {(provs.data ?? []).map((p) => (
                 <tr key={p.id}>
-                  <td style={{ fontWeight: 500 }}>{p.name}</td>
-                  <td><span className="tag">{p.kind === 'cloudflare' ? 'Cloudflare' : 'Webhook'}</span></td>
-                  <td className="mono small">{p.kind === 'webhook' ? p.endpoint : p.hasToken ? 'Token 已保存' : '未设置 Token'}</td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td>
+                  <td data-label="类型"><span className="tag">{p.kind === 'cloudflare' ? 'Cloudflare' : 'Webhook'}</span></td>
+                  <td data-label="凭据 / 地址" className="mono small">{p.kind === 'webhook' ? p.endpoint : p.hasToken ? 'Token 已保存' : '未设置 Token'}</td>
+                  <td className="rt-actions" style={{ textAlign: 'right' }}>
                     <button className="link" type="button" onClick={() => setPf({ id: p.id, name: p.name, kind: p.kind, token: '', endpoint: p.endpoint, hasToken: p.hasToken })}>编辑</button>
                     <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
                       if (await confirm(`删除 DNS 服务商 ${p.name}？`, { danger: true })) run(async () => { await del('/dns-providers/' + p.id); provs.reload() })
@@ -129,7 +129,7 @@ export default function Domains() {
           {(binds.data?.length ?? 0) > 0 && <button className="btn sm" type="button" disabled={busy} onClick={syncAll}>{syncing ? <><span className="spinner" />同步中…</> : '全部立即同步'}</button>}
         </div>
         {binds.data?.length === 0 ? <Empty>还没有域名绑定。绑定后节点的公网 IP 会自动写入 DNS 记录。</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr><th>域名</th><th>节点</th><th>服务商</th><th>记录</th><th>当前值</th><th>状态</th><th>同步时间</th><th></th></tr></thead>
             <tbody>
               {(binds.data ?? []).map((b) => {
@@ -137,14 +137,14 @@ export default function Domains() {
                 const [sl, sc] = statusTag[b.status] ?? [b.status, 'tag']
                 return (
                   <tr key={b.id}>
-                    <td className="mono" style={{ fontWeight: 500 }}>{b.domain}{b.proxied && <span className="tag warn" style={{ marginLeft: 6 }}>CDN 代理</span>}</td>
-                    <td>{nodeName(b.nodeId)}{n && !n.ddns && /^[\d.]+$|:/.test(n.address) && <div className="small mute" title="节点地址是固定 IP，记录会一直写这个 IP；开启 DDNS 或把地址改成域名后才跟随出口 IP">节点地址为固定 IP</div>}</td>
-                    <td>{provName(b.providerId)}</td>
-                    <td className="small">{famLabel[b.family] ?? b.family} · TTL {b.ttl || 'auto'}</td>
-                    <td className="mono small">{b.current || '—'}</td>
-                    <td><span className={sc} title={b.lastError}>{sl}</span>{b.lastError && <div className="small" style={{ color: 'var(--bad)', maxWidth: 220 }}>{b.lastError}</div>}</td>
-                    <td className="small" title={datetime(b.syncedAt)}>{ago(b.syncedAt)}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <td className="mono rt-head" style={{ fontWeight: 500 }}>{b.domain}{b.proxied && <span className="tag warn" style={{ marginLeft: 6 }}>CDN 代理</span>}</td>
+                    <td data-label="节点">{nodeName(b.nodeId)}{n && !n.ddns && /^[\d.]+$|:/.test(n.address) && <div className="small mute" title="节点地址是固定 IP，记录会一直写这个 IP；开启 DDNS 或把地址改成域名后才跟随出口 IP">节点地址为固定 IP</div>}</td>
+                    <td data-label="服务商">{provName(b.providerId)}</td>
+                    <td data-label="记录" className="small">{famLabel[b.family] ?? b.family} · TTL {b.ttl || 'auto'}</td>
+                    <td data-label="当前值" className="mono small">{b.current || '—'}</td>
+                    <td data-label="状态" className="rt-wrap"><span className={sc} title={b.lastError}>{sl}</span>{b.lastError && <div className="small" style={{ color: 'var(--bad)', maxWidth: 220 }}>{b.lastError}</div>}</td>
+                    <td data-label="同步时间" className="small" title={datetime(b.syncedAt)}>{ago(b.syncedAt)}</td>
+                    <td className="rt-actions" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       <button className="link" type="button" disabled={busy} onClick={() => run(async () => { await post(`/domains/${b.id}/sync`); binds.reload() }, '已同步')}>立即同步</button>
                       <button className="link" type="button" style={{ marginLeft: 12 }} onClick={() => setBf({ id: b.id, nodeId: b.nodeId, providerId: b.providerId, domain: b.domain, family: b.family, proxied: b.proxied, ttl: b.ttl, setNodeDomain: false })}>编辑</button>
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
@@ -164,20 +164,22 @@ export default function Domains() {
       <section className="card">
         <h2>节点公网 IP</h2>
         <div className="sub" style={{ marginTop: 4 }}>由 Agent 定期探测出口地址并随心跳上报；开启 DDNS 的节点 IP 变化后立即更新其绑定域名并通知 Telegram 管理员。</div>
-        <table style={{ marginTop: 10 }}>
+        <div className="scroll" style={{ marginTop: 10 }}>
+        <table className="rtable">
           <thead><tr><th>节点</th><th>DDNS</th><th>IPv4</th><th>IPv6</th><th>最近变化</th></tr></thead>
           <tbody>
             {nodes.map((n) => (
               <tr key={n.id}>
-                <td style={{ fontWeight: 500 }}>{n.name}</td>
-                <td><Switch label={`${n.name} DDNS`} on={n.ddns} onChange={(v) => run(async () => { await put(`/nodes/${n.id}`, { name: n.name, address: n.address, domain: n.domain, region: n.region, flag: n.flag, labels: n.labels, defaultCore: n.defaultCore, trafficRate: n.trafficRate, sortOrder: n.sortOrder, noFirewall: n.noFirewall, ddns: v }); refresh() })} /></td>
-                <td className="mono small">{n.publicIpv4 || '—'}</td>
-                <td className="mono small">{n.publicIpv6 || '—'}</td>
-                <td className="small">{n.ipChangedAt ? ago(n.ipChangedAt) : '—'}</td>
+                <td className="rt-head" style={{ fontWeight: 500 }}>{n.name}</td>
+                <td data-label="DDNS"><Switch label={`${n.name} DDNS`} on={n.ddns} onChange={(v) => run(async () => { await put(`/nodes/${n.id}`, { name: n.name, address: n.address, domain: n.domain, region: n.region, flag: n.flag, labels: n.labels, defaultCore: n.defaultCore, trafficRate: n.trafficRate, sortOrder: n.sortOrder, noFirewall: n.noFirewall, ddns: v }); refresh() })} /></td>
+                <td data-label="IPv4" className="mono small">{n.publicIpv4 || '—'}</td>
+                <td data-label="IPv6" className="mono small rt-break">{n.publicIpv6 || '—'}</td>
+                <td data-label="最近变化" className="small">{n.ipChangedAt ? ago(n.ipChangedAt) : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       {pf && (
