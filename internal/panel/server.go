@@ -48,8 +48,9 @@ type Server struct {
 	tgLogins    tgLoginCodes // one-time Telegram sign-in codes
 	tgWeb       tgWebLogins  // login-page Telegram sign-in requests
 	hbMu        sync.Mutex
-	restartHook func()                 // tests: replaces the re-exec after a restore
-	hbCores     map[string]hbCoreState // last core state written per node
+	restartHook func()                   // tests: replaces the re-exec after a restore
+	hbCores     map[string]hbCoreState   // last core state written per node
+	progress    map[string]*nodeProgress // live agent activity per node (guarded by hbMu)
 	jwtKey      []byte
 	rt          *realtime
 

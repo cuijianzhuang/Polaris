@@ -39,9 +39,12 @@ export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; labels: string[]
   agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
-  cores: Core[]; inboundCount: number; connected: boolean
+  cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
 }
+// What the node's agent is doing right now (applying a revision, installing
+// a core, upgrading itself); a finished one stays for about a minute.
+export interface NodeProgress { active: boolean; stage: string; done: number; total: number; rev?: number; startedAt: number; error?: string; at: string }
 export interface Inbound {
   id: string; nodeId: string; core: CoreType; tag: string; listen: string; port: number
   protocol: ProtocolSpec; transport: TransportSpec; security: SecuritySpec; sniffing: SniffSpec; extra?: any

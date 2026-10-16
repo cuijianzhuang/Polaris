@@ -70,6 +70,7 @@ type Agent struct {
 	log *slog.Logger
 
 	toolOnce sync.Once // refresh the polaris tool once per process
+	progress progressTracker
 
 	collectWarnMu sync.Mutex
 	collectWarned map[string]time.Time // last warning per core type
@@ -129,6 +130,10 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	a.client = polarisv1connect.NewAgentServiceClient(httpClient(id.tlsConfig()), cfg.PanelURL, connect.WithGRPC())
 	a.fw = newFirewall(cfg.DataDir)
 	a.installer = &Installer{Dir: filepath.Join(cfg.DataDir, "cores"), Mirror: cfg.Mirror, AllowUnverified: cfg.AllowUnverified}
+	a.progress.send = func(p *polarisv1.Progress) {
+		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})
+	}
+	a.installer.progress = &a.progress
 	if !cfg.DisableIPDetect {
 		a.ips = newIPDetector(cfg.IPEcho4, cfg.IPEcho6, 0)
 	}
@@ -219,6 +224,9 @@ func (a *Agent) session(ctx context.Context) error {
 		return err
 	}
 	a.toolOnce.Do(func() { go a.syncTool(ctx) })
+	if p := a.progress.snapshot(); p != nil { // an activity outlived the last stream
+		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})
+	}
 	go func() {
 		t := time.NewTicker(a.cfg.Heartbeat)
 		defer t.Stop()
@@ -358,7 +366,9 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		if spec.Rev == failed {
 			continue // do not retry a revision that already failed; wait for a new one
 		}
+		end := a.progress.begin(spec.Rev, "应用配置")
 		r := a.Apply(ctx, &spec)
+		end(r.err)
 		res := &polarisv1.ApplyResult{Rev: spec.Rev, Ok: r.ok, Method: r.method, RolledBack: r.rolledBack}
 		if r.err != nil {
 			res.Error = r.err.Error()

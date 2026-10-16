@@ -63,6 +63,9 @@ type Info struct {
 	ResetNote  string // e.g. "每月 1 日重置"
 	// ExpireAfterDays: validity starts on first use (no Expire yet).
 	ExpireAfterDays int
+	// UpdateHours is how often clients should refetch (Surge's managed
+	// profile interval); 0 = 12 hours.
+	UpdateHours int `json:"-"`
 	// StatusLine prepends Shadowrocket's "STATUS=" line to share links; it
 	// shows under the subscription name instead of the raw userinfo header.
 	StatusLine bool       `json:"-"`
@@ -241,6 +244,18 @@ func DetectFormat(query, ua string) string {
 		return "html"
 	}
 	return "links"
+}
+
+// ReadsProfileHeaders reports whether the client behind a User-Agent shows
+// the subscription name and usage from the response headers
+// (profile-title, subscription-userinfo) or, for Shadowrocket, from the
+// REMARKS= / STATUS= lines. Others (v2rayN / v2rayNG, NekoBox, the official
+// sing-box apps, Surge's managed profiles, unknown clients) only show
+// nodes, so the "auto" info mode gives them info nodes instead.
+func ReadsProfileHeaders(ua string) bool {
+	u := strings.ToLower(ua)
+	return containsAny(u, "clash", "mihomo", "stash", "flclash", "verge", "hiddify", "happ", "karing",
+		"streisand", "shadowrocket", "loon", "quantumult", "v2box")
 }
 
 func containsAny(s string, subs ...string) bool {

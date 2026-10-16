@@ -150,6 +150,10 @@ func TestSubscriptionMatrix(t *testing.T) {
 		t.Fatal("login failed")
 	}
 	a.token = login.Token
+	// Only real nodes are dialled here: no info nodes for header-less clients.
+	if code := a.do("PUT", "/settings", map[string]string{"sub_show_info": "none"}, nil); code != 200 {
+		t.Fatalf("settings: %d", code)
+	}
 
 	const xrayVer, sbVer = "26.3.27", "1.13.5"
 	var created struct {
@@ -317,8 +321,9 @@ func TestSubscriptionMatrix(t *testing.T) {
 		return fmt.Sprintf("%sserver inbound %s (%s):\n%s\nserver core log tail:\n%s", hint, ref.tag, ref.core, conf, logs)
 	}
 	var tcpPorts []int
-	for _, c := range cases {
-		port := freePort(t)
+	inPorts := distinctPorts(t, len(cases)) // reserved together: separate freePort calls can repeat a port
+	for i, c := range cases {
+		port := inPorts[i]
 		body := map[string]any{"nodeId": created.Node.ID, "core": c.core, "tag": c.tag, "port": port, "listen": "127.0.0.1",
 			"protocol": c.proto, "security": c.sec, "groupIds": []string{group.ID}}
 		if c.trans != nil {

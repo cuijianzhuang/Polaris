@@ -161,6 +161,7 @@ type AgentMessage struct {
 	//	*AgentMessage_ApplyResult
 	//	*AgentMessage_CommandResult
 	//	*AgentMessage_OnlineIps
+	//	*AgentMessage_Progress
 	Msg isAgentMessage_Msg `protobuf_oneof:"msg"`
 }
 
@@ -229,6 +230,13 @@ func (x *AgentMessage) GetOnlineIps() *OnlineIPs {
 	return nil
 }
 
+func (x *AgentMessage) GetProgress() *Progress {
+	if x, ok := x.GetMsg().(*AgentMessage_Progress); ok {
+		return x.Progress
+	}
+	return nil
+}
+
 type isAgentMessage_Msg interface {
 	isAgentMessage_Msg()
 }
@@ -249,6 +257,10 @@ type AgentMessage_OnlineIps struct {
 	OnlineIps *OnlineIPs `protobuf:"bytes,4,opt,name=online_ips,json=onlineIps,proto3,oneof"`
 }
 
+type AgentMessage_Progress struct {
+	Progress *Progress `protobuf:"bytes,5,opt,name=progress,proto3,oneof"`
+}
+
 func (*AgentMessage_Heartbeat) isAgentMessage_Msg() {}
 
 func (*AgentMessage_ApplyResult) isAgentMessage_Msg() {}
@@ -256,6 +268,110 @@ func (*AgentMessage_ApplyResult) isAgentMessage_Msg() {}
 func (*AgentMessage_CommandResult) isAgentMessage_Msg() {}
 
 func (*AgentMessage_OnlineIps) isAgentMessage_Msg() {}
+
+func (*AgentMessage_Progress) isAgentMessage_Msg() {}
+
+// Progress reports what the agent is busy with (applying a revision,
+// downloading a core, upgrading itself) so the panel can show it live.
+// Sent when the step changes and at most about once a second while bytes
+// move; active=false ends it. Older panels ignore it.
+type Progress struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Active bool `protobuf:"varint,1,opt,name=active,proto3" json:"active,omitempty"`
+	// Step shown to the admin, e.g. "下载 xray 26.3.27".
+	Stage string `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`
+	// Bytes (or steps) done and expected; total 0 = unknown.
+	Done  int64 `protobuf:"varint,3,opt,name=done,proto3" json:"done,omitempty"`
+	Total int64 `protobuf:"varint,4,opt,name=total,proto3" json:"total,omitempty"`
+	// Revision being applied, 0 when not applying one.
+	Rev int64 `protobuf:"varint,5,opt,name=rev,proto3" json:"rev,omitempty"`
+	// Unix time the activity began.
+	StartedAt int64 `protobuf:"varint,6,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
+	// Set on the final message when the activity failed.
+	Error string `protobuf:"bytes,7,opt,name=error,proto3" json:"error,omitempty"`
+}
+
+func (x *Progress) Reset() {
+	*x = Progress{}
+	mi := &file_polaris_v1_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Progress) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Progress) ProtoMessage() {}
+
+func (x *Progress) ProtoReflect() protoreflect.Message {
+	mi := &file_polaris_v1_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Progress.ProtoReflect.Descriptor instead.
+func (*Progress) Descriptor() ([]byte, []int) {
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Progress) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *Progress) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *Progress) GetDone() int64 {
+	if x != nil {
+		return x.Done
+	}
+	return 0
+}
+
+func (x *Progress) GetTotal() int64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *Progress) GetRev() int64 {
+	if x != nil {
+		return x.Rev
+	}
+	return 0
+}
+
+func (x *Progress) GetStartedAt() int64 {
+	if x != nil {
+		return x.StartedAt
+	}
+	return 0
+}
+
+func (x *Progress) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
 
 type Heartbeat struct {
 	state         protoimpl.MessageState
@@ -276,7 +392,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[3]
+	mi := &file_polaris_v1_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +404,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[3]
+	mi := &file_polaris_v1_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +417,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Heartbeat) GetAppliedRev() int64 {
@@ -368,7 +484,7 @@ type SystemStats struct {
 
 func (x *SystemStats) Reset() {
 	*x = SystemStats{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[4]
+	mi := &file_polaris_v1_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -380,7 +496,7 @@ func (x *SystemStats) String() string {
 func (*SystemStats) ProtoMessage() {}
 
 func (x *SystemStats) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[4]
+	mi := &file_polaris_v1_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -393,7 +509,7 @@ func (x *SystemStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SystemStats.ProtoReflect.Descriptor instead.
 func (*SystemStats) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SystemStats) GetCpuPercent() float64 {
@@ -458,7 +574,7 @@ type CoreState struct {
 
 func (x *CoreState) Reset() {
 	*x = CoreState{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[5]
+	mi := &file_polaris_v1_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -470,7 +586,7 @@ func (x *CoreState) String() string {
 func (*CoreState) ProtoMessage() {}
 
 func (x *CoreState) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[5]
+	mi := &file_polaris_v1_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -483,7 +599,7 @@ func (x *CoreState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreState.ProtoReflect.Descriptor instead.
 func (*CoreState) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CoreState) GetType() string {
@@ -564,7 +680,7 @@ type ApplyResult struct {
 
 func (x *ApplyResult) Reset() {
 	*x = ApplyResult{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[6]
+	mi := &file_polaris_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -576,7 +692,7 @@ func (x *ApplyResult) String() string {
 func (*ApplyResult) ProtoMessage() {}
 
 func (x *ApplyResult) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[6]
+	mi := &file_polaris_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -589,7 +705,7 @@ func (x *ApplyResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ApplyResult.ProtoReflect.Descriptor instead.
 func (*ApplyResult) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ApplyResult) GetRev() int64 {
@@ -640,7 +756,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[7]
+	mi := &file_polaris_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -652,7 +768,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[7]
+	mi := &file_polaris_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -665,7 +781,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CommandResult) GetId() string {
@@ -706,7 +822,7 @@ type OnlineIPs struct {
 
 func (x *OnlineIPs) Reset() {
 	*x = OnlineIPs{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[8]
+	mi := &file_polaris_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -718,7 +834,7 @@ func (x *OnlineIPs) String() string {
 func (*OnlineIPs) ProtoMessage() {}
 
 func (x *OnlineIPs) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[8]
+	mi := &file_polaris_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -731,7 +847,7 @@ func (x *OnlineIPs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OnlineIPs.ProtoReflect.Descriptor instead.
 func (*OnlineIPs) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *OnlineIPs) GetUsers() []*UserIPs {
@@ -752,7 +868,7 @@ type UserIPs struct {
 
 func (x *UserIPs) Reset() {
 	*x = UserIPs{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[9]
+	mi := &file_polaris_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -764,7 +880,7 @@ func (x *UserIPs) String() string {
 func (*UserIPs) ProtoMessage() {}
 
 func (x *UserIPs) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[9]
+	mi := &file_polaris_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -777,7 +893,7 @@ func (x *UserIPs) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserIPs.ProtoReflect.Descriptor instead.
 func (*UserIPs) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *UserIPs) GetUserId() string {
@@ -808,7 +924,7 @@ type PanelMessage struct {
 
 func (x *PanelMessage) Reset() {
 	*x = PanelMessage{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[10]
+	mi := &file_polaris_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -820,7 +936,7 @@ func (x *PanelMessage) String() string {
 func (*PanelMessage) ProtoMessage() {}
 
 func (x *PanelMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[10]
+	mi := &file_polaris_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -833,7 +949,7 @@ func (x *PanelMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PanelMessage.ProtoReflect.Descriptor instead.
 func (*PanelMessage) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (m *PanelMessage) GetMsg() isPanelMessage_Msg {
@@ -883,7 +999,7 @@ type SpecChanged struct {
 
 func (x *SpecChanged) Reset() {
 	*x = SpecChanged{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[11]
+	mi := &file_polaris_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -895,7 +1011,7 @@ func (x *SpecChanged) String() string {
 func (*SpecChanged) ProtoMessage() {}
 
 func (x *SpecChanged) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[11]
+	mi := &file_polaris_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -908,7 +1024,7 @@ func (x *SpecChanged) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SpecChanged.ProtoReflect.Descriptor instead.
 func (*SpecChanged) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SpecChanged) GetRev() int64 {
@@ -932,7 +1048,7 @@ type Command struct {
 
 func (x *Command) Reset() {
 	*x = Command{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[12]
+	mi := &file_polaris_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -944,7 +1060,7 @@ func (x *Command) String() string {
 func (*Command) ProtoMessage() {}
 
 func (x *Command) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[12]
+	mi := &file_polaris_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -957,7 +1073,7 @@ func (x *Command) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Command.ProtoReflect.Descriptor instead.
 func (*Command) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Command) GetId() string {
@@ -992,7 +1108,7 @@ type GetSpecRequest struct {
 
 func (x *GetSpecRequest) Reset() {
 	*x = GetSpecRequest{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[13]
+	mi := &file_polaris_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1004,7 +1120,7 @@ func (x *GetSpecRequest) String() string {
 func (*GetSpecRequest) ProtoMessage() {}
 
 func (x *GetSpecRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[13]
+	mi := &file_polaris_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1017,7 +1133,7 @@ func (x *GetSpecRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSpecRequest.ProtoReflect.Descriptor instead.
 func (*GetSpecRequest) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetSpecRequest) GetRev() int64 {
@@ -1038,7 +1154,7 @@ type GetSpecResponse struct {
 
 func (x *GetSpecResponse) Reset() {
 	*x = GetSpecResponse{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[14]
+	mi := &file_polaris_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1050,7 +1166,7 @@ func (x *GetSpecResponse) String() string {
 func (*GetSpecResponse) ProtoMessage() {}
 
 func (x *GetSpecResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[14]
+	mi := &file_polaris_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1063,7 +1179,7 @@ func (x *GetSpecResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSpecResponse.ProtoReflect.Descriptor instead.
 func (*GetSpecResponse) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetSpecResponse) GetRev() int64 {
@@ -1090,7 +1206,7 @@ type ReportTrafficRequest struct {
 
 func (x *ReportTrafficRequest) Reset() {
 	*x = ReportTrafficRequest{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[15]
+	mi := &file_polaris_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1102,7 +1218,7 @@ func (x *ReportTrafficRequest) String() string {
 func (*ReportTrafficRequest) ProtoMessage() {}
 
 func (x *ReportTrafficRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[15]
+	mi := &file_polaris_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1115,7 +1231,7 @@ func (x *ReportTrafficRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportTrafficRequest.ProtoReflect.Descriptor instead.
 func (*ReportTrafficRequest) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ReportTrafficRequest) GetBatches() []*TrafficBatch {
@@ -1137,7 +1253,7 @@ type TrafficBatch struct {
 
 func (x *TrafficBatch) Reset() {
 	*x = TrafficBatch{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[16]
+	mi := &file_polaris_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1149,7 +1265,7 @@ func (x *TrafficBatch) String() string {
 func (*TrafficBatch) ProtoMessage() {}
 
 func (x *TrafficBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[16]
+	mi := &file_polaris_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1162,7 +1278,7 @@ func (x *TrafficBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TrafficBatch.ProtoReflect.Descriptor instead.
 func (*TrafficBatch) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *TrafficBatch) GetBatchId() string {
@@ -1198,7 +1314,7 @@ type UserTraffic struct {
 
 func (x *UserTraffic) Reset() {
 	*x = UserTraffic{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[17]
+	mi := &file_polaris_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1210,7 +1326,7 @@ func (x *UserTraffic) String() string {
 func (*UserTraffic) ProtoMessage() {}
 
 func (x *UserTraffic) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[17]
+	mi := &file_polaris_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1223,7 +1339,7 @@ func (x *UserTraffic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserTraffic.ProtoReflect.Descriptor instead.
 func (*UserTraffic) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *UserTraffic) GetUserId() string {
@@ -1257,7 +1373,7 @@ type ReportTrafficResponse struct {
 
 func (x *ReportTrafficResponse) Reset() {
 	*x = ReportTrafficResponse{}
-	mi := &file_polaris_v1_agent_proto_msgTypes[18]
+	mi := &file_polaris_v1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1269,7 +1385,7 @@ func (x *ReportTrafficResponse) String() string {
 func (*ReportTrafficResponse) ProtoMessage() {}
 
 func (x *ReportTrafficResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_polaris_v1_agent_proto_msgTypes[18]
+	mi := &file_polaris_v1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1398,7 @@ func (x *ReportTrafficResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportTrafficResponse.ProtoReflect.Descriptor instead.
 func (*ReportTrafficResponse) Descriptor() ([]byte, []int) {
-	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_polaris_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ReportTrafficResponse) GetAcceptedBatchIds() []string {
@@ -1311,7 +1427,7 @@ var file_polaris_v1_agent_proto_rawDesc = []byte{
 	0x12, 0x19, 0x0a, 0x08, 0x63, 0x65, 0x72, 0x74, 0x5f, 0x70, 0x65, 0x6d, 0x18, 0x02, 0x20, 0x01,
 	0x28, 0x0c, 0x52, 0x07, 0x63, 0x65, 0x72, 0x74, 0x50, 0x65, 0x6d, 0x12, 0x15, 0x0a, 0x06, 0x63,
 	0x61, 0x5f, 0x70, 0x65, 0x6d, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x05, 0x63, 0x61, 0x50,
-	0x65, 0x6d, 0x22, 0x86, 0x02, 0x0a, 0x0c, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x4d, 0x65, 0x73, 0x73,
+	0x65, 0x6d, 0x22, 0xba, 0x02, 0x0a, 0x0c, 0x41, 0x67, 0x65, 0x6e, 0x74, 0x4d, 0x65, 0x73, 0x73,
 	0x61, 0x67, 0x65, 0x12, 0x35, 0x0a, 0x09, 0x68, 0x65, 0x61, 0x72, 0x74, 0x62, 0x65, 0x61, 0x74,
 	0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x70, 0x6f, 0x6c, 0x61, 0x72, 0x69, 0x73,
 	0x2e, 0x76, 0x31, 0x2e, 0x48, 0x65, 0x61, 0x72, 0x74, 0x62, 0x65, 0x61, 0x74, 0x48, 0x00, 0x52,
@@ -1327,7 +1443,21 @@ var file_polaris_v1_agent_proto_rawDesc = []byte{
 	0x6f, 0x6e, 0x6c, 0x69, 0x6e, 0x65, 0x5f, 0x69, 0x70, 0x73, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b,
 	0x32, 0x15, 0x2e, 0x70, 0x6f, 0x6c, 0x61, 0x72, 0x69, 0x73, 0x2e, 0x76, 0x31, 0x2e, 0x4f, 0x6e,
 	0x6c, 0x69, 0x6e, 0x65, 0x49, 0x50, 0x73, 0x48, 0x00, 0x52, 0x09, 0x6f, 0x6e, 0x6c, 0x69, 0x6e,
-	0x65, 0x49, 0x70, 0x73, 0x42, 0x05, 0x0a, 0x03, 0x6d, 0x73, 0x67, 0x22, 0x85, 0x02, 0x0a, 0x09,
+	0x65, 0x49, 0x70, 0x73, 0x12, 0x32, 0x0a, 0x08, 0x70, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73,
+	0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x70, 0x6f, 0x6c, 0x61, 0x72, 0x69, 0x73,
+	0x2e, 0x76, 0x31, 0x2e, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x48, 0x00, 0x52, 0x08,
+	0x70, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x42, 0x05, 0x0a, 0x03, 0x6d, 0x73, 0x67, 0x22,
+	0xa9, 0x01, 0x0a, 0x08, 0x50, 0x72, 0x6f, 0x67, 0x72, 0x65, 0x73, 0x73, 0x12, 0x16, 0x0a, 0x06,
+	0x61, 0x63, 0x74, 0x69, 0x76, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x08, 0x52, 0x06, 0x61, 0x63,
+	0x74, 0x69, 0x76, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x73, 0x74, 0x61, 0x67, 0x65, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x09, 0x52, 0x05, 0x73, 0x74, 0x61, 0x67, 0x65, 0x12, 0x12, 0x0a, 0x04, 0x64, 0x6f,
+	0x6e, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x03, 0x52, 0x04, 0x64, 0x6f, 0x6e, 0x65, 0x12, 0x14,
+	0x0a, 0x05, 0x74, 0x6f, 0x74, 0x61, 0x6c, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x05, 0x74,
+	0x6f, 0x74, 0x61, 0x6c, 0x12, 0x10, 0x0a, 0x03, 0x72, 0x65, 0x76, 0x18, 0x05, 0x20, 0x01, 0x28,
+	0x03, 0x52, 0x03, 0x72, 0x65, 0x76, 0x12, 0x1d, 0x0a, 0x0a, 0x73, 0x74, 0x61, 0x72, 0x74, 0x65,
+	0x64, 0x5f, 0x61, 0x74, 0x18, 0x06, 0x20, 0x01, 0x28, 0x03, 0x52, 0x09, 0x73, 0x74, 0x61, 0x72,
+	0x74, 0x65, 0x64, 0x41, 0x74, 0x12, 0x14, 0x0a, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x18, 0x07,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x22, 0x85, 0x02, 0x0a, 0x09,
 	0x48, 0x65, 0x61, 0x72, 0x74, 0x62, 0x65, 0x61, 0x74, 0x12, 0x1f, 0x0a, 0x0b, 0x61, 0x70, 0x70,
 	0x6c, 0x69, 0x65, 0x64, 0x5f, 0x72, 0x65, 0x76, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0a,
 	0x61, 0x70, 0x70, 0x6c, 0x69, 0x65, 0x64, 0x52, 0x65, 0x76, 0x12, 0x23, 0x0a, 0x0d, 0x61, 0x67,
@@ -1480,55 +1610,57 @@ func file_polaris_v1_agent_proto_rawDescGZIP() []byte {
 	return file_polaris_v1_agent_proto_rawDescData
 }
 
-var file_polaris_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_polaris_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_polaris_v1_agent_proto_goTypes = []any{
 	(*EnrollRequest)(nil),         // 0: polaris.v1.EnrollRequest
 	(*EnrollResponse)(nil),        // 1: polaris.v1.EnrollResponse
 	(*AgentMessage)(nil),          // 2: polaris.v1.AgentMessage
-	(*Heartbeat)(nil),             // 3: polaris.v1.Heartbeat
-	(*SystemStats)(nil),           // 4: polaris.v1.SystemStats
-	(*CoreState)(nil),             // 5: polaris.v1.CoreState
-	(*ApplyResult)(nil),           // 6: polaris.v1.ApplyResult
-	(*CommandResult)(nil),         // 7: polaris.v1.CommandResult
-	(*OnlineIPs)(nil),             // 8: polaris.v1.OnlineIPs
-	(*UserIPs)(nil),               // 9: polaris.v1.UserIPs
-	(*PanelMessage)(nil),          // 10: polaris.v1.PanelMessage
-	(*SpecChanged)(nil),           // 11: polaris.v1.SpecChanged
-	(*Command)(nil),               // 12: polaris.v1.Command
-	(*GetSpecRequest)(nil),        // 13: polaris.v1.GetSpecRequest
-	(*GetSpecResponse)(nil),       // 14: polaris.v1.GetSpecResponse
-	(*ReportTrafficRequest)(nil),  // 15: polaris.v1.ReportTrafficRequest
-	(*TrafficBatch)(nil),          // 16: polaris.v1.TrafficBatch
-	(*UserTraffic)(nil),           // 17: polaris.v1.UserTraffic
-	(*ReportTrafficResponse)(nil), // 18: polaris.v1.ReportTrafficResponse
-	nil,                           // 19: polaris.v1.Command.ArgsEntry
+	(*Progress)(nil),              // 3: polaris.v1.Progress
+	(*Heartbeat)(nil),             // 4: polaris.v1.Heartbeat
+	(*SystemStats)(nil),           // 5: polaris.v1.SystemStats
+	(*CoreState)(nil),             // 6: polaris.v1.CoreState
+	(*ApplyResult)(nil),           // 7: polaris.v1.ApplyResult
+	(*CommandResult)(nil),         // 8: polaris.v1.CommandResult
+	(*OnlineIPs)(nil),             // 9: polaris.v1.OnlineIPs
+	(*UserIPs)(nil),               // 10: polaris.v1.UserIPs
+	(*PanelMessage)(nil),          // 11: polaris.v1.PanelMessage
+	(*SpecChanged)(nil),           // 12: polaris.v1.SpecChanged
+	(*Command)(nil),               // 13: polaris.v1.Command
+	(*GetSpecRequest)(nil),        // 14: polaris.v1.GetSpecRequest
+	(*GetSpecResponse)(nil),       // 15: polaris.v1.GetSpecResponse
+	(*ReportTrafficRequest)(nil),  // 16: polaris.v1.ReportTrafficRequest
+	(*TrafficBatch)(nil),          // 17: polaris.v1.TrafficBatch
+	(*UserTraffic)(nil),           // 18: polaris.v1.UserTraffic
+	(*ReportTrafficResponse)(nil), // 19: polaris.v1.ReportTrafficResponse
+	nil,                           // 20: polaris.v1.Command.ArgsEntry
 }
 var file_polaris_v1_agent_proto_depIdxs = []int32{
-	3,  // 0: polaris.v1.AgentMessage.heartbeat:type_name -> polaris.v1.Heartbeat
-	6,  // 1: polaris.v1.AgentMessage.apply_result:type_name -> polaris.v1.ApplyResult
-	7,  // 2: polaris.v1.AgentMessage.command_result:type_name -> polaris.v1.CommandResult
-	8,  // 3: polaris.v1.AgentMessage.online_ips:type_name -> polaris.v1.OnlineIPs
-	4,  // 4: polaris.v1.Heartbeat.system:type_name -> polaris.v1.SystemStats
-	5,  // 5: polaris.v1.Heartbeat.cores:type_name -> polaris.v1.CoreState
-	9,  // 6: polaris.v1.OnlineIPs.users:type_name -> polaris.v1.UserIPs
-	11, // 7: polaris.v1.PanelMessage.spec_changed:type_name -> polaris.v1.SpecChanged
-	12, // 8: polaris.v1.PanelMessage.command:type_name -> polaris.v1.Command
-	19, // 9: polaris.v1.Command.args:type_name -> polaris.v1.Command.ArgsEntry
-	16, // 10: polaris.v1.ReportTrafficRequest.batches:type_name -> polaris.v1.TrafficBatch
-	17, // 11: polaris.v1.TrafficBatch.users:type_name -> polaris.v1.UserTraffic
-	0,  // 12: polaris.v1.AgentService.Enroll:input_type -> polaris.v1.EnrollRequest
-	2,  // 13: polaris.v1.AgentService.Connect:input_type -> polaris.v1.AgentMessage
-	13, // 14: polaris.v1.AgentService.GetSpec:input_type -> polaris.v1.GetSpecRequest
-	15, // 15: polaris.v1.AgentService.ReportTraffic:input_type -> polaris.v1.ReportTrafficRequest
-	1,  // 16: polaris.v1.AgentService.Enroll:output_type -> polaris.v1.EnrollResponse
-	10, // 17: polaris.v1.AgentService.Connect:output_type -> polaris.v1.PanelMessage
-	14, // 18: polaris.v1.AgentService.GetSpec:output_type -> polaris.v1.GetSpecResponse
-	18, // 19: polaris.v1.AgentService.ReportTraffic:output_type -> polaris.v1.ReportTrafficResponse
-	16, // [16:20] is the sub-list for method output_type
-	12, // [12:16] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	4,  // 0: polaris.v1.AgentMessage.heartbeat:type_name -> polaris.v1.Heartbeat
+	7,  // 1: polaris.v1.AgentMessage.apply_result:type_name -> polaris.v1.ApplyResult
+	8,  // 2: polaris.v1.AgentMessage.command_result:type_name -> polaris.v1.CommandResult
+	9,  // 3: polaris.v1.AgentMessage.online_ips:type_name -> polaris.v1.OnlineIPs
+	3,  // 4: polaris.v1.AgentMessage.progress:type_name -> polaris.v1.Progress
+	5,  // 5: polaris.v1.Heartbeat.system:type_name -> polaris.v1.SystemStats
+	6,  // 6: polaris.v1.Heartbeat.cores:type_name -> polaris.v1.CoreState
+	10, // 7: polaris.v1.OnlineIPs.users:type_name -> polaris.v1.UserIPs
+	12, // 8: polaris.v1.PanelMessage.spec_changed:type_name -> polaris.v1.SpecChanged
+	13, // 9: polaris.v1.PanelMessage.command:type_name -> polaris.v1.Command
+	20, // 10: polaris.v1.Command.args:type_name -> polaris.v1.Command.ArgsEntry
+	17, // 11: polaris.v1.ReportTrafficRequest.batches:type_name -> polaris.v1.TrafficBatch
+	18, // 12: polaris.v1.TrafficBatch.users:type_name -> polaris.v1.UserTraffic
+	0,  // 13: polaris.v1.AgentService.Enroll:input_type -> polaris.v1.EnrollRequest
+	2,  // 14: polaris.v1.AgentService.Connect:input_type -> polaris.v1.AgentMessage
+	14, // 15: polaris.v1.AgentService.GetSpec:input_type -> polaris.v1.GetSpecRequest
+	16, // 16: polaris.v1.AgentService.ReportTraffic:input_type -> polaris.v1.ReportTrafficRequest
+	1,  // 17: polaris.v1.AgentService.Enroll:output_type -> polaris.v1.EnrollResponse
+	11, // 18: polaris.v1.AgentService.Connect:output_type -> polaris.v1.PanelMessage
+	15, // 19: polaris.v1.AgentService.GetSpec:output_type -> polaris.v1.GetSpecResponse
+	19, // 20: polaris.v1.AgentService.ReportTraffic:output_type -> polaris.v1.ReportTrafficResponse
+	17, // [17:21] is the sub-list for method output_type
+	13, // [13:17] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_polaris_v1_agent_proto_init() }
@@ -1541,8 +1673,9 @@ func file_polaris_v1_agent_proto_init() {
 		(*AgentMessage_ApplyResult)(nil),
 		(*AgentMessage_CommandResult)(nil),
 		(*AgentMessage_OnlineIps)(nil),
+		(*AgentMessage_Progress)(nil),
 	}
-	file_polaris_v1_agent_proto_msgTypes[10].OneofWrappers = []any{
+	file_polaris_v1_agent_proto_msgTypes[11].OneofWrappers = []any{
 		(*PanelMessage_SpecChanged)(nil),
 		(*PanelMessage_Command)(nil),
 	}
@@ -1552,7 +1685,7 @@ func file_polaris_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_polaris_v1_agent_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   20,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

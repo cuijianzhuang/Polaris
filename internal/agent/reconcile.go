@@ -130,6 +130,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.RealmForwards()) > 0) ||
 			(t == model.CoreGost && len(spec.GostForwards()) > 0) ||
 			(t == model.CoreCaddy && len(spec.Fronts) > 0)
+		a.progress.step("准备 "+coreLabel(cs), 0, 0)
 		m, old, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
@@ -139,8 +140,10 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 			continue // installed, nothing to serve
 		}
 		if t == model.CoreXray && spec.Geodata != nil {
+			a.progress.step("下载 Geo 数据", 0, 0)
 			a.fetchGeoAssets(ctx, m.binDir, spec.Geodata.Assets, false)
 		}
+		a.progress.step("启动 "+coreLabel(cs), 0, 0)
 		corePrev := m.applied
 		if corePrev == nil && old == nil {
 			corePrev = prev

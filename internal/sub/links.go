@@ -22,6 +22,11 @@ func (linksRenderer) ContentType() string { return "text/plain; charset=utf-8" }
 func (linksRenderer) Render(nodes []Node, info Info, _ string) ([]byte, error) {
 	var lines []string
 	if info.StatusLine {
+		// Shadowrocket names the subscription from REMARKS= (otherwise it
+		// shows the host the link was added with).
+		if t := strings.TrimSpace(strings.ReplaceAll(info.Title, "\n", " ")); t != "" {
+			lines = append(lines, "REMARKS="+t)
+		}
 		lines = append(lines, "STATUS="+StatusText(info))
 	}
 	for _, n := range nodes {

@@ -60,6 +60,57 @@ function Spark({ id }: { id: string }) {
   )
 }
 
+function useTick(on: boolean) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!on) return
+    const t = setInterval(() => tick((x) => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [on])
+}
+
+function dur(sec: number) {
+  sec = Math.max(0, Math.round(sec))
+  return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`
+}
+
+// NodeActivity shows what the agent is doing: the current step with a
+// progress bar (bytes when known), how a recent activity ended, or that the
+// panel is still waiting for the node to pick up a new revision.
+export function NodeActivity({ n, compact }: { n: Node; compact?: boolean }) {
+  const p = n.progress
+  const waiting = !p?.active && n.connected && n.appliedRev < n.desiredRev && n.status !== 'error'
+  useTick(!!p?.active || waiting)
+  if (p?.active) {
+    const pct = p.total > 0 ? Math.min(100, (p.done / p.total) * 100) : -1
+    const elapsed = Date.now() / 1000 - p.startedAt
+    return (
+      <div className={'nact' + (compact ? ' compact' : '')} role="status" aria-live="polite">
+        <div className="nact-row">
+          <span className="nact-stage"><span className="spinner" /><span className="nact-text">{p.stage || '处理中'}</span>{p.rev && !compact ? <span className="nact-dim">· rev {p.rev}</span> : null}</span>
+          <span className="nact-dim mono">{pct >= 0 ? `${bytes(p.done)} / ${bytes(p.total)} · ${Math.round(pct)}%` : p.done > 0 ? bytes(p.done) : ''}{!compact && ` · 已用 ${dur(elapsed)}`}</span>
+        </div>
+        <div className={'nact-bar' + (pct < 0 ? ' indet' : '')}><span style={pct >= 0 ? { width: pct + '%' } : undefined} /></div>
+      </div>
+    )
+  }
+  if (p && !p.active) {
+    const took = (new Date(p.at).getTime() / 1000) - p.startedAt
+    return p.error
+      ? <div className={'nact bad' + (compact ? ' compact' : '')} role="status"><span className="nact-stage"><span className="nact-text">✗ {p.stage ? p.stage + ' 失败' : '失败'}</span></span>{!compact && <span className="nact-err">{p.error}</span>}</div>
+      : <div className={'nact ok' + (compact ? ' compact' : '')} role="status"><span className="nact-stage">✓ {p.rev ? `rev ${p.rev} 已应用` : '已完成'}</span><span className="nact-dim">用时 {dur(took)}</span></div>
+  }
+  if (waiting) {
+    return (
+      <div className={'nact' + (compact ? ' compact' : '')} role="status">
+        <div className="nact-row"><span className="nact-stage"><span className="spinner" />等待节点应用 rev {n.desiredRev}</span><span className="nact-dim mono">当前 rev {n.appliedRev}</span></div>
+        <div className="nact-bar indet"><span /></div>
+      </div>
+    )
+  }
+  return null
+}
+
 // NodeCard is one tile of the node wall: status, live rate with a sparkline,
 // CPU and memory rings, today's traffic and cores.
 export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; on: boolean; onClick: () => void; traffic?: NodeTraffic; badge?: ReactNode }) {
@@ -82,6 +133,7 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
           <Ring value={n.system.mem} label="内存" />
         </div>
       ) : <div className="nc-off">{n.status === 'pending' ? '等待 Agent 接入' : '节点离线，暂无实时数据'}</div>}
+      <NodeActivity n={n} compact />
       <div className="nc-foot">
         <span className="mono">{traffic ? `今日 ${bytes(traffic.todayUp + traffic.todayDown)}` : '今日 —'}</span>
         <span>{n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>)}</span>

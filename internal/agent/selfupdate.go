@@ -24,7 +24,7 @@ var ErrRestart = errors.New("agent binary replaced; restart required")
 // panel's agent endpoint (same mTLS identity as the control stream),
 // verifies its SHA-256 and that it runs, and atomically replaces the running
 // executable. It does not restart; see requestRestart.
-func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (string, error) {
+func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (_ string, err error) {
 	want := strings.ToLower(args["sha256_"+runtime.GOARCH])
 	version := args["version"]
 	if version != "" && version == Version && version != "dev" {
@@ -43,6 +43,8 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (string,
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return "", err
 	}
+	end := a.progress.begin(0, "下载 agent "+version)
+	defer func() { end(err) }()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(a.cfg.PanelURL, "/")+"/agent/binary/"+runtime.GOARCH, nil)
@@ -63,7 +65,8 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (string,
 	}
 	defer os.Remove(tmp.Name()) // no-op after the rename
 	h := sha256.New()
-	_, err = io.Copy(io.MultiWriter(tmp, h), io.LimitReader(resp.Body, 200<<20))
+	body := &progressReader{r: resp.Body, total: max(resp.ContentLength, 0), stage: "下载 agent " + version, p: &a.progress}
+	_, err = io.Copy(io.MultiWriter(tmp, h), io.LimitReader(body, 200<<20))
 	tmp.Close()
 	if err != nil {
 		return "", fmt.Errorf("download: %w", err)
@@ -74,6 +77,7 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (string,
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
 		return "", err
 	}
+	a.progress.step("校验 agent "+version, 0, 0)
 	// The new binary must at least start on this machine.
 	vctx, vcancel := context.WithTimeout(ctx, 10*time.Second)
 	defer vcancel()

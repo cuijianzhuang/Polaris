@@ -195,8 +195,12 @@ func TestShadowrocketStatusLine(t *testing.T) {
 	if got := StatusText(Info{Upload: 2013646, Download: 22882138}); got != "已用 23.7 MB · 不限流量 · 长期有效" {
 		t.Fatalf("unlimited: %q", got)
 	}
-	out, _ = r.Render(nodes, Info{}, "")
-	if dec, _ := base64.StdEncoding.DecodeString(string(out)); strings.Contains(string(dec), "STATUS=") {
+	out, _ = r.Render(nodes, Info{Title: "Polaris", StatusLine: true}, "")
+	if dec, _ := base64.StdEncoding.DecodeString(string(out)); !strings.HasPrefix(string(dec), "REMARKS=Polaris\nSTATUS=") {
+		t.Fatalf("subscription name for Shadowrocket: %q", dec)
+	}
+	out, _ = r.Render(nodes, Info{Title: "Polaris"}, "")
+	if dec, _ := base64.StdEncoding.DecodeString(string(out)); strings.Contains(string(dec), "STATUS=") || strings.Contains(string(dec), "REMARKS=") {
 		t.Fatal("STATUS line only for Shadowrocket")
 	}
 }

@@ -93,7 +93,16 @@ func templateData(nodes []Node, info Info, proxies string) map[string]any {
 		"Regions":     GroupByRegion(nodes),
 		"URL":         info.URL,
 		"Title":       info.Title,
+		// UpdateSeconds: refetch interval for managed profiles (Surge).
+		"UpdateSeconds": updateSeconds(info.UpdateHours),
 	}
+}
+
+func updateSeconds(hours int) int {
+	if hours <= 0 {
+		return 12 * 3600
+	}
+	return hours * 3600
 }
 
 func flowList(ss []string) string {

@@ -34,6 +34,8 @@ type Installer struct {
 	HTTP   *http.Client
 	// AllowUnverified permits installs when no official digest is published.
 	AllowUnverified bool
+	// progress, when set, receives the install steps and download bytes.
+	progress *progressTracker
 
 	mu    sync.Mutex
 	tried map[string]bool // sing-box versions already offered the stats build this run
@@ -218,6 +220,11 @@ func (i *Installer) mirror(u string) string {
 }
 
 func (i *Installer) get(ctx context.Context, u string) ([]byte, error) {
+	return i.getP(ctx, u, "")
+}
+
+// getP is get with the download reported under stage (when non-empty).
+func (i *Installer) getP(ctx context.Context, u, stage string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, i.mirror(u), nil)
 	if err != nil {
 		return nil, err
@@ -231,7 +238,11 @@ func (i *Installer) get(ctx context.Context, u string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: %s", u, resp.Status)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 512<<20))
+	var body io.Reader = resp.Body
+	if stage != "" && i.progress != nil {
+		body = &progressReader{r: resp.Body, total: max(resp.ContentLength, 0), stage: stage, p: i.progress}
+	}
+	return io.ReadAll(io.LimitReader(body, 512<<20))
 }
 
 // BinPath returns the executable path for an installed version.
@@ -309,16 +320,19 @@ func (i *Installer) firstTry(cs model.CoreSpec) bool {
 // install downloads, verifies and unpacks one release into bin's directory.
 func (i *Installer) install(ctx context.Context, cs model.CoreSpec, rel *release, bin string) error {
 	var err error
+	name := coreLabel(cs)
+	i.step("获取 "+name+" 校验值", 0, 0)
 	want := strings.ToLower(cs.SHA256)
 	if want == "" || rel.marker != "" { // a pinned digest is the upstream asset's
 		if want, err = rel.digest(ctx, i, rel.url); err != nil && (!i.AllowUnverified || rel.marker != "") {
 			return fmt.Errorf("cannot verify %s %s: %w", cs.Type, cs.Version, err)
 		}
 	}
-	data, err := i.get(ctx, rel.url)
+	data, err := i.getP(ctx, rel.url, "下载 "+name)
 	if err != nil {
 		return err
 	}
+	i.step("校验并解压 "+name, 0, 0)
 	sum := sha256.Sum256(data)
 	got := hex.EncodeToString(sum[:])
 	if want != "" && !strings.EqualFold(got, want) {
@@ -352,6 +366,20 @@ func (i *Installer) install(ctx context.Context, cs model.CoreSpec, rel *release
 	}
 	os.RemoveAll(old)
 	return nil
+}
+
+func (i *Installer) step(stage string, done, total int64) {
+	if i.progress != nil {
+		i.progress.step(stage, done, total)
+	}
+}
+
+// coreLabel names a core version for progress messages.
+func coreLabel(cs model.CoreSpec) string {
+	if cs.Version == "" {
+		return string(cs.Type)
+	}
+	return string(cs.Type) + " " + strings.TrimPrefix(cs.Version, "v")
 }
 
 func (i *Installer) link(cs model.CoreSpec) error {

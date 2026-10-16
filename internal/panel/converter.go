@@ -320,7 +320,12 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	info.Announce = strings.TrimSpace(s.st.GetSetting("sub_announce", ""))
 	planInfo(&info, u)
 	info.StatusLine = format == "links" && !raw && strings.Contains(strings.ToLower(c.GetHeader("User-Agent")), "shadowrocket")
-	nodes = applyNodeOpts(s.decorateNodes(nodes, info), ro)
+	if h, err := strconv.Atoi(s.st.GetSetting("sub_update_interval", "1")); err == nil {
+		info.UpdateHours = h
+	}
+	// The external converter's callback (raw) is not the client: leave the
+	// auto mode's decision to the real request.
+	nodes = applyNodeOpts(s.decorateNodes(nodes, info, raw || sub.ReadsProfileHeaders(c.GetHeader("User-Agent"))), ro)
 	var body []byte
 	ctype := ""
 	if cc.External && !raw && format != "links" {
@@ -350,7 +355,8 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 		ctype = r.ContentType()
 	}
 	s.subHeaders(c, info)
-	c.Header("content-disposition", "attachment; filename*=UTF-8''"+url.PathEscape(info.Title))
+	// filename for clients that ignore the RFC 5987 form (older Clash builds).
+	c.Header("content-disposition", "attachment; filename=\""+asciiName(info.Title)+"\"; filename*=UTF-8''"+url.PathEscape(info.Title))
 	c.Data(http.StatusOK, ctype, body)
 }
 
@@ -631,4 +637,19 @@ func (s *Server) subMeta(c *gin.Context) {
 		rs = append(rs, region{r.Code, sub.Flag(r.Code) + " " + r.Zh})
 	}
 	c.JSON(http.StatusOK, gin.H{"formats": sub.Formats(), "regions": rs, "schemes": sub.Presets()})
+}
+
+// asciiName keeps the ASCII letters, digits and -_. of a title ("polaris"
+// when nothing is left).
+func asciiName(t string) string {
+	var b strings.Builder
+	for _, r := range t {
+		if r < 128 && (r == '-' || r == '_' || r == '.' || r == ' ' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			b.WriteRune(r)
+		}
+	}
+	if s := strings.TrimSpace(b.String()); s != "" {
+		return s
+	}
+	return "polaris"
 }

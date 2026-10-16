@@ -212,7 +212,20 @@ func TestEndToEnd(t *testing.T) {
 		"protocol": map[string]any{"type": "tuic"}}, nil) != 400 {
 		t.Fatal("capability check missing")
 	}
-	waitApplied("inbound applied", 1)
+	rev := waitApplied("inbound applied", 1)
+	// The agent reported the apply as it went; the finished activity stays
+	// visible on the node for a while.
+	waitFor(t, "apply progress reported", 5*time.Second, func() bool {
+		var n struct {
+			Progress *struct {
+				Active bool
+				Rev    float64
+				Error  string
+			}
+		}
+		a.do("GET", "/nodes/"+created.Node.ID, nil, &n)
+		return n.Progress != nil && !n.Progress.Active && n.Progress.Rev == rev && n.Progress.Error == ""
+	})
 	waitFor(t, "xray listening", 5*time.Second, func() bool {
 		c, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", inPort))
 		if err == nil {
