@@ -27,7 +27,7 @@ export interface RealityScanResult {
 }
 
 export interface Combo { protocol: Protocol; transport: Transport; security: Security }
-export interface CapSet { core: CoreType; version: string; combos: Combo[]; flows?: string[]; features?: string[]; hotUsers: boolean; outbounds?: string[]; realIp: boolean; balancers?: string[] }
+export interface CapSet { core: CoreType; version: string; combos: Combo[] | null; flows?: string[]; features?: string[]; hotUsers: boolean; outbounds?: string[]; realIp: boolean; balancers?: string[] }
 
 export interface SystemInfo { cpu: number; mem: number; rxBps: number; txBps: number; uptime: number; load1: number; hostname: string }
 export interface Core {

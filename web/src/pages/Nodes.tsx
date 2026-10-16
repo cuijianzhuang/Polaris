@@ -25,7 +25,7 @@ function useCoreDefaults(): Record<string, string> {
 function capsSummary(c?: CapSet): string[] {
   if (!c) return []
   const out = new Set<string>()
-  for (const x of c.combos) {
+  for (const x of c.combos ?? []) {
     out.add(protoLabel[x.protocol])
     if (x.security === 'reality') out.add('REALITY')
     if (x.transport === 'xhttp') out.add('XHTTP')

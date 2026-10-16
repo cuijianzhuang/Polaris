@@ -20,11 +20,11 @@ const SECURITIES: Security[] = ['reality', 'tls', 'none']
 const SS_METHODS = ['2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305']
 
 function supports(caps: CapSet[], p?: Protocol, t?: Transport, s?: Security) {
-  return caps.some((c) => c.combos.some((x) => (!p || x.protocol === p) && (!t || x.transport === t) && (!s || x.security === s)))
+  return caps.some((c) => c.combos?.some((x) => (!p || x.protocol === p) && (!t || x.transport === t) && (!s || x.security === s)))
 }
 
 function onlyOn(all: CapSet[], p: Protocol): string {
-  const who = all.filter((c) => c.combos.some((x) => x.protocol === p)).map((c) => coreLabel[c.core])
+  const who = all.filter((c) => c.combos?.some((x) => x.protocol === p)).map((c) => coreLabel[c.core])
   return who.length ? '仅 ' + who.join(' / ') : '无内核支持'
 }
 
