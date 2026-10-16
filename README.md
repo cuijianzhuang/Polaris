@@ -55,12 +55,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
 其他参数：`--version v0.1.0-beta`、`--port`、`--agent-port`、`--admin-path`、`--no-caddy`（自备反代）、`--mirror`（GitHub 下载加速前缀）。
 
-安装后在服务器上输入 **`polaris`** 打开交互式管理菜单（`polaris-ctl` 为同一命令的别名）（安装 / 升级 / 卸载、启停与日志、查看后台地址、重置管理员密码、关闭二次验证、修改后台路径与端口、绑定域名切换 HTTPS、备份、开机自启），也可以直接带子命令：
+安装后在服务器上输入 **`polaris`** 打开交互式管理菜单（`polaris-ctl` 为同一命令的别名）（顶部显示面板 / 本机节点运行状态、运行时长、内存、系统负载与新版本提醒；按「安装与升级 / 服务管理 / 面板设置 / 工具」分组：安装、升级、检查更新、卸载、启停与日志、开机自启、面板信息、修改后台路径与端口、绑定域名切换 HTTPS、重置管理员密码、关闭二次验证、备份、本机节点、系统诊断）。安装、改端口、绑定域名时会自动在已启用的 ufw / firewalld 中放行端口（云服务器安全组仍需手动放行）。也可以直接带子命令：
 
 ```bash
 polaris                      # 交互式菜单
-polaris info                 # 后台地址、端口、运行状态
-polaris update               # 升级（先备份数据库，配置不变）
+polaris info                 # 服务状态、后台地址、端口监听与防火墙、数据库、磁盘、系统信息
+polaris doctor               # 系统诊断：服务、端口、防火墙、域名解析与 HTTPS、时间同步、磁盘、错误日志
+polaris check-update         # 检查是否有新版本
+polaris update [--force]     # 升级（先备份数据库，配置不变；已是最新时跳过，--force 强制重装）
 polaris reset-password       # 忘记密码：生成新密码、解除锁定、注销所有会话
 polaris reset-2fa            # 丢失验证器：关闭二次验证
 polaris set-domain panel.example.com   # 由 IP + HTTP 切换到域名 + HTTPS
