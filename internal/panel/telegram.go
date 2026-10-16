@@ -676,12 +676,13 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 		case "nodes":
 			b.edit(chat, msg, b.userNodesText(id.user), backRow("v:nodes"))
 		case "reset":
-			b.send(chat, "⚠️ 确定重置订阅链接？\n旧链接将立即失效，所有客户端都需要重新导入。", []button{{Text: "确认重置", Data: "me:reset!"}, btnHome})
+			b.send(chat, "⚠️ 确定重置订阅链接？\n旧链接和已导入的节点将立即失效，所有客户端都需要重新导入。", []button{{Text: "确认重置", Data: "me:reset!"}, btnHome})
 		case "reset!":
-			tok := pki.Token(32)
-			b.s.st.DB.Model(&store.User{}).Where("id = ?", id.user.ID).Update("sub_token", tok)
+			if err := b.s.rotateUserCredentials(id.user); err != nil {
+				b.send(chat, "重置失败："+esc(err.Error()))
+				break
+			}
 			b.s.audit("telegram", "user.reset_token", id.user.Username, "self-service", "")
-			id.user.SubToken = tok
 			b.sendSub(chat, id.user)
 		}
 		answer("")
@@ -810,7 +811,10 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.s.recomputeStatus(u.ID)
 			done = "已续期 30 天"
 		case "k":
-			b.s.st.DB.Model(&u).Update("sub_token", pki.Token(32))
+			if err := b.s.rotateUserCredentials(&u); err != nil {
+				answer("重置失败")
+				return
+			}
 			done = "订阅已重置"
 		}
 		if done != "" {

@@ -94,7 +94,7 @@ function copyText(t){if(navigator.clipboard&&window.isSecureContext){return navi
 document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;e.preventDefault();var t=b.getAttribute('data-copy'),l=b.textContent;
 copyText(t).then(function(){b.textContent='已复制';setTimeout(function(){b.textContent=l},1500)},function(){prompt('复制以下内容',t)})});
 {{if .Portal}}document.addEventListener('click',function(e){var b=e.target.closest('[data-portal]');if(!b)return;var a=b.getAttribute('data-portal');
-if(a==='reset'&&!confirm('重置后旧订阅链接立即失效，所有客户端都需要重新导入。确定重置？'))return;b.disabled=true;
+if(a==='reset'&&!confirm('重置后旧订阅链接和已导入的节点立即失效，所有客户端都需要重新导入。确定重置？'))return;b.disabled=true;
 fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1'},credentials:'same-origin'}).then(function(r){if(!r.ok)throw 0;location.replace('/u')}).catch(function(){b.disabled=false;alert('操作失败，请刷新后重试')})});{{end}}
 </script></body></html>`))
 

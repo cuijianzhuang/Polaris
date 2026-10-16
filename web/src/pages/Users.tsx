@@ -599,7 +599,10 @@ export default function Users() {
             <div className="sub">按客户端自动输出：通用链接 · Clash/mihomo · sing-box · Surge；浏览器打开显示订阅信息页</div>
           </div>
           <div className="row">
-            <button className="btn" type="button" onClick={() => run(async () => { await post(`/users/${sel.id}/reset-token`); list.reload() }, 'token 已重置，旧链接立即失效')}>重置 token</button>
+            <button className="btn" type="button" onClick={async () => {
+              if (!(await confirm('重置后旧订阅链接和已导入的节点立即失效（同时更换 UUID / 密码），用户需要重新导入订阅。确定重置？', { danger: true, ok: '重置' }))) return
+              run(async () => { await post(`/users/${sel.id}/reset-token`); list.reload() }, '已重置：旧链接和旧节点立即失效')
+            }}>重置 token</button>
             <button className="btn" type="button" onClick={() => setQr(sel)}>二维码</button>
             <button className="btn" type="button" onClick={() => copySub(sel)}>复制</button>
           </div>

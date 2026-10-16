@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -181,8 +180,9 @@ func (s *Server) portalLogout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// portalReset: POST /u/reset — a new subscription link; the old one (and
-// every other signed-in browser) stops working.
+// portalReset: POST /u/reset — a new subscription link and node credentials;
+// the old link, the nodes imported from it and every other signed-in browser
+// stop working.
 func (s *Server) portalReset(c *gin.Context) {
 	if !portalWrite(c) {
 		return
@@ -192,8 +192,7 @@ func (s *Server) portalReset(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "请重新登录"})
 		return
 	}
-	u.SubToken = pki.Token(32)
-	if err := s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Update("sub_token", u.SubToken).Error; err != nil {
+	if err := s.rotateUserCredentials(u); err != nil {
 		serverError(c, err)
 		return
 	}

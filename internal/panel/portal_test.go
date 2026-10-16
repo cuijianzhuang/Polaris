@@ -174,3 +174,24 @@ func TestPortal(t *testing.T) {
 		t.Fatalf("logout: %d", st)
 	}
 }
+
+// TestResetTokenRotatesCredentials: resetting a user's link also replaces the
+// node credentials, so nodes imported from the old link stop working.
+func TestResetTokenRotatesCredentials(t *testing.T) {
+	s, _, admin := newAdminClient(t)
+	db := s.st.DB
+	db.Create(&store.User{ID: "u1", Username: "alice", UUID: "6f1d3c1c-7a0e-4a9f-9a52-6b8f6e4f1a01", Password: "old-password",
+		SSSeed: "old-seed", Status: "active", SubToken: "alice-subscription-token"})
+	st, out := admin.do("POST", "/users/u1/reset-token", nil)
+	if st != 200 {
+		t.Fatalf("reset: %d %v", st, out)
+	}
+	var u store.User
+	db.First(&u, "id = ?", "u1")
+	if u.SubToken == "alice-subscription-token" || out["subToken"] != u.SubToken {
+		t.Fatalf("token: %+v %v", u, out)
+	}
+	if u.UUID == "6f1d3c1c-7a0e-4a9f-9a52-6b8f6e4f1a01" || u.Password == "old-password" || u.SSSeed == "old-seed" || len(u.UUID) != 36 || u.Password == "" {
+		t.Fatalf("node credentials not rotated: %+v", u)
+	}
+}
