@@ -57,7 +57,7 @@ function Backups() {
     <section className="card"><h2>备份与恢复</h2><div className="note">当前使用 PostgreSQL，请用 pg_dump 备份数据库。</div></section>
   )
   return (
-    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, gridColumn: '1 / -1' }}>
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>备份与恢复</h2>
         <span className="sub" style={{ margin: 0 }}>数据库 {bytes(info.data?.dbSize)} · 保存在 <code>{info.data?.dir}</code></span>
@@ -109,6 +109,13 @@ function Backups() {
   )
 }
 
+const settingTabs = [
+  { id: 'general', label: '常规', hint: '站点、版本、ACME', icon: <Icon.Gear /> },
+  { id: 'security', label: '账号安全', hint: '密码、二次验证、GitHub', icon: <Icon.Lock /> },
+  { id: 'backup', label: '备份与恢复', hint: '自动备份、恢复', icon: <Icon.Download /> },
+  { id: 'appearance', label: '外观', hint: '主题与配色', icon: <Icon.Sun /> },
+]
+
 // Appearance is per browser: mode plus an accent palette.
 function Appearance() {
   const [t, setT] = useTheme()
@@ -159,11 +166,18 @@ export default function Settings() {
     })
   }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
+  const [tab, setTab] = useState<string>(() => settingTabs.some((t) => '#' + t.id === location.hash) ? location.hash.slice(1) : 'general')
+  const go = (id: string) => { setTab(id); history.replaceState(null, '', '#' + id) }
 
   return (
     <>
-      <div className="top"><div><h1>设置</h1><div className="sub">面板、订阅、证书与账号安全</div></div></div>
-      <div className="grid g2">
+      <div className="top"><div><h1>设置</h1><div className="sub">面板、证书、账号安全、备份与外观</div></div></div>
+      <div className="settings">
+        <nav className="snav" aria-label="设置分区">
+          {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
+        </nav>
+        <div className="spane" key={tab}>
+        {tab === 'general' && <>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>常规</h2>
           <div className="form-grid">
@@ -197,8 +211,10 @@ export default function Settings() {
           <Field label="CA 指纹（SHA-256）" hint="安装命令携带此指纹，Agent 首次接入时校验主控身份"><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
-        <Appearance />
-        <Backups />
+        </>}
+        {tab === 'appearance' && <Appearance />}
+        {tab === 'backup' && <Backups />}
+        {tab === 'security' && <>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>
           <Field label="原密码"><input className="input" type={showPw ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" spellCheck={false} value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
@@ -259,6 +275,8 @@ export default function Settings() {
             </div>
           )}
         </section>
+        </>}
+        </div>
       </div>
     </>
   )

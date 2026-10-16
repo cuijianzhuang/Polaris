@@ -3,6 +3,7 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 're
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
+import { recordRates } from './components/NodeCard'
 import { useTheme } from './theme'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import type { Node } from './types'
@@ -52,6 +53,7 @@ function NodesProvider({ children }: { children: ReactNode }) {
     connect()
     return () => { stop = true; clearTimeout(retry); ws?.close() }
   }, [refresh])
+  useEffect(() => { recordRates(nodes) }, [nodes])
   return <NodesCtx.Provider value={{ nodes, refresh }}>{children}</NodesCtx.Provider>
 }
 

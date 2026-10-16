@@ -3,8 +3,9 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
 import TrafficChart from '../components/TrafficChart'
+import NodeCard from '../components/NodeCard'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
-import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
+import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
 import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
 
@@ -381,17 +382,8 @@ export default function Nodes() {
       {nodes.length === 0 ? <div className="card"><Empty>{scoped ? '没有分配给你的节点，请联系超级管理员。' : '还没有节点。'}{scoped ? null : '点击「添加节点」生成一行安装命令，在服务器上执行即可接入。'}</Empty></div> : (
         <>
           <div className="nodes" role="group" aria-label="选择节点">
-            {nodes.map((n) => {
-              const st = nodeStatus[n.status] ?? nodeStatus.pending
-              return (
-                <button key={n.id} type="button" className={'ncard' + (sel?.id === n.id ? ' on' : '')} aria-pressed={sel?.id === n.id} onClick={() => setSelId(n.id)}>
-                  <div style={{ fontWeight: 600 }}><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.name}</div>
-                  <div className="sub">{[n.region, n.address || n.domain || (n.publicIpv4 || n.publicIpv6 ? `${n.publicIpv4 || n.publicIpv6}（自动检测）` : '')].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>} · {n.status === 'online' ? `${n.cores.length} 个内核` : st.label}
-                    {upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) && <span className="tag warn">可升级</span>}</div>
-                  {traffic.data?.[n.id] && <div className="small mute mono" style={{ marginTop: 4 }}>今日 ↑ {bytes(traffic.data[n.id].todayUp)} · ↓ {bytes(traffic.data[n.id].todayDown)}</div>}
-                </button>
-              )
-            })}
+            {nodes.map((n) => <NodeCard key={n.id} n={n} on={sel?.id === n.id} onClick={() => setSelId(n.id)} traffic={traffic.data?.[n.id]}
+              badge={upgrading[n.id] ? <span className="tag info-tag">升级中…</span> : outdated(n) ? <span className="tag warn">可升级</span> : null} />)}
           </div>
           {sel && (
             <>

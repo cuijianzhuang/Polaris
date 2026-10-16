@@ -5,30 +5,97 @@ import { Icon } from './Icons'
 import { errMsg } from '../format'
 
 // --- toasts ---
-type Toast = { id: number; text: string; err?: boolean; leaving?: boolean }
+// A toast is a short message; it can carry an action (撤销), a countdown bar,
+// or a progress bar that the caller updates (batch operations).
+type ToastOpts = { action?: { label: string; fn: () => void }; ttl?: number; progress?: number; sticky?: boolean }
+type Toast = { id: number; text: string; err?: boolean; leaving?: boolean } & ToastOpts
+type ToastApi = {
+  push: (text: string, err?: boolean, opts?: ToastOpts) => number
+  update: (id: number, patch: Partial<Toast>) => void
+  dismiss: (id: number) => void
+}
 const ToastCtx = createContext<(text: string, err?: boolean) => void>(() => {})
+const ToastApiCtx = createContext<ToastApi>({ push: () => 0, update: () => {}, dismiss: () => {} })
 export function useToast() { return useContext(ToastCtx) }
+export function useToastApi() { return useContext(ToastApiCtx) }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([])
-  const push = useCallback((text: string, err?: boolean) => {
-    const id = Date.now() + Math.random()
-    setItems((x) => [...x.slice(-4), { id, text, err }])
-    const ttl = err ? 6000 : 3000
-    setTimeout(() => setItems((x) => x.map((t) => (t.id === id ? { ...t, leaving: true } : t))), ttl - 220)
-    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), ttl)
+  const dismiss = useCallback((id: number) => {
+    setItems((x) => x.map((t) => (t.id === id ? { ...t, leaving: true } : t)))
+    setTimeout(() => setItems((x) => x.filter((t) => t.id !== id)), 220)
   }, [])
+  const push = useCallback((text: string, err?: boolean, opts?: ToastOpts) => {
+    const id = Date.now() + Math.random()
+    setItems((x) => [...x.slice(-4), { id, text, err, ...opts }])
+    if (!opts?.sticky) setTimeout(() => dismiss(id), opts?.ttl ?? (err ? 6000 : 3000))
+    return id
+  }, [dismiss])
+  const update = useCallback((id: number, patch: Partial<Toast>) => setItems((x) => x.map((t) => (t.id === id ? { ...t, ...patch } : t))), [])
+  const simple = useCallback((text: string, err?: boolean) => { push(text, err) }, [push])
+  const api = useRef<ToastApi>({ push, update, dismiss })
+  api.current = { push, update, dismiss }
   return (
-    <ToastCtx.Provider value={push}>
+    <ToastApiCtx.Provider value={api.current}>
+    <ToastCtx.Provider value={simple}>
       {children}
       <div className="toasts" role="status" aria-live="polite">
         {items.map((t) => (
           <div key={t.id} className={'toast' + (t.err ? ' err' : '') + (t.leaving ? ' leaving' : '')}
-            onClick={() => setItems((x) => x.filter((y) => y.id !== t.id))}><span className="toast-ico" aria-hidden="true">{t.err ? '!' : '✓'}</span><span>{t.text}</span></div>
+            onClick={() => { if (!t.action && t.progress === undefined) dismiss(t.id) }}>
+            <span className="toast-ico" aria-hidden="true">{t.progress !== undefined ? <span className="spinner" /> : t.err ? '!' : '✓'}</span>
+            <span className="toast-text">{t.text}</span>
+            {t.action && <button type="button" className="toast-act" onClick={(e) => { e.stopPropagation(); t.action!.fn(); dismiss(t.id) }}>{t.action.label}</button>}
+            {t.action && t.ttl && <span className="toast-timer" style={{ animationDuration: t.ttl + 'ms' }} />}
+            {t.progress !== undefined && <span className="toast-progress"><span style={{ width: `${Math.round(t.progress * 100)}%` }} /></span>}
+          </div>
         ))}
       </div>
     </ToastCtx.Provider>
+    </ToastApiCtx.Provider>
   )
+}
+
+// Pending undoable actions run on their timer, or right away when the page
+// is being left so nothing is silently dropped.
+const pendingUndo = new Map<number, () => void>()
+if (typeof window !== 'undefined') window.addEventListener('pagehide', () => { pendingUndo.forEach((f) => f()); pendingUndo.clear() })
+
+// useUndo hides something at once and commits after a few seconds unless the
+// toast's 撤销 is pressed: commit() does the real work, restore() puts it back.
+export function useUndo() {
+  const t = useToastApi()
+  return useCallback((text: string, commit: () => Promise<unknown>, restore: () => void, ms = 5000) => {
+    let done = false
+    const id = Date.now() + Math.random()
+    const run = () => {
+      if (done) return
+      done = true
+      pendingUndo.delete(id)
+      commit().catch((e) => { restore(); t.push(errMsg(e), true) })
+    }
+    pendingUndo.set(id, run)
+    const timer = setTimeout(run, ms)
+    t.push(text, false, { ttl: ms, action: { label: '撤销', fn: () => { if (done) return; done = true; clearTimeout(timer); pendingUndo.delete(id); restore() } } })
+  }, [t])
+}
+
+// runBatch runs one request per item (a few at a time) with a progress toast.
+export async function runBatch<T>(api: ToastApi, label: string, items: T[], fn: (item: T) => Promise<unknown>, concurrency = 4) {
+  const id = api.push(`${label} 0/${items.length}`, false, { sticky: true, progress: 0 })
+  let done = 0, failed = 0, next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const it = items[next++]
+      try { await fn(it) } catch { failed++ }
+      done++
+      api.update(id, { text: `${label} ${done}/${items.length}`, progress: done / items.length })
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+  api.update(id, { text: failed ? `${label}完成，${failed} 项失败` : `${label}完成（${items.length} 项）`, progress: undefined, err: failed > 0 })
+  setTimeout(() => api.dismiss(id), failed ? 6000 : 2500)
+  return { done, failed }
 }
 
 // useAction wraps an async action with error toasts and a busy flag.
@@ -243,6 +310,22 @@ export function QR({ text, size = 200 }: { text: string; size?: number }) {
 
 export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
   return <div className="empty"><div className="empty-ico" aria-hidden="true">{icon ?? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4M3 17l9 4 9-4" /></svg>}</div>{children}</div>
+}
+
+// Section is a collapsible group in a long form: a numbered header, a
+// one-line summary of its values while collapsed, and the fields.
+export function Section({ step, title, summary, defaultOpen = true, children }: { step?: number; title: string; summary?: ReactNode; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details className="fsec" open={defaultOpen}>
+      <summary>
+        {step !== undefined && <span className="fsec-n">{step}</span>}
+        <span className="fsec-t">{title}</span>
+        {summary && <span className="fsec-s">{summary}</span>}
+        <span className="fsec-c" aria-hidden="true">›</span>
+      </summary>
+      <div className="fsec-b">{children}</div>
+    </details>
+  )
 }
 
 // SkeletonRows is a placeholder table while a list loads.
