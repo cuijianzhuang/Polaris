@@ -37,7 +37,27 @@ message AgentMessage {
     ApplyResult apply_result = 2;
     CommandResult command_result = 3;
     OnlineIPs online_ips = 4;
+    Progress progress = 5;
   }
+}
+
+// Progress reports what the agent is busy with (applying a revision,
+// downloading a core, upgrading itself) so the panel can show it live.
+// Sent when the step changes and at most about once a second while bytes
+// move; active=false ends it. Older panels ignore it.
+message Progress {
+  bool active = 1;
+  // Step shown to the admin, e.g. "下载 xray 26.3.27".
+  string stage = 2;
+  // Bytes (or steps) done and expected; total 0 = unknown.
+  int64 done = 3;
+  int64 total = 4;
+  // Revision being applied, 0 when not applying one.
+  int64 rev = 5;
+  // Unix time the activity began.
+  int64 started_at = 6;
+  // Set on the final message when the activity failed.
+  string error = 7;
 }
 
 message Heartbeat {

@@ -674,3 +674,21 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .toast-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, .12); }
 .toast-progress span { display: block; height: 100%; background: var(--pri-bright); transition: width .2s var(--ease); }
 .toast .spinner { width: 12px; height: 12px; }
+
+/* node activity: what the agent is doing right now */
+.nact { margin-top: 10px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--soft); border: 1px solid var(--line); font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.nact.compact { margin-top: 8px; padding: 6px 8px; font-size: 12px; }
+.nact.ok { flex-direction: row; justify-content: space-between; color: var(--ok-ink); background: var(--ok-bg); border-color: var(--ok-line); }
+.nact.bad { color: var(--bad-ink); background: var(--bad-bg); border-color: var(--bad-line); }
+.nact-row { display: flex; justify-content: space-between; gap: 4px 8px; align-items: center; min-width: 0; flex-wrap: wrap; }
+.nact.compact .nact-row { flex-wrap: nowrap; }
+.nact-stage { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; min-width: 0; flex: 1 1 10em; white-space: nowrap; }
+.nact-stage .spinner { width: 11px; height: 11px; flex: none; border-color: var(--line); border-top-color: var(--pri); }
+.nact-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.nact-dim { color: var(--mute); font-weight: 400; white-space: nowrap; flex: none; }
+.nact-err { color: var(--bad-ink); word-break: break-word; font-size: 12px; }
+.nact-bar { height: 4px; border-radius: 99px; background: var(--line-2); overflow: hidden; }
+.nact-bar span { display: block; height: 100%; width: 0; background: var(--pri); border-radius: inherit; transition: width .5s var(--ease-out); }
+.nact-bar.indet span { width: 35%; animation: nact-slide 1.2s var(--ease) infinite; }
+@keyframes nact-slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .nact-bar.indet span { animation: none; width: 100%; opacity: .5; } }

@@ -111,6 +111,7 @@ func (a *agentService) Connect(ctx context.Context, stream *connect.BidiStream[p
 		a.s.hub.unregister(conn)
 		a.s.hbMu.Lock()
 		delete(a.s.hbCores, n.ID)
+		delete(a.s.progress, n.ID)
 		a.s.hbMu.Unlock()
 		if !a.s.hub.Online(n.ID) {
 			a.s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Update("status", "offline")
@@ -165,6 +166,8 @@ func (a *agentService) handle(nodeID string, msg *polarisv1.AgentMessage) {
 		a.s.hub.resolve(nodeID, m.CommandResult)
 	case *polarisv1.AgentMessage_OnlineIps:
 		a.s.handleOnlineIPs(nodeID, m.OnlineIps)
+	case *polarisv1.AgentMessage_Progress:
+		a.s.handleProgress(nodeID, m.Progress)
 	}
 }
 
@@ -317,4 +320,47 @@ func (s *Server) handleApplyResult(nodeID string, r *polarisv1.ApplyResult) {
 type hbCoreState struct {
 	key string
 	at  time.Time
+}
+
+// nodeProgress is what a node's agent is doing right now (kept in memory
+// only). A finished activity stays visible for progressLinger so the admin
+// sees how it ended.
+type nodeProgress struct {
+	Active    bool      `json:"active"`
+	Stage     string    `json:"stage"`
+	Done      int64     `json:"done"`
+	Total     int64     `json:"total"`
+	Rev       int64     `json:"rev,omitempty"`
+	StartedAt int64     `json:"startedAt"`
+	Error     string    `json:"error,omitempty"`
+	At        time.Time `json:"at"`
+}
+
+const progressLinger = time.Minute
+
+func (s *Server) handleProgress(nodeID string, p *polarisv1.Progress) {
+	s.hbMu.Lock()
+	if s.progress == nil {
+		s.progress = map[string]*nodeProgress{}
+	}
+	s.progress[nodeID] = &nodeProgress{Active: p.Active, Stage: truncate(p.Stage, 200), Done: p.Done, Total: p.Total,
+		Rev: p.Rev, StartedAt: p.StartedAt, Error: truncate(p.Error, 500), At: time.Now()}
+	s.hbMu.Unlock()
+	s.broadcastNodes()
+}
+
+// nodeProgressFor returns the activity to show for a node, if any.
+func (s *Server) nodeProgressFor(nodeID string) *nodeProgress {
+	s.hbMu.Lock()
+	defer s.hbMu.Unlock()
+	p := s.progress[nodeID]
+	if p == nil {
+		return nil
+	}
+	if !p.Active && time.Since(p.At) > progressLinger {
+		delete(s.progress, nodeID)
+		return nil
+	}
+	c := *p
+	return &c
 }

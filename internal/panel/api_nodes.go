@@ -20,9 +20,10 @@ import (
 
 type nodeView struct {
 	store.Node
-	Cores        []store.Core `json:"cores"`
-	InboundCount int64        `json:"inboundCount"`
-	Connected    bool         `json:"connected"`
+	Cores        []store.Core  `json:"cores"`
+	InboundCount int64         `json:"inboundCount"`
+	Connected    bool          `json:"connected"`
+	Progress     *nodeProgress `json:"progress,omitempty"`
 }
 
 func (s *Server) nodeViews() []nodeView {
@@ -39,7 +40,7 @@ func (s *Server) nodeViews() []nodeView {
 	s.st.DB.Model(&store.Inbound{}).Select("node_id, core, count(*) AS n").Group("node_id, core").Scan(&counts)
 	out := make([]nodeView, 0, len(ns))
 	for _, n := range ns {
-		v := nodeView{Node: n, Cores: []store.Core{}, Connected: s.hub.Online(n.ID)}
+		v := nodeView{Node: n, Cores: []store.Core{}, Connected: s.hub.Online(n.ID), Progress: s.nodeProgressFor(n.ID)}
 		for _, c := range cores {
 			if c.NodeID == n.ID {
 				for _, k := range counts {

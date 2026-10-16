@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
 import TrafficChart from '../components/TrafficChart'
-import NodeCard from '../components/NodeCard'
+import NodeCard, { NodeActivity } from '../components/NodeCard'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
@@ -300,7 +300,7 @@ export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: 
       <button className="btn pri" type="button" disabled={busy || !version} onClick={() => run(async () => {
         await post(`/nodes/${node.id}/cores`, { type, version, isDefault })
         onSaved()
-      }, '已下发，Agent 将下载并校验 SHA256 后切换')}>确定</button>
+      }, '已下发，下载和安装进度会显示在节点状态里')}>确定</button>
     </>}>
       {!core && (
         <Field label="内核">
@@ -417,7 +417,8 @@ export default function Nodes() {
                         {upgrading[sel.id] ? <><span className="spinner" />升级中…</> : '升级 Agent'}
                       </button>
                     )}
-                    <button className="btn sm" type="button" disabled={busy} onClick={() => run(() => post(`/nodes/${sel.id}/sync`), '已强制同步')}>强制同步</button>
+                    <button className="btn sm" type="button" disabled={busy || !!sel.progress?.active} title={sel.progress?.active ? '节点正在处理上一项操作，请等它完成' : undefined}
+                      onClick={() => run(() => post(`/nodes/${sel.id}/sync`), '已下发，节点正在应用')}>强制同步</button>
                     <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                       if (await confirm('回滚到上一个成功应用的配置版本？')) run(() => post(`/nodes/${sel.id}/rollback`, {}), '已回滚')
                     }}>回滚到上一版</button>
@@ -425,7 +426,8 @@ export default function Nodes() {
                     {!scoped && <button className="btn sm" type="button" onClick={() => setEditing(sel)}>编辑</button>}
                   </div>
                 </div>
-                {sel.lastError && <div className="note bad" style={{ marginTop: 12 }}>最近一次下发失败：{sel.lastError}</div>}
+                {(sel.progress || (sel.connected && sel.appliedRev < sel.desiredRev && sel.status !== 'error')) && <div style={{ marginTop: 12 }}><NodeActivity n={sel} /></div>}
+                {sel.lastError && !sel.progress?.active && !sel.progress?.error && <div className="note bad" style={{ marginTop: 12 }}>最近一次下发失败：{sel.lastError}</div>}
               </section>
               <section className="card"><TrafficChart query={'node=' + sel.id} title="节点用户流量" /></section>
               <h2>内核</h2>
@@ -433,11 +435,12 @@ export default function Nodes() {
                 {sel.cores.map((c) => {
                   const cap = caps.data?.find((x) => x.core === c.type)
                   const running = c.status === 'running'
+                  const working = !!sel.progress?.active && sel.progress.stage.includes(c.type)
                   return (
                     <article key={c.id} className="core">
                       <div className="row" style={{ justifyContent: 'space-between' }}>
                         <div className="cname"><span className="swatch" style={{ background: coreColor[c.type] }} />{coreLabel[c.type]}{c.isDefault && <span className="tag">默认</span>}</div>
-                        <span className={'st ' + (running ? 'ok' : c.status === 'installing' ? 'warn' : 'off')}>{running ? '● 运行中' : c.status === 'installing' ? '安装中' : c.inbounds ? '已停止' : '空闲'}</span>
+                        <span className={'st ' + (working ? 'warn' : running ? 'ok' : c.status === 'installing' ? 'warn' : 'off')}>{working ? '处理中…' : running ? '● 运行中' : c.status === 'installing' ? '安装中' : c.inbounds ? '已停止' : '空闲'}</span>
                       </div>
                       <div className="meta">
                         <div><span>版本</span>{scoped ? <span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>v{c.version}</span> : <button className="link mono" type="button" onClick={() => setCoreForm({ core: c })}>v{c.version}</button>}
@@ -457,11 +460,11 @@ export default function Nodes() {
                         return (
                           <div className="core-ver">
                             {canUp && <span className="small">新版本 <b className="mono">v{lv}</b></span>}
-                            {canUp && <button className="btn sm pri" type="button" disabled={busy} onClick={async () => {
+                            {canUp && <button className="btn sm pri" type="button" disabled={busy || !!sel.progress?.active} onClick={async () => {
                               if (await confirm(`把 ${sel.name} 的 ${coreLabel[c.type]} 从 v${c.version} 升级到 v${lv}？\n新版本启动失败会自动回退；升级期间该内核的连接会中断几秒。`))
-                                run(async () => { await post(`/nodes/${sel.id}/cores`, { type: c.type, version: lv, isDefault: c.isDefault }); refresh() }, '已下发升级')
+                                run(async () => { await post(`/nodes/${sel.id}/cores`, { type: c.type, version: lv, isDefault: c.isDefault }); refresh() }, '已下发升级，进度见上方节点状态')
                             }}>升级</button>}
-                            {canBack && <button className="btn sm" type="button" disabled={busy} onClick={async () => {
+                            {canBack && <button className="btn sm" type="button" disabled={busy || !!sel.progress?.active} onClick={async () => {
                               if (await confirm(`把 ${coreLabel[c.type]} 回退到 v${c.prevVersion}？（旧版本已在节点上，秒级切换）`))
                                 run(async () => { await post(`/cores/${c.id}/rollback`); refresh() }, `已回退到 v${c.prevVersion}`)
                             }}>回退到 v{c.prevVersion}</button>}
