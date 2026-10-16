@@ -278,6 +278,27 @@ wait_active() {
   return 1
 }
 
+# wait_healthy: the service is up AND answers HTTP on its port (any status
+# counts: the admin path may 404 by design) and still does a few seconds
+# later, so a crash loop that is briefly "active" does not pass.
+wait_healthy() {
+  local listen host port _ hits=0
+  listen="$(env_get POLARIS_LISTEN)"; port="${listen##*:}"; port="${port:-8080}"
+  host="${listen%:*}"
+  case "$host" in ""|0.0.0.0|"[::]"|::|"$listen") host=127.0.0.1 ;; esac
+  for _ in $(seq 1 20); do
+    if running && curl -s -o /dev/null -m 2 "http://$host:$port/"; then
+      hits=$((hits + 1))
+      [ "$hits" -ge 2 ] && { scrub_initial_password; return 0; }
+    else
+      hits=0
+    fi
+    sleep 1
+  done
+  journalctl -u polaris -n 30 --no-pager
+  return 1
+}
+
 # --- download ------------------------------------------------------------------
 
 # Public GitHub download mirrors, tried in order when github.com is blocked or
@@ -760,6 +781,11 @@ do_update() {
   echo
   id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
   download_release
+  # Trial run: the new build must start on this machine before anything changes.
+  if ! "$TMP/polaris" --version 2>/dev/null | grep -qF "$VERSION"; then
+    die "新版本无法在本机运行（试运行失败：$("$TMP/polaris" --version 2>&1 | head -n1)），未做任何改动"
+  fi
+  ok "试运行通过：$("$TMP/polaris" --version 2>/dev/null)"
   step "备份数据库并替换程序（配置与数据保持不变）"
   if ls "$DATA"/*.db >/dev/null 2>&1; then
     backup="$DATA/backup-$(date +%Y%m%d%H%M%S)"
@@ -768,6 +794,8 @@ do_update() {
   if [ -n "$backup" ]; then
     mkdir -p "$backup" && cp -a "$DATA"/*.db* "$backup"/ && ok "数据库已备份到 $backup"
   fi
+  local prev=""
+  if [ -x "$BIN" ]; then prev="$BIN.prev"; cp -a "$BIN" "$prev"; fi
   install_files
   install_unit
   ok "程序已替换"
@@ -775,7 +803,17 @@ do_update() {
   systemctl daemon-reload
   systemctl enable polaris >/dev/null 2>&1 || true
   systemctl start polaris
-  wait_active || die "启动失败${backup:+，升级前的数据库备份在 $backup}"
+  if ! wait_healthy; then
+    [ -n "$prev" ] || die "启动失败${backup:+，升级前的数据库备份在 $backup}"
+    warn "新版本启动后未能正常响应，自动回滚到 ${cur:-旧版本}"
+    systemctl stop polaris 2>/dev/null || true
+    install -m 0755 "$prev" "$BIN"
+    systemctl start polaris
+    if wait_healthy; then
+      die "已自动回滚到 ${cur:-旧版本}，面板正常运行；新版本的启动日志见上方${backup:+（升级前的数据库备份在 $backup）}"
+    fi
+    die "回滚后仍无法启动${backup:+；升级前的数据库备份在 $backup}，请执行 polaris log 查看"
+  fi
   echo
   ok "${C_BD}已升级：${cur:-未安装} → $(panel_version)${C_0}（用时 $(human_dur "$SECONDS")）"
   if systemctl cat polaris-agent >/dev/null 2>&1; then
