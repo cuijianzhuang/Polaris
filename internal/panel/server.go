@@ -46,6 +46,7 @@ type Server struct {
 	hub      *Hub
 	traffic  TrafficBuffer
 	tgLogins tgLoginCodes // one-time Telegram sign-in codes
+	tgWeb    tgWebLogins  // login-page Telegram sign-in requests
 	jwtKey   []byte
 	rt       *realtime
 

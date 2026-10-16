@@ -347,6 +347,10 @@ func (b *tgBot) handle(u tgUpdate) {
 	id := b.identify(chat)
 	switch cmd {
 	case "/start", "/menu":
+		if cmd == "/start" && strings.HasPrefix(arg, tgWebLoginPrefix) { // login page
+			b.webLoginPrompt(chat, strings.TrimPrefix(arg, tgWebLoginPrefix), id)
+			return
+		}
 		if cmd == "/start" && arg != "" { // deep link t.me/bot?start=<sub token>
 			b.bind(chat, u.Message.From, arg, id)
 			return
@@ -622,6 +626,10 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.sendSub(chat, id.user)
 		}
 		answer("")
+	case "wl": // login page sign-in: wl:<request>:<number|x>
+		if len(parts) == 3 {
+			b.webLoginAnswer(chat, msg, parts[1], parts[2], id, answer)
+		}
 	case "v": // menu views edit the message in place
 		view, arg := "home", ""
 		if len(parts) > 1 {
