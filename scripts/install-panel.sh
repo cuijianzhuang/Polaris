@@ -16,6 +16,7 @@
 #   reset-2fa [-u NAME]           turn off two-factor authentication
 #   set-path PATH | set-port N    change the admin path (/ turns it off) / panel port
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
+#   set-url URL                   public address used in subscription / install links
 #   backup                        config + consistent database copy to /root/polaris-backup-*.tar.gz
 #   node [-n NAME]                install a node agent on this server (connects over 127.0.0.1)
 #   self-update                   update this management tool to the latest release
@@ -450,26 +451,37 @@ UNIT
   systemctl enable --now polaris-update.path >/dev/null 2>&1 || true
 }
 
-# do_update_request: run by polaris-update.service. The request holds
-# "latest" or a version tag; the outcome goes to update-result for the panel.
+# do_update_request: run by polaris-update.service for requests the panel
+# writes (it cannot change its own install): "latest" or a version tag
+# updates; "set-path P", "set-domain D", "set-port N" and "set-url U" run the
+# matching command. The outcome goes to update-result for the panel.
 do_update_request() {
   [ -f "$UPD_REQ" ] || return 0
-  local want cur rc=0 log="$DATA/update.log"
-  want="$(head -n1 "$UPD_REQ" | tr -cd 'A-Za-z0-9.+-')"
+  local line action arg cur rc=0 log="$DATA/update.log"
+  line="$(head -n1 "$UPD_REQ" | tr -cd 'A-Za-z0-9.:/+_ -')"
   rm -f "$UPD_REQ" # first: the path unit would fire again while it exists
-  cur="$(panel_version)"
-  case "$want" in
-    ""|latest) VERSION="" ;;
-    v*) VERSION="$want" ;;
-    *) VERSION="v$want" ;;
+  action="${line%% *}" arg=""
+  [ "$action" = "$line" ] || arg="${line#* }"
+  case "$action" in
+    set-path|set-domain|set-port|set-url) ;;
+    ""|latest) action=update VERSION="" ;;
+    v*) arg="$action" action=update VERSION="$arg" ;;
+    *) arg="$action" action=update VERSION="v$arg" ;;
   esac
-  # set -e must stay on inside the update ("cmd || x" would switch it off).
+  cur="$(panel_version)"
+  # set -e must stay on inside the command ("cmd || x" would switch it off).
   set +e
-  ( set -e; do_update ) >"$log" 2>&1
+  case "$action" in
+    update) ( set -e; do_update ) >"$log" 2>&1 ;;
+    set-path) ( set -e; do_set_path "$arg" ) >"$log" 2>&1 ;;
+    set-domain) ( set -e; do_set_domain "$arg" ) >"$log" 2>&1 ;;
+    set-port) ( set -e; do_set_port "$arg" ) >"$log" 2>&1 ;;
+    set-url) ( set -e; do_set_url "$arg" ) >"$log" 2>&1 ;;
+  esac
   rc=$?
   set -e
   {
-    printf 'ok=%s\nfrom=%s\nto=%s\n' "$([ "$rc" = 0 ] && echo 1 || echo 0)" "$cur" "$(panel_version)"
+    printf 'ok=%s\naction=%s\narg=%s\nfrom=%s\nto=%s\n' "$([ "$rc" = 0 ] && echo 1 || echo 0)" "$action" "$arg" "$cur" "$(panel_version)"
     echo "log:"
     sed 's/\x1b\[[0-9;]*m//g' "$log" | tail -n 12
   } > "$UPD_RES.tmp"
@@ -844,6 +856,18 @@ do_set_path() {
   if [ "$p" = / ]; then
     warn "已关闭后台路径：任何人打开这个地址都能看到登录页，请使用强密码并开启二次验证"
   fi
+}
+
+# do_set_url: the public address used in subscription and install links
+# (behind your own reverse proxy, or to switch back to http://IP:port).
+do_set_url() {
+  need_installed
+  local url="${1%/}"
+  [[ "$url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || die "地址格式应为 http(s)://主机[:端口]"
+  env_set POLARIS_PUBLIC_URL "$url"
+  systemctl restart polaris && wait_active || die "重启失败"
+  ok "公开地址：${C_BD}$url${C_0}"
+  warn "订阅与安装链接随之改变；用户需要重新导入订阅（或在订阅设置里单独指定订阅域名）"
 }
 
 do_set_port() {
@@ -1327,7 +1351,7 @@ while [ $# -gt 0 ]; do
     join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
-    set-path|set-port|set-domain) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    set-path|set-port|set-domain|set-url) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --no-caddy) CADDY=0; shift ;;
     --version) if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then VERSION="$2"; shift 2; else ACTION=version; shift; fi ;;
@@ -1387,6 +1411,7 @@ case "$ACTION" in
   set-path) do_set_path "$ARG" ;;
   set-port) do_set_port "$ARG" ;;
   set-domain) do_set_domain "$ARG" ;;
+  set-url) do_set_url "$ARG" ;;
   backup) do_backup ;;
   node) do_node ;;
 esac

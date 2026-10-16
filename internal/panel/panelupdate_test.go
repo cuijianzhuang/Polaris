@@ -142,3 +142,49 @@ func TestAutoUpdateTick(t *testing.T) {
 		t.Fatal("retried a release that failed")
 	}
 }
+
+func TestRequestAccessChange(t *testing.T) {
+	s := newTestServer(t)
+	withUpdater(t, true)
+	for _, c := range []struct{ action, value, line string }{
+		{"set-path", "", "set-path /\n"},
+		{"set-path", "my-admin", "set-path /my-admin\n"},
+		{"set-domain", "Panel.Example.com.", "set-domain panel.example.com\n"},
+		{"set-port", "8443", "set-port 8443\n"},
+		{"set-url", "http://203.0.113.10:8080/", "set-url http://203.0.113.10:8080\n"},
+	} {
+		if err := s.requestAccessChange(c.action, c.value, "me"); err != nil {
+			t.Fatalf("%s %q: %v", c.action, c.value, err)
+		}
+		if b, _ := os.ReadFile(s.updateRequestPath()); string(b) != c.line {
+			t.Fatalf("%s %q wrote %q", c.action, c.value, b)
+		}
+		os.Remove(s.updateRequestPath())
+	}
+	for _, c := range [][2]string{{"set-path", "a b"}, {"set-path", "/x;rm"}, {"set-path", "abc"}, {"set-domain", "bad_domain"},
+		{"set-port", "70000"}, {"set-url", "ftp://x"}, {"set-url", "http://x/$(id)"}, {"rm", "-rf"}} {
+		if err := s.requestAccessChange(c[0], c[1], "me"); err == nil {
+			t.Fatalf("accepted %s %q", c[0], c[1])
+		}
+	}
+	if _, err := os.Stat(s.updateRequestPath()); err == nil {
+		t.Fatal("a rejected change wrote a request")
+	}
+	withUpdater(t, false)
+	if err := s.requestAccessChange("set-port", "8443", "me"); err != errUpdaterMissing {
+		t.Fatalf("without the updater: %v", err)
+	}
+}
+
+func TestAccessChangeResult(t *testing.T) {
+	s := newTestServer(t)
+	ch := events(s)
+	os.WriteFile(s.updateResultPath(), []byte("ok=1\naction=set-path\narg=/\nfrom=v1\nto=v1\nlog:\nok\n"), 0o644)
+	s.checkUpdateResult()
+	if txt := next(t, ch); !strings.Contains(txt, "后台路径已改为 /") {
+		t.Fatalf("%q", txt)
+	}
+	if v := s.st.GetSetting("access_last", ""); !strings.Contains(v, `"action":"set-path"`) || !strings.Contains(v, `"ok":true`) {
+		t.Fatalf("last change not kept for the settings page: %s", v)
+	}
+}

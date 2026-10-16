@@ -3,11 +3,14 @@ package panel
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,10 +97,61 @@ func (s *Server) requestPanelUpdate(target, who string, thenAgents bool) error {
 	return nil
 }
 
+// Access settings live in /etc/polaris/polaris.env and are applied by the
+// root side (`polaris set-path / set-domain / set-port / set-url`, which also
+// handles Caddy and the firewall) through the same request file.
+var (
+	adminPathRe = regexp.MustCompile(`^/([A-Za-z0-9_-]{4,64})?$`)
+	domainRe    = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`)
+	publicURLRe = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$`)
+)
+
+// requestAccessChange validates and queues one access change.
+func (s *Server) requestAccessChange(action, value, who string) error {
+	value = strings.TrimSpace(value)
+	switch action {
+	case "set-path":
+		value = "/" + strings.Trim(value, "/")
+		if !adminPathRe.MatchString(value) {
+			return errors.New("路径只能包含字母、数字、- 和 _，长度 4–64；留空或填 / 表示不使用路径")
+		}
+	case "set-domain":
+		value = strings.ToLower(strings.TrimSuffix(value, "."))
+		if !domainRe.MatchString(value) {
+			return errors.New("域名格式不正确")
+		}
+	case "set-port":
+		if p, err := strconv.Atoi(value); err != nil || p < 1 || p > 65535 {
+			return errors.New("端口应为 1–65535")
+		}
+	case "set-url":
+		value = strings.TrimRight(value, "/")
+		if !publicURLRe.MatchString(value) {
+			return errors.New("地址格式应为 http(s)://主机[:端口]")
+		}
+	default:
+		return fmt.Errorf("unknown action %q", action)
+	}
+	if !s.updaterInstalled() {
+		return errUpdaterMissing
+	}
+	if _, err := os.Stat(s.updateRequestPath()); err == nil {
+		return errors.New("上一项更改还在执行，请稍候")
+	}
+	if err := core.AtomicWrite(s.updateRequestPath(), []byte(action+" "+value+"\n"), 0o644); err != nil {
+		return fmt.Errorf("写入请求失败：%w", err)
+	}
+	s.audit(who, "panel."+action, value, "", "")
+	return nil
+}
+
+var accessText = map[string]string{"set-path": "后台路径", "set-domain": "面板域名", "set-port": "面板端口", "set-url": "公开地址"}
+
 type updateResult struct {
-	OK       bool
-	From, To string
-	Log      string
+	OK          bool
+	Action, Arg string // "update" (or empty, from older tools) or set-path / set-domain / set-port / set-url
+	From, To    string
+	Log         string
 }
 
 func parseUpdateResult(b []byte) updateResult {
@@ -121,6 +175,10 @@ func parseUpdateResult(b []byte) updateResult {
 			r.From = v
 		case "to":
 			r.To = v
+		case "action":
+			r.Action = v
+		case "arg":
+			r.Arg = v
 		default:
 			inLog = line == "log:"
 		}
@@ -137,6 +195,17 @@ func (s *Server) checkUpdateResult() {
 	}
 	os.Remove(s.updateResultPath())
 	r := parseUpdateResult(b)
+	if label, ok := accessText[r.Action]; ok {
+		last, _ := json.Marshal(map[string]any{"action": r.Action, "value": r.Arg, "ok": r.OK, "log": r.Log, "at": time.Now()})
+		s.st.SetSetting("access_last", string(last))
+		if r.OK {
+			s.audit("system", "panel."+r.Action+"_done", r.Arg, "", "")
+			s.notify(Event{Kind: "panel_update", Text: "✅ " + label + "已改为 " + r.Arg})
+		} else {
+			s.notify(Event{Kind: "panel_update", Text: "❌ 修改" + label + "失败：" + r.Arg + "\n" + truncate(r.Log, 800)})
+		}
+		return
+	}
 	switch {
 	case !r.OK:
 		s.st.SetSetting("auto_update_failed", strings.TrimPrefix(r.To, "v"))
@@ -234,6 +303,38 @@ func (s *Server) autoUpdateTick() {
 }
 
 // --- API ---
+
+// getAccess is GET /system/access: how the panel is reached.
+func (s *Server) getAccess(c *gin.Context) {
+	out := gin.H{"adminPath": s.cfg.AdminPath, "publicUrl": s.cfg.PublicURL, "listen": s.cfg.Listen, "updater": s.updaterInstalled()}
+	if u, err := url.Parse(s.cfg.PublicURL); err == nil && u.Scheme == "https" {
+		out["domain"] = u.Hostname()
+	}
+	if _, err := os.Stat(s.updateRequestPath()); err == nil {
+		out["pending"] = true
+	}
+	if v := s.st.GetSetting("access_last", ""); v != "" {
+		out["last"] = json.RawMessage(v)
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// postAccess is POST /system/access {action, value}.
+func (s *Server) postAccess(c *gin.Context) {
+	var req struct {
+		Action string `json:"action" binding:"required"`
+		Value  string `json:"value"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	if err := s.requestAccessChange(req.Action, req.Value, c.GetString("admin")); err != nil {
+		badRequest(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"ok": true})
+}
 
 // getPanelUpdate is GET /system/update.
 func (s *Server) getPanelUpdate(c *gin.Context) {
