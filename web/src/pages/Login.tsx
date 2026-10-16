@@ -6,6 +6,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [totp, setTotp] = useState('')
+  const [recovery, setRecovery] = useState(false) // a recovery code instead of the 6-digit code
   const [needTotp, setNeedTotp] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -74,7 +75,8 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
           <div className="note">已通过 GitHub 验证，请输入二次验证码完成登录。</div>
           <div className="field">
             <label className="lbl" htmlFor="gt">二次验证码</label>
-            <input className="input mono" id="gt" inputMode="numeric" autoComplete="one-time-code" value={totp} onChange={(e) => setTotp(e.target.value)} autoFocus />
+            <input className="input mono" id="gt" inputMode={recovery ? 'text' : 'numeric'} autoCapitalize="none" autoComplete="one-time-code" placeholder={recovery ? 'xxxxx-xxxxx' : '6 位数字'} value={totp} onChange={(e) => setTotp(e.target.value)} autoFocus />
+            <button className="link small" type="button" style={{ justifySelf: 'start', marginTop: 4 }} onClick={() => { setRecovery(!recovery); setTotp('') }}>{recovery ? '使用验证器的 6 位验证码' : '验证器不在身边？使用恢复码'}</button>
           </div>
           {err && <div className="note bad">{err}</div>}
           <button className="btn pri" type="submit" disabled={busy || totp.length < 6}>{busy ? '登录中…' : '登录'}</button>
@@ -98,7 +100,8 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         {needTotp && (
           <div className="field">
             <label className="lbl" htmlFor="t">二次验证码</label>
-            <input className="input mono" id="t" inputMode="numeric" autoComplete="one-time-code" value={totp} onChange={(e) => setTotp(e.target.value)} autoFocus />
+            <input className="input mono" id="t" inputMode={recovery ? 'text' : 'numeric'} autoCapitalize="none" autoComplete="one-time-code" placeholder={recovery ? 'xxxxx-xxxxx' : '6 位数字'} value={totp} onChange={(e) => setTotp(e.target.value)} autoFocus />
+            <button className="link small" type="button" style={{ justifySelf: 'start', marginTop: 4 }} onClick={() => { setRecovery(!recovery); setTotp('') }}>{recovery ? '使用验证器的 6 位验证码' : '验证器不在身边？使用恢复码'}</button>
           </div>
         )}
         {err && <div className="note bad">{err}</div>}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
+import { LoginProtection, RecoveryCodesModal, Sessions } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
 import { accents, useTheme, type ThemeMode } from '../theme'
 import { CopyBox, Empty, Field, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
@@ -111,7 +112,7 @@ function Backups() {
 
 const settingTabs = [
   { id: 'general', label: '常规', hint: '访问地址、标题、默认内核', icon: <Icon.Gear /> },
-  { id: 'security', label: '账号安全', hint: '密码、二次验证、GitHub', icon: <Icon.Lock /> },
+  { id: 'security', label: '账号安全', hint: '密码、二次验证、登录设备、登录防护', icon: <Icon.Lock /> },
   { id: 'update', label: '版本与更新', hint: '在线升级、自动更新', icon: <Icon.Refresh /> },
   { id: 'backup', label: '备份与恢复', hint: '自动备份、恢复', icon: <Icon.Download /> },
   { id: 'appearance', label: '外观', hint: '主题与配色', icon: <Icon.Sun /> },
@@ -300,7 +301,8 @@ function Access() {
 
 export default function Settings() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
-  const me = useLoad(() => get<{ username: string; totpEnabled: boolean; githubLogin?: string }>('/auth/me'))
+  const me = useLoad(() => get<{ username: string; totpEnabled: boolean; githubLogin?: string; recoveryCodesLeft?: number }>('/auth/me'))
+  const [codes, setCodes] = useState<string[] | null>(null)
   const gh = useLoad(() => get<{ enabled: boolean; clientId: string; callbackUrl: string }>('/auth/github'))
   const [ghForm, setGhForm] = useState({ id: '', secret: '' })
   const toast = useToast()
@@ -388,16 +390,21 @@ export default function Settings() {
         </section>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>二次验证（TOTP）</h2>
-          <div className="sub" style={{ margin: 0 }}>当前：{me.data?.totpEnabled ? '已开启' : '未开启'} · 登录失败 5 次锁定 15 分钟</div>
+          <div className="sub" style={{ margin: 0 }}>当前：{me.data?.totpEnabled ? '已开启' : '未开启'}{me.data?.totpEnabled ? ` · 恢复码剩余 ${me.data.recoveryCodesLeft ?? 0} 个` : ''}</div>
+          {codes && <RecoveryCodesModal codes={codes} onClose={() => setCodes(null)} />}
+          {me.data?.totpEnabled && !totp && (me.data.recoveryCodesLeft ?? 0) < 4 && <div className="note warn">恢复码快用完了，建议重新生成并保存。</div>}
           {!totp ? (
-            <div><button className="btn" type="button" disabled={busy} onClick={() => run(async () => setTotp(await post('/auth/totp/setup')))}>{me.data?.totpEnabled ? '重新绑定' : '开始绑定'}</button></div>
+            <div className="row">
+              <button className="btn" type="button" disabled={busy} onClick={() => run(async () => setTotp(await post('/auth/totp/setup')))}>{me.data?.totpEnabled ? '重新绑定' : '开始绑定'}</button>
+              {me.data?.totpEnabled && <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { setCodes((await post<{ recoveryCodes: string[] }>('/auth/totp/recovery-codes')).recoveryCodes); me.reload() })}>重新生成恢复码</button>}
+            </div>
           ) : (
             <>
               <QR text={totp.url} size={180} />
               <CopyBox text={totp.secret} />
               <Field label="验证码"><input className="input mono" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
               <div className="row">
-                <button className="btn pri" type="button" disabled={busy || code.length < 6} onClick={() => run(async () => { await post('/auth/totp/enable', { code, enable: true }); setTotp(null); setCode(''); me.reload() }, '二次验证已开启')}>开启</button>
+                <button className="btn pri" type="button" disabled={busy || code.length < 6} onClick={() => run(async () => { const r = await post<{ recoveryCodes: string[] }>('/auth/totp/enable', { code, enable: true }); setTotp(null); setCode(''); me.reload(); setCodes(r.recoveryCodes) }, '二次验证已开启')}>开启</button>
               </div>
             </>
           )}
@@ -432,12 +439,14 @@ export default function Settings() {
             </div>
           </details>
           {me.data?.totpEnabled && !totp && (
-            <div className="row">
+            <div className="row" style={{ marginTop: 4 }}>
               <input className="input mono" style={{ width: 140 }} placeholder="验证码" value={code} onChange={(e) => setCode(e.target.value)} />
               <button className="btn danger" type="button" disabled={busy || code.length < 6} onClick={() => run(async () => { await post('/auth/totp/enable', { code, enable: false }); setCode(''); me.reload() }, '已关闭')}>关闭二次验证</button>
             </div>
           )}
         </section>
+        <Sessions />
+        <LoginProtection />
         </>}
         </div>
       </div>

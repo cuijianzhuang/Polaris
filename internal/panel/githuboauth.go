@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/pquerna/otp/totp"
 
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -232,7 +231,7 @@ func (s *Server) githubCallback(c *gin.Context) {
 
 func (s *Server) finishLogin(c *gin.Context, a *store.Admin, via string, back func(string)) {
 	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(map[string]any{"failed_attempts": 0, "locked_until": nil, "last_login_at": time.Now()})
-	tok, err := s.issueToken(a)
+	tok, err := s.issueToken(a, c, via)
 	if err != nil {
 		back("gh_error=" + url.QueryEscape(err.Error()))
 		return
@@ -262,14 +261,15 @@ func (s *Server) githubTOTP(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录失败次数过多，请 15 分钟后再试"})
 		return
 	}
-	if !totp.Validate(req.TOTP, s.st.Box.MustOpen(a.TOTPSecret)) {
+	if !s.secondFactor(&a, req.TOTP, clientIP(c.Request)) {
 		s.countLoginFailure(&a, time.Now())
+		s.recordIPFailure(clientIP(c.Request), "GitHub 登录二次验证码错误")
 		s.audit(a.Username, "admin.login_failed", a.Username, "github: bad totp", clientIP(c.Request))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "二次验证码错误，请重新使用 GitHub 登录"})
 		return
 	}
 	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(map[string]any{"failed_attempts": 0, "last_login_at": time.Now()})
-	tok, err := s.issueToken(&a)
+	tok, err := s.issueToken(&a, c, "github")
 	if err != nil {
 		serverError(c, err)
 		return

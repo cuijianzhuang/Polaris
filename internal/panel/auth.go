@@ -24,15 +24,19 @@ type claims struct {
 	jwt.RegisteredClaims
 	Username string `json:"usr"`
 	Version  int    `json:"ver"`
-	TG       string `json:"tg,omitempty"` // Telegram admin id for bot sign-ins
+	TG       string `json:"tg,omitempty"`  // Telegram admin id for bot sign-ins
+	SID      string `json:"sid,omitempty"` // admin session (store.AdminSession)
 	// User center sessions (portal.go): never valid for the admin API.
 	User  string `json:"u,omitempty"`
 	Chat  int64  `json:"ch,omitempty"`
 	SubFP string `json:"sfp,omitempty"`
 }
 
-func (s *Server) issueToken(a *store.Admin) (string, error) {
+// issueToken signs a session for an admin who just signed in (via:
+// password / github), recording the session for the request's client.
+func (s *Server) issueToken(a *store.Admin, gc *gin.Context, via string) (string, error) {
 	c := claims{
+		SID: s.newSession(gc, a.ID, a.Username, via, tokenTTL),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   a.ID,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -70,6 +74,12 @@ func (s *Server) authRequired(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	// Every session lives server-side too: revoked or expired ends it.
+	if _, ok := s.sessionAlive(cl.SID); !ok {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	c.Set("sid", cl.SID)
 	if cl.TG != "" {
 		// Telegram sign-in: valid while the Telegram admin exists. Operators
 		// are confined to their nodes; the owner gets full access.
@@ -125,9 +135,11 @@ func (s *Server) login(c *gin.Context) {
 	if err := s.st.DB.First(&a, "username = ?", req.Username).Error; err != nil {
 		err = s.st.DB.First(&a, "LOWER(username) = LOWER(?)", req.Username).Error
 	}
+	ip := clientIP(c.Request)
 	if a.ID == "" {
 		// Same cost as a real check to avoid username probing by timing.
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
+		s.recordIPFailure(ip, "用户名不存在")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
@@ -138,7 +150,8 @@ func (s *Server) login(c *gin.Context) {
 	}
 	fail := func(msg string) {
 		s.countLoginFailure(&a, now)
-		s.audit(a.Username, "admin.login_failed", a.Username, msg, clientIP(c.Request))
+		s.recordIPFailure(ip, msg)
+		s.audit(a.Username, "admin.login_failed", a.Username, msg, ip)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 	}
 	if !passwordMatches(a.PasswordHash, req.Password) {
@@ -150,13 +163,13 @@ func (s *Server) login(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "需要二次验证码", "totpRequired": true})
 			return
 		}
-		if !totp.Validate(req.TOTP, s.st.Box.MustOpen(a.TOTPSecret)) {
+		if !s.secondFactor(&a, req.TOTP, ip) {
 			fail("二次验证码错误")
 			return
 		}
 	}
 	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(map[string]any{"failed_attempts": 0, "locked_until": nil, "last_login_at": now})
-	tok, err := s.issueToken(&a)
+	tok, err := s.issueToken(&a, c, "password")
 	if err != nil {
 		serverError(c, err)
 		return
@@ -180,7 +193,8 @@ func (s *Server) me(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	c.JSON(http.StatusOK, a)
+	c.JSON(http.StatusOK, gin.H{"id": a.ID, "username": a.Username, "totpEnabled": a.TOTPEnabled, "githubLogin": a.GitHubLogin,
+		"lastLoginAt": a.LastLoginAt, "createdAt": a.CreatedAt, "recoveryCodesLeft": len(a.RecoveryCodes.V), "sudo": s.sudoOK(c)})
 }
 
 func (s *Server) changePassword(c *gin.Context) {
@@ -208,8 +222,9 @@ func (s *Server) changePassword(c *gin.Context) {
 	h, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
 	a.TokenVersion++
 	s.st.DB.Model(&a).Updates(map[string]any{"password_hash": string(h), "token_version": a.TokenVersion})
+	s.st.DB.Model(&store.AdminSession{}).Where("admin_id = ?", a.ID).Update("revoked", true)
 	s.auditCtx(c, "admin.password", a.Username, "other sessions revoked")
-	tok, err := s.issueToken(&a) // keep this session, revoke the rest
+	tok, err := s.issueToken(&a, c, "password") // a fresh session for this browser; the rest are gone
 	if err != nil {
 		serverError(c, err)
 		return
@@ -260,12 +275,16 @@ func (s *Server) totpEnable(c *gin.Context) {
 			return
 		}
 		s.st.DB.Model(&a).Updates(map[string]any{"totp_secret": a.TOTPPending, "totp_pending": "", "totp_enabled": true})
+		codes := s.issueRecoveryCodes(&a)
+		s.auditCtx(c, "admin.totp", a.Username, "enabled")
+		c.JSON(http.StatusOK, gin.H{"recoveryCodes": codes})
+		return
 	} else {
 		if !a.TOTPEnabled || !totp.Validate(req.Code, s.st.Box.MustOpen(a.TOTPSecret)) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
 			return
 		}
-		s.st.DB.Model(&a).Updates(map[string]any{"totp_enabled": false, "totp_pending": ""})
+		s.st.DB.Model(&a).Updates(map[string]any{"totp_enabled": false, "totp_pending": "", "recovery_codes": store.NewJSON([]string{})})
 	}
 	s.auditCtx(c, "admin.totp", a.Username, map[bool]string{true: "enabled", false: "disabled"}[req.Enable])
 	c.Status(http.StatusNoContent)

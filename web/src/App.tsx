@@ -6,6 +6,7 @@ import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { recordRates } from './components/NodeCard'
 import { useTheme } from './theme'
 import { ConfirmProvider, ToastProvider } from './components/ui'
+import SudoPrompt from './components/SudoPrompt'
 import type { Node } from './types'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -231,11 +232,12 @@ export default function App() {
     if (!user || !getToken()) return
     get<{ username: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setScoped(!!m.nodeIds) }).catch(() => {})
   }, [user === null])
-  const logout = () => { setToken(null); setUser(null); setScoped(false) }
+  const logout = () => { post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false) }) }
   if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>正在通过 Telegram 登录…</div></div>
   return (
     <ToastProvider>
       <ConfirmProvider>
+        <SudoPrompt />
         <BrowserRouter basename={BASE.replace(/\/$/, '') || '/'}>
           {!user ? (
             <Login onLogin={(u) => setUser(u)} />

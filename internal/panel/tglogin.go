@@ -66,8 +66,9 @@ func (s *Server) tgLoginURL(code string) string {
 	return s.subBase() + strings.TrimRight(s.cfg.AdminPath, "/") + "/#tg=" + code
 }
 
-func (s *Server) issueTGToken(a *store.TGAdmin) (string, error) {
+func (s *Server) issueTGToken(a *store.TGAdmin, gc *gin.Context) (string, error) {
 	c := claims{
+		SID: s.newSession(gc, "tg:"+a.ID, "tg:"+a.Name, "telegram", tgSessionTTL),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "tg:" + a.ID,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -94,7 +95,7 @@ func (s *Server) tgLogin(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "登录链接无效或已过期，请在机器人中重新发送 /login"})
 		return
 	}
-	tok, err := s.issueTGToken(&a)
+	tok, err := s.issueTGToken(&a, c)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -121,21 +122,26 @@ func inScope(c *gin.Context, nodeID string) bool {
 // nodes plus the actions the bot already offers them (sync, rollback, core
 // restart). Everything else is refused.
 var scopedRoutes = map[string]bool{
-	"GET /auth/me":             true,
-	"GET /ws":                  true,
-	"GET /nodes":               true,
-	"GET /nodes/:id":           true,
-	"GET /nodes/:id/revisions": true,
-	"GET /nodes/:id/cores":     true,
-	"GET /nodes/:id/metrics":   true,
-	"POST /nodes/:id/sync":     true,
-	"POST /nodes/:id/rollback": true,
-	"POST /cores/:id/restart":  true,
-	"GET /cores/:id/logs":      true,
-	"GET /capabilities":        true,
-	"GET /core-latest":         true,
-	"GET /stats/nodes":         true,
-	"GET /stats/traffic":       true, // only with ?node= in scope, see scopeGuard
+	"GET /auth/me":                      true,
+	"POST /auth/logout":                 true,
+	"POST /auth/sudo":                   true,
+	"GET /auth/sessions":                true,
+	"DELETE /auth/sessions/:id":         true,
+	"POST /auth/sessions/revoke-others": true,
+	"GET /ws":                           true,
+	"GET /nodes":                        true,
+	"GET /nodes/:id":                    true,
+	"GET /nodes/:id/revisions":          true,
+	"GET /nodes/:id/cores":              true,
+	"GET /nodes/:id/metrics":            true,
+	"POST /nodes/:id/sync":              true,
+	"POST /nodes/:id/rollback":          true,
+	"POST /cores/:id/restart":           true,
+	"GET /cores/:id/logs":               true,
+	"GET /capabilities":                 true,
+	"GET /core-latest":                  true,
+	"GET /stats/nodes":                  true,
+	"GET /stats/traffic":                true, // only with ?node= in scope, see scopeGuard
 }
 
 // scopeGuard enforces scopedRoutes and the node scope of path parameters.

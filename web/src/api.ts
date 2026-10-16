@@ -29,6 +29,13 @@ export class ApiError extends Error {
 let onUnauthorized: () => void = () => {}
 export function setUnauthorizedHandler(fn: () => void) { onUnauthorized = fn }
 
+// Sensitive actions answer 403 {sudoRequired} until the admin re-verifies;
+// the handler (App) asks for the password / code and resolves true once the
+// session is re-verified, and the request is sent again.
+let onSudo: (() => Promise<boolean>) | null = null
+export function setSudoHandler(fn: () => Promise<boolean>) { onSudo = fn }
+const needsSudo = (e: unknown) => e instanceof ApiError && e.status === 403 && !!e.data?.sudoRequired
+
 // In-flight request count, for the top progress bar.
 let inflight = 0
 const listeners = new Set<(n: number) => void>()
@@ -37,7 +44,12 @@ function track(d: number) { inflight += d; listeners.forEach((l) => l(inflight))
 
 export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
   track(1)
-  try { return await request<T>(method, path, body) } finally { track(-1) }
+  try {
+    try { return await request<T>(method, path, body) } catch (e) {
+      if (needsSudo(e) && onSudo && await onSudo()) return await request<T>(method, path, body)
+      throw e
+    }
+  } finally { track(-1) }
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -88,7 +100,12 @@ export function takeOAuthResult(): OAuthResult {
 
 // download fetches an authenticated file and hands it to the browser.
 export async function download(path: string, name: string) {
-  const resp = await fetch(API + path, { headers: { Authorization: 'Bearer ' + (getToken() ?? '') } })
+  const fetchIt = () => fetch(API + path, { headers: { Authorization: 'Bearer ' + (getToken() ?? '') } })
+  let resp = await fetchIt()
+  if (resp.status === 403) {
+    const data = await resp.clone().json().catch(() => ({}))
+    if (data.sudoRequired && onSudo && await onSudo()) resp = await fetchIt()
+  }
   if (!resp.ok) throw new ApiError(resp.status, (await resp.json().catch(() => ({}))).error || resp.statusText)
   const url = URL.createObjectURL(await resp.blob())
   const a = document.createElement('a')
