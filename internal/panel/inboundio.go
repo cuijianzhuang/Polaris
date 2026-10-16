@@ -3,6 +3,7 @@ package panel
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -96,6 +97,19 @@ func (s *Server) cloneInbound(c *gin.Context) {
 	}
 	s.auditCtx(c, "inbound.clone", row.Tag, fmt.Sprintf("to %d nodes", len(req.NodeIDs)))
 	c.JSON(http.StatusOK, gin.H{"results": out})
+}
+
+// freePort is GET /nodes/:id/free-port?min=&max=: a random port no inbound,
+// chain or other program on the node uses (default 20000–60000).
+func (s *Server) freePort(c *gin.Context) {
+	lo, _ := strconv.Atoi(c.Query("min"))
+	hi, _ := strconv.Atoi(c.Query("max"))
+	p := s.randomFreePort(c.Param("id"), lo, hi)
+	if p == 0 {
+		badRequest(c, fmt.Errorf("没有可用端口"))
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"port": p})
 }
 
 // freeTag returns tag, or tag-copy / tag-copy2 … when it is taken on the node.

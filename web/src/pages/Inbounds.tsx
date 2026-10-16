@@ -195,7 +195,15 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
       )}
       <div className="form-grid">
         <Field label="标签" htmlFor="ib-tag"><input id="ib-tag" className="input mono" value={tag} onChange={(e) => setTag(e.target.value)} /></Field>
-        <Field label="端口" htmlFor="ib-port"><input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" /></Field>
+        <Field label="端口" htmlFor="ib-port" hint="点「随机」选一个节点上未被占用的端口（含其他程序占用的端口）；保存后自动在节点防火墙放行">
+          <div className="joined">
+            <input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
+            <button className="btn" type="button" disabled={!nodeId} onClick={() => run(async () => {
+              const r = await get<{ port: number }>(`/nodes/${nodeId}/free-port`)
+              if (r.port) setPort(String(r.port))
+            })}>随机</button>
+          </div>
+        </Field>
         <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
         <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
       </div>

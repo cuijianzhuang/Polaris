@@ -1,9 +1,14 @@
 package panel
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -204,6 +209,13 @@ func (s *Server) portConflictExcept(nodeID string, m *model.Inbound, excludeID, 
 			}
 		}
 	}
+	var fwds []store.ForwardRule
+	s.st.DB.Where("node_id = ? AND listen_port = ? AND id <> ?", nodeID, m.Port, excludeID).Find(&fwds) // ids are unique across tables
+	for _, f := range fwds {
+		if (m.UsesTCP() && f.Network != "udp") || (m.UsesUDP() && f.Network != "tcp") {
+			return fmt.Errorf("port %d is used by forward rule %s", m.Port, f.Name)
+		}
+	}
 	return nil
 }
 
@@ -228,7 +240,75 @@ func (s *Server) usedPorts(nodeID string) (map[int]bool, error) {
 			}
 		}
 	}
+	var fwds []store.ForwardRule
+	s.st.DB.Where("node_id = ?", nodeID).Find(&fwds)
+	for _, f := range fwds {
+		used[f.ListenPort] = true
+	}
+	// Ports other programs hold on the node (nginx, sshd …), when it is online.
+	for p := range s.nodeBusyPorts(nodeID) {
+		used[p] = true
+	}
 	return used, nil
+}
+
+var busyCache struct {
+	sync.Mutex
+	m map[string]busyEntry
+}
+
+type busyEntry struct {
+	at    time.Time
+	ports map[int]bool
+}
+
+// nodeBusyPorts asks the agent which TCP / UDP ports are in use on the host
+// (cached for 30 s; empty when the node is offline or the agent is too old).
+func (s *Server) nodeBusyPorts(nodeID string) map[int]bool {
+	busyCache.Lock()
+	if e, ok := busyCache.m[nodeID]; ok && time.Since(e.at) < 30*time.Second {
+		busyCache.Unlock()
+		return e.ports
+	}
+	busyCache.Unlock()
+	ports := map[int]bool{}
+	if s.hub != nil && s.hub.Online(nodeID) {
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		res, err := s.hub.Command(ctx, nodeID, "busy_ports", nil, 8*time.Second)
+		cancel()
+		if err == nil && res.Ok {
+			var v map[string][]int
+			if json.Unmarshal([]byte(res.Output), &v) == nil {
+				for _, l := range v {
+					for _, p := range l {
+						ports[p] = true
+					}
+				}
+			}
+		}
+	}
+	busyCache.Lock()
+	if busyCache.m == nil {
+		busyCache.m = map[string]busyEntry{}
+	}
+	busyCache.m[nodeID] = busyEntry{time.Now(), ports}
+	busyCache.Unlock()
+	return ports
+}
+
+// randomFreePort picks a random port in [lo, hi] that no inbound, chain or
+// other program on the node uses.
+func (s *Server) randomFreePort(nodeID string, lo, hi int) int {
+	if lo <= 0 || hi < lo {
+		lo, hi = 20000, 60000
+	}
+	used, _ := s.usedPorts(nodeID)
+	for tries := 0; tries < 500; tries++ {
+		if p := lo + rand.IntN(hi-lo+1); !used[p] {
+			return p
+		}
+	}
+	return 0
 }
 
 // ensureCert makes sure a TLS inbound references a certificate, issuing a
