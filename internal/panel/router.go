@@ -99,7 +99,7 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/tg/start", s.loginGuard, s.tgWebLoginStart)
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
 
-	p := api.Group("", s.authRequired, s.scopeGuard)
+	p := api.Group("", s.authRequired, s.scopeGuard, s.trackChanges)
 	p.GET("/ws", func(c *gin.Context) {
 		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})

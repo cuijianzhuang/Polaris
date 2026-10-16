@@ -76,6 +76,8 @@ type Server struct {
 	tg           *tgBot
 	tgEvents     chan Event
 	seenBase     atomic.Value // string: public base URL the admin UI is reached at
+	auditChanges atomic.Bool  // record row changes made by admins (audit_changes)
+	changes      changeLog
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.
@@ -108,6 +110,8 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	}
 	s.rt.snap = func() any { return s.nodeViews() }
 	s.tg = newTGBot(s)
+	s.auditChanges.Store(st.GetSetting("audit_changes", "false") == "true")
+	s.registerChangeLog()
 	tgEvents := make(chan Event, 256)
 	s.sinks = append(s.sinks, tgEvents)
 	s.tgEvents = tgEvents
