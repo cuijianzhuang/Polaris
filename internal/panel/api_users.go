@@ -97,27 +97,82 @@ func addAccess(tx *gorm.DB, userIDs []string, kind string, targets []string) err
 	return nil
 }
 
-// listUsers supports ?q= search and ?filter=online|expiring|limited|disabled.
+// userSorts maps ?sort= to a column expression (whitelist).
+var userSorts = map[string]string{
+	"created": "created_at", "username": "username", "used": "used_up + used_down", "expire": "expire_at IS NULL, expire_at",
+	"online": "online_at IS NULL, online_at", "limit": "traffic_limit = 0, traffic_limit",
+}
+
+// userFilter narrows a user query by status bucket; warn is the "expiring" window.
+func userFilter(q *gorm.DB, filter string, now time.Time, warn time.Duration) *gorm.DB {
+	switch filter {
+	case "active":
+		return q.Where("status = ?", "active")
+	case "online":
+		return q.Where("online_at > ?", now.Add(-2*time.Minute))
+	case "expiring":
+		return q.Where("status = ? AND expire_at IS NOT NULL AND expire_at > ? AND expire_at < ?", "active", now, now.Add(warn))
+	case "limited":
+		return q.Where("status = ?", "limited")
+	case "expired":
+		return q.Where("status = ?", "expired")
+	case "depleted":
+		return q.Where("status IN ?", []string{"limited", "expired"})
+	case "disabled":
+		return q.Where("status = ?", "disabled")
+	}
+	return q
+}
+
+// listUsers supports ?q= search, ?filter= (active / online / expiring /
+// limited / expired / depleted / disabled), ?group=, ?renew=on|off,
+// ?tg=yes|no and ?sort=…&order=asc|desc; it also returns per-status counts.
 func (s *Server) listUsers(c *gin.Context) {
-	q := s.st.DB.Where("is_service = ?", false).Order("created_at desc")
+	base := s.st.DB.Model(&store.User{}).Where("is_service = ?", false)
+	now := time.Now()
+	warn := time.Duration(max(atoiDefault(s.st.GetSetting("expire_warn_days", "7"), 7), 1)) * 24 * time.Hour
+	summary := map[string]int64{}
+	for _, f := range []string{"active", "online", "expiring", "limited", "expired", "disabled"} {
+		var n int64
+		userFilter(base.Session(&gorm.Session{}), f, now, warn).Count(&n)
+		summary[f] = n
+	}
+	var all int64
+	base.Session(&gorm.Session{}).Count(&all)
+	summary["all"] = all
+
+	q := base.Session(&gorm.Session{})
 	if v := strings.TrimSpace(c.Query("q")); v != "" {
 		like := "%" + v + "%"
 		q = q.Where("username LIKE ? OR uuid LIKE ? OR remark LIKE ?", like, like, like)
 	}
-	now := time.Now()
-	switch c.Query("filter") {
-	case "online":
-		q = q.Where("online_at > ?", now.Add(-2*time.Minute))
-	case "expiring":
-		q = q.Where("expire_at IS NOT NULL AND expire_at > ? AND expire_at < ?", now, now.Add(7*24*time.Hour))
-	case "limited":
-		q = q.Where("status IN ?", []string{"limited", "expired"})
-	case "disabled":
-		q = q.Where("status = ?", "disabled")
-	}
+	q = userFilter(q, c.Query("filter"), now, warn)
 	if g := c.Query("group"); g != "" {
 		q = q.Where("id IN (?)", s.st.DB.Model(&store.UserGroup{}).Select("user_id").Where("group_id = ?", g))
 	}
+	switch c.Query("renew") {
+	case "on":
+		q = q.Where("renew_days > 0 OR reset_policy NOT IN ?", []string{"", "none"})
+	case "off":
+		q = q.Where("renew_days = 0 AND reset_policy IN ?", []string{"", "none"})
+	}
+	switch c.Query("tg") {
+	case "yes":
+		q = q.Where("telegram_id <> 0")
+	case "no":
+		q = q.Where("telegram_id = 0")
+	}
+	order := "created_at desc"
+	if col, ok := userSorts[c.Query("sort")]; ok {
+		dir := " asc"
+		if c.Query("order") == "desc" {
+			dir = " desc"
+		}
+		parts := strings.Split(col, ", ")
+		parts[len(parts)-1] += dir
+		order = strings.Join(parts, ", ") + ", created_at desc"
+	}
+	q = q.Order(order)
 	var total int64
 	q.Model(&store.User{}).Count(&total)
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
@@ -131,7 +186,7 @@ func (s *Server) listUsers(c *gin.Context) {
 		return
 	}
 	s.withGroups(us)
-	c.JSON(http.StatusOK, gin.H{"items": us, "total": total})
+	c.JSON(http.StatusOK, gin.H{"items": us, "total": total, "summary": summary})
 }
 
 func (s *Server) getUser(c *gin.Context) {
@@ -214,11 +269,18 @@ func (s *Server) createUser(c *gin.Context) {
 // bulkUsers creates N users from a prefix, or applies an action to many.
 func (s *Server) bulkUsers(c *gin.Context) {
 	var req struct {
-		Action   string   `json:"action"` // create / delete / enable / disable / reset-traffic / extend / add-group
+		Action   string   `json:"action"` // create / delete / delete-depleted / enable / disable / reset-traffic / extend / set-limits / add-group
 		IDs      []string `json:"ids"`
+		All      bool     `json:"all"` // reset-traffic: every user
 		Prefix   string   `json:"prefix"`
+		Postfix  string   `json:"postfix"`
+		Start    int      `json:"start"`  // first number (default 1)
+		Method   string   `json:"method"` // create: seq (prefix+number+postfix, default) / random
 		Count    int      `json:"count"`
-		Template *userReq `json:"template"` // create only (a pointer, so other actions need not send it)
+		AddBytes int64    `json:"addBytes"`    // extend: added to a limited quota
+		IPLimit  *int     `json:"ipLimit"`     // set-limits
+		DevLimit *int     `json:"deviceLimit"` // set-limits
+		Template *userReq `json:"template"`    // create only (a pointer, so other actions need not send it)
 		Days     int      `json:"days"`
 		GroupID  string   `json:"groupId"`
 		NodeIDs  []string `json:"nodeIds"`    // attach-nodes / detach-nodes
@@ -228,12 +290,54 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	var affected []string
+	var affected, skipped []string
+	switch {
+	case req.Action == "delete-depleted":
+		// Expired or over quota: the "delete depleted clients" of 3x-ui.
+		req.IDs = nil
+		s.st.DB.Model(&store.User{}).Where("is_service = ? AND status IN ?", false, []string{"limited", "expired"}).Pluck("id", &req.IDs)
+		req.Action = "delete"
+	case req.All && req.Action == "reset-traffic":
+		req.IDs = nil
+		s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Pluck("id", &req.IDs)
+	}
+	if req.Action == "create" && req.Template != nil {
+		// Existing names are skipped, not fatal (looked up before the transaction).
+		if req.Start <= 0 {
+			req.Start = 1
+		}
+		if req.Count > 0 && req.Count <= 1000 {
+			var names []string
+			s.st.DB.Model(&store.User{}).Pluck("username", &names)
+			taken := map[string]bool{}
+			for _, n := range names {
+				taken[n] = true
+			}
+			req.IDs = nil
+			for i := 0; len(req.IDs) < req.Count && i < req.Count*20; i++ {
+				var name string
+				if req.Method == "random" {
+					name = req.Prefix + strings.ToLower(pki.Token(6)) + req.Postfix
+				} else {
+					if i >= req.Count {
+						break
+					}
+					name = fmt.Sprintf("%s%0*d%s", req.Prefix, max(3, len(strconv.Itoa(req.Start+req.Count-1))), req.Start+i, req.Postfix)
+				}
+				if taken[name] {
+					skipped = append(skipped, name)
+					continue
+				}
+				taken[name] = true
+				req.IDs = append(req.IDs, name) // names, not IDs, for the create branch
+			}
+		}
+	}
 	// Nodes the users are on before the change (they must be republished when
 	// users leave them). Looked up outside the transaction: SQLite has a
 	// single connection, so a query on s.st.DB inside it would deadlock.
 	var before []string
-	if len(req.IDs) > 0 {
+	if len(req.IDs) > 0 && req.Action != "create" {
 		before = s.nodesForUsers(req.IDs...)
 	}
 	if t := req.Template; req.Action == "create" && t != nil && t.GroupIDs == nil && t.NodeIDs == nil && t.InboundIDs == nil {
@@ -242,12 +346,15 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		switch req.Action {
 		case "create":
-			if req.Count <= 0 || req.Count > 1000 || req.Prefix == "" || req.Template == nil {
-				return fmt.Errorf("prefix, count (1-1000) and template are required")
+			if req.Count <= 0 || req.Count > 1000 || (req.Prefix == "" && req.Postfix == "" && req.Method != "random") || req.Template == nil {
+				return fmt.Errorf("prefix or postfix, count (1-1000) and template are required")
 			}
-			for i := 1; i <= req.Count; i++ {
+			if len(req.IDs) == 0 {
+				return fmt.Errorf("所有用户名都已存在")
+			}
+			for _, name := range req.IDs {
 				t := *req.Template
-				t.Username = fmt.Sprintf("%s%03d", req.Prefix, i)
+				t.Username = name
 				t.UUID, t.Password = "", ""
 				u := newUser(&t)
 				if err := tx.Create(&u).Error; err != nil {
@@ -293,14 +400,38 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			var us []store.User
 			tx.Where("id IN ?", req.IDs).Find(&us)
 			for _, u := range us {
-				base := time.Now()
-				if u.ExpireAt != nil && u.ExpireAt.After(base) {
-					base = *u.ExpireAt
+				if req.Days != 0 && u.ExpireAt != nil { // unlimited stays unlimited
+					base := time.Now()
+					if u.ExpireAt.After(base) {
+						base = *u.ExpireAt
+					}
+					if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("expire_at", base.AddDate(0, 0, req.Days)).Error; err != nil {
+						return err
+					}
 				}
-				exp := base.AddDate(0, 0, req.Days)
-				if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("expire_at", exp).Error; err != nil {
-					return err
+				if req.AddBytes != 0 && u.TrafficLimit > 0 {
+					if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("traffic_limit", max(u.TrafficLimit+req.AddBytes, 1)).Error; err != nil {
+						return err
+					}
 				}
+			}
+		case "set-limits":
+			affected = req.IDs
+			upd := map[string]any{}
+			if req.IPLimit != nil {
+				upd["ip_limit"] = max(*req.IPLimit, 0)
+			}
+			if req.DevLimit != nil {
+				upd["device_limit"] = max(*req.DevLimit, 0)
+			}
+			if req.Template != nil {
+				upd["traffic_limit"] = max(req.Template.TrafficLimit, 0)
+			}
+			if len(upd) == 0 {
+				return fmt.Errorf("nothing to set")
+			}
+			if err := tx.Model(&store.User{}).Where("id IN ?", req.IDs).Updates(upd).Error; err != nil {
+				return err
 			}
 		case "add-group":
 			affected = req.IDs
@@ -343,8 +474,12 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	if nodes := append(before, s.nodesForUsers(affected...)...); len(nodes) > 0 {
 		s.MarkDirty("bulk "+req.Action, nodes...)
 	}
-	s.auditCtx(c, "user.bulk", req.Action, fmt.Sprintf("%d users", max(len(req.IDs), req.Count)))
-	c.JSON(http.StatusOK, gin.H{"affected": len(affected)})
+	s.auditCtx(c, "user.bulk", req.Action, fmt.Sprintf("%d users", len(req.IDs)))
+	n := len(affected)
+	if req.Action == "delete" {
+		n = len(req.IDs)
+	}
+	c.JSON(http.StatusOK, gin.H{"affected": n, "skipped": skipped})
 }
 
 // recomputeStatus re-derives limited/expired/active after quota changes.
@@ -592,4 +727,11 @@ func (s *Server) deleteGroup(c *gin.Context) {
 	s.MarkDirty("group deleted", s.nodesForInbounds(ins...)...)
 	s.auditCtx(c, "group.delete", g.Name, "")
 	c.Status(http.StatusNoContent)
+}
+
+func atoiDefault(s string, def int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
+		return n
+	}
+	return def
 }

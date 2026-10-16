@@ -243,6 +243,7 @@ func (s *Server) startJobs() func() {
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)
 	add("45 * * * * *", "health", s.probeChains)
+	add("*/20 * * * * *", "forward-failover", s.probeForwards)
 	add("15 * * * * *", "sub-sources", s.refreshDueSources)
 	add("0 33 * * * *", "reminders", s.remindUsers)
 	c.Start()

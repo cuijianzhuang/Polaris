@@ -520,6 +520,10 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 		if err != nil {
 			fail(err)
 		}
+	case "busy_ports":
+		t, u := busyPorts()
+		b, _ := json.Marshal(map[string][]int{"tcp": t, "udp": u})
+		res.Output = string(b)
 	case "reality_scan":
 		rs, err := realityscan.Scan(ctx, c.Args["target"])
 		if err != nil {

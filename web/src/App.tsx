@@ -9,6 +9,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Nodes from './pages/Nodes'
 import Cores from './pages/Cores'
+import Forwards from './pages/Forwards'
 import Inbounds from './pages/Inbounds'
 import Chains from './pages/Chains'
 import Templates from './pages/Templates'
@@ -59,6 +60,7 @@ const nav: NavItem[] = [
   ] },
   { to: '/inbounds', label: '入站', icon: <Icon.Inbound /> },
   { to: '/chains', label: '链路与 CDN', icon: <Icon.Chain /> },
+  { to: '/forwards', label: '端口转发', icon: <Icon.Forward /> },
   { to: '/templates', label: '入站模板', icon: <Icon.Template /> },
   { to: '/users', label: '用户', icon: <Icon.Users /> },
   { to: '/sub-templates', label: '订阅设置', icon: <Icon.Sub /> },
@@ -164,6 +166,7 @@ export default function App() {
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/nodes" element={<Nodes />} />
                   <Route path="/cores" element={<Cores />} />
+                  <Route path="/forwards" element={<Forwards />} />
                   <Route path="/inbounds" element={<Inbounds />} />
                   <Route path="/chains" element={<Chains />} />
                   <Route path="/templates" element={<Templates />} />

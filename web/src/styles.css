@@ -392,3 +392,17 @@ html[data-mode="dark"] .overlay { background: rgba(0, 0, 0, .55); }
 .scan-table thead th { position: sticky; top: 0; background: var(--soft); z-index: 1; }
 .btn.link { border-color: transparent; background: none; color: var(--pri); box-shadow: none; }
 .btn.link:hover { background: var(--pri-soft); color: var(--pri-ink); }
+/* dropdown menu (details/summary), sortable headers, chip counters */
+details.menu { position: relative; }
+details.menu > summary { list-style: none; }
+details.menu > summary::-webkit-details-marker { display: none; }
+.menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); padding: 6px; display: flex; flex-direction: column; animation: fade-in .15s var(--ease) both; }
+.menu-list button { text-align: left; border: none; background: none; padding: 9px 10px; border-radius: 6px; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; }
+.menu-list button:hover:not(:disabled) { background: var(--soft); }
+.menu-list button:disabled { color: var(--faint); cursor: not-allowed; }
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable:hover { color: var(--ink); }
+.sort-ind { margin-left: 4px; font-size: 11px; opacity: .5; }
+th.sortable[aria-sort="ascending"] .sort-ind, th.sortable[aria-sort="descending"] .sort-ind { opacity: 1; color: var(--pri); }
+.chip-n { margin-left: 6px; font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--soft); color: var(--mute); font-family: var(--mono); }
+.chip.on .chip-n { background: rgba(255, 255, 255, .18); color: inherit; }

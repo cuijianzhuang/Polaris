@@ -275,8 +275,8 @@ func TestEndToEnd(t *testing.T) {
 	}
 	var tpls []map[string]any
 	a.do("GET", "/templates", nil, &tpls)
-	if len(tpls) != 4 {
-		t.Fatalf("expected 4 builtin templates, got %d", len(tpls))
+	if len(tpls) < 14 {
+		t.Fatalf("expected the builtin templates (incl. Xray-examples), got %d", len(tpls))
 	}
 	var plan struct {
 		Summary map[string]float64

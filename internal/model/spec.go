@@ -52,12 +52,25 @@ type CoreSpec struct {
 	SHA256  string   `json:"sha256,omitempty"` // expected archive digest, if known
 }
 
-// ForwardRule is an L4 port forward run by the forwarder core on relay nodes.
+// ForwardRule is an L4 port forward run by the forwarder core (realm).
 type ForwardRule struct {
-	Tag     string `json:"tag"`
-	Listen  int    `json:"listen"`
-	Network string `json:"network"` // tcp / udp / tcp,udp
-	Target  string `json:"target"`  // host:port
+	Tag      string `json:"tag"`
+	ListenIP string `json:"listenIp,omitempty"` // "" = all addresses
+	Listen   int    `json:"listen"`
+	Network  string `json:"network"` // tcp / udp / tcp,udp
+	Target   string `json:"target"`  // host:port
+	// ExtraTargets are further remotes; Balance spreads connections over all
+	// of them ("roundrobin" / "iphash", Weights one per remote, Target first).
+	ExtraTargets []string `json:"extraTargets,omitempty"`
+	Balance      string   `json:"balance,omitempty"`
+	Weights      []int    `json:"weights,omitempty"`
+	Through      string   `json:"through,omitempty"` // outgoing source IP
+	// realm transports between a relay and a landing realm, e.g.
+	// "ws;host=a;path=/x;tls;sni=a;insecure" / "ws;host=a;path=/x;tls;servername=a".
+	ListenTransport string `json:"listenTransport,omitempty"`
+	RemoteTransport string `json:"remoteTransport,omitempty"`
+	SendProxy       int    `json:"sendProxy,omitempty"` // PROXY protocol version sent to the remote (0 = off)
+	AcceptProxy     bool   `json:"acceptProxy,omitempty"`
 }
 
 // FrontRule makes the node's Caddy terminate TLS for Domain on Port and

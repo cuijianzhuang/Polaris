@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { Icon } from '../components/Icons'
+import { CloneModal, ImportInboundModal } from '../components/InboundTools'
+import { downloadJSON } from '../components/UserTools'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
@@ -192,7 +195,15 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
       )}
       <div className="form-grid">
         <Field label="标签" htmlFor="ib-tag"><input id="ib-tag" className="input mono" value={tag} onChange={(e) => setTag(e.target.value)} /></Field>
-        <Field label="端口" htmlFor="ib-port"><input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" /></Field>
+        <Field label="端口" htmlFor="ib-port" hint="点「随机」选一个节点上未被占用的端口（含其他程序占用的端口）；保存后自动在节点防火墙放行">
+          <div className="joined">
+            <input id="ib-port" className="input mono" value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" />
+            <button className="btn" type="button" disabled={!nodeId} onClick={() => run(async () => {
+              const r = await get<{ port: number }>(`/nodes/${nodeId}/free-port`)
+              if (r.port) setPort(String(r.port))
+            })}>随机</button>
+          </div>
+        </Field>
         <Field label="监听地址" htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder=":: (全部)" /></Field>
         <Field label="备注" htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
       </div>
@@ -239,13 +250,42 @@ export default function Inbounds() {
   const list = useLoad(() => get<Inbound[]>('/inbounds'))
   const tagStats = useLoad(() => get<TagTrafficRow[]>('/stats/tags?kind=inbound').catch(() => [] as TagTrafficRow[]))
   const trafficOf = useMemo(() => {
-    const m = new Map<string, number>()
-    for (const r of tagStats.data ?? []) m.set(r.nodeId + '/' + r.tag, r.up + r.down)
+    const m = new Map<string, { up: number; down: number }>()
+    for (const r of tagStats.data ?? []) m.set(r.nodeId + '/' + r.tag, { up: r.up, down: r.down })
     return m
   }, [tagStats.data])
   const [drawer, setDrawer] = useState<Inbound | 'new' | null>(null)
+  const [cloning, setCloning] = useState<Inbound | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [q, setQ] = useState('')
+  const [sort, setSort] = useState<{ k: string; desc: boolean }>({ k: '', desc: false })
   const toast = useToast()
-  const rows = useMemo(() => (list.data ?? []).filter((i) => (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node)), [list.data, filter])
+  const confirm = useConfirm()
+  const { run } = useAction()
+  const traffic = (i: Inbound) => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? t.up + t.down : 0 }
+  const rows = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    const out = (list.data ?? []).filter((i) => (!filter.core || i.core === filter.core) && (!filter.node || i.nodeId === filter.node) &&
+      (!s || [i.tag, i.remark ?? '', String(i.port), i.nodeName, i.protocol.type, i.transport.type].some((x) => x.toLowerCase().includes(s))))
+    const key: Record<string, (i: Inbound) => string | number> = { tag: (i) => i.tag, node: (i) => i.nodeName, port: (i) => i.port, users: (i) => i.userCount, traffic }
+    if (sort.k && key[sort.k]) {
+      const f = key[sort.k]
+      out.sort((a, b) => { const x = f(a), y = f(b); const r = x < y ? -1 : x > y ? 1 : 0; return sort.desc ? -r : r })
+    }
+    return out
+  }, [list.data, filter, q, sort, trafficOf]) // eslint-disable-line react-hooks/exhaustive-deps
+  const th = (k: string, label: string) => (
+    <th className="sortable" aria-sort={sort.k === k ? (sort.desc ? 'descending' : 'ascending') : 'none'}
+      onClick={() => setSort((s) => (s.k === k ? { k, desc: !s.desc } : { k, desc: k === 'users' || k === 'traffic' }))}>
+      {label}<span className="sort-ind">{sort.k === k ? (sort.desc ? '↓' : '↑') : '↕'}</span>
+    </th>
+  )
+  const totals = rows.reduce((a, i) => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? { up: a.up + t.up, down: a.down + t.down } : a }, { up: 0, down: 0 })
+  const exportOne = (i: Inbound) => run(async () => downloadJSON(`inbound-${i.tag}.json`, await get(`/inbounds/${i.id}/export`)), '已导出')
+  const resetTraffic = async (i?: Inbound) => {
+    if (!(await confirm(i ? `清零入站 ${i.tag} 的流量统计？` : '清零全部入站的流量统计？', { danger: !i, ok: '清零' }))) return
+    run(async () => { await post('/stats/tags/reset', i ? { kind: 'inbound', nodeId: i.nodeId, tag: i.tag } : { kind: 'inbound' }); tagStats.reload() }, '已清零')
+  }
   const usedCores = [...new Set((list.data ?? []).map((i) => i.core))]
   const masterOf = useMemo(() => {
     const m: Record<string, string> = {}
@@ -264,9 +304,20 @@ export default function Inbounds() {
     <>
       <div className="top">
         <div><h1>入站</h1><div className="sub">一个入站 = 节点 × 内核 × 协议 × 传输 × 安全</div></div>
-        <button className="btn pri" type="button" disabled={!nodes.length} onClick={() => setDrawer('new')}>+ 新建入站</button>
+        <div className="row">
+          <details className="menu">
+            <summary className="btn">更多</summary>
+            <div className="menu-list" onClick={(e) => { (e.currentTarget.parentElement as HTMLDetailsElement).open = false }}>
+              <button type="button" disabled={!nodes.length} onClick={() => setImporting(true)}>导入入站 JSON</button>
+              <button type="button" disabled={!rows.length} onClick={() => run(async () => downloadJSON('polaris-inbounds.json', await Promise.all(rows.map((i) => get(`/inbounds/${i.id}/export`)))), '已导出')}>导出当前列表</button>
+              <button type="button" onClick={() => resetTraffic()}>清零全部入站流量</button>
+            </div>
+          </details>
+          <button className="btn pri" type="button" disabled={!nodes.length} onClick={() => setDrawer('new')}>+ 新建入站</button>
+        </div>
       </div>
       <div className="row" role="group" aria-label="筛选">
+        <input className="input search" placeholder="搜索标签 / 备注 / 端口 / 节点" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} aria-label="搜索入站" />
         <button className={'chip' + (!filter.core && !filter.node ? ' on' : '')} type="button" onClick={() => setFilter({})}>全部</button>
         {usedCores.map((c) => <button key={c} className={'chip' + (filter.core === c ? ' on' : '')} type="button" onClick={() => setFilter({ core: c })}>{coreLabel[c]}</button>)}
         {nodes.map((n) => <button key={n.id} className={'chip' + (filter.node === n.id ? ' on' : '')} type="button" onClick={() => setFilter({ node: n.id })}>{n.name}</button>)}
@@ -274,7 +325,7 @@ export default function Inbounds() {
       <div className="card flush scroll">
         {rows.length === 0 ? <Empty>{list.loading ? '加载中…' : '还没有入站'}</Empty> : (
           <table>
-            <thead><tr><th>标签</th><th>节点 / 内核</th><th>协议</th><th>传输 · 安全</th><th>端口</th><th>授权用户</th><th>流量</th><th>入口</th><th>启用</th></tr></thead>
+            <thead><tr>{th('tag', '标签')}{th('node', '节点 / 内核')}<th>协议</th><th>传输 · 安全</th>{th('port', '端口')}{th('users', '授权用户')}{th('traffic', `流量 ↑${bytes(totals.up)} ↓${bytes(totals.down)}`)}<th>入口</th><th>启用</th><th /></tr></thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
@@ -286,15 +337,24 @@ export default function Inbounds() {
                   <td>{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
                   <td className="mono">{portLabel(i)}</td>
                   <td className="mono">{i.userCount}</td>
-                  <td className="mono small">{trafficOf.has(i.nodeId + '/' + i.tag) ? bytes(trafficOf.get(i.nodeId + '/' + i.tag)!) : '—'}</td>
+                  <td className="mono small">{(() => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? <>↑ {bytes(t.up)}<br />↓ {bytes(t.down)}</> : '—' })()}</td>
                   <td className="mono">{i.endpoints}</td>
                   <td onClick={(e) => e.stopPropagation()}><Switch label="启用" on={i.enabled} onChange={() => toggle(i)} /></td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <div className="row" style={{ flexWrap: 'nowrap', gap: 2 }}>
+                      <button className="icon-btn" type="button" title="复制到…（同节点或其他节点）" aria-label="复制入站" onClick={() => setCloning(i)}><Icon.Copy /></button>
+                      <button className="icon-btn" type="button" title="导出 JSON" aria-label="导出入站" onClick={() => exportOne(i)}><Icon.Download /></button>
+                      <button className="icon-btn" type="button" title="清零流量统计" aria-label="清零流量" onClick={() => resetTraffic(i)}><Icon.Reset /></button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+      {cloning && <CloneModal inbound={cloning} nodes={nodes} onClose={() => setCloning(null)} onDone={() => { setCloning(null); list.reload() }} />}
+      {importing && <ImportInboundModal nodes={nodes} onClose={() => setImporting(false)} onDone={() => { setImporting(false); list.reload() }} />}
       {drawer && <InboundDrawer nodes={nodes} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} />}
     </>
   )
