@@ -19,6 +19,7 @@ jobs:
           curl -fsSL -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip && unzip -q xray.zip -d xray
           curl -fsSL https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz | tar xz
           curl -fsSL https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz | gunzip > mihomo && chmod +x mihomo
+          mkdir -p gost && curl -fsSL https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz | tar xz -C gost
           mkdir -p pebble && curl -fsSL https://github.com/letsencrypt/pebble/releases/download/v2.7.0/pebble-linux-amd64.tar.gz | tar xz -C pebble --strip-components=3
           B=https://raw.githubusercontent.com/letsencrypt/pebble/v2.7.0/test
           curl -fsSL -o pebble/config.json $B/config/pebble-config.json
@@ -33,6 +34,7 @@ jobs:
           POLARIS_XRAY_BIN: /tmp/cores/xray/xray
           POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
+          POLARIS_GOST_BIN: /tmp/cores/gost/gost
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v

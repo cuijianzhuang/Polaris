@@ -59,3 +59,35 @@ func TestForwardRules(t *testing.T) {
 		t.Fatal("disabled rule rendered")
 	}
 }
+
+// GOST rules: UDP tunnels allowed (refused for realm), limits kept, native
+// failover (health ignored), and the GOST core is added to the node spec.
+func TestGostForwardRules(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "relay", Address: "203.0.113.9"})
+	rule := map[string]any{"nodeId": "n1", "listenPort": 31000, "network": "tcp,udp", "failover": true,
+		"remotes":    []map[string]any{{"addr": "198.51.100.1:8443", "enabled": true}, {"addr": "198.51.100.2:8443", "enabled": true}},
+		"tunnelRole": "client", "tunnelType": "quic", "tunnelAuth": "pw", "rateIn": 1024, "maxConns": 10, "sendProxy": 2}
+	if code, out := c.do("POST", "/forwards", rule); code != 400 {
+		t.Fatalf("realm cannot tunnel UDP or use quic: %d %v", code, out)
+	}
+	rule["engine"] = "gost"
+	code, out := c.do("POST", "/forwards", rule)
+	if code != 201 {
+		t.Fatalf("create %d %v", code, out)
+	}
+	id := out["id"].(string)
+	s.st.DB.Model(&store.ForwardRule{}).Where("id = ?", id).Update("health", store.NewJSON(map[string]bool{"198.51.100.1:8443": true}))
+	fw := s.standaloneForwards("n1")
+	if len(fw) != 1 || fw[0].Engine != model.EngineGost || fw[0].TunnelType != "quic" || fw[0].TunnelAuth != "pw" || fw[0].RateIn != 1024 ||
+		fw[0].MaxConns != 10 || fw[0].SendProxy != 0 || len(fw[0].ExtraTargets) != 1 {
+		t.Fatalf("rendered %+v", fw)
+	}
+	spec, err := s.BuildSpec("n1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !spec.HasCore(model.CoreGost) || spec.HasCore(model.CoreForwarder) {
+		t.Fatalf("cores %+v", spec.Cores)
+	}
+}

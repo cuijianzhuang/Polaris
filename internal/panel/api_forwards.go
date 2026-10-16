@@ -41,6 +41,11 @@ func (s *Server) listForwards(c *gin.Context) {
 
 type forwardReq struct {
 	NodeID      string                `json:"nodeId" binding:"required"`
+	Engine      string                `json:"engine"`
+	TunnelAuth  string                `json:"tunnelAuth"`
+	RateIn      int                   `json:"rateIn"`
+	RateOut     int                   `json:"rateOut"`
+	MaxConns    int                   `json:"maxConns"`
 	Name        string                `json:"name"`
 	ListenIP    string                `json:"listenIp"`
 	ListenPort  int                   `json:"listenPort"`
@@ -103,20 +108,33 @@ func (r *forwardReq) validate() error {
 	default:
 		return fmt.Errorf("负载均衡应为 roundrobin / iphash")
 	}
+	gost := r.Engine == model.EngineGost
+	if r.Engine != "" && !gost {
+		return fmt.Errorf("转发引擎应为 realm 或 gost")
+	}
 	switch r.TunnelRole {
 	case "":
-		r.TunnelType = ""
+		r.TunnelType, r.TunnelAuth = "", ""
 	case "client", "server":
-		if r.Network == "udp" {
-			return fmt.Errorf("加密隧道只支持 TCP")
+		types := map[string]bool{"ws": true, "tls": true, "wss": true}
+		if gost {
+			types = map[string]bool{"ws": true, "tls": true, "wss": true, "mwss": true, "mtls": true, "kcp": true, "quic": true, "grpc": true}
+		} else if r.Network == "udp" {
+			return fmt.Errorf("realm 的加密隧道只支持 TCP（GOST 隧道可同时转发 UDP）")
 		}
-		switch r.TunnelType {
-		case "ws", "tls", "wss":
-		default:
-			return fmt.Errorf("隧道类型应为 ws / tls / wss")
+		if !types[r.TunnelType] {
+			return fmt.Errorf("不支持的隧道类型 %q", r.TunnelType)
 		}
 	default:
 		return fmt.Errorf("隧道角色应为 client / server")
+	}
+	if gost {
+		r.SendProxy, r.Through = 0, "" // realm only
+	} else {
+		r.TunnelAuth, r.RateIn, r.RateOut, r.MaxConns = "", 0, 0, 0
+	}
+	if r.RateIn < 0 || r.RateOut < 0 || r.MaxConns < 0 {
+		return fmt.Errorf("限速与连接数不能为负")
 	}
 	if r.SendProxy < 0 || r.SendProxy > 2 {
 		return fmt.Errorf("PROXY protocol 版本应为 1 或 2")
@@ -126,6 +144,7 @@ func (r *forwardReq) validate() error {
 
 func (r *forwardReq) apply(row *store.ForwardRule) {
 	row.NodeID, row.Name, row.ListenIP, row.ListenPort, row.Network = r.NodeID, strings.TrimSpace(r.Name), r.ListenIP, r.ListenPort, r.Network
+	row.Engine, row.TunnelAuth, row.RateIn, row.RateOut, row.MaxConns = r.Engine, r.TunnelAuth, r.RateIn, r.RateOut, r.MaxConns
 	row.Remotes, row.Balance, row.Failover, row.Through = store.NewJSON(r.Remotes), r.Balance, r.Failover, r.Through
 	row.TunnelRole, row.TunnelType, row.TunnelHost, row.TunnelPath, row.TunnelSNI = r.TunnelRole, r.TunnelType, r.TunnelHost, r.TunnelPath, r.TunnelSNI
 	row.SendProxy, row.AcceptProxy, row.Remark = r.SendProxy, r.AcceptProxy, r.Remark
@@ -141,8 +160,9 @@ func (r *forwardReq) apply(row *store.ForwardRule) {
 // chains and other forwards on the node.
 func (s *Server) forwardPortConflict(r *forwardReq, excludeID string) error {
 	m := model.Inbound{Port: r.ListenPort}
+	ln := listenNet(r.Engine, r.TunnelRole, r.TunnelType, r.Network)
 	// A stand-in inbound with the same networks for portConflict.
-	switch r.Network {
+	switch ln {
 	case "udp":
 		m.Protocol.Type, m.Transport.Type = model.ProtoHysteria2, model.TransQUIC
 	case "tcp":
@@ -157,11 +177,17 @@ func (s *Server) forwardPortConflict(r *forwardReq, excludeID string) error {
 	var others []store.ForwardRule
 	s.st.DB.Where("node_id = ? AND listen_port = ? AND id <> ?", r.NodeID, r.ListenPort, excludeID).Find(&others)
 	for _, o := range others {
-		if netOverlap(o.Network, r.Network) {
+		if netOverlap(listenNet(o.Engine, o.TunnelRole, o.TunnelType, o.Network), ln) {
 			return fmt.Errorf("端口 %d 已被转发规则 %s 使用", r.ListenPort, o.Name)
 		}
 	}
 	return nil
+}
+
+// listenNet is the network a forward rule's listening socket uses.
+func listenNet(engine, role, ttype, network string) string {
+	f := model.ForwardRule{Engine: engine, TunnelRole: role, TunnelType: ttype, Network: network}
+	return f.ListenNetwork()
 }
 
 func netOverlap(a, b string) bool {
@@ -244,6 +270,7 @@ func (s *Server) deleteForward(c *gin.Context) {
 		return
 	}
 	s.st.DB.Delete(&row)
+	s.st.DB.Where("node_id = ? AND kind = ? AND tag = ?", row.NodeID, "inbound", "fwd-"+row.ID).Delete(&store.TagTraffic{})
 	s.MarkDirty("forward "+row.Name+" deleted", row.NodeID)
 	s.auditCtx(c, "forward.delete", row.Name, "")
 	c.Status(http.StatusNoContent)
@@ -301,7 +328,7 @@ func (s *Server) standaloneForwards(nodeID string) []model.ForwardRule {
 			}
 		}
 		for _, rm := range all {
-			if r.Failover && r.Health.V[rm.Addr] {
+			if r.Failover && r.Engine != model.EngineGost && r.Health.V[rm.Addr] { // GOST fails over natively
 				continue
 			}
 			targets = append(targets, rm.Addr)
@@ -319,6 +346,13 @@ func (s *Server) standaloneForwards(nodeID string) []model.ForwardRule {
 		f := model.ForwardRule{Tag: "fwd-" + r.ID, ListenIP: r.ListenIP, Listen: r.ListenPort, Network: r.Network,
 			Target: targets[0], ExtraTargets: targets[1:], Balance: r.Balance, Weights: weights, Through: r.Through,
 			SendProxy: r.SendProxy, AcceptProxy: r.AcceptProxy}
+		if r.Engine == model.EngineGost {
+			f.Engine, f.Failover, f.TunnelRole, f.TunnelType = model.EngineGost, r.Failover, r.TunnelRole, r.TunnelType
+			f.TunnelHost, f.TunnelPath, f.TunnelSNI, f.TunnelAuth = r.TunnelHost, r.TunnelPath, r.TunnelSNI, r.TunnelAuth
+			f.RateIn, f.RateOut, f.MaxConns = r.RateIn, r.RateOut, r.MaxConns
+			out = append(out, f)
+			continue
+		}
 		switch r.TunnelRole {
 		case "client":
 			f.RemoteTransport = tunnelString(r)
@@ -339,7 +373,7 @@ var fwdHealth struct {
 
 func (s *Server) probeForwards() {
 	var rs []store.ForwardRule
-	s.st.DB.Where("enabled = ? AND failover = ?", true, true).Find(&rs)
+	s.st.DB.Where("enabled = ? AND failover = ? AND (engine IS NULL OR engine <> ?)", true, true, model.EngineGost).Find(&rs)
 	fwdHealth.Lock()
 	if fwdHealth.fails == nil {
 		fwdHealth.fails, fwdHealth.oks = map[string]int{}, map[string]int{}

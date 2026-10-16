@@ -209,7 +209,10 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	if spec.Forwards, err = s.buildForwards(node.ID); err != nil {
 		return nil, err
 	}
-	if len(spec.Forwards) > 0 && !spec.HasCore(model.CoreForwarder) {
+	if len(spec.GostForwards()) > 0 && !spec.HasCore(model.CoreGost) {
+		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreGost})
+	}
+	if len(spec.RealmForwards()) > 0 && !spec.HasCore(model.CoreForwarder) {
 		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreForwarder})
 	}
 	spec.Fronts = s.buildFronts(spec)

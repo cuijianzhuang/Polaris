@@ -52,9 +52,46 @@ type CoreSpec struct {
 	SHA256  string   `json:"sha256,omitempty"` // expected archive digest, if known
 }
 
-// ForwardRule is an L4 port forward run by the forwarder core (realm).
+// Forwarding engines.
+const (
+	EngineRealm = "" // realm (the forwarder core)
+	EngineGost  = "gost"
+)
+
+// GostForwards / RealmForwards split a spec's forwards by engine.
+func (s *NodeSpec) GostForwards() []ForwardRule  { return s.forwardsBy(true) }
+func (s *NodeSpec) RealmForwards() []ForwardRule { return s.forwardsBy(false) }
+
+func (s *NodeSpec) forwardsBy(gost bool) []ForwardRule {
+	var out []ForwardRule
+	for _, f := range s.Forwards {
+		if (f.Engine == EngineGost) == gost {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// ListenNetwork is what the rule's listening socket uses: a GOST tunnel end
+// over QUIC / KCP listens on UDP whatever it carries, a relay tunnel end
+// over a stream transport on TCP.
+func (f *ForwardRule) ListenNetwork() string {
+	if f.Engine == EngineGost && f.TunnelRole == "server" {
+		if f.TunnelType == "quic" || f.TunnelType == "kcp" {
+			return "udp"
+		}
+		return "tcp"
+	}
+	if f.Network == "" {
+		return "tcp"
+	}
+	return f.Network
+}
+
+// ForwardRule is an L4 port forward run by realm (the forwarder core) or GOST.
 type ForwardRule struct {
 	Tag      string `json:"tag"`
+	Engine   string `json:"engine,omitempty"`   // "" (realm) / gost
 	ListenIP string `json:"listenIp,omitempty"` // "" = all addresses
 	Listen   int    `json:"listen"`
 	Network  string `json:"network"` // tcp / udp / tcp,udp
@@ -71,6 +108,20 @@ type ForwardRule struct {
 	RemoteTransport string `json:"remoteTransport,omitempty"`
 	SendProxy       int    `json:"sendProxy,omitempty"` // PROXY protocol version sent to the remote (0 = off)
 	AcceptProxy     bool   `json:"acceptProxy,omitempty"`
+
+	// GOST: native failover, relay tunnels (TunnelRole client / server over
+	// TunnelType ws / wss / tls / mwss / mtls / kcp / quic / grpc, with an
+	// optional relay password) and limits (KB/s, concurrent connections).
+	Failover   bool   `json:"failover,omitempty"`
+	TunnelRole string `json:"tunnelRole,omitempty"`
+	TunnelType string `json:"tunnelType,omitempty"`
+	TunnelHost string `json:"tunnelHost,omitempty"`
+	TunnelPath string `json:"tunnelPath,omitempty"`
+	TunnelSNI  string `json:"tunnelSni,omitempty"`
+	TunnelAuth string `json:"tunnelAuth,omitempty"`
+	RateIn     int    `json:"rateIn,omitempty"`
+	RateOut    int    `json:"rateOut,omitempty"`
+	MaxConns   int    `json:"maxConns,omitempty"`
 }
 
 // FrontRule makes the node's Caddy terminate TLS for Domain on Port and

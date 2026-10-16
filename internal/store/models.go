@@ -323,6 +323,7 @@ type ForwardRemote struct {
 type ForwardRule struct {
 	ID         string                `gorm:"primaryKey;size:32" json:"id"`
 	NodeID     string                `gorm:"size:32;index" json:"nodeId"`
+	Engine     string                `gorm:"size:8" json:"engine"` // "" realm / gost
 	Name       string                `gorm:"size:64" json:"name"`
 	ListenIP   string                `gorm:"size:64" json:"listenIp"`
 	ListenPort int                   `json:"listenPort"`
@@ -338,6 +339,10 @@ type ForwardRule struct {
 	TunnelHost  string                `gorm:"size:255" json:"tunnelHost"`
 	TunnelPath  string                `gorm:"size:255" json:"tunnelPath"`
 	TunnelSNI   string                `gorm:"size:255" json:"tunnelSni"`
+	TunnelAuth  string                `gorm:"size:128" json:"tunnelAuth"` // gost relay password
+	RateIn      int                   `json:"rateIn"`                     // gost: KB/s, 0 = unlimited
+	RateOut     int                   `json:"rateOut"`
+	MaxConns    int                   `json:"maxConns"` // gost: concurrent connections
 	SendProxy   int                   `json:"sendProxy"`
 	AcceptProxy bool                  `json:"acceptProxy"`
 	Enabled     bool                  `json:"enabled"`

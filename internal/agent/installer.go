@@ -119,6 +119,15 @@ func releaseFor(t model.CoreType, ver string) (*release, error) {
 				return "", errors.New("caddy: no sha256 digest published")
 			},
 		}, nil
+	case model.CoreGost:
+		if v == "" {
+			v = "3.2.6"
+		}
+		asset := fmt.Sprintf("gost_%s_linux_%s.tar.gz", v, arch)
+		return &release{
+			url: "https://github.com/go-gost/gost/releases/download/v" + v + "/" + asset, binary: "gost",
+			repo: "go-gost/gost", tag: "v" + v, digest: githubDigest,
+		}, nil
 	case model.CoreForwarder:
 		if v == "" {
 			v = "2.7.0"
@@ -207,7 +216,7 @@ func (i *Installer) get(ctx context.Context, u string) ([]byte, error) {
 // BinPath returns the executable path for an installed version.
 func (i *Installer) BinPath(t model.CoreType, ver string) string {
 	name := map[model.CoreType]string{model.CoreXray: "xray", model.CoreSingbox: "sing-box", model.CoreHysteria: "hysteria",
-		model.CoreForwarder: "realm", model.CoreMihomo: "mihomo", model.CoreCaddy: "caddy"}[t]
+		model.CoreForwarder: "realm", model.CoreMihomo: "mihomo", model.CoreCaddy: "caddy", model.CoreGost: "gost"}[t]
 	return filepath.Join(i.Dir, string(t), versionDir(ver), name)
 }
 
