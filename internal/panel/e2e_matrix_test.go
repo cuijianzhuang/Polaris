@@ -414,7 +414,7 @@ func TestSubscriptionMatrix(t *testing.T) {
 
 	// sing-box client run with exactly one outbound.
 	runSingbox := func(t *testing.T, name string, ob map[string]any) {
-		port := freePort(t)
+		port := freeMixedPort(t)
 		conf := map[string]any{
 			"log":       map[string]any{"level": "debug"},
 			"inbounds":  []any{map[string]any{"type": "mixed", "tag": "in", "listen": "127.0.0.1", "listen_port": port}},
@@ -504,7 +504,7 @@ func TestSubscriptionMatrix(t *testing.T) {
 		p := p
 		name := fmt.Sprint(p["name"])
 		t.Run("clash/"+name, func(t *testing.T) {
-			port := freePort(t)
+			port := freeMixedPort(t)
 			conf := map[string]any{
 				"mixed-port": port, "allow-lan": false, "mode": "rule", "log-level": "debug", "ipv6": false,
 				"geodata-mode": false, "geo-auto-update": false,
