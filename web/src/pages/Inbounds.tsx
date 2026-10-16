@@ -204,7 +204,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   const { busy, run } = useAction()
   const toast = useToast()
 
-  const proxyCores = (caps.data ?? []).filter((c) => c.combos.length > 0)
+  const proxyCores = (caps.data ?? []).filter((c) => (c.combos?.length ?? 0) > 0)
   const coreCaps = proxyCores.filter((c) => c.core === draft.core)
   useEffect(() => {
     // Pick a valid core when the node changes.

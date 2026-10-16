@@ -49,7 +49,7 @@ function TemplateEditor({ tpl, groups, onClose, onSaved }: { tpl?: InboundTempla
   const [labels, setLabels] = useState((tpl?.boundLabels ?? []).join(', '))
   const [idx, setIdx] = useState(0)
   const caps = useLoad(() => get<CapSet[]>('/capabilities'))
-  const proxyCaps = (caps.data ?? []).filter((c) => c.combos.length)
+  const proxyCaps = (caps.data ?? []).filter((c) => c.combos?.length)
   const { busy, run } = useAction()
   const it = items[idx]
   const setIt = (patch: Partial<TemplateItem>) => setItems((x) => x.map((y, i) => (i === idx ? { ...y, ...patch } : y)))
