@@ -157,7 +157,7 @@ scrub_initial_password() {
 print_credentials() { # password
   echo
   box "$C_G" "后台登录信息（请立即保存）" \
-    "$(pad 地址 8)${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}" \
+    "$(pad 地址 8)${C_BD}$(admin_url)${C_0}" \
     "$(pad 用户名 8)${C_BD}admin${C_0}" \
     "$(pad 密码 8)${C_BD}$1${C_0}" \
     "${C_D}密码只显示这一次（双击可整段选中复制，区分大小写）；忘记后执行 polaris reset-password 重置${C_0}"
@@ -189,6 +189,13 @@ svc_mem() { # human-readable memory of a running unit, if systemd accounts it
   return 0
 }
 # svc_line UNIT: "● 运行中 · 已运行 3天2小时 · 内存 41.2M" style summary.
+# admin_url: the admin address (no double slash when the path is "/").
+admin_url() {
+  local p
+  p="$(env_get POLARIS_ADMIN_PATH)"
+  printf '%s%s/' "$(env_get POLARIS_PUBLIC_URL)" "${p%/}"
+}
+
 svc_line() {
   local up mem
   if systemctl is-active --quiet "$1"; then
@@ -578,10 +585,17 @@ show_info() {
   kv 面板 "$(svc_line polaris)"
   if systemctl is-enabled --quiet polaris 2>/dev/null; then kv 开机自启 "是"; else kv 开机自启 "${C_Y}否${C_0}"; fi
   systemctl cat polaris-agent >/dev/null 2>&1 && kv 本机节点 "$(svc_line polaris-agent)"
-  [ -n "$domain" ] && [ -f "$CADDYFILE" ] && grep -q "^$domain {" "$CADDYFILE" && kv Caddy "$(svc_line caddy)"
+  if [ -n "$domain" ] && [ -f "$CADDYFILE" ] && grep -q "^$domain {" "$CADDYFILE"; then
+    if ! systemctl is-active --quiet caddy && port_busy 443; then
+      # Another web server (nginx / OpenResty …) serves HTTPS: Caddy is not needed.
+      kv Caddy "$(dot) ${C_D}未运行（443 由其他反代占用；不用 Caddy 可执行 systemctl disable caddy）${C_0}"
+    else
+      kv Caddy "$(svc_line caddy)"
+    fi
+  fi
 
   section "访问"
-  kv 后台地址 "${C_BD}$url$path/${C_0}"
+  kv 后台地址 "${C_BD}$url${path%/}/${C_0}"
   kv 订阅域名 "$url"
   if [ -n "$domain" ]; then
     kv 面板监听 "$listen · $(port_line "${listen##*:}")（经 HTTPS 反代）"
@@ -804,7 +818,7 @@ do_reset_password() {
   [ -n "$pass" ] || { printf '%s\n' "$out"; die "无法读取新密码"; }
   echo
   box "$C_G" "新的登录信息（请立即保存）" \
-    "$(pad 地址 8)${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}" \
+    "$(pad 地址 8)${C_BD}$(admin_url)${C_0}" \
     "$(pad 用户名 8)${C_BD}${user}${C_0}" \
     "$(pad 密码 8)${C_BD}${pass}${C_0}" \
     "${C_D}双击密码即可整段选中复制；只含字母和数字，区分大小写${C_0}"
@@ -910,7 +924,7 @@ do_set_domain() {
   case ",$hosts," in *",$domain,"*) ;; *) env_set POLARIS_AGENT_HOSTS "$domain${hosts:+,$hosts}" ;; esac
   systemctl restart polaris && wait_active || die "重启失败"
   open_port 80; open_port 443
-  ok "已切换到 ${C_BD}https://$domain$(env_get POLARIS_ADMIN_PATH)/${C_0}"
+  ok "已切换到 ${C_BD}$(admin_url)${C_0}"
   warn "订阅地址已变为 https://$domain/…，旧的 http 订阅链接失效，用户需要重新导入；可在防火墙关闭 $port/tcp，放行 80、443"
 }
 
@@ -957,7 +971,7 @@ do_doctor() {
 
   section "端口与防火墙"
   if port_busy "$port"; then
-    code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$port$path/" 2>/dev/null || true)"; code="${code#000}"
+    code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$port${path%/}/" 2>/dev/null || true)"; code="${code#000}"
     case "$code" in 2??|3??) chk_ok "面板端口 $port 响应正常（HTTP $code）" ;; *) chk_bad "面板端口 $port 无正常响应（HTTP ${code:-无}）" ;; esac
   else chk_bad "面板端口 $port 未监听"; fi
   port_busy "$agent" && chk_ok "节点接入端口 $agent 监听中" || chk_bad "节点接入端口 $agent 未监听"
@@ -982,7 +996,7 @@ do_doctor() {
     if [ -f "$CADDYFILE" ] && grep -q "^$domain {" "$CADDYFILE"; then
       systemctl is-active --quiet caddy && chk_ok "Caddy 运行中" || chk_bad "Caddy 未运行：systemctl status caddy"
     fi
-    code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "https://$domain$path/" 2>/dev/null || true)"; code="${code#000}"
+    code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "https://$domain${path%/}/" 2>/dev/null || true)"; code="${code#000}"
     case "$code" in 2??|3??) chk_ok "https://$domain 可访问（HTTP $code）" ;; *) chk_bad "https://$domain 访问失败（HTTP ${code:-无}），证书可能尚未签发或 80/443 未放行" ;; esac
   fi
 
@@ -1237,7 +1251,7 @@ menu_header() {
   banner "多内核代理面板 · 管理脚本"
   if installed; then
     kv 面板 "$(svc_line polaris)"
-    kv 后台 "${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}"
+    kv 后台 "${C_BD}$(admin_url)${C_0}"
     systemctl cat polaris-agent >/dev/null 2>&1 && kv 本机节点 "$(svc_line polaris-agent)"
   else
     kv 面板 "$(dot) ${C_Y}未安装${C_0}（选 1 安装）"
