@@ -158,6 +158,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/inbounds/preview", s.previewDraftInbound)
 	p.GET("/inbounds/:id", s.getInbound)
 	p.POST("/inbounds/:id/probe", s.probeInboundAPI)
+	p.POST("/inbounds/bulk", s.bulkInbounds)
 	p.PUT("/inbounds/:id", s.updateInbound)
 	p.DELETE("/inbounds/:id", s.deleteInbound)
 	p.GET("/inbounds/:id/preview", s.previewInbound)
