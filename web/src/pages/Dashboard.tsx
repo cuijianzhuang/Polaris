@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { useNodes } from '../App'
-import { useLoad, usePoll } from '../components/ui'
+import { useLoad, usePoll, useWidth } from '../components/ui'
 import TagTraffic from '../components/TagTraffic'
 import { bps, bytes, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
 import type { Node, NodeTraffic } from '../types'
@@ -20,20 +20,6 @@ interface Overview {
 }
 
 const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-
-// useWidth tracks an element's width so charts draw at real pixel size (text
-// stays legible on phones instead of shrinking with a fixed viewBox).
-function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null)
-  const [w, setW] = useState(0)
-  useEffect(() => {
-    if (!ref.current) return
-    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
-    ro.observe(ref.current)
-    return () => ro.disconnect()
-  }, [])
-  return [ref, w] as const
-}
 
 function Trend({ data }: { data: Overview['trend'] }) {
   const [ref, W] = useWidth<HTMLDivElement>()

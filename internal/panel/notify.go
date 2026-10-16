@@ -7,6 +7,8 @@ type Event struct {
 	NodeID string // scopes the event to node operators bound to this node
 	UserID string // also delivered to the user's bound chat, if any
 	Text   string
+	// UserOnly skips admins (per-user reminders; admins get the daily report).
+	UserOnly bool
 }
 
 // notify fans an event out to every registered sink without blocking.

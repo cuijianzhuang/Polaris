@@ -71,6 +71,10 @@ func TestTelegramLoginScope(t *testing.T) {
 	expect(opc, "GET", "/nodes/"+mine+"/render", 403) // native config holds keys
 	expect(opc, "GET", "/users", 403)
 	expect(opc, "GET", "/settings", 403)
+	expect(opc, "GET", "/stats/traffic?node="+mine, 200)
+	expect(opc, "GET", "/stats/traffic?node="+other, 403)
+	expect(opc, "GET", "/stats/traffic", 403)
+	expect(opc, "GET", "/stats/traffic?node="+mine+"&user=x", 403)
 	expect(opc, "GET", "/stats/overview", 403)
 	if st, out := opc.do("GET", "/auth/me", nil); st != 200 || out["role"] != "operator" {
 		t.Fatalf("me: %d %v", st, out)

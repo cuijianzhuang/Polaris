@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { get, post, put, setToken, takeOAuthResult } from '../api'
+import { del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { Icon } from '../components/Icons'
 import { accents, useTheme, type ThemeMode } from '../theme'
-import { CopyBox, Field, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { CopyBox, Empty, Field, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { bytes, datetime } from '../format'
 
 // DefaultVersion picks the version new nodes install: "latest" follows the
 // newest stable release, or pin one of the five most recent ones.
@@ -23,6 +24,88 @@ function DefaultVersion({ label, type, value, onChange }: { label: string; type:
         {opts.map((v, i) => <option key={v} value={v}>v{v}{i === 0 && recent[0] === v ? ' · 最新' : ''}{!recent.includes(v) ? ' · 自定义' : ''}</option>)}
       </select>
     </Field>
+  )
+}
+
+type BackupInfo = { supported: boolean; dbSize: number; dir: string; files: { name: string; size: number; created: string }[] }
+
+// Backups: on-demand and scheduled archives (database + internal CA), download,
+// upload-and-restore. A restore restarts the panel.
+function Backups() {
+  const info = useLoad(() => get<BackupInfo>('/backup'))
+  const s = useLoad(() => get<Record<string, string>>('/settings'))
+  const [f, setF] = useState<Record<string, string>>({})
+  useEffect(() => {
+    if (s.data) setF({ backup_schedule: s.data.backup_schedule || 'off', backup_hour: s.data.backup_hour || '4', backup_keep: s.data.backup_keep || '7', backup_tg: s.data.backup_tg || 'false' })
+  }, [s.data])
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const toast = useToast()
+  const [restoring, setRestoring] = useState(false)
+  const afterRestore = () => {
+    setRestoring(true)
+    // The panel re-executes itself; wait for it to answer again.
+    const t0 = Date.now()
+    const ping = () => get('/backup').then(() => location.reload()).catch(() => { if (Date.now() - t0 < 60000) setTimeout(ping, 1500); else { setRestoring(false); toast('面板未在 60 秒内恢复，请检查服务状态', true) } })
+    setTimeout(ping, 2500)
+  }
+  const restore = async (label: string, fn: () => Promise<unknown>) => {
+    if (!await confirm(`用「${label}」覆盖当前全部数据并重启面板？\n当前数据会先自动备份一份；恢复后需要重新登录。`, { danger: true })) return
+    run(async () => { await fn(); afterRestore() }, '备份校验通过，面板正在重启…')
+  }
+  if (info.data && !info.data.supported) return (
+    <section className="card"><h2>备份与恢复</h2><div className="note">当前使用 PostgreSQL，请用 pg_dump 备份数据库。</div></section>
+  )
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14, gridColumn: '1 / -1' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h2>备份与恢复</h2>
+        <span className="sub" style={{ margin: 0 }}>数据库 {bytes(info.data?.dbSize)} · 保存在 <code>{info.data?.dir}</code></span>
+      </div>
+      {restoring && <div className="note warn"><span className="spinner" /> 正在应用备份并重启面板，完成后自动刷新…</div>}
+      <div className="form-grid">
+        <Field label="自动备份">
+          <select className="input" value={f.backup_schedule ?? 'off'} onChange={(e) => setF({ ...f, backup_schedule: e.target.value })}>
+            <option value="off">关闭</option><option value="daily">每天</option><option value="weekly">每周一</option>
+          </select>
+        </Field>
+        <Field label="备份时间（点）" hint="服务器本地时间 0–23"><input className="input mono" inputMode="numeric" value={f.backup_hour ?? ''} onChange={(e) => setF({ ...f, backup_hour: e.target.value })} /></Field>
+        <Field label="保留份数" hint="超出后删除最旧的"><input className="input mono" inputMode="numeric" value={f.backup_keep ?? ''} onChange={(e) => setF({ ...f, backup_keep: e.target.value })} /></Field>
+        <div className="toggle" style={{ alignSelf: 'end' }}><span>自动备份发送到 Telegram（超级管理员）</span><Switch label="发送到 Telegram" on={f.backup_tg === 'true'} onChange={(v) => setF({ ...f, backup_tg: String(v) })} /></div>
+      </div>
+      <div className="row">
+        <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', f); s.reload() }, '备份设置已保存')}>保存设置</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post('/backup'); info.reload() }, '已创建备份')}>立即备份</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post('/backup?telegram=1'); info.reload() }, '已创建并发送到 Telegram')}>备份并发送到 Telegram</button>
+        <label className="btn" style={{ cursor: 'pointer' }}>
+          上传备份并恢复
+          <input type="file" accept=".gz,.tar.gz,.db" style={{ display: 'none' }} onChange={(e) => {
+            const file = e.target.files?.[0]; e.target.value = ''
+            if (file) restore(file.name, () => upload('/backup/restore', file))
+          }} />
+        </label>
+      </div>
+      <div className="card flush scroll">
+        {info.data?.files.length === 0 ? <Empty>还没有备份</Empty> : (
+          <table className="rtable">
+            <thead><tr><th>文件</th><th>大小</th><th>时间</th><th></th></tr></thead>
+            <tbody>{(info.data?.files ?? []).map((b) => (
+              <tr key={b.name}>
+                <td className="rt-head mono">{b.name}{b.name.includes('-auto') && <span className="tag" style={{ marginLeft: 6 }}>自动</span>}{b.name.includes('-prerestore') && <span className="tag warn" style={{ marginLeft: 6 }}>恢复前</span>}</td>
+                <td data-label="大小" className="mono">{bytes(b.size)}</td>
+                <td data-label="时间">{datetime(b.created)}</td>
+                <td className="rt-actions"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                  <button className="btn sm" type="button" onClick={() => run(() => download('/backup/files/' + b.name, b.name))}>下载</button>
+                  <button className="btn sm" type="button" disabled={busy} onClick={() => restore(b.name, () => post(`/backup/files/${b.name}/restore`))}>恢复</button>
+                  <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(`删除备份 ${b.name}？`, { danger: true })) run(async () => { await del('/backup/files/' + b.name); info.reload() }) }}>删除</button>
+                </div></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+      <div className="hint">备份包含数据库与内部 CA 证书（迁移到新服务器后已接入的节点无需重装）。数据用 secret_key 加密，恢复到新服务器时需配置相同的 POLARIS_SECRET_KEY。</div>
+    </section>
   )
 }
 
@@ -69,7 +152,7 @@ export default function Settings() {
   const { busy, run } = useAction()
   useEffect(() => {
     if (s.data) setF({
-      site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '12', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
+      site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '1', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
       acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray || 'latest', default_singbox: s.data.default_singbox || 'latest',
       ip_limit_trusted: s.data.ip_limit_trusted ?? '',
     })
@@ -114,6 +197,7 @@ export default function Settings() {
           <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
         </section>
         <Appearance />
+        <Backups />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>
           <Field label="原密码"><input className="input" type="password" autoComplete="current-password" value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>

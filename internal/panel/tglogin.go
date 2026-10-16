@@ -134,6 +134,7 @@ var scopedRoutes = map[string]bool{
 	"GET /capabilities":        true,
 	"GET /core-latest":         true,
 	"GET /stats/nodes":         true,
+	"GET /stats/traffic":       true, // only with ?node= in scope, see scopeGuard
 }
 
 // scopeGuard enforces scopedRoutes and the node scope of path parameters.
@@ -161,6 +162,11 @@ func (s *Server) scopeGuard(c *gin.Context) {
 		nodeID = cr.NodeID
 	case route == "/capabilities":
 		nodeID = c.Query("node")
+	case route == "/stats/traffic":
+		if nodeID = c.Query("node"); nodeID == "" || c.Query("user") != "" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员只能查看自己节点的流量"})
+			return
+		}
 	}
 	if nodeID != "" && !sc[nodeID] {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "无权访问该节点"})

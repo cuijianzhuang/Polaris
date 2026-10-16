@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -177,7 +178,24 @@ func TestTelegramBot(t *testing.T) {
 	s.remindUsers()
 	waitUntil(t, "reminder", func() bool { return strings.Contains(fake.textsTo(200), "85%") })
 	time.Sleep(100 * time.Millisecond)
-	if strings.Count(fake.textsTo(200), "流量已使用") != 1 {
+	if strings.Count(fake.textsTo(200), "流量提醒") != 1 {
 		t.Fatal("reminder must be sent once per cycle")
+	}
+	if strings.Contains(fake.textsTo(100), "流量提醒") {
+		t.Fatal("per-user reminders go to the user only")
+	}
+
+	// Daily report reaches owners once, with the attention list.
+	s.st.SetSetting("tg_daily_report_hour", fmt.Sprint(time.Now().Hour()))
+	db.Model(&store.User{}).Where("id = ?", "u1").Update("status", "limited")
+	s.dailyReport()
+	s.dailyReport()
+	waitUntil(t, "daily report", func() bool { return strings.Contains(fake.textsTo(100), "每日报告") })
+	time.Sleep(100 * time.Millisecond)
+	if r := fake.textsTo(100); strings.Count(r, "每日报告") != 1 || !strings.Contains(r, "已超额 1：alice") {
+		t.Fatalf("daily report:\n%s", r)
+	}
+	if strings.Contains(fake.textsTo(300), "每日报告") {
+		t.Fatal("daily report is for owners only")
 	}
 }

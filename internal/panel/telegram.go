@@ -10,6 +10,8 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	qrcode "github.com/skip2/go-qrcode"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -174,6 +177,50 @@ func (b *tgBot) sendPhoto(chat int64, png []byte, caption string) {
 	req.Header.Set("Content-Type", w.FormDataContentType())
 	if err := b.do(req, nil); err != nil {
 		b.s.log.Warn("telegram photo", "err", err)
+	}
+}
+
+// sendBackup sends a backup archive to every owner (Bot API limit: 50 MB).
+func (b *tgBot) sendBackup(path string) {
+	if !b.isRunning() {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var owners []store.TGAdmin
+	b.s.st.DB.Where("role = ?", "owner").Find(&owners)
+	name := filepath.Base(path)
+	caption := fmt.Sprintf("🗄 <b>面板备份</b>\n%s\n📄 %s\n📦 %s\n\n包含数据库与内部 CA，恢复需使用同一 secret_key。请妥善保管。", tgRule, esc(name), sub.HumanBytes(int64(len(data))))
+	for _, a := range owners {
+		if len(data) > 49<<20 {
+			b.send(a.ChatID, "⚠️ 备份 "+esc(name)+" 超过 Telegram 50 MB 限制，未发送；请在面板「设置 → 备份与恢复」下载。")
+			continue
+		}
+		b.sendDocument(a.ChatID, name, data, caption)
+	}
+}
+
+func (b *tgBot) sendDocument(chat int64, name string, data []byte, caption string) {
+	token, base := b.creds()
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("chat_id", strconv.FormatInt(chat, 10))
+	_ = w.WriteField("caption", caption)
+	_ = w.WriteField("parse_mode", "HTML")
+	fw, _ := w.CreateFormFile("document", name)
+	_, _ = fw.Write(data)
+	w.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/bot"+token+"/sendDocument", &buf)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	if err := b.do(req, nil); err != nil {
+		b.s.log.Warn("telegram document", "err", err)
 	}
 }
 
@@ -771,7 +818,9 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 				continue
 			}
 			var admins []store.TGAdmin
-			b.s.st.DB.Where("notify = ?", true).Find(&admins)
+			if !e.UserOnly {
+				b.s.st.DB.Where("notify = ?", true).Find(&admins)
+			}
 			for _, a := range admins {
 				if a.Role == "owner" || (e.NodeID != "" && tgIdentity{admin: &a}.canNode(e.NodeID)) {
 					b.send(a.ChatID, esc(e.Text))
@@ -780,7 +829,11 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 			if e.UserID != "" && b.s.st.GetSetting("tg_notify_users", "true") == "true" {
 				var u store.User
 				if b.s.st.DB.First(&u, "id = ?", e.UserID).Error == nil && u.TelegramID != 0 {
-					b.send(u.TelegramID, esc(userFacing(e)))
+					if e.UserOnly { // reminders are pre-formatted HTML
+						b.send(u.TelegramID, e.Text)
+					} else {
+						b.send(u.TelegramID, esc(userFacing(e)))
+					}
 				}
 			}
 		}
@@ -807,27 +860,141 @@ func (b *tgBot) isRunning() bool {
 	return b.running
 }
 
-// remindUsers sends 80% traffic and 3-day expiry reminders (hourly).
+// remindUsers sends usage and expiry reminders to bound users (hourly):
+// once when usage crosses remind_usage_pct (default 80, 0 = off) and daily
+// within remind_expire_days of expiry (default 3, 0 = off).
 func (s *Server) remindUsers() {
+	pctAt := atoiDefault(s.st.GetSetting("remind_usage_pct", "80"), 80)
+	expDays := atoiDefault(s.st.GetSetting("remind_expire_days", "3"), 3)
 	var us []store.User
 	s.st.DB.Where("telegram_id <> 0 AND is_service = ? AND status = ?", false, "active").Find(&us)
 	now := time.Now()
 	for _, u := range us {
-		if u.TrafficLimit > 0 {
-			pct := float64(u.Used()) / float64(u.TrafficLimit)
-			if pct >= 0.8 && !u.WarnedUsage {
+		if u.TrafficLimit > 0 && pctAt > 0 {
+			pct := float64(u.Used()) * 100 / float64(u.TrafficLimit)
+			if pct >= float64(pctAt) && !u.WarnedUsage {
 				s.st.DB.Model(&u).Update("warned_usage", true)
-				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, Text: fmt.Sprintf("📊 流量已使用 %.0f%%（%s / %s）", pct*100, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit))})
-			} else if pct < 0.8 && u.WarnedUsage {
+				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, UserOnly: true, Text: fmt.Sprintf(
+					"📊 <b>流量提醒</b>\n%s\n已使用 <b>%.0f%%</b>（%s / %s）\n剩余 <b>%s</b>\n%s",
+					tgRule, pct, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit), sub.HumanBytes(max(u.TrafficLimit-u.Used(), 0)), resetHint(&u))})
+			} else if pct < float64(pctAt) && u.WarnedUsage {
 				s.st.DB.Model(&u).Update("warned_usage", false)
 			}
 		}
-		if u.ExpireAt != nil && u.ExpireAt.Sub(now) < 72*time.Hour && u.ExpireAt.After(now) &&
-			(u.WarnedExpire == nil || now.Sub(*u.WarnedExpire) > 24*time.Hour) {
+		if expDays > 0 && u.ExpireAt != nil && u.ExpireAt.Sub(now) < time.Duration(expDays)*24*time.Hour && u.ExpireAt.After(now) &&
+			(u.WarnedExpire == nil || now.Sub(*u.WarnedExpire) > 23*time.Hour) {
 			s.st.DB.Model(&u).Update("warned_expire", now)
-			s.notify(Event{Kind: "expire_warn", UserID: u.ID, Text: fmt.Sprintf("⏰ 账号将于 %s 到期", u.ExpireAt.Local().Format("2006-01-02 15:04"))})
+			s.notify(Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: fmt.Sprintf(
+				"⏰ <b>到期提醒</b>\n%s\n账号将于 <b>%s</b> 到期（%s）\n到期后服务会自动暂停，请及时续费。",
+				tgRule, u.ExpireAt.Local().Format("2006-01-02 15:04"), sub.ExpiryLeft(sub.Info{Expire: u.ExpireAt}))})
 		}
 	}
+}
+
+func resetHint(u *store.User) string {
+	var i sub.Info
+	planInfo(&i, u)
+	if i.ResetNote != "" {
+		return "♻️ " + i.ResetNote
+	}
+	return "用完后服务会自动暂停。"
+}
+
+// dailyReport sends owners a daily summary at tg_daily_report_hour (default
+// 9, local time) unless tg_daily_report is "false".
+func (s *Server) dailyReport() {
+	if s.st.GetSetting("tg_daily_report", "true") != "true" || !s.tg.isRunning() {
+		return
+	}
+	now := time.Now()
+	if now.Hour() != min(max(atoiDefault(s.st.GetSetting("tg_daily_report_hour", "9"), 9), 0), 23) {
+		return
+	}
+	today := now.Format("2006-01-02")
+	if s.st.GetSetting("tg_daily_report_last", "") == today {
+		return
+	}
+	_ = s.st.SetSetting("tg_daily_report_last", today)
+	text := s.dailyReportText(now)
+	var owners []store.TGAdmin
+	s.st.DB.Where("role = ? AND notify = ?", "owner", true).Find(&owners)
+	for _, a := range owners {
+		s.tg.send(a.ChatID, text, []button{{Text: "📈 概览", Data: "v:status"}, btnHome})
+	}
+}
+
+func (s *Server) dailyReportText(now time.Time) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "📋 <b>每日报告</b> · %s\n%s\n", now.Format("2006-01-02"), tgRule)
+	nodes := s.nodeViews()
+	var off []string
+	for _, n := range nodes {
+		if n.Status == "offline" || n.Status == "error" {
+			off = append(off, n.Name)
+		}
+	}
+	fmt.Fprintf(&sb, "🖥 节点 %d/%d 在线", len(nodes)-len(off), len(nodes))
+	if len(off) > 0 {
+		fmt.Fprintf(&sb, "（异常：%s）", esc(joinCap(off, 5)))
+	}
+	sb.WriteString("\n")
+	var active int64
+	s.st.DB.Model(&store.User{}).Where("is_service = ? AND status = ?", false, "active").Count(&active)
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	sum := func(from, to time.Time) (up, down int64) {
+		var r struct{ Up, Down int64 }
+		s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+			Where("hour >= ? AND hour < ?", from.UTC(), to.UTC()).Scan(&r)
+		return r.Up, r.Down
+	}
+	yu, yd := sum(dayStart.AddDate(0, 0, -1), dayStart)
+	mu, md := sum(time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()), now)
+	fmt.Fprintf(&sb, "👥 有效用户 %d\n📈 昨日 %s（↑ %s ↓ %s）\n🗓 本月 %s\n", active,
+		sub.HumanBytes(yu+yd), sub.HumanBytes(yu), sub.HumanBytes(yd), sub.HumanBytes(mu+md))
+
+	warn := time.Duration(max(atoiDefault(s.st.GetSetting("expire_warn_days", "7"), 7), 1)) * 24 * time.Hour
+	list := func(filter string, label func(u store.User) string) (int64, string) {
+		q := userFilter(s.st.DB.Model(&store.User{}).Where("is_service = ?", false), filter, now, warn)
+		var n int64
+		q.Session(&gorm.Session{}).Count(&n)
+		var us []store.User
+		q.Order("expire_at").Limit(8).Find(&us)
+		names := make([]string, len(us))
+		for i, u := range us {
+			names[i] = label(u)
+		}
+		return n, joinCap(names, 8)
+	}
+	plain := func(u store.User) string { return u.Username }
+	var items []string
+	if n, l := list("limited", plain); n > 0 {
+		items = append(items, fmt.Sprintf("⛔ 已超额 %d：%s", n, esc(l)))
+	}
+	if n, l := list("expired", plain); n > 0 {
+		items = append(items, fmt.Sprintf("⌛ 已过期 %d：%s", n, esc(l)))
+	}
+	if n, l := list("expiring", func(u store.User) string { return u.Username + "（" + u.ExpireAt.Local().Format("01-02") + "）" }); n > 0 {
+		items = append(items, fmt.Sprintf("⏰ %d 天内到期 %d：%s", int(warn.Hours()/24), n, esc(l)))
+	}
+	if n, l := list("near", func(u store.User) string {
+		return fmt.Sprintf("%s（%d%%）", u.Username, u.Used()*100/max(u.TrafficLimit, 1))
+	}); n > 0 {
+		items = append(items, fmt.Sprintf("📊 流量将满 %d：%s", n, esc(l)))
+	}
+	sb.WriteString(tgRule + "\n")
+	if len(items) == 0 {
+		sb.WriteString("✅ 一切正常，没有超额或即将到期的用户")
+	} else {
+		sb.WriteString("⚠️ <b>需要关注</b>\n" + strings.Join(items, "\n"))
+	}
+	return sb.String()
+}
+
+func joinCap(xs []string, n int) string {
+	if len(xs) > n {
+		return strings.Join(xs[:n], "、") + " 等"
+	}
+	return strings.Join(xs, "、")
 }
 
 func esc(s string) string { return html.EscapeString(s) }

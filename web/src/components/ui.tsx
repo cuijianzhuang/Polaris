@@ -84,6 +84,20 @@ export function usePoll(reload: () => void, ms: number) {
   }, [ms])
 }
 
+// useWidth tracks an element's width so charts draw at real pixel size (text
+// stays legible on phones instead of shrinking with a fixed viewBox).
+export function useWidth<T extends HTMLElement>() {
+  const ref = useRef<T>(null)
+  const [w, setW] = useState(0)
+  useEffect(() => {
+    if (!ref.current) return
+    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
+    ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, w] as const
+}
+
 // --- overlays ---
 
 // useClosing delays onClose until the exit animation has played.

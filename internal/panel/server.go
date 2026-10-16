@@ -39,18 +39,19 @@ var Version = "dev"
 
 // Server is the panel.
 type Server struct {
-	cfg      *Config
-	st       *store.Store
-	ca       *pki.CA
-	log      *slog.Logger
-	hub      *Hub
-	traffic  TrafficBuffer
-	tgLogins tgLoginCodes // one-time Telegram sign-in codes
-	tgWeb    tgWebLogins  // login-page Telegram sign-in requests
-	hbMu     sync.Mutex
-	hbCores  map[string]hbCoreState // last core state written per node
-	jwtKey   []byte
-	rt       *realtime
+	cfg         *Config
+	st          *store.Store
+	ca          *pki.CA
+	log         *slog.Logger
+	hub         *Hub
+	traffic     TrafficBuffer
+	tgLogins    tgLoginCodes // one-time Telegram sign-in codes
+	tgWeb       tgWebLogins  // login-page Telegram sign-in requests
+	hbMu        sync.Mutex
+	restartHook func()                 // tests: replaces the re-exec after a restore
+	hbCores     map[string]hbCoreState // last core state written per node
+	jwtKey      []byte
+	rt          *realtime
 
 	dirtyMu sync.Mutex
 	dirty   map[string]string
@@ -86,6 +87,11 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	box, err := secret.New(cfg.SecretKey)
 	if err != nil {
 		return nil, err
+	}
+	if ok, err := applyPendingRestore(cfg); err != nil {
+		return nil, fmt.Errorf("apply restored backup: %w", err)
+	} else if ok {
+		log.Warn("restored database and CA from backup; previous files kept in " + filepath.Join(cfg.DataDir, backupDir))
 	}
 	st, err := store.Open(cfg.DB.DSN, box, cfg.DB.Debug)
 	if err != nil {
@@ -251,6 +257,8 @@ func (s *Server) startJobs() func() {
 	add("*/20 * * * * *", "forward-failover", s.probeForwards)
 	add("15 * * * * *", "sub-sources", s.refreshDueSources)
 	add("0 33 * * * *", "reminders", s.remindUsers)
+	add("0 2 * * * *", "backup", s.scheduledBackup)
+	add("0 1 * * * *", "daily-report", s.dailyReport)
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }

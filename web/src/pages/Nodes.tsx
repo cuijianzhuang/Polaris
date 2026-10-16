@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
+import TrafficChart from '../components/TrafficChart'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
@@ -426,6 +427,7 @@ export default function Nodes() {
                 </div>
                 {sel.lastError && <div className="note bad" style={{ marginTop: 12 }}>最近一次下发失败：{sel.lastError}</div>}
               </section>
+              <section className="card"><TrafficChart query={'node=' + sel.id} title="节点用户流量" /></section>
               <h2>内核</h2>
               <div className="grid g2">
                 {sel.cores.map((c) => {
