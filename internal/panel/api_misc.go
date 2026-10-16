@@ -108,7 +108,7 @@ var editableSettings = map[string]bool{
 	"backup_schedule": true, "backup_hour": true, "backup_keep": true, "backup_tg": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
-	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true,
+	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
 	"auto_update": true, "auto_update_hour": true,

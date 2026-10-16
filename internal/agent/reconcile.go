@@ -171,6 +171,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	a.rev.Store(spec.Rev)
 	a.saveSpec(spec)
 	a.syncFirewall(ctx, spec)
+	a.syncShaper(ctx, spec)
 	return applyResult{ok: true, method: method}
 }
 
@@ -411,6 +412,21 @@ func (a *Agent) syncFirewall(ctx context.Context, spec *model.NodeSpec) {
 	}
 	if err != nil {
 		a.log.Warn("firewall update incomplete", "err", err)
+	}
+}
+
+// syncShaper applies the spec's port speed limits; like the firewall, a
+// failure is logged and never fails the apply.
+func (a *Agent) syncShaper(ctx context.Context, spec *model.NodeSpec) {
+	if a.sh == nil {
+		return
+	}
+	summary, err := a.sh.Sync(ctx, spec.SpeedLimits)
+	if summary != "" {
+		a.log.Info("speed limits updated", "changes", summary)
+	}
+	if err != nil {
+		a.log.Warn("speed limits not applied", "err", err)
 	}
 }
 

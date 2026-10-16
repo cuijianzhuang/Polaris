@@ -196,6 +196,9 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 			}
 		}
 		sort.Slice(m.Users, func(a, b int) bool { return m.Users[a].ID < m.Users[b].ID })
+		if ins[i].SpeedLimitMbps > 0 && m.Enabled && m.Port > 0 && !strings.HasPrefix(m.Listen, "127.") {
+			spec.SpeedLimits = append(spec.SpeedLimits, model.SpeedLimit{Tag: m.Tag, Port: m.Port, Network: m.Network(), Mbps: ins[i].SpeedLimitMbps})
+		}
 		spec.Inbounds = append(spec.Inbounds, m)
 	}
 	resolveFallbacks(spec.Inbounds)

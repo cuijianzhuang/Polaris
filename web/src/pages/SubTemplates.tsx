@@ -38,7 +38,7 @@ export default function SubTemplates() {
       <section className="card">
         <h2>节点名称模板</h2>
         <div className="row" style={{ marginTop: 12, alignItems: 'flex-end' }}>
-          <Field label="模板" hint="变量：{flag} 旗帜 · {region} 地区 · {node} 节点名 · {protocol} 协议 · {tag} 入站标签 · {kind} 入口类型">
+          <Field label="模板" hint="变量：{flag} 旗帜 · {region} 地区 · {node} 节点名 · {protocol} 协议 · {tag} 入站标签 · {kind} 入口类型 · {rate} 流量倍率">
             <input className="input mono" style={{ minWidth: 320 }} value={nameTpl} onChange={(e) => setNameTpl(e.target.value)} />
           </Field>
           <button className="btn" type="button" disabled={busy} onClick={() => run(() => put('/settings', { sub_name_template: nameTpl }), '已保存')}>保存</button>
@@ -97,7 +97,7 @@ export default function SubTemplates() {
   )
 }
 
-const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
+const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
 
 const routingExample = `{
   "Name": "直连国内",
@@ -138,6 +138,7 @@ function SubSettings() {
         </div>
       </Field>
       <div className="toggle"><span>信息页显示 Telegram 一键绑定（机器人运行时）</span><Switch label="机器人绑定" on={on('sub_show_bot', true)} onChange={(v) => set('sub_show_bot', String(v))} /></div>
+      <div className="toggle"><span>节点名显示流量倍率（倍率不为 1 时加「×2」等；名称模板里可用 {'{rate}'} 指定位置）</span><Switch label="显示倍率" on={on('sub_show_rate', true)} onChange={(v) => set('sub_show_rate', String(v))} /></div>
       <div className="toggle"><span>用户中心：用户用 Telegram 登录查看流量、到期和订阅，可自助重置链接（需先绑定机器人；不设密码）</span><Switch label="用户中心" on={on('portal_enabled')} onChange={(v) => set('portal_enabled', String(v))} /></div>
       {on('portal_enabled') && s.data?.portal_url && <div className="hint">用户中心地址：<a className="mono" href={s.data.portal_url} target="_blank" rel="noreferrer">{s.data.portal_url}</a>（保存后生效；机器人发送订阅链接时也会附上）</div>}
       <Field label="公告" hint="显示在订阅信息页顶部，并通过 announce 头推送给支持的客户端（Happ、Streisand 等）；开启「信息节点」时也会出现在节点列表">

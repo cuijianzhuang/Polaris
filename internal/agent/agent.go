@@ -98,6 +98,7 @@ type Agent struct {
 
 	acme acmeHTTP  // ACME HTTP-01 challenge server (panel-driven)
 	fw   *firewall // host firewall rules for the spec's ports
+	sh   *shaper   // tc bandwidth caps for the spec's limited ports
 
 	restartMu sync.Mutex
 	restart   bool // set by a self-update: Run returns ErrRestart
@@ -129,6 +130,7 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	a.id = id
 	a.client = polarisv1connect.NewAgentServiceClient(httpClient(id.tlsConfig()), cfg.PanelURL, connect.WithGRPC())
 	a.fw = newFirewall(cfg.DataDir)
+	a.sh = newShaper(cfg.DataDir)
 	a.installer = &Installer{Dir: filepath.Join(cfg.DataDir, "cores"), Mirror: cfg.Mirror, AllowUnverified: cfg.AllowUnverified}
 	a.progress.send = func(p *polarisv1.Progress) {
 		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})

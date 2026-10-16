@@ -91,6 +91,7 @@ type Inbound struct {
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
 	ServiceOnly      bool                      `json:"serviceOnly"`                // relay-only inbound, hidden from subscriptions
 	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
+	SpeedLimitMbps   int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
 	Remark           string                    `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time                 `json:"createdAt"`
 	UpdatedAt        time.Time                 `json:"updatedAt"`

@@ -138,6 +138,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   const [enabled, setEnabled] = useState(editing?.enabled ?? true)
   const [remark, setRemark] = useState(editing?.remark ?? '')
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
+  const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
@@ -164,7 +165,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
     let ex: any = undefined
     if (extra.trim()) ex = JSON.parse(extra)
     return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
-      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag }
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)) }
   }
   const save = () => run(async () => {
     if (editing) await put('/inbounds/' + editing.id, body())
@@ -214,7 +215,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
             onChange={(fallbacks) => setDraft((d) => ({ ...d, protocol: { ...d.protocol, fallbacks: fallbacks.length ? fallbacks : undefined } }))} />
         )}
       </Section>
-      <Section step={3} title="授权与出口" summary={[groupIds.length ? `${groupIds.length} 个分组` : '未授权分组', outboundTag ? '出口 ' + outboundTag : '按路由规则'].join(' · ')}>
+      <Section step={3} title="授权与出口" summary={[groupIds.length ? `${groupIds.length} 个分组` : '未授权分组', outboundTag ? '出口 ' + outboundTag : '按路由规则', Number(speedLimit) > 0 ? `限速 ${speedLimit} Mbps` : ''].filter(Boolean).join(' · ')}>
         <Field label="授权分组" hint="分组内的用户获得此入站">
           <div className="row">
             {(groups.data ?? []).map((g) => (
@@ -231,6 +232,9 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
             <option value="block">block · 拦截</option>
             {(outbounds.data ?? []).map((o) => <option key={o.id} value={o.tag}>{o.tag} · {o.type === 'balancer' ? '负载均衡' : o.type}</option>)}
           </select>
+        </Field>
+        <Field label="限速（Mbps）" htmlFor="ib-speed" hint="节点用 tc 限制这个端口的上传、下载带宽，所有用户共享；留空或 0 不限速。需要节点有 tc（iproute2）">
+          <input id="ib-speed" className="input mono" inputMode="numeric" placeholder="不限速" value={speedLimit} onChange={(e) => setSpeedLimit(e.target.value.replace(/[^0-9]/g, ''))} />
         </Field>
       </Section>
       <Section step={4} title="高级" defaultOpen={!!extra.trim()} summary={extra.trim() ? '已设置 Extra' : 'Extra（原样合并进内核配置）'}>
@@ -347,7 +351,8 @@ export default function Inbounds() {
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
                   <td className="rt-head" style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>模板</span>}
                     {(i.protocol.fallbacks?.length ?? 0) > 0 && <span className="tag xray" style={{ marginLeft: 6 }}>{i.protocol.fallbacks!.length} 个回落</span>}
-                    {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>经 {masterOf[i.id]} 回落</span>}</td>
+                    {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>经 {masterOf[i.id]} 回落</span>}
+                    {i.speedLimitMbps > 0 && <span className="tag" style={{ marginLeft: 6 }}>限速 {i.speedLimitMbps}M</span>}</td>
                   <td data-label="节点">{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
                   <td data-label="协议">{inboundSummary(i).split(' · ')[0]}</td>
                   <td data-label="传输 · 安全">{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>

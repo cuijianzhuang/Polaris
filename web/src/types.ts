@@ -50,7 +50,7 @@ export interface Inbound {
   protocol: ProtocolSpec; transport: TransportSpec; security: SecuritySpec; sniffing: SniffSpec; extra?: any
   enabled: boolean; templateId?: string; overriddenFields: string[]; remark: string
   nodeName: string; userCount: number; groupIds: string[]; endpoints: number; network: string; cdnCapable: boolean
-  outboundTag: string
+  outboundTag: string; speedLimitMbps: number
 }
 export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
