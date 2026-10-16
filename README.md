@@ -54,6 +54,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 
 脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
 其他参数：`--version v0.1.0-beta`、`--port`、`--agent-port`、`--admin-path`、`--no-caddy`（自备反代）、`--mirror`（GitHub 下载加速前缀）。
+下载显示进度；GitHub 直连失败或速度过慢（10 KB/s 以下持续 30 秒）时会自动依次改用公共镜像（ghfast.top、gh-proxy.com、ghproxy.net），成功的镜像会记住供以后升级使用（`--mirror none` 恢复直连）；api.github.com 不可达时改从 releases/latest 跳转获取版本号。
 
 安装后在服务器上输入 **`polaris`** 打开交互式管理菜单（`polaris-ctl` 为同一命令的别名）（顶部显示面板 / 本机节点运行状态、运行时长、内存、系统负载与新版本提醒；按「安装与升级 / 服务管理 / 面板设置 / 工具」分组：安装、升级、检查更新、卸载、启停与日志、开机自启、面板信息、修改后台路径与端口、绑定域名切换 HTTPS、重置管理员密码、关闭二次验证、备份、本机节点、系统诊断）。安装、改端口、绑定域名时会自动在已启用的 ufw / firewalld 中放行端口（云服务器安全组仍需手动放行）。也可以直接带子命令：
 
