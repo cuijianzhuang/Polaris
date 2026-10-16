@@ -65,9 +65,9 @@ type Info struct {
 	ExpireAfterDays int
 	// StatusLine prepends Shadowrocket's "STATUS=" line to share links; it
 	// shows under the subscription name instead of the raw userinfo header.
-	StatusLine bool `json:"-"`
-	Daily           []DayUsage // recent daily traffic, oldest first
-	Links           []PageLink // per-node share links
+	StatusLine bool       `json:"-"`
+	Daily      []DayUsage // recent daily traffic, oldest first
+	Links      []PageLink // per-node share links
 
 	// Scheme is the rule scheme for client configs (nil = minimal default).
 	Scheme *Scheme `json:"-"`
