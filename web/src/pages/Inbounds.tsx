@@ -237,8 +237,8 @@ function InboundDrawer({ nodes, editing, onClose, onSaved }: { nodes: Node[]; ed
       {conflict ? <div className="note bad">端口 {port} 与 {node?.name} 上的入站 {conflict.tag} 冲突</div> : (
         <div className="note">与 {node?.name ?? '节点'} 上已有入站无端口冲突 · 预计下发方式：{editing ? (draft.core === 'xray' ? '结构变更，重启 Xray' : draft.core === 'singbox' ? '结构变更，SIGHUP 重载' : '重载') : '新增入站需重载内核'}；之后的用户增删{coreHot ? '走热更新' : '会触发重载'}</div>
       )}
-      {draft.core === 'singbox' && (
-        <div className="note warn">官方 sing-box 不含 v2ray_api，无法按用户统计流量：此入站只计入节点 / 入站总流量，用户的已用流量和限额不会增加。需要按用户计费的协议请优先选 Xray（Hysteria2 可用 Hysteria 内核）。</div>
+      {draft.core === 'singbox' && node?.cores.find((c) => c.type === 'singbox')?.noUserTraffic && (
+        <div className="note warn">该节点运行的是官方版 sing-box（不含 v2ray_api），暂时只能统计入站总流量，用户的已用流量不会增加。Polaris 会自动构建带统计功能的同版本 sing-box，发布后 Agent 下次启动时自动替换；也可以在「节点」页把 sing-box 切换到已构建的版本。</div>
       )}
       {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
       {preview && <Modal title={`${coreLabel[draft.core]} 原生配置预览`} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}

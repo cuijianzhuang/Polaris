@@ -254,7 +254,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 			st = "running"
 		}
 		upd := map[string]any{"status": st, "pid": int(c.Pid), "error": c.Error,
-			"installed_versions": store.NewJSON(c.InstalledVersions), "running_version": c.Version}
+			"installed_versions": store.NewJSON(c.InstalledVersions), "running_version": c.Version, "no_user_traffic": c.NoUserTraffic}
 		if c.StartedAt > 0 {
 			t := time.Unix(c.StartedAt, 0)
 			upd["started_at"] = &t

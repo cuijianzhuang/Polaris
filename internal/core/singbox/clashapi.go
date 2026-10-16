@@ -16,6 +16,10 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/model"
 )
 
+// PerUserTraffic reports whether the binary can count traffic per user
+// (built with v2ray_api); the agent passes it on to the panel.
+func (a *Adapter) PerUserTraffic() bool { return a.stats }
+
 // clashSecret returns the Clash API secret kept in the work dir, so a
 // running sing-box keeps accepting it after the agent restarts.
 func clashSecret(dir string) string {

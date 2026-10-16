@@ -65,6 +65,7 @@ type Core struct {
 	InstalledVersions JSON[[]string] `json:"installedVersions"`
 	RunningVersion    string         `gorm:"size:32" json:"runningVersion"` // version the agent reports running
 	PrevVersion       string         `gorm:"size:32" json:"prevVersion"`    // version before the last switch (rollback target)
+	NoUserTraffic     bool           `json:"noUserTraffic"`                 // core reports no per-user traffic (official sing-box)
 	Inbounds          int            `gorm:"-" json:"inbounds"`
 	CreatedAt         time.Time      `json:"createdAt"`
 	UpdatedAt         time.Time      `json:"updatedAt"`

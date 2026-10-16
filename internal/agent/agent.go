@@ -268,6 +268,9 @@ func (a *Agent) sendHeartbeat() error {
 		st := m.adapter.Health(context.Background())
 		cs := &polarisv1.CoreState{Type: string(t), Version: m.spec.Version, Running: st.Running, Pid: int32(st.PID),
 			Error: st.Error, Inbounds: int32(st.Inbounds), InstalledVersions: a.installer.Installed(t)}
+		if r, ok := m.adapter.(interface{ PerUserTraffic() bool }); ok {
+			cs.NoUserTraffic = !r.PerUserTraffic()
+		}
 		if !st.StartedAt.IsZero() {
 			cs.StartedAt = st.StartedAt.Unix()
 		}

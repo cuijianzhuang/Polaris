@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -33,7 +34,17 @@ type Installer struct {
 	HTTP   *http.Client
 	// AllowUnverified permits installs when no official digest is published.
 	AllowUnverified bool
+
+	mu    sync.Mutex
+	tried map[string]bool // sing-box versions already offered the stats build this run
 }
+
+// StatsBuildRepo publishes sing-box built with v2ray_api (per-user traffic),
+// as release "sing-box-v<version>"; see .github/workflows/singbox.yml.
+const StatsBuildRepo = "cuijianzhuang/Polaris"
+
+// statsMarker sits next to a sing-box binary installed from StatsBuildRepo.
+const statsMarker = ".polaris-stats-build"
 
 type release struct {
 	url    string
@@ -41,6 +52,9 @@ type release struct {
 	repo   string // owner/name for the GitHub API digest lookup
 	tag    string
 	digest func(ctx context.Context, i *Installer, asset string) (string, error)
+	// fallback is tried when this release cannot be fetched or verified.
+	fallback *release
+	marker   string // file written next to the binary on success
 }
 
 func goarch() string { return runtime.GOARCH }
@@ -72,11 +86,18 @@ func releaseFor(t model.CoreType, ver string) (*release, error) {
 			},
 		}, nil
 	case model.CoreSingbox:
+		// Official builds lack v2ray_api, so prefer Polaris's build of the
+		// same version (per-user traffic) and fall back to upstream.
 		asset := fmt.Sprintf("sing-box-%s-linux-%s.tar.gz", v, arch)
-		return &release{
+		inner := fmt.Sprintf("sing-box-%s-linux-%s/sing-box", v, arch)
+		upstream := &release{
 			url:    "https://github.com/SagerNet/sing-box/releases/download/v" + v + "/" + asset,
-			binary: fmt.Sprintf("sing-box-%s-linux-%s/sing-box", v, arch), repo: "SagerNet/sing-box", tag: "v" + v,
-			digest: githubDigest,
+			binary: inner, repo: "SagerNet/sing-box", tag: "v" + v, digest: githubDigest,
+		}
+		return &release{
+			url:    "https://github.com/" + StatsBuildRepo + "/releases/download/sing-box-v" + v + "/" + asset,
+			binary: inner, repo: StatsBuildRepo, tag: "sing-box-v" + v, digest: githubDigest,
+			fallback: upstream, marker: statsMarker,
 		}, nil
 	case model.CoreHysteria:
 		asset := "hysteria-linux-" + arch
@@ -242,45 +263,95 @@ func (i *Installer) Installed(t model.CoreType) []string {
 }
 
 // Ensure installs the core version if missing and points "current" at it.
+// A sing-box installed from upstream is swapped for the stats build once per
+// run when one exists, so per-user traffic starts working on old installs.
 func (i *Installer) Ensure(ctx context.Context, cs model.CoreSpec) (string, error) {
 	bin := i.BinPath(cs.Type, cs.Version)
+	rel, relErr := releaseFor(cs.Type, cs.Version)
 	if _, err := os.Stat(bin); err == nil {
+		if relErr == nil && rel.marker != "" && i.firstTry(cs) {
+			if _, err := os.Stat(filepath.Join(filepath.Dir(bin), rel.marker)); err != nil {
+				_ = i.install(ctx, cs, rel, bin) // keep the working binary on failure
+			}
+		}
 		return bin, i.link(cs)
 	}
-	rel, err := releaseFor(cs.Type, cs.Version)
+	if relErr != nil {
+		return "", relErr
+	}
+	err := i.install(ctx, cs, rel, bin)
+	if err != nil && rel.fallback != nil {
+		if ferr := i.install(ctx, cs, rel.fallback, bin); ferr != nil {
+			return "", fmt.Errorf("%w; fallback: %v", err, ferr)
+		}
+		err = nil
+	}
 	if err != nil {
 		return "", err
 	}
+	return bin, i.link(cs)
+}
+
+func (i *Installer) firstTry(cs model.CoreSpec) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.tried == nil {
+		i.tried = map[string]bool{}
+	}
+	k := string(cs.Type) + "@" + cs.Version
+	if i.tried[k] {
+		return false
+	}
+	i.tried[k] = true
+	return true
+}
+
+// install downloads, verifies and unpacks one release into bin's directory.
+func (i *Installer) install(ctx context.Context, cs model.CoreSpec, rel *release, bin string) error {
+	var err error
 	want := strings.ToLower(cs.SHA256)
-	if want == "" {
-		if want, err = rel.digest(ctx, i, rel.url); err != nil && !i.AllowUnverified {
-			return "", fmt.Errorf("cannot verify %s %s: %w", cs.Type, cs.Version, err)
+	if want == "" || rel.marker != "" { // a pinned digest is the upstream asset's
+		if want, err = rel.digest(ctx, i, rel.url); err != nil && (!i.AllowUnverified || rel.marker != "") {
+			return fmt.Errorf("cannot verify %s %s: %w", cs.Type, cs.Version, err)
 		}
 	}
 	data, err := i.get(ctx, rel.url)
 	if err != nil {
-		return "", err
+		return err
 	}
 	sum := sha256.Sum256(data)
 	got := hex.EncodeToString(sum[:])
 	if want != "" && !strings.EqualFold(got, want) {
-		return "", fmt.Errorf("%s %s: sha256 mismatch (got %s, want %s)", cs.Type, cs.Version, got, want)
+		return fmt.Errorf("%s %s: sha256 mismatch (got %s, want %s)", cs.Type, cs.Version, got, want)
 	}
 	dir := filepath.Dir(bin)
 	tmp := dir + ".tmp"
 	os.RemoveAll(tmp)
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
-		return "", err
+		return err
 	}
 	if err := extract(rel.url, data, tmp, rel.binary, filepath.Base(bin)); err != nil {
 		os.RemoveAll(tmp)
-		return "", err
+		return err
 	}
-	os.RemoveAll(dir)
+	if rel.marker != "" {
+		os.WriteFile(filepath.Join(tmp, rel.marker), []byte(rel.url+"\n"), 0o644)
+	}
+	// Replace the directory; a running process keeps its open binary.
+	old := dir + ".old"
+	os.RemoveAll(old)
+	if _, err := os.Stat(dir); err == nil {
+		if err := os.Rename(dir, old); err != nil {
+			os.RemoveAll(tmp)
+			return err
+		}
+	}
 	if err := os.Rename(tmp, dir); err != nil {
-		return "", err
+		os.Rename(old, dir)
+		return err
 	}
-	return bin, i.link(cs)
+	os.RemoveAll(old)
+	return nil
 }
 
 func (i *Installer) link(cs model.CoreSpec) error {

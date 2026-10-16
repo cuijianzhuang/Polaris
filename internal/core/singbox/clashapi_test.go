@@ -30,14 +30,24 @@ func freePort(t *testing.T) int {
 // TestLiveClashTraffic: an official sing-box (no v2ray_api) still reports
 // inbound and outbound totals through its Clash API.
 func TestLiveClashTraffic(t *testing.T) {
-	bin, xray := os.Getenv("POLARIS_SINGBOX_BIN"), os.Getenv("POLARIS_XRAY_BIN")
+	liveTraffic(t, "POLARIS_SINGBOX_BIN", false)
+}
+
+// TestLiveUserTraffic: a sing-box built with v2ray_api (Polaris builds one)
+// counts traffic per user.
+func TestLiveUserTraffic(t *testing.T) {
+	liveTraffic(t, "POLARIS_SINGBOX_STATS_BIN", true)
+}
+
+func liveTraffic(t *testing.T, binEnv string, perUser bool) {
+	bin, xray := os.Getenv(binEnv), os.Getenv("POLARIS_XRAY_BIN")
 	if bin == "" || xray == "" {
-		t.Skip("POLARIS_SINGBOX_BIN / POLARIS_XRAY_BIN not set")
+		t.Skip(binEnv + " / POLARIS_XRAY_BIN not set")
 	}
 	dir := t.TempDir()
 	a := New(core.Options{Version: "1.13.5", BinPath: bin, WorkDir: dir, APIListen: fmt.Sprintf("127.0.0.1:%d", freePort(t))})
-	if a.stats {
-		t.Skip("binary has v2ray_api; the Clash API path is not used")
+	if a.stats != perUser {
+		t.Skipf("binary v2ray_api=%v, test wants %v", a.stats, perUser)
 	}
 	port := freePort(t)
 	in := coretest.Inbound(model.CoreSingbox, "vin", port, model.ProtocolSpec{Type: model.ProtoVLESS}, model.TransportSpec{}, model.SecuritySpec{})
@@ -46,8 +56,8 @@ func TestLiveClashTraffic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cfg), `"clash_api"`) {
-		t.Fatalf("no clash_api in config:\n%s", cfg)
+	if want := map[bool]string{false: `"clash_api"`, true: `"v2ray_api"`}[perUser]; !strings.Contains(string(cfg), want) {
+		t.Fatalf("no %s in config:\n%s", want, cfg)
 	}
 	core.AtomicWrite(a.configPath(), cfg, 0o600)
 	if err := a.Start(t.Context()); err != nil {
@@ -86,6 +96,9 @@ func TestLiveClashTraffic(t *testing.T) {
 	}()
 	var down int64
 	key := core.TagPrefixInbound + "vin"
+	if perUser {
+		key = in.Users[0].ID
+	}
 	for polling := true; polling; {
 		select {
 		case n := <-done:

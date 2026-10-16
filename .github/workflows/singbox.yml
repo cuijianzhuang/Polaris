@@ -1,0 +1,99 @@
+# Builds sing-box with v2ray_api (per-user traffic; official builds lack it)
+# for the newest stable upstream releases and publishes each as release
+# "sing-box-v<version>" of this repository. Agents install these first and
+# fall back to the official build (internal/agent/installer.go).
+name: sing-box builds
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: 'Versions to build, space separated (default: newest 5 stable not yet built)'
+        required: false
+  push:
+    branches: [main]
+    paths: ['.github/workflows/singbox.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: singbox-builds
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.p.outputs.versions }}
+    steps:
+      - id: p
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WANT: ${{ inputs.versions }}
+        run: |
+          set -euo pipefail
+          if [ -n "${WANT:-}" ]; then
+            list="$WANT"
+          else
+            list="$(gh api 'repos/SagerNet/sing-box/releases?per_page=30' \
+              --jq '[.[] | select(.prerelease == false and .draft == false) | .tag_name | ltrimstr("v")] | .[0:5] | .[]')"
+          fi
+          todo=()
+          for v in $list; do
+            v="${v#v}"
+            if gh release view "sing-box-v$v" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ -z "${WANT:-}" ]; then
+              echo "sing-box $v already built"
+            else
+              todo+=("$v")
+            fi
+          done
+          json="$(printf '%s\n' "${todo[@]:-}" | jq -R . | jq -sc 'map(select(length > 0))')"
+          echo "versions=$json" >> "$GITHUB_OUTPUT"
+          echo "to build: $json"
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.versions != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.plan.outputs.versions) }}
+    steps:
+      - name: Fetch sing-box source
+        run: git clone --depth 1 --branch "v${{ matrix.version }}" https://github.com/SagerNet/sing-box.git src
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: Build
+        working-directory: src
+        env:
+          V: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          # Upstream's tags (minus cgo-only ones) plus v2ray_api.
+          base="$(cat release/DEFAULT_BUILD_TAGS_OTHERS 2>/dev/null || echo with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api)"
+          tags="$base,with_v2ray_api"
+          ldflags="-X 'github.com/sagernet/sing-box/constant.Version=$V' $(cat release/LDFLAGS 2>/dev/null || true) -s -w -buildid="
+          mkdir -p ../dist
+          for arch in amd64 arm64; do
+            d="sing-box-$V-linux-$arch"
+            mkdir -p "../out/$d"
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$tags" -ldflags "$ldflags" -o "../out/$d/sing-box" ./cmd/sing-box
+            cp LICENSE "../out/$d/"
+            tar -C ../out -czf "../dist/$d.tar.gz" "$d"
+          done
+          ../out/sing-box-$V-linux-amd64/sing-box version | tee /dev/stderr | grep -q with_v2ray_api
+          (cd ../dist && sha256sum *.tar.gz > checksums.txt)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          notes="sing-box $V built from upstream source (https://github.com/SagerNet/sing-box/releases/tag/v$V) with the with_v2ray_api tag, so Polaris can count traffic per user. Installed automatically by Polaris agents; not a Polaris release."
+          gh release delete "sing-box-v$V" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "sing-box-v$V" dist/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "sing-box $V (with v2ray_api)" --notes "$notes" --prerelease --latest=false

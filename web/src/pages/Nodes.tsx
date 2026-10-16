@@ -447,6 +447,7 @@ export default function Nodes() {
                       <div className="caps">{capsSummary(cap).map((x) => <span key={x} className="tag">{x}</span>)}</div>
                       <div className="sub" style={{ margin: 0 }}>用户变更：{cap?.hotUsers ? (c.type === 'xray' ? 'gRPC 热更新，不中断连接' : 'HTTP 认证回调，无需重载') : c.type === 'singbox' ? 'SIGHUP 重载' : '重启进程'}</div>
                       {c.error && <div className="note bad">{c.error}</div>}
+                      {c.noUserTraffic && <div className="note warn">官方版 sing-box 不能按用户统计流量（只统计入站总量）。Polaris 构建的同版本发布后，重启 Agent 或切换版本即自动替换。</div>}
                       {!scoped && (() => {
                         const lv = latest.data?.[c.type]
                         const canUp = lv && versionLess(c.version, lv)
