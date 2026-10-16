@@ -268,7 +268,8 @@ func (b *tgBot) registerCommands(ctx context.Context) {
 		{"command": "me", "description": "我的流量与到期"}, {"command": "sub", "description": "订阅链接与二维码"},
 		{"command": "nodes", "description": "节点状态"}, {"command": "status", "description": "面板概览（管理员）"},
 		{"command": "users", "description": "搜索用户（管理员）"}, {"command": "traffic", "description": "今日流量排行（管理员）"},
-		{"command": "bind", "description": "绑定账号 /bind 订阅链接"}, {"command": "help", "description": "帮助"},
+		{"command": "bind", "description": "绑定账号 /bind 订阅链接"}, {"command": "login", "description": "登录网页面板（管理员）"},
+		{"command": "help", "description": "帮助"},
 	}
 	_ = b.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
 }
@@ -402,6 +403,18 @@ func (b *tgBot) handle(u tgUpdate) {
 			return
 		}
 		b.send(chat, b.trafficText())
+	case "/login":
+		if id.admin == nil {
+			b.send(chat, "仅管理员可用。普通用户请使用 /me、/sub、/nodes 查看自己的账号与节点。")
+			return
+		}
+		link := b.s.tgLoginURL(b.s.newTGLoginCode(id.admin.ID))
+		scope := "完整权限"
+		if !id.owner() {
+			scope = fmt.Sprintf("仅可查看与同步分配给你的 %d 个节点", len(id.admin.NodeIDs.V))
+		}
+		b.send(chat, fmt.Sprintf("<a href=\"%s\">点此登录面板</a>（%s）\n链接 5 分钟内有效，只能使用一次，请勿转发。", esc(link), scope))
+		b.s.audit("tg:"+id.admin.Name, "admin.login_link", "tg:"+id.admin.Name, "", "")
 	case "/notify":
 		if id.admin == nil {
 			return
@@ -439,7 +452,7 @@ func (b *tgBot) help(chat int64, id tgIdentity) {
 	sb.WriteString("<b>Polaris 机器人</b>\n" + b.roleLine(id) + "\n\n")
 	sb.WriteString("/bind 订阅链接 — 绑定账号\n/me — 流量与到期\n/sub — 订阅链接与二维码\n/nodes — 节点状态\n/unbind — 解除绑定\n/whoami — 查看 Chat ID\n")
 	if id.admin != nil {
-		sb.WriteString("\n<b>管理员</b>\n/status — 概览\n/nodes — 节点列表与操作\n/node 名称 — 节点详情\n/notify on|off — 告警通知\n")
+		sb.WriteString("\n<b>管理员</b>\n/login — 获取网页面板登录链接\n/status — 概览\n/nodes — 节点列表与操作\n/node 名称 — 节点详情\n/notify on|off — 告警通知\n")
 	}
 	if id.owner() {
 		sb.WriteString("/users 关键词 — 搜索用户\n/traffic — 今日流量排行\n")

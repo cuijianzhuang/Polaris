@@ -24,6 +24,7 @@ type claims struct {
 	jwt.RegisteredClaims
 	Username string `json:"usr"`
 	Version  int    `json:"ver"`
+	TG       string `json:"tg,omitempty"` // Telegram admin id for bot sign-ins
 }
 
 func (s *Server) issueToken(a *store.Admin) (string, error) {
@@ -63,6 +64,27 @@ func (s *Server) authRequired(c *gin.Context) {
 	cl, err := s.parseToken(tok)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	if cl.TG != "" {
+		// Telegram sign-in: valid while the Telegram admin exists. Operators
+		// are confined to their nodes; the owner gets full access.
+		var a store.TGAdmin
+		if s.st.DB.First(&a, "id = ?", cl.TG).Error != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		s.noteBase(c.Request)
+		c.Set("admin", "tg:"+a.Name)
+		c.Set("tgAdmin", &a)
+		if a.Role != "owner" {
+			sc := map[string]bool{}
+			for _, id := range a.NodeIDs.V {
+				sc[id] = true
+			}
+			c.Set("nodeScope", sc)
+		}
+		c.Next()
 		return
 	}
 	// Sessions die with the admin account and on password change.
@@ -133,6 +155,15 @@ func (s *Server) login(c *gin.Context) {
 }
 
 func (s *Server) me(c *gin.Context) {
+	if v, ok := c.Get("tgAdmin"); ok {
+		a := v.(*store.TGAdmin)
+		out := gin.H{"username": "tg:" + a.Name, "telegram": true, "role": a.Role}
+		if a.Role != "owner" {
+			out["nodeIds"] = a.NodeIDs.V
+		}
+		c.JSON(http.StatusOK, out)
+		return
+	}
 	var a store.Admin
 	if err := s.st.DB.First(&a, "id = ?", c.GetString("adminID")).Error; err != nil {
 		notFound(c)

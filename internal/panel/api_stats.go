@@ -264,4 +264,14 @@ func (s *Server) nodeTrafficStats() map[string]*nodeTraffic {
 	return out
 }
 
-func (s *Server) nodeTrafficAPI(c *gin.Context) { c.JSON(http.StatusOK, s.nodeTrafficStats()) }
+func (s *Server) nodeTrafficAPI(c *gin.Context) {
+	all := s.nodeTrafficStats()
+	if sc := nodeScope(c); sc != nil {
+		for id := range all {
+			if !sc[id] {
+				delete(all, id)
+			}
+		}
+	}
+	c.JSON(http.StatusOK, all)
+}

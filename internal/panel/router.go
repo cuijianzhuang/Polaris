@@ -84,10 +84,11 @@ func (s *Server) Router() http.Handler {
 	api.GET("/auth/github/callback", s.githubCallback)
 	api.POST("/auth/github/totp", s.githubTOTP)
 	api.GET("/info", s.publicInfo)
+	api.POST("/auth/tg", s.tgLogin)
 
-	p := api.Group("", s.authRequired)
+	p := api.Group("", s.authRequired, s.scopeGuard)
 	p.GET("/ws", func(c *gin.Context) {
-		s.handleWS(c.Writer, c.Request, c.GetString("adminID"), c.GetInt("tokenVersion"))
+		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})
 	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPI(r)) })
 	p.GET("/auth/me", s.me)
