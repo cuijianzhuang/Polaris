@@ -63,9 +63,18 @@ jobs:
     steps:
       - name: Fetch sing-box source
         run: git clone --depth 1 --branch "v${{ matrix.version }}" https://github.com/SagerNet/sing-box.git src
+      # Use the Go release upstream builds with (its go.mod minimum can be
+      # too old, e.g. 1.13.21 declares 1.24.7 but needs 1.25).
+      - name: Upstream Go version
+        id: go
+        run: |
+          v="$(grep -m1 -oE 'go-version: *[~^]?[0-9]+\.[0-9]+(\.[0-9]+)?' src/.github/workflows/build.yml 2>/dev/null | sed 's/go-version: *//' || true)"
+          [ -n "$v" ] || v="$(sed -n 's/^go //p' src/go.mod)"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "Go $v"
       - uses: actions/setup-go@v5
         with:
-          go-version-file: src/go.mod
+          go-version: ${{ steps.go.outputs.version }}
           cache: false
       - name: Build
         working-directory: src
