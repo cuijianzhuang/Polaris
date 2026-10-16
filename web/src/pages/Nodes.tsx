@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
-import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import TrafficChart from '../components/TrafficChart'
+import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, nodeStatus, protoLabel, uptime, userStatus } from '../format'
 import VersionPicker from '../components/VersionPicker'
 import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
@@ -329,10 +330,9 @@ export default function Nodes() {
 
   useEffect(() => { if (params.get('new')) { setParams({}, { replace: true }) } }, [params, setParams])
 
-  // Per-node traffic, refreshed every 30 s.
-  const [tick, setTick] = useState(0)
-  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 30000); return () => clearInterval(t) }, [])
-  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [tick])
+  // Per-node traffic, refreshed every 10 s.
+  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)))
+  usePoll(traffic.reload, 10000)
   const latest = useLoad(() => (scoped ? Promise.resolve({} as Record<string, string>) : get<Record<string, string>>('/core-latest')).catch(() => ({} as Record<string, string>)))
   const [batchCore, setBatchCore] = useState(false)
   // Agent upgrades: nodes whose agent differs from the panel version.
@@ -427,6 +427,7 @@ export default function Nodes() {
                 </div>
                 {sel.lastError && <div className="note bad" style={{ marginTop: 12 }}>最近一次下发失败：{sel.lastError}</div>}
               </section>
+              <section className="card"><TrafficChart query={'node=' + sel.id} title="节点用户流量" /></section>
               <h2>内核</h2>
               <div className="grid g2">
                 {sel.cores.map((c) => {

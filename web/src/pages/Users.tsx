@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import TrafficChart from '../components/TrafficChart'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
@@ -260,7 +261,7 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
       {user && <UserLinks userId={user.id} />}
       {user && <Devices userId={user.id} limit={user.deviceLimit} />}
       {user && <SubCheck userId={user.id} />}
-      {user && <UserTraffic userId={user.id} />}
+      {user && <div className="field"><TrafficChart query={'user=' + user.id} title="流量统计" /></div>}
       {user && (
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
@@ -320,36 +321,6 @@ function Devices({ userId, limit }: { userId: string; limit: number }) {
         {ds.length > 1 && <div><button className="btn sm" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/all`); data.reload() }, '已清空')}>清空全部设备</button></div>}
       </div>
     </details>
-  )
-}
-
-function UserTraffic({ userId }: { userId: string }) {
-  const from = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 29); return d.toISOString() }, [])
-  const data = useLoad(() => get<{ series: { t: string; up: number; down: number }[] }>(`/stats/traffic?user=${userId}&bucket=day&from=${encodeURIComponent(from)}`), [userId])
-  const days = useMemo(() => {
-    const m = new Map((data.data?.series ?? []).map((p) => [date(p.t), p]))
-    return Array.from({ length: 30 }, (_, i) => {
-      const d = new Date(from); d.setDate(d.getDate() + i)
-      const p = m.get(date(d.toISOString()))
-      return { day: date(d.toISOString()), up: p?.up ?? 0, down: p?.down ?? 0 }
-    })
-  }, [data.data, from])
-  const max = Math.max(1, ...days.map((d) => d.up + d.down))
-  const total = days.reduce((a, d) => a + d.up + d.down, 0)
-  const W = 300, H = 80, bw = W / days.length
-  return (
-    <div className="field">
-      <span className="lbl">近 30 天流量 · 合计 {bytes(total)}</span>
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 90 }} role="img" aria-label="近 30 天每日流量">
-        {days.map((d, i) => {
-          const th = (d.up + d.down) / max * H, uh = d.up / max * H
-          return <g key={d.day}><title>{d.day} ↑ {bytes(d.up)} ↓ {bytes(d.down)}</title>
-            <rect x={i * bw + bw * 0.15} y={H - th} width={bw * 0.7} height={Math.max(0, th - uh)} rx={1.5} style={{ fill: "var(--pri)" }} />
-            <rect x={i * bw + bw * 0.15} y={H - uh} width={bw * 0.7} height={uh} rx={1.5} style={{ fill: 'color-mix(in srgb, var(--pri) 45%, transparent)' }} /></g>
-        })}
-      </svg>
-      <div className="hint">峰值 {bytes(max)} / 天 · 深色为下载、浅色为上传</div>
-    </div>
   )
 }
 
@@ -437,6 +408,7 @@ export default function Users() {
   const list = useLoad(() => get<{ items: User[]; total: number; summary?: Record<string, number> }>(
     `/users?limit=${PAGE}&offset=${page * PAGE}&q=${encodeURIComponent(query)}&filter=${filter}&group=${group}${sort.k ? `&sort=${sort.k}&order=${sort.desc ? 'desc' : 'asc'}` : ''}`),
   [query, filter, group, sort, page])
+  usePoll(list.reload, 15000)
   const sum = list.data?.summary ?? {}
   const total = list.data?.total ?? 0
   const sortBy = (k: string) => setSort((s) => (s.k === k ? { k, desc: !s.desc } : { k, desc: k !== 'username' }))

@@ -128,3 +128,12 @@ func (s *Store) GetSetting(key, def string) string {
 func (s *Store) SetSetting(key, value string) error {
 	return s.DB.Save(&Setting{Key: key, Value: value}).Error
 }
+
+// Close closes the underlying database connections.
+func (s *Store) Close() error {
+	db, err := s.DB.DB()
+	if err != nil {
+		return err
+	}
+	return db.Close()
+}

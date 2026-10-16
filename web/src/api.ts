@@ -85,3 +85,26 @@ export function takeOAuthResult(): OAuthResult {
   }
   return oauthResult
 }
+
+// download fetches an authenticated file and hands it to the browser.
+export async function download(path: string, name: string) {
+  const resp = await fetch(API + path, { headers: { Authorization: 'Bearer ' + (getToken() ?? '') } })
+  if (!resp.ok) throw new ApiError(resp.status, (await resp.json().catch(() => ({}))).error || resp.statusText)
+  const url = URL.createObjectURL(await resp.blob())
+  const a = document.createElement('a')
+  a.href = url; a.download = name; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
+// upload posts a file as multipart form field "file".
+export async function upload<T = any>(path: string, file: File): Promise<T> {
+  const fd = new FormData()
+  fd.append('file', file)
+  track(1)
+  try {
+    const resp = await fetch(API + path, { method: 'POST', headers: { Authorization: 'Bearer ' + (getToken() ?? '') }, body: fd })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok) throw new ApiError(resp.status, data.error || resp.statusText, data)
+    return data as T
+  } finally { track(-1) }
+}

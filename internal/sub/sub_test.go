@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -143,5 +144,59 @@ func TestPage(t *testing.T) {
 func TestFlag(t *testing.T) {
 	if Flag("jp") != "🇯🇵" || Flag("x") != "" {
 		t.Fatal("flag")
+	}
+}
+
+func TestHumanBytesAndInfoNodes(t *testing.T) {
+	for n, want := range map[int64]string{0: "0 B", 512: "512 B", 1536: "1.5 KB", 10 << 30: "10 GB", 1610612736: "1.5 GB",
+		123 << 20: "123 MB", 12345678901: "11.5 GB", 1 << 40: "1 TB"} {
+		if got := HumanBytes(n); got != want {
+			t.Errorf("HumanBytes(%d) = %q, want %q", n, got, want)
+		}
+	}
+	exp := time.Now().Add(30*24*time.Hour + time.Hour)
+	names := func(i Info) string {
+		var out []string
+		for _, n := range InfoNodes(i) {
+			out = append(out, n.Name)
+		}
+		return strings.Join(out, "\n")
+	}
+	got := names(Info{Total: 100 << 30, Upload: 5 << 30, Download: 20 << 30, Expire: &exp, ResetNote: "每月 1 日重置流量"})
+	for _, want := range []string{"📦 套餐 100 GB · 已用 25 GB（25%）", "📊 剩余流量 75 GB · 每月 1 日重置流量", "到期 · 剩 30 天"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in\n%s", want, got)
+		}
+	}
+	if got := names(Info{Download: 3 << 20}); !strings.Contains(got, "📦 套餐 不限流量 · 已用 3 MB") || !strings.Contains(got, "⏳ 长期有效") {
+		t.Errorf("unlimited:\n%s", got)
+	}
+	if got := names(Info{ExpireAfterDays: 30}); !strings.Contains(got, "首次使用后 30 天到期") {
+		t.Errorf("after-days:\n%s", got)
+	}
+	for _, n := range InfoNodes(Info{Total: 1, Expire: &exp, Announce: "x"}) {
+		if !infoNodeRe.MatchString(n.Name) && !strings.HasPrefix(n.Name, "📢") {
+			t.Errorf("info node %q not caught by dropInfo", n.Name)
+		}
+	}
+}
+
+func TestShadowrocketStatusLine(t *testing.T) {
+	exp := time.Now().Add(9*24*time.Hour + time.Hour)
+	nodes := []Node{{Name: "a", Protocol: model.ProtoTrojan, Server: "h", Port: 443, Password: "p"}}
+	r, _ := Get("links")
+	out, _ := r.Render(nodes, Info{Total: 100 << 30, Download: 30 << 30, Expire: &exp, StatusLine: true}, "")
+	dec, _ := base64.StdEncoding.DecodeString(string(out))
+	first, rest, _ := strings.Cut(string(dec), "\n")
+	want := "STATUS=已用 30 GB / 100 GB（30%） · 剩余 70 GB · " + exp.Local().Format("2006-01-02") + " 到期（剩 9 天）"
+	if first != want || !strings.HasPrefix(rest, "trojan://") {
+		t.Fatalf("got %q / %q", first, rest)
+	}
+	if got := StatusText(Info{Upload: 2013646, Download: 22882138}); got != "已用 23.7 MB · 不限流量 · 长期有效" {
+		t.Fatalf("unlimited: %q", got)
+	}
+	out, _ = r.Render(nodes, Info{}, "")
+	if dec, _ := base64.StdEncoding.DecodeString(string(out)); strings.Contains(string(dec), "STATUS=") {
+		t.Fatal("STATUS line only for Shadowrocket")
 	}
 }

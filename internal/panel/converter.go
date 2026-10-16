@@ -318,6 +318,8 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 		return
 	}
 	info.Announce = strings.TrimSpace(s.st.GetSetting("sub_announce", ""))
+	planInfo(&info, u)
+	info.StatusLine = format == "links" && !raw && strings.Contains(strings.ToLower(c.GetHeader("User-Agent")), "shadowrocket")
 	nodes = applyNodeOpts(s.decorateNodes(nodes, info), ro)
 	var body []byte
 	ctype := ""

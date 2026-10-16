@@ -3,13 +3,14 @@
 import { useState } from 'react'
 import { get, post } from '../api'
 import { bytes, ago } from '../format'
-import { useAction, useConfirm, useLoad } from './ui'
+import { useAction, useConfirm, useLoad, usePoll } from './ui'
 
 export interface TagTrafficRow { nodeId: string; nodeName: string; kind: 'inbound' | 'outbound'; tag: string; up: number; down: number; updatedAt: string }
 
 export default function TagTraffic() {
   const [kind, setKind] = useState<'inbound' | 'outbound'>('inbound')
   const data = useLoad(() => get<TagTrafficRow[]>('/stats/tags?kind=' + kind), [kind])
+  usePoll(data.reload, 15000)
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const rows = [...(data.data ?? [])].sort((a, b) => b.up + b.down - (a.up + a.down))

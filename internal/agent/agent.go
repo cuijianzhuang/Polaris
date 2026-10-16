@@ -48,7 +48,7 @@ type Config struct {
 	// APIPortBase is the first loopback port for core management APIs
 	// (xray = base, sing-box = base+1, hysteria = base+2). Default 10085.
 	APIPortBase int
-	// Intervals (defaults: 30s heartbeat, 10s traffic, 60s online IPs).
+	// Intervals (defaults: 5s heartbeat, 10s traffic, 20s online IPs).
 	Heartbeat time.Duration
 	Traffic   time.Duration
 	OnlineIPs time.Duration
@@ -106,13 +106,13 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 		cfg.APIPortBase = 10085
 	}
 	if cfg.Heartbeat == 0 {
-		cfg.Heartbeat = 30 * time.Second
+		cfg.Heartbeat = 5 * time.Second
 	}
 	if cfg.Traffic == 0 {
 		cfg.Traffic = 10 * time.Second
 	}
 	if cfg.OnlineIPs == 0 {
-		cfg.OnlineIPs = 60 * time.Second
+		cfg.OnlineIPs = 20 * time.Second
 	}
 	a := &Agent{cfg: cfg, log: log, cores: map[model.CoreType]*managed{}, wantRev: make(chan int64, 1)}
 	id, err := LoadIdentity(a.idDir())
@@ -217,6 +217,8 @@ func (a *Agent) session(ctx context.Context) error {
 		defer t.Stop()
 		ipT := time.NewTicker(a.cfg.OnlineIPs)
 		defer ipT.Stop()
+		revT := time.NewTicker(time.Minute)
+		defer revT.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -228,6 +230,7 @@ func (a *Agent) session(ctx context.Context) error {
 				}
 			case <-ipT.C:
 				a.sendOnlineIPs(ctx)
+			case <-revT.C:
 				a.requestRev(0) // safety net: converge even if a push was missed
 			}
 		}

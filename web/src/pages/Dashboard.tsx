@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { useNodes } from '../App'
-import { useLoad } from '../components/ui'
+import { useLoad, usePoll, useWidth } from '../components/ui'
 import TagTraffic from '../components/TagTraffic'
 import { bps, bytes, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
 import type { Node, NodeTraffic } from '../types'
@@ -20,20 +20,6 @@ interface Overview {
 }
 
 const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
-
-// useWidth tracks an element's width so charts draw at real pixel size (text
-// stays legible on phones instead of shrinking with a fixed viewBox).
-function useWidth<T extends HTMLElement>() {
-  const ref = useRef<T>(null)
-  const [w, setW] = useState(0)
-  useEffect(() => {
-    if (!ref.current) return
-    const ro = new ResizeObserver(([e]) => setW(Math.round(e.contentRect.width)))
-    ro.observe(ref.current)
-    return () => ro.disconnect()
-  }, [])
-  return [ref, w] as const
-}
 
 function Trend({ data }: { data: Overview['trend'] }) {
   const [ref, W] = useWidth<HTMLDivElement>()
@@ -151,8 +137,10 @@ export default function Dashboard() {
   const { nodes } = useNodes()
   const nav = useNavigate()
   const [days, setDays] = useState(7)
-  const { data } = useLoad(() => get<Overview>('/stats/overview?days=' + days), [nodes.length, days])
+  const overview = useLoad(() => get<Overview>('/stats/overview?days=' + days), [nodes.length, days])
+  const data = overview.data
   const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [nodes.length])
+  usePoll(() => { overview.reload(); traffic.reload() }, 10000)
   const live = nodes.filter((n) => n.connected)
   const rx = live.reduce((s, n) => s + n.system.rxBps, 0), tx = live.reduce((s, n) => s + n.system.txBps, 0)
   const cores = Object.entries(data?.cores ?? {}).filter(([, n]) => n > 0)

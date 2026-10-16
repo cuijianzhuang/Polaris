@@ -61,7 +61,7 @@ func TestSubscriptionSettings(t *testing.T) {
 		hdr.Get("routing") != "happ://routing/onadd/"+base64.StdEncoding.EncodeToString([]byte(`{"Name":"cn"}`)) {
 		t.Fatalf("headers: %v", hdr)
 	}
-	for _, want := range []string{"📊 剩余流量 70.00 GiB / 100.00 GiB", "⏳ 到期", "📢 本周六维护 请提前更新订阅", "HK 01"} {
+	for _, want := range []string{"📦 套餐 100 GB · 已用 30 GB（30%）", "📊 剩余流量 70 GB", " 到期 · 剩 ", "📢 本周六维护 请提前更新订阅", "HK 01"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("missing %q:\n%s", want, body)
 		}
@@ -69,8 +69,13 @@ func TestSubscriptionSettings(t *testing.T) {
 
 	s.st.SetSetting("sub_show_info", "suffix")
 	_, body, _ = get("/sub/p/profile-token-abcdefgh", "clash-verge/2.0")
-	if !strings.Contains(body, "HK 01 | 70.00 GiB · ") || strings.Contains(body, "📊") {
+	if !strings.Contains(body, "HK 01 | 剩 70 GB · ") || strings.Contains(body, "📊") {
 		t.Fatalf("suffix mode:\n%s", body)
+	}
+
+	_, body, _ = get("/sub/p/profile-token-abcdefgh", "Shadowrocket/2070 CFNetwork/1568 Darwin/24.0.0")
+	if dec, err := base64.StdEncoding.DecodeString(body); err != nil || !strings.HasPrefix(string(dec), "STATUS=已用 30 GB / 100 GB（30%） · 剩余 70 GB · ") {
+		t.Fatalf("shadowrocket status line: %v %.200q", err, dec)
 	}
 
 	// Browser info page: announcement, status, chart, per-node links and import buttons.
