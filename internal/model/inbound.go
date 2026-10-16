@@ -19,6 +19,7 @@ const (
 	CoreHysteria  CoreType = "hysteria"
 	CoreForwarder CoreType = "forwarder" // L4 port forwarder (nftables / realm)
 	CoreCaddy     CoreType = "caddy"     // TLS front for CDN inbounds sharing one port
+	CoreGost      CoreType = "gost"      // GOST v3 port forwarder
 	CoreAuto      CoreType = "auto"      // templates only: pick by capability
 )
 

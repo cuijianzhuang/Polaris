@@ -212,7 +212,8 @@ func (s *Server) portConflictExcept(nodeID string, m *model.Inbound, excludeID, 
 	var fwds []store.ForwardRule
 	s.st.DB.Where("node_id = ? AND listen_port = ? AND id <> ?", nodeID, m.Port, excludeID).Find(&fwds) // ids are unique across tables
 	for _, f := range fwds {
-		if (m.UsesTCP() && f.Network != "udp") || (m.UsesUDP() && f.Network != "tcp") {
+		n := listenNet(f.Engine, f.TunnelRole, f.TunnelType, f.Network)
+		if (m.UsesTCP() && n != "udp") || (m.UsesUDP() && n != "tcp") {
 			return fmt.Errorf("port %d is used by forward rule %s", m.Port, f.Name)
 		}
 	}

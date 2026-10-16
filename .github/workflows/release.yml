@@ -1,18 +1,76 @@
 name: release
+# Releases happen automatically on every push to main (patch bump from the
+# latest tag; put "[skip release]" in the commit message to skip), from the
+# Actions tab ("Run workflow", choosing patch / minor / major), or by pushing
+# a v* tag by hand (a "-" makes it a prerelease).
 on:
   push:
+    branches: [main]
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 版本号递增方式
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
   contents: write
   packages: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      skip: ${{ steps.v.outputs.skip }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        env:
+          BUMP: ${{ inputs.bump || 'patch' }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            v="${GITHUB_REF_NAME}"
+          else
+            if [ "${GITHUB_EVENT_NAME}" = push ] && printf '%s' "$MSG" | grep -qiF '[skip release]'; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"; echo "skipped by commit message"; exit 0
+            fi
+            if git tag --points-at HEAD | grep -q '^v'; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"; echo "HEAD is already released"; exit 0
+            fi
+            last=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-' | head -n1)
+            last=${last:-v0.0.0}
+            IFS=. read -r ma mi pa <<< "${last#v}"
+            case "$BUMP" in
+              major) ma=$((ma + 1)); mi=0; pa=0 ;;
+              minor) mi=$((mi + 1)); pa=0 ;;
+              *) pa=$((pa + 1)) ;;
+            esac
+            v="v${ma}.${mi}.${pa}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
+          echo "Releasing $v"
+
   test:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
     uses: ./.github/workflows/ci.yml
 
   binaries:
-    needs: test
+    needs: [version, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +87,7 @@ jobs:
         working-directory: web
       - name: Build panel and agent
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           LDFLAGS="-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}"
@@ -45,7 +103,7 @@ jobs:
           cd dist && sha256sum * > checksums.txt && cat checksums.txt
       - name: Smoke test the binaries
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
           ./dist/polaris-agent-linux-amd64 --version | tee /dev/stderr | grep -F "$VERSION"
@@ -54,12 +112,15 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          # Creates the tag on this commit when the release was not started by one.
+          tag_name: ${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: dist/*
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
 
   image:
-    needs: test
+    needs: [version, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -75,15 +136,15 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.version }},enable=${{ needs.version.outputs.prerelease != 'true' }}
+            type=raw,value=latest,enable=${{ needs.version.outputs.prerelease != 'true' }}
       - uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: VERSION=${{ github.ref_name }}
+          build-args: VERSION=${{ needs.version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

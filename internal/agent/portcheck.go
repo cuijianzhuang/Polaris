@@ -53,7 +53,7 @@ func portsOf(spec *model.NodeSpec) []portUse {
 		}
 	}
 	for _, f := range spec.Forwards {
-		for _, n := range strings.Split(orDefault(f.Network, "tcp"), ",") {
+		for _, n := range strings.Split(f.ListenNetwork(), ",") {
 			out = append(out, portUse{strings.TrimSpace(n), "", f.Listen, f.Tag})
 		}
 	}

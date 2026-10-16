@@ -1,4 +1,4 @@
-export type CoreType = 'xray' | 'singbox' | 'mihomo' | 'hysteria' | 'forwarder' | 'caddy' | 'auto'
+export type CoreType = 'xray' | 'singbox' | 'mihomo' | 'hysteria' | 'forwarder' | 'gost' | 'caddy' | 'auto'
 export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'anytls' | 'shadowtls' | 'naive' | 'socks' | 'http'
 export type Transport = 'tcp' | 'ws' | 'grpc' | 'httpupgrade' | 'xhttp' | 'kcp' | 'quic'
 export type Security = 'none' | 'tls' | 'reality'

@@ -47,13 +47,14 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	var b strings.Builder
 	b.WriteString("[log]\nlevel = \"warn\"\n\n[network]\nno_tcp = false\nuse_udp = true\n\n")
-	for _, f := range spec.Forwards {
+	fw := spec.RealmForwards()
+	for _, f := range fw {
 		if err := renderEndpoint(&b, &f); err != nil {
 			return nil, err
 		}
 	}
 	a.mu.Lock()
-	a.n = len(spec.Forwards)
+	a.n = len(fw)
 	a.mu.Unlock()
 	return []byte(b.String()), nil
 }

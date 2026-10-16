@@ -55,10 +55,10 @@ export function uptime(sec?: number): string {
 }
 
 export const coreLabel: Record<string, string> = {
-  xray: 'Xray-core', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hysteria2', forwarder: '转发器 (realm)', caddy: 'Caddy 回源', auto: '自动',
+  xray: 'Xray-core', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hysteria2', forwarder: '转发器 (realm)', gost: 'GOST', caddy: 'Caddy 回源', auto: '自动',
 }
-export const coreShort: Record<string, string> = { xray: 'Xray', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hy2', forwarder: 'realm', caddy: 'Caddy', auto: 'auto' }
-export const coreColor: Record<string, string> = { xray: '#0E7490', singbox: '#6D28D9', mihomo: '#B45309', hysteria: '#15803D', forwarder: '#5B6470' }
+export const coreShort: Record<string, string> = { xray: 'Xray', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hy2', forwarder: 'realm', gost: 'GOST', caddy: 'Caddy', auto: 'auto' }
+export const coreColor: Record<string, string> = { xray: '#0E7490', singbox: '#6D28D9', mihomo: '#B45309', hysteria: '#15803D', forwarder: '#5B6470', gost: '#9333EA' }
 
 export const protoLabel: Record<Protocol, string> = {
   vless: 'VLESS', vmess: 'VMess', trojan: 'Trojan', shadowsocks: 'SS 2022', hysteria2: 'Hysteria2', tuic: 'TUIC v5',

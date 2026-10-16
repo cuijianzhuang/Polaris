@@ -273,7 +273,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
 
 const coreHint: Record<string, string> = {
   xray: 'gRPC 热增删用户', singbox: 'SIGHUP 重载', hysteria: '官方服务端 · 多入站 · HTTP 认证回调',
-  mihomo: 'listeners · 控制器热重载', caddy: 'CDN 443 端口共享回源（按需自动安装）', forwarder: 'L4 端口转发 · 中转链路',
+  mihomo: 'listeners · 控制器热重载', caddy: 'CDN 443 端口共享回源（按需自动安装）', forwarder: 'L4 端口转发 · 中转链路', gost: 'GOST 转发 · 隧道 / 限速 / 流量统计',
 }
 
 export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: Core; onClose: () => void; onSaved: () => void }) {
@@ -295,7 +295,7 @@ export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: 
       {!core && (
         <Field label="内核">
           <div className="seg">
-            {(['xray', 'singbox', 'hysteria', 'mihomo', 'caddy', 'forwarder'] as CoreType[]).map((c) => (
+            {(['xray', 'singbox', 'hysteria', 'mihomo', 'caddy', 'forwarder', 'gost'] as CoreType[]).map((c) => (
               <button key={c} type="button" className={'opt' + (type === c ? ' on' : '')}
                 onClick={() => { setType(c); setVersion(defaults[c] ?? '') }}>
                 {coreLabel[c]}<small>{coreHint[c]}</small>

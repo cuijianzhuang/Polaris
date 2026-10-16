@@ -28,7 +28,7 @@ type managed struct {
 }
 
 // Hysteria uses base+10.. (one stats port per inbound).
-var apiOffsets = map[model.CoreType]int{model.CoreXray: 0, model.CoreSingbox: 1, model.CoreMihomo: 3, model.CoreCaddy: 4, model.CoreHysteria: 10}
+var apiOffsets = map[model.CoreType]int{model.CoreXray: 0, model.CoreSingbox: 1, model.CoreMihomo: 3, model.CoreCaddy: 4, model.CoreGost: 5, model.CoreHysteria: 10}
 
 func (a *Agent) apiListen(t model.CoreType) string {
 	off, ok := apiOffsets[t]
@@ -40,7 +40,7 @@ func (a *Agent) apiListen(t model.CoreType) string {
 
 var cfgNames = map[model.CoreType]string{
 	model.CoreXray: "xray.json", model.CoreSingbox: "singbox.json", model.CoreHysteria: "hysteria.json",
-	model.CoreForwarder: "realm.toml", model.CoreMihomo: "mihomo.yaml", model.CoreCaddy: "Caddyfile",
+	model.CoreForwarder: "realm.toml", model.CoreMihomo: "mihomo.yaml", model.CoreCaddy: "Caddyfile", model.CoreGost: "gost.yaml",
 }
 
 // applyResult describes one reconcile.
@@ -78,9 +78,14 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		wanted[cs.Type] = cs
 	}
 	// Implicit forwarder / caddy when relay forwards or CDN fronts exist.
-	if len(spec.Forwards) > 0 {
+	if len(spec.RealmForwards()) > 0 {
 		if _, ok := wanted[model.CoreForwarder]; !ok {
 			wanted[model.CoreForwarder] = model.CoreSpec{Type: model.CoreForwarder}
+		}
+	}
+	if len(spec.GostForwards()) > 0 {
+		if _, ok := wanted[model.CoreGost]; !ok {
+			wanted[model.CoreGost] = model.CoreSpec{Type: model.CoreGost}
 		}
 	}
 	if len(spec.Fronts) > 0 {
@@ -122,7 +127,8 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	rolledBack := false
 	for _, t := range types {
 		cs := wanted[t]
-		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.Forwards) > 0) ||
+		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.RealmForwards()) > 0) ||
+			(t == model.CoreGost && len(spec.GostForwards()) > 0) ||
 			(t == model.CoreCaddy && len(spec.Fronts) > 0)
 		m, old, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
@@ -413,7 +419,9 @@ func coreSlice(s *model.NodeSpec, t model.CoreType) *model.NodeSpec {
 	out := &model.NodeSpec{Inbounds: s.InboundsFor(t)}
 	switch t {
 	case model.CoreForwarder:
-		out.Forwards = s.Forwards
+		out.Forwards = s.RealmForwards()
+	case model.CoreGost:
+		out.Forwards = s.GostForwards()
 	case model.CoreCaddy:
 		out.Fronts = s.Fronts
 	}
