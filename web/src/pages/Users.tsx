@@ -8,10 +8,10 @@ import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStat
 import type { Group, Inbound, Node, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
 
-type Filter = '' | 'active' | 'online' | 'expiring' | 'limited' | 'expired' | 'disabled'
+type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
   { k: '', label: '全部', sum: 'all' }, { k: 'active', label: '正常', sum: 'active' }, { k: 'online', label: '在线', sum: 'online' },
-  { k: 'expiring', label: '即将到期', sum: 'expiring' }, { k: 'limited', label: '已超额', sum: 'limited' }, { k: 'expired', label: '已过期', sum: 'expired' },
+  { k: 'expiring', label: '即将到期', sum: 'expiring' }, { k: 'near', label: '流量将满', sum: 'near' }, { k: 'limited', label: '已超额', sum: 'limited' }, { k: 'expired', label: '已过期', sum: 'expired' },
   { k: 'disabled', label: '已禁用', sum: 'disabled' },
 ]
 const PAGE = 100
@@ -426,8 +426,8 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
 
 export default function Users() {
   const [params, setParams] = useSearchParams()
-  const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<Filter>('')
+  const [q, setQ] = useState(() => params.get('q') ?? '')
+  const [filter, setFilter] = useState<Filter>(() => (filters.some((f) => f.k === params.get('filter')) ? params.get('filter') as Filter : ''))
   const [query, setQuery] = useState('')
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t) }, [q])
   const [group, setGroup] = useState('')

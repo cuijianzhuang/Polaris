@@ -49,26 +49,66 @@ func (s *Server) statsOverview(c *gin.Context) {
 	s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
 		Where("hour >= ?", dayStart).Scan(&today)
 
-	// 7-day trend, bucketed by local day.
-	from := dayStart.AddDate(0, 0, -6)
-	var rows []store.TrafficHourly
-	s.st.DB.Where("hour >= ?", from).Find(&rows)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).UTC()
+	var month struct{ Up, Down int64 }
+	s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+		Where("hour >= ?", monthStart).Scan(&month)
+
+	// Trend over ?days= (default 7, max 90), bucketed by local day.
+	n := min(max(atoiDefault(c.Query("days"), 7), 1), 90)
+	local := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	type day struct {
 		Date string `json:"date"`
 		Up   int64  `json:"up"`
 		Down int64  `json:"down"`
 	}
-	days := make([]day, 7)
+	days := make([]day, n)
+	idx := map[string]int{}
 	for i := range days {
-		days[i].Date = from.AddDate(0, 0, i).Local().Format("2006-01-02")
+		days[i].Date = local.AddDate(0, 0, i-n+1).Format("2006-01-02")
+		idx[days[i].Date] = i
 	}
+	var rows []struct {
+		Hour     time.Time
+		Up, Down int64
+	}
+	s.st.DB.Model(&store.TrafficHourly{}).Select("hour, SUM(up) AS up, SUM(down) AS down").
+		Where("hour >= ?", local.AddDate(0, 0, -n+1).UTC()).Group("hour").Scan(&rows)
 	for _, r := range rows {
-		idx := int(r.Hour.Local().Sub(from.Local()).Hours() / 24)
-		if idx >= 0 && idx < 7 {
-			days[idx].Up += r.Up
-			days[idx].Down += r.Down
+		if i, ok := idx[r.Hour.Local().Format("2006-01-02")]; ok {
+			days[i].Up += r.Up
+			days[i].Down += r.Down
 		}
 	}
+
+	// Today's heaviest users.
+	type topUser struct {
+		UserID   string `json:"userId"`
+		Username string `json:"username"`
+		Up       int64  `json:"up"`
+		Down     int64  `json:"down"`
+	}
+	tops := []topUser{}
+	s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up) AS up, SUM(down) AS down").
+		Where("hour >= ? AND user_id <> ''", dayStart).Group("user_id").Order("SUM(up+down) DESC").Limit(5).Scan(&tops)
+	for i := range tops {
+		var u store.User
+		if s.st.DB.Select("username").First(&u, "id = ?", tops[i].UserID).Error == nil {
+			tops[i].Username = u.Username
+		}
+	}
+
+	// Things that need a look, as user-list filter counts.
+	warn := time.Duration(max(atoiDefault(s.st.GetSetting("expire_warn_days", "7"), 7), 1)) * 24 * time.Hour
+	attention := gin.H{"warnDays": int(warn.Hours() / 24)}
+	for _, f := range []string{"expiring", "limited", "expired"} {
+		var cnt int64
+		userFilter(s.st.DB.Model(&store.User{}).Where("is_service = ?", false), f, now, warn).Count(&cnt)
+		attention[f] = cnt
+	}
+	var near int64
+	userFilter(s.st.DB.Model(&store.User{}).Where("is_service = ?", false), "near", now, warn).Count(&near)
+	attention["near"] = near
 	dist := map[model.CoreType]int{}
 	var cores []store.Core
 	s.st.DB.Find(&cores)
@@ -79,6 +119,9 @@ func (s *Server) statsOverview(c *gin.Context) {
 		"nodes":       gin.H{"online": online, "total": len(nodes), "timeout": timeout, "error": failed},
 		"users":       gin.H{"online": onlineUsers, "active": activeUsers, "total": totalUsers},
 		"today":       today,
+		"month":       month,
+		"topUsers":    tops,
+		"attention":   attention,
 		"rate":        gin.H{"rxBps": rx, "txBps": tx, "peakNode": peak},
 		"trend":       days,
 		"cores":       dist,
