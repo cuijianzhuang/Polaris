@@ -180,3 +180,23 @@ func TestHumanBytesAndInfoNodes(t *testing.T) {
 		}
 	}
 }
+
+func TestShadowrocketStatusLine(t *testing.T) {
+	exp := time.Now().Add(9*24*time.Hour + time.Hour)
+	nodes := []Node{{Name: "a", Protocol: model.ProtoTrojan, Server: "h", Port: 443, Password: "p"}}
+	r, _ := Get("links")
+	out, _ := r.Render(nodes, Info{Total: 100 << 30, Download: 30 << 30, Expire: &exp, StatusLine: true}, "")
+	dec, _ := base64.StdEncoding.DecodeString(string(out))
+	first, rest, _ := strings.Cut(string(dec), "\n")
+	want := "STATUS=已用 30 GB / 100 GB（30%） · 剩余 70 GB · " + exp.Local().Format("2006-01-02") + " 到期（剩 9 天）"
+	if first != want || !strings.HasPrefix(rest, "trojan://") {
+		t.Fatalf("got %q / %q", first, rest)
+	}
+	if got := StatusText(Info{Upload: 2013646, Download: 22882138}); got != "已用 23.7 MB · 不限流量 · 长期有效" {
+		t.Fatalf("unlimited: %q", got)
+	}
+	out, _ = r.Render(nodes, Info{}, "")
+	if dec, _ := base64.StdEncoding.DecodeString(string(out)); strings.Contains(string(dec), "STATUS=") {
+		t.Fatal("STATUS line only for Shadowrocket")
+	}
+}

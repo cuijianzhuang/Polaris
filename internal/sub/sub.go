@@ -63,6 +63,9 @@ type Info struct {
 	ResetNote  string // e.g. "每月 1 日重置"
 	// ExpireAfterDays: validity starts on first use (no Expire yet).
 	ExpireAfterDays int
+	// StatusLine prepends Shadowrocket's "STATUS=" line to share links; it
+	// shows under the subscription name instead of the raw userinfo header.
+	StatusLine bool `json:"-"`
 	Daily           []DayUsage // recent daily traffic, oldest first
 	Links           []PageLink // per-node share links
 
@@ -120,6 +123,22 @@ func ExpiryText(i Info) string {
 		return fmt.Sprintf("首次使用后 %d 天到期", i.ExpireAfterDays)
 	}
 	return "长期有效 · 无到期时间"
+}
+
+// StatusText is the one-line usage summary for Shadowrocket's STATUS= line:
+// "已用 30 GB / 100 GB（30%）· 剩余 70 GB · 2026-10-26 到期（剩 9 天）".
+func StatusText(i Info) string {
+	used, left, pct := usage(i)
+	parts := []string{"已用 " + HumanBytes(used) + " · 不限流量"}
+	if i.Total > 0 {
+		parts = []string{fmt.Sprintf("已用 %s / %s（%d%%）", HumanBytes(used), HumanBytes(i.Total), pct), "剩余 " + HumanBytes(left)}
+	}
+	if i.Expire != nil {
+		parts = append(parts, i.Expire.Local().Format("2006-01-02")+" 到期（"+ExpiryLeft(i)+"）")
+	} else {
+		parts = append(parts, ExpiryLeft(i))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // InfoNodes returns pseudo nodes that carry the plan, remaining traffic and

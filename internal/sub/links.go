@@ -19,8 +19,11 @@ type linksRenderer struct{}
 func (linksRenderer) Format() string      { return "links" }
 func (linksRenderer) ContentType() string { return "text/plain; charset=utf-8" }
 
-func (linksRenderer) Render(nodes []Node, _ Info, _ string) ([]byte, error) {
+func (linksRenderer) Render(nodes []Node, info Info, _ string) ([]byte, error) {
 	var lines []string
+	if info.StatusLine {
+		lines = append(lines, "STATUS="+StatusText(info))
+	}
 	for _, n := range nodes {
 		if l := ShareLink(n); l != "" {
 			lines = append(lines, l)

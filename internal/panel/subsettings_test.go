@@ -73,6 +73,11 @@ func TestSubscriptionSettings(t *testing.T) {
 		t.Fatalf("suffix mode:\n%s", body)
 	}
 
+	_, body, _ = get("/sub/p/profile-token-abcdefgh", "Shadowrocket/2070 CFNetwork/1568 Darwin/24.0.0")
+	if dec, err := base64.StdEncoding.DecodeString(body); err != nil || !strings.HasPrefix(string(dec), "STATUS=已用 30 GB / 100 GB（30%） · 剩余 70 GB · ") {
+		t.Fatalf("shadowrocket status line: %v %.200q", err, dec)
+	}
+
 	// Browser info page: announcement, status, chart, per-node links and import buttons.
 	_, page, _ := get("/sub/alice-subscription-token", "Mozilla/5.0 Chrome/120")
 	for _, want := range []string{"本周六维护", "正常", "近 30 天流量", "每月 1 日重置流量", "clash://install-config", "happ://add/", "https://t.me/support"} {
