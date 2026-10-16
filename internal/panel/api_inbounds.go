@@ -151,19 +151,30 @@ func (s *Server) createInbound(c *gin.Context) {
 		return
 	}
 	m := req.toModel()
-	if err := s.validateInbound(&node, &m, ""); err != nil {
+	row, err := s.insertInbound(&node, &m, req.Remark, req.OutboundTag, req.GroupIDs)
+	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	if err := s.checkOutboundTag(node.ID, req.OutboundTag); err != nil {
-		badRequest(c, err)
-		return
+	s.MarkDirty("inbound "+row.Tag+" created", node.ID)
+	s.auditCtx(c, "inbound.create", node.Name+"/"+row.Tag, fmt.Sprintf("%s %s+%s+%s :%d", row.Core, m.Protocol.Type, m.Transport.Type, m.Security.Type, m.Port))
+	c.JSON(http.StatusCreated, gin.H{"inbound": row, "core": m.Core})
+}
+
+// insertInbound validates and stores a new inbound with its direct endpoint
+// and group bindings (nil groups = the default groups).
+func (s *Server) insertInbound(node *store.Node, m *model.Inbound, remark, outboundTag string, groupIDs []string) (store.Inbound, error) {
+	if err := s.validateInbound(node, m, ""); err != nil {
+		return store.Inbound{}, err
 	}
-	row := store.Inbound{ID: store.NewID(), Remark: req.Remark, OutboundTag: req.OutboundTag, OverriddenFields: store.NewJSON([]string{})}
-	fromModel(&m, &row)
+	if err := s.checkOutboundTag(node.ID, outboundTag); err != nil {
+		return store.Inbound{}, err
+	}
+	row := store.Inbound{ID: store.NewID(), Remark: remark, OutboundTag: outboundTag, OverriddenFields: store.NewJSON([]string{})}
+	fromModel(m, &row)
 	s.sealInbound(&row)
-	if req.GroupIDs == nil {
-		req.GroupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
+	if groupIDs == nil {
+		groupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&row).Error; err != nil {
@@ -172,20 +183,14 @@ func (s *Server) createInbound(c *gin.Context) {
 		if err := tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "direct"}).Error; err != nil {
 			return err
 		}
-		for _, g := range req.GroupIDs {
+		for _, g := range groupIDs {
 			if err := tx.Create(&store.GroupInbound{GroupID: g, InboundID: row.ID}).Error; err != nil {
 				return err
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		dbError(c, err)
-		return
-	}
-	s.MarkDirty("inbound "+row.Tag+" created", node.ID)
-	s.auditCtx(c, "inbound.create", node.Name+"/"+row.Tag, fmt.Sprintf("%s %s+%s+%s :%d", row.Core, m.Protocol.Type, m.Transport.Type, m.Security.Type, m.Port))
-	c.JSON(http.StatusCreated, gin.H{"inbound": row, "core": m.Core})
+	return row, err
 }
 
 func (s *Server) updateInbound(c *gin.Context) {

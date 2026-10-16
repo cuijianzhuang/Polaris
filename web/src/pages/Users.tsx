@@ -6,11 +6,15 @@ import { Icon } from '../components/Icons'
 import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, User, UserDevice } from '../types'
+import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
 
-type Filter = '' | 'online' | 'expiring' | 'limited' | 'disabled'
-const filters: { k: Filter; label: string }[] = [
-  { k: '', label: '全部' }, { k: 'online', label: '在线' }, { k: 'expiring', label: '即将到期' }, { k: 'limited', label: '已超额' }, { k: 'disabled', label: '已禁用' },
+type Filter = '' | 'active' | 'online' | 'expiring' | 'limited' | 'expired' | 'disabled'
+const filters: { k: Filter; label: string; sum: string }[] = [
+  { k: '', label: '全部', sum: 'all' }, { k: 'active', label: '正常', sum: 'active' }, { k: 'online', label: '在线', sum: 'online' },
+  { k: 'expiring', label: '即将到期', sum: 'expiring' }, { k: 'limited', label: '已超额', sum: 'limited' }, { k: 'expired', label: '已过期', sum: 'expired' },
+  { k: 'disabled', label: '已禁用', sum: 'disabled' },
 ]
+const PAGE = 100
 
 let subBase = location.origin
 function subURL(u: User) { return `${subBase}/sub/${u.subToken}` }
@@ -261,7 +265,7 @@ function UserDrawer({ user, groups, onClose, onSaved }: { user?: User; groups: G
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
           <dt>密码</dt><dd className="mono">{user.password}</dd>
-          <dt>已用</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)}</dd>
+          <dt>已用</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
           <dt>在线 IP</dt><dd className="mono">{user.onlineIps?.join(', ') || '—'}</dd>
           <dt>最近拉取订阅</dt><dd className="small">{user.lastSubAt ? `${datetime(user.lastSubAt)} · ${user.lastSubUa || '—'}` : '—'}</dd>
         </div>
@@ -420,42 +424,28 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
   )
 }
 
-function BulkModal({ groups, onClose, onDone }: { groups: Group[]; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ prefix: 'user', count: '10', limitGB: '100', days: '30', groupIds: groups.filter((g) => g.isDefault).map((g) => g.id) })
-  const { busy, run } = useAction()
-  return (
-    <Modal title="批量创建" onClose={onClose} footer={<>
-      <button className="btn" type="button" onClick={onClose}>取消</button>
-      <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
-        const exp = new Date(); exp.setDate(exp.getDate() + Number(f.days || 0))
-        await post('/users/bulk', { action: 'create', prefix: f.prefix, count: Number(f.count), template: {
-          username: 'x', trafficLimit: Math.round(Number(f.limitGB || 0) * GB), expireAt: Number(f.days) ? exp.toISOString() : null, groupIds: f.groupIds } })
-        onDone()
-      }, '已创建')}>创建</button>
-    </>}>
-      <div className="form-grid">
-        <Field label="用户名前缀"><input className="input mono" value={f.prefix} onChange={(e) => setF({ ...f, prefix: e.target.value })} /></Field>
-        <Field label="数量" hint="生成 前缀001…"><input className="input mono" value={f.count} onChange={(e) => setF({ ...f, count: e.target.value })} /></Field>
-        <Field label="流量 (GB)"><input className="input mono" value={f.limitGB} onChange={(e) => setF({ ...f, limitGB: e.target.value })} /></Field>
-        <Field label="有效天数" hint="0 为永不到期"><input className="input mono" value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} /></Field>
-      </div>
-      <Field label="分组">
-        <div className="row">{groups.map((g) => (
-          <button key={g.id} type="button" className={'chip' + (f.groupIds.includes(g.id) ? ' on' : '')}
-            onClick={() => setF({ ...f, groupIds: f.groupIds.includes(g.id) ? f.groupIds.filter((x) => x !== g.id) : [...f.groupIds, g.id] })}>{g.name}</button>
-        ))}</div>
-      </Field>
-    </Modal>
-  )
-}
-
 export default function Users() {
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('')
   const [query, setQuery] = useState('')
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t) }, [q])
-  const list = useLoad(() => get<{ items: User[]; total: number }>(`/users?limit=500&q=${encodeURIComponent(query)}&filter=${filter}`), [query, filter])
+  const [group, setGroup] = useState('')
+  const [sort, setSort] = useState<{ k: string; desc: boolean }>({ k: '', desc: true })
+  const [page, setPage] = useState(0)
+  useEffect(() => setPage(0), [query, filter, group, sort])
+  const list = useLoad(() => get<{ items: User[]; total: number; summary?: Record<string, number> }>(
+    `/users?limit=${PAGE}&offset=${page * PAGE}&q=${encodeURIComponent(query)}&filter=${filter}&group=${group}${sort.k ? `&sort=${sort.k}&order=${sort.desc ? 'desc' : 'asc'}` : ''}`),
+  [query, filter, group, sort, page])
+  const sum = list.data?.summary ?? {}
+  const total = list.data?.total ?? 0
+  const sortBy = (k: string) => setSort((s) => (s.k === k ? { k, desc: !s.desc } : { k, desc: k !== 'username' }))
+  const th = (k: string, label: string) => (
+    <th className="sortable" aria-sort={sort.k === k ? (sort.desc ? 'descending' : 'ascending') : 'none'} onClick={() => sortBy(k)}>
+      {label}<span className="sort-ind">{sort.k === k ? (sort.desc ? '↓' : '↑') : '↕'}</span>
+    </th>
+  )
+  const confirm = useConfirm()
   const groups = useLoad(() => get<Group[]>('/groups'))
   const settings = useLoad(() => get<{ public_url?: string; sub_base_url?: string }>('/settings'))
   const base = settings.data?.sub_base_url || settings.data?.public_url
@@ -463,7 +453,7 @@ export default function Users() {
   const [drawer, setDrawer] = useState<User | 'new' | null>(params.get('new') ? 'new' : null)
   const [selected, setSelected] = useState<User | null>(null)
   const [qr, setQr] = useState<User | null>(null)
-  const [modal, setModal] = useState<'groups' | 'bulk' | null>(null)
+  const [modal, setModal] = useState<'groups' | 'bulk' | 'adjust' | 'import' | null>(null)
   const [checked, setChecked] = useState<string[]>([])
   const toast = useToast()
   const { busy, run } = useAction()
@@ -490,6 +480,21 @@ export default function Users() {
         <div><h1>用户</h1><div className="sub">一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站</div></div>
         <div className="row">
           <button className="btn" type="button" onClick={() => setModal('groups')}>分组</button>
+          <details className="menu">
+            <summary className="btn">更多</summary>
+            <div className="menu-list" onClick={(e) => { (e.currentTarget.parentElement as HTMLDetailsElement).open = false }}>
+              <button type="button" onClick={() => setModal('import')}>导入用户（JSON / 3x-ui）</button>
+              <button type="button" onClick={() => run(async () => downloadJSON(`polaris-users-${new Date().toISOString().slice(0, 10)}.json`, await get('/users/export')), '已导出')}>导出全部用户</button>
+              <button type="button" disabled={!sum.limited && !sum.expired} onClick={async () => {
+                if (await confirm(`删除全部 ${(sum.limited ?? 0) + (sum.expired ?? 0)} 个已超额 / 已过期的用户？`, { danger: true, ok: '删除' }))
+                  run(async () => { await post('/users/bulk', { action: 'delete-depleted' }); list.reload() }, '已删除')
+              }}>删除已超额 / 已过期用户</button>
+              <button type="button" onClick={async () => {
+                if (await confirm('把全部用户的已用流量清零？', { danger: true, ok: '全部重置' }))
+                  run(async () => { await post('/users/bulk', { action: 'reset-traffic', all: true }); list.reload() }, '已重置')
+              }}>重置全部用户流量</button>
+            </div>
+          </details>
           <button className="btn" type="button" onClick={() => setModal('bulk')}>批量创建</button>
           <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ 新建用户</button>
         </div>
@@ -497,7 +502,13 @@ export default function Users() {
       <div className="row">
         <label htmlFor="q" className="sr">搜索用户</label>
         <input className="input search" id="q" placeholder="搜索用户名 / UUID / 备注" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} />
-        {filters.map((f) => <button key={f.k} className={'chip' + (filter === f.k ? ' on' : '')} type="button" onClick={() => setFilter(f.k)}>{f.label}</button>)}
+        {filters.map((f) => <button key={f.k} className={'chip' + (filter === f.k ? ' on' : '')} type="button" onClick={() => setFilter(f.k)}>{f.label}{sum[f.sum] != null && <span className="chip-n">{sum[f.sum]}</span>}</button>)}
+        {(groups.data?.length ?? 0) > 0 && (
+          <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="按分组筛选">
+            <option value="">全部分组</option>
+            {groups.data!.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        )}
         <span className="spacer" />
         {checked.length > 0 && (
           <>
@@ -505,7 +516,8 @@ export default function Users() {
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('enable')}>启用</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('disable')}>禁用</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('reset-traffic')}>重置流量</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('extend', { days: 30 })}>续期 30 天</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setModal('adjust')}>调整到期 / 流量 / 限制</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => downloadJSON('polaris-users.json', await get('/users/export?ids=' + checked.join(','))), '已导出')}>导出</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('attach')}>绑定节点</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('detach')}>解绑节点</button>
             <button className="btn sm danger" type="button" disabled={busy} onClick={() => bulk('delete')}>删除</button>
@@ -517,7 +529,7 @@ export default function Users() {
           <table>
             <thead><tr>
               <th style={{ width: 32 }}><input type="checkbox" aria-label="全选" checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
-              <th>用户</th><th>状态</th><th>授权</th><th>流量（已用 / 总量）</th><th>到期</th><th>在线 IP</th><th>操作</th>
+              {th('username', '用户')}<th>状态</th><th>授权</th>{th('used', '流量（已用 / 总量）')}{th('expire', '到期')}{th('online', '最近在线')}<th>在线 IP</th><th>操作</th>
             </tr></thead>
             <tbody>
               {items.map((u) => {
@@ -540,6 +552,7 @@ export default function Users() {
                       <div className="bar" style={{ marginTop: 6 }}><div style={{ width: pct + '%', background: pct >= 100 ? 'var(--bad)' : 'var(--pri)' }} /></div>
                     </td>
                     <td className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? `${d} 天后` : date(u.expireAt)) : '永不'}</td>
+                    <td className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>在线</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">从未</span>}</td>
                     <td className="mono">{isOnline(u.onlineAt) ? u.onlineIps.length : 0} / {u.ipLimit || '∞'}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, '流量已重置')}>重置流量</button>
@@ -557,6 +570,13 @@ export default function Users() {
           </table>
         )}
       </div>
+      {total > PAGE && (
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <span className="small mute">第 {page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} 个，共 {total} 个</span>
+          <button className="btn sm" type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</button>
+          <button className="btn sm" type="button" disabled={(page + 1) * PAGE >= total} onClick={() => setPage(page + 1)}>下一页</button>
+        </div>
+      )}
       {sel && (
         <div className="card row" style={{ justifyContent: 'space-between', gap: 16 }}>
           <div style={{ minWidth: 0 }}>
@@ -582,7 +602,9 @@ export default function Users() {
       {bind && <BindNodesModal count={checked.length} detach={bind === 'detach'} onClose={() => setBind(null)} onSubmit={(ids) => {
         bulk(bind === 'detach' ? 'detach-nodes' : 'attach-nodes', { nodeIds: ids }); setBind(null)
       }} />}
-      {modal === 'bulk' && groups.data && <BulkModal groups={groups.data} onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
+      {modal === 'bulk' && groups.data && <BulkCreateModal groups={groups.data} onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
+      {modal === 'adjust' && <AdjustModal ids={checked} onClose={() => setModal(null)} onDone={() => { setModal(null); setChecked([]); list.reload() }} />}
+      {modal === 'import' && <ImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
     </>
   )
 }
