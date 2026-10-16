@@ -130,9 +130,9 @@ function SubSettings() {
         <Field label="客户端自动更新间隔（小时）" hint="客户端多久重新拉取一次订阅，用量和到期显示随之更新；建议 1"><input className="input mono" inputMode="numeric" value={f.sub_update_interval ?? ''} onChange={(e) => set('sub_update_interval', e.target.value)} /></Field>
         <Field label="客服 / 支持链接" hint="support-url 头，信息页显示「联系客服」"><input className="input mono" value={f.sub_support_url ?? ''} onChange={(e) => set('sub_support_url', e.target.value)} placeholder="https://t.me/your_support" /></Field>
       </div>
-      <Field label="在节点列表中显示用量" hint="不读取 subscription-userinfo 头的客户端也能看到剩余流量和到期">
-        <div className="seg c3">
-          {([['none', '不显示', '只通过响应头'], ['nodes', '信息节点', '顶部插入「套餐 / 剩余流量 / 到期 / 公告」'], ['suffix', '名称后缀', '每个节点名后加「| 剩余 · 天数」']] as [string, string, string][]).map(([k, l, h]) => (
+      <Field label="在节点列表中显示用量" hint="订阅名和用量默认通过响应头（profile-title / subscription-userinfo）告诉客户端；不读响应头的客户端只能靠节点名显示">
+        <div className="seg c2">
+          {([['auto', '自动（推荐）', '能读响应头的客户端（Clash / Hiddify / Loon / QX / Shadowrocket…）直接显示；v2rayN、NekoBox、官方 sing-box、Surge 插入信息节点'], ['none', '不显示', '只通过响应头'], ['nodes', '信息节点', '顶部插入「套餐 / 剩余流量 / 到期 / 公告」'], ['suffix', '名称后缀', '每个节点名后加「| 剩余 · 天数」']] as [string, string, string][]).map(([k, l, h]) => (
             <button key={k} type="button" className={'opt' + ((f.sub_show_info || 'none') === k ? ' on' : '')} onClick={() => set('sub_show_info', k)}>{l}<small>{h}</small></button>
           ))}
         </div>

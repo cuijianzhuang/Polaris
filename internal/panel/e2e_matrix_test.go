@@ -150,6 +150,10 @@ func TestSubscriptionMatrix(t *testing.T) {
 		t.Fatal("login failed")
 	}
 	a.token = login.Token
+	// Only real nodes are dialled here: no info nodes for header-less clients.
+	if code := a.do("PUT", "/settings", map[string]string{"sub_show_info": "none"}, nil); code != 200 {
+		t.Fatalf("settings: %d", code)
+	}
 
 	const xrayVer, sbVer = "26.3.27", "1.13.5"
 	var created struct {

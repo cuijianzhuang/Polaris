@@ -11,7 +11,7 @@ func init() { Register(surgeRenderer{}) }
 
 // DefaultSurgeTemplate is the default Surge profile. Protocols Surge cannot
 // express (VLESS, REALITY, xhttp…) are skipped.
-const DefaultSurgeTemplate = `#!MANAGED-CONFIG {{ .URL }} interval=43200 strict=false
+const DefaultSurgeTemplate = `#!MANAGED-CONFIG {{ .URL }} interval={{ .UpdateSeconds }} strict=false
 
 [General]
 loglevel = notify

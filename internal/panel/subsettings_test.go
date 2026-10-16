@@ -79,6 +79,25 @@ func TestSubscriptionSettings(t *testing.T) {
 		t.Fatalf("shadowrocket status line: %v %.200q", err, dec)
 	}
 
+	// auto: info nodes only for clients that cannot show the headers.
+	s.st.SetSetting("sub_show_info", "auto")
+	_, body, hdr = get("/sub/p/profile-token-abcdefgh", "clash-verge/2.0")
+	if strings.Contains(body, "📦") || !strings.Contains(hdr.Get("content-disposition"), `filename="polaris"`) {
+		t.Fatalf("auto mode, Clash reads headers: %q\n%s", hdr.Get("content-disposition"), body)
+	}
+	for _, ua := range []string{"v2rayN/7.10", "SFA/1.11.0", "NekoBox/1.3"} {
+		_, body, _ = get("/sub/p/profile-token-abcdefgh", ua)
+		dec, _ := base64.StdEncoding.DecodeString(body)
+		if !strings.Contains(body, "📦") && !strings.Contains(string(dec), "@127.0.0.1:1#") {
+			t.Fatalf("auto mode, %s needs info nodes:\n%.300s", ua, body)
+		}
+	}
+	s.st.SetSetting("sub_update_interval", "6")
+	_, body, _ = get("/sub/p/profile-token-abcdefgh", "Surge iOS/2920")
+	if !strings.Contains(body, "interval=21600 ") {
+		t.Fatalf("surge managed interval:\n%.200s", body)
+	}
+
 	// Browser info page: announcement, status, chart, per-node links and import buttons.
 	_, page, _ := get("/sub/alice-subscription-token", "Mozilla/5.0 Chrome/120")
 	for _, want := range []string{"本周六维护", "正常", "近 30 天流量", "每月 1 日重置流量", "clash://install-config", "happ://add/", "https://t.me/support"} {

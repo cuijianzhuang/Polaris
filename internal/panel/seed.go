@@ -29,7 +29,7 @@ var defaultSettings = map[string]string{
 	"sub_apply_ops_users":   "false",
 	"allow_private_sources": "false",
 	"sub_enabled":           "true",
-	"sub_show_info":         "none",
+	"sub_show_info":         "auto",
 	"sub_routing_enabled":   "false",
 	"sub_show_bot":          "true",
 	"sub_scheme":            "",

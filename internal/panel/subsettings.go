@@ -80,9 +80,19 @@ func (s *Server) subTitle(fallback string) string {
 	return orDefault(s.st.GetSetting("sub_title", ""), orDefault(fallback, s.st.GetSetting("site_title", "Polaris")))
 }
 
-// decorateNodes applies the "show usage info" setting to a node list.
-func (s *Server) decorateNodes(nodes []sub.Node, info sub.Info) []sub.Node {
-	switch s.st.GetSetting("sub_show_info", "none") {
+// decorateNodes applies the "show usage info" setting to a node list. In
+// "auto" mode only clients that cannot show the profile headers get info
+// nodes (see sub.ReadsProfileHeaders); headersShown says the client is
+// known to read them.
+func (s *Server) decorateNodes(nodes []sub.Node, info sub.Info, headersShown bool) []sub.Node {
+	mode := s.st.GetSetting("sub_show_info", "none")
+	if mode == "auto" {
+		mode = "none"
+		if !headersShown {
+			mode = "nodes"
+		}
+	}
+	switch mode {
 	case "nodes":
 		return append(sub.InfoNodes(info), nodes...)
 	case "suffix":
