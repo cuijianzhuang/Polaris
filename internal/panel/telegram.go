@@ -316,6 +316,7 @@ func (b *tgBot) registerCommands(ctx context.Context) {
 		{"command": "sub", "description": "🔗 订阅链接与二维码"}, {"command": "nodes", "description": "🌐 节点"},
 		{"command": "status", "description": "📈 概览（管理员）"}, {"command": "users", "description": "👥 用户（管理员）"},
 		{"command": "traffic", "description": "🏆 今日排行（管理员）"}, {"command": "login", "description": "🔑 登录面板（管理员）"},
+		{"command": "update", "description": "⬆️ 版本更新（管理员）"},
 		{"command": "bind", "description": "绑定账号 /bind 订阅链接"}, {"command": "help", "description": "❓ 帮助"},
 	}
 	_ = b.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
@@ -461,6 +462,9 @@ func (b *tgBot) handle(u tgUpdate) {
 			return
 		}
 		text, rows := b.view("top", "", id)
+		b.send(chat, text, rows...)
+	case "/update", "/upgrade":
+		text, rows := b.view("update", "", id)
 		b.send(chat, text, rows...)
 	case "/login":
 		if id.admin == nil {
@@ -673,6 +677,10 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.sendSub(chat, id.user)
 		}
 		answer("")
+	case "up": // version update: up:<panel|all|agents|mode>
+		if len(parts) == 2 {
+			b.onUpdateCallback(chat, msg, parts[1], id, answer)
+		}
 	case "wl": // login page sign-in: wl:<request>:<number|x>
 		if len(parts) == 3 {
 			b.webLoginAnswer(chat, msg, parts[1], parts[2], id, answer)

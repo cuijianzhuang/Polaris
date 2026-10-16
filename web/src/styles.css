@@ -425,6 +425,7 @@ details.more[open] > div { animation: fade-up .25s var(--ease-out) both; }
   .rtable td.rt-wrap { flex-wrap: wrap; }
   .rtable td.rt-wrap .bar { flex-basis: 100%; }
   .rtable td.rt-actions { justify-content: flex-end; padding-top: 6px; }
+  .rtable td.rt-break { word-break: break-all; }
   .rtable tbody tr:hover td { background: none; }
   .isteps { grid-template-columns: minmax(0, 1fr); }
   .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }

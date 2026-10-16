@@ -110,8 +110,9 @@ function Backups() {
 }
 
 const settingTabs = [
-  { id: 'general', label: '常规', hint: '站点、版本、ACME', icon: <Icon.Gear /> },
+  { id: 'general', label: '常规', hint: '访问地址、标题、默认内核', icon: <Icon.Gear /> },
   { id: 'security', label: '账号安全', hint: '密码、二次验证、GitHub', icon: <Icon.Lock /> },
+  { id: 'update', label: '版本与更新', hint: '在线升级、自动更新', icon: <Icon.Refresh /> },
   { id: 'backup', label: '备份与恢复', hint: '自动备份、恢复', icon: <Icon.Download /> },
   { id: 'appearance', label: '外观', hint: '主题与配色', icon: <Icon.Sun /> },
 ]
@@ -134,6 +135,165 @@ function Appearance() {
             title={a.label} aria-label={'主题色：' + a.label} aria-pressed={t.accent === a.id} onClick={() => setT({ ...t, accent: a.id })} />)}
         </div>
       </Field>
+    </section>
+  )
+}
+
+type UpdateInfo = { current: string; latest?: string; newer?: boolean; updater: boolean; pending?: boolean; error?: string }
+
+// Updates: the running and latest versions, update now (panel, or panel and
+// then every agent), and auto update. The panel restarts while updating;
+// the outcome arrives as a Telegram message and in the audit log.
+function Updates() {
+  const info = useLoad(() => get<UpdateInfo>('/system/update?fresh=1'))
+  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const [mode, setMode] = useState<string | null>(null)
+  const [hour, setHour] = useState<string | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const m = mode ?? (s.data?.auto_update || 'notify')
+  const h = hour ?? (s.data?.auto_update_hour || '4')
+  const d = info.data
+  const start = async (agents: boolean) => {
+    if (!await confirm(`升级面板到 ${d?.latest}？${agents ? '\n完成后会接着升级所有在线节点的 Agent。' : ''}\n升级约需 1 分钟，期间面板会重启、网页短暂断开；结果会通过 Telegram 通知并记入审计日志。`)) return
+    run(async () => { await post('/system/update', { agents }); info.reload() }, '已开始升级，稍后刷新页面')
+  }
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2>版本与更新</h2>
+      <dl className="kv" style={{ margin: 0, gridTemplateColumns: '120px minmax(0,1fr)' }}>
+        <dt>当前版本</dt><dd className="mono">{d?.current ?? '…'}</dd>
+        <dt>最新版本</dt><dd className="mono">{d?.latest ? <>{d.latest}{d.newer ? <span className="tag warn" style={{ marginLeft: 8 }}>可升级</span> : <span className="tag ok" style={{ marginLeft: 8 }}>已是最新</span>}</> : d?.error ? <span style={{ color: 'var(--bad)' }}>获取失败：{d.error}</span> : '…'}</dd>
+      </dl>
+      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线升级组件：在服务器上执行一次 <code>polaris update</code>（之后的版本都能在这里或 Telegram 里一键升级）。Docker 部署请更新镜像。</div>}
+      {d?.pending && <div className="note">升级进行中…完成后刷新页面。</div>}
+      <div className="row">
+        <button className="btn pri" type="button" disabled={busy || !d?.newer || !d?.updater || !!d?.pending} onClick={() => start(false)}>升级面板</button>
+        <button className="btn" type="button" disabled={busy || !d?.newer || !d?.updater || !!d?.pending} onClick={() => start(true)}>升级面板和全部节点</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => info.reload()}>检查更新</button>
+      </div>
+      <div className="form-grid">
+        <Field label="自动更新" hint="新版本发布后：通知会发给 Telegram 超级管理员（每个版本一次）">
+          <select className="input" value={m} onChange={(e) => setMode(e.target.value)}>
+            <option value="off">关闭</option>
+            <option value="notify">只通知新版本</option>
+            <option value="panel">自动升级面板</option>
+            <option value="all">自动升级面板和全部节点</option>
+          </select>
+        </Field>
+        <Field label="自动升级时间" hint="服务器本地时间；某个版本自动升级失败后不再自动重试，可手动升级">
+          <select className="input mono" value={h} disabled={m !== 'panel' && m !== 'all'} onChange={(e) => setHour(e.target.value)}>
+            {Array.from({ length: 24 }, (_, i) => <option key={i} value={String(i)}>{String(i).padStart(2, '0')}:41</option>)}
+          </select>
+        </Field>
+      </div>
+      <div><button className="btn pri" type="button" disabled={busy || (mode === null && hour === null)} onClick={() => run(async () => {
+        await put('/settings', { auto_update: m, auto_update_hour: h }); setMode(null); setHour(null); s.reload()
+      }, '已保存')}>保存</button></div>
+    </section>
+  )
+}
+
+type AccessInfo = { adminPath: string; publicUrl: string; listen: string; domain?: string; updater: boolean; pending?: boolean
+  last?: { action: string; value: string; ok: boolean; log: string; at: string } }
+
+const accessLabel: Record<string, string> = { 'set-path': '后台路径', 'set-domain': '面板域名', 'set-port': '面板端口', 'set-url': '公开地址' }
+
+// Access: how the panel is reached (admin path, HTTPS domain, port, public
+// address). These live in /etc/polaris/polaris.env; the change is carried
+// out by the root side of the server (`polaris set-path` …), which restarts
+// the panel, so the page then moves to the new address.
+function Access() {
+  const a = useLoad(() => get<AccessInfo>('/system/access'))
+  const [f, setF] = useState<{ path?: string; domain?: string; port?: string; url?: string }>({})
+  const [moving, setMoving] = useState<{ to: string; note: string } | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const d = a.data
+  const port = d?.listen.split(':').pop() ?? ''
+  const base = (d?.publicUrl || location.origin).replace(/\/$/, '')
+  const adminPath = d?.adminPath === '/' ? '' : d?.adminPath ?? ''
+  const here = base + adminPath + '/'
+
+  // After the restart: same-origin targets are polled, others opened after a pause.
+  useEffect(() => {
+    if (!moving) return
+    let live = true
+    const sameOrigin = new URL(moving.to).origin === location.origin
+    const t0 = Date.now()
+    const tick = async () => {
+      if (!live) return
+      if (sameOrigin) {
+        try {
+          const r = await fetch(moving.to + 'api/v1/info', { cache: 'no-store' })
+          if (r.ok && Date.now() - t0 > 3000) { location.href = moving.to; return }
+        } catch { /* restarting */ }
+      } else if (Date.now() - t0 > 15000) { location.href = moving.to; return }
+      setTimeout(tick, 1500)
+    }
+    setTimeout(tick, 2000)
+    return () => { live = false }
+  }, [moving])
+
+  const apply = async (action: string, value: string, to: string, note: string, warn: string) => {
+    if (!await confirm(`${warn}\n\n应用后面板会重启，页面将跳转到：\n${to}`, { ok: '应用' })) return
+    const ok = await run(async () => { await post('/system/access', { action, value }); return true })
+    if (ok) setMoving({ to, note })
+  }
+
+  if (moving) return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <h2><span className="spinner" style={{ marginRight: 8 }} />正在应用…</h2>
+      <div className="sub" style={{ margin: 0 }}>{moving.note}</div>
+      <div>新地址：<a className="mono" href={moving.to}>{moving.to}</a></div>
+      <div className="hint">页面会自动跳转；如果一直打不开，等一会儿手动打开上面的地址，或在服务器上执行 <code>polaris info</code> 查看。</div>
+    </section>
+  )
+  const newPath = (f.path ?? d?.adminPath ?? '').trim()
+  const normPath = '/' + newPath.replace(/^\/+|\/+$/g, '')
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2>面板访问</h2>
+      <dl className="kv" style={{ margin: 0, gridTemplateColumns: '120px minmax(0,1fr)' }}>
+        <dt>后台地址</dt><dd className="mono" style={{ wordBreak: 'break-all' }}>{d ? here : '…'}</dd>
+        <dt>监听</dt><dd className="mono">{d?.listen ?? '…'}{d?.domain ? <span className="small mute">（由 Caddy 提供 HTTPS）</span> : null}</dd>
+      </dl>
+      {d && !d.updater && <div className="note warn">这台服务器还没有安装在线配置组件：在服务器上执行一次 <code>polaris update</code> 后就能在这里修改。Docker 部署请改环境变量。</div>}
+      {d?.pending && <div className="note">上一项更改正在执行…</div>}
+      {d?.last && <div className={'note ' + (d.last.ok ? '' : 'bad')}>{d.last.ok ? '✓' : '✗'} {accessLabel[d.last.action] ?? d.last.action}：{d.last.value}{d.last.ok ? ' 已生效' : ' 修改失败'}{!d.last.ok && d.last.log ? <div className="mono small" style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{d.last.log}</div> : null}</div>}
+      <div className="form-grid">
+        <Field label="后台路径" hint="留空或填 / 不使用路径（打开地址就是后台）；用路径时扫描器只能看到 404 或伪装站点">
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input className="input mono" value={f.path ?? d?.adminPath ?? ''} placeholder="/" onChange={(e) => setF({ ...f, path: e.target.value })} />
+            <button className="btn" type="button" disabled={busy || !d?.updater || f.path === undefined || normPath === (d?.adminPath ?? '')}
+              onClick={() => apply('set-path', normPath, base + (normPath === '/' ? '' : normPath) + '/', '后台路径修改后面板会重启。',
+                normPath === '/' ? '关闭后台路径后，任何人打开这个地址都能看到登录页。请确认已使用强密码并开启二次验证。' : `后台路径改为 ${normPath}，旧的书签将失效。`)}>应用</button>
+          </div>
+        </Field>
+        <Field label="面板域名（HTTPS）" hint="先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书，并放行 80 / 443">
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input className="input mono" value={f.domain ?? d?.domain ?? ''} placeholder="panel.example.com" onChange={(e) => setF({ ...f, domain: e.target.value })} />
+            <button className="btn" type="button" disabled={busy || !d?.updater || !f.domain?.trim() || f.domain.trim() === d?.domain}
+              onClick={() => apply('set-domain', f.domain!.trim(), 'https://' + f.domain!.trim().toLowerCase() + adminPath + '/', '正在安装 Caddy 并签发证书，通常需要半分钟到一分钟。',
+                `面板将改用 https://${f.domain!.trim()} 访问，订阅链接也会变成这个域名（用户需重新导入；不想变可在订阅设置里填订阅域名）。已接入的节点不受影响。`)}>启用 HTTPS</button>
+          </div>
+        </Field>
+        <Field label="面板端口" hint={d?.domain ? '已用域名访问时，这是 Caddy 转发的本机端口' : '订阅链接里的端口会随之改变；云服务器需在安全组放行新端口'}>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input className="input mono" inputMode="numeric" value={f.port ?? port} onChange={(e) => setF({ ...f, port: e.target.value })} />
+            <button className="btn" type="button" disabled={busy || !d?.updater || !f.port || f.port === port}
+              onClick={() => apply('set-port', f.port!, d?.domain ? here : `${location.protocol}//${location.hostname}:${f.port}${adminPath}/`, '端口修改后面板会重启。',
+                d?.domain ? `Caddy 将转发到本机 ${f.port} 端口，访问地址不变。` : `面板改为 ${f.port} 端口，订阅链接里的端口也会改变，用户需要重新导入。`)}>应用</button>
+          </div>
+        </Field>
+        <Field label="公开地址" hint="订阅和安装链接里使用的地址；自建反向代理时填写，一般不用改">
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input className="input mono" value={f.url ?? d?.publicUrl ?? ''} placeholder="https://panel.example.com" onChange={(e) => setF({ ...f, url: e.target.value })} />
+            <button className="btn" type="button" disabled={busy || !d?.updater || !f.url?.trim() || f.url.trim().replace(/\/$/, '') === d?.publicUrl}
+              onClick={() => apply('set-url', f.url!.trim(), here, '公开地址修改后面板会重启。', `订阅与安装链接将改用 ${f.url!.trim()}，用户需要重新导入订阅。`)}>应用</button>
+          </div>
+        </Field>
+      </div>
     </section>
   )
 }
@@ -178,6 +338,7 @@ export default function Settings() {
         </nav>
         <div className="spane" key={tab}>
         {tab === 'general' && <>
+        <Access />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>常规</h2>
           <div className="form-grid">
@@ -209,9 +370,10 @@ export default function Settings() {
             <dt>Agent 接入点</dt><dd className="mono">{s.data?.agent_url}</dd>
           </dl>
           <Field label="CA 指纹（SHA-256）" hint="安装命令携带此指纹，Agent 首次接入时校验主控身份"><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
-          <div className="note">后台路径、监听端口、数据库与加密密钥通过环境变量或配置文件设置（见 README）。非后台路径一律返回 404 或伪装站点。</div>
+          <div className="note">后台路径、域名、端口和公开地址可在上方「面板访问」修改；数据库与加密密钥通过 /etc/polaris/polaris.env 设置（见 README）。使用后台路径时，其他路径一律返回 404 或伪装站点。</div>
         </section>
         </>}
+        {tab === 'update' && <Updates />}
         {tab === 'appearance' && <Appearance />}
         {tab === 'backup' && <Backups />}
         {tab === 'security' && <>
