@@ -47,6 +47,8 @@ export const Icon = {
   Forward: () => <Svg><path d="M4 7h11M11 3l4 4-4 4M20 17H9M13 13l-4 4 4 4" /></Svg>,
   Download: () => <Svg><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></Svg>,
   Reset: () => <Svg><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4" /></Svg>,
+  Menu: () => <Svg size={20}><path d="M4 7h16M4 12h16M4 17h16" /></Svg>,
+  More: () => <Svg><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></Svg>,
   Chevron: () => <Svg size={14}><path d="M9 6l6 6-6 6" /></Svg>,
   Server: () => <Svg><rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><path d="M7 7.5h.01M7 16.5h.01" /></Svg>,
   Cpu: () => <Svg><rect x="6" y="6" width="12" height="12" rx="2" /><rect x="9.5" y="9.5" width="5" height="5" rx=".5" /><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3" /></Svg>,

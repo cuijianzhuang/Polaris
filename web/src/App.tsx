@@ -122,22 +122,50 @@ function ThemeToggle() {
   )
 }
 
+// Bottom tab bar on phones: the pages used most, plus 更多 for the full menu.
+const tabs = [
+  { to: '/', label: '仪表盘', icon: <Icon.Dashboard />, end: true },
+  { to: '/nodes', label: '节点', icon: <Icon.Server /> },
+  { to: '/inbounds', label: '入站', icon: <Icon.Inbound /> },
+  { to: '/users', label: '用户', icon: <Icon.Users /> },
+]
+
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
   const [title, setTitle] = useState('Polaris')
+  const [menu, setMenu] = useState(false) // the sidebar, as a drawer on phones
   useEffect(() => { get<{ title: string }>('/info').then((i) => setTitle(i.title)).catch(() => {}) }, [])
   useEffect(() => { document.title = title }, [title])
   const loc = useLocation()
+  useEffect(() => { setMenu(false) }, [loc.pathname])
+  useEffect(() => {
+    if (!menu) return
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenu(false) }
+    document.addEventListener('keydown', esc)
+    document.body.classList.add('noscroll')
+    return () => { document.removeEventListener('keydown', esc); document.body.classList.remove('noscroll') }
+  }, [menu])
+  const inTabs = tabs.some((t) => (t.end ? loc.pathname === t.to : loc.pathname.startsWith(t.to)))
   return (
     <div className="app">
       <TopProgress />
-      <nav className="side" aria-label="主导航">
-        <div className="brand"><Icon.Logo />{title}</div>
+      <header className="mtop">
+        <button type="button" className="mtop-btn" aria-label="打开菜单" aria-expanded={menu} onClick={() => setMenu(true)}><Icon.Menu /></button>
+        <div className="mtop-title"><Icon.Logo /><span>{title}</span></div>
+        <ThemeToggle />
+      </header>
+      <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
+      <nav className={'side' + (menu ? ' open' : '')} aria-label="主导航">
+        <div className="brand"><Icon.Logo />{title}<button type="button" className="side-close" aria-label="关闭菜单" onClick={() => setMenu(false)}><Icon.Close /></button></div>
         {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
         <div className="navsec">系统</div>
         {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
         <div className="side-foot"><span>{user}</span><span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" onClick={onLogout}>退出</button></span></div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>
+      <nav className="mtabs" aria-label="快捷导航">
+        {tabs.map((t) => <NavLink key={t.to} to={t.to} end={t.end} className="mtab">{t.icon}<span>{t.label}</span></NavLink>)}
+        <button type="button" className={'mtab' + (!inTabs || menu ? ' active' : '')} onClick={() => setMenu(true)}><Icon.More /><span>更多</span></button>
+      </nav>
     </div>
   )
 }
