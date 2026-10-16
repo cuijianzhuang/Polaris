@@ -146,7 +146,8 @@ export default function Settings() {
   }, [])
   useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])
   const [f, setF] = useState<Record<string, string>>({})
-  const [pw, setPw] = useState({ old: '', new: '' })
+  const [pw, setPw] = useState({ old: '', new: '', again: '' })
+  const [showPw, setShowPw] = useState(false)
   const [totp, setTotp] = useState<{ secret: string; url: string } | null>(null)
   const [code, setCode] = useState('')
   const { busy, run } = useAction()
@@ -200,9 +201,11 @@ export default function Settings() {
         <Backups />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>修改密码 · {me.data?.username}</h2>
-          <Field label="原密码"><input className="input" type="password" autoComplete="current-password" value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
-          <Field label="新密码" hint="至少 8 位"><input className="input" type="password" autoComplete="new-password" value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} /></Field>
-          <div><button className="btn" type="button" disabled={busy || pw.new.length < 8} onClick={() => run(async () => { const r = await post<{ token: string }>('/auth/password', pw); setToken(r.token); setPw({ old: '', new: '' }) }, '密码已修改，其他设备上的登录已退出')}>修改密码</button></div>
+          <Field label="原密码"><input className="input" type={showPw ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" spellCheck={false} value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
+          <Field label="新密码" hint={pw.new && pw.new.trim() !== pw.new ? '首尾不能有空格' : '至少 8 位'}><input className="input" type={showPw ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={pw.new} onChange={(e) => setPw({ ...pw, new: e.target.value })} /></Field>
+          <Field label="确认新密码" hint={pw.again && pw.again !== pw.new ? '两次输入的新密码不一致' : undefined}><input className="input" type={showPw ? 'text' : 'password'} autoComplete="new-password" autoCapitalize="none" spellCheck={false} value={pw.again} onChange={(e) => setPw({ ...pw, again: e.target.value })} /></Field>
+          <label className="chk"><input type="checkbox" checked={showPw} onChange={(e) => setShowPw(e.target.checked)} />显示密码</label>
+          <div><button className="btn" type="button" disabled={busy || !pw.old || pw.new.length < 8 || pw.new !== pw.again || pw.new.trim() !== pw.new} onClick={() => run(async () => { const r = await post<{ token: string }>('/auth/password', { old: pw.old, new: pw.new }); setToken(r.token); setPw({ old: '', new: '', again: '' }) }, '密码已修改，下次请用新密码登录；其他设备上的登录已退出')}>修改密码</button></div>
         </section>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>二次验证（TOTP）</h2>

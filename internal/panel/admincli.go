@@ -34,8 +34,8 @@ func openStore(cfg *Config) (*store.Store, error) {
 func findAdmin(st *store.Store, username string) (*store.Admin, error) {
 	var a store.Admin
 	q := st.DB.Order("created_at")
-	if username != "" {
-		q = q.Where("username = ?", username)
+	if username = strings.TrimSpace(username); username != "" {
+		q = q.Where("LOWER(username) = LOWER(?)", username)
 	}
 	if err := q.First(&a).Error; err != nil {
 		if username == "" {
@@ -59,6 +59,8 @@ func AdminResetPassword(cfg *Config, username, password string) (string, string,
 	}
 	if password == "" {
 		password = pki.Password(16)
+	} else if strings.TrimSpace(password) != password {
+		return "", "", errors.New("password must not start or end with whitespace")
 	} else if len(password) < 8 {
 		return "", "", errors.New("password must be at least 8 characters")
 	}

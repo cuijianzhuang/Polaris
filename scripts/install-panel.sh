@@ -138,7 +138,7 @@ print_credentials() { # password
     "$(pad 地址 8)${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}" \
     "$(pad 用户名 8)${C_BD}admin${C_0}" \
     "$(pad 密码 8)${C_BD}$1${C_0}" \
-    "${C_D}密码只显示这一次；忘记后执行 polaris reset-password 重置${C_0}"
+    "${C_D}密码只显示这一次（双击可整段选中复制，区分大小写）；忘记后执行 polaris reset-password 重置${C_0}"
 }
 
 # banner TITLE: the script header with the installed version on the right.
@@ -661,8 +661,18 @@ do_reset_password() {
   need_installed
   local args=(admin reset-password)
   [ -n "$ADMIN_USER" ] && args+=(-u "$ADMIN_USER")
-  polaris_cmd "${args[@]}" || die "重置失败"
-  warn "已解除登录锁定，所有已登录会话已失效"
+  local out user pass
+  out="$(polaris_cmd "${args[@]}")" || die "重置失败"
+  user="$(printf '%s\n' "$out" | sed -n 's/^username: //p')"
+  pass="$(printf '%s\n' "$out" | sed -n 's/^password: //p')"
+  [ -n "$pass" ] || { printf '%s\n' "$out"; die "无法读取新密码"; }
+  echo
+  box "$C_G" "新的登录信息（请立即保存）" \
+    "$(pad 地址 8)${C_BD}$(env_get POLARIS_PUBLIC_URL)$(env_get POLARIS_ADMIN_PATH)/${C_0}" \
+    "$(pad 用户名 8)${C_BD}${user}${C_0}" \
+    "$(pad 密码 8)${C_BD}${pass}${C_0}" \
+    "${C_D}双击密码即可整段选中复制；只含字母和数字，区分大小写${C_0}"
+  warn "已解除登录锁定，所有已登录会话已失效；浏览器若自动填入了旧密码，请手动改成上面的新密码"
 }
 
 do_reset_2fa() {

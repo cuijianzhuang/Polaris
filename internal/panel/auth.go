@@ -113,8 +113,15 @@ func (s *Server) login(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	// Copy-pasted credentials often carry stray whitespace, and phone
+	// keyboards capitalise the first letter: match the username without
+	// case and accept a password whose only difference is outer whitespace.
+	req.Username = strings.TrimSpace(req.Username)
 	var a store.Admin
 	if err := s.st.DB.First(&a, "username = ?", req.Username).Error; err != nil {
+		err = s.st.DB.First(&a, "LOWER(username) = LOWER(?)", req.Username).Error
+	}
+	if a.ID == "" {
 		// Same cost as a real check to avoid username probing by timing.
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
@@ -130,7 +137,7 @@ func (s *Server) login(c *gin.Context) {
 		s.audit(a.Username, "admin.login_failed", a.Username, msg, clientIP(c.Request))
 		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 	}
-	if bcrypt.CompareHashAndPassword([]byte(a.PasswordHash), []byte(req.Password)) != nil {
+	if !passwordMatches(a.PasswordHash, req.Password) {
 		fail("用户名或密码错误")
 		return
 	}
@@ -186,8 +193,12 @@ func (s *Server) changePassword(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	if bcrypt.CompareHashAndPassword([]byte(a.PasswordHash), []byte(req.Old)) != nil {
+	if !passwordMatches(a.PasswordHash, req.Old) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "原密码错误"})
+		return
+	}
+	if strings.TrimSpace(req.New) != req.New {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "新密码首尾不能有空格"})
 		return
 	}
 	h, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
@@ -270,4 +281,14 @@ func (s *Server) countLoginFailure(a *store.Admin, now time.Time) {
 
 func lockedOut(a *store.Admin, now time.Time) bool {
 	return a.LockedUntil != nil && now.Before(*a.LockedUntil)
+}
+
+// passwordMatches checks a password, then the same text without outer
+// whitespace (passwords never start or end with a space, see changePassword).
+func passwordMatches(hash, pw string) bool {
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)) == nil {
+		return true
+	}
+	t := strings.TrimSpace(pw)
+	return t != pw && t != "" && bcrypt.CompareHashAndPassword([]byte(hash), []byte(t)) == nil
 }
