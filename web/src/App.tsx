@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
+import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { useTheme } from './theme'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import type { Node } from './types'
@@ -149,18 +150,32 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
     return () => { document.removeEventListener('keydown', esc); document.body.classList.remove('noscroll') }
   }, [menu])
   const { scoped } = useScope()
+  const { nodes } = useNodes()
+  const [palette, setPalette] = useState(false)
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette((x) => !x) } }
+    document.addEventListener('keydown', k)
+    return () => document.removeEventListener('keydown', k)
+  }, [])
+  useEffect(() => { setPalette(false) }, [loc.pathname, loc.search])
+  const pages: PaletteItem[] = scoped
+    ? [{ id: 'p/nodes', label: '我的节点', icon: <Icon.Server />, to: '/nodes', group: '页面' }]
+    : [...nav.flatMap((n) => n.children ?? [n]), ...sysNav].map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: '页面' }))
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   const inTabs = tabs.some((t) => (t.end ? loc.pathname === t.to : loc.pathname.startsWith(t.to)))
   return (
     <div className="app">
       <TopProgress />
       <header className="mtop">
         <button type="button" className="mtop-btn" aria-label="打开菜单" aria-expanded={menu} onClick={() => setMenu(true)}><Icon.Menu /></button>
-        <div className="mtop-title"><Icon.Logo /><span>{title}</span></div>
+        <div className="mtop-title"><Icon.LogoTile size={26} /><span>{title}</span></div>
+        <button type="button" className="mtop-btn" aria-label="搜索" onClick={() => setPalette(true)}><Icon.Search /></button>
         <ThemeToggle />
       </header>
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
       <nav className={'side' + (menu ? ' open' : '')} aria-label="主导航">
-        <div className="brand"><Icon.Logo />{title}<button type="button" className="side-close" aria-label="关闭菜单" onClick={() => setMenu(false)}><Icon.Close /></button></div>
+        <div className="brand"><Icon.LogoTile size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label="关闭菜单" onClick={() => setMenu(false)}><Icon.Close /></button></div>
+        <button type="button" className="side-search" onClick={() => setPalette(true)}><Icon.Search /><span>搜索</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         {scoped ? (
           <>
             <NavLink to="/nodes" className="nav"><Icon.Server />我的节点</NavLink>
@@ -173,9 +188,13 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
             {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
           </>
         )}
-        <div className="side-foot"><span>{user}</span><span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" onClick={onLogout}>退出</button></span></div>
+        <div className="side-foot">
+          <span className="me"><span className="avatar">{(user.replace(/^tg:/, '')[0] || '?').toUpperCase()}</span><span className="me-text"><b>{user.replace(/^tg:/, '')}</b><small>{scoped ? '节点管理员' : user.startsWith('tg:') ? 'Telegram 登录' : '管理员'}</small></span></span>
+          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" className="logout" title="退出登录" aria-label="退出登录" onClick={onLogout}>退出</button></span>
+        </div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>
+      <CommandPalette open={palette} onClose={() => setPalette(false)} pages={pages} nodes={nodes} searchUsers={!scoped} />
       {!scoped && <nav className="mtabs" aria-label="快捷导航">
         {tabs.map((t) => <NavLink key={t.to} to={t.to} end={t.end} className="mtab">{t.icon}<span>{t.label}</span></NavLink>)}
         <button type="button" className={'mtab' + (!inTabs || menu ? ' active' : '')} onClick={() => setMenu(true)}><Icon.More /><span>更多</span></button>

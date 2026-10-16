@@ -4,6 +4,7 @@ import { get } from '../api'
 import { useNodes } from '../App'
 import { useLoad, usePoll, useWidth } from '../components/ui'
 import TagTraffic from '../components/TagTraffic'
+import { Icon } from '../components/Icons'
 import { bps, bytes, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
 import type { Node, NodeTraffic } from '../types'
 
@@ -155,10 +156,10 @@ export default function Dashboard() {
       </div>
       {data && <Attention d={data} />}
       <section className="grid g4" aria-label="概览">
-        <Link to="/nodes" className="card kpi"><div className="label">在线节点</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? `${data.nodes.timeout} 个离线` : '全部在线'}{data?.nodes.error ? ` · ${data.nodes.error} 个下发失败` : ''}</div></Link>
-        <Link to="/users?filter=online" className="card kpi"><div className="label">在线用户</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">有效 {data?.users.active ?? 0} · 共 {data?.users.total ?? 0} 个用户</div></Link>
-        <div className="card kpi"><div className="label">今日流量</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">↑ {bytes(data?.today.Up)} · ↓ {bytes(data?.today.Down)} · 本月 {bytes((data?.month.Up ?? 0) + (data?.month.Down ?? 0))}</div></div>
-        <div className="card kpi"><div className="label">实时速率</div><div className="val">{bps(rx + tx)}</div><div className="foot">↓ {bps(rx)} · ↑ {bps(tx)}{data?.rate.peakNode ? ` · 峰值 ${data.rate.peakNode}` : ''}</div></div>
+        <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">在线节点</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? `${data.nodes.timeout} 个离线` : '全部在线'}{data?.nodes.error ? ` · ${data.nodes.error} 个下发失败` : ''}</div></Link>
+        <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">在线用户</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">有效 {data?.users.active ?? 0} · 共 {data?.users.total ?? 0} 个用户</div></Link>
+        <div className="card kpi"><span className="kpi-ico violet"><Icon.Download /></span><div className="label">今日流量</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">↑ {bytes(data?.today.Up)} · ↓ {bytes(data?.today.Down)} · 本月 {bytes((data?.month.Up ?? 0) + (data?.month.Down ?? 0))}</div></div>
+        <div className="card kpi"><span className="kpi-ico warn"><Icon.Cpu /></span><div className="label">实时速率</div><div className="val">{bps(rx + tx)}</div><div className="foot">↓ {bps(rx)} · ↑ {bps(tx)}{data?.rate.peakNode ? ` · 峰值 ${data.rate.peakNode}` : ''}</div></div>
       </section>
       <section className="grid g3">
         <div className="card" style={{ gridColumn: 'span 2', minWidth: 0 }}>

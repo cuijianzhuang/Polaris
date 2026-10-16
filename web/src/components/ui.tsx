@@ -24,7 +24,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="toasts" role="status" aria-live="polite">
         {items.map((t) => (
           <div key={t.id} className={'toast' + (t.err ? ' err' : '') + (t.leaving ? ' leaving' : '')}
-            onClick={() => setItems((x) => x.filter((y) => y.id !== t.id))}>{t.text}</div>
+            onClick={() => setItems((x) => x.filter((y) => y.id !== t.id))}><span className="toast-ico" aria-hidden="true">{t.err ? '!' : '✓'}</span><span>{t.text}</span></div>
         ))}
       </div>
     </ToastCtx.Provider>
@@ -241,8 +241,19 @@ export function QR({ text, size = 200 }: { text: string; size?: number }) {
   return src ? <img src={src} width={size} height={size} alt="二维码" style={{ display: 'block', margin: '0 auto', borderRadius: 8 }} /> : null
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="empty">{children}</div>
+export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
+  return <div className="empty"><div className="empty-ico" aria-hidden="true">{icon ?? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z" /><path d="M3 12l9 4 9-4M3 17l9 4 9-4" /></svg>}</div>{children}</div>
+}
+
+// SkeletonRows is a placeholder table while a list loads.
+export function SkeletonRows({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="sk-rows" aria-busy="true" aria-label="加载中">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="sk-row">{Array.from({ length: cols }, (_, j) => <span key={j} className="skeleton" style={{ flex: j === 0 ? 2 : 1, opacity: 1 - i * 0.12 }} />)}</div>
+      ))}
+    </div>
+  )
 }
 
 export function ErrorNote({ error }: { error?: string }) {

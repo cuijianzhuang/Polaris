@@ -4,7 +4,7 @@ import TrafficChart from '../components/TrafficChart'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
+import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast, SkeletonRows } from '../components/ui'
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
@@ -16,6 +16,13 @@ const filters: { k: Filter; label: string; sum: string }[] = [
   { k: 'disabled', label: '已禁用', sum: 'disabled' },
 ]
 const PAGE = 100
+
+// avatarColor gives each username a stable hue.
+function avatarColor(name: string) {
+  let h = 0
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360
+  return `linear-gradient(135deg, hsl(${h} 65% 52%), hsl(${(h + 40) % 360} 70% 45%))`
+}
 
 let subBase = location.origin
 function subURL(u: User) { return `${subBase}/sub/${u.subToken}` }
@@ -401,6 +408,7 @@ export default function Users() {
   const [filter, setFilter] = useState<Filter>(() => (filters.some((f) => f.k === params.get('filter')) ? params.get('filter') as Filter : ''))
   const [query, setQuery] = useState('')
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t) }, [q])
+  useEffect(() => { const v = params.get('q'); if (v !== null) setQ(v) }, [params])
   const [group, setGroup] = useState('')
   const [sort, setSort] = useState<{ k: string; desc: boolean }>({ k: '', desc: true })
   const [page, setPage] = useState(0)
@@ -499,7 +507,7 @@ export default function Users() {
         )}
       </div>
       <div className="card flush scroll">
-        {items.length === 0 ? <Empty>{list.loading ? '加载中…' : '没有匹配的用户'}</Empty> : (
+        {items.length === 0 ? (list.loading && !list.data ? <SkeletonRows rows={6} cols={5} /> : <Empty icon={<Icon.Users />}>没有匹配的用户</Empty>) : (
           <table className="rtable">
             <thead><tr>
               <th style={{ width: 32 }}><input type="checkbox" aria-label="全选" checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
@@ -513,7 +521,7 @@ export default function Users() {
                 return (
                   <tr key={u.id} className="clickable" onClick={() => setSelected(u)}>
                     <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + u.username} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
-                    <td className="rt-head"><div style={{ fontWeight: 500 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></td>
+                    <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
                     <td data-label="状态">{statusBadge(u)}</td>
                     <td data-label="授权">
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title="整台节点">{nname(n)}</span>)}
