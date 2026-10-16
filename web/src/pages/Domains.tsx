@@ -38,6 +38,17 @@ export default function Domains() {
     if (failed.length) toast(`已绑定 ${r.length - failed.length} 个，${failed.length} 个写入 DNS 失败：${failed[0].error}`, true)
     else toast(r.length ? `已为 ${r.length} 个节点绑定域名` : '所有节点都已有域名')
   })
+  const [syncing, setSyncing] = useState(false)
+  const syncAll = () => run(async () => {
+    setSyncing(true)
+    const r = await post<{ domain: string; status: string; error?: string }[]>('/domains/sync-all', {})
+    binds.reload()
+    const failed = r.filter((x) => x.status === 'error')
+    const pending = r.filter((x) => x.status === 'pending')
+    if (failed.length) toast(`${r.length - failed.length - pending.length} 条已同步，${failed.length} 条失败：${failed[0].domain} — ${failed[0].error}`, true)
+    else if (pending.length) toast(`${r.length - pending.length} 条已同步，${pending.length} 条待同步（节点暂无公网 IP）`)
+    else toast(`已同步全部 ${r.length} 条记录`)
+  }).finally(() => setSyncing(false))
   const nodeName = (id: string) => nodes.find((n) => n.id === id)?.name ?? id
   const provName = (id: string) => provs.data?.find((p) => p.id === id)?.name ?? '—'
 
@@ -113,7 +124,10 @@ export default function Domains() {
       </section>
 
       <section className="card flush scroll">
-        <div style={{ padding: '14px 16px 0' }}><h2>域名绑定</h2></div>
+        <div className="row" style={{ padding: '14px 16px 0', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0 }}>域名绑定</h2>
+          {(binds.data?.length ?? 0) > 0 && <button className="btn sm" type="button" disabled={busy} onClick={syncAll}>{syncing ? <><span className="spinner" />同步中…</> : '全部立即同步'}</button>}
+        </div>
         {binds.data?.length === 0 ? <Empty>还没有域名绑定。绑定后节点的公网 IP 会自动写入 DNS 记录。</Empty> : (
           <table>
             <thead><tr><th>域名</th><th>节点</th><th>服务商</th><th>记录</th><th>当前值</th><th>状态</th><th>同步时间</th><th></th></tr></thead>

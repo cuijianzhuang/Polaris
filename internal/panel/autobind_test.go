@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -67,5 +69,35 @@ func TestAutoBindNode(t *testing.T) {
 	b, _ = s.autoBindNode(ctx, "n3abcdefgh")
 	if b == nil || b.Domain != "node-n3abcd.node.example.com" || b.Status != "pending" {
 		t.Fatalf("no ASCII name / no IP yet: %+v", b)
+	}
+}
+
+func TestSyncAllBindings(t *testing.T) {
+	var mu sync.Mutex
+	n := 0
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { mu.Lock(); n++; mu.Unlock() }))
+	defer hook.Close()
+	s := newTestServer(t)
+	s.st.DB.Create(&store.DNSProvider{ID: "p1", Name: "hook", Kind: "webhook", Endpoint: hook.URL})
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "a", PublicIPv4: "198.51.100.1"})
+	s.st.DB.Create(&store.Node{ID: "n2", Name: "b"})
+	s.st.DB.Create(&store.DomainBinding{ID: "b1", NodeID: "n1", ProviderID: "p1", Domain: "a.example.com", Family: "ipv4", Current: "198.51.100.1", Status: "synced"})
+	s.st.DB.Create(&store.DomainBinding{ID: "b2", NodeID: "n2", ProviderID: "p1", Domain: "b.example.com", Family: "ipv4"})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", "/domains/sync-all", nil)
+	s.syncAllBindingsAPI(c)
+	var out []struct{ Domain, Status, Error string }
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil || len(out) != 2 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if out[0].Domain != "a.example.com" || out[0].Status != "synced" || out[1].Status != "pending" || out[1].Error == "" {
+		t.Fatalf("results: %+v", out)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if n == 0 {
+		t.Fatal("an already synced record must still be rewritten")
 	}
 }

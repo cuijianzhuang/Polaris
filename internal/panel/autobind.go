@@ -156,3 +156,30 @@ func (s *Server) autoBindAll(c *gin.Context) {
 	s.auditCtx(c, "domain.auto_bind_all", fmt.Sprintf("%d nodes", len(out)), "")
 	c.JSON(http.StatusOK, out)
 }
+
+// syncAllBindingsAPI is POST /domains/sync-all: rewrite every binding now
+// and report each one's outcome.
+func (s *Server) syncAllBindingsAPI(c *gin.Context) {
+	var bs []store.DomainBinding
+	s.st.DB.Order("domain").Find(&bs)
+	type result struct {
+		Domain string `json:"domain"`
+		Status string `json:"status"`
+		Error  string `json:"error,omitempty"`
+	}
+	out := make([]result, 0, len(bs))
+	for i := range bs {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		err := s.syncBinding(ctx, &bs[i], true)
+		cancel()
+		r := result{Domain: bs[i].Domain, Status: bs[i].Status}
+		if err != nil {
+			r.Error = err.Error()
+		} else if bs[i].Status == "pending" {
+			r.Error = bs[i].LastError
+		}
+		out = append(out, r)
+	}
+	s.auditCtx(c, "domain.sync_all", fmt.Sprintf("%d bindings", len(out)), "")
+	c.JSON(http.StatusOK, out)
+}
