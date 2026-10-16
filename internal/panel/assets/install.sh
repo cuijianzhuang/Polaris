@@ -164,6 +164,12 @@ TMP="$(mktemp)" SUMS="$(mktemp)"
 trap 'rm -f "$TMP" "$SUMS"' EXIT
 case "$ARCH" in amd64) WANT="$SHA_amd64" ;; arm64) WANT="$SHA_arm64" ;; esac
 step "下载 polaris-agent（$ARCH，版本 $PANEL_VERSION）"
+# The panel caches only its own architecture up front; ask it to fetch this
+# one (it may reach GitHub when the node cannot).
+if [ -z "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH.sha256" "$SUMS" 2>/dev/null; then
+  WANT="$(tr -dc '0-9a-f' < "$SUMS" | head -c 64)"
+  [ ${#WANT} = 64 ] || WANT=""
+fi
 if [ -n "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TMP" 2>/dev/null; then
   info "来源：主控 $PANEL_HTTP"
 else

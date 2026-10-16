@@ -304,7 +304,9 @@ download_release() {
   fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
     die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
   local f want got
-  local files=("$PANEL_TGZ" polaris-agent-linux-amd64 polaris-agent-linux-arm64)
+  # Only this machine's architecture: the panel fetches another agent build
+  # itself the first time a node of that architecture needs it.
+  local files=("$PANEL_TGZ" "polaris-agent-linux-$ARCH")
   # Releases before the installer existed do not ship it; only fetch what is listed.
   grep -q ' \*\?install-panel.sh$' "$TMP/checksums.txt" && files+=(install-panel.sh)
   for f in "${files[@]}"; do
@@ -322,7 +324,20 @@ install_files() {
   install -m 0755 "$TMP/polaris" "$BIN"
   # Agent binaries served at /download/ so node installs pull them from this panel.
   install -d -m 0755 -o polaris -g polaris "$DATA" "$DATA/downloads"
-  install -m 0755 -o polaris -g polaris "$TMP/polaris-agent-linux-amd64" "$TMP/polaris-agent-linux-arm64" "$DATA/downloads/"
+  install -m 0755 -o polaris -g polaris "$TMP/polaris-agent-linux-$ARCH" "$DATA/downloads/"
+  printf '%s\n' "$VERSION" > "$DATA/downloads/.version-$ARCH"
+  chown polaris:polaris "$DATA/downloads/.version-$ARCH"
+  # Builds of the other architecture from an older version would be served
+  # with a stale checksum: drop them (re-fetched on demand), and the old
+  # shared marker with them.
+  local a
+  for a in amd64 arm64; do
+    [ "$a" = "$ARCH" ] && continue
+    if [ "$(cat "$DATA/downloads/.version-$a" 2>/dev/null)" != "$VERSION" ]; then
+      rm -f "$DATA/downloads/polaris-agent-linux-$a" "$DATA/downloads/.version-$a"
+    fi
+  done
+  rm -f "$DATA/downloads/.version"
   install_ctl
   # Nodes install the same tool as their `polaris` command from this panel.
   [ -f "$CTL" ] && install -m 0644 -o polaris -g polaris "$CTL" "$DATA/downloads/install-panel.sh"
