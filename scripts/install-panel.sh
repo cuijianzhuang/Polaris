@@ -17,6 +17,7 @@
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
 #   backup                        config + consistent database copy to /root/polaris-backup-*.tar.gz
 #   node [-n NAME]                install a node agent on this server (connects over 127.0.0.1)
+#   self-update                   update this management tool to the latest release
 #   join LINK                     install the node agent from the panel's one-click link (or move to another panel)
 #   agent [status|log|start|stop|restart|upgrade|uninstall [--purge]]   manage the node agent
 #   doctor                        check service, ports, firewall, DNS/HTTPS, clock and disk
@@ -305,7 +306,33 @@ resolve_version() {
   RELEASE="${POLARIS_RELEASE_URL:-https://github.com/$REPO/releases/download/$VERSION}"
 }
 
-# download_release fetches and verifies the panel, both agents and this script.
+# update_self installs this tool from release $VERSION (checksum-verified)
+# when it differs from the installed copy. Used when the panel itself is
+# already current, so script-only fixes still arrive.
+update_self() {
+  resolve_version
+  local d want got
+  d="$(mktemp -d)"
+  if ! fetch "$RELEASE/checksums.txt" "$d/checksums.txt" || ! grep -q ' \*\?install-panel.sh$' "$d/checksums.txt" ||
+    ! fetch "$RELEASE/install-panel.sh" "$d/install-panel.sh"; then
+    rm -rf "$d"; warn "无法下载 $VERSION 的管理脚本，脚本未更新"; return 0
+  fi
+  want="$(awk '$2 == "install-panel.sh" || $2 == "*install-panel.sh" {print $1}' "$d/checksums.txt")"
+  got="$(sha256sum "$d/install-panel.sh" | awk '{print $1}')"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    rm -rf "$d"; warn "管理脚本校验失败，未更新"; return 0
+  fi
+  if cmp -s "$d/install-panel.sh" "$CTL"; then
+    ok "管理脚本已是最新（$VERSION）"
+  else
+    install -m 0755 "$d/install-panel.sh" "$CTL" && ln -sf "$CTL" "$CTL_ALIAS"
+    installed && [ -d "$DATA/downloads" ] && install -m 0644 -o polaris -g polaris "$CTL" "$DATA/downloads/install-panel.sh"
+    ok "管理脚本已更新到 $VERSION"
+  fi
+  rm -rf "$d"
+}
+
+# download_release fetches and verifies the panel, this machine's agent and this script.
 download_release() {
   resolve_version
   TMP="$(mktemp -d)"
@@ -627,6 +654,7 @@ do_update() {
   resolve_version
   if [ -n "$cur" ] && [ "$cur" = "$VERSION" ] && [ "$FORCE" = 0 ] && [ -f "$UNIT" ]; then
     ok "已是最新版本 $cur（加 --force 可重新安装）"
+    update_self
     return 0
   fi
   kv 当前版本 "${cur:-未安装}"
@@ -946,6 +974,14 @@ do_agent_upgrade() {
   fi
   step "从 ${http%/} 升级 Agent"
   run_panel_script "${http%/}/install.sh" --upgrade ${MIRROR:+--mirror "$MIRROR"}
+  # On a node without a panel, take the management tool from the panel too.
+  if ! installed; then
+    local f; f="$(mktemp)"
+    if curl -fsSL --connect-timeout 10 "${http%/}/download/install-panel.sh" -o "$f" 2>/dev/null && is_script "$f" && ! cmp -s "$f" "$CTL"; then
+      install -m 0755 "$f" "$CTL" && ln -sf "$CTL" "$CTL_ALIAS" && ok "管理脚本已更新为主控上的版本"
+    fi
+    rm -f "$f"
+  fi
 }
 
 # do_agent_join LINK: install the agent, or move it to another panel, from the
@@ -1040,7 +1076,10 @@ agent_menu() {
       3) systemctl restart polaris-agent && ok "已重启"; pause ;;
       4) systemctl stop polaris-agent && ok "已停止"; pause ;;
       5) systemctl start polaris-agent && ok "已启动"; pause ;;
-      6) run_action do_agent_upgrade; pause ;;
+      6)
+        local before; before="$(sha256sum "$CTL" 2>/dev/null)"
+        run_action do_agent_upgrade; pause
+        if [ "$(sha256sum "$CTL" 2>/dev/null)" != "$before" ] && is_script "$CTL"; then exec "$CTL" agent menu; fi ;;
       7) local l; l="$(ask "粘贴新主控的一键安装链接或命令：")"
          if [ -n "$l" ] && confirm "改为接入新的主控？"; then run_action do_agent_join "$l"; fi; pause ;;
       8) if confirm "确定卸载节点 Agent？"; then confirm "同时删除 Agent 数据？" && PURGE=1; run_action do_agent_uninstall; PURGE=0; fi; pause ;;
@@ -1150,7 +1189,11 @@ menu() {
         PORT="$(ask_port "面板端口" 8080)"
         AGENT_PORT="$(ask_port "节点接入端口" 9443 "$PORT")"
         run_action do_install; pause ;;
-      2) run_action do_update; pause ;;
+      2)
+        local before; before="$(sha256sum "$CTL" 2>/dev/null)"
+        run_action do_update; pause
+        # The menu runs the old code from memory: restart it on the new script.
+        if [ "$(sha256sum "$CTL" 2>/dev/null)" != "$before" ] && is_script "$CTL"; then exec "$CTL" menu; fi ;;
       3) run_action do_check_update; pause ;;
       4)
         if confirm "确定卸载 Polaris？"; then
@@ -1209,6 +1252,7 @@ ACTION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node|doctor|check-update) ACTION="$1"; shift ;;
+    self-update) ACTION=self-update; shift ;;
     agent) ACTION=agent; shift; AGENT_SUB="${1:-menu}"; [ $# -gt 0 ] && shift; AGENT_ARG="${1:-}"; [ $# -gt 0 ] && shift ;;
     join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
@@ -1255,6 +1299,7 @@ case "$ACTION" in
     elif agent_installed; then agent_menu
     else role_menu; fi ;;
   agent) agent_cli "$AGENT_SUB" "$AGENT_ARG" ;;
+  self-update) banner "更新管理脚本"; update_self ;;
   install) do_install ;;
   update) do_update ;;
   uninstall) do_uninstall ;;

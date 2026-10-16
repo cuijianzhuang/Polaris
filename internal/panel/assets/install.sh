@@ -199,12 +199,13 @@ fi
 mkdir -p "$DATA/agent" && printf '%s\n' "$PANEL_HTTP" > "$DATA/agent/panel-http" 2>/dev/null || true
 
 # Install the polaris management command (the same tool as on the panel) so
-# the node can be managed with `polaris`; never replace an existing copy.
+# the node can be managed with `polaris`, and keep it at the panel's version.
+# A panel server keeps its own copy (its updates manage it).
 CTL=/usr/local/bin/polaris
-if ! { [ -f "$CTL" ] && head -c 2 "$CTL" | grep -q '#!'; }; then
+if [ ! -f /etc/polaris/polaris.env ] || ! { [ -f "$CTL" ] && head -c 2 "$CTL" | grep -q '#!'; }; then
   CTL_TMP="$(mktemp)"
   if fetch "$PANEL_HTTP/download/install-panel.sh" "$CTL_TMP" 2>/dev/null || fetch "$RELEASE_URL/install-panel.sh" "$CTL_TMP" 2>/dev/null; then
-    if head -c 2 "$CTL_TMP" | grep -q '#!' && grep -q 'polaris' "$CTL_TMP"; then
+    if head -c 2 "$CTL_TMP" | grep -q '#!' && grep -q 'polaris' "$CTL_TMP" && ! cmp -s "$CTL_TMP" "$CTL"; then
       install -m 0755 "$CTL_TMP" "$CTL" && ln -sf "$CTL" /usr/local/bin/polaris-ctl
     fi
   fi
