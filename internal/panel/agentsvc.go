@@ -95,6 +95,7 @@ func (a *agentService) Enroll(ctx context.Context, req *connect.Request[polarisv
 	a.s.audit("system", "node.enroll", n.Name, req.Msg.Hostname, req.Peer().Addr)
 	if n.CertSerial == "" {
 		a.s.applyBoundTemplates(n.ID) // first enrolment: apply label-bound templates
+		go a.s.autoBindAfterEnroll(n.ID)
 	}
 	a.s.MarkDirty("enrolled", n.ID)
 	return connect.NewResponse(&polarisv1.EnrollResponse{NodeId: n.ID, CertPem: certPEM, CaPem: a.s.ca.CertPEM}), nil

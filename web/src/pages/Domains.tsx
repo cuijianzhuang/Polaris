@@ -20,6 +20,24 @@ export default function Domains() {
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const toast = useToast()
+  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const [auto, setAuto] = useState<{ provider: string; zone: string; family: string; address: boolean } | null>(null)
+  const a = auto ?? {
+    provider: settings.data?.ddns_auto_provider ?? '', zone: settings.data?.ddns_auto_zone ?? '',
+    family: settings.data?.ddns_auto_family || 'ipv4', address: (settings.data?.ddns_auto_address ?? 'true') !== 'false',
+  }
+  const saveAuto = () => run(async () => {
+    await put('/settings', { ddns_auto_provider: a.provider, ddns_auto_zone: a.zone.trim(), ddns_auto_family: a.family, ddns_auto_address: String(a.address) })
+    setAuto(null); settings.reload()
+  }, a.provider && a.zone.trim() ? '已开启：新节点接入时自动绑定域名' : '已关闭自动绑定')
+  const unbound = nodes.filter((n) => !binds.data?.some((b) => b.nodeId === n.id))
+  const bindAll = () => run(async () => {
+    const r = await post<{ nodeId: string; domain: string; error?: string }[]>('/domains/auto-bind', {})
+    binds.reload(); refresh()
+    const failed = r.filter((x) => x.error)
+    if (failed.length) toast(`已绑定 ${r.length - failed.length} 个，${failed.length} 个写入 DNS 失败：${failed[0].error}`, true)
+    else toast(r.length ? `已为 ${r.length} 个节点绑定域名` : '所有节点都已有域名')
+  })
   const nodeName = (id: string) => nodes.find((n) => n.id === id)?.name ?? id
   const provName = (id: string) => provs.data?.find((p) => p.id === id)?.name ?? '—'
 
@@ -65,6 +83,35 @@ export default function Domains() {
         )}
       </section>
 
+      <section className="card">
+        <h2>自动绑定</h2>
+        <div className="sub" style={{ marginTop: 0 }}>新节点接入时自动绑定「节点名.根域名」（如 bwg-hk.node.example.com），IP 变化后自动更新。节点名里的中文会被去掉，重名自动加序号。</div>
+        <div className="grid g2" style={{ marginTop: 12 }}>
+          <Field label="DNS 服务商">
+            <select className="input" value={a.provider} onChange={(e) => setAuto({ ...a, provider: e.target.value })}>
+              <option value="">不自动绑定</option>
+              {(provs.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+          <Field label="根域名" hint="需在该服务商下（Cloudflare 里有这个域名的 Zone）">
+            <input className="input mono" value={a.zone} placeholder="node.example.com" onChange={(e) => setAuto({ ...a, zone: e.target.value })} />
+          </Field>
+          <Field label="记录类型">
+            <select className="input" value={a.family} onChange={(e) => setAuto({ ...a, family: e.target.value })}>
+              {Object.entries(famLabel).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </Field>
+          <label className="row small" style={{ alignSelf: 'end', paddingBottom: 10 }}>
+            <Switch label="订阅使用域名" on={a.address} onChange={(v) => setAuto({ ...a, address: v })} />订阅里用域名代替 IP（换 IP 后客户端无需更新订阅）
+          </label>
+        </div>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn pri" type="button" disabled={busy || !auto} onClick={saveAuto}>保存</button>
+          <button className="btn" type="button" disabled={busy || !!auto || !settings.data?.ddns_auto_provider || !settings.data?.ddns_auto_zone || unbound.length === 0} onClick={bindAll}
+            title={auto ? '先保存设置' : undefined}>为未绑定的节点补绑{unbound.length ? `（${unbound.length}）` : ''}</button>
+        </div>
+      </section>
+
       <section className="card flush scroll">
         <div style={{ padding: '14px 16px 0' }}><h2>域名绑定</h2></div>
         {binds.data?.length === 0 ? <Empty>还没有域名绑定。绑定后节点的公网 IP 会自动写入 DNS 记录。</Empty> : (
@@ -77,7 +124,7 @@ export default function Domains() {
                 return (
                   <tr key={b.id}>
                     <td className="mono" style={{ fontWeight: 500 }}>{b.domain}{b.proxied && <span className="tag warn" style={{ marginLeft: 6 }}>CDN 代理</span>}</td>
-                    <td>{nodeName(b.nodeId)}{n && !n.ddns && <div className="small mute">节点未开启 DDNS</div>}</td>
+                    <td>{nodeName(b.nodeId)}{n && !n.ddns && /^[\d.]+$|:/.test(n.address) && <div className="small mute" title="节点地址是固定 IP，记录会一直写这个 IP；开启 DDNS 或把地址改成域名后才跟随出口 IP">节点地址为固定 IP</div>}</td>
                     <td>{provName(b.providerId)}</td>
                     <td className="small">{famLabel[b.family] ?? b.family} · TTL {b.ttl || 'auto'}</td>
                     <td className="mono small">{b.current || '—'}</td>

@@ -215,6 +215,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/domains", s.listBindings)
 	p.POST("/domains", s.saveBinding)
 	p.PUT("/domains/:id", s.saveBinding)
+	p.POST("/domains/auto-bind", s.autoBindAll)
 	p.POST("/domains/:id/sync", s.syncBindingAPI)
 	p.DELETE("/domains/:id", s.deleteBinding)
 
