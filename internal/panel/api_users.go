@@ -114,6 +114,8 @@ func userFilter(q *gorm.DB, filter string, now time.Time, warn time.Duration) *g
 		return q.Where("status = ? AND expire_at IS NOT NULL AND expire_at > ? AND expire_at < ?", "active", now, now.Add(warn))
 	case "limited":
 		return q.Where("status = ?", "limited")
+	case "near": // 80%+ of the traffic limit used, still active
+		return q.Where("status = ? AND traffic_limit > 0 AND used_up + used_down >= traffic_limit * 0.8", "active")
 	case "expired":
 		return q.Where("status = ?", "expired")
 	case "depleted":
@@ -132,7 +134,7 @@ func (s *Server) listUsers(c *gin.Context) {
 	now := time.Now()
 	warn := time.Duration(max(atoiDefault(s.st.GetSetting("expire_warn_days", "7"), 7), 1)) * 24 * time.Hour
 	summary := map[string]int64{}
-	for _, f := range []string{"active", "online", "expiring", "limited", "expired", "disabled"} {
+	for _, f := range []string{"active", "online", "expiring", "near", "limited", "expired", "disabled"} {
 		var n int64
 		userFilter(base.Session(&gorm.Session{}), f, now, warn).Count(&n)
 		summary[f] = n

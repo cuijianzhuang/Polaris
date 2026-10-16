@@ -58,8 +58,10 @@ export default function Telegram() {
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <h2>角色与命令</h2>
           <dl className="kv" style={{ margin: 0, gridTemplateColumns: '110px minmax(0,1fr)' }}>
+            <dt>网页登录</dt><dd>机器人运行时，登录页会出现「使用 Telegram 登录」：页面显示一个两位数，管理员在机器人消息里点同一个数字即可登录（3 分钟有效，点错或点「拒绝」即作废）；也可以在机器人里发 /login 获取一次性链接</dd>
+            <dt>所有人</dt><dd>/menu 或 /start 打开按钮式主菜单（流量、订阅、节点、登录、告警开关一键直达，消息原地刷新）· /help 帮助</dd>
             <dt>超级管理员</dt><dd>/status 总览 · /nodes 节点列表（重启内核、强制同步）· /node 名称 · /users 关键词 搜索用户（重置流量、续期、启停）· /traffic 流量排行 · /login 获取网页面板登录链接（完整权限）；接收节点离线、下发失败、IP 变更等告警（/notify off 关闭）</dd>
-            <dt>节点管理员</dt><dd>/status、/nodes、/node 只能看到并操作绑定给他的节点，只接收这些节点的告警；/login 登录网页面板后也只能看到这些节点（查看、强制同步、回滚、重启内核）</dd>
+            <dt>节点管理员</dt><dd>/status、/nodes、/node 只能看到并操作已绑定的节点，只接收这些节点的告警；/login 登录网页面板后也只能看到这些节点（查看、强制同步、回滚、重启内核）</dd>
             <dt>用户</dt><dd>/bind 订阅链接 绑定账号 · /me 流量与到期 · /sub 订阅链接与二维码 · /nodes 自己可用的节点 · /unbind 解绑；不能登录网页面板，也看不到其他用户和节点</dd>
           </dl>
           <div className="note">管理员绑定：点击「绑定管理员」生成一次性绑定码（10 分钟有效），在 Telegram 中向机器人发送 <code>/bind 绑定码</code>。已绑定订阅的用户：<b>{admins.data?.boundUsers ?? 0}</b> 人。</div>

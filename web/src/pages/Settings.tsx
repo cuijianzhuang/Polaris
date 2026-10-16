@@ -34,7 +34,7 @@ function Appearance() {
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <h2>外观</h2>
       <Field label="主题模式" hint="仅保存在当前浏览器">
-        <div className="seg">
+        <div className="seg c3 fixed">
           {modes.map((m) => <button key={m.id} type="button" className={'opt' + (t.mode === m.id ? ' on' : '')} aria-pressed={t.mode === m.id} onClick={() => setT({ ...t, mode: m.id })}>{m.label}</button>)}
         </div>
       </Field>

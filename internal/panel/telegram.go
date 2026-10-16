@@ -265,11 +265,11 @@ func (b *tgBot) pollTimeout() int {
 
 func (b *tgBot) registerCommands(ctx context.Context) {
 	cmds := []map[string]string{
-		{"command": "me", "description": "我的流量与到期"}, {"command": "sub", "description": "订阅链接与二维码"},
-		{"command": "nodes", "description": "节点状态"}, {"command": "status", "description": "面板概览（管理员）"},
-		{"command": "users", "description": "搜索用户（管理员）"}, {"command": "traffic", "description": "今日流量排行（管理员）"},
-		{"command": "bind", "description": "绑定账号 /bind 订阅链接"}, {"command": "login", "description": "登录网页面板（管理员）"},
-		{"command": "help", "description": "帮助"},
+		{"command": "menu", "description": "🏠 主菜单"}, {"command": "me", "description": "📊 我的流量与到期"},
+		{"command": "sub", "description": "🔗 订阅链接与二维码"}, {"command": "nodes", "description": "🌐 节点"},
+		{"command": "status", "description": "📈 概览（管理员）"}, {"command": "users", "description": "👥 用户（管理员）"},
+		{"command": "traffic", "description": "🏆 今日排行（管理员）"}, {"command": "login", "description": "🔑 登录面板（管理员）"},
+		{"command": "bind", "description": "绑定账号 /bind 订阅链接"}, {"command": "help", "description": "❓ 帮助"},
 	}
 	_ = b.call(ctx, "setMyCommands", map[string]any{"commands": cmds}, nil)
 }
@@ -346,12 +346,20 @@ func (b *tgBot) handle(u tgUpdate) {
 	arg = strings.TrimSpace(arg)
 	id := b.identify(chat)
 	switch cmd {
-	case "/start", "/help":
+	case "/start", "/menu":
+		if cmd == "/start" && strings.HasPrefix(arg, tgWebLoginPrefix) { // login page
+			b.webLoginPrompt(chat, strings.TrimPrefix(arg, tgWebLoginPrefix), id)
+			return
+		}
 		if cmd == "/start" && arg != "" { // deep link t.me/bot?start=<sub token>
 			b.bind(chat, u.Message.From, arg, id)
 			return
 		}
-		b.help(chat, id)
+		text, rows := b.view("home", "", id)
+		b.send(chat, text, rows...)
+	case "/help":
+		text, rows := b.view("help", "", id)
+		b.send(chat, text, rows...)
 	case "/whoami":
 		b.send(chat, fmt.Sprintf("Chat ID：<code>%d</code>\n%s", chat, b.roleLine(id)))
 	case "/bind":
@@ -365,13 +373,15 @@ func (b *tgBot) handle(u tgUpdate) {
 		}
 	case "/me":
 		if id.user == nil {
-			b.send(chat, "尚未绑定账号。发送 <code>/bind 你的订阅链接</code> 完成绑定。")
+			text, rows := b.view("bindhelp", "", id)
+			b.send(chat, text, rows...)
 			return
 		}
-		b.send(chat, b.userCard(id.user), userButtons(id.user)...)
+		b.send(chat, b.userCard(id.user), userButtons()...)
 	case "/sub":
 		if id.user == nil {
-			b.send(chat, "尚未绑定账号。")
+			text, rows := b.view("bindhelp", "", id)
+			b.send(chat, text, rows...)
 			return
 		}
 		b.sendSub(chat, id.user)
@@ -390,7 +400,8 @@ func (b *tgBot) handle(u tgUpdate) {
 			b.send(chat, "仅管理员可用")
 			return
 		}
-		b.send(chat, b.statusText(id))
+		text, rows := b.view("status", "", id)
+		b.send(chat, text, rows...)
 	case "/users", "/user":
 		if !id.owner() {
 			b.send(chat, "仅超级管理员可用")
@@ -402,19 +413,14 @@ func (b *tgBot) handle(u tgUpdate) {
 			b.send(chat, "仅超级管理员可用")
 			return
 		}
-		b.send(chat, b.trafficText())
+		text, rows := b.view("top", "", id)
+		b.send(chat, text, rows...)
 	case "/login":
 		if id.admin == nil {
 			b.send(chat, "仅管理员可用。普通用户请使用 /me、/sub、/nodes 查看自己的账号与节点。")
 			return
 		}
-		link := b.s.tgLoginURL(b.s.newTGLoginCode(id.admin.ID))
-		scope := "完整权限"
-		if !id.owner() {
-			scope = fmt.Sprintf("仅可查看与同步分配给你的 %d 个节点", len(id.admin.NodeIDs.V))
-		}
-		b.send(chat, fmt.Sprintf("<a href=\"%s\">点此登录面板</a>（%s）\n链接 5 分钟内有效，只能使用一次，请勿转发。", esc(link), scope))
-		b.s.audit("tg:"+id.admin.Name, "admin.login_link", "tg:"+id.admin.Name, "", "")
+		b.sendLoginLink(chat, id)
 	case "/notify":
 		if id.admin == nil {
 			return
@@ -424,7 +430,7 @@ func (b *tgBot) handle(u tgUpdate) {
 		b.send(chat, map[bool]string{true: "已开启告警通知", false: "已关闭告警通知"}[on])
 	default:
 		if strings.HasPrefix(cmd, "/") {
-			b.send(chat, "未知命令，发送 /help 查看可用命令")
+			b.send(chat, "未知命令，打开 /menu 主菜单或发送 /help 查看命令", backRow(""))
 		}
 	}
 }
@@ -445,19 +451,6 @@ func (b *tgBot) roleLine(id tgIdentity) string {
 		return "未绑定"
 	}
 	return strings.Join(parts, "\n")
-}
-
-func (b *tgBot) help(chat int64, id tgIdentity) {
-	var sb strings.Builder
-	sb.WriteString("<b>Polaris 机器人</b>\n" + b.roleLine(id) + "\n\n")
-	sb.WriteString("/bind 订阅链接 — 绑定账号\n/me — 流量与到期\n/sub — 订阅链接与二维码\n/nodes — 节点状态\n/unbind — 解除绑定\n/whoami — 查看 Chat ID\n")
-	if id.admin != nil {
-		sb.WriteString("\n<b>管理员</b>\n/login — 获取网页面板登录链接\n/status — 概览\n/nodes — 节点列表与操作\n/node 名称 — 节点详情\n/notify on|off — 告警通知\n")
-	}
-	if id.owner() {
-		sb.WriteString("/users 关键词 — 搜索用户\n/traffic — 今日流量排行\n")
-	}
-	b.send(chat, sb.String())
 }
 
 // bind accepts an admin bind code or a subscription link/token.
@@ -487,7 +480,7 @@ func (b *tgBot) bind(chat int64, from tgUser, arg string, id tgIdentity) {
 			return
 		}
 		b.s.audit("telegram", "tg.admin_bind", name, fmt.Sprintf("chat %d role %s", chat, code.Role), "")
-		b.send(chat, "✅ 已绑定为"+map[string]string{"owner": "超级管理员", "operator": "节点管理员"}[code.Role]+"。发送 /help 查看命令。")
+		b.send(chat, "✅ 已绑定为"+map[string]string{"owner": "超级管理员", "operator": "节点管理员"}[code.Role]+"。", backRow(""))
 		return
 	}
 	u, problem := b.s.userFromSubLink(arg)
@@ -499,70 +492,18 @@ func (b *tgBot) bind(chat int64, from tgUser, arg string, id tgIdentity) {
 	b.s.st.DB.Model(u).Update("telegram_id", chat)
 	b.s.audit("telegram", "tg.user_bind", u.Username, fmt.Sprintf("chat %d", chat), "")
 	u.TelegramID = chat
-	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(u), userButtons(u)...)
+	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(u), userButtons()...)
 }
 
 // --- user views ---
 
-func (b *tgBot) userCard(u *store.User) string {
-	st := map[string]string{"active": "✅ 正常", "limited": "⛔ 流量用尽", "expired": "⌛ 已到期", "disabled": "🚫 已禁用"}[u.Status]
-	used := u.Used()
-	limit := "不限"
-	pct := ""
-	if u.TrafficLimit > 0 {
-		limit = sub.HumanBytes(u.TrafficLimit)
-		pct = fmt.Sprintf("（%.1f%%）", float64(used)*100/float64(u.TrafficLimit))
-	}
-	exp := "永不到期"
-	if u.ExpireAt != nil {
-		days := int(time.Until(*u.ExpireAt).Hours() / 24)
-		exp = fmt.Sprintf("%s（剩 %d 天）", u.ExpireAt.Local().Format("2006-01-02"), days)
-	}
-	online := "离线"
-	if u.OnlineAt != nil && time.Since(*u.OnlineAt) < 2*time.Minute {
-		online = fmt.Sprintf("在线（%d 个 IP）", len(u.OnlineIPs.V))
-	}
-	return fmt.Sprintf("<b>%s</b>  %s\n流量：%s / %s%s\n  ↑ %s  ↓ %s\n到期：%s\n状态：%s",
-		esc(u.Username), st, sub.HumanBytes(used), limit, pct, sub.HumanBytes(u.UsedUp), sub.HumanBytes(u.UsedDown), exp, online)
-}
-
-func userButtons(u *store.User) [][]button {
-	return [][]button{{{Text: "订阅链接", Data: "me:sub"}, {Text: "节点状态", Data: "me:nodes"}, {Text: "刷新", Data: "me:card"}}}
-}
-
 func (b *tgBot) sendSub(chat int64, u *store.User) {
 	link := b.s.subURL(u.SubToken)
 	if png, err := qrcode.Encode(link, qrcode.Medium, 512); err == nil {
-		b.sendPhoto(chat, png, "扫码导入订阅")
+		b.sendPhoto(chat, png, "📷 用客户端扫码导入订阅")
 	}
-	b.send(chat, "订阅链接（自动适配客户端）：\n<code>"+esc(link)+"</code>",
-		[]button{{Text: "重置订阅链接", Data: "me:reset"}})
-}
-
-func (b *tgBot) userNodes(chat int64, u *store.User) {
-	nodes, err := b.s.subNodes(u)
-	if err != nil || len(nodes) == 0 {
-		b.send(chat, "暂无可用节点")
-		return
-	}
-	status := map[string]string{}
-	var ns []store.Node
-	b.s.st.DB.Select("name", "status").Find(&ns)
-	for _, n := range ns {
-		status[n.Name] = n.Status
-	}
-	var sb strings.Builder
-	sb.WriteString("<b>可用节点</b>\n")
-	for _, n := range nodes {
-		dot := "🟢"
-		for name, st := range status {
-			if strings.Contains(n.Name, name) && st != "online" && st != "syncing" {
-				dot = "🔴"
-			}
-		}
-		sb.WriteString(dot + " " + esc(n.Name) + "\n")
-	}
-	b.send(chat, sb.String())
+	b.send(chat, "🔗 <b>订阅链接</b>\n"+tgRule+"\n<code>"+esc(link)+"</code>\n\n点按链接即可复制，客户端类型自动识别（Clash / sing-box / v2rayN / Shadowrocket 等）。",
+		[]button{{Text: "♻️ 重置链接", Data: "me:reset"}, btnHome})
 }
 
 // --- admin views ---
@@ -591,50 +532,6 @@ func statusDot(st string) string {
 	return "🔴"
 }
 
-func (b *tgBot) statusText(id tgIdentity) string {
-	ns := b.visibleNodes(id)
-	online := 0
-	for _, n := range ns {
-		if n.Status == "online" || n.Status == "syncing" {
-			online++
-		}
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "<b>概览</b>\n节点：%d / %d 在线\n", online, len(ns))
-	if id.owner() {
-		var active, onlineUsers int64
-		b.s.st.DB.Model(&store.User{}).Where("is_service = ? AND status = ?", false, "active").Count(&active)
-		b.s.st.DB.Model(&store.User{}).Where("is_service = ? AND online_at > ?", false, time.Now().Add(-2*time.Minute)).Count(&onlineUsers)
-		day := time.Now()
-		start := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, day.Location()).UTC()
-		var t struct{ Up, Down int64 }
-		b.s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").Where("hour >= ?", start).Scan(&t)
-		fmt.Fprintf(&sb, "用户：%d 在线 / %d 有效\n今日流量：%s（↑ %s ↓ %s）\n", onlineUsers, active, sub.HumanBytes(t.Up+t.Down), sub.HumanBytes(t.Up), sub.HumanBytes(t.Down))
-	}
-	for _, n := range ns {
-		fmt.Fprintf(&sb, "%s %s  rev %d/%d\n", statusDot(n.Status), esc(n.Name), n.AppliedRev, n.DesiredRev)
-	}
-	return sb.String()
-}
-
-func (b *tgBot) adminNodes(chat, msg int64, id tgIdentity) {
-	ns := b.visibleNodes(id)
-	if len(ns) == 0 {
-		b.send(chat, "没有可管理的节点")
-		return
-	}
-	var rows [][]button
-	for _, n := range ns {
-		rows = append(rows, []button{{Text: statusDot(n.Status) + " " + n.Name, Data: "n:v:" + n.ID}})
-	}
-	text := "<b>节点</b>（点按查看与操作）"
-	if msg > 0 {
-		b.edit(chat, msg, text, rows...)
-	} else {
-		b.send(chat, text, rows...)
-	}
-}
-
 func (b *tgBot) findNode(chat int64, name string, id tgIdentity) {
 	for _, n := range b.visibleNodes(id) {
 		if strings.EqualFold(n.Name, name) || n.ID == name {
@@ -658,23 +555,31 @@ func (b *tgBot) nodeCard(n *store.Node) (string, [][]button) {
 	if n.LastSeen != nil {
 		last = n.LastSeen.Local().Format("01-02 15:04:05")
 	}
-	text := fmt.Sprintf("%s <b>%s</b>  %s\n地址：<code>%s</code>\n配置：rev %d / %d\n内核：%s\n入站：%d 个\nCPU %.1f%%  内存 %.1f%%\n↓ %s ↑ %s\n最后心跳：%s",
-		statusDot(n.Status), esc(n.Name), esc(n.Region), esc(nodeHost(n)), n.AppliedRev, n.DesiredRev, esc(strings.Join(cs, "，")), inCount,
-		n.System.V.CPU, n.System.V.Mem, bpsText(n.System.V.RxBps), bpsText(n.System.V.TxBps), last)
+	today := "—"
+	if t := b.s.nodeTrafficStats()[n.ID]; t != nil {
+		today = fmt.Sprintf("↑ %s ↓ %s", sub.HumanBytes(t.TodayUp), sub.HumanBytes(t.TodayDown))
+	}
+	sync := fmt.Sprintf("rev %d ✓", n.AppliedRev)
+	if n.AppliedRev < n.DesiredRev {
+		sync = fmt.Sprintf("rev %d → %d 同步中", n.AppliedRev, n.DesiredRev)
+	}
+	text := fmt.Sprintf("%s <b>%s</b>  %s\n%s\n📍 地址  <code>%s</code>\n⚙️ 配置  %s\n🧩 内核  %s\n🔌 入站  %d 个\n💻 CPU %.1f%% · 内存 %.1f%%\n📶 实时  ↓ %s ↑ %s\n📊 今日  %s\n🕒 心跳  %s",
+		statusDot(n.Status), esc(n.Name), esc(n.Region), tgRule, esc(nodeHost(n)), sync, esc(orDefault(strings.Join(cs, "，"), "—")), inCount,
+		n.System.V.CPU, n.System.V.Mem, bpsText(n.System.V.RxBps), bpsText(n.System.V.TxBps), today, last)
 	if n.LastError != "" {
 		text += "\n⚠️ " + esc(truncate(n.LastError, 300))
 	}
-	rows := [][]button{{{Text: "强制同步", Data: "n:s:" + n.ID}, {Text: "回滚上一版", Data: "n:b:" + n.ID}}}
+	rows := [][]button{{{Text: "🔁 强制同步", Data: "n:s:" + n.ID}, {Text: "⏪ 回滚上一版", Data: "n:b:" + n.ID}}}
 	var restart []button
 	for _, c := range cores {
 		if c.Type == "xray" || c.Type == "singbox" || c.Type == "hysteria" {
-			restart = append(restart, button{Text: "重启 " + string(c.Type), Data: "n:r:" + n.ID + ":" + string(c.Type)})
+			restart = append(restart, button{Text: "♻️ 重启 " + string(c.Type), Data: "n:r:" + n.ID + ":" + string(c.Type)})
 		}
 	}
 	if len(restart) > 0 {
 		rows = append(rows, restart)
 	}
-	rows = append(rows, []button{{Text: "刷新", Data: "n:v:" + n.ID}, {Text: "« 节点列表", Data: "n:l"}})
+	rows = append(rows, []button{{Text: "🔄 刷新", Data: "n:v:" + n.ID}, {Text: "« 节点列表", Data: "n:l"}, btnHome})
 	return text, rows
 }
 
@@ -686,62 +591,6 @@ func bpsText(v uint64) string {
 		return fmt.Sprintf("%.1f Mbps", float64(v)/1e6)
 	}
 	return fmt.Sprintf("%d Kbps", v/1000)
-}
-
-func (b *tgBot) searchUsers(chat int64, q string) {
-	var us []store.User
-	tx := b.s.st.DB.Where("is_service = ?", false).Order("username").Limit(20)
-	if q != "" {
-		like := "%" + q + "%"
-		tx = tx.Where("username LIKE ? OR uuid LIKE ? OR remark LIKE ?", like, like, like)
-	}
-	tx.Find(&us)
-	if len(us) == 0 {
-		b.send(chat, "没有匹配的用户")
-		return
-	}
-	if len(us) == 1 {
-		b.send(chat, b.userCard(&us[0]), adminUserButtons(&us[0])...)
-		return
-	}
-	var rows [][]button
-	for _, u := range us {
-		rows = append(rows, []button{{Text: u.Username + " · " + map[string]string{"active": "正常", "limited": "超额", "expired": "到期", "disabled": "禁用"}[u.Status], Data: "u:v:" + u.ID}})
-	}
-	b.send(chat, fmt.Sprintf("找到 %d 个用户", len(us)), rows...)
-}
-
-func adminUserButtons(u *store.User) [][]button {
-	toggle := button{Text: "禁用", Data: "u:d:" + u.ID}
-	if u.Status == "disabled" {
-		toggle = button{Text: "启用", Data: "u:e:" + u.ID}
-	}
-	return [][]button{
-		{toggle, {Text: "重置流量", Data: "u:t:" + u.ID}, {Text: "续期 30 天", Data: "u:x:" + u.ID}},
-		{{Text: "重置订阅", Data: "u:k:" + u.ID}, {Text: "刷新", Data: "u:v:" + u.ID}},
-	}
-}
-
-func (b *tgBot) trafficText() string {
-	start := time.Now().Truncate(24 * time.Hour)
-	type row struct {
-		UserID string
-		Total  int64
-	}
-	var rs []row
-	b.s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up+down) AS total").Where("hour >= ?", start).
-		Group("user_id").Order("total desc").Limit(10).Scan(&rs)
-	if len(rs) == 0 {
-		return "今日暂无流量"
-	}
-	var sb strings.Builder
-	sb.WriteString("<b>今日流量 Top 10</b>\n")
-	for i, r := range rs {
-		var u store.User
-		b.s.st.DB.Select("username").First(&u, "id = ?", r.UserID)
-		fmt.Fprintf(&sb, "%d. %s — %s\n", i+1, esc(orDefault(u.Username, r.UserID)), sub.HumanBytes(r.Total))
-	}
-	return sb.String()
 }
 
 // --- callbacks ---
@@ -762,13 +611,13 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 		}
 		switch parts[1] {
 		case "card":
-			b.edit(chat, msg, b.userCard(id.user), userButtons(id.user)...)
+			b.edit(chat, msg, b.userCard(id.user), userButtons()...)
 		case "sub":
 			b.sendSub(chat, id.user)
 		case "nodes":
-			b.userNodes(chat, id.user)
+			b.edit(chat, msg, b.userNodesText(id.user), backRow("v:nodes"))
 		case "reset":
-			b.send(chat, "确定重置订阅链接？旧链接将立即失效，需要在客户端重新导入。", []button{{Text: "确认重置", Data: "me:reset!"}})
+			b.send(chat, "⚠️ 确定重置订阅链接？\n旧链接将立即失效，所有客户端都需要重新导入。", []button{{Text: "确认重置", Data: "me:reset!"}, btnHome})
 		case "reset!":
 			tok := pki.Token(32)
 			b.s.st.DB.Model(&store.User{}).Where("id = ?", id.user.ID).Update("sub_token", tok)
@@ -777,6 +626,38 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.sendSub(chat, id.user)
 		}
 		answer("")
+	case "wl": // login page sign-in: wl:<request>:<number|x>
+		if len(parts) == 3 {
+			b.webLoginAnswer(chat, msg, parts[1], parts[2], id, answer)
+		}
+	case "v": // menu views edit the message in place
+		view, arg := "home", ""
+		if len(parts) > 1 {
+			view = parts[1]
+		}
+		if len(parts) > 2 {
+			arg = parts[2]
+		}
+		text, rows := b.view(view, arg, id)
+		b.edit(chat, msg, text, rows...)
+		answer("")
+	case "m":
+		if id.admin == nil || len(parts) < 2 {
+			answer("无权限")
+			return
+		}
+		switch parts[1] {
+		case "login":
+			b.sendLoginLink(chat, id)
+			answer("")
+		case "notify":
+			on := !id.admin.Notify
+			b.s.st.DB.Model(&store.TGAdmin{}).Where("id = ?", id.admin.ID).Update("notify", on)
+			id.admin.Notify = on
+			text, rows := b.view("home", "", id)
+			b.edit(chat, msg, text, rows...)
+			answer(map[bool]string{true: "已开启告警通知", false: "已关闭告警通知"}[on])
+		}
 	case "n":
 		if len(parts) >= 2 && parts[1] == "l" {
 			b.adminNodes(chat, msg, id)
@@ -1045,4 +926,15 @@ func (s *Server) tgTest(c *gin.Context) {
 		s.tg.send(a.ChatID, "🔔 Polaris 测试消息")
 	}
 	c.JSON(http.StatusOK, gin.H{"sent": len(as)})
+}
+
+// sendLoginLink sends a one-time panel sign-in link to a Telegram admin.
+func (b *tgBot) sendLoginLink(chat int64, id tgIdentity) {
+	link := b.s.tgLoginURL(b.s.newTGLoginCode(id.admin.ID))
+	scope := "完整权限"
+	if !id.owner() {
+		scope = fmt.Sprintf("仅可查看与同步分配给你的 %d 个节点", len(id.admin.NodeIDs.V))
+	}
+	b.send(chat, fmt.Sprintf("🔑 <b>登录面板</b>\n%s\n<a href=\"%s\">👉 点此登录</a>\n权限：%s\n\n⏱ 5 分钟内有效，只能使用一次，请勿转发。", tgRule, esc(link), scope))
+	b.s.audit("tg:"+id.admin.Name, "admin.login_link", "tg:"+id.admin.Name, "", "")
 }

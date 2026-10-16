@@ -85,6 +85,8 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/github/totp", s.githubTOTP)
 	api.GET("/info", s.publicInfo)
 	api.POST("/auth/tg", s.tgLogin)
+	api.POST("/auth/tg/start", s.tgWebLoginStart)
+	api.POST("/auth/tg/poll", s.tgWebLoginPoll)
 
 	p := api.Group("", s.authRequired, s.scopeGuard)
 	p.GET("/ws", func(c *gin.Context) {
@@ -332,7 +334,7 @@ func (s *Server) decoy() gin.HandlerFunc {
 }
 
 func (s *Server) publicInfo(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version, "githubLogin": s.githubEnabled()})
+	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled()})
 }
 
 // download serves agent binaries placed in <data_dir>/downloads.
@@ -378,7 +380,7 @@ func (s *Server) openAPI(r *gin.Engine) map[string]any {
 		if len(params) > 0 {
 			op["parameters"] = params
 		}
-		if p != "/auth/login" && p != "/info" && !strings.HasPrefix(p, "/auth/github/") || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
+		if p != "/auth/login" && p != "/info" && !strings.HasPrefix(p, "/auth/github/") && !strings.HasPrefix(p, "/auth/tg") || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
 			op["security"] = []map[string][]string{{"bearer": {}}}
 		}
 		paths[p][strings.ToLower(rt.Method)] = op

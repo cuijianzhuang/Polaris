@@ -15,6 +15,18 @@ function itemTag(it: TemplateItem) {
   return p
 }
 
+// Collapses items rendering the same tag into one chip with a count.
+function groupItems(items: TemplateItem[]) {
+  const out: { it: TemplateItem; n: number; tag: string }[] = []
+  for (const it of items) {
+    const tag = itemTag(it) + '|' + it.core
+    const g = out.find((x) => x.tag === tag)
+    if (g) g.n++
+    else out.push({ it, n: 1, tag })
+  }
+  return out
+}
+
 function portText(it: TemplateItem) {
   return it.port.mode === 'fixed' ? `固定 ${it.port.fixed}` : `${it.port.min ?? 20000}–${it.port.max ?? 30000} 随机`
 }
@@ -174,7 +186,7 @@ export default function Templates() {
   return (
     <>
       <div className="top">
-        <div><h1>批量生成入站</h1><div className="sub">一套模板 × 多个节点，密钥与随机值逐节点生成</div></div>
+        <div><h1>入站模板</h1><div className="sub">一套模板 × 多个节点，密钥与随机值逐节点生成</div></div>
         <div className="steps" aria-label="步骤">
           {(['选模板', '选节点', '预览并生成'] as const).map((l, i) => {
             const n = (i + 1) as Step
@@ -198,7 +210,7 @@ export default function Templates() {
                   <h2>{t.name}</h2>{t.builtin ? <span className="tag">内置</span> : <span className="tag xray">自定义</span>}
                 </div>
                 <div className="sub">{t.description || '—'} · 已生成 {t.inbounds} 个入站（{t.nodes} 个节点）</div>
-                <div style={{ marginTop: 10 }}>{t.items.map((it) => <span key={it.key} className={coreTagClass(it.core === 'auto' ? (it.transport.type === 'xhttp' ? 'xray' : ['hysteria2', 'tuic', 'anytls'].includes(it.protocol.type) ? 'singbox' : 'xray') : it.core)}>{itemTag(it)}</span>)}</div>
+                <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>{groupItems(t.items).map(({ it, n }) => <span key={it.key} className={coreTagClass(it.core === 'auto' ? (it.transport.type === 'xhttp' ? 'xray' : ['hysteria2', 'tuic', 'anytls'].includes(it.protocol.type) ? 'singbox' : 'xray') : it.core)}>{itemTag(it)}{n > 1 && <b style={{ marginLeft: 4 }}>×{n}</b>}</span>)}</div>
                 <div className="row" style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
                   <button className="btn sm" type="button" onClick={() => setEditor(t)}>{t.builtin ? '另存为自定义' : '编辑'}</button>
                   {t.inbounds > 0 && <>

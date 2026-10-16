@@ -8,10 +8,10 @@ import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStat
 import type { Group, Inbound, Node, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
 
-type Filter = '' | 'active' | 'online' | 'expiring' | 'limited' | 'expired' | 'disabled'
+type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
   { k: '', label: '全部', sum: 'all' }, { k: 'active', label: '正常', sum: 'active' }, { k: 'online', label: '在线', sum: 'online' },
-  { k: 'expiring', label: '即将到期', sum: 'expiring' }, { k: 'limited', label: '已超额', sum: 'limited' }, { k: 'expired', label: '已过期', sum: 'expired' },
+  { k: 'expiring', label: '即将到期', sum: 'expiring' }, { k: 'near', label: '流量将满', sum: 'near' }, { k: 'limited', label: '已超额', sum: 'limited' }, { k: 'expired', label: '已过期', sum: 'expired' },
   { k: 'disabled', label: '已禁用', sum: 'disabled' },
 ]
 const PAGE = 100
@@ -426,8 +426,8 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
 
 export default function Users() {
   const [params, setParams] = useSearchParams()
-  const [q, setQ] = useState('')
-  const [filter, setFilter] = useState<Filter>('')
+  const [q, setQ] = useState(() => params.get('q') ?? '')
+  const [filter, setFilter] = useState<Filter>(() => (filters.some((f) => f.k === params.get('filter')) ? params.get('filter') as Filter : ''))
   const [query, setQuery] = useState('')
   useEffect(() => { const t = setTimeout(() => setQuery(q), 300); return () => clearTimeout(t) }, [q])
   const [group, setGroup] = useState('')
@@ -502,13 +502,15 @@ export default function Users() {
       <div className="row">
         <label htmlFor="q" className="sr">搜索用户</label>
         <input className="input search" id="q" placeholder="搜索用户名 / UUID / 备注" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} />
-        {filters.map((f) => <button key={f.k} className={'chip' + (filter === f.k ? ' on' : '')} type="button" onClick={() => setFilter(f.k)}>{f.label}{sum[f.sum] != null && <span className="chip-n">{sum[f.sum]}</span>}</button>)}
-        {(groups.data?.length ?? 0) > 0 && (
-          <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="按分组筛选">
-            <option value="">全部分组</option>
-            {groups.data!.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        )}
+        <div className="chips">
+          {filters.map((f) => <button key={f.k} className={'chip' + (filter === f.k ? ' on' : '')} type="button" onClick={() => setFilter(f.k)}>{f.label}{sum[f.sum] != null && <span className="chip-n">{sum[f.sum]}</span>}</button>)}
+          {(groups.data?.length ?? 0) > 0 && (
+            <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="按分组筛选">
+              <option value="">全部分组</option>
+              {groups.data!.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
+        </div>
         <span className="spacer" />
         {checked.length > 0 && (
           <>
@@ -526,7 +528,7 @@ export default function Users() {
       </div>
       <div className="card flush scroll">
         {items.length === 0 ? <Empty>{list.loading ? '加载中…' : '没有匹配的用户'}</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr>
               <th style={{ width: 32 }}><input type="checkbox" aria-label="全选" checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
               {th('username', '用户')}<th>状态</th><th>授权</th>{th('used', '流量（已用 / 总量）')}{th('expire', '到期')}{th('online', '最近在线')}<th>在线 IP</th><th>操作</th>
@@ -538,23 +540,23 @@ export default function Users() {
                 const d = daysLeft(u.expireAt)
                 return (
                   <tr key={u.id} className="clickable" onClick={() => setSelected(u)}>
-                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + u.username} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
-                    <td><div style={{ fontWeight: 500 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></td>
-                    <td>{statusBadge(u)}</td>
-                    <td>
+                    <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + u.username} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
+                    <td className="rt-head"><div style={{ fontWeight: 500 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></td>
+                    <td data-label="状态">{statusBadge(u)}</td>
+                    <td data-label="授权">
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title="整台节点">{nname(n)}</span>)}
                       {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
                       {(u.inboundIds ?? []).length > 0 && <span className="tag" title="单独授权的入站">+{u.inboundIds.length} 入站</span>}
                       {!u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">未授权</span>}
                     </td>
-                    <td style={{ minWidth: 180 }}>
+                    <td data-label="流量" className="rt-wrap" style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : '不限'}</span>
                       <div className="bar" style={{ marginTop: 6 }}><div style={{ width: pct + '%', background: pct >= 100 ? 'var(--bad)' : 'var(--pri)' }} /></div>
                     </td>
-                    <td className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? `${d} 天后` : date(u.expireAt)) : '永不'}</td>
-                    <td className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>在线</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">从未</span>}</td>
-                    <td className="mono">{isOnline(u.onlineAt) ? u.onlineIps.length : 0} / {u.ipLimit || '∞'}</td>
-                    <td onClick={(e) => e.stopPropagation()}>
+                    <td data-label="到期" className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? `${d} 天后` : date(u.expireAt)) : '永不'}</td>
+                    <td data-label="最近在线" className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>在线</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">从未</span>}</td>
+                    <td data-label="在线 IP" className="mono">{isOnline(u.onlineAt) ? u.onlineIps.length : 0} / {u.ipLimit || '∞'}</td>
+                    <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
                       {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, '流量已重置')}>重置流量</button>
                         : u.status === 'disabled' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post('/users/bulk', { action: 'enable', ids: [u.id] }); list.reload() }, '已启用')}>启用</button>
                         : <>
