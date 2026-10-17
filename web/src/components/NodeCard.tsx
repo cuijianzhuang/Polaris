@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { bps, bytes, coreShort, coreTagClass, nodeStatus } from '../format'
+import { bps, bytes, coreShort, coreTagClass, nodeStatus, netUsed } from '../format'
 import type { Node, NodeTraffic } from '../types'
 
 // Rate history per node, filled from heartbeats as they arrive (kept across
@@ -111,6 +111,22 @@ export function NodeActivity({ n, compact }: { n: Node; compact?: boolean }) {
   return null
 }
 
+// NetUsage shows the server's traffic this billing cycle against its allowance.
+export function NetUsage({ n }: { n: Node }) {
+  const used = netUsed(n)
+  const limit = n.netLimit ?? 0
+  if (!limit && !used) return null
+  const pct = limit ? Math.min(100, (100 * used) / limit) : 0
+  const warn = n.netWarnPct || 80
+  const cls = pct >= 100 ? 'bad' : pct >= warn ? 'warn' : ''
+  return (
+    <div className="nc-net" title={`本周期 ↓ ${bytes(n.netRx)} · ↑ ${bytes(n.netTx)}${n.netResetDay ? ` · 每月 ${n.netResetDay} 日重置` : ''}`}>
+      <div className="nc-net-row"><span>服务器流量</span><span className="mono">{bytes(used)}{limit ? ` / ${bytes(limit)}` : ''}</span></div>
+      {limit > 0 && <div className={'nc-net-bar ' + cls}><span style={{ width: pct + '%' }} /></div>}
+    </div>
+  )
+}
+
 // NodeCard is one tile of the node wall: status, live rate with a sparkline,
 // CPU and memory rings, today's traffic and cores.
 export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; on: boolean; onClick: () => void; traffic?: NodeTraffic; badge?: ReactNode }) {
@@ -134,6 +150,7 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
         </div>
       ) : <div className="nc-off">{n.status === 'pending' ? '等待 Agent 接入' : '节点离线，暂无实时数据'}</div>}
       <NodeActivity n={n} compact />
+      <NetUsage n={n} />
       <div className="nc-foot">
         <span className="mono">{traffic ? `今日 ${bytes(traffic.todayUp + traffic.todayDown)}` : '今日 —'}</span>
         <span>{n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>)}</span>

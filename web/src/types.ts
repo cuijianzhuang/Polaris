@@ -42,6 +42,9 @@ export interface Node {
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
   level?: number // tier a group needs to reach the node (0 = not tiered)
+  // Server traffic this billing cycle (host NICs) against the provider's allowance.
+  netLimit?: number; netMode?: '' | 'sum' | 'up' | 'down' | 'max'; netResetDay?: number; netWarnPct?: number
+  netOffset?: number; netRx?: number; netTx?: number; netCycleStart?: string; netWarned?: number
 }
 // What the node's agent is doing right now (applying a revision, installing
 // a core, upgrading itself); a finished one stays for about a minute.

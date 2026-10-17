@@ -41,6 +41,7 @@ func (s *sysSampler) Sample() *polarisv1.SystemStats {
 		}
 	}
 	s.rx, s.tx, s.at = rx, tx, now
+	out.RxBytes, out.TxBytes = rx, tx
 	if b, err := os.ReadFile("/proc/uptime"); err == nil {
 		f := strings.Fields(string(b))
 		if len(f) > 0 {
