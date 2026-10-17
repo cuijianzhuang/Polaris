@@ -68,7 +68,14 @@ jobs:
     needs: version
     if: needs.version.outputs.skip != 'true'
     uses: ./.github/workflows/ci.yml
+    secrets: inherit
 
+  # Both editions in one release:
+  #   community  polaris-panel-<v>-linux-<arch>.tar.gz      polaris-agent-linux-<arch>
+  #   pro        polaris-panel-pro-<v>-linux-<arch>.tar.gz  polaris-agent-pro-linux-<arch>
+  # The professional edition is compiled with the polaris-pro sources
+  # (-tags pro) and needs a license; it is skipped, with a warning, when the
+  # PRO_TOKEN secret is not set.
   binaries:
     needs: [version, test]
     runs-on: ubuntu-latest
@@ -82,15 +89,28 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Fetch the professional sources (polaris-pro)
+        id: pro
+        env:
+          PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PRO_TOKEN}" ]; then
+            echo "::warning::PRO_TOKEN is not set: only the community edition is released"
+            echo "dir=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git clone -q --depth 1 "https://x-access-token:${PRO_TOKEN}@github.com/cuijianzhuang/polaris-pro.git" "$RUNNER_TEMP/polaris-pro"
+          echo "dir=$RUNNER_TEMP/polaris-pro" >> "$GITHUB_OUTPUT"
       - name: Build web UI
         run: npm ci --no-audit --no-fund && npm run build
         working-directory: web
-      - name: Build panel and agent
+      - name: Build panel and agent (community, then pro)
         env:
           VERSION: ${{ needs.version.outputs.version }}
           # License server public keys (base64, comma separated); empty = licenses not accepted yet.
           LICENSE_PUBKEYS: ${{ secrets.LICENSE_PUBKEYS }}
           LICENSE_SERVER: ${{ vars.LICENSE_SERVER }}
+          PRO_DIR: ${{ steps.pro.outputs.dir }}
         run: |
           set -euo pipefail
           LDFLAGS="-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}"
@@ -98,13 +118,22 @@ jobs:
           if [ -n "${LICENSE_PUBKEYS}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS}"; fi
           if [ -n "${LICENSE_SERVER}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.DefaultLicenseServer=${LICENSE_SERVER}"; fi
           mkdir -p dist build
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o dist/polaris-agent-linux-$arch ./cmd/agent
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o build/polaris ./cmd/panel
-            tar -C build -czf dist/polaris-panel-${VERSION}-linux-$arch.tar.gz polaris \
-              -C "$GITHUB_WORKSPACE/deploy" polaris.service polaris.env.example Caddyfile
-            rm -f build/polaris
-          done
+          build() { # $1: build tags ("" or pro)
+            local ep=${1:+$1-}
+            for arch in amd64 arm64; do
+              CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$1" -ldflags "$LDFLAGS" -o dist/polaris-agent-${ep}linux-$arch ./cmd/agent
+              CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$1" -ldflags "$LDFLAGS" -o build/polaris ./cmd/panel
+              tar -C build -czf dist/polaris-panel-${ep}${VERSION}-linux-$arch.tar.gz polaris \
+                -C "$GITHUB_WORKSPACE/deploy" polaris.service polaris.env.example Caddyfile
+              rm -f build/polaris
+            done
+          }
+          build ""
+          if [ -n "${PRO_DIR}" ]; then
+            scripts/pro.sh copy "$PRO_DIR"
+            build pro
+            scripts/pro.sh clean
+          fi
           cp scripts/install-panel.sh dist/
           cd dist && sha256sum * > checksums.txt && cat checksums.txt
       - name: Smoke test the binaries
@@ -113,8 +142,14 @@ jobs:
         run: |
           set -euo pipefail
           ./dist/polaris-agent-linux-amd64 --version | tee /dev/stderr | grep -F "$VERSION"
-          tar -xzf dist/polaris-panel-${VERSION}-linux-amd64.tar.gz -C /tmp polaris
-          /tmp/polaris --version | tee /dev/stderr | grep -F "$VERSION"
+          mkdir -p /tmp/c /tmp/p
+          tar -xzf dist/polaris-panel-${VERSION}-linux-amd64.tar.gz -C /tmp/c polaris
+          /tmp/c/polaris --version | tee /dev/stderr | grep -qx "polaris ${VERSION}"
+          if [ -f dist/polaris-panel-pro-${VERSION}-linux-amd64.tar.gz ]; then
+            ./dist/polaris-agent-pro-linux-amd64 --version | tee /dev/stderr | grep -F "$VERSION"
+            tar -xzf dist/polaris-panel-pro-${VERSION}-linux-amd64.tar.gz -C /tmp/p polaris
+            /tmp/p/polaris --version | tee /dev/stderr | grep -qx "polaris ${VERSION} pro"
+          fi
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
@@ -122,30 +157,65 @@ jobs:
           tag_name: ${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           files: dist/*
+          body: |
+            **两个版本**（同一版本号，数据和配置通用，可以随时切换）：
+
+            | | 面板 | Agent | Docker |
+            |---|---|---|---|
+            | 社区版（开源） | `polaris-panel-<版本>-linux-<架构>.tar.gz` | `polaris-agent-linux-<架构>` | `ghcr.io/cuijianzhuang/polaris:<版本>` |
+            | 专业版（需要许可证） | `polaris-panel-pro-<版本>-linux-<架构>.tar.gz` | `polaris-agent-pro-linux-<架构>` | `ghcr.io/cuijianzhuang/polaris:<版本>-pro` |
+
+            安装专业版：安装命令加 `--pro`；已安装的面板执行 `polaris update --pro` 切换（`--community` 切回社区版）。之后的升级会沿用当前版本，节点 Agent 也会自动使用对应版本。
           generate_release_notes: true
           prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
 
   image:
     needs: [version, test]
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        edition: [community, pro]
     steps:
       - uses: actions/checkout@v4
+      - name: Add the professional sources (polaris-pro)
+        id: pro
+        if: matrix.edition == 'pro'
+        env:
+          PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PRO_TOKEN}" ]; then
+            echo "::warning::PRO_TOKEN is not set: no professional image"
+            echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git clone -q --depth 1 "https://x-access-token:${PRO_TOKEN}@github.com/cuijianzhuang/polaris-pro.git" "$RUNNER_TEMP/polaris-pro"
+          scripts/pro.sh copy "$RUNNER_TEMP/polaris-pro"
+          rm -rf "$RUNNER_TEMP/polaris-pro"
       - uses: docker/setup-qemu-action@v3
+        if: steps.pro.outputs.skip != 'true'
       - uses: docker/setup-buildx-action@v3
+        if: steps.pro.outputs.skip != 'true'
       - uses: docker/login-action@v3
+        if: steps.pro.outputs.skip != 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - id: meta
+        if: steps.pro.outputs.skip != 'true'
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # community: 1.2.3, 1.2, latest — pro: 1.2.3-pro, 1.2-pro, latest-pro
+          flavor: |
+            latest=false
+            suffix=${{ matrix.edition == 'pro' && '-pro' || '' }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.version.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.version }},enable=${{ needs.version.outputs.prerelease != 'true' }}
             type=raw,value=latest,enable=${{ needs.version.outputs.prerelease != 'true' }}
       - uses: docker/build-push-action@v6
+        if: steps.pro.outputs.skip != 'true'
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -153,7 +223,9 @@ jobs:
           build-args: |
             VERSION=${{ needs.version.outputs.version }}
             LICENSE_PUBKEYS=${{ secrets.LICENSE_PUBKEYS }}
+            LICENSE_SERVER=${{ vars.LICENSE_SERVER }}
+            TAGS=${{ matrix.edition == 'pro' && 'pro' || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.edition }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.edition }}

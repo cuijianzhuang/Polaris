@@ -599,29 +599,3 @@ func effectiveSpeed(u *store.User, plan [2]int) (up, down int) {
 	}
 	return up, down
 }
-
-// userLimits resolves each user's speed limit: the user's own rate per
-// direction, else the highest plan among their groups.
-func (s *Server) userLimits(us map[string]store.User) []model.UserLimit {
-	if len(us) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(us))
-	for id := range us {
-		ids = append(ids, id)
-	}
-	plan := s.groupPlans(ids)
-	var out []model.UserLimit
-	for _, id := range ids {
-		u := us[id]
-		if u.IsService {
-			continue // chain service accounts carry other users' traffic
-		}
-		up, down := effectiveSpeed(&u, plan[id])
-		if up > 0 || down > 0 {
-			out = append(out, model.UserLimit{User: id, UpKbps: up * 1000, DownKbps: down * 1000})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].User < out[j].User })
-	return out
-}

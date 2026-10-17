@@ -40,3 +40,7 @@ web/node_modules/
 web/dist/*
 !web/dist/.keep
 *.tsbuildinfo
+
+# closed-source sources from polaris-pro (scripts/pro.sh)
+*_pro.go
+*_pro_test.go

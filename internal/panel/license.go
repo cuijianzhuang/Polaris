@@ -83,7 +83,7 @@ func settingTime(s *Server, key string) time.Time {
 func (s *Server) initLicense() {
 	s.instanceID()
 	// The trial starts with the first build that enforces licensing.
-	if len(s.licenseKeys()) > 0 && s.st.GetSetting("license_trial_checked", "") == "" {
+	if proBuild && len(s.licenseKeys()) > 0 && s.st.GetSetting("license_trial_checked", "") == "" {
 		if s.usesPaidFeatures() {
 			s.st.SetSetting("license_trial_until", time.Now().Add(30*24*time.Hour).Format(time.RFC3339))
 			s.log.Info("paid features in use: 30-day trial started")
@@ -121,7 +121,43 @@ func (s *Server) reloadLicense() {
 		LastCheck: settingTime(s, "license_check_at"), TrialUntil: settingTime(s, "license_trial_until"),
 		Released: released, Now: time.Now(), Unenforced: len(s.licenseKeys()) == 0,
 	})
+	if !proBuild {
+		st = communityBuild(st)
+	}
 	s.lic.Store(&licenseState{st: st, lic: lic})
+}
+
+// Edition names this build: "pro" with the polaris-pro sources, else
+// "community".
+func Edition() string {
+	if proBuild {
+		return "pro"
+	}
+	return "community"
+}
+
+// editionAsset is the infix of this edition's release assets:
+// polaris-agent-pro-linux-amd64, polaris-panel-pro-v1.2.3-linux-amd64.tar.gz.
+func editionAsset() string {
+	if proBuild {
+		return "pro-"
+	}
+	return ""
+}
+
+// communityBuild: a build without the polaris-pro sources has none of the
+// paid features, whatever the license says.
+func communityBuild(st license.State) license.State {
+	st.Features = []string{}
+	st.TrialUntil = nil
+	switch st.Plan {
+	case "open", "trial":
+		st.Plan, st.Source = "community", "none"
+	}
+	if st.Source == "license" {
+		st.Warnings = append(st.Warnings, "当前是社区版构建（从源码编译），不包含高级功能；请使用官方发布版以启用许可证中的功能")
+	}
+	return st
 }
 
 // license is the state in effect.
@@ -293,7 +329,8 @@ func (s *Server) licenseView() gin.H {
 	s.st.DB.Model(&store.Node{}).Count(&nodes)
 	s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&users)
 	out := gin.H{"state": st, "instance": s.instanceID(), "usage": gin.H{"nodes": nodes, "users": users},
-		"server": s.licenseServer() != "", "keys": len(s.licenseKeys()) > 0, "planName": planNames[st.Plan]}
+		"server": s.licenseServer() != "", "keys": len(s.licenseKeys()) > 0, "planName": planNames[st.Plan],
+		"edition": Edition()}
 	if l := s.installedLicense(); l != nil {
 		out["license"] = gin.H{"id": l.ID, "customer": l.Customer, "plan": l.Plan, "offline": l.Offline,
 			"issuedAt": l.IssuedAt, "expiresAt": l.ExpiresAt, "updatesUntil": l.UpdatesUntil, "features": l.Features, "limits": l.Limits}

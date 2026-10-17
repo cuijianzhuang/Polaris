@@ -141,5 +141,6 @@ const m: Record<string, string> = {
   '高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。': 'Paid features trial: {n} days left. Afterwards what is configured keeps working but can no longer be changed.',
   '导入许可证文件': 'Import license file',
   '离线许可证或授权后台下载的许可证文本；也可以直接导入 .lic 文件': 'An offline license or the license text from the license portal; or import a .lic file',
+  '当前是社区版构建（从开源代码编译），不包含高级功能。官方发布版包含专业版功能，安装许可证后即可启用。': 'This is a community build (compiled from the open source code) without the paid features. The official release includes them; install a license to enable them.',
 }
 export default m

@@ -36,6 +36,23 @@ jobs:
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_GOST_BIN: /tmp/cores/gost/gost
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
+      - name: Professional edition (polaris-pro sources, when PRO_TOKEN is available)
+        env:
+          PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          POLARIS_XRAY_BIN: /tmp/cores/xray/xray
+          POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
+          POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
+        run: |
+          set -euo pipefail
+          if [ -z "${PRO_TOKEN}" ]; then echo "PRO_TOKEN not available: community edition only"; exit 0; fi
+          url="https://x-access-token:${PRO_TOKEN}@github.com/cuijianzhuang/polaris-pro.git"
+          # the same branch name in polaris-pro when it exists, else main
+          git clone -q --depth 1 --branch "$BRANCH" "$url" /tmp/polaris-pro 2>/dev/null || git clone -q --depth 1 "$url" /tmp/polaris-pro
+          scripts/pro.sh copy /tmp/polaris-pro
+          go vet -tags pro ./...
+          go test -count=1 -tags pro ./internal/panel/ ./internal/agent/ ./internal/license/
+          scripts/pro.sh clean
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
   web:

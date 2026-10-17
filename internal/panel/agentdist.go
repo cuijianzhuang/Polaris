@@ -50,7 +50,16 @@ func (s *Server) agentCurrent(arch string) bool {
 	if err != nil {
 		v, err = os.ReadFile(filepath.Join(s.downloadsDir(), ".version")) // older single marker
 	}
-	return err != nil || strings.TrimSpace(string(v)) == Version
+	return err != nil || strings.TrimSpace(string(v)) == agentMarker()
+}
+
+// agentMarker is what .version-<arch> holds for this build: the version,
+// plus " pro" for the professional edition (whose agents differ).
+func agentMarker() string {
+	if proBuild {
+		return Version + " pro"
+	}
+	return Version
 }
 
 // agentCacheCurrent reports whether the panel's own architecture is cached.
@@ -74,11 +83,12 @@ func (s *Server) ensureAgent(ctx context.Context, arch string) error {
 	if s.agentCurrent(arch) {
 		return nil
 	}
-	if err := s.fetchRelease(ctx, "polaris-agent-linux-"+arch, s.agentPath(arch), 0o755, 200<<20); err != nil {
+	// The release asset of this edition, kept under the plain name nodes ask for.
+	if err := s.fetchRelease(ctx, "polaris-agent-"+editionAsset()+"linux-"+arch, s.agentPath(arch), 0o755, 200<<20); err != nil {
 		return err
 	}
-	s.log.Info("cached agent binary", "arch", arch, "version", Version)
-	return os.WriteFile(filepath.Join(s.downloadsDir(), ".version-"+arch), []byte(Version+"\n"), 0o644)
+	s.log.Info("cached agent binary", "arch", arch, "version", Version, "edition", Edition())
+	return os.WriteFile(filepath.Join(s.downloadsDir(), ".version-"+arch), []byte(agentMarker()+"\n"), 0o644)
 }
 
 // fetchRelease downloads one asset of this version's release (through the

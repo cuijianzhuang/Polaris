@@ -19,6 +19,7 @@ CA="__PANEL_CA__"
 PANEL_VERSION="__PANEL_VERSION__"
 SHA_amd64="__SHA_AMD64__"
 SHA_arm64="__SHA_ARM64__"
+AGENT_ASSET="__AGENT_ASSET__" # release asset prefix of the panel's edition (community / pro)
 TOKEN="__PANEL_TOKEN__" DATA="" MIRROR="" MODE="install" PURGE="" LOCAL=""
 BIN="/usr/local/bin/polaris-agent"
 UNIT="/etc/systemd/system/polaris-agent.service"
@@ -174,9 +175,9 @@ if [ -n "$WANT" ] && fetch "$PANEL_HTTP/download/polaris-agent-linux-$ARCH" "$TM
   info "来源：主控 $PANEL_HTTP"
 else
   info "来源：$RELEASE_URL"
-  fetch "$RELEASE_URL/polaris-agent-linux-$ARCH" "$TMP" || die "下载失败；国内服务器可加 --mirror https://ghfast.top/ 等 GitHub 镜像"
+  fetch "$RELEASE_URL/$AGENT_ASSET-$ARCH" "$TMP" || die "下载失败；国内服务器可加 --mirror https://ghfast.top/ 等 GitHub 镜像"
   fetch "$RELEASE_URL/checksums.txt" "$SUMS" || die "下载 checksums.txt 失败"
-  WANT="$(awk -v f="polaris-agent-linux-$ARCH" '$2 == f || $2 == "*"f {print $1}' "$SUMS")"
+  WANT="$(awk -v f="$AGENT_ASSET-$ARCH" '$2 == f || $2 == "*"f {print $1}' "$SUMS")"
 fi
 GOT="$(sha256sum "$TMP" | awk '{print $1}')"
 [ -n "$WANT" ] && [ "$GOT" = "$WANT" ] || die "SHA256 校验失败（期望 ${WANT:-无}，实际 $GOT），已中止"

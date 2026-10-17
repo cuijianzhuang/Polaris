@@ -135,30 +135,24 @@ func TestTelegramBot(t *testing.T) {
 	fake.push(msg(200, "/me"))
 	fake.push(msg(100, "/status"))
 	fake.push(msg(300, "/status"))
-	waitUntil(t, "replies", func() bool {
-		return strings.Contains(fake.textsTo(200), "alice") && strings.Contains(fake.textsTo(100), "tokyo") && strings.Contains(fake.textsTo(300), "hk")
-	})
-	if strings.Contains(fake.textsTo(300), "tokyo") {
-		t.Fatal("operator must not see nodes outside its scope")
-	}
-
-	// Owner disables alice from an inline button; operator cannot sync tokyo.
-	fake.push(cb(100, "u:d:u1"))
-	fake.push(cb(300, "n:s:n1"))
-	fake.push(cb(200, "u:d:u1"))
-	waitUntil(t, "callbacks", func() bool {
+	if proBuild {
+		adminMenusPro(t, fake, db)
+	} else {
+		// Community build: the admin menus answer with the professional
+		// edition notice; nothing changes.
+		fake.push(cb(100, "u:d:u1"))
+		waitUntil(t, "replies", func() bool {
+			fake.mu.Lock()
+			n := len(fake.answers)
+			fake.mu.Unlock()
+			return strings.Contains(fake.textsTo(200), "alice") && strings.Contains(fake.textsTo(100), "专业版") &&
+				strings.Contains(fake.textsTo(300), "专业版") && n >= 1
+		})
 		var u store.User
 		db.First(&u, "id = ?", "u1")
-		fake.mu.Lock()
-		n := len(fake.answers)
-		fake.mu.Unlock()
-		return u.Status == "disabled" && n >= 3
-	})
-	fake.mu.Lock()
-	answers := strings.Join(fake.answers, "|")
-	fake.mu.Unlock()
-	if strings.Count(answers, "无权限") != 2 {
-		t.Fatalf("expected two permission refusals, got %q", answers)
+		if u.Status != "active" || strings.Contains(fake.textsTo(100), "tokyo") {
+			t.Fatalf("community build ran an admin action: %s", u.Status)
+		}
 	}
 
 	// Events: users get a user-facing text, operators only their nodes' events.
