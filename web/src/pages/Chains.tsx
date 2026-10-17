@@ -71,7 +71,7 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
   const nodeIns = (id: string) => inbounds.filter((i) => i.nodeId === id)
   return (
     <Drawer title={chain ? t('编辑链路') : t('新建链路')} onClose={onClose} footer={<>
-      <button className="btn" type="button" onClick={onClose}>取消</button>
+      <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !name} onClick={() => run(async () => {
         const body = { name, mode, remark, hops: hops.map((h, i) => ({ nodeId: h.nodeId, inboundId: i === hops.length - 1 || mode === 'proxy' ? h.inboundId : undefined, port: mode === 'l4' && i < hops.length - 1 ? Number(h.port) : undefined })) }
         if (chain) await put('/chains/' + chain.id, body)
@@ -132,7 +132,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
   const { busy, run } = useAction()
   return (
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
-      <button className="btn" type="button" onClick={onClose}>取消</button>
+      <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !f.name || !f.originDomain} onClick={() => run(async () => {
         const body = { ...f, ports: f.ports.split(/[,\s]+/).map(Number).filter(Boolean), preferredIps: fromLines(f.preferredIps), ipTopN: Number(f.ipTopN) || 0 }
         if (profile) await put('/cdn-profiles/' + profile.id, body)
@@ -229,7 +229,7 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
   const caps = useLoad(() => get<CapSet[]>('/capabilities?node=' + node.id), [node.id]).data ?? []
   return (
     <Drawer title={outbound ? t('编辑出站 · {tag}', { tag: outbound.tag }) : t('新建出站')} onClose={onClose} footer={<>
-      <button className="btn" type="button" onClick={onClose}>取消</button>
+      <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !f.tag} onClick={() => run(async () => {
         const body = { tag: f.tag, type: f.type, nodeRefInboundId: f.type === 'node_ref' ? f.nodeRefInboundId : '', detour: f.detour, remark: f.remark, settings: f.type === 'node_ref' ? undefined : settings() }
         if (outbound) await put(`/nodes/${node.id}/outbounds/${outbound.id}`, body)
