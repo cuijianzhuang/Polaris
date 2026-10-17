@@ -12,8 +12,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -35,11 +37,24 @@ type limiter struct {
 	mu      sync.Mutex
 	buckets map[string]*userBucket
 	servers map[string]*limitServer // by listen address
+
+	statAt   time.Time
+	lastSeen map[string][2]int64 // byte counters at the previous stats call
 }
 
 type userBucket struct {
 	up, down *rate.Limiter
 	conns    int
+	// bytes passed each way, for the speed the heartbeat reports
+	upBytes, downBytes atomic.Int64
+	limited            bool // listed in the spec's limits
+}
+
+// limitStat is one limited user's allowance and current speed.
+type limitStat struct {
+	User             string
+	UpKbps, DownKbps int   // allowance (0 = unlimited)
+	UpBps, DownBps   int64 // measured since the previous stats call
 }
 
 // maxUserConns caps one limited user's concurrent connections through the
@@ -103,9 +118,11 @@ func (l *limiter) setLimits(ls []model.UserLimit) {
 		}
 		setRate(b.up, u.UpKbps)
 		setRate(b.down, u.DownKbps)
+		b.limited = true
 	}
 	for id, b := range l.buckets {
 		if !seen[id] {
+			b.limited = false
 			setRate(b.up, 0)
 			setRate(b.down, 0)
 			if b.conns == 0 {
@@ -137,6 +154,42 @@ func (l *limiter) release(user string, b *userBucket) {
 	if b.conns == 0 && b.up.Limit() == rate.Inf && b.down.Limit() == rate.Inf {
 		delete(l.buckets, user)
 	}
+}
+
+// kbps turns a limiter rate back into kbit/s (0 = unlimited).
+func kbps(r *rate.Limiter) int {
+	if r.Limit() == rate.Inf {
+		return 0
+	}
+	return int(float64(r.Limit()) * 8 / 1000)
+}
+
+// stats reports every limited user's allowance and speed since the last call.
+func (l *limiter) stats() []limitStat {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	secs := now.Sub(l.statAt).Seconds()
+	first := l.statAt.IsZero()
+	l.statAt = now
+	seen := map[string][2]int64{}
+	var out []limitStat
+	for id, b := range l.buckets {
+		if !b.limited {
+			continue
+		}
+		cur := [2]int64{b.upBytes.Load(), b.downBytes.Load()}
+		seen[id] = cur
+		st := limitStat{User: id, UpKbps: kbps(b.up), DownKbps: kbps(b.down)}
+		if prev, ok := l.lastSeen[id]; ok && !first && secs > 0 {
+			st.UpBps = int64(float64(cur[0]-prev[0]) * 8 / secs)
+			st.DownBps = int64(float64(cur[1]-prev[1]) * 8 / secs)
+		}
+		out = append(out, st)
+	}
+	l.lastSeen = seen
+	sort.Slice(out, func(i, j int) bool { return out[i].User < out[j].User })
+	return out
 }
 
 // wire returns how a core reaches the limiter (starting the listener on
@@ -248,8 +301,8 @@ func (s *limitServer) connect(c net.Conn, user string, addr []byte, b *userBucke
 	}
 	c.SetDeadline(time.Time{})
 	done := make(chan struct{}, 2)
-	go func() { limitedCopy(r, c, b.up); closeWrite(r); done <- struct{}{} }()
-	go func() { limitedCopy(c, r, b.down); closeWrite(c); done <- struct{}{} }()
+	go func() { limitedCopy(r, c, b.up, &b.upBytes); closeWrite(r); done <- struct{}{} }()
+	go func() { limitedCopy(c, r, b.down, &b.downBytes); closeWrite(c); done <- struct{}{} }()
 	<-done
 	<-done
 }
@@ -261,7 +314,7 @@ func closeWrite(c net.Conn) {
 }
 
 // limitedCopy copies src to dst at the bucket's rate.
-func limitedCopy(dst io.Writer, src io.Reader, lim *rate.Limiter) {
+func limitedCopy(dst io.Writer, src io.Reader, lim *rate.Limiter, count *atomic.Int64) {
 	buf := make([]byte, 32<<10)
 	ctx := context.Background()
 	for {
@@ -279,6 +332,7 @@ func limitedCopy(dst io.Writer, src io.Reader, lim *rate.Limiter) {
 			if _, werr := dst.Write(buf[:m]); werr != nil {
 				return
 			}
+			count.Add(int64(m))
 		}
 		if err != nil {
 			return
@@ -334,6 +388,7 @@ func (s *limitServer) associate(c net.Conn, user string, b *userBucket) {
 				continue
 			}
 			up.Write(buf[:n])
+			b.upBytes.Add(int64(n))
 		}
 	}()
 	go func() { // re-entry -> core (download)
@@ -350,6 +405,7 @@ func (s *limitServer) associate(c net.Conn, user string, b *userBucket) {
 				continue
 			}
 			local.WriteToUDP(buf[:n], to)
+			b.downBytes.Add(int64(n))
 		}
 	}()
 	// The association lives as long as either control connection.

@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/driver/postgres"
@@ -23,7 +25,22 @@ import (
 type Store struct {
 	DB  *gorm.DB
 	Box *secret.Box
+
+	// Settings are read on hot paths (every subscription request, request
+	// middleware); SetSetting is the only writer, so reads come from memory.
+	setMu    sync.Mutex
+	settings map[string]cachedSetting
 }
+
+type cachedSetting struct {
+	value string
+	found bool
+	at    time.Time
+}
+
+// settingTTL bounds how long a cached setting is trusted (a safety net for
+// writes that bypass SetSetting, such as a restored database).
+const settingTTL = time.Minute
 
 // Open connects and migrates. DSNs starting with postgres:// or postgresql://
 // use PostgreSQL; anything else is a SQLite file path.
@@ -117,16 +134,43 @@ func (j *JSON[T]) UnmarshalJSON(b []byte) error {
 
 // GetSetting returns a setting or the default.
 func (s *Store) GetSetting(key, def string) string {
-	var st Setting
-	if err := s.DB.First(&st, "key = ?", key).Error; err != nil {
+	s.setMu.Lock()
+	c, ok := s.settings[key]
+	s.setMu.Unlock()
+	if !ok || time.Since(c.at) > settingTTL {
+		var st Setting
+		err := s.DB.First(&st, "key = ?", key).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return def // database trouble: do not cache the miss
+		}
+		c = cachedSetting{value: st.Value, found: err == nil, at: time.Now()}
+		s.setMu.Lock()
+		if s.settings == nil {
+			s.settings = map[string]cachedSetting{}
+		}
+		s.settings[key] = c
+		s.setMu.Unlock()
+	}
+	if !c.found {
 		return def
 	}
-	return st.Value
+	return c.value
 }
 
 // SetSetting upserts a setting.
 func (s *Store) SetSetting(key, value string) error {
-	return s.DB.Save(&Setting{Key: key, Value: value}).Error
+	err := s.DB.Save(&Setting{Key: key, Value: value}).Error
+	s.setMu.Lock()
+	if s.settings == nil {
+		s.settings = map[string]cachedSetting{}
+	}
+	if err == nil {
+		s.settings[key] = cachedSetting{value: value, found: true, at: time.Now()}
+	} else {
+		delete(s.settings, key)
+	}
+	s.setMu.Unlock()
+	return err
 }
 
 // Close closes the underlying database connections.

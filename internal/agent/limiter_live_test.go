@@ -169,7 +169,11 @@ func limiterLive(t *testing.T, typ model.CoreType, bin, ver string, mk func(core
 		t.Errorf("unlimited user took %v", d)
 	}
 	// Limited user: 3 MB at 1 MB/s ≈ 3 s (the burst shaves a little).
+	lim.stats()
 	n, d, err = get(s1, target, 0)
+	if st := lim.stats(); len(st) != 1 || st[0].DownBps < 6_000_000 || st[0].DownBps > 10_000_000 {
+		t.Errorf("reported speed during a 8 Mbps download: %+v", st)
+	}
 	if err != nil || n != len(payload) {
 		t.Fatalf("u1 download: %d bytes, %v", n, err)
 	}

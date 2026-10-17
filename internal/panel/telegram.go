@@ -980,7 +980,7 @@ func (s *Server) dailyReportText(now time.Time) string {
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	sum := func(from, to time.Time) (up, down int64) {
 		var r struct{ Up, Down int64 }
-		s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+		realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
 			Where("hour >= ? AND hour < ?", from.UTC(), to.UTC()).Scan(&r)
 		return r.Up, r.Down
 	}

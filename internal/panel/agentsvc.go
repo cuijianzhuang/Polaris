@@ -113,6 +113,7 @@ func (a *agentService) Connect(ctx context.Context, stream *connect.BidiStream[p
 		a.s.hbMu.Lock()
 		delete(a.s.hbCores, n.ID)
 		delete(a.s.progress, n.ID)
+		delete(a.s.limited, n.ID)
 		a.s.hbMu.Unlock()
 		if !a.s.hub.Online(n.ID) {
 			a.s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Update("status", "offline")
@@ -241,6 +242,12 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		status = "error"
 	}
 	s.observePublicIP(&n, hb.PublicIpv4, hb.PublicIpv6)
+	s.hbMu.Lock()
+	if s.limited == nil {
+		s.limited = map[string][]*polarisv1.LimitedUser{}
+	}
+	s.limited[nodeID] = hb.Limited
+	s.hbMu.Unlock()
 	if n.Status == "offline" || n.Status == "pending" {
 		if n.Status == "offline" && n.LastSeen != nil {
 			s.notify(Event{Kind: "node_online", NodeID: n.ID, Text: "🟢 节点 " + n.Name + " 已恢复在线"})

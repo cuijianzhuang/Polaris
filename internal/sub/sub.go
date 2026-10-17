@@ -61,6 +61,7 @@ type Info struct {
 	SupportURL string // support / contact link
 	BotURL     string // Telegram deep link for one-tap binding
 	ResetNote  string // e.g. "每月 1 日重置"
+	SpeedNote  string // per-user speed limit, e.g. "↑ 10 Mbps · ↓ 50 Mbps"
 	// Portal renders the page as the signed-in user center (reset link and
 	// sign-out actions instead of the bot binding button).
 	Portal bool

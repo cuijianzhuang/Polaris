@@ -137,6 +137,7 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/nodes/:id/net", s.putNodeNet)
 	p.POST("/nodes/:id/net-reset", s.resetNodeNet)
 	p.GET("/nodes/:id/net-daily", s.nodeNetDaily)
+	p.GET("/nodes/:id/limited", s.nodeLimited)
 	p.PUT("/nodes/:id/cost", s.putNodeCost)
 	p.POST("/nodes/:id/renew", s.renewNodeCost)
 	p.GET("/costs", s.listCosts)

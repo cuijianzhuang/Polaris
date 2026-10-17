@@ -100,5 +100,12 @@ const m: Record<string, string> = {
   '限速套餐 上行 / 下行 (Mbps)': 'Speed plan up / down (Mbps)',
   '组内没有单独设置限速的用户按此限速（属于多个分组取最高）；0 为不限': 'Applies to members without their own limit (the highest plan among their groups); 0 = unlimited',
   '单独限速 (Mbps)': 'Own speed limit (Mbps)',
+  '限速用户': 'Speed-limited users',
+  '{n} 个用户受限速': '{n} users limited',
+  '{n} 个已顶满': '{n} at their limit',
+  '额度 ↑ / ↓': 'Allowance ↑ / ↓',
+  '当前 ↑ / ↓': 'Now ↑ / ↓',
+  '占用': 'Use',
+  '已顶满': 'At limit',
 }
 export default m

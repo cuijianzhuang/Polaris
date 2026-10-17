@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -154,6 +155,7 @@ func (s *Server) pageExtras(info *sub.Info, u *store.User, nodes []sub.Node) {
 	}
 	info.Status = u.Status
 	planInfo(info, u)
+	info.SpeedNote = s.speedNote(u)
 	if s.tg != nil && s.tg.isRunning() {
 		s.tg.mu.Lock()
 		me := s.tg.me
@@ -247,4 +249,26 @@ func planInfo(info *sub.Info, u *store.User) {
 	if u.ExpireAt == nil {
 		info.ExpireAfterDays = u.ExpireAfterDays
 	}
+}
+
+// speedNote describes the user's speed limit for the info page, or "" when
+// none applies (no limit, or only Hysteria2 inbounds, where it is not enforced).
+func (s *Server) speedNote(u *store.User) string {
+	up, down := effectiveSpeed(u, s.groupPlans([]string{u.ID})[u.ID])
+	if up <= 0 && down <= 0 {
+		return ""
+	}
+	var n int64
+	s.st.DB.Raw("SELECT COUNT(*) FROM ("+store.GrantsSQL+") g JOIN inbounds i ON i.id = g.inbound_id WHERE g.user_id = ? AND i.core <> ?",
+		u.ID, string(model.CoreHysteria)).Scan(&n)
+	if n == 0 {
+		return ""
+	}
+	f := func(v int) string {
+		if v <= 0 {
+			return "不限"
+		}
+		return fmt.Sprintf("%d Mbps", v)
+	}
+	return "↑ " + f(up) + " · ↓ " + f(down)
 }

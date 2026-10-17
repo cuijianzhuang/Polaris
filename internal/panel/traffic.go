@@ -561,3 +561,11 @@ func (l netList) contains(ip string) bool {
 func isTagCounter(id string) bool {
 	return strings.HasPrefix(id, core.TagPrefixInbound) || strings.HasPrefix(id, core.TagPrefixOutbound)
 }
+
+// realUsers keeps the rows of real users: chain service accounts carry
+// traffic another node already counted for its user (a hop through this
+// node), so totals and rankings would count it twice. Per-node views keep
+// them, since the hop is load on that node.
+func realUsers(q *gorm.DB) *gorm.DB {
+	return q.Where("user_id NOT IN (SELECT id FROM users WHERE is_service = ?)", true)
+}

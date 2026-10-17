@@ -107,6 +107,8 @@ func (s *Server) statsReport(c *gin.Context) {
 	scoped := func(q *gorm.DB) *gorm.DB {
 		if nodeF != "" {
 			q = q.Where("node_id = ?", nodeF)
+		} else {
+			q = realUsers(q)
 		}
 		if userF != "" {
 			q = q.Where("user_id = ?", userF)
@@ -207,6 +209,8 @@ func (s *Server) statsExport(c *gin.Context) {
 	eq := s.st.DB.Model(&store.TrafficDaily{}).Where("day >= ? AND day <= ?", from, to)
 	if v := c.Query("node"); v != "" {
 		eq = eq.Where("node_id = ?", v)
+	} else {
+		eq = realUsers(eq)
 	}
 	if v := c.Query("user"); v != "" {
 		eq = eq.Where("user_id = ?", v)
@@ -289,9 +293,9 @@ func (s *Server) checkTrafficSpikes() {
 		Total  int64
 	}
 	var recent, before []row
-	s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up+down) AS total").
+	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("user_id, SUM(up+down) AS total").
 		Where("hour >= ?", now.Add(-24*time.Hour).UTC()).Group("user_id").Scan(&recent)
-	s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up+down) AS total").
+	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("user_id, SUM(up+down) AS total").
 		Where("hour >= ? AND hour < ?", now.Add(-8*24*time.Hour).UTC(), now.Add(-24*time.Hour).UTC()).Group("user_id").Scan(&before)
 	base := map[string]int64{}
 	for _, r := range before {

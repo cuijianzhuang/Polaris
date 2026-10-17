@@ -313,6 +313,12 @@ func (a *Agent) sendHeartbeat() error {
 		}
 		hb.Cores = append(hb.Cores, cs)
 	}
+	if a.lim != nil {
+		for _, st := range a.lim.stats() {
+			hb.Limited = append(hb.Limited, &polarisv1.LimitedUser{UserId: st.User, UpKbps: int32(st.UpKbps),
+				DownKbps: int32(st.DownKbps), UpBps: st.UpBps, DownBps: st.DownBps})
+		}
+	}
 	a.coresMu.RLock()
 	for t, ic := range a.idle {
 		if _, ok := a.cores[t]; !ok {
