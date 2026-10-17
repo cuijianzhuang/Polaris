@@ -33,8 +33,9 @@ func TestACMEHTTP01(t *testing.T) {
 	// All ports are reserved together: freePort releases its port at once,
 	// so separate calls can hand out the same number twice (the HTTP-01
 	// port then collides with a listener of this process).
-	ports := distinctPorts(t, 7)
-	acmePort, challengePort, mgmtPort, httpPort, agentPort, authPort, apiBase := ports[0], ports[1], ports[2], ports[3], ports[4], ports[5], ports[6]
+	ports := distinctPorts(t, 6)
+	acmePort, challengePort, mgmtPort, httpPort, agentPort, authPort := ports[0], ports[1], ports[2], ports[3], ports[4], ports[5]
+	apiBase := agentPortBase(t)
 	var pcfg map[string]map[string]any
 	raw, _ := os.ReadFile(filepath.Join(pdir, "config.json"))
 	if err := json.Unmarshal(raw, &pcfg); err != nil {
@@ -145,8 +146,8 @@ func TestACMEHTTP01(t *testing.T) {
 }
 
 // distinctPorts reserves n free ports at once, away from each other's and
-// every earlier port's neighbourhood (the agent uses apiBase+0..+20 for
-// core APIs).
+// every earlier port's neighbourhood. Agent API bases come from
+// agentPortBase, which keeps the agent's whole port range clear.
 func distinctPorts(t *testing.T, n int) []int {
 	var ls []net.Listener
 	defer func() {
