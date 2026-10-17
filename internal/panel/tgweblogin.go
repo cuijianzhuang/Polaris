@@ -158,7 +158,7 @@ func (s *Server) pollWebLogin(c *gin.Context, w *tgWebLogins) (subject string, c
 // webLoginPrompt answers /start weblogin_<id> with the number choices.
 func (b *tgBot) webLoginPrompt(chat int64, reqID string, id tgIdentity) {
 	if id.admin == nil {
-		b.send(chat, "🚫 只有已绑定的管理员可以用 Telegram 登录面板。", backRow(""))
+		b.send(chat, "🚫 只有已绑定的管理员可以用 Telegram 登录管理后台（普通用户请使用用户中心）。", backRow(""))
 		return
 	}
 	scope := "完整权限"

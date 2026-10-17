@@ -114,7 +114,7 @@ func (b *tgBot) homeButtons(id tgIdentity) [][]button {
 		if !id.admin.Notify {
 			notify = "🔕 告警：关"
 		}
-		rows = append(rows, []button{{Text: "🔑 登录面板", Data: "m:login"}, {Text: notify, Data: "m:notify"}})
+		rows = append(rows, []button{{Text: "🛠 登录后台", Data: "m:login"}, {Text: notify, Data: "m:notify"}})
 	}
 	rows = append(rows, []button{{Text: "❓ 帮助", Data: "v:help"}})
 	return rows
