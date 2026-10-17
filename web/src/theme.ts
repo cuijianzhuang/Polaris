@@ -1,18 +1,19 @@
 // Panel themes: light / dark / follow-system plus an accent palette,
 // stored per browser and applied as data-mode / data-accent on <html>.
 import { useEffect, useState } from 'react'
+import { t } from './i18n'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 export interface Theme { mode: ThemeMode; accent: string }
 
 export const accents: { id: string; label: string; color: string }[] = [
-  { id: 'teal', label: '青碧', color: '#0E7490' },
-  { id: 'blue', label: '海蓝', color: '#2563EB' },
-  { id: 'violet', label: '紫罗兰', color: '#7C3AED' },
-  { id: 'green', label: '松绿', color: '#15803D' },
-  { id: 'rose', label: '玫红', color: '#E11D48' },
-  { id: 'orange', label: '橙', color: '#C2410C' },
-  { id: 'slate', label: '石墨', color: '#475569' },
+  { id: 'teal', label: t('青碧'), color: '#0E7490' },
+  { id: 'blue', label: t('海蓝'), color: '#2563EB' },
+  { id: 'violet', label: t('紫罗兰'), color: '#7C3AED' },
+  { id: 'green', label: t('松绿'), color: '#15803D' },
+  { id: 'rose', label: t('玫红'), color: '#E11D48' },
+  { id: 'orange', label: t('橙'), color: '#C2410C' },
+  { id: 'slate', label: t('石墨'), color: '#475569' },
 ]
 
 const KEY = 'polaris.theme'

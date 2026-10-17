@@ -5,6 +5,8 @@ import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { recordRates } from './components/NodeCard'
 import { useTheme } from './theme'
+import { t } from './i18n'
+import LangToggle from './components/LangToggle'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import SudoPrompt from './components/SudoPrompt'
 import type { Node } from './types'
@@ -62,26 +64,26 @@ function NodesProvider({ children }: { children: ReactNode }) {
 type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; children?: { to: string; label: string; icon: ReactNode }[] }
 
 const nav: NavItem[] = [
-  { to: '/', label: '仪表盘', icon: <Icon.Dashboard />, end: true },
-  { to: '/stats', label: '统计', icon: <Icon.Chart /> },
-  { to: '/nodes', label: '节点与内核', icon: <Icon.Nodes />, children: [
-    { to: '/nodes', label: '节点', icon: <Icon.Server /> },
-    { to: '/cores', label: '内核', icon: <Icon.Cpu /> },
+  { to: '/', label: t('仪表盘'), icon: <Icon.Dashboard />, end: true },
+  { to: '/stats', label: t('统计'), icon: <Icon.Chart /> },
+  { to: '/nodes', label: t('节点与内核'), icon: <Icon.Nodes />, children: [
+    { to: '/nodes', label: t('节点'), icon: <Icon.Server /> },
+    { to: '/cores', label: t('内核'), icon: <Icon.Cpu /> },
   ] },
-  { to: '/inbounds', label: '入站', icon: <Icon.Inbound /> },
-  { to: '/chains', label: '链路与 CDN', icon: <Icon.Chain /> },
-  { to: '/forwards', label: '端口转发', icon: <Icon.Forward /> },
-  { to: '/templates', label: '入站模板', icon: <Icon.Template /> },
-  { to: '/users', label: '用户', icon: <Icon.Users /> },
-  { to: '/sub-templates', label: '订阅设置', icon: <Icon.Sub /> },
-  { to: '/convert', label: '订阅转换', icon: <Icon.Convert /> },
-  { to: '/domains', label: '域名与 DDNS', icon: <Icon.Globe /> },
+  { to: '/inbounds', label: t('入站'), icon: <Icon.Inbound /> },
+  { to: '/chains', label: t('链路与 CDN'), icon: <Icon.Chain /> },
+  { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward /> },
+  { to: '/templates', label: t('入站模板'), icon: <Icon.Template /> },
+  { to: '/users', label: t('用户'), icon: <Icon.Users /> },
+  { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub /> },
+  { to: '/convert', label: t('订阅转换'), icon: <Icon.Convert /> },
+  { to: '/domains', label: t('域名与 DDNS'), icon: <Icon.Globe /> },
 ]
 const sysNav = [
-  { to: '/certificates', label: '证书', icon: <Icon.Lock /> },
-  { to: '/telegram', label: 'Telegram 机器人', icon: <Icon.Bot /> },
-  { to: '/settings', label: '设置', icon: <Icon.Gear /> },
-  { to: '/audit', label: '审计日志', icon: <Icon.Log /> },
+  { to: '/certificates', label: t('证书'), icon: <Icon.Lock /> },
+  { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot /> },
+  { to: '/settings', label: t('设置'), icon: <Icon.Gear /> },
+  { to: '/audit', label: t('审计日志'), icon: <Icon.Log /> },
 ]
 
 // TopProgress is a thin bar shown while API requests are in flight (after a
@@ -121,23 +123,23 @@ function NavGroup({ item }: { item: NavItem }) {
 
 // ThemeToggle cycles light → dark → follow system; accents live in 设置.
 function ThemeToggle() {
-  const [t, setT] = useTheme()
+  const [th, setTh] = useTheme()
   const next = { light: 'dark', dark: 'system', system: 'light' } as const
-  const label = { light: '浅色', dark: '深色', system: '跟随系统' }[t.mode]
+  const label = { light: t('浅色'), dark: t('深色'), system: t('跟随系统') }[th.mode]
   return (
-    <button type="button" className="theme-btn" title={`主题：${label}（点击切换）`} aria-label={`主题：${label}`}
-      onClick={() => setT({ ...t, mode: next[t.mode] })}>
-      {t.mode === 'light' ? <Icon.Sun /> : t.mode === 'dark' ? <Icon.Moon /> : <Icon.Monitor />}
+    <button type="button" className="theme-btn" title={t('主题：{label}（点击切换）', { label })} aria-label={t('主题：{label}', { label })}
+      onClick={() => setTh({ ...th, mode: next[th.mode] })}>
+      {th.mode === 'light' ? <Icon.Sun /> : th.mode === 'dark' ? <Icon.Moon /> : <Icon.Monitor />}
     </button>
   )
 }
 
 // Bottom tab bar on phones: the pages used most, plus 更多 for the full menu.
 const tabs = [
-  { to: '/', label: '仪表盘', icon: <Icon.Dashboard />, end: true },
-  { to: '/nodes', label: '节点', icon: <Icon.Server /> },
-  { to: '/inbounds', label: '入站', icon: <Icon.Inbound /> },
-  { to: '/users', label: '用户', icon: <Icon.Users /> },
+  { to: '/', label: t('仪表盘'), icon: <Icon.Dashboard />, end: true },
+  { to: '/nodes', label: t('节点'), icon: <Icon.Server /> },
+  { to: '/inbounds', label: t('入站'), icon: <Icon.Inbound /> },
+  { to: '/users', label: t('用户'), icon: <Icon.Users /> },
 ]
 
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
@@ -164,45 +166,45 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
   }, [])
   useEffect(() => { setPalette(false) }, [loc.pathname, loc.search])
   const pages: PaletteItem[] = scoped
-    ? [{ id: 'p/nodes', label: '我的节点', icon: <Icon.Server />, to: '/nodes', group: '页面' }]
-    : [...nav.flatMap((n) => n.children ?? [n]), ...sysNav].map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: '页面' }))
+    ? [{ id: 'p/nodes', label: t('我的节点'), icon: <Icon.Server />, to: '/nodes', group: t('页面') }]
+    : [...nav.flatMap((n) => n.children ?? [n]), ...sysNav].map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: t('页面') }))
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
-  const inTabs = tabs.some((t) => (t.end ? loc.pathname === t.to : loc.pathname.startsWith(t.to)))
+  const inTabs = tabs.some((tb) => (tb.end ? loc.pathname === tb.to : loc.pathname.startsWith(tb.to)))
   return (
     <div className="app">
       <TopProgress />
       <header className="mtop">
-        <button type="button" className="mtop-btn" aria-label="打开菜单" aria-expanded={menu} onClick={() => setMenu(true)}><Icon.Menu /></button>
+        <button type="button" className="mtop-btn" aria-label={t('打开菜单')} aria-expanded={menu} onClick={() => setMenu(true)}><Icon.Menu /></button>
         <div className="mtop-title"><Icon.LogoTile size={26} /><span>{title}</span></div>
-        <button type="button" className="mtop-btn" aria-label="搜索" onClick={() => setPalette(true)}><Icon.Search /></button>
+        <button type="button" className="mtop-btn" aria-label={t('搜索')} onClick={() => setPalette(true)}><Icon.Search /></button>
         <ThemeToggle />
       </header>
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
-      <nav className={'side' + (menu ? ' open' : '')} aria-label="主导航">
-        <div className="brand"><Icon.LogoTile size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label="关闭菜单" onClick={() => setMenu(false)}><Icon.Close /></button></div>
-        <button type="button" className="side-search" onClick={() => setPalette(true)}><Icon.Search /><span>搜索</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
+      <nav className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
+        <div className="brand"><Icon.LogoTile size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
+        <button type="button" className="side-search" onClick={() => setPalette(true)}><Icon.Search /><span>{t('搜索')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         {scoped ? (
           <>
-            <NavLink to="/nodes" className="nav"><Icon.Server />我的节点</NavLink>
-            <div className="navsec">Telegram 节点管理员 · 仅可查看分配给你的节点</div>
+            <NavLink to="/nodes" className="nav"><Icon.Server />{t('我的节点')}</NavLink>
+            <div className="navsec">{t('Telegram 节点管理员 · 仅可查看分配给你的节点')}</div>
           </>
         ) : (
           <>
             {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
-            <div className="navsec">系统</div>
+            <div className="navsec">{t('系统')}</div>
             {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
           </>
         )}
         <div className="side-foot">
-          <span className="me"><span className="avatar">{(user.replace(/^tg:/, '')[0] || '?').toUpperCase()}</span><span className="me-text"><b>{user.replace(/^tg:/, '')}</b><small>{scoped ? '节点管理员' : user.startsWith('tg:') ? 'Telegram 登录' : '管理员'}</small></span></span>
-          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><ThemeToggle /><button type="button" className="logout" title="退出登录" aria-label="退出登录" onClick={onLogout}>退出</button></span>
+          <span className="me"><span className="avatar">{(user.replace(/^tg:/, '')[0] || '?').toUpperCase()}</span><span className="me-text"><b>{user.replace(/^tg:/, '')}</b><small>{scoped ? t('节点管理员') : user.startsWith('tg:') ? t('Telegram 登录') : t('管理员')}</small></span></span>
+          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><LangToggle /><ThemeToggle /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
         </div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} pages={pages} nodes={nodes} searchUsers={!scoped} />
-      {!scoped && <nav className="mtabs" aria-label="快捷导航">
-        {tabs.map((t) => <NavLink key={t.to} to={t.to} end={t.end} className="mtab">{t.icon}<span>{t.label}</span></NavLink>)}
-        <button type="button" className={'mtab' + (!inTabs || menu ? ' active' : '')} onClick={() => setMenu(true)}><Icon.More /><span>更多</span></button>
+      {!scoped && <nav className="mtabs" aria-label={t('快捷导航')}>
+        {tabs.map((tb) => <NavLink key={tb.to} to={tb.to} end={tb.end} className="mtab">{tb.icon}<span>{tb.label}</span></NavLink>)}
+        <button type="button" className={'mtab' + (!inTabs || menu ? ' active' : '')} onClick={() => setMenu(true)}><Icon.More /><span>{t('更多')}</span></button>
       </nav>}
     </div>
   )
@@ -233,7 +235,7 @@ export default function App() {
     get<{ username: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setScoped(!!m.nodeIds) }).catch(() => {})
   }, [user === null])
   const logout = () => { post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false) }) }
-  if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>正在通过 Telegram 登录…</div></div>
+  if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>{t('正在通过 Telegram 登录…')}</div></div>
   return (
     <ToastProvider>
       <ConfirmProvider>

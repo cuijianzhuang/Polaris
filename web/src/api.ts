@@ -1,5 +1,7 @@
 // REST client. The panel injects window.__POLARIS_BASE__ (the secret admin
 // path) into index.html; the API lives at <base>api/v1.
+import { tr } from './i18n'
+
 declare global {
   interface Window { __POLARIS_BASE__?: string }
 }
@@ -20,7 +22,7 @@ export class ApiError extends Error {
   status: number
   data: any
   constructor(status: number, message: string, data?: any) {
-    super(message)
+    super(tr(message))
     this.status = status
     this.data = data
   }
