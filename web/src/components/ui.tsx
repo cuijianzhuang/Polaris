@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
 import { Icon } from './Icons'
 import { errMsg } from '../format'
-import { t } from '../i18n'
 
 // --- toasts ---
 // A toast is a short message; it can carry an action (撤销), a countdown bar,
@@ -65,7 +64,7 @@ if (typeof window !== 'undefined') window.addEventListener('pagehide', () => { p
 // useUndo hides something at once and commits after a few seconds unless the
 // toast's 撤销 is pressed: commit() does the real work, restore() puts it back.
 export function useUndo() {
-  const toastApi = useToastApi()
+  const t = useToastApi()
   return useCallback((text: string, commit: () => Promise<unknown>, restore: () => void, ms = 5000) => {
     let done = false
     const id = Date.now() + Math.random()
@@ -73,12 +72,12 @@ export function useUndo() {
       if (done) return
       done = true
       pendingUndo.delete(id)
-      commit().catch((e) => { restore(); toastApi.push(errMsg(e), true) })
+      commit().catch((e) => { restore(); t.push(errMsg(e), true) })
     }
     pendingUndo.set(id, run)
     const timer = setTimeout(run, ms)
-    toastApi.push(text, false, { ttl: ms, action: { label: t('撤销'), fn: () => { if (done) return; done = true; clearTimeout(timer); pendingUndo.delete(id); restore() } } })
-  }, [toastApi])
+    t.push(text, false, { ttl: ms, action: { label: '撤销', fn: () => { if (done) return; done = true; clearTimeout(timer); pendingUndo.delete(id); restore() } } })
+  }, [t])
 }
 
 // runBatch runs one request per item (a few at a time) with a progress toast.
@@ -94,7 +93,7 @@ export async function runBatch<T>(api: ToastApi, label: string, items: T[], fn: 
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
-  api.update(id, { text: failed ? t('{label}完成，{failed} 项失败', { label, failed }) : t('{label}完成（{n} 项）', { label, n: items.length }), progress: undefined, err: failed > 0 })
+  api.update(id, { text: failed ? `${label}完成，${failed} 项失败` : `${label}完成（${items.length} 项）`, progress: undefined, err: failed > 0 })
   setTimeout(() => api.dismiss(id), failed ? 6000 : 2500)
   return { done, failed }
 }
@@ -202,7 +201,7 @@ export function Drawer({ title, onClose, children, footer, wide }: { title: Reac
   return (
     <div className={'overlay' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
       <aside className={'drawer' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} onClick={close}><Icon.Close /></button></div>
+        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={close}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </aside>
@@ -218,7 +217,7 @@ export function Modal({ title, onClose, children, footer, wide, xwide }: { title
   return createPortal(
     <div className={'overlay center' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
       <div className={'modal' + (xwide ? ' xwide' : wide ? ' wide' : '')} role="dialog" aria-modal="true">
-        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} onClick={close}><Icon.Close /></button></div>
+        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label="关闭" onClick={close}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </div>
@@ -239,9 +238,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmCtx.Provider value={ask}>
       {children}
       {state && (
-        <Modal title={t('确认操作')} onClose={() => close(false)} footer={<>
-          <button className="btn" type="button" onClick={() => close(false)}>{t('取消')}</button>
-          <button className={'btn ' + (state.danger ? 'danger solid' : 'pri')} type="button" onClick={() => close(true)}>{state.ok ?? t('确定')}</button>
+        <Modal title="确认操作" onClose={() => close(false)} footer={<>
+          <button className="btn" type="button" onClick={() => close(false)}>取消</button>
+          <button className={'btn ' + (state.danger ? 'danger solid' : 'pri')} type="button" onClick={() => close(true)}>{state.ok ?? '确定'}</button>
         </>}>
           <div style={{ whiteSpace: 'pre-wrap' }}>{state.msg}</div>
         </Modal>
@@ -290,11 +289,11 @@ export async function copyText(text: string): Promise<void> {
   if (!ok) throw new Error('copy failed')
 }
 
-export function Copy({ text, label = t('复制') }: { text: string; label?: string }) {
+export function Copy({ text, label = '复制' }: { text: string; label?: string }) {
   const toast = useToast()
   return (
     <button className="btn sm" type="button" onClick={async () => {
-      try { await copyText(text); toast(t('已复制')) } catch { window.prompt(t('复制失败，请手动复制：'), text) }
+      try { await copyText(text); toast('已复制') } catch { window.prompt('复制失败，请手动复制：', text) }
     }}>{label}</button>
   )
 }
@@ -306,7 +305,7 @@ export function CopyBox({ text }: { text: string }) {
 export function QR({ text, size = 200 }: { text: string; size?: number }) {
   const [src, setSrc] = useState('')
   useEffect(() => { QRCode.toDataURL(text, { width: size * 2, margin: 1 }).then(setSrc).catch(() => setSrc('')) }, [text, size])
-  return src ? <img src={src} width={size} height={size} alt={t('二维码')} style={{ display: 'block', margin: '0 auto', borderRadius: 8 }} /> : null
+  return src ? <img src={src} width={size} height={size} alt="二维码" style={{ display: 'block', margin: '0 auto', borderRadius: 8 }} /> : null
 }
 
 export function Empty({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
@@ -332,7 +331,7 @@ export function Section({ step, title, summary, defaultOpen = true, children }: 
 // SkeletonRows is a placeholder table while a list loads.
 export function SkeletonRows({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div className="sk-rows" aria-busy="true" aria-label={t('加载中')}>
+    <div className="sk-rows" aria-busy="true" aria-label="加载中">
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="sk-row">{Array.from({ length: cols }, (_, j) => <span key={j} className="skeleton" style={{ flex: j === 0 ? 2 : 1, opacity: 1 - i * 0.12 }} />)}</div>
       ))}
@@ -360,7 +359,7 @@ export function TagInput({ value, onChange, placeholder, id }: { value: string[]
     <div className="tags" onClick={(e) => (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus()}>
       {value.map((v, i) => (
         <span key={v} className="tag-item mono">{v}
-          <button type="button" aria-label={t('移除 {v}', { v })} onClick={() => onChange(value.filter((_, j) => j !== i))}>×</button>
+          <button type="button" aria-label={'移除 ' + v} onClick={() => onChange(value.filter((_, j) => j !== i))}>×</button>
         </span>
       ))}
       <input id={id} className="mono" value={text} placeholder={value.length ? '' : placeholder}

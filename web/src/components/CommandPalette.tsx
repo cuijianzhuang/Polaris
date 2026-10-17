@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { Icon } from './Icons'
 import type { Node, User } from '../types'
-import { t } from '../i18n'
 
 export type PaletteItem = { id: string; label: string; hint?: string; icon: ReactNode; to: string; group: string }
 
@@ -22,20 +21,20 @@ export default function CommandPalette({ open, onClose, pages, nodes, searchUser
   useEffect(() => {
     if (!open || !searchUsers || !q.trim()) { setUsers([]); return }
     let live = true
-    const timer = setTimeout(() => {
+    const t = setTimeout(() => {
       get<{ items: User[] }>(`/users?limit=6&q=${encodeURIComponent(q.trim())}`).then((r) => { if (live) setUsers(r.items ?? []) }).catch(() => {})
     }, 180)
-    return () => { live = false; clearTimeout(timer) }
+    return () => { live = false; clearTimeout(t) }
   }, [q, open, searchUsers])
   const items = useMemo(() => {
     const k = q.trim().toLowerCase()
     const hit = (s: string) => !k || s.toLowerCase().includes(k)
     const out: PaletteItem[] = pages.filter((p) => hit(p.label) || hit(p.to))
     out.push(...nodes.filter((n) => k && (hit(n.name) || hit(n.publicIpv4 ?? '') || hit(n.region ?? ''))).slice(0, 6).map((n) => ({
-      id: 'n' + n.id, label: n.name, hint: [n.region, n.publicIpv4, n.status === 'online' ? t('在线') : n.status === 'offline' ? t('离线') : n.status].filter(Boolean).join(' · '),
-      icon: <Icon.Server />, to: '/nodes?id=' + n.id, group: t('节点'),
+      id: 'n' + n.id, label: n.name, hint: [n.region, n.publicIpv4, n.status === 'online' ? '在线' : n.status === 'offline' ? '离线' : n.status].filter(Boolean).join(' · '),
+      icon: <Icon.Server />, to: '/nodes?id=' + n.id, group: '节点',
     })))
-    out.push(...users.map((u) => ({ id: 'u' + u.id, label: u.username, hint: u.remark || u.uuid.slice(0, 8), icon: <Icon.Users />, to: '/users?q=' + encodeURIComponent(u.username), group: t('用户') })))
+    out.push(...users.map((u) => ({ id: 'u' + u.id, label: u.username, hint: u.remark || u.uuid.slice(0, 8), icon: <Icon.Users />, to: '/users?q=' + encodeURIComponent(u.username), group: '用户' })))
     return out
   }, [q, pages, nodes, users])
   useEffect(() => { if (sel >= items.length) setSel(Math.max(0, items.length - 1)) }, [items, sel])
@@ -51,13 +50,13 @@ export default function CommandPalette({ open, onClose, pages, nodes, searchUser
   let last = ''
   return (
     <div className="overlay center cp-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="cp" role="dialog" aria-label={t('快速跳转')} onKeyDown={onKey}>
+      <div className="cp" role="dialog" aria-label="快速跳转" onKeyDown={onKey}>
         <div className="cp-search"><Icon.Search />
-          <input ref={input} value={q} onChange={(e) => { setQ(e.target.value); setSel(0) }} placeholder={searchUsers ? t('搜索页面、节点、用户…') : t('搜索页面、节点…')} aria-label={t('搜索')} />
+          <input ref={input} value={q} onChange={(e) => { setQ(e.target.value); setSel(0) }} placeholder={searchUsers ? '搜索页面、节点、用户…' : '搜索页面、节点…'} aria-label="搜索" />
           <kbd>Esc</kbd>
         </div>
         <div className="cp-list" ref={list}>
-          {items.length === 0 && <div className="cp-empty">{t('没有匹配的结果')}</div>}
+          {items.length === 0 && <div className="cp-empty">没有匹配的结果</div>}
           {items.map((it, i) => {
             const head = it.group !== last ? <div className="cp-group">{it.group}</div> : null
             last = it.group
@@ -67,7 +66,7 @@ export default function CommandPalette({ open, onClose, pages, nodes, searchUser
               </button></div>
           })}
         </div>
-        <div className="cp-foot"><span><kbd>↑</kbd><kbd>↓</kbd> {t('选择')}</span><span><kbd>Enter</kbd> {t('打开')}</span><span><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> {t('随时唤出')}</span></div>
+        <div className="cp-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 打开</span><span><kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> 随时唤出</span></div>
       </div>
     </div>
   )

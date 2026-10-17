@@ -1,5 +1,4 @@
 import type { CoreType, Inbound, Protocol, Security, Transport } from './types'
-import { t } from './i18n'
 
 export function bytes(n: number | undefined | null): string {
   if (!n) return '0 B'
@@ -21,10 +20,10 @@ export function bps(n: number | undefined): string {
 export function ago(iso?: string | null): string {
   if (!iso) return '—'
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (s < 60) return t('{n} 秒前', { n: Math.round(s) })
-  if (s < 3600) return t('{n} 分钟前', { n: Math.round(s / 60) })
-  if (s < 86400) return t('{n} 小时前', { n: Math.round(s / 3600) })
-  return t('{n} 天前', { n: Math.round(s / 86400) })
+  if (s < 60) return `${Math.round(s)} 秒前`
+  if (s < 3600) return `${Math.round(s / 60)} 分钟前`
+  if (s < 86400) return `${Math.round(s / 3600)} 小时前`
+  return `${Math.round(s / 86400)} 天前`
 }
 
 export function date(iso?: string | null): string {
@@ -49,14 +48,14 @@ export function daysLeft(iso?: string | null): number | null {
 export function uptime(sec?: number): string {
   if (!sec) return '—'
   const d = Math.floor(sec / 86400)
-  if (d > 0) return t('{n} 天', { n: d })
+  if (d > 0) return `${d} 天`
   const h = Math.floor(sec / 3600)
-  if (h > 0) return t('{n} 小时', { n: h })
-  return t('{n} 分钟', { n: Math.floor(sec / 60) })
+  if (h > 0) return `${h} 小时`
+  return `${Math.floor(sec / 60)} 分钟`
 }
 
 export const coreLabel: Record<string, string> = {
-  xray: 'Xray-core', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hysteria2', forwarder: t('转发器 (realm)'), gost: 'GOST', caddy: t('Caddy 回源'), auto: t('自动'),
+  xray: 'Xray-core', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hysteria2', forwarder: '转发器 (realm)', gost: 'GOST', caddy: 'Caddy 回源', auto: '自动',
 }
 export const coreShort: Record<string, string> = { xray: 'Xray', singbox: 'sing-box', mihomo: 'mihomo', hysteria: 'Hy2', forwarder: 'realm', gost: 'GOST', caddy: 'Caddy', auto: 'auto' }
 export const coreColor: Record<string, string> = { xray: '#0E7490', singbox: '#6D28D9', mihomo: '#B45309', hysteria: '#15803D', forwarder: '#5B6470', gost: '#9333EA' }
@@ -66,7 +65,7 @@ export const protoLabel: Record<Protocol, string> = {
   anytls: 'AnyTLS', shadowtls: 'ShadowTLS', naive: 'Naive', socks: 'SOCKS', http: 'HTTP',
 }
 export const transLabel: Record<Transport, string> = { tcp: 'TCP', ws: 'WS', grpc: 'gRPC', httpupgrade: 'HTTPUpgrade', xhttp: 'XHTTP', kcp: 'mKCP', quic: 'QUIC' }
-export const secLabel: Record<Security, string> = { none: t('无'), tls: 'TLS', reality: 'REALITY' }
+export const secLabel: Record<Security, string> = { none: '无', tls: 'TLS', reality: 'REALITY' }
 
 export function inboundSummary(i: Pick<Inbound, 'protocol' | 'transport' | 'security'>): string {
   const p = protoLabel[i.protocol.type] + (i.protocol.flow ? ' + Vision' : '')
@@ -83,18 +82,18 @@ export function coreTagClass(c: CoreType | string): string {
 }
 
 export const nodeStatus: Record<string, { label: string; color: string; cls: string }> = {
-  online: { label: t('在线'), color: 'var(--ok)', cls: 'ok' },
-  syncing: { label: t('同步中'), color: 'var(--warn)', cls: 'warn' },
-  error: { label: t('应用失败'), color: 'var(--bad)', cls: 'bad' },
-  offline: { label: t('离线'), color: 'var(--bad)', cls: 'bad' },
-  pending: { label: t('待接入'), color: 'var(--faint)', cls: 'off' },
+  online: { label: '在线', color: 'var(--ok)', cls: 'ok' },
+  syncing: { label: '同步中', color: 'var(--warn)', cls: 'warn' },
+  error: { label: '应用失败', color: 'var(--bad)', cls: 'bad' },
+  offline: { label: '离线', color: 'var(--bad)', cls: 'bad' },
+  pending: { label: '待接入', color: 'var(--faint)', cls: 'off' },
 }
 
 export const userStatus: Record<string, { label: string; cls: string }> = {
-  active: { label: t('正常'), cls: 'ok' },
-  limited: { label: t('已超额'), cls: 'bad' },
-  expired: { label: t('已到期'), cls: 'bad' },
-  disabled: { label: t('已禁用'), cls: 'off' },
+  active: { label: '正常', cls: 'ok' },
+  limited: { label: '已超额', cls: 'bad' },
+  expired: { label: '已到期', cls: 'bad' },
+  disabled: { label: '已禁用', cls: 'off' },
 }
 
 export function isOnline(iso?: string | null): boolean {

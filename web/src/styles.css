@@ -705,6 +705,3 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
   .dns-row.lbl { display: none; }
   .dns-row > :nth-child(2), .dns-row > :nth-child(3) { grid-column: 1 / -1; }
 }
-
-/* Language toggle: text instead of an icon */
-.lang-btn { font-size: 12px; font-weight: 600; letter-spacing: .02em; min-width: 28px; }

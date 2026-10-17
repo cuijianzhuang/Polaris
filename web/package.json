@@ -6,8 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b --noEmit",
-    "i18n:check": "node scripts/i18n-check.mjs"
+    "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.2.6",
