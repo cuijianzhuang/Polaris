@@ -105,7 +105,7 @@ function Backups() {
         <summary>{t('推送到其他位置')}<ProTag on={pushOK} />{d?.targets?.length ? `（${d.targets.map((x) => targetLabel[x] ?? x).join(t('、'))}）` : ''}</summary>
         <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
           <div className="hint">{t('自动备份完成后推送到下列已配置的位置；也可以点「立即备份并推送」。服务器坏了也能从这里取回。')}</div>
-          {!pushOK && <div className="note warn">{t('备份推送需要专业版许可证；未授权时只保存本地备份（系统 → 许可证）。')}</div>}
+          {!pushOK && <div className="note warn">{t('备份推送需要专业版许可证；未授权时只保存本地备份（许可证页面）。')}</div>}
           <div className="toggle"><span>{t('发送到 Telegram（超级管理员，单个文件 50 MB 以内）')}</span><Switch label="Telegram" on={f.backup_tg === 'true'} onChange={(v) => set('backup_tg', String(v))} /></div>
           <div className="form-grid">
             <Field label={t('WebDAV 文件夹地址')} hint={t('如坚果云 https://dav.jianguoyun.com/dav/polaris/（文件夹需已存在）')}><input className="input mono" value={f.backup_webdav_url || ''} placeholder="https://dav.example.com/backups/" onChange={(e) => set('backup_webdav_url', e.target.value.trim())} /></Field>

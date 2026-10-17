@@ -20,10 +20,12 @@ const (
 	FeatureSpeedLimit = "speed_limit" // per-user speed limits
 	FeatureTGMenu     = "tg_menu"     // Telegram admin menus
 	FeatureBackupPush = "backup_push" // backups pushed to S3 / WebDAV / Telegram
+	FeatureSubConvert = "sub_convert" // subscription sources and groups
+	FeatureDDNS       = "ddns"        // domain bindings, addresses following node IPs
 )
 
 // AllFeatures lists every paid feature (what a trial unlocks).
-var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush}
+var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS}
 
 // Limit kinds.
 const (

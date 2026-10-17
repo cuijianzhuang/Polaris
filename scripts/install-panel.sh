@@ -217,7 +217,7 @@ choose_edition() {
   echo
   printf '  %s选择版本%s（之后可以随时切换：polaris switch）\n' "$C_BD" "$C_0"
   printf '  %s1.%s 社区版  开源免费，包含全部基础功能\n' "$C_C" "$C_0"
-  printf '  %s2.%s 专业版  另含客户独立限速、Telegram 管理菜单、备份推送；需要许可证（面板「系统 → 许可证」激活）\n' "$C_C" "$C_0"
+  printf '  %s2.%s 专业版  另含客户独立限速、订阅转换、DDNS、Telegram 管理菜单、备份推送；需要许可证（面板「许可证」页面激活）\n' "$C_C" "$C_0"
   local c
   read -r -p "  请选择 [1-2，默认 1]：" c || true
   case "$c" in 2) EDITION=pro ;; *) EDITION=community ;; esac
@@ -240,9 +240,9 @@ do_switch() {
   kv 当前 "$(panel_version) $(edition_label "$cur")"
   kv 切换到 "${C_BD}$(edition_label "$target")${C_0}"
   if [ "$target" = community ]; then
-    warn "社区版不含客户独立限速、Telegram 管理菜单、备份推送：这些设置会保留，但不再生效"
+    warn "社区版不含客户独立限速、订阅转换、DDNS、Telegram 管理菜单、备份推送：这些设置会保留，但不再生效"
   else
-    dim "    专业版功能需要许可证：切换后在面板「系统 → 许可证」激活"
+    dim "    专业版功能需要许可证：切换后在面板「许可证」页面激活"
   fi
   if [ -t 0 ] && [ "$FORCE" = 0 ] && ! confirm "  确定切换？"; then return 0; fi
   EDITION="$target"
@@ -456,7 +456,7 @@ download_release() {
     die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
   if ! grep -q " \*\?$PANEL_TGZ\$" "$TMP/checksums.txt"; then
     [ -n "$EDITION_GUESSED" ] || die "$VERSION 没有$(edition_label "$EDITION")的发布包（$PANEL_TGZ）"
-    warn "$VERSION 没有专业版发布包，改为安装社区版（不含客户独立限速、Telegram 管理菜单、备份推送）"
+    warn "$VERSION 没有专业版发布包，改为安装社区版（不含客户独立限速、订阅转换、DDNS、Telegram 管理菜单、备份推送）"
     EDITION=community EP="" EDITION_GUESSED=""
     PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
     AGENT_ASSET="polaris-agent-linux-$ARCH"

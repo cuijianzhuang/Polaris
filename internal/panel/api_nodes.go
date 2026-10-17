@@ -98,6 +98,9 @@ func (s *Server) createNode(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if req.DDNS && !s.requireFeature(c, license.FeatureDDNS) {
+		return
+	}
 	if !s.limitOK(c, license.LimitNodes, 1) {
 		return
 	}
@@ -159,6 +162,9 @@ func (s *Server) updateNode(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
+	}
+	if req.DDNS && !n.DDNS && !s.requireFeature(c, license.FeatureDDNS) {
+		return // turning DDNS on is a paid feature (keeping it on is not)
 	}
 	addrChanged := n.Address != req.Address || n.Domain != req.Domain
 	upd := map[string]any{"name": req.Name, "address": req.Address, "domain": req.Domain, "region": req.Region,

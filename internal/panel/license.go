@@ -101,7 +101,18 @@ func (s *Server) usesPaidFeatures() bool {
 	if n == 0 {
 		s.st.DB.Model(&store.Group{}).Where("speed_up_mbps > 0 OR speed_down_mbps > 0").Count(&n)
 	}
-	return n > 0 || len(s.pushTargets()) > 0 || s.st.GetSetting("tg_enabled", "") == "true"
+	if n > 0 || len(s.pushTargets()) > 0 || s.st.GetSetting("tg_enabled", "") == "true" {
+		return true
+	}
+	var m int64
+	for _, q := range []any{&store.SubSource{}, &store.SubProfile{}, &store.DomainBinding{}} {
+		s.st.DB.Model(q).Count(&m)
+		if m > 0 {
+			return true
+		}
+	}
+	s.st.DB.Model(&store.Node{}).Where("d_dns = ?", true).Count(&m)
+	return m > 0
 }
 
 // reloadLicense re-evaluates the license in effect from the settings.
@@ -183,7 +194,7 @@ func (s *Server) requireFeature(c *gin.Context, f string) bool {
 	if st.Allow(f) {
 		return true
 	}
-	c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{"error": "此功能需要专业版许可证（系统 → 许可证）", "feature": f, "plan": "pro"})
+	c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{"error": "此功能需要专业版许可证（许可证页面）", "feature": f, "plan": "pro"})
 	return false
 }
 

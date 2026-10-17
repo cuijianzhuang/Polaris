@@ -4,7 +4,7 @@
 
 多内核代理面板：一个主控管理 N 台服务器，每台运行一个 Agent，Agent 通过统一的内核适配层驱动 **Xray-core**、**sing-box**、**mihomo**、**Hysteria2 官方服务端**，以及用于中转的 realm / gost 和用于证书与回源的 Caddy。用户、入站、订阅在主控上只定义一次，由适配器翻译成各内核自己的配置。
 
-每次发布同时提供**社区版**（开源，包含全部基础功能）和**专业版**（另含客户独立限速、Telegram 管理菜单、备份推送，需要许可证），见[版本与许可证](#版本与许可证)。
+每次发布同时提供**社区版**（开源，包含全部基础功能）和**专业版**（另含客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送，需要许可证），见[版本与许可证](#版本与许可证)。
 
 ```
 ┌──────────── 主控 polaris ────────────┐        ┌──────── 节点 polaris-agent ────────┐
@@ -31,9 +31,9 @@
 | 客户独立限速（专业版） | 按用户或分组设置上下行速率，对所有内核生效（Agent 自带限速转发）；节点页实时显示被限速用户和当前速度 |
 | 订阅 | `/sub/{token}` 按 UA 或 `?format=` 输出 通用链接 / Clash(mihomo) / sing-box / Surge / Loon / Quantumult X；每种格式可维护多套规则模板。订阅设置：独立订阅域名、订阅标题、更新间隔、客服链接、一键停用；`subscription-userinfo` / `profile-title` / `support-url` / `announce`（公告）/ `routing`（Happ 路由规则，可开关）响应头；可在节点列表插入「剩余流量 / 到期 / 公告」信息节点或名称后缀 |
 | 订阅信息页 | 浏览器打开订阅链接：公告、状态、用量与剩余、到期与重置周期、近 30 天流量柱状图、订阅二维码、12 个客户端一键导入（Clash Verge、sing-box、Shadowrocket、Stash、Hiddify、Happ、v2rayNG、Streisand、Surge、Loon、QX、Karing）、每个节点的链接与二维码、Telegram 一键绑定、客服入口；明暗主题自适应 |
-| 订阅转换 | 参考 MiSub：订阅源（机场订阅链接 / 手动节点，自动识别 Base64、Clash、sing-box、SIP008，定时更新，记录流量与到期）+ 订阅组（面板用户节点 + 多个订阅源合并）；处理链：过滤（协议 / 地区 / 正则 / 去信息节点）、重命名（正则或 `{emoji} {regionZh} {index}` 模板）、排序（地区优先级）、去重；可切换第三方 subconverter 后端；SSRF 防护 |
+| 订阅转换（专业版） | 参考 MiSub：订阅源（机场订阅链接 / 手动节点，自动识别 Base64、Clash、sing-box、SIP008，定时更新，记录流量与到期）+ 订阅组（面板用户节点 + 多个订阅源合并）；处理链：过滤（协议 / 地区 / 正则 / 去信息节点）、重命名（正则或 `{emoji} {regionZh} {index}` 模板）、排序（地区优先级）、去重；可切换第三方 subconverter 后端；SSRF 防护 |
 | 规则与配置方案 | 参考 MiSub：内置 4 套方案（极简 / ACL4SSR 精简 / 流媒体与 AI / ACL4SSR 完整）+ ACL4SSR CM_Online 系列 7 套 + 自定义 ini URL；采用 subconverter ini 语法，内置引擎转换为各客户端原生写法（Clash rule-providers、sing-box rule-set、Surge / Loon / QX 远程规则），`[]@regions` 自动展开地区分组；第三方后端直接用方案作 config；全局或按订阅组设置，另有「跳过证书校验」「强制 UDP」开关 |
-| 域名与 DDNS | DNS 服务商（Cloudflare / 自定义 Webhook）；域名绑定节点 IP（A / AAAA / 双栈，可选 CDN 代理）；Agent 定期探测公网 IP 随心跳上报，开启 DDNS 的节点 IP 变化后自动更新记录并告警 |
+| 域名与 DDNS | DNS 服务商（Cloudflare / 自定义 Webhook，免费）；**域名绑定与 DDNS（专业版）**：域名绑定节点 IP（A / AAAA / 双栈，可选 CDN 代理）；Agent 定期探测公网 IP 随心跳上报，开启 DDNS 的节点 IP 变化后自动更新记录并告警 |
 | 路由与负载均衡 | 出站负载均衡组（延迟最低 / 最稳定 / 故障转移 / 轮询 / 随机，探测地址、容差、兜底出站）；健康检查失败的成员自动摘除；入站可绑定固定出口；全局规则（所有节点）+ 节点规则；规则预设（拦截广告 / BT / 私有地址、国内直连、流媒体 / AI / Telegram 分流） |
 | Telegram 机器人 | 超级管理员（全部节点与用户）/ 节点管理员（只管绑定的节点）/ 用户（订阅链接或信息页一键绑定）三种角色；告警（节点离线 / 下发失败 / IP 变更 / 入站探测失败 / 异常流量）、每日报告、用户流量与到期提醒（文案可自定义）、公告群发；用 Telegram 登录面板和用户中心；**管理菜单（专业版）**：查看节点、重启内核、强制同步、回滚、搜索用户、启停 / 重置流量 / 续期、流量排行、版本更新 |
 | CDN | 入站可挂多个入口（直连 / CDN / 中转）；CDN 配置档含优选 IP（手填或定时拉取、可按 IP 展开）；Cloudflare 集成：自动建代理 DNS 记录、SSL 设为 Full (strict)、签发 Origin 证书并下发 |
@@ -65,7 +65,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
 **社区版与专业版**：每次发布同时提供两个版本，数据和配置通用。
 - 首次安装时脚本会让你选择版本（直接回车 = 社区版；用 `curl | bash` 等非交互方式安装时默认社区版）；也可以直接加 `--pro` 或 `--community`。
-- 专业版包含客户独立限速、Telegram 管理菜单、备份推送，需要在「系统 → 许可证」激活许可证。
+- 专业版包含客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送，需要在「许可证」页面激活许可证。
 - 随时切换：`polaris switch`（或菜单「20. 切换版本」），也可以指定 `polaris switch pro|community`。切换时版本号不变，配置和数据保留；切回社区版后，高级功能的设置保留，但不再生效。
 - 之后的升级沿用当前版本，节点 Agent 也自动使用对应版本。
 - Docker 镜像：专业版用 `-pro` 标签，例如 `ghcr.io/cuijianzhuang/polaris:latest-pro`。
@@ -161,12 +161,12 @@ ACME（Let's Encrypt）在后台「设置」填写邮箱即可启用：
 | --- | --- | --- |
 | 源码 | 本仓库，开源 | 本仓库 + 私有的高级功能代码，只发布编译好的程序 |
 | 面板 / Agent / 订阅 / 多内核等基础功能 | ✅ | ✅ |
-| 客户独立限速、Telegram 管理菜单、备份推送 | — | ✅（需要许可证） |
+| 客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送 | — | ✅（需要许可证） |
 | 发布包 | `polaris-panel-<版本>-linux-<架构>.tar.gz`、`polaris-agent-linux-<架构>` | `polaris-panel-pro-<版本>-…`、`polaris-agent-pro-linux-<架构>` |
 | Docker 镜像 | `ghcr.io/cuijianzhuang/polaris:<版本>` / `latest` | `…:<版本>-pro` / `latest-pro` |
 
 - **安装与切换**：首次安装时选择版本，或加 `--pro` / `--community`；之后用 `polaris switch` 随时切换，配置和数据通用。拆分前的旧版本执行 `polaris update` 时默认升级为专业版，保留正在使用的功能。
-- **许可证**：在后台「系统 → 许可证」输入激活码联网激活，或导入离线许可证文件（`.lic`）。页面会显示套餐、到期日、节点和用户用量；迁移服务器时先点「停用」，再在新面板激活。命令行也可以：`polaris-server admin license show|install FILE|deactivate`。
+- **许可证**：在后台「许可证」页面输入激活码联网激活，或导入离线许可证文件（`.lic`）。页面会显示套餐、到期日、节点和用户用量；迁移服务器时先点「停用」，再在新面板激活。命令行也可以：`polaris-server admin license show|install FILE|deactivate`。
 - **到期和吊销**：只降回社区版的功能，已生效的配置继续工作，不中断服务。升级时已在使用高级功能的面板有 30 天试用期。
 - **从源码编译**得到的是社区版；许可证页会提示“社区版构建”。
 
