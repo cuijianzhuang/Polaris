@@ -108,7 +108,7 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		"api": map[string]any{
 			"tag":      "api",
 			"listen":   a.opt.APIListen,
-			"services": []string{"HandlerService", "StatsService", "LoggerService"},
+			"services": []string{"HandlerService", "StatsService", "LoggerService", "RoutingService"},
 		},
 		"stats": map[string]any{},
 		"policy": map[string]any{

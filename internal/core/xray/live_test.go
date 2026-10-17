@@ -2,6 +2,8 @@ package xray
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -81,5 +83,74 @@ func TestLiveHotUsers(t *testing.T) {
 	}
 	if !a.Health(ctx).Running {
 		t.Fatal("xray not running")
+	}
+}
+
+// TestLiveHotRouting changes rules and outbounds on a running Xray through
+// HotApply and checks the process was not restarted.
+func TestLiveHotRouting(t *testing.T) {
+	bin := os.Getenv("POLARIS_XRAY_BIN")
+	if bin == "" {
+		t.Skip("POLARIS_XRAY_BIN not set")
+	}
+	api := fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	a := New(core.Options{Version: "26.3.27", BinPath: bin, WorkDir: t.TempDir(), APIListen: api})
+	in := coretest.Inbound(model.CoreXray, "vless", freePort(t), model.ProtocolSpec{Type: model.ProtoVLESS},
+		model.TransportSpec{}, model.SecuritySpec{})
+	in.Listen = "127.0.0.1"
+	spec := &model.NodeSpec{Inbounds: []model.Inbound{in},
+		Outbounds: []model.Outbound{{Tag: "s1", Type: model.OutSOCKS, Settings: json.RawMessage(`{"server":"127.0.0.1","port":1}`)}},
+		Routes:    []model.RouteRule{{Match: model.RouteMatch{Domain: []string{"a.com"}}, Outbound: "s1"}}}
+	oldCfg, err := a.Render(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := core.AtomicWrite(a.configPath(), oldCfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(ctx)
+	for i := 0; ; i++ {
+		c, err := net.DialTimeout("tcp", api, 100*time.Millisecond)
+		if err == nil {
+			c.Close()
+			break
+		}
+		if i == 50 {
+			t.Fatalf("xray API never came up: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	pid := a.proc.PID()
+
+	spec.Outbounds = []model.Outbound{{Tag: "s2", Type: model.OutSOCKS, Settings: json.RawMessage(`{"server":"127.0.0.1","port":2}`)}}
+	spec.Routes = []model.RouteRule{{Match: model.RouteMatch{Domain: []string{"b.com"}}, Outbound: "s2"}}
+	newCfg, err := a.Render(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.HotApply(ctx, oldCfg, newCfg); err != nil {
+		t.Fatalf("hot apply: %v", err)
+	}
+	if a.proc.PID() != pid {
+		t.Fatal("xray was restarted")
+	}
+	out, _ := exec.Command(bin, "api", "lsrules", "-s", api).CombinedOutput()
+	if !strings.Contains(string(out), `"s2"`) || strings.Contains(string(out), `"s1"`) {
+		t.Fatalf("rules not replaced: %s", out)
+	}
+	out, _ = exec.Command(bin, "api", "lso", "-s", api).CombinedOutput()
+	if !strings.Contains(string(out), `"s2"`) || strings.Contains(string(out), `"s1"`) {
+		t.Fatalf("outbounds not replaced: %s", out)
+	}
+
+	// A change outside routing / outbounds needs a restart.
+	spec.Inbounds[0].Port = freePort(t)
+	third, _ := a.Render(spec)
+	if err := a.HotApply(ctx, newCfg, third); !errors.Is(err, core.ErrNotSupported) {
+		t.Fatalf("inbound change should need a restart, got %v", err)
 	}
 }

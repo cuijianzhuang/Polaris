@@ -273,6 +273,14 @@ func (a *Agent) applyCore(ctx context.Context, m *managed, prev, next *model.Nod
 	if err := m.adapter.Validate(cfg); err != nil {
 		return "reload", false, fmt.Errorf("validate: %w", err)
 	}
+	if h, ok := m.adapter.(core.ConfigHot); ok && running && len(old) > 0 {
+		// Routing / outbound changes go through the core's API when it can.
+		if err := h.HotApply(ctx, old, cfg); err == nil {
+			return "hot", false, core.AtomicWrite(m.cfgPath, cfg, 0o600)
+		} else if !errors.Is(err, core.ErrNotSupported) {
+			a.log.Warn("hot config apply failed, reloading", "core", t, "err", err)
+		}
+	}
 	if err := core.AtomicWrite(m.cfgPath, cfg, 0o600); err != nil {
 		return "reload", false, err
 	}
