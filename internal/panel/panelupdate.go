@@ -115,7 +115,7 @@ func (s *Server) requestAccessChange(action, value, who string) error {
 		if !adminPathRe.MatchString(value) {
 			return errors.New("路径只能包含字母、数字、- 和 _，长度 4–64；留空或填 / 表示不使用路径")
 		}
-	case "set-domain":
+	case "set-domain", "set-sub-domain":
 		value = strings.ToLower(strings.TrimSuffix(value, "."))
 		if !domainRe.MatchString(value) {
 			return errors.New("域名格式不正确")
@@ -145,7 +145,7 @@ func (s *Server) requestAccessChange(action, value, who string) error {
 	return nil
 }
 
-var accessText = map[string]string{"set-path": "后台路径", "set-domain": "面板域名", "set-port": "面板端口", "set-url": "公开地址"}
+var accessText = map[string]string{"set-path": "后台路径", "set-domain": "面板域名", "set-port": "面板端口", "set-url": "公开地址", "set-sub-domain": "订阅域名"}
 
 type updateResult struct {
 	OK          bool
@@ -198,6 +198,11 @@ func (s *Server) checkUpdateResult() {
 	if label, ok := accessText[r.Action]; ok {
 		last, _ := json.Marshal(map[string]any{"action": r.Action, "value": r.Arg, "ok": r.OK, "log": r.Log, "at": time.Now()})
 		s.st.SetSetting("access_last", string(last))
+		if r.OK && r.Action == "set-sub-domain" {
+			// Caddy now serves the domain: switch subscription links to it.
+			s.st.SetSetting("sub_base_url", "https://"+r.Arg)
+			resetSubHostCache()
+		}
 		if r.OK {
 			s.audit("system", "panel."+r.Action+"_done", r.Arg, "", "")
 			s.notify(Event{Kind: "panel_update", Text: "✅ " + label + "已改为 " + r.Arg})

@@ -81,5 +81,13 @@ const m: Record<string, string> = {
   '授权整个节点': 'Grant whole nodes',
   '不论等级，组内用户可用这些节点上的全部入站（包括以后新增的入站）': 'Regardless of level, members can use every inbound on these nodes (including ones added later)',
   '只授权单个入站时使用': 'For granting individual inbounds only',
+  '订阅域名（HTTPS）': 'Subscription domain (HTTPS)',
+  '给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变': 'A separate domain for subscription links (CDN friendly): point it at this server first; Caddy issues the certificate and subscription links switch to it. That domain serves only subscriptions and the user center; the admin address stays the same',
+  '为 {domain} 签发证书并作为订阅域名？订阅链接会改用 https://{domain}，用户需要重新导入订阅；面板不会重启。': 'Issue a certificate for {domain} and use it for subscriptions? Links change to https://{domain} and users need to re-import; the panel does not restart.',
+  '已提交，证书签发通常需要半分钟': 'Submitted; issuing the certificate usually takes half a minute',
+  '配置': 'Set up',
+  '订阅链接使用的地址，可与后台分开（如走 CDN 的独立域名），格式 https://sub.example.com；留空用公开地址。HTTPS 证书可在「设置 → 面板访问」一键配置': 'The address used in subscription links; can differ from the admin (e.g. a separate domain behind a CDN), format https://sub.example.com; empty = the public address. Set up its HTTPS certificate under Settings → Panel access',
+  '订阅域名只开放订阅': 'Subscription domain serves subscriptions only',
+  '订阅域名只开放订阅和用户中心（后台、API 返回伪装页），推荐开启': 'The subscription domain serves only subscriptions and the user center (admin and API get the decoy page); recommended',
 }
 export default m

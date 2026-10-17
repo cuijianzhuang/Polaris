@@ -3,8 +3,11 @@ package panel
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -117,7 +120,7 @@ var editableSettings = map[string]bool{
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "login_allowlist": true, "login_ban_failures": true,
-	"inbound_probe": true, "audit_changes": true,
+	"inbound_probe": true, "audit_changes": true, "sub_host_strict": true,
 	"tpl_traffic_warn": true, "tpl_expire_warn": true, "tpl_user_limited": true, "tpl_user_expired": true, "tpl_user_active": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
@@ -165,6 +168,28 @@ func (s *Server) putSettings(c *gin.Context) {
 			return
 		}
 	}
+	if v, ok := req["sub_base_url"]; ok && strings.TrimSpace(v) != "" {
+		u, err := url.Parse(strings.TrimSpace(v))
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || (u.Path != "" && u.Path != "/") {
+			badRequest(c, errors.New("订阅域名格式应为 https://域名（可带端口，不带路径）"))
+			return
+		}
+		// The subscription domain serves only subscriptions; refuse to cut
+		// off the admin who is using that very host right now.
+		strict := s.st.GetSetting("sub_host_strict", "1") != "0"
+		if sv, ok := req["sub_host_strict"]; ok {
+			strict = sv != "0"
+		}
+		pub, _ := url.Parse(s.cfg.PublicURL)
+		host := c.Request.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if strict && strings.EqualFold(host, u.Hostname()) && (pub == nil || !strings.EqualFold(pub.Hostname(), u.Hostname())) {
+			badRequest(c, errors.New("你正通过这个域名打开后台；设为订阅域名后它只开放订阅，后台会打不开。请用后台地址访问后再设置，或关闭「订阅域名只开放订阅」"))
+			return
+		}
+	}
 	var keys []string
 	for k, v := range req {
 		if !editableSettings[k] {
@@ -205,6 +230,7 @@ func (s *Server) putSettings(c *gin.Context) {
 	}
 	s.auditCtx(c, "settings.update", strings.Join(keys, ","), "")
 	s.auditChanges.Store(s.st.GetSetting("audit_changes", "false") == "true")
+	resetSubHostCache()
 	for _, k := range keys {
 		if geodataSettings[k] { // part of every node's spec
 			var ids []string

@@ -101,7 +101,7 @@ export default function SubTemplates() {
   )
 }
 
-const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
+const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
 
 const routingExample = `{
   "Name": "${t('直连国内')}",
@@ -129,11 +129,15 @@ function SubSettings() {
       </div>
       {!on('sub_enabled', true) && <div className="note warn">{t('已关闭：所有 /sub/ 链接返回 404，客户端将无法更新订阅。')}</div>}
       <div className="form-grid">
-        <Field label={t('订阅域名')} hint={t('订阅链接使用的地址，可与后台分开（如走 CDN 的独立域名）；留空用公开地址')}><input className="input mono" value={f.sub_base_url ?? ''} onChange={(e) => set('sub_base_url', e.target.value)} placeholder={s.data?.public_url || 'https://sub.example.com'} /></Field>
+        <Field label={t('订阅域名')} hint={t('订阅链接使用的地址，可与后台分开（如走 CDN 的独立域名），格式 https://sub.example.com；留空用公开地址。HTTPS 证书可在「设置 → 面板访问」一键配置')}><input className="input mono" value={f.sub_base_url ?? ''} onChange={(e) => set('sub_base_url', e.target.value)} placeholder={s.data?.public_url || 'https://sub.example.com'} /></Field>
         <Field label={t('订阅标题')} hint={t('客户端里显示的配置名（profile-title），留空用站点标题')}><input className="input" value={f.sub_title ?? ''} onChange={(e) => set('sub_title', e.target.value)} placeholder={s.data?.site_title} /></Field>
         <Field label={t('客户端自动更新间隔（小时）')} hint={t('客户端多久重新拉取一次订阅，用量和到期显示随之更新；建议 1')}><input className="input mono" inputMode="numeric" value={f.sub_update_interval ?? ''} onChange={(e) => set('sub_update_interval', e.target.value)} /></Field>
         <Field label={t('客服 / 支持链接')} hint={t('support-url 头，信息页显示「联系客服」')}><input className="input mono" value={f.sub_support_url ?? ''} onChange={(e) => set('sub_support_url', e.target.value)} placeholder="https://t.me/your_support" /></Field>
       </div>
+      {!!f.sub_base_url?.trim() && <label className="row small">
+        <Switch label={t('订阅域名只开放订阅')} on={f.sub_host_strict !== '0'} onChange={(v) => set('sub_host_strict', v ? '1' : '0')} />
+        {t('订阅域名只开放订阅和用户中心（后台、API 返回伪装页），推荐开启')}
+      </label>}
       <Field label={t('在节点列表中显示用量')} hint={t('订阅名和用量默认通过响应头（profile-title / subscription-userinfo）告诉客户端；不读响应头的客户端只能靠节点名显示')}>
         <div className="seg c2">
           {([['auto', t('自动（推荐）'), t('能读响应头的客户端（Clash / Hiddify / Loon / QX / Shadowrocket…）直接显示；v2rayN、NekoBox、官方 sing-box、Surge 插入信息节点')], ['none', t('不显示'), t('只通过响应头')], ['nodes', t('信息节点'), t('顶部插入「套餐 / 剩余流量 / 到期 / 公告」')], ['suffix', t('名称后缀'), t('每个节点名后加「| 剩余 · 天数」')]] as [string, string, string][]).map(([k, l, h]) => (
