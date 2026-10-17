@@ -264,6 +264,13 @@ type AccessInfo = { adminPath: string; publicUrl: string; listen: string; domain
 
 const accessLabel: Record<string, string> = { 'set-path': t('后台路径'), 'set-domain': t('面板域名'), 'set-port': t('面板端口'), 'set-url': t('公开地址'), 'set-sub-domain': t('订阅域名') }
 
+// The last access change is reported for a while: success for 10 minutes,
+// failure for a day, so the note does not linger once it has been seen.
+const recent = (l: { ok: boolean; at: string }) => {
+  const at = Date.parse(l.at)
+  return !Number.isFinite(at) || Date.now() - at < (l.ok ? 10 * 60e3 : 24 * 3600e3)
+}
+
 // Access: how the panel is reached (admin path, HTTPS domain, port, public
 // address). These live in /etc/polaris/polaris.env; the change is carried
 // out by the root side of the server (`polaris set-path` …), which restarts
@@ -325,7 +332,7 @@ function Access() {
       </dl>
       {d && !d.updater && <div className="note warn">{t('这台服务器还没有安装在线配置组件：在服务器上执行')} <code>polaris update --force</code> {t('安装（只需一次）后就能在这里修改。Docker 部署请改环境变量。')}</div>}
       {d?.pending && <div className="note">{t('上一项更改正在执行…')}</div>}
-      {d?.last && <div className={'note ' + (d.last.ok ? '' : 'bad')}>{d.last.ok ? '✓' : '✗'} {accessLabel[d.last.action] ?? d.last.action}：{d.last.value}{' '}{d.last.ok ? t('已生效') : t('修改失败')}{!d.last.ok && d.last.log ? <div className="mono small" style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{d.last.log}</div> : null}</div>}
+      {d?.last && recent(d.last) && <div className={'note ' + (d.last.ok ? '' : 'bad')}>{d.last.ok ? '✓' : '✗'} {accessLabel[d.last.action] ?? d.last.action}：{d.last.value}{' '}{d.last.ok ? t('已生效') : t('修改失败')}{!d.last.ok && d.last.log ? <div className="mono small" style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{d.last.log}</div> : null}</div>}
       <div className="form-grid">
         <Field label={t('后台路径')} hint={t('留空或填 / 不使用路径（打开地址就是后台）；用路径时扫描器只能看到 404 或伪装站点')}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
