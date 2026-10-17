@@ -1,242 +1,177 @@
-<p align="center"><img src="docs/brand/polaris-icon.svg" width="112" alt="Polaris"></p>
+<p align="center">
+  <img src="docs/brand/polaris-icon.svg" width="112" alt="Polaris 标志">
+</p>
 
 <h1 align="center">Polaris</h1>
 
-多内核代理面板：一个主控管理 N 台服务器，每台运行一个 Agent，Agent 通过统一的内核适配层驱动 **Xray-core**、**sing-box**、**mihomo**、**Hysteria2 官方服务端**，以及用于中转的 realm / gost 和用于证书与回源的 Caddy。用户、入站、订阅在主控上只定义一次，由适配器翻译成各内核自己的配置。
+<p align="center">多内核代理管理面板 · 一个主控，统一管理多台节点</p>
 
-每次发布同时提供**社区版**（开源，包含全部基础功能）和**专业版**（另含客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送，需要许可证），见[版本与许可证](#版本与许可证)。
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="docs/user-guide.md">用户使用手册</a> ·
+  <a href="https://github.com/cuijianzhuang/Polaris/releases">版本下载</a> ·
+  <a href="#开发">开发指南</a> ·
+  <a href="https://github.com/cuijianzhuang/Polaris/issues">问题反馈</a>
+</p>
 
-```
-┌──────────── 主控 polaris ────────────┐        ┌──────── 节点 polaris-agent ────────┐
-│ React 后台 · REST API · 订阅 /sub/    │  mTLS  │ reconcile · 进程管理 · 流量上报     │
-│ 期望状态 NodeSpec（带版本，可回滚）    │◀──────▶│  ├─ xray     (gRPC 热增删用户)      │
-│ 流量结算 · 限额 · 证书 · 模板 · 链路   │ gRPC流 │  ├─ sing-box (SIGHUP 重载)          │
-│ SQLite / PostgreSQL · 可选 Redis      │        │  ├─ hysteria (HTTP 认证回调)        │
-└───────────────────────────────────────┘        │  └─ realm    (L4 中转转发)          │
-                                                 └─────────────────────────────────────┘
-```
+Polaris 将节点、入站、用户和订阅集中在一个面板中管理。每台节点运行 Agent，由它安装和管理 **Xray-core、sing-box、mihomo、Hysteria2 官方服务端**等内核；同一套用户和授权配置可以应用到不同节点与内核。
 
-代理流量由客户端直连节点内核，不经过主控；主控宕机时节点按最后一次成功应用的配置继续服务，流量在 Agent 本地落盘，恢复后补报。
+适合需要管理多台服务器、多种协议，以及统一分配用户流量、有效期和订阅的管理员。后台支持中文 / English、明暗主题和移动端布局。
 
-## 功能
+## 核心功能
 
-| 模块 | 内容 |
+| 场景 | 能力 |
 | --- | --- |
-| 内核适配层 | `CoreAdapter` 接口：`Capabilities / Render / Validate / Start / Stop / Reload / AddUsers / RemoveUsers / CollectTraffic / OnlineIPs / Health`。新增内核只需新增一个适配器 |
-| 协议 | VLESS（Vision / REALITY / XHTTP）、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC v5、AnyTLS、ShadowTLS v3、Naive、SOCKS、HTTP；传输 TCP / WS / gRPC / HTTPUpgrade / XHTTP / mKCP；Xray 新特性：VLESS Encryption（ML-KEM-768 + X25519，面板一键生成）、Vision testseed、REALITY ML-DSA-65 签名 / 客户端版本范围 / 回落限速、PROXY protocol、嗅探排除；REALITY 目标扫描（TLS 1.3 / h2 / X25519MLKEM768，由节点发起） |
-| 能力矩阵 | 由适配器按内核版本计算（如 XHTTP 需 Xray ≥ 24.9.30、AnyTLS 需 sing-box ≥ 1.12），前端据此置灰不可选组合，主控创建时再校验；双内核都支持时按节点默认内核分配 |
-| 期望状态同步 | 每次变更生成完整 `NodeSpec` 存入 `config_revisions`；Agent 只增删用户时走热更新，结构变化走 渲染 → 内核自检 → 原子替换 → 重载，失败自动回滚并上报；后台可一键回滚到任意已应用版本 |
-| 用户 | 每个用户一个 UUID + 一个密码，SS 2022 按加密方式派生对应长度 PSK；配额、到期（固定日期或「首次使用后 N 天」）、IP 数限制（可选临时封禁，可设豁免 IP）、HWID 设备数限制、自动续订、授权（整台绑定节点 / 按分组 / 单独入站，三者取并集；节点页可查看谁有权使用、本节点流量与在线 IP，并直接绑定 / 解绑；批量绑定 / 解绑节点）、按节点单独配额、每月 / 周期重置、节点流量倍率；单节点链接与二维码；近 30 天每日流量图；导入导出 |
-| 用户中心 | `/u`：用户用 Telegram 登录后查看自己的用量、到期、套餐速率和订阅，可自助重置订阅链接 |
-| 客户独立限速（专业版） | 按用户或分组设置上下行速率，对所有内核生效（Agent 自带限速转发）；节点页实时显示被限速用户和当前速度 |
-| 订阅 | `/sub/{token}` 按 UA 或 `?format=` 输出 通用链接 / Clash(mihomo) / sing-box / Surge / Loon / Quantumult X；每种格式可维护多套规则模板。订阅设置：独立订阅域名、订阅标题、更新间隔、客服链接、一键停用；`subscription-userinfo` / `profile-title` / `support-url` / `announce`（公告）/ `routing`（Happ 路由规则，可开关）响应头；可在节点列表插入「剩余流量 / 到期 / 公告」信息节点或名称后缀 |
-| 订阅信息页 | 浏览器打开订阅链接：公告、状态、用量与剩余、到期与重置周期、近 30 天流量柱状图、订阅二维码、12 个客户端一键导入（Clash Verge、sing-box、Shadowrocket、Stash、Hiddify、Happ、v2rayNG、Streisand、Surge、Loon、QX、Karing）、每个节点的链接与二维码、Telegram 一键绑定、客服入口；明暗主题自适应 |
-| 订阅转换（专业版） | 参考 MiSub：订阅源（机场订阅链接 / 手动节点，自动识别 Base64、Clash、sing-box、SIP008，定时更新，记录流量与到期）+ 订阅组（面板用户节点 + 多个订阅源合并）；处理链：过滤（协议 / 地区 / 正则 / 去信息节点）、重命名（正则或 `{emoji} {regionZh} {index}` 模板）、排序（地区优先级）、去重；可切换第三方 subconverter 后端；SSRF 防护 |
-| 规则与配置方案 | 参考 MiSub：内置 4 套方案（极简 / ACL4SSR 精简 / 流媒体与 AI / ACL4SSR 完整）+ ACL4SSR CM_Online 系列 7 套 + 自定义 ini URL；采用 subconverter ini 语法，内置引擎转换为各客户端原生写法（Clash rule-providers、sing-box rule-set、Surge / Loon / QX 远程规则），`[]@regions` 自动展开地区分组；第三方后端直接用方案作 config；全局或按订阅组设置，另有「跳过证书校验」「强制 UDP」开关 |
-| 域名与 DDNS | DNS 服务商（Cloudflare / 自定义 Webhook，免费）；**域名绑定与 DDNS（专业版）**：域名绑定节点 IP（A / AAAA / 双栈，可选 CDN 代理）；Agent 定期探测公网 IP 随心跳上报，开启 DDNS 的节点 IP 变化后自动更新记录并告警 |
-| 路由与负载均衡 | 出站负载均衡组（延迟最低 / 最稳定 / 故障转移 / 轮询 / 随机，探测地址、容差、兜底出站）；健康检查失败的成员自动摘除；入站可绑定固定出口；全局规则（所有节点）+ 节点规则；规则预设（拦截广告 / BT / 私有地址、国内直连、流媒体 / AI / Telegram 分流） |
-| Telegram 机器人 | 超级管理员（全部节点与用户）/ 节点管理员（只管绑定的节点）/ 用户（订阅链接或信息页一键绑定）三种角色；告警（节点离线 / 下发失败 / IP 变更 / 入站探测失败 / 异常流量）、每日报告、用户流量与到期提醒（文案可自定义）、公告群发；用 Telegram 登录面板和用户中心；**管理菜单（专业版）**：查看节点、重启内核、强制同步、回滚、搜索用户、启停 / 重置流量 / 续期、流量排行、版本更新 |
-| CDN | 入站可挂多个入口（直连 / CDN / 中转）；CDN 配置档含优选 IP（手填或定时拉取、可按 IP 展开）；Cloudflare 集成：自动建代理 DNS 记录、SSL 设为 Full (strict)、签发 Origin 证书并下发 |
-| 链式代理 | L4 端口转发（realm，不解密）与协议中转（自动创建服务账号、出站与路由）；节点出站可经 WARP / 住宅 SOCKS / 面板内其他节点（`detour` 串链）；路由规则、urltest / selector 出站组；链路探测 |
-| Xray Geodata | 设置中开启后，Xray 按 cron 自动下载 geoip / geosite 等 .dat 文件并热重载（Xray 26.4.25+），支持自定义文件与经出站下载；节点页可立即更新 |
-| 入站模板 | 内置「REALITY 直连」「Hy2 + TUIC」「CDN WS 备用」「全协议」；选模板 → 选节点 → 预览（改派内核、端口冲突自动调整、跳过原因）→ 生成；改模板后差异同步，手动改过的字段保留；节点标签绑定模板，新节点上线自动套用 |
-| 统计与监控 | 统计页：按天长期保留的流量、用户 / 节点排行、按入站 / 出站统计、月报导出、异常流量提醒；节点 CPU / 内存 / 带宽历史曲线；入站外部探测与告警；成本管理 |
-| 批量运维 | 批量改端口、批量限速、批量绑定节点；面板一键升级 Agent；内核升级与回退（失败自动回滚） |
-| DNS 与规则 | 内核 DNS 配置、统一规则集（各内核共用）、路由规则热更新 |
-| 备份 | 本地定时备份（可加密，可恢复到其他服务器）；**推送到 Telegram / WebDAV / S3（专业版）** |
-| 登录与审计 | 通用 OIDC / OAuth2 单点登录、GitHub 登录、Telegram 网页登录；敏感操作二次验证；审计日志记录每次变更的前后差异（可开关） |
-| 多语言 | 后台界面中文 / English |
-| 安全 | 主控 ↔ Agent 全程 mTLS（内置 CA，首次接入用一次性 token + CA 指纹钉扎，可吊销）；后台路径自定义，其余路径 404 或反代伪装站；bcrypt + TOTP + 5 次失败锁 15 分钟；管理员可绑定 GitHub 账号免密登录（开启二次验证的仍需输入验证码）；REALITY 私钥 / 证书私钥 / SS 主密钥 / API Token 以 AES-GCM 加密存库；订阅 token 32 字节、接口限速；Agent 只执行结构化指令；内核下载校验官方 SHA256；全部写操作记审计日志 |
+| 节点与内核 | 一次性令牌接入、节点状态与资源监控、多内核共存、Agent 升级、内核版本切换与失败回退 |
+| 协议与入站 | VLESS、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC、AnyTLS 等；支持 REALITY、Vision、XHTTP、WS、gRPC 等组合，按内核版本校验兼容性 |
+| 用户与套餐 | 流量配额、固定 / 首次使用后到期、周期重置、自动续订、分组和等级授权、节点流量包、IP / HWID 限制、批量操作 |
+| 订阅分发 | 通用链接、Clash / mihomo、sing-box、Surge、Loon、Quantumult X；订阅信息页、二维码、客户端导入、独立订阅域名 |
+| 路由与中转 | 入站模板、出站与负载均衡、全局 / 节点路由、realm / GOST 端口转发、链式代理、CDN 入口与 Caddy 回源 |
+| 日常运维 | 流量统计、节点和入站探测、Telegram 告警、本地定时备份与恢复、审计日志、服务器成本管理 |
+| 账号与安全 | 主控与 Agent 使用 mTLS；敏感字段加密；自定义后台路径、两步验证、GitHub / Telegram / OIDC / OAuth2 登录 |
+| 专业版扩展 | 客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送 |
 
-## 快速开始
+协议、传输和客户端并非任意组合。请以界面的能力提示为准，常见限制见[使用手册 · 兼容性](docs/user-guide.md#compatibility)。
 
-### 主控
+## 工作方式
 
-**一键安装（推荐）**：在一台 Linux（systemd，amd64 / arm64）服务器上以 root 执行。
-
-```bash
-# 绑定域名，自动安装 Caddy 申请 HTTPS（域名需已解析到本机）
-bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh) --domain panel.example.com
-
-# 没有域名时用公网 IP + HTTP（仅建议测试）
-bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh)
+```mermaid
+flowchart LR
+    Admin[管理员] -->|HTTPS| Panel[主控：面板、用户、订阅与数据库]
+    Panel <-->|mTLS：配置、状态与流量| Agent[节点 Agent]
+    Agent -->|管理| Core[代理内核]
+    Client[客户端] -->|代理连接| Core
 ```
 
-脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
-**社区版与专业版**：每次发布同时提供两个版本，数据和配置通用。
-- 首次安装时脚本会让你选择版本（直接回车 = 社区版；用 `curl | bash` 等非交互方式安装时默认社区版）；也可以直接加 `--pro` 或 `--community`。
-- 专业版包含客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送，需要在「许可证」页面激活许可证。
-- 随时切换：`polaris switch`（或菜单「20. 切换版本」），也可以指定 `polaris switch pro|community`。切换时版本号不变，配置和数据保留；切回社区版后，高级功能的设置保留，但不再生效。
-- 之后的升级沿用当前版本，节点 Agent 也自动使用对应版本。
-- Docker 镜像：专业版用 `-pro` 标签，例如 `ghcr.io/cuijianzhuang/polaris:latest-pro`。
+代理流量由客户端直接连接节点，不经过主控。主控暂时离线时，节点按最后一次成功应用的配置继续运行，流量记录在本地，恢复连接后补报。配置变更会经过渲染、内核校验和应用，失败时回滚。
 
-其他参数：`--version v0.1.0-beta`、`--port`、`--agent-port`、`--admin-path`、`--no-caddy`（自备反代）、`--mirror`（GitHub 下载加速前缀）。
-下载显示进度；GitHub 直连失败或速度过慢（10 KB/s 以下持续 30 秒）时会自动依次改用公共镜像（ghfast.top、gh-proxy.com、ghproxy.net），成功的镜像会记住供以后升级使用（`--mirror none` 恢复直连）；api.github.com 不可达时改从 releases/latest 跳转获取版本号。
-
-安装后在服务器上输入 **`polaris`** 打开交互式管理菜单（`polaris-ctl` 为同一命令的别名）（顶部显示面板 / 本机节点运行状态、运行时长、内存、系统负载与新版本提醒；按「安装与升级 / 服务管理 / 面板设置 / 工具」分组：安装、升级、检查更新、卸载、启停与日志、开机自启、面板信息、修改后台路径与端口、绑定域名切换 HTTPS、重置管理员密码、关闭二次验证、备份、本机节点、系统诊断）。安装、改端口、绑定域名时会自动在已启用的 ufw / firewalld 中放行端口（云服务器安全组仍需手动放行）。也可以直接带子命令：
-
-```bash
-polaris                      # 交互式菜单
-polaris info                 # 服务状态、后台地址、端口监听与防火墙、数据库、磁盘、系统信息
-polaris doctor               # 系统诊断：服务、端口、防火墙、域名解析与 HTTPS、时间同步、磁盘、错误日志
-polaris check-update         # 检查是否有新版本
-polaris switch [pro|community]  # 切换社区版 / 专业版（版本号不变，配置与数据保留）
-polaris update [--force]     # 升级（先备份数据库，配置不变；已是最新时跳过，--force 强制重装）
-polaris reset-password       # 忘记密码：生成新密码、解除锁定、注销所有会话
-polaris reset-2fa            # 丢失验证器：关闭二次验证
-polaris set-domain panel.example.com   # 由 IP + HTTP 切换到域名 + HTTPS
-polaris set-path /my-admin | set-port 8443
-polaris backup               # 配置 + 数据库一致性快照 → /root/polaris-backup-*.tar.gz
-polaris node [-n 名称]       # 在主控本机安装节点（经 127.0.0.1 接入，无需放行端口）
-polaris uninstall [--purge]  # 卸载；--purge 同时删除配置与数据
-polaris help                 # 全部子命令
-```
-
-主控程序本身安装为 `/usr/local/bin/polaris-server`（由 systemd 运行）。维护操作也可直接调用：`polaris-server admin reset-password|reset-2fa|list`、`polaris-server backup FILE`（需与服务相同的环境变量；Docker 中为 `docker compose exec polaris polaris admin …`）。
-
-**Docker**：`docker-compose.yml` 默认从源码构建（社区版）。要用发布的镜像，把 `image` 改为 `ghcr.io/cuijianzhuang/polaris:latest`（社区版）或 `ghcr.io/cuijianzhuang/polaris:latest-pro`（专业版），并去掉 `build`。
-
-```bash
-cp deploy/polaris.env.example deploy/polaris.env   # 至少修改 POLARIS_SECRET_KEY、POLARIS_ADMIN_PATH、POLARIS_PUBLIC_URL
-docker compose up -d
-docker compose logs polaris | grep password         # 未设置初始密码时会生成并打印
-```
-
-前置 Caddy / Nginx 处理 HTTPS（示例见 `deploy/Caddyfile`），访问 `https://panel.example.com/<admin_path>/`。
-`9443` 是 Agent 的 mTLS 接入端口，需要直接开放，不能经反代。
-
-也可以手动部署单二进制：`make all` 后把 `bin/polaris` 安装为 `/usr/local/bin/polaris-server`，配合 `deploy/polaris.service` 与 `/etc/polaris/polaris.env`。
-主控启动后会把与自身同版本的 Agent（amd64 / arm64，校验 checksums.txt）缓存到 `<data_dir>/downloads/`，节点从主控下载 Agent，不依赖节点访问 GitHub；主控本身访问 GitHub 慢时可在设置项 `github_mirror` 填镜像前缀。也可以手动把 `bin/polaris-agent-linux-*` 放进该目录。
-
-### 节点
-
-后台「节点与内核 → 添加节点」会生成一行命令，在节点上以 root 执行：
-
-```bash
-curl -fsSL https://panel.example.com/install.sh | bash -s -- --token <一次性 token>
-```
-
-主控地址与 CA 指纹由主控写进 `install.sh`，命令里只需令牌（24 小时有效、一次性）。脚本会先检查与主控接入端口的连通性（不通时直接提示放行端口），再下载并校验 Agent、注册拿到客户端证书、写入 systemd 服务；弹窗会实时显示节点上线。Agent 数据在 `/var/lib/polaris-agent`，按期望状态下载内核到 `cores/{type}/{version}/` 并校验 SHA256，切换版本只改 `current` 软链。
-
-- 国内机器可加 `--mirror https://<github 镜像前缀>`（Agent 与内核下载都会使用）
-- 升级 Agent：面板升级后，「节点与内核」会标出 Agent 版本落后的节点，点「升级 Agent」或「升级全部 Agent」即可。Agent 经已有的 mTLS 通道从主控下载新版本，校验 SHA256 并试运行后替换自身、原地重启（内核随之重启，连接中断数秒）。也可在节点上执行 `… | bash -s -- --upgrade`
-- 卸载：`… | bash -s -- --uninstall [--purge]`
-- 主控服务器本机做节点：执行同一条命令即可（自动改用 127.0.0.1 连接），或在主控上运行 `polaris node`
-
-> sing-box 官方构建不含 `with_v2ray_api`，此时 Agent 会跳过 sing-box 的按用户流量统计（Xray、Hysteria2 不受影响）。需要统计时请使用带该编译标签的构建：把二进制放到 `/var/lib/polaris-agent/cores/singbox/<版本>/sing-box`（已存在时 Agent 不会重新下载），或用 `--mirror` 指向托管该构建的镜像。
-
-### 配置项
-
-均可通过环境变量（`POLARIS_*`）或 `--config config.yaml` 设置：
-
-| 变量 | 说明 | 默认 |
-| --- | --- | --- |
-| `POLARIS_SECRET_KEY` | 列加密与会话签名密钥，**必填且需备份**；至少 16 位随机字符（`openssl rand -hex 32`），示例值会被拒绝 | — |
-| `POLARIS_ADMIN_PATH` | 后台与 API 前缀 | `/` |
-| `POLARIS_PUBLIC_URL` | 订阅链接中的外部地址 | — |
-| `POLARIS_LISTEN` / `POLARIS_AGENT_LISTEN` | HTTP / Agent mTLS 监听 | `:8080` / `:9443` |
-| `POLARIS_AGENT_HOSTS` | Agent 连接主控用的域名或 IP（写入服务端证书） | — |
-| `POLARIS_DATA_DIR` | 数据目录（SQLite、CA、Agent 下载） | `./data` |
-| `POLARIS_DB_DSN` | `postgres://…` 切换 PostgreSQL | SQLite |
-| `POLARIS_REDIS_URL` | 流量计数缓冲 | 内存 |
-| `POLARIS_DECOY` | 非后台路径反代到的伪装站 | 返回 404 |
-| `POLARIS_SUB_RATE_LIMIT` | 订阅接口每 IP 每分钟请求数 | 30 |
-| `POLARIS_TRUSTED_PROXIES` | 信任其 `X-Forwarded-For` 的反代地址（IP 或 CIDR，逗号分隔） | 本机与内网地址 |
-
-ACME（Let's Encrypt）在后台「设置」填写邮箱即可启用：
-
-- **HTTP 验证**（只需邮箱）：域名解析到节点，签发时主控让该节点的 Agent 在 80 端口临时应答 `/.well-known/acme-challenge/`（几秒后关闭；80 端口被占用时会提示是哪个程序）。节点按域名 / 地址自动匹配，也可手动指定。
-- **DNS 验证**（再填 Cloudflare DNS Token）：支持泛域名 `*.example.com`，不需要 80 端口。
-- **IP 证书**：域名处填节点 IP，按 Let's Encrypt 短期证书签发（约 6 天）。
-
-证书在剩余不足 1/3 有效期时自动续期（90 天证书提前 30 天，IP 证书提前 2 天），并下发到使用它的节点。
-
-**内核升级与回退**：每个内核的历史版本都保留在节点上（`current` 软链切换）。节点页会显示 GitHub 最新稳定版（API 受限时改读 releases/latest 跳转，可走 `github_mirror`），可一键升级、一键回退到上一版本，或「批量升级内核」把多个节点切到同一版本。新版本启动失败时 Agent 自动停掉新版本、切回旧版本并恢复原配置，面板随之把期望版本设回正在运行的版本（不会反复重试），并在内核卡片上显示失败原因。
-
-**回落（一个端口多个协议）**：Xray 上的 VLESS / Trojan + TCP + TLS / REALITY 入站可配置回落，把不是本协议的连接按路径 / ALPN 转给同节点、监听 127.0.0.1、不开 TLS 的子入站（如 VLESS-WS、Trojan），实现 443 一个端口同时承载多种协议；子入站的订阅链接自动使用主入站的端口与 TLS。
+主控默认使用 SQLite，可选 PostgreSQL；Redis 用于可选的流量计数缓冲，基础部署无需单独安装数据库服务。
 
 ## 版本与许可证
 
-| | 社区版 | 专业版 |
+| 项目 | 社区版 | 专业版 |
 | --- | --- | --- |
-| 源码 | 本仓库，开源 | 本仓库 + 私有的高级功能代码，只发布编译好的程序 |
-| 面板 / Agent / 订阅 / 多内核等基础功能 | ✅ | ✅ |
-| 客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送 | — | ✅（需要许可证） |
-| 发布包 | `polaris-panel-<版本>-linux-<架构>.tar.gz`、`polaris-agent-linux-<架构>` | `polaris-panel-pro-<版本>-…`、`polaris-agent-pro-linux-<架构>` |
-| Docker 镜像 | `ghcr.io/cuijianzhuang/polaris:<版本>` / `latest` | `…:<版本>-pro` / `latest-pro` |
+| 面板、节点、用户、订阅、多内核等基础功能 | 支持 | 支持 |
+| 客户独立限速、订阅转换、DDNS 与域名绑定 | — | 需要相应许可证授权 |
+| Telegram 管理菜单、备份推送到 Telegram / WebDAV / S3 | — | 需要相应许可证授权 |
+| 源码 | 本仓库 | 本仓库 + 私有 `polaris-pro` 代码 |
+| Docker 镜像 | `ghcr.io/cuijianzhuang/polaris:latest` | `ghcr.io/cuijianzhuang/polaris:latest-pro` |
 
-- **安装与切换**：首次安装时选择版本，或加 `--pro` / `--community`；之后用 `polaris switch` 随时切换，配置和数据通用。拆分前的旧版本执行 `polaris update` 时默认升级为专业版，保留正在使用的功能。
-- **许可证**：在后台「许可证」页面输入激活码联网激活，或导入离线许可证文件（`.lic`）。页面会显示套餐、到期日、节点和用户用量；迁移服务器时先点「停用」，再在新面板激活。命令行也可以：`polaris-server admin license show|install FILE|deactivate`。
-- **到期和吊销**：只降回社区版的功能，已生效的配置继续工作，不中断服务。升级时已在使用高级功能的面板有 30 天试用期。
-- **从源码编译**得到的是社区版；许可证页会提示“社区版构建”。
+两种版本的数据和配置通用。一键安装可用 `--community` 或 `--pro` 指定版本，安装后用 `polaris switch community` / `polaris switch pro` 切换。**启用专业版功能需要专业版程序及有效授权，仅向社区版导入许可证不会补齐专业版代码。**
+
+专业版在「许可证」页面联网激活或导入离线许可证。套餐、功能、数量上限、到期日和更新期限以该页面为准，详见[许可证管理](docs/user-guide.md#license)。
+
+## 快速开始
+
+### 1. 安装主控
+
+准备一台支持 **systemd 的 Linux 服务器（amd64 / arm64）**，以 root 执行。将示例域名替换成自己的域名，并先解析到主控服务器：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh) install --community --domain panel.example.com
+```
+
+脚本会下载并校验发布文件，安装主控与 Caddy，生成密钥和后台路径，并输出后台地址及初始登录信息。安装专业版时将 `--community` 改为 `--pro`。
+
+- 主控放行 `80/tcp`、`443/tcp`，以及 Agent 接入端口 `9443/tcp`；云服务器安全组也需要放行。
+- `9443` 使用独立的 mTLS，应让 Agent 直连，不能经过普通 HTTP 反向代理或 CDN。
+- 保存安装结果中的后台地址。访问站点根路径可能返回 404，这是自定义后台路径的预期行为。
+- 没有域名时可去掉 `--domain panel.example.com`，使用 IP + HTTP 做临时测试。
+
+使用 Docker 或自备反向代理，见[手册 · 安装与部署](docs/user-guide.md#installation)。
+
+### 2. 接入节点
+
+登录后台，进入「节点 → 节点列表」，点击「添加节点」，填写名称、地址并选择内核。创建后，将面板生成的安装命令复制到节点服务器，以 root 执行，等待显示在线。
+
+主控服务器也可以同时作为节点：在主控上运行 `polaris node`。节点主动连接主控，无需额外开放 Agent 管理端口；客户端使用的代理端口仍需单独放行。
+
+### 3. 创建入站并授权用户
+
+1. 在「入站与转发 → 入站」创建入站，或通过「入站模板」预览并批量生成。
+2. 确认内核运行正常、配置下发成功，并放行入站所需的 TCP / UDP 端口。
+3. 在「用户」创建用户，设置配额和有效期，授权整台节点、分组或指定入站。
+4. 复制该用户的订阅链接，导入兼容的客户端并测试连接。
+
+完整步骤及检查方法见[手册 · 首次配置](docs/user-guide.md#first-connection)。普通订阅用户可直接阅读[客户端使用](docs/user-guide.md#client-use)。
+
+## 常用运维命令
+
+以下命令用于一键安装的主控服务器；执行 `polaris` 可打开交互式菜单。
+
+| 命令 | 用途 |
+| --- | --- |
+| `polaris info` | 查看后台地址、端口与服务信息 |
+| `polaris status` / `polaris log` | 查看运行状态 / 日志 |
+| `polaris doctor` | 检查服务、端口、防火墙、DNS、HTTPS、时钟和磁盘 |
+| `polaris check-update` / `polaris update` | 检查版本 / 升级主控 |
+| `polaris backup` | 创建备份，可交互输入加密口令 |
+| `polaris reset-password` | 重置管理员密码、解除账号锁定并注销会话 |
+| `polaris help` | 查看全部命令 |
+
+升级、恢复和迁移的操作顺序见[手册 · 维护与备份](docs/user-guide.md#maintenance)。
 
 ## 开发
 
-```
-cmd/panel  cmd/agent           两个二进制
-api/proto                      主控 ↔ Agent 的 gRPC 定义（connect-go，buf generate）
-internal/model                 统一协议模型与能力矩阵
-internal/core/{xray,singbox,hysteria,forwarder,mihomo,caddy}   内核适配器
-internal/sub                   订阅解析与转换（处理链、地区识别）、渲染器 links / clash / singbox / surge / loon / quanx、信息页
-internal/panel                 HTTP API、期望状态发布、Agent 服务、流量结算、定时任务
-internal/agent                 reconcile、内核安装、进程管理、上报
-internal/store                 GORM 仓储（SQLite / PostgreSQL）
-internal/license               许可证校验（Ed25519 签名、试用、到期与宽限期）
-web/                           React + TypeScript + Vite，构建产物 go:embed 进主控
-```
+需要 **Go 1.25 或更新的兼容版本、Node.js 与 npm**；前端 CI 使用 Node.js 22。前端构建产物会嵌入主控二进制，修改前端后需重新构建主控。
 
 ```bash
-make web build          # 构建前端与二进制
-make test               # go vet + 单元测试
-make test-cores XRAY=/path/xray SINGBOX=/path/sing-box
-                        # 用真实内核校验渲染出的配置，并跑端到端测试：
-                        # 主控 + 真实 Agent + Xray，覆盖注册、下发、热增删用户、回滚、订阅
-cd web && npm run dev   # 前端开发服务器，/api 代理到 127.0.0.1:8080
+git clone https://github.com/cuijianzhuang/Polaris.git
+cd Polaris
+make web build       # 安装锁定的前端依赖，构建前端、主控和 Agent
+make test            # go vet + Go 测试
 ```
 
-专业版的高级功能代码在私有仓库 `polaris-pro`，文件路径与本仓库一一对应（`*_pro.go`，构建标签 `pro`），本仓库对应的位置是社区版空实现（`*_oss.go`）。有权限时：
+启动主控需要配置密钥、数据目录和监听地址，见[手册 · 配置项](docs/user-guide.md#configuration)。前端开发服务器通过以下命令启动；需要同时运行后端，并使用根后台路径 `/`，让默认的 `/api` 代理匹配后端路由：
 
 ```bash
-scripts/pro.sh link ../polaris-pro   # 用符号链接接入私有代码
-go test -tags pro ./internal/panel/ ./internal/agent/
-scripts/pro.sh clean                 # 回到社区版
+cd web
+npm run dev
 ```
 
-接口文档：登录后访问 `<admin_path>/api/v1/openapi.json`（由路由自动生成）。实时节点数据走 WebSocket `<admin_path>/api/v1/ws`。
+更多检查：
 
-## 安全说明
+```bash
+cd web
+npm run i18n:check
+npm run build
+cd ..
+make test-cores XRAY=/path/to/xray SINGBOX=/path/to/sing-box
+```
 
-发布前做过一轮安全复查，修复项都有回归测试（`internal/panel/security_test.go`）。部署时请注意：
+真实内核测试需要对应二进制；mihomo、GOST、ACME 与防火墙等检查还有额外前置条件，参见 [CI 配置](.github/workflows/ci.yml)。未提供依赖时，相关测试可能跳过。
 
-- `POLARIS_SECRET_KEY` 至少 16 位随机字符，示例值会被拒绝；`POLARIS_ADMIN_PATH` 请设为难猜的路径（为 `/` 时启动会告警）。
-- 主控前面放 Caddy / Nginx 终止 HTTPS；只信任来自本机或内网反代的 `X-Forwarded-For`（取最右一项）；若主控端口能被内网其他机器或 Docker 网关直连，请用 `POLARIS_TRUSTED_PROXIES` 只列出真正的反代地址。
-- GitHub 登录：在 GitHub → Settings → Developer settings → OAuth Apps 新建应用，Authorization callback URL 填「设置 → GitHub 登录」中显示的回调地址，把 Client ID / Secret 填回该处；用密码登录后点「绑定 GitHub」，之后登录页即可「使用 GitHub 登录」。
-- Telegram 机器人只在私聊中响应；修改密码会让其他会话全部失效；重新绑定 TOTP 时旧验证器在新验证器确认前一直有效。
-- Agent 安装脚本会校验二进制 SHA-256（主控提供的文件用主控下发的校验值，GitHub 回退用对应版本的 `checksums.txt`）。
+有私有 `polaris-pro` 仓库访问权限时，将其放在本仓库旁边：
 
-已知并接受的风险：
+```bash
+scripts/pro.sh link ../polaris-pro
+go build -tags pro ./...
+go vet -tags pro ./...
+go test -tags pro ./internal/panel/ ./internal/agent/ ./internal/license/
+# 开发结束后可移除链接；不加 pro 标签始终构建社区版
+scripts/pro.sh clean
+```
 
-- 登录失败锁定按账号计，知道用户名的人可以让管理员 15 分钟内无法登录（后台路径隐藏可缓解）。
-- 管理员视为完全可信：订阅模板、Webhook 地址、CDN 优选 IP 来源等由管理员填写的内容不做沙箱限制。
-- 后台会话 token 存在浏览器 localStorage 中，前端未启用 CSP；React 默认转义，代码中没有使用 `dangerouslySetInnerHTML`。
+链接后的专业版文件属于同一个 Go 包，修改链接文件会直接改动 `polaris-pro` 仓库。
 
-## 为什么内核以子进程运行，而不是引入 Xray / sing-box 的 Go 模块
+| 目录 | 内容 |
+| --- | --- |
+| `cmd/panel`、`cmd/agent` | 主控与 Agent 入口 |
+| `api/proto` | 主控与 Agent 的通信定义，使用 `buf generate` 生成代码 |
+| `internal/core` | 内核适配器与能力矩阵 |
+| `internal/panel`、`internal/agent` | API、调度、配置同步与节点执行逻辑 |
+| `internal/store`、`internal/model` | 数据存储与统一模型 |
+| `internal/sub`、`internal/license` | 订阅处理与许可证校验 |
+| `web` | React + TypeScript + Vite 后台 |
 
-Agent 托管的是**官方发布的二进制**，用户热增删、流量统计走官方 gRPC / HTTP API，配置用官方 `xray -test` / `sing-box check` 自检——实现本身就是官方的，只是没有链接进 Agent。这样选择是因为：
+登录后的 API 文档位于 `<后台路径>/api/v1/openapi.json`，实时节点数据通过 `<后台路径>/api/v1/ws` 提供。设计资料见[客户独立限速](docs/design/per-user-speed-limit.md)和[许可证机制](docs/design/licensing.md)。
 
-- **多内核共存与独立升级**：同一节点可同时跑 Xray、sing-box、mihomo、Hysteria，各自按节点切换版本、秒级回滚；嵌入库则每次升级内核都要重新发布 Agent。
-- **依赖冲突**：Xray 与 sing-box 依赖不同的 quic-go / uTLS 分叉，同一个 Go 模块里很难同时满足；sing-box 的很多能力还取决于构建 tag（`with_quic`、`with_utls`、`with_v2ray_api`…），官方 release 已按推荐组合构建。
-- **故障隔离**：内核 panic 或内存泄漏不会拖垮 Agent 和主控控制通道，Agent 可以继续上报并回滚。
-- **许可证**：sing-box 为 GPL-3.0，直接链接会让 Agent 整体受 GPL 约束；子进程方式不受影响。
-- **体积**：两个内核编进去后 Agent 会超过 60 MB，而大多数节点只用其中一个。
+## 安全部署与问题反馈
 
-代价是需要进程管理和 API 客户端：Xray 的 HandlerService / StatsService 客户端是手写的 protobuf 编码（避免为几个消息引入整个 xray-core 依赖树），由 `make test-cores` 用真实二进制回归。
+- 使用 HTTPS，保存并备份 `POLARIS_SECRET_KEY`；丢失后无法解密已有敏感数据。
+- 设置自定义后台路径、强密码和两步验证；反向代理只信任实际使用的代理地址。
+- 将订阅链接视为访问凭据。重置订阅同时更换用户 UUID 和密码，用户需要重新导入。
+- 管理员拥有高权限，配置模板、Webhook 和远程规则来源应由可信人员维护。
+- 管理会话令牌保存在浏览器 localStorage 中；使用可信浏览器环境。账号登录失败锁定也可能被知道用户名的人触发。
 
-## 当前状态
-
-已实现方案中的 M1–M6 主体功能，以及订阅转换、DDNS、负载均衡、Telegram 机器人、订阅设置与信息页、统计与监控、单点登录、审计日志、多语言、许可证与社区版 / 专业版双版本发布。已知限制：
-
-- Xray 的 Hysteria2 入站未开放（不同版本配置差异较大），Hy2 请使用 sing-box 或官方服务端
-- sing-box 负载均衡组不支持「轮询 / 随机」（只有 urltest），在 sing-box 节点上会被拒绝
-- 订阅信息页的 Happ / Hiddify / Streisand 等深链依赖客户端已安装；`routing` 头目前只有 Happ 识别
-- 订阅模板使用 Go text/template
+遇到问题先查看[故障排查](docs/user-guide.md#troubleshooting)，再提交 [Issue](https://github.com/cuijianzhuang/Polaris/issues)。请提供版本、安装方式、相关内核与客户端版本、复现步骤及脱敏日志；不要提交订阅令牌、私钥、密码或完整备份。
