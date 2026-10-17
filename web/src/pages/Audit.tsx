@@ -52,7 +52,7 @@ export default function Audit() {
       <div className="card flush scroll">
         {list.data?.items.length === 0 ? <Empty>{t('没有记录')}</Empty> : (
           <table>
-            <thead><tr><th>{t('时间')}</th><th>{t('操作者')}</th><th>{t('操作')}</th><th>{t('对象')}</th><th>{t('详情')}</th><th>IP</th></tr></thead>
+            <thead><tr><th>{t('时间')}</th><th>{t('操作者')}</th><th>{t('操作@@audit')}</th><th>{t('对象')}</th><th>{t('详情')}</th><th>IP</th></tr></thead>
             <tbody>
               {(list.data?.items ?? []).map((l) => (
                 <tr key={l.id}>

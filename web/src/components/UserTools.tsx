@@ -60,7 +60,7 @@ export function BulkCreateModal({ groups, onClose, onDone }: { groups: Group[]; 
           </select>
         </Field>
         <Field label={t('首次使用后开始计时')} hint={t('产生第一笔流量时才开始算有效天数')}>
-          <label className="row small"><Switch label={t('首次使用后开始计时')} on={f.firstUse} onChange={(v) => set('firstUse', v)} />{f.firstUse ? t('开启') : t('关闭')}</label>
+          <label className="row small"><Switch label={t('首次使用后开始计时')} on={f.firstUse} onChange={(v) => set('firstUse', v)} />{f.firstUse ? t('开启') : t('关闭@@off')}</label>
         </Field>
       </div>
       <Field label={t('分组')}>

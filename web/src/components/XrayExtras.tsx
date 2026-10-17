@@ -26,7 +26,7 @@ export function VlessEncryption({ p, setP, available }: { p: ProtocolSpec; setP:
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <button className="btn sm" type="button" disabled={busy || !available} onClick={() => gen('x25519')}>{t('生成（X25519 认证）')}</button>
         <button className="btn sm" type="button" disabled={busy || !available} onClick={() => gen('mlkem768')}>{t('生成（ML-KEM-768 认证）')}</button>
-        {on && <button className="btn sm danger" type="button" onClick={() => setP({ decryption: undefined, encryption: undefined })}>{t('关闭')}</button>}
+        {on && <button className="btn sm danger" type="button" onClick={() => setP({ decryption: undefined, encryption: undefined })}>{t('关闭@@off')}</button>}
       </div>
       {on
         ? <textarea className="input mono" readOnly style={{ minHeight: 56, marginTop: 8, fontSize: 12 }} value={p.encryption} aria-label={t('客户端 encryption')} />

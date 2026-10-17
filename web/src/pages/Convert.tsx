@@ -360,7 +360,7 @@ function schemeLabel(id: string, presets?: SchemePreset[]) {
 function TriState({ value, onChange }: { value: boolean | null; onChange: (v: boolean | null) => void }) {
   return (
     <div className="seg c3">
-      {([[null, t('跟随全局')], [true, t('开启')], [false, t('关闭')]] as [boolean | null, string][]).map(([k, l]) => (
+      {([[null, t('跟随全局')], [true, t('开启')], [false, t('关闭@@off')]] as [boolean | null, string][]).map(([k, l]) => (
         <button key={String(k)} type="button" className={'opt' + (value === k ? ' on' : '')} onClick={() => onChange(k)}>{l}</button>
       ))}
     </div>

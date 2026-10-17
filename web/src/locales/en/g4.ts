@@ -34,7 +34,6 @@ const m: Record<string, string> = {
   'block · 拦截': 'block · Block',
   'direct · 直连': 'direct · Direct',
   '{core} 原生配置预览': '{core} native config preview',
-  '{date} 到期': 'expires {date}',
   '{label} · 起始字节数': '{label} · after bytes',
   '{min}–{max} 随机': 'random {min}–{max}',
   '{name}（副本）': '{name} (copy)',

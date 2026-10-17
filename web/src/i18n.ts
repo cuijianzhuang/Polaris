@@ -30,8 +30,12 @@ export function setLang(l: Lang) {
 
 const dict: Record<string, string> = en
 
+// A key may carry a context after "@@" (t('关闭@@off')) when one Chinese
+// word needs two English translations; Chinese shows the part before "@@".
 export function t(s: string, vars?: Record<string, string | number | undefined | null>): string {
-  let out = lang === 'en' ? (dict[s] ?? s) : s
+  const at = s.indexOf('@@')
+  const zh = at > 0 ? s.slice(0, at) : s
+  let out = lang === 'en' ? (dict[s] ?? zh) : zh
   if (vars) out = out.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k] ?? '') : m))
   return out
 }
