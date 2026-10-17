@@ -87,6 +87,7 @@ type nodeReq struct {
 	SortOrder   int              `json:"sortOrder"`
 	DDNS        bool             `json:"ddns"`
 	NoFirewall  bool             `json:"noFirewall"`
+	Level       *int             `json:"level"` // tier groups need; nil = unchanged
 	Cores       []model.CoreSpec `json:"cores"`
 }
 
@@ -113,6 +114,9 @@ func (s *Server) createNode(c *gin.Context) {
 	n := store.Node{ID: store.NewID(), Name: req.Name, Address: req.Address, Domain: req.Domain, Region: req.Region,
 		Flag: strings.ToUpper(req.Flag), Labels: store.NewJSON(nonNilStrs(req.Labels)), DefaultCore: req.DefaultCore,
 		TrafficRate: req.TrafficRate, SortOrder: req.SortOrder, Status: "pending", DDNS: req.DDNS, NoFirewall: req.NoFirewall}
+	if req.Level != nil && *req.Level > 0 && *req.Level <= 99 {
+		n.Level = *req.Level
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&n).Error; err != nil {
 			return err
@@ -158,6 +162,15 @@ func (s *Server) updateNode(c *gin.Context) {
 	if req.TrafficRate > 0 {
 		upd["traffic_rate"] = req.TrafficRate
 	}
+	levelChanged := false
+	if req.Level != nil {
+		if *req.Level < 0 || *req.Level > 99 {
+			badRequest(c, fmt.Errorf("等级应在 0–99 之间"))
+			return
+		}
+		levelChanged = *req.Level != n.Level
+		upd["level"] = *req.Level
+	}
 	if req.DefaultCore != "" {
 		upd["default_core"] = req.DefaultCore
 		s.st.DB.Model(&store.Core{}).Where("node_id = ?", n.ID).Update("is_default", gorm.Expr("type = ?", req.DefaultCore))
@@ -174,6 +187,12 @@ func (s *Server) updateNode(c *gin.Context) {
 		var ids []string
 		s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", n.ID).Pluck("id", &ids)
 		s.MarkDirty("node address changed", s.nodesForInbounds(ids...)...)
+	}
+	if levelChanged {
+		// Who may use this node changed: its users and its relays' upstreams.
+		var ids []string
+		s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", n.ID).Pluck("id", &ids)
+		s.MarkDirty("node level changed", s.nodesForInbounds(ids...)...)
 	}
 	s.MarkDirty("node updated", n.ID)
 	s.auditCtx(c, "node.update", req.Name, "")
@@ -197,6 +216,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 			}
 		}
 		tx.Where("kind = ? AND target_id = ?", "node", id).Delete(&store.UserAccess{})
+		tx.Where("node_id = ?", id).Delete(&store.GroupNode{})
 		tx.Where("node_id = ?", id).Delete(&store.UserNodeQuota{})
 		if len(inIDs) > 0 {
 			tx.Where("kind = ? AND target_id IN ?", "inbound", inIDs).Delete(&store.UserAccess{})

@@ -37,6 +37,7 @@ var changeTables = map[string][]string{
 	"cores":             {"Status", "PID", "StartedAt", "Error", "InstalledVersions", "RunningVersion", "PrevVersion", "NoUserTraffic"},
 	"groups":            {},
 	"group_inbounds":    {},
+	"group_nodes":       {},
 	"user_groups":       {},
 	"user_accesses":     {},
 	"outbounds":         {},

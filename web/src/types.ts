@@ -41,6 +41,7 @@ export interface Node {
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
+  level?: number // tier a group needs to reach the node (0 = not tiered)
 }
 // What the node's agent is doing right now (applying a revision, installing
 // a core, upgrading itself); a finished one stays for about a minute.
@@ -63,7 +64,7 @@ export interface User {
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; lastSubAt?: string | null; lastSubUa?: string
 }
 export interface UserDevice { id: string; hwid: string; os: string; model: string; userAgent: string; ip: string; firstSeen: string; lastSeen: string }
-export interface Group { id: string; name: string; remark: string; inboundIds: string[]; userCount: number; isDefault?: boolean }
+export interface Group { id: string; name: string; remark: string; inboundIds: string[]; nodeIds: string[]; level: number; userCount: number; isDefault?: boolean }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
 export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]

@@ -673,6 +673,10 @@ func (s *Server) listGroups(c *gin.Context) {
 		if gs[i].InboundIDs == nil {
 			gs[i].InboundIDs = []string{}
 		}
+		s.st.DB.Model(&store.GroupNode{}).Where("group_id = ?", gs[i].ID).Pluck("node_id", &gs[i].NodeIDs)
+		if gs[i].NodeIDs == nil {
+			gs[i].NodeIDs = []string{}
+		}
 		s.st.DB.Model(&store.UserGroup{}).Where("group_id = ?", gs[i].ID).Count(&gs[i].UserCount)
 	}
 	c.JSON(http.StatusOK, gs)
@@ -682,6 +686,8 @@ type groupReq struct {
 	Name       string   `json:"name" binding:"required"`
 	Remark     string   `json:"remark"`
 	InboundIDs []string `json:"inboundIds"`
+	NodeIDs    []string `json:"nodeIds"` // nil = unchanged
+	Level      *int     `json:"level"`   // nil = unchanged
 }
 
 func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create bool) {
@@ -689,7 +695,15 @@ func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create
 	if !create {
 		s.st.DB.Model(&store.GroupInbound{}).Where("group_id = ?", g.ID).Pluck("inbound_id", &before)
 	}
+	if req.Level != nil && (*req.Level < 0 || *req.Level > 99) {
+		badRequest(c, fmt.Errorf("等级应在 0–99 之间"))
+		return
+	}
+	nodesChanged := req.NodeIDs != nil || (req.Level != nil && *req.Level != g.Level)
 	g.Name, g.Remark = req.Name, req.Remark
+	if req.Level != nil {
+		g.Level = *req.Level
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(g).Error; err != nil {
 			return err
@@ -704,14 +718,28 @@ func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create
 				}
 			}
 		}
+		if req.NodeIDs != nil {
+			if err := tx.Where("group_id = ?", g.ID).Delete(&store.GroupNode{}).Error; err != nil {
+				return err
+			}
+			for _, id := range req.NodeIDs {
+				if err := tx.Create(&store.GroupNode{GroupID: g.ID, NodeID: id}).Error; err != nil {
+					return err
+				}
+			}
+		}
 		return nil
 	})
 	if err != nil {
 		dbError(c, err)
 		return
 	}
-	s.MarkDirty("group "+g.Name+" changed", s.nodesForInbounds(append(before, req.InboundIDs...)...)...)
-	s.auditCtx(c, "group.save", g.Name, fmt.Sprintf("%d inbounds", len(req.InboundIDs)))
+	if nodesChanged {
+		s.MarkAllDirty("group " + g.Name + " node access changed")
+	} else {
+		s.MarkDirty("group "+g.Name+" changed", s.nodesForInbounds(append(before, req.InboundIDs...)...)...)
+	}
+	s.auditCtx(c, "group.save", g.Name, fmt.Sprintf("level %d, %d nodes, %d inbounds", g.Level, len(req.NodeIDs), len(req.InboundIDs)))
 	c.JSON(http.StatusOK, g)
 }
 
@@ -746,10 +774,17 @@ func (s *Server) deleteGroup(c *gin.Context) {
 	}
 	var ins []string
 	s.st.DB.Model(&store.GroupInbound{}).Where("group_id = ?", g.ID).Pluck("inbound_id", &ins)
+	var gnodes int64
+	s.st.DB.Model(&store.GroupNode{}).Where("group_id = ?", g.ID).Count(&gnodes)
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.GroupInbound{})
+	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.GroupNode{})
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.UserGroup{})
 	s.st.DB.Delete(&g)
-	s.MarkDirty("group deleted", s.nodesForInbounds(ins...)...)
+	if g.Level > 0 || gnodes > 0 {
+		s.MarkAllDirty("group deleted")
+	} else {
+		s.MarkDirty("group deleted", s.nodesForInbounds(ins...)...)
+	}
 	s.auditCtx(c, "group.delete", g.Name, "")
 	c.Status(http.StatusNoContent)
 }

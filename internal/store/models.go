@@ -37,8 +37,11 @@ type Node struct {
 	PublicIPv4   string           `gorm:"size:64" json:"publicIpv4"`
 	PublicIPv6   string           `gorm:"size:64" json:"publicIpv6"`
 	IPChangedAt  *time.Time       `json:"ipChangedAt"`
-	CreatedAt    time.Time        `json:"createdAt"`
-	UpdatedAt    time.Time        `json:"updatedAt"`
+	// Level is the tier a group needs to reach this node (0 = not tiered:
+	// only explicit grants apply).
+	Level     int       `json:"level"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // SystemInfo is the latest heartbeat snapshot of a node.
@@ -152,13 +155,23 @@ func (u *User) ToModel() model.User {
 
 // Group grants inbounds to users.
 type Group struct {
-	ID         string    `gorm:"primaryKey;size:32" json:"id"`
-	Name       string    `gorm:"size:64;uniqueIndex" json:"name"`
-	Remark     string    `gorm:"size:255" json:"remark"`
-	IsDefault  bool      `json:"isDefault"` // new users and inbounds join it unless told otherwise
+	ID        string `gorm:"primaryKey;size:32" json:"id"`
+	Name      string `gorm:"size:64;uniqueIndex" json:"name"`
+	Remark    string `gorm:"size:255" json:"remark"`
+	IsDefault bool   `json:"isDefault"` // new users and inbounds join it unless told otherwise
+	// Level opens every node whose Level is 1..Level to the group's users
+	// (0 = no tier access); NodeIDs binds whole nodes regardless of level.
+	Level      int       `json:"level"`
+	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
 	InboundIDs []string  `gorm:"-" json:"inboundIds"`
 	UserCount  int64     `gorm:"-" json:"userCount"`
 	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// GroupNode gives a group's users every inbound on a node.
+type GroupNode struct {
+	GroupID string `gorm:"primaryKey;size:32"`
+	NodeID  string `gorm:"primaryKey;size:32;index"`
 }
 
 type GroupInbound struct {
@@ -180,11 +193,13 @@ type UserAccess struct {
 }
 
 // GrantsSQL selects (user_id, inbound_id) for every way a user can be
-// authorised on an inbound: group membership, a direct inbound binding, or a
-// node binding.
+// authorised on an inbound: group membership (its inbounds, its whole nodes,
+// or nodes within its level), a direct inbound binding, or a node binding.
 const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id
 UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua WHERE ua.kind = 'inbound'
-UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'`
+UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'
+UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN group_nodes gn ON gn.group_id = ug.group_id JOIN inbounds i ON i.node_id = gn.node_id
+UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN "groups" g ON g.id = ug.group_id JOIN nodes n ON n.level > 0 AND n.level <= g.level JOIN inbounds i ON i.node_id = n.id`
 
 // TrafficHourly keeps hourly traffic per user and node (90 days).
 type TrafficHourly struct {
@@ -622,7 +637,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{},
 		&DNSConfig{}, &RuleSet{},
 	}
 }

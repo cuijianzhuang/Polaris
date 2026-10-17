@@ -119,7 +119,7 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
   return (
     <button type="button" className={'ncard' + (on ? ' on' : '') + (n.connected ? '' : ' down')} aria-pressed={on} onClick={onClick}>
       <div className="nc-head">
-        <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.flag ? n.flag + ' ' : ''}{n.name}</span>
+        <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.flag ? n.flag + ' ' : ''}{n.name}{(n.level ?? 0) > 0 && <span className="tag info-tag" style={{ marginLeft: 6 }}>Lv.{n.level}</span>}</span>
         <span className={'st ' + st.cls}>{st.label}</span>
       </div>
       <div className="nc-sub">{[n.region, addr].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>}{badge}</div>

@@ -221,7 +221,7 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
 function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (install?: Install) => void }) {
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
-    flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1,
+    flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
     defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
   })
   const { busy, run } = useAction()
@@ -229,7 +229,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
     const body: any = {
-      name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate),
+      name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate), level: Number(f.level) || 0,
       labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
     if (node) {
@@ -256,6 +256,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         <Field label="节点域名" htmlFor="n-domain" hint="填了就优先用于订阅（客户端连这个域名），也用于 ACME 证书与 {node.domain}"><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
         <Field label="国家代码" htmlFor="n-flag" hint="如 JP，订阅显示旗帜"><input id="n-flag" className="input mono" maxLength={2} value={f.flag} onChange={(e) => set('flag', e.target.value.toUpperCase())} /></Field>
         <Field label="流量倍率" htmlFor="n-rate" hint="结算时按倍率换算"><input id="n-rate" className="input mono" type="number" step="0.1" min="0.1" value={f.trafficRate} onChange={(e) => set('trafficRate', e.target.value)} /></Field>
+        <Field label="节点等级" htmlFor="n-level" hint="等级不低于它的用户分组可用此节点；0 = 不分级，只按分组 / 用户的单独授权"><input id="n-level" className="input mono" type="number" min={0} max={99} value={f.level} onChange={(e) => set('level', e.target.value)} /></Field>
         <Field label="DDNS" full hint="开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP">
           <label className="row small"><Switch label="DDNS" on={f.ddns} onChange={(v) => set('ddns', v)} />自动跟随节点公网 IP</label>
         </Field>
