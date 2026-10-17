@@ -147,6 +147,14 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if in.Protocol.Obfs == "salamander" {
 			cfg["obfs"] = map[string]any{"type": "salamander", "salamander": map[string]any{"password": in.Protocol.ObfsPassword}}
 		}
+		if d := spec.DNS; d != nil {
+			if r := renderResolver(d); r != nil {
+				cfg["resolver"] = r
+			}
+			if mode := directMode(d.Strategy); mode != "" {
+				cfg["outbounds"] = []any{map[string]any{"name": "direct", "type": "direct", "direct": map[string]any{"mode": mode}}}
+			}
+		}
 		if err := core.MergeExtra(cfg, in.Extra); err != nil {
 			return nil, err
 		}

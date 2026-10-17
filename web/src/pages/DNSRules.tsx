@@ -206,7 +206,7 @@ export function DNSSettings({ nodes }: { nodes: Node[] }) {
   return (
     <section className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <div><h2>内核 DNS</h2><div className="sub" style={{ margin: 0 }}>统一配置节点上 Xray / sing-box / mihomo 的 DNS：DoH / DoT、按域名分流、FakeIP。关闭时内核使用系统解析。</div></div>
+        <div><h2>内核 DNS</h2><div className="sub" style={{ margin: 0 }}>统一配置节点上 Xray / sing-box / mihomo 的 DNS：DoH / DoT、按域名分流、FakeIP；Hysteria2 只使用默认服务器和解析策略。关闭时内核使用系统解析。</div></div>
         <select className="input" style={{ width: 'auto', minWidth: 200 }} value={scope} onChange={(e) => setScope(e.target.value)} aria-label="范围">
           <option value="*">全局（所有节点）</option>
           {nodes.map((n) => {
