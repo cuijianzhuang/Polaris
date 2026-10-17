@@ -3,7 +3,8 @@ import { useEffect, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
-import { accents, useTheme, type ThemeMode } from '../theme'
+import { accents, styles, useTheme, type ThemeMode } from '../theme'
+import { logoURL, refreshBrand, useBrand } from '../brand'
 import { CopyBox, Empty, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { bytes, datetime } from '../format'
 import { t } from '../i18n'
@@ -182,24 +183,82 @@ const settingTabs = [
   { id: 'appearance', label: t('外观'), hint: t('主题与配色'), icon: <Icon.Sun /> },
 ]
 
-// Appearance is per browser: mode plus an accent palette.
+// Appearance: mode, accent and exclusive style are per browser; the logo is
+// the panel's (paid features "themes" and "branding").
 function Appearance() {
   const [th, setT] = useTheme()
+  const themesOK = useFeature('themes')
   const modes: { id: ThemeMode; label: string }[] = [{ id: 'light', label: t('浅色') }, { id: 'dark', label: t('深色') }, { id: 'system', label: t('跟随系统') }]
+  const special = th.style !== 'default' && themesOK
+  return (
+    <>
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h2>{t('外观')}</h2>
+        <Field label={<>{t('专属主题')}<ProTag on={themesOK} /></>} hint={t('专属主题自带配色，选中后主题模式和主题色不再生效；仅保存在当前浏览器')}>
+          <div className="style-cards">
+            {styles.map((x) => {
+              const locked = x.premium && !themesOK
+              const on = (th.style === x.id && !locked) || (x.id === 'default' && !special)
+              return (
+                <button key={x.id} type="button" className={'style-card style-' + x.id + (on ? ' on' : '')} aria-pressed={on} disabled={locked}
+                  title={locked ? t('需要专业版许可证（许可证页面）') : x.label} onClick={() => setT({ ...th, style: x.id })}>
+                  <span className="style-preview" aria-hidden="true"><i /><i /><i /></span>
+                  <span>{x.label}{locked ? ' 🔒' : ''}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+        <Field label={t('主题模式')} hint={t('仅保存在当前浏览器')}>
+          <div className="seg c3 fixed">
+            {modes.map((m) => <button key={m.id} type="button" disabled={special} className={'opt' + (th.mode === m.id ? ' on' : '')} aria-pressed={th.mode === m.id} onClick={() => setT({ ...th, mode: m.id })}>{m.label}</button>)}
+          </div>
+        </Field>
+        <Field label={t('主题色')}>
+          <div className="swatches">
+            {accents.map((a) => <button key={a.id} type="button" disabled={special} className={'accent-swatch' + (th.accent === a.id ? ' on' : '')} style={{ background: a.color }}
+              title={a.label} aria-label={t('主题色：{name}', { name: a.label })} aria-pressed={th.accent === a.id} onClick={() => setT({ ...th, accent: a.id })} />)}
+          </div>
+        </Field>
+      </section>
+      <BrandLogoCard />
+    </>
+  )
+}
+
+// BrandLogoCard uploads the panel's own logo (sidebar, login page, favicon).
+function BrandLogoCard() {
+  const ok = useFeature('branding')
+  const { logo } = useBrand()
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const pick = (file?: File) => {
+    if (!file) return
+    if (file.size > 256 << 10) { run(async () => { throw new Error(t('图片不能超过 256 KB')) }); return }
+    const r = new FileReader()
+    r.onload = () => run(async () => { await put('/brand/logo', { data: String(r.result) }); refreshBrand() }, t('Logo 已更新'))
+    r.readAsDataURL(file)
+  }
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <h2>{t('外观')}</h2>
-      <Field label={t('主题模式')} hint={t('仅保存在当前浏览器')}>
-        <div className="seg c3 fixed">
-          {modes.map((m) => <button key={m.id} type="button" className={'opt' + (th.mode === m.id ? ' on' : '')} aria-pressed={th.mode === m.id} onClick={() => setT({ ...th, mode: m.id })}>{m.label}</button>)}
+      <h2>{t('自定义 Logo')}<ProTag on={ok} /></h2>
+      <div className="row" style={{ gap: 16, flexWrap: 'wrap' }}>
+        <div className="logo-preview">{logo ? <img src={logoURL(logo)} alt="" /> : <Icon.LogoTile size={56} />}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 200 }}>
+          <div className="small mute">{t('显示在侧边栏、登录页和浏览器标签页图标。支持 PNG、JPG、WebP、GIF、SVG，不超过 256 KB，建议正方形、至少 128×128。')}</div>
+          <div className="row" style={{ gap: 8 }}>
+            <label className={'btn' + (ok && !busy ? '' : ' disabled')} aria-disabled={!ok || busy}>
+              {logo ? t('更换') : t('上传')}
+              <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden disabled={!ok || busy}
+                onChange={(e) => { pick(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+            {logo && <button type="button" className="btn" disabled={busy} onClick={async () => {
+              if (!await confirm(t('恢复为默认的 Polaris Logo？'), { ok: t('恢复默认') })) return
+              run(async () => { await del('/brand/logo'); refreshBrand() }, t('已恢复默认 Logo'))
+            }}>{t('恢复默认')}</button>}
+          </div>
         </div>
-      </Field>
-      <Field label={t('主题色')}>
-        <div className="swatches">
-          {accents.map((a) => <button key={a.id} type="button" className={'accent-swatch' + (th.accent === a.id ? ' on' : '')} style={{ background: a.color }}
-            title={a.label} aria-label={t('主题色：{name}', { name: a.label })} aria-pressed={th.accent === a.id} onClick={() => setT({ ...th, accent: a.id })} />)}
-        </div>
-      </Field>
+      </div>
     </section>
   )
 }
@@ -445,7 +504,7 @@ export default function Settings() {
               <input className="input mono" type="password" autoComplete="off" value={f.acme_cf_token ?? ''} onChange={(e) => set('acme_cf_token', e.target.value)} />
             </Field>
           </div>
-          <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', f); s.reload() }, t('设置已保存'))}>{t('保存')}</button></div>
+          <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', f); s.reload(); refreshBrand() }, t('设置已保存'))}>{t('保存')}</button></div>
         </section>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('部署信息')}</h2>

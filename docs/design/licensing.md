@@ -122,6 +122,8 @@
   - `internal/panel/edition_oss.go`：不生成用户限速、不推送备份；
   - `internal/panel/telegram_admin_oss.go`：管理菜单只显示“专业版”说明；
   - `internal/panel/edition_ddns_oss.go`：订阅源 / 订阅组和域名绑定 / DDNS 的接口返回 402，组订阅 `/sub/p/` 不输出，节点 IP 变化只记录不跟随。
+  - `internal/panel/brand_oss.go`：自定义 Logo（`branding`）上传返回 402，始终显示内置 Logo。
+- **专属主题**（`themes`，例如黑金）是纯前端样式：许可证不包含时主题卡片锁定，已选的专属主题自动退回默认主题。
 - **社区版构建的许可证状态**：
   - 不论许可证或试用期如何，高级功能都不可用；
   - 许可证页提示“社区版构建”；

@@ -4,7 +4,9 @@ import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler
 import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { recordRates } from './components/NodeCard'
-import { useTheme } from './theme'
+import { setPremiumThemes, useTheme } from './theme'
+import { useBrand } from './brand'
+import { useFeature } from './components/License'
 import { t } from './i18n'
 import LangToggle from './components/LangToggle'
 import { ConfirmProvider, ToastProvider } from './components/ui'
@@ -133,8 +135,9 @@ function NavGroup({ item }: { item: NavItem }) {
 }
 
 // ThemeToggle cycles light → dark → follow system; accents live in 设置.
-function ThemeToggle() {
+function ThemeToggle({ themesOK }: { themesOK: boolean }) {
   const [th, setTh] = useTheme()
+  if (th.style !== 'default' && themesOK) return null // an exclusive theme has its own palette
   const next = { light: 'dark', dark: 'system', system: 'light' } as const
   const label = { light: t('浅色'), dark: t('深色'), system: t('跟随系统') }[th.mode]
   return (
@@ -154,10 +157,11 @@ const tabs = [
 ]
 
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
-  const [title, setTitle] = useState('Polaris')
+  const { title } = useBrand()
   const [menu, setMenu] = useState(false) // the sidebar, as a drawer on phones
-  useEffect(() => { get<{ title: string }>('/info').then((i) => setTitle(i.title)).catch(() => {}) }, [])
   useEffect(() => { document.title = title }, [title])
+  const themesOK = useFeature('themes')
+  useEffect(() => { setPremiumThemes(themesOK) }, [themesOK])
   const loc = useLocation()
   useEffect(() => { setMenu(false) }, [loc.pathname])
   useEffect(() => {
@@ -186,13 +190,13 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       <TopProgress />
       <header className="mtop">
         <button type="button" className="mtop-btn" aria-label={t('打开菜单')} aria-expanded={menu} onClick={() => setMenu(true)}><Icon.Menu /></button>
-        <div className="mtop-title"><Icon.LogoTile size={26} /><span>{title}</span></div>
+        <div className="mtop-title"><Icon.Brand size={26} /><span>{title}</span></div>
         <button type="button" className="mtop-btn" aria-label={t('搜索')} onClick={() => setPalette(true)}><Icon.Search /></button>
-        <ThemeToggle />
+        <ThemeToggle themesOK={themesOK} />
       </header>
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
       <nav className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
-        <div className="brand"><Icon.LogoTile size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
+        <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
         <button type="button" className="side-search" onClick={() => setPalette(true)}><Icon.Search /><span>{t('搜索')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         {scoped ? (
           <>
@@ -206,7 +210,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         )}
         <div className="side-foot">
           <span className="me"><span className="avatar">{(user.replace(/^tg:/, '')[0] || '?').toUpperCase()}</span><span className="me-text"><b>{user.replace(/^tg:/, '')}</b><small>{scoped ? t('节点管理员') : user.startsWith('tg:') ? t('Telegram 登录') : t('管理员')}</small></span></span>
-          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><LangToggle /><ThemeToggle /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
+          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
         </div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>

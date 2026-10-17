@@ -721,3 +721,59 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 
 /* Keep the sign-out label on one line in longer languages */
 .side-foot .logout { white-space: nowrap; }
+
+/* brand logo, appearance cards */
+.brand-logo { display: block; object-fit: contain; border-radius: 22%; flex: none; }
+.logo-preview { width: 72px; height: 72px; border-radius: 16px; border: 1px dashed var(--input-strong); display: grid; place-items: center; background: var(--soft); flex: none; }
+.logo-preview img { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
+label.btn.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
+.style-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.style-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 8px 8px 10px; border-radius: var(--r); border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.style-card:hover:not(:disabled) { border-color: var(--input-strong); }
+.style-card.on { border-color: var(--pri); box-shadow: var(--ring); }
+.style-card:disabled { cursor: not-allowed; opacity: .7; }
+.style-preview { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 1fr 1fr; gap: 4px; width: 112px; height: 64px; padding: 6px; border-radius: 8px; background: #F6F7F9; border: 1px solid #E7E9EE; }
+.style-preview i { border-radius: 4px; background: #fff; border: 1px solid #E7E9EE; }
+.style-preview i:first-child { grid-row: 1 / 3; background: #fff; }
+.style-preview i:last-child { background: #0E7490; border: none; }
+.style-blackgold .style-preview { background: #181A22; border-color: #2E323D; }
+.style-blackgold .style-preview i { background: #20232D; border-color: #2E323D; }
+.style-blackgold .style-preview i:first-child { background: #1C1F28; }
+.style-blackgold .style-preview i:last-child { background: linear-gradient(135deg, #F8D9A8, #E9B06E 52%, #C98A45); }
+
+/* exclusive style: black gold (paid feature "themes"): slate dark surfaces
+   with a warm gold accent, menu items as tiles. Applied with
+   data-mode="dark", so it starts from the dark palette. */
+html[data-style="blackgold"] {
+  --gold-grad: linear-gradient(135deg, #F8D9A8 0%, #E9B06E 52%, #C98A45 100%);
+  --bg: #181A22; --card: #20232D; --ink: #ECE7DF; --ink-2: #CFC8BC; --mute: #9A968F; --faint: #6E6C68;
+  --line: #2E323D; --line-2: #262A34; --input: #3A3F4B; --soft: #252935; --soft-2: #222631; --on-ink: #181A22;
+  --input-strong: #505664;
+  --side: #1C1F28; --side-ink: #D3CEC6; --side-hover: #2C303C; --side-line: #262A34;
+  --code-bg: #12141A; --code-ink: #E3DED5;
+  --pri: #E6AE6C; --pri-ink: #F2C58E; --pri-bright: #F8D9A8;
+  --pri-soft: color-mix(in srgb, #E6AE6C 13%, #20232D);
+  --pri-line: color-mix(in srgb, #E6AE6C 40%, #20232D);
+  --xray-bg: #33291D; --xray-ink: #F2C58E;
+  --logo-a: #F2C58E; --logo-b: #A86A2C; --logo-c: #FFF0DA;
+  --ring: 0 0 0 4px color-mix(in srgb, #E6AE6C 22%, transparent);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-2: 0 10px 28px -10px rgba(0, 0, 0, .7);
+}
+html[data-style="blackgold"] .btn.pri,
+html[data-style="blackgold"] .btn.pri:hover { background: var(--gold-grad); border-color: #D9A15F; color: #241808; font-weight: 600; }
+html[data-style="blackgold"] .btn.pri:hover { filter: brightness(1.06); box-shadow: 0 8px 22px -8px rgba(230, 174, 108, .55); }
+html[data-style="blackgold"] .side { gap: 6px; }
+html[data-style="blackgold"] .side .nav { background: #262A35; border: 1px solid #2C303B; border-radius: 9px; padding-top: 9px; padding-bottom: 9px; }
+html[data-style="blackgold"] .side .nav:hover { background: #2D3240; }
+html[data-style="blackgold"] .side .navsub { gap: 6px; padding-top: 6px; }
+html[data-style="blackgold"] .side .nav.active { background: #262A35; color: var(--pri-bright); border-color: transparent; box-shadow: inset 0 0 0 1.5px var(--pri); }
+html[data-style="blackgold"] .side .nav.active svg { color: var(--pri); }
+html[data-style="blackgold"] .nav.active::before { left: 8px; top: 11px; bottom: 11px; width: 3px; border-radius: 3px; background: var(--pri); }
+html[data-style="blackgold"] .side .nav.active { padding-left: 20px; }
+html[data-style="blackgold"] .brand { position: relative; }
+html[data-style="blackgold"] .brand-name { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 750; font-size: 18px; }
+html[data-style="blackgold"] .kpi .val { color: var(--pri-bright); }
+html[data-style="blackgold"] ::selection { background: rgba(230, 174, 108, .35); }
+html[data-style="blackgold"] .login { background: radial-gradient(1100px 560px at 15% -10%, rgba(230, 174, 108, .28), transparent 60%), radial-gradient(900px 500px at 110% 110%, rgba(201, 138, 69, .14), transparent 60%), #14161D; }
+html[data-style="blackgold"] .login .card { border-color: rgba(230, 174, 108, .16); }

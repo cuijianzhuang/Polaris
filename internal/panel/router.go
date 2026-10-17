@@ -96,6 +96,7 @@ func (s *Server) Router() http.Handler {
 	api.GET("/auth/github/callback", s.githubCallback)
 	api.POST("/auth/github/totp", s.loginGuard, s.githubTOTP)
 	api.GET("/info", s.publicInfo)
+	api.GET("/brand/logo", s.getBrandLogo)
 	api.POST("/auth/tg", s.loginGuard, s.tgLogin)
 	api.POST("/auth/tg/start", s.loginGuard, s.tgWebLoginStart)
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
@@ -321,6 +322,8 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/backup/files/:name", s.requireSudo, s.backupDelete)
 	p.POST("/backup/files/:name/restore", s.requireSudo, s.backupRestore)
 	p.GET("/settings", s.getSettings)
+	p.PUT("/brand/logo", s.putBrandLogo)
+	p.DELETE("/brand/logo", s.deleteBrandLogo)
 	p.PUT("/settings", s.putSettings)
 	p.GET("/audit-logs", s.listAudit)
 
@@ -404,7 +407,7 @@ func (s *Server) decoy() gin.HandlerFunc {
 }
 
 func (s *Server) publicInfo(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
+	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "logo": s.brandLogoVersion(), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
 		"sso": s.publicSSOProviders()})
 }
 
@@ -483,7 +486,7 @@ func (s *Server) openAPI(r *gin.Engine) map[string]any {
 		if len(params) > 0 {
 			op["parameters"] = params
 		}
-		public := p == "/auth/login" || p == "/info" || strings.HasPrefix(p, "/auth/github/") || strings.HasPrefix(p, "/auth/tg") ||
+		public := p == "/auth/login" || p == "/info" || p == "/brand/logo" && rt.Method == "GET" || strings.HasPrefix(p, "/auth/github/") || strings.HasPrefix(p, "/auth/tg") ||
 			p == "/auth/sso/callback" || strings.HasPrefix(p, "/auth/sso/") && strings.HasSuffix(p, "/login-url")
 		if !public || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
 			op["security"] = []map[string][]string{{"bearer": {}}}

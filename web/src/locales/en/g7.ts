@@ -174,5 +174,18 @@ const m: Record<string, string> = {
   'DDNS 与域名绑定': 'DDNS and domain bindings',
   '订阅源和订阅组是专业版功能：需要在许可证页面激活专业版许可证。已有的订阅组照常输出，只是不能再新建或修改。下方「转换设置」对所有订阅生效，不受影响。': 'Subscription sources and groups are a Pro feature: activate a Pro license on the License page. Existing groups keep being served; they just cannot be created or changed. The conversion settings below apply to every subscription and are not affected.',
   '域名绑定和 DDNS 是专业版功能：需要在许可证页面激活专业版许可证。已有的绑定照常自动更新，只是不能再新建或修改。DNS 服务商（CDN 与证书也会用到）不受影响。': 'Domain bindings and DDNS are a Pro feature: activate a Pro license on the License page. Existing bindings keep updating; they just cannot be created or changed. DNS providers (also used by CDN and certificates) are not affected.',
+  '自定义 Logo': 'Custom logo',
+  '侧边栏、登录页和浏览器图标换成你自己的 Logo': 'Your own logo in the sidebar, on the login page and as the browser icon',
+  '专属主题': 'Exclusive themes',
+  '黑金等专属界面风格': 'Exclusive interface styles such as Black Gold',
+  '黑金': 'Black Gold',
+  '专属主题自带配色，选中后主题模式和主题色不再生效；仅保存在当前浏览器': 'An exclusive theme brings its own colors, so mode and accent no longer apply; saved in this browser only',
+  '图片不能超过 256 KB': 'The image must not exceed 256 KB',
+  'Logo 已更新': 'Logo updated',
+  '显示在侧边栏、登录页和浏览器标签页图标。支持 PNG、JPG、WebP、GIF、SVG，不超过 256 KB，建议正方形、至少 128×128。': 'Shown in the sidebar, on the login page and as the browser tab icon. PNG, JPG, WebP, GIF or SVG up to 256 KB; square and at least 128×128 recommended.',
+  '更换': 'Replace',
+  '恢复为默认的 Polaris Logo？': 'Restore the default Polaris logo?',
+  '恢复默认': 'Restore default',
+  '已恢复默认 Logo': 'Default logo restored',
 }
 export default m
