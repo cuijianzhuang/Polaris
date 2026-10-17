@@ -3,8 +3,10 @@ import { ApiError, get, post, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
 import LangToggle from '../components/LangToggle'
 import { t } from '../i18n'
+import { useBrand } from '../brand'
 
 export default function Login({ onLogin }: { onLogin: (user: string) => void }) {
+  const brand = useBrand()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [totp, setTotp] = useState('')
@@ -78,7 +80,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     return (
       <div className="login">
         <form className="card" onSubmit={submitTicket}>
-          <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.LogoTile size={40} />Polaris</div>
+          <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.Brand size={40} />{brand.title}</div>
           <div className="note">{t('已通过 GitHub 验证，请输入二次验证码完成登录。')}</div>
           <div className="field">
             <label className="lbl" htmlFor="gt">{t('二次验证码')}</label>
@@ -95,7 +97,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   return (
     <div className="login">
       <form className="card" onSubmit={submit}>
-        <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.LogoTile size={40} />Polaris<span className="spacer" /><LangToggle /></div>
+        <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.Brand size={40} />{brand.title}<span className="spacer" /><LangToggle /></div>
         <div className="field">
           <label className="lbl" htmlFor="u">{t('用户名')}</label>
           <input className="input" id="u" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
@@ -126,6 +128,7 @@ interface TGRequest { id: string; secret: string; code: number; url: string; bot
 
 // Waits for the admin to confirm in Telegram by tapping the number shown here.
 function TelegramWait({ req, onDone }: { req: TGRequest; onDone: (user?: string, error?: string) => void }) {
+  const brand = useBrand()
   const [left, setLeft] = useState(req.expiresIn)
   const [opened, setOpened] = useState(false)
   const done = useRef(onDone)
@@ -154,7 +157,7 @@ function TelegramWait({ req, onDone }: { req: TGRequest; onDone: (user?: string,
   return (
     <div className="login">
       <div className="card tgwait">
-        <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.LogoTile size={40} />Polaris</div>
+        <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.Brand size={40} />{brand.title}</div>
         <div className="tgwait-head"><span className="tgwait-icon"><Icon.Telegram /></span>{t('使用 Telegram 登录')}</div>
         <div className="tgwait-code mono" aria-label={t('验证数字')}>{req.code}</div>
         <ol className="tgwait-steps">

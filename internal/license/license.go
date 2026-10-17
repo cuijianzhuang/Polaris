@@ -22,10 +22,12 @@ const (
 	FeatureBackupPush = "backup_push" // backups pushed to S3 / WebDAV / Telegram
 	FeatureSubConvert = "sub_convert" // subscription sources and groups
 	FeatureDDNS       = "ddns"        // domain bindings, addresses following node IPs
+	FeatureBranding   = "branding"    // custom logo on the panel, login page and favicon
+	FeatureThemes     = "themes"      // exclusive themes (black gold)
 )
 
 // AllFeatures lists every paid feature (what a trial unlocks).
-var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS}
+var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes}
 
 // Limit kinds.
 const (

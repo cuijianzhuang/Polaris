@@ -721,3 +721,62 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 
 /* Keep the sign-out label on one line in longer languages */
 .side-foot .logout { white-space: nowrap; }
+
+/* brand logo, appearance cards */
+.brand-logo { display: block; object-fit: contain; border-radius: 22%; flex: none; }
+.logo-preview { width: 72px; height: 72px; border-radius: 16px; border: 1px dashed var(--input-strong); display: grid; place-items: center; background: var(--soft); flex: none; }
+.logo-preview img { width: 56px; height: 56px; object-fit: contain; border-radius: 12px; }
+label.btn.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
+.style-cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.style-card { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 8px 8px 10px; border-radius: var(--r); border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; cursor: pointer; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.style-card:hover:not(:disabled) { border-color: var(--input-strong); }
+.style-card.on { border-color: var(--pri); box-shadow: var(--ring); }
+.style-card:disabled { cursor: not-allowed; opacity: .7; }
+.style-preview { display: grid; grid-template-columns: 22px 1fr; grid-template-rows: 1fr 1fr; gap: 4px; width: 112px; height: 64px; padding: 6px; border-radius: 8px; background: #F6F7F9; border: 1px solid #E7E9EE; }
+.style-preview i { border-radius: 4px; background: #fff; border: 1px solid #E7E9EE; }
+.style-preview i:first-child { grid-row: 1 / 3; background: #fff; }
+.style-preview i:last-child { background: #0E7490; border: none; }
+.style-blackgold .style-preview { background: #181B24; border-color: #2A2D39; }
+.style-blackgold .style-preview i { background: #1F222B; border-color: #2A2D39; }
+.style-blackgold .style-preview i:first-child { background: #242736; }
+.style-blackgold .style-preview i:last-child { background: linear-gradient(135deg, #F7D7BC, #EFBE96 50%, #DDA47C); }
+
+/* exclusive style: black gold (paid feature "themes"): slate surfaces with
+   a champagne gold accent, menu items as tiles, the system CJK font.
+   Applied with data-mode="dark", so it starts from the dark palette. */
+html[data-style="blackgold"] {
+  --gold: #EFBE96;
+  --gold-grad: linear-gradient(135deg, #F7D7BC 0%, #EFBE96 50%, #DDA47C 100%);
+  --sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', system-ui, sans-serif;
+  --bg: #181B24; --card: #1F222B; --ink: #E6E7EE; --ink-2: #C0C2CF; --mute: #8C8E99; --faint: #63656F;
+  --line: #2A2D39; --line-2: #23262F; --input: #393C49; --input-strong: #4D505E; --soft: #262935; --soft-2: #232631; --on-ink: #181B24;
+  --side: #242736; --side-ink: #C0C2CF; --side-hover: #383B48; --side-line: #2A2D3B;
+  --code-bg: #12141B; --code-ink: #E0E1E8;
+  --pri: #EFBE96; --pri-ink: #F5CFAE; --pri-bright: #F7D7BC;
+  --pri-soft: color-mix(in srgb, #EFBE96 12%, #1F222B);
+  --pri-line: color-mix(in srgb, #EFBE96 38%, #1F222B);
+  --xray-bg: #3A3028; --xray-ink: #F5CFAE;
+  --logo-a: #F7D7BC; --logo-b: #B07C55; --logo-c: #FFF3E8;
+  --ring: 0 0 0 4px color-mix(in srgb, #EFBE96 22%, transparent);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-2: 0 10px 28px -10px rgba(0, 0, 0, .65);
+}
+html[data-style="blackgold"] body { font-feature-settings: normal; }
+html[data-style="blackgold"] .card { border-color: #21232F; }
+html[data-style="blackgold"] .btn.pri,
+html[data-style="blackgold"] .btn.pri:hover { background: var(--gold-grad); border-color: #E2AE86; color: #2B1E14; font-weight: 600; }
+html[data-style="blackgold"] .btn.pri:hover { filter: brightness(1.05); box-shadow: 0 8px 22px -8px rgba(239, 190, 150, .5); }
+html[data-style="blackgold"] .side { gap: 7px; }
+html[data-style="blackgold"] .side .nav { background: #2E303D; border: 1px solid transparent; border-radius: 6px; padding-top: 10px; padding-bottom: 10px; font-size: 14.5px; font-weight: 400; color: var(--side-ink); }
+html[data-style="blackgold"] .side .nav svg { color: #9A9CA8; }
+html[data-style="blackgold"] .side .nav:hover { background: #383B48; }
+html[data-style="blackgold"] .side .navsub { gap: 7px; padding-top: 7px; border-left-color: #2E303D; }
+html[data-style="blackgold"] .side .nav.active { background: #434552; color: var(--gold); border-color: var(--gold); box-shadow: none; padding-left: 20px; }
+html[data-style="blackgold"] .side .nav.active svg { color: var(--gold); }
+html[data-style="blackgold"] .nav.active::before { left: 8px; top: 12px; bottom: 12px; width: 3px; border-radius: 3px; background: var(--gold); }
+html[data-style="blackgold"] .brand-name { color: var(--gold); font-weight: 700; font-size: 19px; letter-spacing: 0; }
+html[data-style="blackgold"] h1 { letter-spacing: 0; }
+html[data-style="blackgold"] .kpi .val { color: var(--gold); }
+html[data-style="blackgold"] ::selection { background: rgba(239, 190, 150, .35); }
+html[data-style="blackgold"] .login { background: radial-gradient(1100px 560px at 15% -10%, rgba(239, 190, 150, .24), transparent 60%), radial-gradient(900px 500px at 110% 110%, rgba(239, 190, 150, .10), transparent 60%), #181B24; }
+html[data-style="blackgold"] .login .card { border-color: rgba(239, 190, 150, .16); }

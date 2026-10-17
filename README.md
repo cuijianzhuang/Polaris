@@ -1,10 +1,23 @@
 <p align="center">
-  <img src="docs/brand/polaris-icon.svg" width="112" alt="Polaris 标志">
+  <img src="docs/brand/polaris-icon.svg" width="120" alt="Polaris 标志">
 </p>
 
 <h1 align="center">Polaris</h1>
 
 <p align="center">多内核代理管理面板 · 一个主控，统一管理多台节点</p>
+
+<p align="center">
+  <a href="https://github.com/cuijianzhuang/Polaris/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/cuijianzhuang/Polaris/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
+  <a href="https://github.com/cuijianzhuang/Polaris/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/cuijianzhuang/Polaris/release.yml?label=%E7%BC%96%E8%AF%91%E5%8F%91%E5%B8%83&logo=go&logoColor=white" alt="编译发布"></a>
+  <a href="https://github.com/cuijianzhuang/Polaris/releases/latest"><img src="https://img.shields.io/github/v/release/cuijianzhuang/Polaris?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=0E7490" alt="最新版本"></a>
+  <a href="https://github.com/cuijianzhuang/Polaris/releases"><img src="https://img.shields.io/github/downloads/cuijianzhuang/Polaris/total?label=%E4%B8%8B%E8%BD%BD&color=0E7490" alt="下载量"></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/cuijianzhuang/Polaris?logo=go&logoColor=white" alt="Go 版本">
+  <br>
+  <a href="https://github.com/cuijianzhuang/Polaris/stargazers"><img src="https://img.shields.io/github/stars/cuijianzhuang/Polaris?style=social" alt="Stars"></a>
+  <a href="https://github.com/cuijianzhuang/Polaris/network/members"><img src="https://img.shields.io/github/forks/cuijianzhuang/Polaris?style=social" alt="Forks"></a>
+  <a href="https://github.com/cuijianzhuang/Polaris/commits/main"><img src="https://img.shields.io/github/last-commit/cuijianzhuang/Polaris?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4" alt="最近提交"></a>
+  <a href="https://github.com/cuijianzhuang/Polaris/issues"><img src="https://img.shields.io/github/issues/cuijianzhuang/Polaris?label=Issues" alt="Issues"></a>
+</p>
 
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
@@ -29,7 +42,7 @@ Polaris 将节点、入站、用户和订阅集中在一个面板中管理。每
 | 路由与中转 | 入站模板、出站与负载均衡、全局 / 节点路由、realm / GOST 端口转发、链式代理、CDN 入口与 Caddy 回源 |
 | 日常运维 | 流量统计、节点和入站探测、Telegram 告警、本地定时备份与恢复、审计日志、服务器成本管理 |
 | 账号与安全 | 主控与 Agent 使用 mTLS；敏感字段加密；自定义后台路径、两步验证、GitHub / Telegram / OIDC / OAuth2 登录 |
-| 专业版扩展 | 客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送 |
+| 专业版扩展 | 客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送、自定义 Logo、黑金专属主题 |
 
 协议、传输和客户端并非任意组合。请以界面的能力提示为准，常见限制见[使用手册 · 兼容性](docs/user-guide.md#compatibility)。
 
@@ -54,6 +67,7 @@ flowchart LR
 | 面板、节点、用户、订阅、多内核等基础功能 | 支持 | 支持 |
 | 客户独立限速、订阅转换、DDNS 与域名绑定 | — | 需要相应许可证授权 |
 | Telegram 管理菜单、备份推送到 Telegram / WebDAV / S3 | — | 需要相应许可证授权 |
+| 自定义 Logo、黑金专属主题 | — | 激活许可证后在「设置 → 外观」配置 |
 | 源码 | 本仓库 | 本仓库 + 私有 `polaris-pro` 代码 |
 | Docker 镜像 | `ghcr.io/cuijianzhuang/polaris:latest` | `ghcr.io/cuijianzhuang/polaris:latest-pro` |
 
