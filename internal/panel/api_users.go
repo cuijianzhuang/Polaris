@@ -275,6 +275,7 @@ func (s *Server) createUser(c *gin.Context) {
 	}
 	s.MarkDirty("user "+u.Username+" created", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.create", u.Username, "")
+	s.userEvent("user.created", &u, nil)
 	c.JSON(http.StatusCreated, u)
 }
 
@@ -507,6 +508,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		s.MarkDirty("bulk "+req.Action, nodes...)
 	}
 	s.auditCtx(c, "user.bulk", req.Action, fmt.Sprintf("%d users", len(req.IDs)))
+	s.notify(Event{Kind: "user.bulk", Data: map[string]any{"action": req.Action, "user_ids": req.IDs}})
 	n := len(affected)
 	if req.Action == "delete" {
 		n = len(req.IDs)
@@ -601,6 +603,7 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
+	s.userEvent("user.updated", &u, nil)
 	c.JSON(http.StatusOK, u)
 }
 
@@ -617,6 +620,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 	s.st.DB.Delete(&u)
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")
+	s.userEvent("user.deleted", &u, nil)
 	c.Status(http.StatusNoContent)
 }
 
@@ -631,6 +635,7 @@ func (s *Server) resetUserTraffic(c *gin.Context) {
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("traffic reset", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.reset_traffic", u.Username, "")
+	s.userEvent("user.traffic_reset", &u, nil)
 	c.Status(http.StatusNoContent)
 }
 
@@ -647,6 +652,7 @@ func (s *Server) resetUserToken(c *gin.Context) {
 		return
 	}
 	s.auditCtx(c, "user.reset_token", u.Username, "")
+	s.userEvent("user.token_reset", &u, nil)
 	c.JSON(http.StatusOK, gin.H{"subToken": u.SubToken, "url": s.subURL(u.SubToken)})
 }
 
