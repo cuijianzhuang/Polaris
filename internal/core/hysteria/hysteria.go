@@ -67,10 +67,11 @@ func (a *Adapter) Type() model.CoreType { return model.CoreHysteria }
 
 func (a *Adapter) Capabilities(v string) model.CapSet {
 	return model.CapSet{
-		Core:     model.CoreHysteria,
-		Version:  v,
-		Combos:   []model.Combo{{Protocol: model.ProtoHysteria2, Transport: model.TransQUIC, Security: model.SecTLS}},
-		HotUsers: true,
+		Core:      model.CoreHysteria,
+		Version:   v,
+		Combos:    []model.Combo{{Protocol: model.ProtoHysteria2, Transport: model.TransQUIC, Security: model.SecTLS}},
+		HotUsers:  true,
+		Outbounds: hyOutbounds,
 	}
 }
 
@@ -147,12 +148,18 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if in.Protocol.Obfs == "salamander" {
 			cfg["obfs"] = map[string]any{"type": "salamander", "salamander": map[string]any{"password": in.Protocol.ObfsPassword}}
 		}
+		mode := ""
 		if d := spec.DNS; d != nil {
 			if r := renderResolver(d); r != nil {
 				cfg["resolver"] = r
 			}
-			if mode := directMode(d.Strategy); mode != "" {
-				cfg["outbounds"] = []any{map[string]any{"name": "direct", "type": "direct", "direct": map[string]any{"mode": mode}}}
+			mode = directMode(d.Strategy)
+		}
+		if outs, acl := renderRouting(spec, in.Tag, mode); outs != nil {
+			cfg["outbounds"] = outs
+			if len(acl) > 0 {
+				// geoip / geosite lists are fetched by Hysteria into its working directory.
+				cfg["acl"] = map[string]any{"inline": acl, "geoUpdateInterval": "168h"}
 			}
 		}
 		if err := core.MergeExtra(cfg, in.Extra); err != nil {
