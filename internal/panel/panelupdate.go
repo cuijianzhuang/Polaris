@@ -315,6 +315,9 @@ func (s *Server) getAccess(c *gin.Context) {
 	if u, err := url.Parse(s.cfg.PublicURL); err == nil && u.Scheme == "https" {
 		out["domain"] = u.Hostname()
 	}
+	if u, err := url.Parse(strings.TrimSpace(s.st.GetSetting("sub_base_url", ""))); err == nil && u.Host != "" {
+		out["subDomain"] = u.Host
+	}
 	if _, err := os.Stat(s.updateRequestPath()); err == nil {
 		out["pending"] = true
 	}
