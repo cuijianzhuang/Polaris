@@ -736,44 +736,47 @@ label.btn.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
 .style-preview i { border-radius: 4px; background: #fff; border: 1px solid #E7E9EE; }
 .style-preview i:first-child { grid-row: 1 / 3; background: #fff; }
 .style-preview i:last-child { background: #0E7490; border: none; }
-.style-blackgold .style-preview { background: #181A22; border-color: #2E323D; }
-.style-blackgold .style-preview i { background: #20232D; border-color: #2E323D; }
-.style-blackgold .style-preview i:first-child { background: #1C1F28; }
-.style-blackgold .style-preview i:last-child { background: linear-gradient(135deg, #F8D9A8, #E9B06E 52%, #C98A45); }
+.style-blackgold .style-preview { background: #181B24; border-color: #2A2D39; }
+.style-blackgold .style-preview i { background: #1F222B; border-color: #2A2D39; }
+.style-blackgold .style-preview i:first-child { background: #242736; }
+.style-blackgold .style-preview i:last-child { background: linear-gradient(135deg, #F7D7BC, #EFBE96 50%, #DDA47C); }
 
-/* exclusive style: black gold (paid feature "themes"): slate dark surfaces
-   with a warm gold accent, menu items as tiles. Applied with
-   data-mode="dark", so it starts from the dark palette. */
+/* exclusive style: black gold (paid feature "themes"): slate surfaces with
+   a champagne gold accent, menu items as tiles, the system CJK font.
+   Applied with data-mode="dark", so it starts from the dark palette. */
 html[data-style="blackgold"] {
-  --gold-grad: linear-gradient(135deg, #F8D9A8 0%, #E9B06E 52%, #C98A45 100%);
-  --bg: #181A22; --card: #20232D; --ink: #ECE7DF; --ink-2: #CFC8BC; --mute: #9A968F; --faint: #6E6C68;
-  --line: #2E323D; --line-2: #262A34; --input: #3A3F4B; --soft: #252935; --soft-2: #222631; --on-ink: #181A22;
-  --input-strong: #505664;
-  --side: #1C1F28; --side-ink: #D3CEC6; --side-hover: #2C303C; --side-line: #262A34;
-  --code-bg: #12141A; --code-ink: #E3DED5;
-  --pri: #E6AE6C; --pri-ink: #F2C58E; --pri-bright: #F8D9A8;
-  --pri-soft: color-mix(in srgb, #E6AE6C 13%, #20232D);
-  --pri-line: color-mix(in srgb, #E6AE6C 40%, #20232D);
-  --xray-bg: #33291D; --xray-ink: #F2C58E;
-  --logo-a: #F2C58E; --logo-b: #A86A2C; --logo-c: #FFF0DA;
-  --ring: 0 0 0 4px color-mix(in srgb, #E6AE6C 22%, transparent);
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
-  --shadow-2: 0 10px 28px -10px rgba(0, 0, 0, .7);
+  --gold: #EFBE96;
+  --gold-grad: linear-gradient(135deg, #F7D7BC 0%, #EFBE96 50%, #DDA47C 100%);
+  --sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', system-ui, sans-serif;
+  --bg: #181B24; --card: #1F222B; --ink: #E6E7EE; --ink-2: #C0C2CF; --mute: #8C8E99; --faint: #63656F;
+  --line: #2A2D39; --line-2: #23262F; --input: #393C49; --input-strong: #4D505E; --soft: #262935; --soft-2: #232631; --on-ink: #181B24;
+  --side: #242736; --side-ink: #C0C2CF; --side-hover: #383B48; --side-line: #2A2D3B;
+  --code-bg: #12141B; --code-ink: #E0E1E8;
+  --pri: #EFBE96; --pri-ink: #F5CFAE; --pri-bright: #F7D7BC;
+  --pri-soft: color-mix(in srgb, #EFBE96 12%, #1F222B);
+  --pri-line: color-mix(in srgb, #EFBE96 38%, #1F222B);
+  --xray-bg: #3A3028; --xray-ink: #F5CFAE;
+  --logo-a: #F7D7BC; --logo-b: #B07C55; --logo-c: #FFF3E8;
+  --ring: 0 0 0 4px color-mix(in srgb, #EFBE96 22%, transparent);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-2: 0 10px 28px -10px rgba(0, 0, 0, .65);
 }
+html[data-style="blackgold"] body { font-feature-settings: normal; }
+html[data-style="blackgold"] .card { border-color: #21232F; }
 html[data-style="blackgold"] .btn.pri,
-html[data-style="blackgold"] .btn.pri:hover { background: var(--gold-grad); border-color: #D9A15F; color: #241808; font-weight: 600; }
-html[data-style="blackgold"] .btn.pri:hover { filter: brightness(1.06); box-shadow: 0 8px 22px -8px rgba(230, 174, 108, .55); }
-html[data-style="blackgold"] .side { gap: 6px; }
-html[data-style="blackgold"] .side .nav { background: #262A35; border: 1px solid #2C303B; border-radius: 9px; padding-top: 9px; padding-bottom: 9px; }
-html[data-style="blackgold"] .side .nav:hover { background: #2D3240; }
-html[data-style="blackgold"] .side .navsub { gap: 6px; padding-top: 6px; }
-html[data-style="blackgold"] .side .nav.active { background: #262A35; color: var(--pri-bright); border-color: transparent; box-shadow: inset 0 0 0 1.5px var(--pri); }
-html[data-style="blackgold"] .side .nav.active svg { color: var(--pri); }
-html[data-style="blackgold"] .nav.active::before { left: 8px; top: 11px; bottom: 11px; width: 3px; border-radius: 3px; background: var(--pri); }
-html[data-style="blackgold"] .side .nav.active { padding-left: 20px; }
-html[data-style="blackgold"] .brand { position: relative; }
-html[data-style="blackgold"] .brand-name { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 750; font-size: 18px; }
-html[data-style="blackgold"] .kpi .val { color: var(--pri-bright); }
-html[data-style="blackgold"] ::selection { background: rgba(230, 174, 108, .35); }
-html[data-style="blackgold"] .login { background: radial-gradient(1100px 560px at 15% -10%, rgba(230, 174, 108, .28), transparent 60%), radial-gradient(900px 500px at 110% 110%, rgba(201, 138, 69, .14), transparent 60%), #14161D; }
-html[data-style="blackgold"] .login .card { border-color: rgba(230, 174, 108, .16); }
+html[data-style="blackgold"] .btn.pri:hover { background: var(--gold-grad); border-color: #E2AE86; color: #2B1E14; font-weight: 600; }
+html[data-style="blackgold"] .btn.pri:hover { filter: brightness(1.05); box-shadow: 0 8px 22px -8px rgba(239, 190, 150, .5); }
+html[data-style="blackgold"] .side { gap: 7px; }
+html[data-style="blackgold"] .side .nav { background: #2E303D; border: 1px solid transparent; border-radius: 6px; padding-top: 10px; padding-bottom: 10px; font-size: 14.5px; font-weight: 400; color: var(--side-ink); }
+html[data-style="blackgold"] .side .nav svg { color: #9A9CA8; }
+html[data-style="blackgold"] .side .nav:hover { background: #383B48; }
+html[data-style="blackgold"] .side .navsub { gap: 7px; padding-top: 7px; border-left-color: #2E303D; }
+html[data-style="blackgold"] .side .nav.active { background: #434552; color: var(--gold); border-color: var(--gold); box-shadow: none; padding-left: 20px; }
+html[data-style="blackgold"] .side .nav.active svg { color: var(--gold); }
+html[data-style="blackgold"] .nav.active::before { left: 8px; top: 12px; bottom: 12px; width: 3px; border-radius: 3px; background: var(--gold); }
+html[data-style="blackgold"] .brand-name { color: var(--gold); font-weight: 700; font-size: 19px; letter-spacing: 0; }
+html[data-style="blackgold"] h1 { letter-spacing: 0; }
+html[data-style="blackgold"] .kpi .val { color: var(--gold); }
+html[data-style="blackgold"] ::selection { background: rgba(239, 190, 150, .35); }
+html[data-style="blackgold"] .login { background: radial-gradient(1100px 560px at 15% -10%, rgba(239, 190, 150, .24), transparent 60%), radial-gradient(900px 500px at 110% 110%, rgba(239, 190, 150, .10), transparent 60%), #181B24; }
+html[data-style="blackgold"] .login .card { border-color: rgba(239, 190, 150, .16); }
