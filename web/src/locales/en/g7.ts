@@ -111,7 +111,7 @@ const m: Record<string, string> = {
   '不论等级，组内用户可用这些节点上的全部入站（包括以后新增的入站）': 'Regardless of level, members can use every inbound on these nodes (including ones added later)',
   '只授权单个入站时使用': 'For granting individual inbounds only',
   '订阅域名（HTTPS）': 'Subscription domain (HTTPS)',
-  '给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变': 'A separate domain for subscription links (CDN friendly): point it at this server first; Caddy issues the certificate and subscription links switch to it. That domain serves only subscriptions and the user center; the admin address stays the same',
+  '给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变。已有 Nginx / OpenResty / 宝塔占用 80、443 时，先在它们里把域名反代到本机面板端口，再点「配置」（会检测反代是否生效，不安装 Caddy）': 'A separate domain for subscription links (CDN friendly): point it at this server first; Caddy issues the certificate and subscription links switch to it. That domain serves only subscriptions and the user center; the admin address stays the same. If Nginx / OpenResty / BT Panel already uses ports 80 and 443, proxy the domain to the panel port there first, then click Configure (the proxy is checked; Caddy is not installed)',
   '为 {domain} 签发证书并作为订阅域名？订阅链接会改用 https://{domain}，用户需要重新导入订阅；面板不会重启。': 'Issue a certificate for {domain} and use it for subscriptions? Links change to https://{domain} and users need to re-import; the panel does not restart.',
   '已提交，证书签发通常需要半分钟': 'Submitted; issuing the certificate usually takes half a minute',
   '配置': 'Set up',

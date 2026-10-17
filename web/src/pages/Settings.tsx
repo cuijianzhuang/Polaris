@@ -343,7 +343,7 @@ function Access() {
                 t('面板将改用 https://{domain} 访问，订阅链接也会变成这个域名（用户需重新导入；不想变可在订阅设置里填订阅域名）。已接入的节点不受影响。', { domain: f.domain!.trim() }))}>{t('启用 HTTPS')}</button>
           </div>
         </Field>
-        <Field label={t('订阅域名（HTTPS）')} hint={t('给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变')}>
+        <Field label={t('订阅域名（HTTPS）')} hint={t('给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变。已有 Nginx / OpenResty / 宝塔占用 80、443 时，先在它们里把域名反代到本机面板端口，再点「配置」（会检测反代是否生效，不安装 Caddy）')}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input className="input mono" value={f.sub ?? ''} placeholder="sub.example.com" onChange={(e) => setF({ ...f, sub: e.target.value })} />
             <button className="btn" type="button" disabled={busy || !d?.updater || !f.sub?.trim()}
