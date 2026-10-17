@@ -6,6 +6,7 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import LimitedUsers from '../components/LimitedUsers'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
+import { ProTag, useFeature } from '../components/License'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed, coreInstalling } from '../format'
 import VersionPicker from '../components/VersionPicker'
@@ -229,6 +230,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
     defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
   })
   const { busy, run } = useAction()
+  const ddnsOK = useFeature('ddns')
   const defaults = useCoreDefaults()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
@@ -280,8 +282,8 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
           </div>
         </Field>}
         <Field label={t('节点等级')} htmlFor="n-level" hint={t('等级不低于它的用户分组可用此节点；0 = 不分级，只按分组 / 用户的单独授权')}><input id="n-level" className="input mono" type="number" min={0} max={99} value={f.level} onChange={(e) => set('level', e.target.value)} /></Field>
-        <Field label="DDNS" full hint={t('开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP')}>
-          <label className="row small"><Switch label="DDNS" on={f.ddns} onChange={(v) => set('ddns', v)} />{t('自动跟随节点公网 IP')}</label>
+        <Field label={<>DDNS<ProTag on={ddnsOK} /></>} full hint={t('开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP')}>
+          <label className="row small"><Switch label="DDNS" on={f.ddns} disabled={!ddnsOK && !f.ddns} onChange={(v) => set('ddns', v)} />{t('自动跟随节点公网 IP')}</label>
         </Field>
         <Field label={t('防火墙')} full hint={t('Agent 自动在节点的 ufw / firewalld / iptables 中放行入站端口，删除入站后收回；只关闭自己放行的端口，不动已有规则。云厂商的安全组（如 Oracle 安全列表、AWS 安全组）需在云控制台另行放行')}>
           <label className="row small"><Switch label={t('自动放行端口')} on={f.firewall} onChange={(v) => set('firewall', v)} />{t('自动放行入站端口')}</label>

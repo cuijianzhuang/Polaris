@@ -199,6 +199,7 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 .switch { position: relative; width: 40px; height: 22px; border-radius: 11px; background: var(--input-strong); border: none; cursor: pointer; flex: none; padding: 0; transition: background-color .2s var(--ease); }
 .switch::after { content: ''; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); transition: transform .25s cubic-bezier(.3, 1.4, .5, 1), width .15s var(--ease); }
 .switch:active::after { width: 20px; }
+.switch:disabled { opacity: .45; cursor: not-allowed; }
 .switch.on { background: var(--pri); }
 .switch.on::after { transform: translateX(18px); }
 .switch.on:active::after { transform: translateX(14px); }

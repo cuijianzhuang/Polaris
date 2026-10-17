@@ -14,8 +14,8 @@ type LicenseView = {
 }
 
 const planLabel = (p: string) => ({ community: t('社区版'), trial: t('试用'), pro: t('专业版'), enterprise: t('企业版'), open: t('未启用授权') } as Record<string, string>)[p] ?? p
-const featureLabel = (f: string) => ({ speed_limit: t('客户独立限速'), tg_menu: t('Telegram 管理菜单'), backup_push: t('备份推送') } as Record<string, string>)[f] ?? f
-const allFeatures = ['speed_limit', 'tg_menu', 'backup_push']
+const featureLabel = (f: string) => ({ speed_limit: t('客户独立限速'), tg_menu: t('Telegram 管理菜单'), backup_push: t('备份推送'), sub_convert: t('订阅转换'), ddns: t('DDNS 与域名绑定') } as Record<string, string>)[f] ?? f
+const allFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns']
 
 function Usage({ label, used, max }: { label: string; used: number; max: number }) {
   const pct = max > 0 ? Math.min(100, (used / max) * 100) : 0
@@ -113,5 +113,5 @@ export function useFeature(f: string): boolean {
 
 // ProTag marks a locked paid feature.
 export function ProTag({ on }: { on: boolean }) {
-  return on ? null : <span className="tag warn" style={{ marginLeft: 6 }} title={t('需要专业版许可证（系统 → 许可证）')}>🔒 {t('专业版')}</span>
+  return on ? null : <span className="tag warn" style={{ marginLeft: 6 }} title={t('需要专业版许可证（许可证页面）')}>🔒 {t('专业版')}</span>
 }

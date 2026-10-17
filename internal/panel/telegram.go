@@ -554,7 +554,7 @@ func (b *tgBot) sendSub(chat int64, u *store.User) {
 // --- callbacks ---
 
 // tgProText explains locked admin menus.
-const tgProText = "🔒 <b>管理菜单需要专业版</b>\n" + tgRule + "\n节点管理、用户列表、流量排行和版本更新菜单需要专业版许可证（面板 → 系统 → 许可证）。\n\n告警通知、绑定账号和用户自助功能照常可用。"
+const tgProText = "🔒 <b>管理菜单需要专业版</b>\n" + tgRule + "\n节点管理、用户列表、流量排行和版本更新菜单需要专业版许可证（面板 → 许可证）。\n\n告警通知、绑定账号和用户自助功能照常可用。"
 
 // tgAdvanced reports callbacks of the admin menus (a paid feature); user
 // self-service, sign-in, alerts and the home screen stay free.

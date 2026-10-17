@@ -120,7 +120,8 @@
 - **社区版空实现**（`*_oss.go`，标签 `!pro`）：
   - `internal/agent/limiter_oss.go`：没有限速器，内核不会接入限速转发；
   - `internal/panel/edition_oss.go`：不生成用户限速、不推送备份；
-  - `internal/panel/telegram_admin_oss.go`：管理菜单只显示“专业版”说明。
+  - `internal/panel/telegram_admin_oss.go`：管理菜单只显示“专业版”说明；
+  - `internal/panel/edition_ddns_oss.go`：订阅源 / 订阅组和域名绑定 / DDNS 的接口返回 402，组订阅 `/sub/p/` 不输出，节点 IP 变化只记录不跟随。
 - **社区版构建的许可证状态**：
   - 不论许可证或试用期如何，高级功能都不可用；
   - 许可证页提示“社区版构建”；

@@ -39,6 +39,25 @@ func TestCommunityEdition(t *testing.T) {
 		t.Fatalf("push %v", res)
 	}
 
+	// Subscription conversion and DDNS: lists are empty, changes are refused.
+	for _, path := range []string{"/sub-sources", "/sub-profiles", "/domains"} {
+		if code, _ := admin.do("POST", path, map[string]any{"name": "x"}); code != 402 {
+			t.Fatalf("POST %s on community build: %d", path, code)
+		}
+	}
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "jp", Address: "198.51.100.1", PublicIPv4: "198.51.100.1"})
+	if code, _ := admin.do("PUT", "/nodes/n1", map[string]any{"name": "jp", "ddns": true}); code != 402 {
+		t.Fatalf("turning DDNS on: %d", code)
+	}
+	var n store.Node
+	s.st.DB.First(&n, "id = ?", "n1")
+	n.DDNS = true // set before the split: the address must still stay put
+	s.observePublicIP(&n, "203.0.113.9", "")
+	s.st.DB.First(&n, "id = ?", "n1")
+	if n.PublicIPv4 != "203.0.113.9" || n.Address != "198.51.100.1" {
+		t.Fatalf("community build: ip %s address %s", n.PublicIPv4, n.Address)
+	}
+
 	// Telegram: the admin views explain the edition, the user menu works.
 	owner := tgIdentity{admin: &store.TGAdmin{ID: "o", Name: "boss", Role: "owner"}}
 	for _, v := range []string{"status", "users", "top", "update"} {

@@ -3,6 +3,7 @@ import { del, get, post, put } from '../api'
 import { CopyBox, Drawer, Empty, ErrorNote, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, bytes, datetime } from '../format'
 import { t } from '../i18n'
+import { ProTag, useFeature } from '../components/License'
 import type { NodeRow, Operator, SubProfile, SubSource, SubTemplate, User } from '../types'
 
 type Tab = 'profiles' | 'sources' | 'settings'
@@ -17,11 +18,13 @@ export default function Convert() {
   const [tab, setTab] = useState<Tab>('profiles')
   const meta = useLoad(() => get<Meta>('/sub-meta'))
   const sources = useLoad(() => get<SubSource[]>('/sub-sources'))
+  const ok = useFeature('sub_convert')
   return (
     <>
       <div className="top">
-        <div><h1>{t('订阅转换')}</h1><div className="sub">{t('聚合面板节点与外部机场订阅 / 手动节点，经过滤、重命名、排序、去重后，按客户端输出 Clash · sing-box · Surge · Loon · QX；也可交给第三方 subconverter 后端')}</div></div>
+        <div><h1>{t('订阅转换')}<ProTag on={ok} /></h1><div className="sub">{t('聚合面板节点与外部机场订阅 / 手动节点，经过滤、重命名、排序、去重后，按客户端输出 Clash · sing-box · Surge · Loon · QX；也可交给第三方 subconverter 后端')}</div></div>
       </div>
+      {!ok && <div className="note warn">{t('订阅源和订阅组是专业版功能：需要在许可证页面激活专业版许可证。已有的订阅组照常输出，只是不能再新建或修改。下方「转换设置」对所有订阅生效，不受影响。')}</div>}
       <div className="tabs" role="tablist">
         {([['profiles', t('订阅组')], ['sources', t('订阅源')], ['settings', t('转换设置')]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{l}</button>

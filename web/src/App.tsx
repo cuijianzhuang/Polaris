@@ -93,8 +93,8 @@ const nav: NavItem[] = [
     { to: '/settings', label: t('设置'), icon: <Icon.Gear /> },
     { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot /> },
     { to: '/audit', label: t('审计日志'), icon: <Icon.Log /> },
-    { to: '/license', label: t('许可证'), icon: <Icon.Lock /> },
   ] },
+  { to: '/license', label: t('许可证'), icon: <Icon.Lock /> },
 ]
 
 // TopProgress is a thin bar shown while API requests are in flight (after a

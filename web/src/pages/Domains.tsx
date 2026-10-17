@@ -4,6 +4,7 @@ import { useNodes } from '../App'
 import { Empty, ErrorNote, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, datetime } from '../format'
 import { t } from '../i18n'
+import { ProTag, useFeature } from '../components/License'
 import type { DNSProvider, DomainBinding } from '../types'
 
 type ProvForm = { id?: string; name: string; kind: 'cloudflare' | 'webhook'; token: string; endpoint: string; hasToken?: boolean }
@@ -16,6 +17,7 @@ export default function Domains() {
   const { nodes, refresh } = useNodes()
   const provs = useLoad(() => get<DNSProvider[]>('/dns-providers'))
   const binds = useLoad(() => get<DomainBinding[]>('/domains'))
+  const ok = useFeature('ddns')
   const [pf, setPf] = useState<ProvForm | null>(null)
   const [bf, setBf] = useState<BindForm | null>(null)
   const { busy, run } = useAction()
@@ -63,12 +65,13 @@ export default function Domains() {
   return (
     <>
       <div className="top">
-        <div><h1>{t('域名与 DDNS')}</h1><div className="sub">{t('把域名解析到节点的公网 IP；Agent 上报的出口 IP 变化后自动更新记录（每 10 分钟兜底同步一次）')}</div></div>
+        <div><h1>{t('域名与 DDNS')}<ProTag on={ok} /></h1><div className="sub">{t('把域名解析到节点的公网 IP；Agent 上报的出口 IP 变化后自动更新记录（每 10 分钟兜底同步一次）')}</div></div>
         <div className="row">
           <button className="btn" type="button" onClick={() => setPf({ name: '', kind: 'cloudflare', token: '', endpoint: '' })}>+ {t('DNS 服务商')}</button>
-          <button className="btn pri" type="button" disabled={!provs.data?.length} onClick={() => setBf({ nodeId: nodes[0]?.id ?? '', providerId: provs.data?.[0]?.id ?? '', domain: '', family: 'ipv4', proxied: false, ttl: 60, setNodeDomain: false })}>+ {t('域名绑定')}</button>
+          <button className="btn pri" type="button" disabled={!ok || !provs.data?.length} onClick={() => setBf({ nodeId: nodes[0]?.id ?? '', providerId: provs.data?.[0]?.id ?? '', domain: '', family: 'ipv4', proxied: false, ttl: 60, setNodeDomain: false })}>+ {t('域名绑定')}</button>
         </div>
       </div>
+      {!ok && <div className="note warn">{t('域名绑定和 DDNS 是专业版功能：需要在许可证页面激活专业版许可证。已有的绑定照常自动更新，只是不能再新建或修改。DNS 服务商（CDN 与证书也会用到）不受影响。')}</div>}
       <ErrorNote error={provs.error || binds.error} />
 
       <section className="card flush scroll">

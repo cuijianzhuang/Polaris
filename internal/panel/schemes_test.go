@@ -50,14 +50,19 @@ func TestRuleSchemes(t *testing.T) {
 		return resp.StatusCode, string(b)
 	}
 
-	// No scheme: the legacy template is used untouched.
-	if _, body := get("/sub/p/profile-token-abcdefgh", "clash-verge"); !strings.Contains(body, "🤖 AI 服务") || !strings.Contains(body, "rule-providers:") ||
-		strings.Contains(body, "legacy: true") || !strings.Contains(body, "skip-cert-verify: true") {
-		t.Fatalf("profile scheme not applied:\n%s", body)
-	}
-	s.st.DB.Model(&store.SubProfile{}).Where("id = ?", "p1").Update("scheme", "none")
-	if _, body := get("/sub/p/profile-token-abcdefgh", "clash-verge"); !strings.Contains(body, "legacy: true") {
-		t.Fatalf("legacy template should stay without a scheme:\n%s", body)
+	// Subscription groups (/sub/p/) are a paid feature: only in pro builds.
+	if proBuild {
+		// No scheme: the legacy template is used untouched.
+		if _, body := get("/sub/p/profile-token-abcdefgh", "clash-verge"); !strings.Contains(body, "🤖 AI 服务") || !strings.Contains(body, "rule-providers:") ||
+			strings.Contains(body, "legacy: true") || !strings.Contains(body, "skip-cert-verify: true") {
+			t.Fatalf("profile scheme not applied:\n%s", body)
+		}
+		s.st.DB.Model(&store.SubProfile{}).Where("id = ?", "p1").Update("scheme", "none")
+		if _, body := get("/sub/p/profile-token-abcdefgh", "clash-verge"); !strings.Contains(body, "legacy: true") {
+			t.Fatalf("legacy template should stay without a scheme:\n%s", body)
+		}
+	} else if code, _ := get("/sub/p/profile-token-abcdefgh", "clash-verge"); code != http.StatusNotFound {
+		t.Fatalf("community build served a subscription group: %d", code)
 	}
 
 	// Global custom ini URL; sing-box gets a signed, panel-converted rule set.
