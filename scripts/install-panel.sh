@@ -635,6 +635,21 @@ port_owner() { ss -Hltnp "sport = :$1" 2>/dev/null | sed -n 's/.*users:(("\([^"]
 port_msg() { local o; o="$(port_owner "$1")"; echo "端口 $1 已被占用${o:+（$o）}"; }
 valid_domain() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; }
 
+# proxied_to_panel DOMAIN PORT: does https://DOMAIN reach this panel? The same
+# unknown subscription path is fetched through the domain and from the panel
+# directly; identical answers mean the existing proxy forwards to the panel.
+# Sets PROXY_PROBE to the reason when it does not.
+proxied_to_panel() {
+  local path a b
+  path="/sub/polaris-probe-$RANDOM$RANDOM"
+  b="$(curl -s -m 5 -w '|%{http_code}' "http://127.0.0.1:$2$path" 2>/dev/null)" || b=""
+  a="$(curl -s -m 10 -w '|%{http_code}' "https://$1$path" 2>/dev/null)" || {
+    PROXY_PROBE="https://$1 无法访问：检查 DNS 解析和 HTTPS 证书"; return 1; }
+  [ -n "$b" ] && [ "$a" = "$b" ] && return 0
+  PROXY_PROBE="https://$1 能访问，但返回的不是面板（HTTP ${a##*|}）：检查反代目标是否为 http://127.0.0.1:$2"
+  return 1
+}
+
 install_caddy() {
   step "安装 Caddy（自动申请 HTTPS 证书）"
   if command -v caddy >/dev/null; then ok "已安装 $(caddy version 2>/dev/null | awk '{print $1}')，跳过"; return 0; fi
@@ -1083,7 +1098,14 @@ do_set_sub_domain() {
   for p in 80 443; do
     if port_busy "$p" && ! systemctl is-active --quiet caddy; then
       owner="$(port_owner "$p")"
-      die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 127.0.0.1:$port，再到后台「订阅设置」填写订阅域名 https://$domain"
+      # Another web server owns the port. If it already proxies the domain
+      # to the panel, there is nothing for Caddy to do: accept the domain.
+      if proxied_to_panel "$domain" "$port"; then
+        ok "https://$domain 已由 ${owner:-现有 Web 服务} 反代到面板，无需 Caddy"
+        dim "  订阅链接改用 https://$domain；该域名只开放订阅和用户中心"
+        return 0
+      fi
+      die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy；且 https://$domain 还没有反代到面板（${PROXY_PROBE:-无法访问}）。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 http://127.0.0.1:$port 并配置 HTTPS 证书，然后再点一次「配置」，或直接到后台「订阅设置」填写订阅域名 https://$domain"
     fi
   done
   install_caddy
