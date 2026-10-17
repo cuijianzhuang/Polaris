@@ -53,6 +53,13 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 ```
 
 脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
+**社区版与专业版**：每次发布同时提供两个版本，数据和配置通用。
+- 默认安装社区版（开源）。
+- 加 `--pro` 安装专业版，包含客户独立限速、Telegram 管理菜单、备份推送，需要在「系统 → 许可证」激活许可证。
+- 已安装的面板执行 `polaris update --pro` 切换到专业版，`polaris update --community` 切回社区版。
+- 之后的升级沿用当前版本，节点 Agent 也自动使用对应版本。
+- Docker 镜像：专业版用 `-pro` 标签，例如 `ghcr.io/cuijianzhuang/polaris:latest-pro`。
+
 其他参数：`--version v0.1.0-beta`、`--port`、`--agent-port`、`--admin-path`、`--no-caddy`（自备反代）、`--mirror`（GitHub 下载加速前缀）。
 下载显示进度；GitHub 直连失败或速度过慢（10 KB/s 以下持续 30 秒）时会自动依次改用公共镜像（ghfast.top、gh-proxy.com、ghproxy.net），成功的镜像会记住供以后升级使用（`--mirror none` 恢复直连）；api.github.com 不可达时改从 releases/latest 跳转获取版本号。
 
