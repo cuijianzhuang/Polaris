@@ -714,3 +714,9 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .nc-net-bar span { display: block; height: 100%; background: var(--pri); border-radius: 2px; }
 .nc-net-bar.warn span { background: var(--warn); }
 .nc-net-bar.bad span { background: var(--bad); }
+
+/* Language toggle: text instead of an icon */
+.lang-btn { font-size: 12px; font-weight: 600; letter-spacing: .02em; min-width: 28px; }
+
+/* Keep the sign-out label on one line in longer languages */
+.side-foot .logout { white-space: nowrap; }

@@ -1,0 +1,53 @@
+import en from './locales/en'
+
+// UI language. Strings are written in Chinese and wrapped in t(); the
+// Chinese text is the key into the English dictionary, so a missing entry
+// falls back to Chinese instead of showing a key. Placeholders: {name}.
+
+export type Lang = 'zh' | 'en'
+
+const KEY = 'polaris.lang'
+
+function detect(): Lang {
+  try {
+    const v = localStorage.getItem(KEY)
+    if (v === 'zh' || v === 'en') return v
+  } catch { /* storage blocked */ }
+  return typeof navigator !== 'undefined' && !/^zh\b/i.test(navigator.language || 'zh') ? 'en' : 'zh'
+}
+
+let lang: Lang = detect()
+if (typeof document !== 'undefined') document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en'
+
+export function getLang(): Lang { return lang }
+
+// setLang stores the choice and reloads: module-level labels are computed
+// once, so a reload is the reliable way to switch every string.
+export function setLang(l: Lang) {
+  try { localStorage.setItem(KEY, l) } catch { /* ignore */ }
+  if (l !== lang) location.reload()
+}
+
+const dict: Record<string, string> = en
+
+// A key may carry a context after "@@" (t('关闭@@off')) when one Chinese
+// word needs two English translations; Chinese shows the part before "@@".
+export function t(s: string, vars?: Record<string, string | number | undefined | null>): string {
+  const at = s.indexOf('@@')
+  const zh = at > 0 ? s.slice(0, at) : s
+  let out = lang === 'en' ? (dict[s] ?? zh) : zh
+  if (vars) {
+    out = out.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k] ?? '') : m))
+    if (lang === 'en') out = out.replace(singular, '1 $1') // "1 users" → "1 user"
+  }
+  return out
+}
+
+// Nouns the English strings count with a placeholder; "1 <noun>s" is made singular.
+const singular = /\b1 (user|node|inbound|outbound|day|group|device|item|record|target|step|time|fallback|rule|chain|certificate|member|hour|minute|second|proxy group|rule set|conn)s\b/g
+
+// tr translates a message from the server: exact matches only, otherwise
+// the original text.
+export function tr(s: string): string {
+  return lang === 'en' ? (dict[s] ?? s) : s
+}
