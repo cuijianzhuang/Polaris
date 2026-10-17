@@ -27,6 +27,7 @@ import Audit from './pages/Audit'
 import Convert from './pages/Convert'
 import Domains from './pages/Domains'
 import Telegram from './pages/Telegram'
+import Costs from './pages/Costs'
 
 // Scope of the session: Telegram node operators see only their own nodes.
 const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
@@ -63,27 +64,35 @@ function NodesProvider({ children }: { children: ReactNode }) {
 
 type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; children?: { to: string; label: string; icon: ReactNode }[] }
 
+// Sidebar: related pages share one collapsible group so the list stays short.
 const nav: NavItem[] = [
   { to: '/', label: t('仪表盘'), icon: <Icon.Dashboard />, end: true },
   { to: '/stats', label: t('统计'), icon: <Icon.Chart /> },
-  { to: '/nodes', label: t('节点与内核'), icon: <Icon.Nodes />, children: [
-    { to: '/nodes', label: t('节点'), icon: <Icon.Server /> },
+  { to: '/nodes', label: t('节点'), icon: <Icon.Nodes />, children: [
+    { to: '/nodes', label: t('节点列表'), icon: <Icon.Server /> },
     { to: '/cores', label: t('内核'), icon: <Icon.Cpu /> },
+    { to: '/costs', label: t('服务器成本'), icon: <Icon.Wallet /> },
   ] },
-  { to: '/inbounds', label: t('入站'), icon: <Icon.Inbound /> },
-  { to: '/chains', label: t('链路与 CDN'), icon: <Icon.Chain /> },
-  { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward /> },
-  { to: '/templates', label: t('入站模板'), icon: <Icon.Template /> },
+  { to: '/inbounds', label: t('入站与转发'), icon: <Icon.Inbound />, children: [
+    { to: '/inbounds', label: t('入站'), icon: <Icon.Inbound /> },
+    { to: '/templates', label: t('入站模板'), icon: <Icon.Template /> },
+    { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward /> },
+  ] },
+  { to: '/chains', label: t('链路与路由'), icon: <Icon.Chain /> },
   { to: '/users', label: t('用户'), icon: <Icon.Users /> },
-  { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub /> },
-  { to: '/convert', label: t('订阅转换'), icon: <Icon.Convert /> },
-  { to: '/domains', label: t('域名与 DDNS'), icon: <Icon.Globe /> },
-]
-const sysNav = [
-  { to: '/certificates', label: t('证书'), icon: <Icon.Lock /> },
-  { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot /> },
-  { to: '/settings', label: t('设置'), icon: <Icon.Gear /> },
-  { to: '/audit', label: t('审计日志'), icon: <Icon.Log /> },
+  { to: '/sub-templates', label: t('订阅'), icon: <Icon.Sub />, children: [
+    { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub /> },
+    { to: '/convert', label: t('订阅转换'), icon: <Icon.Convert /> },
+  ] },
+  { to: '/domains', label: t('域名与证书'), icon: <Icon.Globe />, children: [
+    { to: '/domains', label: t('域名与 DDNS'), icon: <Icon.Globe /> },
+    { to: '/certificates', label: t('证书'), icon: <Icon.Lock /> },
+  ] },
+  { to: '/settings', label: t('系统'), icon: <Icon.Gear />, children: [
+    { to: '/settings', label: t('设置'), icon: <Icon.Gear /> },
+    { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot /> },
+    { to: '/audit', label: t('审计日志'), icon: <Icon.Log /> },
+  ] },
 ]
 
 // TopProgress is a thin bar shown while API requests are in flight (after a
@@ -167,7 +176,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
   useEffect(() => { setPalette(false) }, [loc.pathname, loc.search])
   const pages: PaletteItem[] = scoped
     ? [{ id: 'p/nodes', label: t('我的节点'), icon: <Icon.Server />, to: '/nodes', group: t('页面') }]
-    : [...nav.flatMap((n) => n.children ?? [n]), ...sysNav].map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: t('页面') }))
+    : nav.flatMap((n) => n.children ?? [n]).map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: t('页面') }))
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   const inTabs = tabs.some((tb) => (tb.end ? loc.pathname === tb.to : loc.pathname.startsWith(tb.to)))
   return (
@@ -191,8 +200,6 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         ) : (
           <>
             {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
-            <div className="navsec">{t('系统')}</div>
-            {sysNav.map((n) => <NavLink key={n.to} to={n.to} className="nav">{n.icon}{n.label}</NavLink>)}
           </>
         )}
         <div className="side-foot">
@@ -270,6 +277,7 @@ export default function App() {
                       <Route path="/convert" element={<Convert />} />
                       <Route path="/domains" element={<Domains />} />
                       <Route path="/telegram" element={<Telegram />} />
+                      <Route path="/costs" element={<Costs />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   )}

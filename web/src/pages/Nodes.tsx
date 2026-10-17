@@ -6,7 +6,7 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
-import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus } from '../format'
+import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed } from '../format'
 import VersionPicker from '../components/VersionPicker'
 import { t } from '../i18n'
 import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
@@ -222,7 +222,9 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
 function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (install?: Install) => void }) {
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
-    flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1,
+    flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
+    netLimitGb: node?.netLimit ? +(node.netLimit / GB).toFixed(2) : 0, netMode: node?.netMode || 'sum', netResetDay: node?.netResetDay ?? 1, netWarnPct: node?.netWarnPct || 80,
+    netUsedGb: node ? +(netUsed(node) / GB).toFixed(2) : 0,
     defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
   })
   const { busy, run } = useAction()
@@ -230,11 +232,15 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
     const body: any = {
-      name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate),
+      name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate), level: Number(f.level) || 0,
       labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
+    const net: any = { limitGb: Number(f.netLimitGb) || 0, mode: f.netMode, resetDay: Number(f.netResetDay) || 0, warnPct: Number(f.netWarnPct) || 0 }
     if (node) {
       await put('/nodes/' + node.id, body)
+      // Calibrate only when the figure was edited, so ongoing counting isn't overwritten.
+      if (Number(f.netUsedGb) !== +(netUsed(node) / GB).toFixed(2)) net.usedGb = Number(f.netUsedGb) || 0
+      await put(`/nodes/${node.id}/net`, net)
       onSaved()
     } else {
       // An empty version is resolved server-side to the configured default.
@@ -242,6 +248,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
       if (!body.cores.length) throw new Error(t('至少选择一个内核'))
       if (!body.cores.find((c: any) => c.type === f.defaultCore)) body.defaultCore = body.cores[0].type
       const r = await post<{ command: string; node: Node }>('/nodes', body)
+      if (net.limitGb > 0) await put(`/nodes/${r.node.id}/net`, net)
       onSaved({ cmd: r.command, nodeId: r.node.id })
     }
   }, node ? t('已保存') : t('节点已创建'))
@@ -254,9 +261,24 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         <Field label={t('名称')} htmlFor="n-name"><input id="n-name" className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="tokyo-1" /></Field>
         <Field label={t('地区')} htmlFor="n-region"><input id="n-region" className="input" value={f.region} onChange={(e) => set('region', e.target.value)} placeholder={t('东京')} /></Field>
         <Field label={t('公网地址')} htmlFor="n-addr" hint={t('没填节点域名时，订阅里客户端连接这个 IP 或域名；都留空则用 Agent 检测到的公网 IP')}><input id="n-addr" className="input mono" value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="203.0.113.10" /></Field>
-        <Field label={t('节点域名')} htmlFor="n-domain" hint={t('填了就优先用于订阅（客户端连这个域名），也用于 ACME 证书与 {x}', { x: '{node.domain}' })}><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
+        <Field label={t('节点域名')} htmlFor="n-domain" hint={t('填了就优先用于订阅（客户端连这个域名），也用于 ACME 证书与 {node.domain}')}><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
         <Field label={t('国家代码')} htmlFor="n-flag" hint={t('如 JP，订阅显示旗帜')}><input id="n-flag" className="input mono" maxLength={2} value={f.flag} onChange={(e) => set('flag', e.target.value.toUpperCase())} /></Field>
         <Field label={t('流量倍率')} htmlFor="n-rate" hint={t('结算时按倍率换算')}><input id="n-rate" className="input mono" type="number" step="0.1" min="0.1" value={f.trafficRate} onChange={(e) => set('trafficRate', e.target.value)} /></Field>
+        <Field label={t('服务器月流量')} htmlFor="n-netlimit" hint={t('服务商给的流量额度，GB；0 = 不限。统计整台服务器网卡的收发，达到提醒阈值和超出时 Telegram 提醒')}><input id="n-netlimit" className="input mono" type="number" min="0" step="1" value={f.netLimitGb} onChange={(e) => set('netLimitGb', e.target.value)} /></Field>
+        <Field label={t('计费方式')} htmlFor="n-netmode" hint={t('按服务商的统计规则选')}>
+          <select id="n-netmode" className="input" value={f.netMode} onChange={(e) => set('netMode', e.target.value)}>
+            <option value="sum">{t('上下行合计')}</option><option value="up">{t('只算上行（出站）')}</option><option value="down">{t('只算下行（入站）')}</option><option value="max">{t('上下行取较大值')}</option>
+          </select>
+        </Field>
+        <Field label={t('每月重置日')} htmlFor="n-netreset" hint={t('1–31，月份没有这一天时按月底；0 = 不自动重置')}><input id="n-netreset" className="input mono" type="number" min="0" max="31" value={f.netResetDay} onChange={(e) => set('netResetDay', e.target.value)} /></Field>
+        <Field label={t('提醒阈值（%）')} htmlFor="n-netwarn"><input id="n-netwarn" className="input mono" type="number" min="1" max="100" value={f.netWarnPct} onChange={(e) => set('netWarnPct', e.target.value)} /></Field>
+        {node && <Field label={t('本周期已用（GB）')} htmlFor="n-netused" hint={t('面板统计：↓ {rx} · ↑ {tx}。面板从节点接入后才开始统计，可改成服务商后台显示的数值来校准', { rx: bytes(node.netRx), tx: bytes(node.netTx) })}>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input id="n-netused" className="input mono" type="number" min="0" step="0.01" value={f.netUsedGb} onChange={(e) => set('netUsedGb', e.target.value)} />
+            <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await post(`/nodes/${node.id}/net-reset`); set('netUsedGb', 0) }, t('已清零本周期流量'))}>{t('清零')}</button>
+          </div>
+        </Field>}
+        <Field label={t('节点等级')} htmlFor="n-level" hint={t('等级不低于它的用户分组可用此节点；0 = 不分级，只按分组 / 用户的单独授权')}><input id="n-level" className="input mono" type="number" min={0} max={99} value={f.level} onChange={(e) => set('level', e.target.value)} /></Field>
         <Field label="DDNS" full hint={t('开启后 Agent 上报的公网 IP 变化时，自动更新「域名与 DDNS」中绑定到此节点的记录；地址为空时订阅使用上报的 IP')}>
           <label className="row small"><Switch label="DDNS" on={f.ddns} onChange={(v) => set('ddns', v)} />{t('自动跟随节点公网 IP')}</label>
         </Field>

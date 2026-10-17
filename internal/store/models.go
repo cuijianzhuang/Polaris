@@ -37,8 +37,25 @@ type Node struct {
 	PublicIPv4   string           `gorm:"size:64" json:"publicIpv4"`
 	PublicIPv6   string           `gorm:"size:64" json:"publicIpv6"`
 	IPChangedAt  *time.Time       `json:"ipChangedAt"`
-	CreatedAt    time.Time        `json:"createdAt"`
-	UpdatedAt    time.Time        `json:"updatedAt"`
+	// Level is the tier a group needs to reach this node (0 = not tiered:
+	// only explicit grants apply).
+	Level int `json:"level"`
+	// Server traffic: what the host's NICs moved this billing cycle, against
+	// the provider's monthly allowance. NetMode decides what counts: "sum"
+	// (up + down, default), "up", "down" or "max".
+	NetLimit      int64      `json:"netLimit"` // bytes per cycle, 0 = unlimited
+	NetMode       string     `gorm:"size:8" json:"netMode"`
+	NetResetDay   int        `json:"netResetDay"` // day of month the cycle restarts, 0 = never
+	NetWarnPct    int        `json:"netWarnPct"`  // alert at this share of the limit, 0 = 80
+	NetOffset     int64      `json:"netOffset"`   // added to the counted total (calibration)
+	NetRx         int64      `json:"netRx"`       // received this cycle
+	NetTx         int64      `json:"netTx"`       // sent this cycle
+	NetCycleStart *time.Time `json:"netCycleStart"`
+	NetWarned     int        `json:"netWarned"` // 1 = threshold alert sent, 2 = over-limit alert sent
+	NetLastRx     uint64     `json:"-"`         // last reported NIC counters
+	NetLastTx     uint64     `json:"-"`
+	CreatedAt     time.Time  `json:"createdAt"`
+	UpdatedAt     time.Time  `json:"updatedAt"`
 }
 
 // SystemInfo is the latest heartbeat snapshot of a node.
@@ -152,13 +169,46 @@ func (u *User) ToModel() model.User {
 
 // Group grants inbounds to users.
 type Group struct {
-	ID         string    `gorm:"primaryKey;size:32" json:"id"`
-	Name       string    `gorm:"size:64;uniqueIndex" json:"name"`
-	Remark     string    `gorm:"size:255" json:"remark"`
-	IsDefault  bool      `json:"isDefault"` // new users and inbounds join it unless told otherwise
+	ID        string `gorm:"primaryKey;size:32" json:"id"`
+	Name      string `gorm:"size:64;uniqueIndex" json:"name"`
+	Remark    string `gorm:"size:255" json:"remark"`
+	IsDefault bool   `json:"isDefault"` // new users and inbounds join it unless told otherwise
+	// Level opens every node whose Level is 1..Level to the group's users
+	// (0 = no tier access); NodeIDs binds whole nodes regardless of level.
+	Level      int       `json:"level"`
+	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
 	InboundIDs []string  `gorm:"-" json:"inboundIds"`
 	UserCount  int64     `gorm:"-" json:"userCount"`
 	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// NodeTrafficDaily is a node's NIC traffic per day (panel local time).
+type NodeTrafficDaily struct {
+	NodeID string `gorm:"primaryKey;size:32" json:"nodeId"`
+	Day    string `gorm:"primaryKey;size:10" json:"day"`
+	Rx     int64  `json:"rx"`
+	Tx     int64  `json:"tx"`
+}
+
+// NodeCost is what a node's server costs and when it renews. Cycle: month,
+// quarter, halfyear, year or once.
+type NodeCost struct {
+	NodeID    string     `gorm:"primaryKey;size:32" json:"nodeId"`
+	Provider  string     `gorm:"size:64" json:"provider"`
+	Amount    float64    `json:"amount"`
+	Currency  string     `gorm:"size:8" json:"currency"`
+	Cycle     string     `gorm:"size:16" json:"cycle"`
+	ExpireAt  *time.Time `json:"expireAt"`
+	AutoRenew bool       `json:"autoRenew"`
+	Note      string     `gorm:"size:255" json:"note"`
+	WarnedFor string     `gorm:"size:10" json:"-"` // expiry date the reminder was sent for
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
+// GroupNode gives a group's users every inbound on a node.
+type GroupNode struct {
+	GroupID string `gorm:"primaryKey;size:32"`
+	NodeID  string `gorm:"primaryKey;size:32;index"`
 }
 
 type GroupInbound struct {
@@ -180,11 +230,13 @@ type UserAccess struct {
 }
 
 // GrantsSQL selects (user_id, inbound_id) for every way a user can be
-// authorised on an inbound: group membership, a direct inbound binding, or a
-// node binding.
+// authorised on an inbound: group membership (its inbounds, its whole nodes,
+// or nodes within its level), a direct inbound binding, or a node binding.
 const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id
 UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua WHERE ua.kind = 'inbound'
-UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'`
+UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'
+UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN group_nodes gn ON gn.group_id = ug.group_id JOIN inbounds i ON i.node_id = gn.node_id
+UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN "groups" g ON g.id = ug.group_id JOIN nodes n ON n.level > 0 AND n.level <= g.level JOIN inbounds i ON i.node_id = n.id`
 
 // TrafficHourly keeps hourly traffic per user and node (90 days).
 type TrafficHourly struct {
@@ -622,7 +674,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{},
 	}
 }

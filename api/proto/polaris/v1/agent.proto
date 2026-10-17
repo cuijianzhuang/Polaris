@@ -80,6 +80,10 @@ message SystemStats {
   uint64 tx_bps = 4;
   uint64 uptime_seconds = 5;
   double load1 = 6;
+  // Cumulative bytes on the host's network interfaces (excluding loopback
+  // and container bridges) since boot; the panel accumulates the deltas.
+  uint64 rx_bytes = 7;
+  uint64 tx_bytes = 8;
 }
 
 message CoreState {

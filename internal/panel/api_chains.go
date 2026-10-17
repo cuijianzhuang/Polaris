@@ -59,17 +59,21 @@ func (s *Server) nodeSupportsOutbound(nodeID string, t model.OutboundType) error
 	cores, _ := s.nodeCores(nodeID)
 	ok := false
 	for _, cr := range cores {
-		if cr.Type != model.CoreXray && cr.Type != model.CoreSingbox {
-			continue
-		}
 		caps, _ := core.Capabilities(cr.Type, cr.Version)
-		if !caps.SupportsOutbound(t) {
-			return fmt.Errorf("%s %s 不支持 %s 出站", cr.Type, cr.Version, t)
+		switch cr.Type {
+		case model.CoreXray, model.CoreSingbox:
+			if !caps.SupportsOutbound(t) {
+				return fmt.Errorf("%s %s 不支持 %s 出站", cr.Type, cr.Version, t)
+			}
+			ok = true
+		case model.CoreHysteria:
+			// Hysteria carries direct / SOCKS5 / HTTP; rules to other
+			// egresses just don't apply to its inbounds.
+			ok = ok || caps.SupportsOutbound(t)
 		}
-		ok = true
 	}
 	if !ok {
-		return fmt.Errorf("节点没有可承载出站的内核（Xray / sing-box）")
+		return fmt.Errorf("节点没有可承载 %s 出站的内核（Xray / sing-box；Hysteria2 仅支持 SOCKS5 / HTTP）", t)
 	}
 	return nil
 }

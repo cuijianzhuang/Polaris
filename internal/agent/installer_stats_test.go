@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -135,3 +136,37 @@ func TestSingboxStatsBuild(t *testing.T) {
 type rtFunc func(*http.Request) (*http.Response, error)
 
 func (f rtFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// GitHub unreachable from the node: the install goes through the panel relay.
+func TestInstallViaPanelRelay(t *testing.T) {
+	gh := &fakeGitHub{assets: map[string][]byte{}}
+	srv := httptest.NewServer(gh)
+	defer srv.Close()
+	target, _ := url.Parse(srv.URL)
+	v := "1.13.5"
+	asset := fmt.Sprintf("sing-box-%s-linux-%s.tar.gz", v, runtime.GOARCH)
+	gh.add("SagerNet/sing-box", "v"+v, asset, singboxTarball(t, v, "relayed"))
+
+	blocked := &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial tcp: connection timed out")
+	})}
+	var relayed []string
+	i := &Installer{Dir: t.TempDir(), HTTP: blocked, Relay: func(ctx context.Context, u string) (*http.Response, error) {
+		relayed = append(relayed, u)
+		p, _ := url.Parse(u)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+p.Path, nil)
+		req.Host = p.Host
+		req.URL.Host = target.Host
+		return http.DefaultTransport.RoundTrip(req)
+	}}
+	cs := model.CoreSpec{Type: model.CoreSingbox, Version: v}
+	if _, err := i.Ensure(t.Context(), cs); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(i.BinPath(model.CoreSingbox, v)); string(b) != "relayed" {
+		t.Fatalf("binary = %q", b)
+	}
+	if len(relayed) == 0 || !i.viaPanel.Load() {
+		t.Fatalf("relay not used: %v", relayed)
+	}
+}

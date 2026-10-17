@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { get, post } from '../api'
 import { useNodes } from '../App'
 import GeodataCard from '../components/GeodataCard'
+import { NodeActivity } from '../components/NodeCard'
 import { Empty, Modal, useAction, useConfirm, useLoad } from '../components/ui'
 import { ago, coreColor, coreLabel, coreTagClass } from '../format'
 import { t } from '../i18n'
@@ -30,6 +31,8 @@ export default function Cores() {
   const types = [...new Set(rows.map((r) => r.core.type))] as CoreType[]
   const shown = rows.filter((r) => filter === 'all' || (filter === 'outdated' ? outdated(r) : r.core.type === filter))
   const nOutdated = rows.filter(outdated).length
+  // Nodes installing / switching cores right now, or whose last try failed.
+  const active = nodes.filter((n) => n.progress || (n.connected && n.appliedRev < n.desiredRev && n.status !== 'error'))
 
   const upgrade = async (r: Row, v: string) => {
     if (await confirm(t('把 {node} 的 {core} 从 v{from} 升级到 v{to}？', { node: r.node.name, core: coreLabel[r.core.type], from: r.core.version, to: v }) + '\n' + t('新版本启动失败会自动回退；升级期间该内核的连接会中断几秒。')))
@@ -45,6 +48,20 @@ export default function Cores() {
           {rows.length > 0 && <button className="btn pri" type="button" onClick={() => setBatch(true)}>{t('批量升级')}</button>}
         </div>
       </div>
+
+      {active.length > 0 && (
+        <section className="card" aria-label={t('节点活动')}>
+          <div className="ctitle"><span>{t('进行中')}</span><span className="sub" style={{ margin: 0 }}>{t('下载、安装和切换内核的实时进度')}</span></div>
+          <div style={{ display: 'grid', gap: 10 }}>
+            {active.map((n) => (
+              <div key={n.id}>
+                <div className="small" style={{ fontWeight: 500, marginBottom: 4 }}>{n.flag ? n.flag + ' ' : ''}{n.name}</div>
+                <NodeActivity n={n} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {types.length > 0 && (
         <section className="grid g4" aria-label={t('内核概览')}>
@@ -95,8 +112,9 @@ export default function Cores() {
                         {c.runningVersion && c.runningVersion !== c.version && <div className="small" style={{ color: 'var(--warn)' }}>{t('切换中 · 运行 v{v}', { v: c.runningVersion })}</div>}
                       </td>
                       <td>
-                        <span className={'st ' + (running ? 'ok' : c.status === 'installing' ? 'warn' : 'off')}>{running ? '● ' + t('运行中') : c.status === 'installing' ? t('安装中') : c.inbounds ? t('已停止') : t('空闲')}</span>
-                        {!n.connected && <div className="small mute">{t('节点离线')}</div>}
+                        <span className={'st ' + (running ? 'ok' : c.status === 'installing' && n.connected ? 'warn' : 'off')}>{running ? t('● 运行中') : c.status === 'installing' ? (n.connected ? t('安装中') : t('等待节点上线')) : c.inbounds ? t('已停止') : t('空闲')}</span>
+                        {!n.connected && c.status !== 'installing' && <div className="small mute">{t('节点离线')}</div>}
+                        {n.progress?.active && n.progress.stage.includes(c.type) && <div style={{ marginTop: 4, maxWidth: 260 }}><NodeActivity n={n} compact /></div>}
                         {c.error && <div className="small" style={{ color: 'var(--bad)', maxWidth: 260 }}>{c.error}</div>}
                       </td>
                       <td className="mono">{c.inbounds}</td>

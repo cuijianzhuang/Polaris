@@ -362,6 +362,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
   const saveRules = (list: { match: RouteMatch; outboundTag: string; priority: number; remark?: string }[]) =>
     run(async () => { await put(`/nodes/${nodeId}/routing`, list); rules.reload() }, t('路由已保存并下发'))
   const tags = [...RESERVED, ...(outs.data ?? []).map((o) => o.tag)]
+  const nodeHasHysteria = (inbounds.data ?? []).some((i) => i.core === 'hysteria' && (global || i.nodeId === nodeId))
   return (
     <>
       <div className="row">
@@ -375,6 +376,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
         <button className="btn pri" type="button" disabled={!node} onClick={() => setDrawer('new')}>{t('+ 出站')}</button>
       </div>
       {global && <div className="note">{t('全局规则下发到每个节点，排在节点自身规则之后（同优先级时节点规则优先）；引用的出站在某节点不存在时，该节点自动跳过这条规则。')}</div>}
+      {nodeHasHysteria && <div className="note">{t('这个节点有 Hysteria2 入站：Hysteria2 只能走 直连 / 拦截 / SOCKS5 / HTTP 出站，按用户、关键词的规则和指向其他出站的规则对它不生效；用到 geosite / geoip 时由 Hysteria2 自行下载规则文件。')}</div>}
       {!global && <section className="card flush">
         <div className="ctitle" style={{ padding: '12px 16px 4px' }}><span>{t('出站 · {name}', { name: node?.name })}</span><span className="sub" style={{ margin: 0 }}>{t('detour 串成出口链（Xray: dialerProxy · sing-box: detour）')}</span></div>
         <table>

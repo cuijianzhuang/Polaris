@@ -103,6 +103,13 @@ export function isOnline(iso?: string | null): boolean {
 
 export const GB = 1024 ** 3
 
+// netUsed is a node's cycle traffic as its provider bills it.
+export function netUsed(n: { netMode?: string; netRx?: number; netTx?: number; netOffset?: number }): number {
+  const rx = n.netRx ?? 0, tx = n.netTx ?? 0
+  const v = n.netMode === 'up' ? tx : n.netMode === 'down' ? rx : n.netMode === 'max' ? Math.max(rx, tx) : rx + tx
+  return v + (n.netOffset ?? 0)
+}
+
 export function flag(code?: string): string {
   if (!code || code.length !== 2) return ''
   const c = code.toUpperCase()

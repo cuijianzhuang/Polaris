@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { bps, bytes, coreShort, coreTagClass, nodeStatus } from '../format'
+import { bps, bytes, coreShort, coreTagClass, nodeStatus, netUsed } from '../format'
 import type { Node, NodeTraffic } from '../types'
 import { t, tr } from '../i18n'
 
@@ -112,6 +112,22 @@ export function NodeActivity({ n, compact }: { n: Node; compact?: boolean }) {
   return null
 }
 
+// NetUsage shows the server's traffic this billing cycle against its allowance.
+export function NetUsage({ n }: { n: Node }) {
+  const used = netUsed(n)
+  const limit = n.netLimit ?? 0
+  if (!limit && !used) return null
+  const pct = limit ? Math.min(100, (100 * used) / limit) : 0
+  const warn = n.netWarnPct || 80
+  const cls = pct >= 100 ? 'bad' : pct >= warn ? 'warn' : ''
+  return (
+    <div className="nc-net" title={t('本周期 ↓ {rx} · ↑ {tx}', { rx: bytes(n.netRx), tx: bytes(n.netTx) }) + (n.netResetDay ? t(' · 每月 {d} 日重置', { d: n.netResetDay }) : '')}>
+      <div className="nc-net-row"><span>{t('服务器流量')}</span><span className="mono">{bytes(used)}{limit ? ` / ${bytes(limit)}` : ''}</span></div>
+      {limit > 0 && <div className={'nc-net-bar ' + cls}><span style={{ width: pct + '%' }} /></div>}
+    </div>
+  )
+}
+
 // NodeCard is one tile of the node wall: status, live rate with a sparkline,
 // CPU and memory rings, today's traffic and cores.
 export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; on: boolean; onClick: () => void; traffic?: NodeTraffic; badge?: ReactNode }) {
@@ -120,7 +136,7 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
   return (
     <button type="button" className={'ncard' + (on ? ' on' : '') + (n.connected ? '' : ' down')} aria-pressed={on} onClick={onClick}>
       <div className="nc-head">
-        <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.flag ? n.flag + ' ' : ''}{n.name}</span>
+        <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.flag ? n.flag + ' ' : ''}{n.name}{(n.level ?? 0) > 0 && <span className="tag info-tag" style={{ marginLeft: 6 }}>Lv.{n.level}</span>}</span>
         <span className={'st ' + st.cls}>{st.label}</span>
       </div>
       <div className="nc-sub">{[n.region, addr].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>{t('无公网地址')}</span>}{badge}</div>
@@ -135,6 +151,7 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
         </div>
       ) : <div className="nc-off">{n.status === 'pending' ? t('等待 Agent 接入') : t('节点离线，暂无实时数据')}</div>}
       <NodeActivity n={n} compact />
+      <NetUsage n={n} />
       <div className="nc-foot">
         <span className="mono">{traffic ? t('今日 {n}', { n: bytes(traffic.todayUp + traffic.todayDown) }) : t('今日 —')}</span>
         <span>{n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>)}</span>
