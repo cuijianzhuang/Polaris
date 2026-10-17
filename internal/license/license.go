@@ -86,7 +86,28 @@ func (l *License) CoversRelease(released time.Time) bool {
 }
 
 // Has reports whether the license includes a feature.
-func (l *License) Has(f string) bool { return slices.Contains(l.Features, f) }
+func (l *License) Has(f string) bool { return slices.Contains(l.Granted(), f) }
+
+// EveryFeature in a license's features grants every paid feature, including
+// ones added in later releases.
+const EveryFeature = "*"
+
+// AllGranted reports whether the license carries the every-feature mark.
+func (l *License) AllGranted() bool { return slices.Contains(l.Features, EveryFeature) }
+
+// Granted lists the paid features the license unlocks in this release.
+func (l *License) Granted() []string {
+	if l.AllGranted() {
+		return append([]string{}, AllFeatures...)
+	}
+	out := []string{}
+	for _, f := range l.Features {
+		if slices.Contains(AllFeatures, f) {
+			out = append(out, f)
+		}
+	}
+	return out
+}
 
 var b64 = base64.RawURLEncoding
 

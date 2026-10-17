@@ -69,7 +69,7 @@ func Evaluate(in Inputs) State {
 			st.Warnings = append(st.Warnings, "当前版本发布于更新期限（"+l.UpdatesUntil+"）之后，请续期更新服务或回到之前的版本")
 		default:
 			st.Plan, st.Source = l.Plan, "license"
-			st.Limits, st.Features = l.Limits, append([]string{}, l.Features...)
+			st.Limits, st.Features = l.Limits, l.Granted()
 			st.ExpiresAt, st.Updates = l.ExpiresAt, l.UpdatesUntil
 			if t, ok := day(l.ExpiresAt); ok {
 				if left := t.Add(24 * time.Hour).Sub(in.Now); left < 30*24*time.Hour {
