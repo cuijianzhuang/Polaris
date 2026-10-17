@@ -121,3 +121,18 @@ func TestEvaluateUnenforced(t *testing.T) {
 		t.Fatalf("%+v", st)
 	}
 }
+
+func TestEveryFeature(t *testing.T) {
+	l := &License{Features: []string{FeatureSpeedLimit, "future_thing"}}
+	if l.AllGranted() || len(l.Granted()) != 1 || !l.Has(FeatureSpeedLimit) || l.Has(FeatureDDNS) {
+		t.Fatalf("partial %v", l.Granted())
+	}
+	l.Features = []string{FeatureSpeedLimit, EveryFeature}
+	if !l.AllGranted() || len(l.Granted()) != len(AllFeatures) || !l.Has(FeatureDDNS) {
+		t.Fatalf("every %v", l.Granted())
+	}
+	st := Evaluate(Inputs{License: l, Now: time.Now()})
+	if !st.Allow(FeatureDDNS) || !st.Allow(FeatureSubConvert) {
+		t.Fatalf("state %v", st.Features)
+	}
+}

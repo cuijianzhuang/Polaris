@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -68,10 +69,23 @@ func (s *Server) instanceID() string {
 }
 
 func (s *Server) licenseServer() string {
+	u, _ := s.licenseServerSource()
+	return u
+}
+
+// licenseServerSource returns the license server and where it comes from:
+// env (POLARIS_LICENSE_SERVER), setting (the license page), build, or "".
+func (s *Server) licenseServerSource() (string, string) {
 	if v := strings.TrimSpace(os.Getenv("POLARIS_LICENSE_SERVER")); v != "" {
-		return strings.TrimRight(v, "/")
+		return strings.TrimRight(v, "/"), "env"
 	}
-	return strings.TrimRight(s.st.GetSetting("license_server", DefaultLicenseServer), "/")
+	if v := strings.TrimSpace(s.st.GetSetting("license_server", "")); v != "" {
+		return strings.TrimRight(v, "/"), "setting"
+	}
+	if DefaultLicenseServer != "" {
+		return strings.TrimRight(DefaultLicenseServer, "/"), "build"
+	}
+	return "", ""
 }
 
 func settingTime(s *Server, key string) time.Time {
@@ -294,16 +308,19 @@ func (s *Server) deactivateLicense(ctx context.Context) error {
 // checkLicense is the daily online check: revocation and renewals. A
 // failed check only records nothing new; the state warns after the grace
 // period.
-func (s *Server) checkLicense() {
+func (s *Server) checkLicense() { s.checkLicenseNow() }
+
+// checkLicenseNow runs the check and reports a failure to reach the server.
+func (s *Server) checkLicenseNow() error {
 	l := s.installedLicense()
 	if l == nil {
 		if s.st.GetSetting("license_text", "") != "" {
 			s.reloadLicense() // e.g. a license for a newer key set
 		}
-		return
+		return nil
 	}
 	if l.Offline {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -315,7 +332,7 @@ func (s *Server) checkLicense() {
 	if err := s.licenseCall(ctx, "/v1/check", map[string]string{"license_id": l.ID, "instance": s.instanceID(), "version": Version}, &out); err != nil {
 		s.log.Warn("license check failed", "err", err)
 		s.reloadLicense()
-		return
+		return err
 	}
 	s.st.SetSetting("license_check_at", time.Now().Format(time.RFC3339))
 	if out.Revoked {
@@ -330,6 +347,7 @@ func (s *Server) checkLicense() {
 		}
 	}
 	s.reloadLicense()
+	return nil
 }
 
 // --- API ---
@@ -341,10 +359,11 @@ func (s *Server) licenseView() gin.H {
 	s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&users)
 	out := gin.H{"state": st, "instance": s.instanceID(), "usage": gin.H{"nodes": nodes, "users": users},
 		"server": s.licenseServer() != "", "keys": len(s.licenseKeys()) > 0, "planName": planNames[st.Plan],
-		"edition": Edition()}
+		"edition": Edition(), "allFeatures": license.AllFeatures}
+	out["serverURL"], out["serverSource"] = s.licenseServerSource()
 	if l := s.installedLicense(); l != nil {
 		out["license"] = gin.H{"id": l.ID, "customer": l.Customer, "plan": l.Plan, "offline": l.Offline,
-			"issuedAt": l.IssuedAt, "expiresAt": l.ExpiresAt, "updatesUntil": l.UpdatesUntil, "features": l.Features, "limits": l.Limits}
+			"issuedAt": l.IssuedAt, "expiresAt": l.ExpiresAt, "updatesUntil": l.UpdatesUntil, "features": l.Granted(), "allGranted": l.AllGranted(), "limits": l.Limits}
 	} else if s.st.GetSetting("license_text", "") != "" {
 		out["invalid"] = true // installed but not valid for this build or instance
 	}
@@ -404,6 +423,45 @@ func (s *Server) deactivateLicenseAPI(c *gin.Context) {
 	out := s.licenseView()
 	if err != nil {
 		out["warning"] = "本机已移除许可证，但未能通知授权服务器（" + err.Error() + "），如需迁移请在授权后台解绑"
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// POST /license/server {url}: the license server for online activation and
+// the daily check ("" = the one built in).
+func (s *Server) setLicenseServer(c *gin.Context) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	v := strings.TrimRight(strings.TrimSpace(req.URL), "/")
+	if v != "" {
+		u, err := url.Parse(v)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			badRequest(c, errors.New("授权服务器地址应为 https://域名 形式"))
+			return
+		}
+	}
+	s.st.SetSetting("license_server", v)
+	s.auditCtx(c, "license.server", v, "")
+	c.JSON(http.StatusOK, s.licenseView())
+}
+
+// POST /license/check: run the daily check now (picks up renewals and
+// feature changes made in the license backend).
+func (s *Server) checkLicenseAPI(c *gin.Context) {
+	l := s.installedLicense()
+	if l == nil || l.Offline {
+		badRequest(c, errors.New("没有需要联网校验的许可证"))
+		return
+	}
+	err := s.checkLicenseNow()
+	out := s.licenseView()
+	if err != nil {
+		out["warning"] = "联网校验失败：" + err.Error()
 	}
 	c.JSON(http.StatusOK, out)
 }
