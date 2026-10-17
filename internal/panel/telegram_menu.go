@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -75,6 +76,8 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 		return b.trafficText(), [][]button{backRow("v:top")}
 	case "help":
 		return b.helpText(id), [][]button{backRow("")}
+	case "pro":
+		return tgProText, [][]button{backRow("")}
 	case "update":
 		if !id.owner() {
 			return "仅超级管理员可用", [][]button{backRow("")}
@@ -118,10 +121,14 @@ func (b *tgBot) homeButtons(id tgIdentity) [][]button {
 		rows = append(rows, []button{{Text: "🔗 绑定账号", Data: "v:bindhelp"}})
 	}
 	if id.admin != nil {
-		rows = append(rows, []button{{Text: "📈 概览", Data: "v:status"}, {Text: "🖥 节点管理", Data: "n:l"}})
-		if id.owner() {
-			rows = append(rows, []button{{Text: "👥 用户", Data: "v:users:0"}, {Text: "🏆 今日排行", Data: "v:top"}},
-				[]button{{Text: "⬆️ 版本更新", Data: "v:update"}})
+		if !b.s.license().Allow(license.FeatureTGMenu) {
+			rows = append(rows, []button{{Text: "🔒 管理菜单（专业版）", Data: "v:pro"}})
+		} else {
+			rows = append(rows, []button{{Text: "📈 概览", Data: "v:status"}, {Text: "🖥 节点管理", Data: "n:l"}})
+			if id.owner() {
+				rows = append(rows, []button{{Text: "👥 用户", Data: "v:users:0"}, {Text: "🏆 今日排行", Data: "v:top"}},
+					[]button{{Text: "⬆️ 版本更新", Data: "v:update"}})
+			}
 		}
 		notify := "🔔 告警：开"
 		if !id.admin.Notify {

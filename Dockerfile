@@ -16,7 +16,9 @@ COPY . .
 COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
 ARG TARGETARCH
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION}" -o /out/polaris ./cmd/panel \
+# License server public keys (base64, comma separated); empty = licenses not accepted.
+ARG LICENSE_PUBKEYS=
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -ldflags "-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=$(date -u +%F) -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS}" -o /out/polaris ./cmd/panel \
  && for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}" -o /out/downloads/polaris-agent-linux-$arch ./cmd/agent; \
     done

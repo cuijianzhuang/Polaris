@@ -63,6 +63,7 @@ func TestBackupPush(t *testing.T) {
 
 	// Through the server: configured targets get the archive.
 	s, _, admin := newAdminClient(t)
+	licenseAll(s)
 	s.st.SetSetting("backup_webdav_url", srv.URL+"/dav")
 	s.st.SetSetting("backup_webdav_user", "me")
 	s.st.SetSetting("backup_webdav_pass", s.st.Box.Seal("pw"))

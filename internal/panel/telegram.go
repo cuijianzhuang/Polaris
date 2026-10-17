@@ -21,6 +21,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
@@ -658,6 +659,27 @@ func bpsText(v uint64) string {
 
 // --- callbacks ---
 
+// tgProText explains locked admin menus.
+const tgProText = "🔒 <b>管理菜单需要专业版</b>\n" + tgRule + "\n节点管理、用户列表、流量排行和版本更新菜单需要专业版许可证（面板 → 系统 → 许可证）。\n\n告警通知、绑定账号和用户自助功能照常可用。"
+
+// tgAdvanced reports callbacks of the admin menus (a paid feature); user
+// self-service, sign-in, alerts and the home screen stay free.
+func tgAdvanced(parts []string) bool {
+	switch parts[0] {
+	case "me", "ul", "m":
+		return false
+	case "v":
+		if len(parts) < 2 {
+			return false
+		}
+		switch parts[1] {
+		case "", "me", "nodes", "bindhelp", "help", "pro", "home":
+			return false
+		}
+	}
+	return true
+}
+
 func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
@@ -666,6 +688,11 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 	}
 	id := b.identify(chat)
 	parts := strings.Split(data, ":")
+	if tgAdvanced(parts) && !b.s.license().Allow(license.FeatureTGMenu) {
+		answer("管理菜单需要专业版许可证")
+		b.edit(chat, msg, tgProText, backRow(""))
+		return
+	}
 	switch parts[0] {
 	case "me":
 		if id.user == nil {

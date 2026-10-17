@@ -38,6 +38,7 @@ func TestTelegramWebLogin(t *testing.T) {
 	tgAPI := httptest.NewServer(fake)
 	defer tgAPI.Close()
 	s, srv, _ := newAdminClient(t)
+	licenseAll(s)
 	page := &apiClient{t: t, base: srv.URL + s.cfg.APIBase()}
 
 	if st, _ := page.do("POST", "/auth/tg/start", nil); st != 503 {

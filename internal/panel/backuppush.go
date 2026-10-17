@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"io"
 	"net/http"
 	"net/url"
@@ -50,6 +51,10 @@ func (s *Server) pushBackup(path string, auto bool) map[string]string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+	if !s.license().Allow(license.FeatureBackupPush) {
+		res["license"] = "备份推送需要专业版许可证；本地备份已保存"
+		return res
+	}
 	targets := s.pushTargets()
 	if !auto && s.tg != nil && s.tg.isRunning() && !contains(targets, "telegram") {
 		targets = append(targets, "telegram")

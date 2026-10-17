@@ -88,9 +88,15 @@ jobs:
       - name: Build panel and agent
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          # License server public keys (base64, comma separated); empty = licenses not accepted yet.
+          LICENSE_PUBKEYS: ${{ secrets.LICENSE_PUBKEYS }}
+          LICENSE_SERVER: ${{ vars.LICENSE_SERVER }}
         run: |
           set -euo pipefail
           LDFLAGS="-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}"
+          LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=$(date -u +%F)"
+          if [ -n "${LICENSE_PUBKEYS}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS}"; fi
+          if [ -n "${LICENSE_SERVER}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.DefaultLicenseServer=${LICENSE_SERVER}"; fi
           mkdir -p dist build
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "$LDFLAGS" -o dist/polaris-agent-linux-$arch ./cmd/agent
@@ -144,7 +150,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          build-args: VERSION=${{ needs.version.outputs.version }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+            LICENSE_PUBKEYS=${{ secrets.LICENSE_PUBKEYS }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

@@ -4,6 +4,7 @@ package panel
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -54,6 +55,8 @@ type Server struct {
 	hbCores     map[string]hbCoreState              // last core state written per node
 	progress    map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
 	limited     map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
+	lic         atomic.Pointer[licenseState]        // license in effect (see license.go)
+	licKeys     []ed25519.PublicKey                 // overrides the built-in license keys (tests)
 	jwtKey      []byte
 	rt          *realtime
 
@@ -129,6 +132,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}
+	s.initLicense()
 	return s, nil
 }
 
@@ -256,6 +260,7 @@ func (s *Server) startJobs() func() {
 	add("*/15 * * * * *", "offline", s.markOfflineNodes)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
+	add("0 41 6 * * *", "license", s.checkLicense)
 	add("0 23 4 * * *", "certs", s.renewCertificates)
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)

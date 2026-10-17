@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -145,6 +146,9 @@ func (s *Server) importUsers(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
+		return
+	}
+	if !s.limitOK(c, license.LimitUsers, len(req.Users)) {
 		return
 	}
 	// Lookups happen before the transaction (single SQLite connection).

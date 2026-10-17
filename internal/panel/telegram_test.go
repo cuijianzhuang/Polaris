@@ -103,6 +103,7 @@ func TestTelegramBot(t *testing.T) {
 	api := httptest.NewServer(fake)
 	defer api.Close()
 	s := newTestServer(t)
+	licenseAll(s)
 	s.st.SetSetting("tg_enabled", "true")
 	s.st.SetSetting("tg_token", s.st.Box.Seal("123:abc"))
 	s.st.SetSetting("tg_api_base", api.URL)
