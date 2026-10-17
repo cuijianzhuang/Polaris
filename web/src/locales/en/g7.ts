@@ -89,5 +89,16 @@ const m: Record<string, string> = {
   '订阅链接使用的地址，可与后台分开（如走 CDN 的独立域名），格式 https://sub.example.com；留空用公开地址。HTTPS 证书可在「设置 → 面板访问」一键配置': 'The address used in subscription links; can differ from the admin (e.g. a separate domain behind a CDN), format https://sub.example.com; empty = the public address. Set up its HTTPS certificate under Settings → Panel access',
   '订阅域名只开放订阅': 'Subscription domain serves subscriptions only',
   '订阅域名只开放订阅和用户中心（后台、API 返回伪装页），推荐开启': 'The subscription domain serves only subscriptions and the user center (admin and API get the decoy page); recommended',
+  '设置限速 上行 / 下行 (Mbps)': 'Set speed limit up / down (Mbps)',
+  '留空或 0 为跟随分组套餐': 'Empty or 0 = follow the group plan',
+  '上行 Mbps': 'Upload Mbps',
+  '下行 Mbps': 'Download Mbps',
+  '限速 ↑{up} ↓{down} Mbps': 'Speed ↑{up} ↓{down} Mbps',
+  '限速 上行 / 下行 (Mbps)': 'Speed limit up / down (Mbps)',
+  '每个节点上该用户所有连接合计；留空跟随分组套餐，都没有则不限。Hysteria2 入站不支持': 'Covers all of the user\'s connections on each node; empty = follow the group plan, none = unlimited. Not supported on Hysteria2 inbounds',
+  '限速': 'Speed',
+  '限速套餐 上行 / 下行 (Mbps)': 'Speed plan up / down (Mbps)',
+  '组内没有单独设置限速的用户按此限速（属于多个分组取最高）；0 为不限': 'Applies to members without their own limit (the highest plan among their groups); 0 = unlimited',
+  '单独限速 (Mbps)': 'Own speed limit (Mbps)',
 }
 export default m

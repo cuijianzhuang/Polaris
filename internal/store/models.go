@@ -140,23 +140,27 @@ type User struct {
 	RenewCount int `json:"renewCount"`
 	// DeviceLimit caps the client devices (HWID sent with subscription
 	// requests) that may fetch the subscription; 0 = unlimited.
-	DeviceLimit  int            `json:"deviceLimit"`
-	LastSubAt    *time.Time     `json:"lastSubAt"`
-	LastSubUA    string         `gorm:"size:255" json:"lastSubUa"`
-	LastResetAt  *time.Time     `json:"lastResetAt"`
-	OnlineAt     *time.Time     `json:"onlineAt"`
-	BannedUntil  *time.Time     `json:"bannedUntil"`
-	OnlineIPs    JSON[[]string] `json:"onlineIps"`
-	IsService    bool           `gorm:"index" json:"isService"`  // chain service account
-	TelegramID   int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
-	WarnedUsage  bool           `json:"-"`                       // 80% traffic warning sent this cycle
-	WarnedExpire *time.Time     `json:"-"`
-	Remark       string         `gorm:"size:255" json:"remark"`
-	GroupIDs     []string       `gorm:"-" json:"groupIds"`
-	NodeIDs      []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
-	InboundIDs   []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
-	CreatedAt    time.Time      `json:"createdAt"`
-	UpdatedAt    time.Time      `json:"updatedAt"`
+	DeviceLimit int `json:"deviceLimit"`
+	// SpeedUpMbps / SpeedDownMbps cap the user's bandwidth on each node
+	// (0 = use the groups' plan; a user in no limited group is unlimited).
+	SpeedUpMbps   int            `json:"speedUpMbps"`
+	SpeedDownMbps int            `json:"speedDownMbps"`
+	LastSubAt     *time.Time     `json:"lastSubAt"`
+	LastSubUA     string         `gorm:"size:255" json:"lastSubUa"`
+	LastResetAt   *time.Time     `json:"lastResetAt"`
+	OnlineAt      *time.Time     `json:"onlineAt"`
+	BannedUntil   *time.Time     `json:"bannedUntil"`
+	OnlineIPs     JSON[[]string] `json:"onlineIps"`
+	IsService     bool           `gorm:"index" json:"isService"`  // chain service account
+	TelegramID    int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
+	WarnedUsage   bool           `json:"-"`                       // 80% traffic warning sent this cycle
+	WarnedExpire  *time.Time     `json:"-"`
+	Remark        string         `gorm:"size:255" json:"remark"`
+	GroupIDs      []string       `gorm:"-" json:"groupIds"`
+	NodeIDs       []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs    []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
 }
 
 // Used returns total used bytes.
@@ -175,11 +179,15 @@ type Group struct {
 	IsDefault bool   `json:"isDefault"` // new users and inbounds join it unless told otherwise
 	// Level opens every node whose Level is 1..Level to the group's users
 	// (0 = no tier access); NodeIDs binds whole nodes regardless of level.
-	Level      int       `json:"level"`
-	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
-	InboundIDs []string  `gorm:"-" json:"inboundIds"`
-	UserCount  int64     `gorm:"-" json:"userCount"`
-	CreatedAt  time.Time `json:"createdAt"`
+	Level int `json:"level"`
+	// SpeedUpMbps / SpeedDownMbps are the group's plan: members without
+	// their own limit get the highest plan among their groups (0 = none).
+	SpeedUpMbps   int       `json:"speedUpMbps"`
+	SpeedDownMbps int       `json:"speedDownMbps"`
+	NodeIDs       []string  `gorm:"-" json:"nodeIds"`
+	InboundIDs    []string  `gorm:"-" json:"inboundIds"`
+	UserCount     int64     `gorm:"-" json:"userCount"`
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).

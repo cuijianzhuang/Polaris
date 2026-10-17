@@ -176,6 +176,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
     renewDays: user?.renewDays ? String(user.renewDays) : '', renewMax: user?.renewMax ? String(user.renewMax) : '',
     deviceLimit: String(user?.deviceLimit ?? 0),
+    speedUp: user?.speedUpMbps ? String(user.speedUpMbps) : '', speedDown: user?.speedDownMbps ? String(user.speedDownMbps) : '',
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -189,6 +190,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
       remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
       telegramId: Number(f.telegramId.trim()) || 0,
       renewDays: Number(f.renewDays) || 0, renewMax: Number(f.renewMax) || 0, deviceLimit: Number(f.deviceLimit) || 0,
+      speedUpMbps: Number(f.speedUp) || 0, speedDownMbps: Number(f.speedDown) || 0,
     }
     if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error(t('Telegram User ID 应为纯数字'))
     if (user) await put('/users/' + user.id, body)
@@ -219,10 +221,16 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           </div>
         </Field>
       </Section>
-      <Section step={2} title={t('流量与限制')} summary={[Number(f.limitGB) ? f.limitGB + ' GB' : t('不限流量'), Number(f.ipLimit) ? t('{n} 个 IP', { n: f.ipLimit }) : '', Number(f.deviceLimit) ? t('{n} 台设备', { n: f.deviceLimit }) : '', { none: '', daily: t('每日重置'), weekly: t('每周重置'), monthly: t('每月重置'), cycle: t('周期重置') }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
+      <Section step={2} title={t('流量与限制')} summary={[Number(f.limitGB) ? f.limitGB + ' GB' : t('不限流量'), Number(f.ipLimit) ? t('{n} 个 IP', { n: f.ipLimit }) : '', Number(f.deviceLimit) ? t('{n} 台设备', { n: f.deviceLimit }) : '', Number(f.speedUp) || Number(f.speedDown) ? t('限速 ↑{up} ↓{down} Mbps', { up: Number(f.speedUp) || '∞', down: Number(f.speedDown) || '∞' }) : '', { none: '', daily: t('每日重置'), weekly: t('每周重置'), monthly: t('每月重置'), cycle: t('周期重置') }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
         <div className="form-grid">
           <Field label={t('流量配额 (GB)')} htmlFor="u-limit" hint={t('留空或 0 为不限')}><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
           <Field label={t('同时在线 IP 数')} htmlFor="u-ip" hint={t('0 为不限；受信任地址（设置中配置）不计入')}><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
+          <Field label={t('限速 上行 / 下行 (Mbps)')} hint={t('每个节点上该用户所有连接合计；留空跟随分组套餐，都没有则不限。Hysteria2 入站不支持')}>
+            <div className="row" style={{ flexWrap: 'nowrap' }}>
+              <input aria-label={t('上行 Mbps')} className="input mono" value={f.speedUp} placeholder={t('上行')} onChange={(e) => set('speedUp', e.target.value)} inputMode="numeric" />
+              <input aria-label={t('下行 Mbps')} className="input mono" value={f.speedDown} placeholder={t('下行')} onChange={(e) => set('speedDown', e.target.value)} inputMode="numeric" />
+            </div>
+          </Field>
           <Field label={t('设备数（HWID）')} htmlFor="u-dev" hint={t('0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数')}><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
           <Field label={t('流量重置')} htmlFor="u-reset">
             <select id="u-reset" className="input" value={f.resetPolicy} onChange={(e) => set('resetPolicy', e.target.value)}>
@@ -400,7 +408,7 @@ function Devices({ userId, limit }: { userId: string; limit: number }) {
 function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const groups = useLoad(() => get<Group[]>('/groups'))
   const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
-  const [edit, setEdit] = useState<{ id?: string; name: string; inboundIds: string[]; nodeIds: string[]; level: number } | null>(null)
+  const [edit, setEdit] = useState<{ id?: string; name: string; inboundIds: string[]; nodeIds: string[]; level: number; speedUpMbps: number; speedDownMbps: number } | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const { nodes } = useNodes()
@@ -416,25 +424,25 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
         <>
           <div className="card flush">
             <table>
-              <thead><tr><th>{t('分组')}</th><th>{t('等级')}</th><th>{t('用户')}</th><th>{t('节点')}</th><th>{t('入站')}</th><th></th></tr></thead>
+              <thead><tr><th>{t('分组')}</th><th>{t('等级')}</th><th>{t('限速')}</th><th>{t('用户')}</th><th>{t('节点')}</th><th>{t('入站')}</th><th></th></tr></thead>
               <tbody>
                 {(groups.data ?? []).map((g) => (
                   <tr key={g.id}>
-                    <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('默认')}</span>}</td><td>{g.level > 0 ? <span className="tag info-tag">Lv.{g.level}</span> : <span className="mute">—</span>}</td><td className="mono">{g.userCount}</td>
+                    <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('默认')}</span>}</td><td>{g.level > 0 ? <span className="tag info-tag">Lv.{g.level}</span> : <span className="mute">—</span>}</td><td className="mono small">{g.speedUpMbps || g.speedDownMbps ? `↑${g.speedUpMbps || '∞'} ↓${g.speedDownMbps || '∞'}` : <span className="mute">—</span>}</td><td className="mono">{g.userCount}</td>
                     <td className="mono" title={[...new Set([...tiered(g.level), ...nodes.filter((n) => g.nodeIds?.includes(n.id))].map((n) => n.name))].join('、')}>{new Set([...tiered(g.level).map((n) => n.id), ...(g.nodeIds ?? [])]).size}</td><td className="mono">{g.inboundIds.length}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="link" type="button" onClick={() => setEdit({ id: g.id, name: g.name, inboundIds: g.inboundIds, nodeIds: g.nodeIds ?? [], level: g.level ?? 0 })}>{t('编辑')}</button>{'  '}
+                      <button className="link" type="button" onClick={() => setEdit({ id: g.id, name: g.name, inboundIds: g.inboundIds, nodeIds: g.nodeIds ?? [], level: g.level ?? 0, speedUpMbps: g.speedUpMbps ?? 0, speedDownMbps: g.speedDownMbps ?? 0 })}>{t('编辑')}</button>{'  '}
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
                         if (await confirm(t('删除分组 {name}？组内用户将失去对应入站。', { name: g.name }), { danger: true })) run(async () => { await del('/groups/' + g.id); groups.reload(); onChanged() })
                       }}>{t('删除')}</button>
                     </td>
                   </tr>
                 ))}
-                {groups.data?.length === 0 && <tr><td colSpan={6} className="mute">{t('还没有分组')}</td></tr>}
+                {groups.data?.length === 0 && <tr><td colSpan={7} className="mute">{t('还没有分组')}</td></tr>}
               </tbody>
             </table>
           </div>
-          <div><button className="btn pri" type="button" onClick={() => setEdit({ name: '', inboundIds: [], nodeIds: [], level: 0 })}>{t('+ 新建分组')}</button></div>
+          <div><button className="btn pri" type="button" onClick={() => setEdit({ name: '', inboundIds: [], nodeIds: [], level: 0, speedUpMbps: 0, speedDownMbps: 0 })}>{t('+ 新建分组')}</button></div>
         </>
       ) : (
         <>
@@ -442,6 +450,12 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
             <Field label={t('名称')} htmlFor="g-name"><input id="g-name" className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
             <Field label={t('等级')} htmlFor="g-level" hint={t('组内用户可用等级 1 到该等级的全部节点（在节点设置里给节点定等级）；0 表示不按等级')}>
               <input id="g-level" className="input mono" type="number" min={0} max={99} value={edit.level} onChange={(e) => setEdit({ ...edit, level: Math.max(0, Math.min(99, Number(e.target.value) || 0)) })} />
+            </Field>
+            <Field label={t('限速套餐 上行 / 下行 (Mbps)')} hint={t('组内没有单独设置限速的用户按此限速（属于多个分组取最高）；0 为不限')}>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input aria-label={t('上行 Mbps')} className="input mono" inputMode="numeric" value={edit.speedUpMbps || ''} placeholder={t('上行')} onChange={(e) => setEdit({ ...edit, speedUpMbps: Math.max(0, Number(e.target.value) || 0) })} />
+                <input aria-label={t('下行 Mbps')} className="input mono" inputMode="numeric" value={edit.speedDownMbps || ''} placeholder={t('下行')} onChange={(e) => setEdit({ ...edit, speedDownMbps: Math.max(0, Number(e.target.value) || 0) })} />
+              </div>
             </Field>
           </div>
           {edit.level > 0 && <div className="note">{t('按等级可用：')}{tiered(edit.level).map((n) => `${n.name} (Lv.${n.level})`).join(', ') || t('还没有等级不高于 {n} 的节点', { n: edit.level })}</div>}
@@ -637,6 +651,7 @@ export default function Users() {
                     </td>
                     <td data-label={t('流量')} className="rt-wrap" style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : t('不限')}</span>
+                      {(u.speedUpMbps || u.speedDownMbps) ? <span className="tag info-tag" style={{ marginLeft: 6 }} title={t('单独限速 (Mbps)')}>↑{u.speedUpMbps || '∞'} ↓{u.speedDownMbps || '∞'}</span> : null}
                       <div className="bar" style={{ marginTop: 6 }}><div style={{ width: pct + '%', background: pct >= 100 ? 'var(--bad)' : 'var(--pri)' }} /></div>
                     </td>
                     <td data-label={t('到期')} className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? t('{n} 天后', { n: d }) : date(u.expireAt)) : t('永不')}</td>
