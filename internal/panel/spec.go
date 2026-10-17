@@ -149,7 +149,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		return nil, err
 	}
 	spec := &model.NodeSpec{NodeID: node.ID, DefaultCore: node.DefaultCore, Inbounds: []model.Inbound{}, AutoFirewall: !node.NoFirewall,
-		Geodata: s.geodataSpec()}
+		Geodata: s.geodataSpec(), DNS: s.dnsSpec(nodeID)}
 
 	cores, err := s.nodeCores(node.ID)
 	if err != nil {
@@ -378,6 +378,13 @@ func (s *Server) buildRoutes(nodeID string) ([]model.RouteRule, error) {
 		have[t] = true
 	}
 	var out []model.RouteRule
+	var sets map[string]*store.RuleSet
+	for _, r := range rs {
+		if len(r.Match.V.RuleSets) > 0 {
+			sets = s.ruleSetsByTag()
+			break
+		}
+	}
 	// Inbounds bound to an egress come first.
 	var ins []store.Inbound
 	s.st.DB.Where("node_id = ? AND outbound_tag <> ''", nodeID).Find(&ins)
@@ -398,7 +405,7 @@ func (s *Server) buildRoutes(nodeID string) ([]model.RouteRule, error) {
 			sort.Strings(ids)
 			m.Users = append(m.Users, ids...)
 		}
-		out = append(out, model.RouteRule{ID: r.ID, NodeID: nodeID, Match: m, Outbound: r.OutboundTag, Priority: r.Priority})
+		out = append(out, expandRuleSets(model.RouteRule{ID: r.ID, NodeID: nodeID, Match: m, Outbound: r.OutboundTag, Priority: r.Priority}, sets)...)
 	}
 	sortRules(out)
 	return out, nil

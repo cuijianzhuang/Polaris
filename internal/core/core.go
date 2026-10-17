@@ -44,6 +44,14 @@ type UserHook interface {
 	SetUsers(inbound string, us []model.User)
 }
 
+// ConfigHot is implemented by adapters that can move a running core from one
+// rendered config to another without restarting it (e.g. Xray routing and
+// outbounds through its API). It returns ErrNotSupported when the difference
+// needs a restart.
+type ConfigHot interface {
+	HotApply(ctx context.Context, oldCfg, newCfg []byte) error
+}
+
 // Options configures an adapter instance on a node.
 type Options struct {
 	Version   string

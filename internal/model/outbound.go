@@ -128,8 +128,11 @@ type RouteMatch struct {
 	Geosite       []string `json:"geosite,omitempty"`
 	GeoIP         []string `json:"geoip,omitempty"`
 	IPCIDR        []string `json:"ipCidr,omitempty"`
-	Port          []string `json:"port,omitempty"` // "443" or "1000-2000"
-	Network       string   `json:"network,omitempty"`
+	// RuleSets names panel rule sets; the panel expands them into the
+	// fields above before the spec reaches a node.
+	RuleSets []string `json:"ruleSets,omitempty"`
+	Port     []string `json:"port,omitempty"` // "443" or "1000-2000"
+	Network  string   `json:"network,omitempty"`
 }
 
 // RouteRule sends matching traffic to an outbound (or group) tag.

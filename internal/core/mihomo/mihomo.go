@@ -107,7 +107,19 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	if len(groups) > 0 {
 		cfg["proxy-groups"] = groups
 	}
-	cfg["rules"] = renderRules(spec.Routes)
+	resolve := false
+	if d := spec.DNS; d != nil {
+		dns, hosts, err := renderDNS(d)
+		if err != nil {
+			return nil, err
+		}
+		cfg["dns"] = dns
+		if hosts != nil {
+			cfg["hosts"] = hosts
+		}
+		resolve = d.DomainStrategy == "IPIfNonMatch" || d.DomainStrategy == "IPOnDemand"
+	}
+	cfg["rules"] = renderRules(spec.Routes, resolve)
 	out, err := yaml.Marshal(cfg)
 	if err != nil {
 		return nil, err
@@ -352,8 +364,13 @@ func mapTags(ts []string) []string {
 }
 
 // renderRules converts rules to mihomo syntax; several values of one kind are
-// ORed, several kinds are ANDed.
-func renderRules(rules []model.RouteRule) []string {
+// ORed, several kinds are ANDed. Unless resolve is set, IP rules don't look
+// up domain destinations (no-resolve).
+func renderRules(rules []model.RouteRule, resolve bool) []string {
+	noResolve := ",no-resolve"
+	if resolve {
+		noResolve = ""
+	}
 	rs := append([]model.RouteRule(nil), rules...)
 	sort.SliceStable(rs, func(i, j int) bool { return rs[i].Priority < rs[j].Priority })
 	var out []string
@@ -385,8 +402,8 @@ func renderRules(rules []model.RouteRule) []string {
 				geoip = append(geoip, strings.ToUpper(g))
 			}
 		}
-		add("GEOIP", geoip, ",no-resolve")
-		add("IP-CIDR", m.IPCIDR, ",no-resolve")
+		add("GEOIP", geoip, noResolve)
+		add("IP-CIDR", m.IPCIDR, noResolve)
 		add("DST-PORT", m.Port, "")
 		if m.Network != "" {
 			add("NETWORK", strings.Split(m.Network, ","), "")

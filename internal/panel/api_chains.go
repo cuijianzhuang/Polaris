@@ -544,10 +544,17 @@ func (s *Server) putRouting(c *gin.Context) {
 	for _, t := range tags {
 		valid[t] = true
 	}
+	sets := s.ruleSetsByTag()
 	for _, r := range req {
 		if !valid[r.OutboundTag] {
 			badRequest(c, fmt.Errorf("出站 %q 不存在", r.OutboundTag))
 			return
+		}
+		for _, t := range r.Match.RuleSets {
+			if sets[t] == nil {
+				badRequest(c, fmt.Errorf("规则集 %q 不存在", t))
+				return
+			}
 		}
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {

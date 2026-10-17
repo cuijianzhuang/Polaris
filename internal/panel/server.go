@@ -266,6 +266,7 @@ func (s *Server) startJobs() func() {
 	add("*/20 * * * * *", "update-result", s.checkUpdateResult)
 	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
 	add("30 */2 * * * *", "inbound-probe", s.probeInbounds)
+	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
 	go s.backfillDaily()
 	c.Start()
 	return func() { <-c.Stop().Done() }

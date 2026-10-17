@@ -139,6 +139,28 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		rules = append([]any{map[string]any{"inbound": sniffTags, "action": "sniff"}}, rules...)
 	}
 	route := map[string]any{"rules": nonNil(rules), "final": orDefault(final, "direct")}
+	var dns map[string]any
+	if d := spec.DNS; d != nil {
+		var sets []any
+		var resolver string
+		dns, sets, resolver, err = renderDNS(d, a.opt.Version)
+		if err != nil {
+			return nil, err
+		}
+		ruleSets = mergeRuleSets(ruleSets, sets)
+		if resolver != "" && core.VersionAtLeast(a.opt.Version, "1.12.0") {
+			route["default_domain_resolver"] = resolver
+		}
+		if (d.DomainStrategy == "IPIfNonMatch" || d.DomainStrategy == "IPOnDemand") && core.VersionAtLeast(a.opt.Version, "1.11.0") {
+			// Resolve before matching so IP rules see the destination address.
+			at := 0
+			if len(sniffTags) > 0 {
+				at = 1
+			}
+			rules = append(append(rules[:at:at], map[string]any{"action": "resolve"}), rules[at:]...)
+			route["rules"] = rules
+		}
+	}
 	if len(ruleSets) > 0 {
 		route["rule_set"] = ruleSets
 	}
@@ -147,6 +169,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		"inbounds":  nonNil(inbounds),
 		"outbounds": outs,
 		"route":     route,
+	}
+	if dns != nil {
+		cfg["dns"] = dns
 	}
 	if !a.stats && a.secret != "" {
 		cfg["experimental"] = map[string]any{
@@ -470,6 +495,21 @@ func renderOutbounds(obs []model.Outbound) ([]any, []any, error) {
 		outs = append(outs, ob)
 	}
 	return outs, endpoints, nil
+}
+
+// mergeRuleSets appends rule sets whose tag is not there yet.
+func mergeRuleSets(have, more []any) []any {
+	seen := map[string]bool{}
+	for _, r := range have {
+		seen[r.(map[string]any)["tag"].(string)] = true
+	}
+	for _, r := range more {
+		if t := r.(map[string]any)["tag"].(string); !seen[t] {
+			seen[t] = true
+			have = append(have, r)
+		}
+	}
+	return have
 }
 
 func renderRules(rules []model.RouteRule) (out []any, ruleSets []any, final string) {

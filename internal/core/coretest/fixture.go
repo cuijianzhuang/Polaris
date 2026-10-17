@@ -71,3 +71,21 @@ func Chain() ([]model.Outbound, []model.RouteRule) {
 	}
 	return obs, routes
 }
+
+// DNS is a resolver config touching every feature: split DNS with geosite,
+// DoH by host name, a detour through "resi", hosts and FakeIP.
+func DNS() *model.DNSSpec {
+	return &model.DNSSpec{
+		Servers: []model.DNSServer{
+			{Tag: "cn", Address: "223.5.5.5", Domains: []string{"geosite:cn", "full:www.example.cn", "keyword:baidu"}},
+			{Tag: "corp", Address: "tcp://10.0.0.53:53", Domains: []string{"corp.example.com"}},
+			{Tag: "google", Address: "https://dns.google/dns-query", Detour: "resi"},
+			{Tag: "q", Address: "quic://94.140.14.14", Domains: []string{"domain:adguard.com"}},
+			{Tag: "sys", Address: "local", Domains: []string{"lan"}},
+		},
+		Strategy:       "prefer_ipv4",
+		Hosts:          map[string][]string{"panel.internal": {"10.0.0.2"}, "dual.internal": {"10.0.0.3", "fd00::3"}},
+		FakeIP:         &model.FakeIPSpec{Domains: []string{"geosite:netflix"}},
+		DomainStrategy: "IPIfNonMatch",
+	}
+}
