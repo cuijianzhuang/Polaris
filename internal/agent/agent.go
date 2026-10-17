@@ -181,7 +181,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		if time.Since(start) > time.Minute {
 			backoff = time.Second
 		}
-		a.log.Warn("panel stream closed, reconnecting", "err", err, "in", backoff)
+		if e := fmt.Sprint(err); strings.Contains(e, "GOAWAY") && strings.Contains(e, "NO_ERROR") {
+			// The panel closed the stream on purpose (restart or upgrade).
+			a.log.Info("panel restarted, reconnecting", "in", backoff)
+		} else {
+			a.log.Warn("panel stream closed, reconnecting", "err", err, "in", backoff)
+		}
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():

@@ -249,8 +249,8 @@ func (i *Installer) get(ctx context.Context, u string) ([]byte, error) {
 func (i *Installer) getP(ctx context.Context, u, stage string) ([]byte, error) {
 	if i.Relay == nil || !i.viaPanel.Load() {
 		b, err := i.fetch(ctx, u, stage, false)
-		if err == nil || i.Relay == nil || ctx.Err() != nil {
-			return b, err
+		if err == nil || i.Relay == nil || ctx.Err() != nil || errors.Is(err, errNotFound) {
+			return b, err // a missing asset is missing through the panel too
 		}
 		i.viaPanel.Store(true)
 		b, rerr := i.fetch(ctx, u, stage, true)
@@ -295,7 +295,11 @@ func (i *Installer) fetch(ctx context.Context, u, stage string, viaPanel bool) (
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return nil, fmt.Errorf("GET %s: %s %s", u, resp.Status, strings.TrimSpace(string(msg)))
+		err := fmt.Errorf("GET %s: %s %s", u, resp.Status, strings.TrimSpace(string(msg)))
+		if resp.StatusCode == http.StatusNotFound && !viaPanel && i.Mirror == "" {
+			err = fmt.Errorf("%w: %w", errNotFound, err)
+		}
+		return nil, err
 	}
 	var body io.Reader = &stallReader{r: resp.Body, cancel: cancel}
 	if stage != "" && i.progress != nil {
@@ -310,6 +314,9 @@ func (i *Installer) fetch(ctx context.Context, u, stage string, viaPanel bool) (
 	}
 	return b, err
 }
+
+// errNotFound: GitHub itself answered 404 (no such release or asset).
+var errNotFound = errors.New("not found")
 
 // stallReader cancels the request when no data arrives for stallTimeout.
 type stallReader struct {
