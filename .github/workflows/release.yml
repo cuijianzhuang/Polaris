@@ -1,7 +1,8 @@
 name: release
 # Releases happen automatically on every push to main (patch bump from the
 # latest tag; put "[skip release]" in the commit message to skip), from the
-# Actions tab ("Run workflow", choosing patch / minor / major), or by pushing
+# Actions tab ("Run workflow", choosing patch / minor / major; always makes a
+# new release, even when the commit was released before), or by pushing
 # a v* tag by hand (a "-" makes it a prerelease).
 on:
   push:
@@ -46,7 +47,8 @@ jobs:
             if [ "${GITHUB_EVENT_NAME}" = push ] && printf '%s' "$MSG" | grep -qiF '[skip release]'; then
               echo "skip=true" >> "$GITHUB_OUTPUT"; echo "skipped by commit message"; exit 0
             fi
-            if git tag --points-at HEAD | grep -q '^v'; then
+            # A manual run always releases (e.g. to rebuild with new settings).
+            if [ "${GITHUB_EVENT_NAME}" = push ] && git tag --points-at HEAD | grep -q '^v'; then
               echo "skip=true" >> "$GITHUB_OUTPUT"; echo "HEAD is already released"; exit 0
             fi
             last=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-' | head -n1)
