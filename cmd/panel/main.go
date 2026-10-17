@@ -59,6 +59,8 @@ const usage = `usage:
                                             set a new password (random if -p is empty), unlock
                                             the account and sign out every session
   polaris admin reset-2fa [-u NAME]         turn off two-factor authentication
+  polaris admin license [show|install FILE|deactivate]
+                                            show, install or release this panel's license
   polaris backup FILE [-passphrase P]       backup archive (SQLite or PostgreSQL); encrypted with a
                                             passphrase it carries the secret key and restores anywhere
   polaris restore FILE [-passphrase P]      replace the data with a backup (stop the panel first)
@@ -143,6 +145,19 @@ func maintenance(cmd string, args []string) int {
 			return fail(err)
 		}
 		fmt.Printf("username: %s\npassword: %s\n", name, pw)
+	case sub == "license":
+		action, file := "show", ""
+		if len(pos) > 0 {
+			action = pos[0]
+		}
+		if len(pos) > 1 {
+			file = pos[1]
+		}
+		out, err := panel.AdminLicense(cfg, action, file)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Println(out)
 	case sub == "reset-2fa":
 		name, err := panel.AdminDisable2FA(cfg, *user)
 		if err != nil {

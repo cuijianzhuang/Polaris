@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -234,6 +235,12 @@ func (s *Server) createUser(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if (req.SpeedUpMbps > 0 || req.SpeedDownMbps > 0) && !s.requireFeature(c, license.FeatureSpeedLimit) {
+		return
+	}
+	if !s.limitOK(c, license.LimitUsers, 1) {
+		return
+	}
 	u := newUser(&req)
 	if req.TelegramID != nil && *req.TelegramID < 0 {
 		badRequest(c, fmt.Errorf("Telegram User ID 无效"))
@@ -295,6 +302,15 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
+		return
+	}
+	if req.Action == "set-limits" && (req.SpeedUp != nil || req.SpeedDown != nil) && !s.requireFeature(c, license.FeatureSpeedLimit) {
+		return
+	}
+	if req.Action == "create" && req.Template != nil && (req.Template.SpeedUpMbps > 0 || req.Template.SpeedDownMbps > 0) && !s.requireFeature(c, license.FeatureSpeedLimit) {
+		return
+	}
+	if req.Action == "create" && !s.limitOK(c, license.LimitUsers, max(req.Count, 0)) {
 		return
 	}
 	var affected, skipped []string
@@ -521,6 +537,9 @@ func (s *Server) updateUser(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if (max(req.SpeedUpMbps, 0) != u.SpeedUpMbps || max(req.SpeedDownMbps, 0) != u.SpeedDownMbps) && !s.requireFeature(c, license.FeatureSpeedLimit) {
+		return
+	}
 	before := s.nodesForUsers(u.ID)
 	u.Username, u.TrafficLimit, u.ExpireAt, u.IPLimit = req.Username, req.TrafficLimit, req.ExpireAt, req.IPLimit
 	u.ExpireAfterDays = req.ExpireAfterDays
@@ -712,6 +731,11 @@ func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create
 	}
 	if req.Level != nil && (*req.Level < 0 || *req.Level > 99) {
 		badRequest(c, fmt.Errorf("等级应在 0–99 之间"))
+		return
+	}
+	speedChanged := (req.SpeedUpMbps != nil && max(*req.SpeedUpMbps, 0) != g.SpeedUpMbps) ||
+		(req.SpeedDownMbps != nil && max(*req.SpeedDownMbps, 0) != g.SpeedDownMbps)
+	if speedChanged && !s.requireFeature(c, license.FeatureSpeedLimit) {
 		return
 	}
 	nodesChanged := req.NodeIDs != nil || (req.Level != nil && *req.Level != g.Level)

@@ -1,6 +1,7 @@
 // User management tools modelled on 3x-ui: bulk create, bulk adjust,
 // import / export and manual traffic correction.
 import { useState } from 'react'
+import { ProTag, useFeature } from './License'
 import { post, put } from '../api'
 import { bytes, GB } from '../format'
 import type { Group, User } from '../types'
@@ -75,6 +76,7 @@ export function BulkCreateModal({ groups, onClose, onDone }: { groups: Group[]; 
 
 /** Adjust many users at once: extend expiry, add traffic, set limits. */
 export function AdjustModal({ ids, onClose, onDone }: { ids: string[]; onClose: () => void; onDone: () => void }) {
+  const speedOK = useFeature('speed_limit')
   const [f, setF] = useState({ days: '30', addGB: '', setLimit: false, limitGB: '', setIP: false, ip: '0', setDev: false, dev: '0', setSpeed: false, up: '', down: '' })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -108,7 +110,7 @@ export function AdjustModal({ ids, onClose, onDone }: { ids: string[]; onClose: 
         <Field label={<label className="row small"><input type="checkbox" checked={f.setDev} onChange={(e) => set('setDev', e.target.checked)} />{t('设置设备数')}</label>}>
           <input className="input mono" disabled={!f.setDev} value={f.dev} onChange={(e) => set('dev', e.target.value)} />
         </Field>
-        <Field label={<label className="row small"><input type="checkbox" checked={f.setSpeed} onChange={(e) => set('setSpeed', e.target.checked)} />{t('设置限速 上行 / 下行 (Mbps)')}</label>} hint={t('留空或 0 为跟随分组套餐')}>
+        <Field label={<label className="row small"><input type="checkbox" disabled={!speedOK} checked={f.setSpeed} onChange={(e) => set('setSpeed', e.target.checked)} />{t('设置限速 上行 / 下行 (Mbps)')}<ProTag on={speedOK} /></label>} hint={t('留空或 0 为跟随分组套餐')}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input aria-label={t('上行 Mbps')} className="input mono" disabled={!f.setSpeed} value={f.up} placeholder={t('上行')} onChange={(e) => set('up', e.target.value)} />
             <input aria-label={t('下行 Mbps')} className="input mono" disabled={!f.setSpeed} value={f.down} placeholder={t('下行')} onChange={(e) => set('down', e.target.value)} />

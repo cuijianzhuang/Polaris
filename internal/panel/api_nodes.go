@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -95,6 +96,9 @@ func (s *Server) createNode(c *gin.Context) {
 	var req nodeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
+		return
+	}
+	if !s.limitOK(c, license.LimitNodes, 1) {
 		return
 	}
 	if req.TrafficRate <= 0 {

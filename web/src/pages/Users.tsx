@@ -1,3 +1,4 @@
+import { ProTag, useFeature } from '../components/License'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import TrafficChart from '../components/TrafficChart'
@@ -166,6 +167,7 @@ function SubCheck({ userId }: { userId: string }) {
 }
 
 function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void; onDelete: (u: User) => void }) {
+  const speedOK = useFeature('speed_limit')
   const initLimitGB = user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : ''
   const [f, setF] = useState({
     username: user?.username ?? '', limitGB: initLimitGB,
@@ -225,10 +227,10 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
         <div className="form-grid">
           <Field label={t('流量配额 (GB)')} htmlFor="u-limit" hint={t('留空或 0 为不限')}><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
           <Field label={t('同时在线 IP 数')} htmlFor="u-ip" hint={t('0 为不限；受信任地址（设置中配置）不计入')}><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
-          <Field label={t('限速 上行 / 下行 (Mbps)')} hint={t('每个节点上该用户所有连接合计；留空跟随分组套餐，都没有则不限。Hysteria2 入站不支持')}>
+          <Field label={<>{t('限速 上行 / 下行 (Mbps)')}<ProTag on={speedOK} /></>} hint={t('每个节点上该用户所有连接合计；留空跟随分组套餐，都没有则不限。Hysteria2 入站不支持')}>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input aria-label={t('上行 Mbps')} className="input mono" value={f.speedUp} placeholder={t('上行')} onChange={(e) => set('speedUp', e.target.value)} inputMode="numeric" />
-              <input aria-label={t('下行 Mbps')} className="input mono" value={f.speedDown} placeholder={t('下行')} onChange={(e) => set('speedDown', e.target.value)} inputMode="numeric" />
+              <input aria-label={t('上行 Mbps')} disabled={!speedOK} className="input mono" value={f.speedUp} placeholder={t('上行')} onChange={(e) => set('speedUp', e.target.value)} inputMode="numeric" />
+              <input aria-label={t('下行 Mbps')} disabled={!speedOK} className="input mono" value={f.speedDown} placeholder={t('下行')} onChange={(e) => set('speedDown', e.target.value)} inputMode="numeric" />
             </div>
           </Field>
           <Field label={t('设备数（HWID）')} htmlFor="u-dev" hint={t('0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数')}><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
@@ -406,6 +408,7 @@ function Devices({ userId, limit }: { userId: string; limit: number }) {
 }
 
 function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const speedOK = useFeature('speed_limit')
   const groups = useLoad(() => get<Group[]>('/groups'))
   const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
   const [edit, setEdit] = useState<{ id?: string; name: string; inboundIds: string[]; nodeIds: string[]; level: number; speedUpMbps: number; speedDownMbps: number } | null>(null)
@@ -451,10 +454,10 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
             <Field label={t('等级')} htmlFor="g-level" hint={t('组内用户可用等级 1 到该等级的全部节点（在节点设置里给节点定等级）；0 表示不按等级')}>
               <input id="g-level" className="input mono" type="number" min={0} max={99} value={edit.level} onChange={(e) => setEdit({ ...edit, level: Math.max(0, Math.min(99, Number(e.target.value) || 0)) })} />
             </Field>
-            <Field label={t('限速套餐 上行 / 下行 (Mbps)')} hint={t('组内没有单独设置限速的用户按此限速（属于多个分组取最高）；0 为不限')}>
+            <Field label={<>{t('限速套餐 上行 / 下行 (Mbps)')}<ProTag on={speedOK} /></>} hint={t('组内没有单独设置限速的用户按此限速（属于多个分组取最高）；0 为不限')}>
               <div className="row" style={{ flexWrap: 'nowrap' }}>
-                <input aria-label={t('上行 Mbps')} className="input mono" inputMode="numeric" value={edit.speedUpMbps || ''} placeholder={t('上行')} onChange={(e) => setEdit({ ...edit, speedUpMbps: Math.max(0, Number(e.target.value) || 0) })} />
-                <input aria-label={t('下行 Mbps')} className="input mono" inputMode="numeric" value={edit.speedDownMbps || ''} placeholder={t('下行')} onChange={(e) => setEdit({ ...edit, speedDownMbps: Math.max(0, Number(e.target.value) || 0) })} />
+                <input aria-label={t('上行 Mbps')} disabled={!speedOK} className="input mono" inputMode="numeric" value={edit.speedUpMbps || ''} placeholder={t('上行')} onChange={(e) => setEdit({ ...edit, speedUpMbps: Math.max(0, Number(e.target.value) || 0) })} />
+                <input aria-label={t('下行 Mbps')} disabled={!speedOK} className="input mono" inputMode="numeric" value={edit.speedDownMbps || ''} placeholder={t('下行')} onChange={(e) => setEdit({ ...edit, speedDownMbps: Math.max(0, Number(e.target.value) || 0) })} />
               </div>
             </Field>
           </div>

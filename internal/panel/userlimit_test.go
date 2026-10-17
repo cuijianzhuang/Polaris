@@ -17,6 +17,7 @@ import (
 // route by user); rates reach the spec in kbit/s.
 func TestUserSpeedLimits(t *testing.T) {
 	s, _, c := newAdminClient(t)
+	licenseAll(s)
 	s.st.DB.Create(&store.Node{ID: "n1", Name: "n1", Address: "203.0.113.1"})
 	s.st.DB.Create(&store.Inbound{ID: "x", NodeID: "n1", Tag: "x", Core: model.CoreXray, Port: 20001, Enabled: true})
 	s.st.DB.Create(&store.Inbound{ID: "h", NodeID: "n1", Tag: "h", Core: model.CoreHysteria, Port: 20002, Enabled: true})

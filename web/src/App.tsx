@@ -28,6 +28,7 @@ import Convert from './pages/Convert'
 import Domains from './pages/Domains'
 import Telegram from './pages/Telegram'
 import Costs from './pages/Costs'
+import LicensePage from './pages/LicensePage'
 
 // Scope of the session: Telegram node operators see only their own nodes.
 const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
@@ -92,6 +93,7 @@ const nav: NavItem[] = [
     { to: '/settings', label: t('设置'), icon: <Icon.Gear /> },
     { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot /> },
     { to: '/audit', label: t('审计日志'), icon: <Icon.Log /> },
+    { to: '/license', label: t('许可证'), icon: <Icon.Lock /> },
   ] },
 ]
 
@@ -278,6 +280,7 @@ export default function App() {
                       <Route path="/domains" element={<Domains />} />
                       <Route path="/telegram" element={<Telegram />} />
                       <Route path="/costs" element={<Costs />} />
+                      <Route path="/license" element={<LicensePage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   )}

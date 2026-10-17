@@ -1,3 +1,4 @@
+import { useFeature } from '../components/License'
 import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
@@ -12,6 +13,7 @@ type BindReq = { role: 'owner' | 'operator'; name: string; nodeIds: string[] }
 const roleLabel: Record<string, string> = { owner: t('超级管理员'), operator: t('节点管理员') }
 
 export default function Telegram() {
+  const menuOK = useFeature('tg_menu')
   const { nodes } = useNodes()
   const st = useLoad(() => get<Status>('/telegram'))
   const admins = useLoad(() => get<{ admins: TGAdmin[]; boundUsers: number }>('/telegram/admins'))
@@ -35,6 +37,7 @@ export default function Telegram() {
         <div><h1>{t('Telegram 机器人')}</h1><div className="sub">{t('管理员远程查看节点、重启内核、管理用户；用户绑定订阅后自助查询流量与到期、获取订阅链接')}</div></div>
         <button className="btn pri" type="button" disabled={!st.data?.running} onClick={() => setBind({ role: 'operator', name: '', nodeIds: [] })}>{t('+ 绑定管理员')}</button>
       </div>
+      {!menuOK && <div className="note warn">{t('机器人的管理菜单（节点管理、用户列表、排行、版本更新）需要专业版许可证；告警通知、账号绑定和用户自助照常可用。')}</div>}
       <div className="grid g2">
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>

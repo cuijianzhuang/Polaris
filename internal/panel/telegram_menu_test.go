@@ -21,6 +21,7 @@ func buttonData(rows [][]button) string {
 // and every view leads back to the menu.
 func TestTelegramMenu(t *testing.T) {
 	s := newTestServer(t)
+	licenseAll(s)
 	db := s.st.DB
 	db.Create(&store.Node{ID: "n1", Name: "tokyo", Status: "online"})
 	db.Create(&store.Node{ID: "n2", Name: "hk", Status: "offline"})

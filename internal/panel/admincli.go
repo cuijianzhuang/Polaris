@@ -2,8 +2,11 @@ package panel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -215,4 +218,35 @@ func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
 	}
 	st.DB.Create(&store.AuditLog{Admin: "cli", Action: "node.install_token", Target: n.Name})
 	return tok, created, nil
+}
+
+// AdminLicense runs `polaris admin license show|install FILE|deactivate`
+// against the database (the panel picks the change up within a day, or at
+// once after a restart).
+func AdminLicense(cfg *Config, action, file string) (string, error) {
+	st, err := openStore(cfg)
+	if err != nil {
+		return "", err
+	}
+	s := &Server{cfg: cfg, st: st, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	s.reloadLicense()
+	switch action {
+	case "install":
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", err
+		}
+		if _, err := s.installLicense(string(b)); err != nil {
+			return "", err
+		}
+	case "deactivate":
+		if err := s.deactivateLicense(context.Background()); err != nil {
+			return "", fmt.Errorf("removed locally, but the license server was not told: %w", err)
+		}
+	case "", "show":
+	default:
+		return "", fmt.Errorf("unknown action %q (show, install FILE, deactivate)", action)
+	}
+	b, _ := json.MarshalIndent(s.licenseView(), "", "  ")
+	return string(b), nil
 }
