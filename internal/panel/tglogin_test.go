@@ -91,3 +91,19 @@ func TestTelegramLoginScope(t *testing.T) {
 		t.Fatal("unknown code accepted")
 	}
 }
+
+// TestTelegramLoginLinkUsesPanelAddress: with a separate subscription domain
+// the bot's sign-in link still points at the panel, not the subscription host
+// (which serves only subscriptions and would show the decoy).
+func TestTelegramLoginLinkUsesPanelAddress(t *testing.T) {
+	s, _, _ := newAdminClient(t)
+	s.cfg.PublicURL = "https://panel.example.com"
+	s.st.SetSetting("sub_base_url", "https://sub.example.com")
+	link := s.tgLoginURL("abc")
+	if !strings.HasPrefix(link, "https://panel.example.com") {
+		t.Fatalf("login link %s", link)
+	}
+	if b := s.subBase(); b != "https://sub.example.com" {
+		t.Fatalf("subBase %s", b)
+	}
+}

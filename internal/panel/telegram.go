@@ -320,7 +320,7 @@ func (b *tgBot) registerCommands(ctx context.Context) {
 		{"command": "menu", "description": "🏠 主菜单"}, {"command": "me", "description": "📊 我的流量与到期"},
 		{"command": "sub", "description": "🔗 订阅链接与二维码"}, {"command": "nodes", "description": "🌐 节点"},
 		{"command": "status", "description": "📈 概览（管理员）"}, {"command": "users", "description": "👥 用户（管理员）"},
-		{"command": "traffic", "description": "🏆 今日排行（管理员）"}, {"command": "login", "description": "🔑 登录面板（管理员）"},
+		{"command": "traffic", "description": "🏆 今日排行（管理员）"}, {"command": "login", "description": "🛠 登录管理后台（管理员）"},
 		{"command": "update", "description": "⬆️ 版本更新（管理员）"},
 		{"command": "bind", "description": "绑定账号 /bind 订阅链接"}, {"command": "help", "description": "❓ 帮助"},
 	}
@@ -543,7 +543,7 @@ func (b *tgBot) sendSub(chat int64, u *store.User) {
 	}
 	center := ""
 	if b.s.portalEnabled() {
-		center = "\n\n🌐 用户中心（用 Telegram 登录）：\n" + esc(b.s.portalURL())
+		center = "\n\n👤 <b>用户中心</b>（查看流量、到期，用 Telegram 登录）：\n" + esc(b.s.portalURL())
 	}
 	b.send(chat, "🔗 <b>订阅链接</b>\n"+tgRule+"\n<code>"+esc(link)+"</code>\n\n点按链接即可复制，客户端类型自动识别（Clash / sing-box / v2rayN / Shadowrocket 等）。"+center,
 		[]button{{Text: "♻️ 重置链接", Data: "me:reset"}, btnHome})
@@ -959,6 +959,6 @@ func (b *tgBot) sendLoginLink(chat int64, id tgIdentity) {
 	if !id.owner() {
 		scope = fmt.Sprintf("仅可查看与同步分配给你的 %d 个节点", len(id.admin.NodeIDs.V))
 	}
-	b.send(chat, fmt.Sprintf("🔑 <b>登录面板</b>\n%s\n<a href=\"%s\">👉 点此登录</a>\n权限：%s\n\n⏱ 5 分钟内有效，只能使用一次，请勿转发。", tgRule, esc(link), scope))
+	b.send(chat, fmt.Sprintf("🛠 <b>登录管理后台</b>\n%s\n<a href=\"%s\">👉 点此登录后台</a>\n地址：%s\n权限：%s\n\n⏱ 5 分钟内有效，只能使用一次，请勿转发。\n（这是管理员后台，不是用户中心）", tgRule, esc(link), esc(b.s.panelBase()), scope))
 	b.s.audit("tg:"+id.admin.Name, "admin.login_link", "tg:"+id.admin.Name, "", "")
 }
