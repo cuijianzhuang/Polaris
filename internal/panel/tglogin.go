@@ -63,7 +63,7 @@ func (s *Server) takeTGLoginCode(code string) (string, bool) {
 // tgLoginURL is the link the bot sends; the code rides in the fragment so it
 // never reaches server or proxy logs.
 func (s *Server) tgLoginURL(code string) string {
-	return s.subBase() + strings.TrimRight(s.cfg.AdminPath, "/") + "/#tg=" + code
+	return s.panelBase() + strings.TrimRight(s.cfg.AdminPath, "/") + "/#tg=" + code
 }
 
 func (s *Server) issueTGToken(a *store.TGAdmin, gc *gin.Context) (string, error) {

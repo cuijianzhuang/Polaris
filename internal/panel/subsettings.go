@@ -26,6 +26,12 @@ func (s *Server) subBase() string {
 	if b := strings.TrimRight(s.st.GetSetting("sub_base_url", ""), "/"); b != "" {
 		return b
 	}
+	return s.panelBase()
+}
+
+// panelBase is the public origin of the panel itself: links into the admin
+// UI must not use the subscription domain, which serves only subscriptions.
+func (s *Server) panelBase() string {
 	if s.cfg.PublicURL != "" {
 		return strings.TrimRight(s.cfg.PublicURL, "/")
 	}
