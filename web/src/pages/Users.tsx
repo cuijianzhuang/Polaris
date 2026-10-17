@@ -8,7 +8,7 @@ import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, us
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, NodeQuota, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
-import { t } from '../i18n'
+import { t, tr } from '../i18n'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
@@ -72,7 +72,7 @@ function Access({ groups, nodeIds, groupIds, inboundIds, onChange }: {
         <div className="row">
           {groups.map((g) => (
             <button key={g.id} type="button" className={'chip' + (groupIds.includes(g.id) ? ' on' : '')} aria-pressed={groupIds.includes(g.id)}
-              onClick={() => onChange('groupIds', toggle(groupIds, g.id))}>{g.name}<span className="mute small" style={{ marginLeft: 4 }}>{g.inboundIds.length}</span></button>
+              onClick={() => onChange('groupIds', toggle(groupIds, g.id))}>{tr(g.name)}<span className="mute small" style={{ marginLeft: 4 }}>{g.inboundIds.length}</span></button>
           ))}
           {groups.length === 0 && <span className="hint">{t('还没有分组')}</span>}
         </div>
@@ -418,7 +418,7 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
               <tbody>
                 {(groups.data ?? []).map((g) => (
                   <tr key={g.id}>
-                    <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('默认')}</span>}</td><td className="mono">{g.userCount}</td><td className="mono">{g.inboundIds.length}</td>
+                    <td style={{ fontWeight: 500 }}>{tr(g.name)}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('默认')}</span>}</td><td className="mono">{g.userCount}</td><td className="mono">{g.inboundIds.length}</td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="link" type="button" onClick={() => setEdit({ id: g.id, name: g.name, inboundIds: g.inboundIds })}>{t('编辑')}</button>{'  '}
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
@@ -503,7 +503,7 @@ export default function Users() {
   const [checked, setChecked] = useState<string[]>([])
   const toast = useToast()
   const { busy, run } = useAction()
-  const gname = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? id
+  const gname = (id: string) => { const n = groups.data?.find((g) => g.id === id)?.name; return n ? tr(n) : id }
   const { nodes } = useNodes()
   const nname = (id: string) => nodes.find((n) => n.id === id)?.name ?? t('已删除节点')
   const [bind, setBind] = useState<'attach' | 'detach' | null>(null)
@@ -574,7 +574,7 @@ export default function Users() {
           {(groups.data?.length ?? 0) > 0 && (
             <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label={t('按分组筛选')}>
               <option value="">{t('全部分组')}</option>
-              {groups.data!.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              {groups.data!.map((g) => <option key={g.id} value={g.id}>{tr(g.name)}</option>)}
             </select>
           )}
         </div>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
 import { datetime } from '../format'
-import { t } from '../i18n'
+import { t, tr } from '../i18n'
 import type { SubTemplate } from '../types'
 
 // Built-in default template name as stored by the server ("默认").
@@ -55,7 +55,7 @@ export default function SubTemplates() {
       </div>
       <div className="row">
         {ofFmt.map((tp) => (
-          <button key={tp.id} type="button" className={'chip' + (tp.id === cur?.id ? ' on' : '')} onClick={() => { setSel(tp.id); setContent(tp.content) }}>{tp.name}{tp.isDefault && tp.name !== defaultName ? ' · ' + t('默认') : ''}</button>
+          <button key={tp.id} type="button" className={'chip' + (tp.id === cur?.id ? ' on' : '')} onClick={() => { setSel(tp.id); setContent(tp.content) }}>{tr(tp.name)}{tp.isDefault && tp.name !== defaultName ? ' · ' + t('默认') : ''}</button>
         ))}
         <button className="btn sm" type="button" onClick={() => setCreate({ name: '', copy: true })}>+ {t('新模板')}</button>
       </div>

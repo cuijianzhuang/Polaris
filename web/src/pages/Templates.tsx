@@ -5,7 +5,7 @@ import InboundFields, { type InboundDraft } from '../components/InboundFields'
 import { Drawer, Empty, Field, Modal, useAction, useConfirm, useLoad } from '../components/ui'
 import { coreLabel, coreShort, coreTagClass, protoLabel, transLabel } from '../format'
 import type { CapSet, CDNProfile, Group, InboundTemplate, NodePlan, TemplateItem } from '../types'
-import { t } from '../i18n'
+import { t, tr } from '../i18n'
 
 type Step = 1 | 2 | 3
 
@@ -71,7 +71,7 @@ function TemplateEditor({ tpl, groups, onClose, onSaved }: { tpl?: InboundTempla
         <Field label={t('说明')}><input className="input" value={desc} onChange={(e) => setDesc(e.target.value)} /></Field>
         <Field label={t('生成后自动授权的分组')} full>
           <div className="row">{groups.map((g) => (
-            <button key={g.id} type="button" className={'chip' + (tplGroups.includes(g.id) ? ' on' : '')} onClick={() => setGroups((x) => x.includes(g.id) ? x.filter((y) => y !== g.id) : [...x, g.id])}>{g.name}</button>
+            <button key={g.id} type="button" className={'chip' + (tplGroups.includes(g.id) ? ' on' : '')} onClick={() => setGroups((x) => x.includes(g.id) ? x.filter((y) => y !== g.id) : [...x, g.id])}>{tr(g.name)}</button>
           ))}</div>
         </Field>
         <Field label={t('绑定节点标签')} full hint={t('带这些标签的新节点注册上线后自动套用（装好 Agent 即可用）')}><input className="input" value={labels} onChange={(e) => setLabels(e.target.value)} /></Field>
@@ -208,9 +208,9 @@ export default function Templates() {
             {(tpls.data ?? []).map((tp) => (
               <article key={tp.id} className="card" style={{ borderColor: tp.id === tplId ? 'var(--pri)' : undefined, borderWidth: tp.id === tplId ? 2 : 1, cursor: 'pointer' }} onClick={() => setTplId(tp.id)}>
                 <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <h2>{tp.name}</h2>{tp.builtin ? <span className="tag">{t('内置')}</span> : <span className="tag xray">{t('自定义')}</span>}
+                  <h2>{tp.builtin ? tr(tp.name) : tp.name}</h2>{tp.builtin ? <span className="tag">{t('内置')}</span> : <span className="tag xray">{t('自定义')}</span>}
                 </div>
-                <div className="sub">{tp.description || '—'} · {t('已生成 {inbounds} 个入站（{nodes} 个节点）', { inbounds: tp.inbounds, nodes: tp.nodes })}</div>
+                <div className="sub">{(tp.builtin ? tr(tp.description) : tp.description) || '—'} · {t('已生成 {inbounds} 个入站（{nodes} 个节点）', { inbounds: tp.inbounds, nodes: tp.nodes })}</div>
                 <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>{groupItems(tp.items).map(({ it, n }) => <span key={it.key} className={coreTagClass(it.core === 'auto' ? (it.transport.type === 'xhttp' ? 'xray' : ['hysteria2', 'tuic', 'anytls'].includes(it.protocol.type) ? 'singbox' : 'xray') : it.core)}>{itemTag(it)}{n > 1 && <b style={{ marginLeft: 4 }}>×{n}</b>}</span>)}</div>
                 <div className="row" style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
                   <button className="btn sm" type="button" onClick={() => setEditor(tp)}>{tp.builtin ? t('另存为自定义') : t('编辑')}</button>

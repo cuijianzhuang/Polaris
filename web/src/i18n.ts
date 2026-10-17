@@ -36,9 +36,15 @@ export function t(s: string, vars?: Record<string, string | number | undefined |
   const at = s.indexOf('@@')
   const zh = at > 0 ? s.slice(0, at) : s
   let out = lang === 'en' ? (dict[s] ?? zh) : zh
-  if (vars) out = out.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k] ?? '') : m))
+  if (vars) {
+    out = out.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k] ?? '') : m))
+    if (lang === 'en') out = out.replace(singular, '1 $1') // "1 users" → "1 user"
+  }
   return out
 }
+
+// Nouns the English strings count with a placeholder; "1 <noun>s" is made singular.
+const singular = /\b1 (user|node|inbound|outbound|day|group|device|item|record|target|step|time|fallback|rule|chain|certificate|member|hour|minute|second|proxy group|rule set|conn)s\b/g
 
 // tr translates a message from the server: exact matches only, otherwise
 // the original text.
