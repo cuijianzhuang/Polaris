@@ -131,6 +131,12 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("inbound %s: %w", in.Tag, err)
 		}
+		if sn, ok := ib["sniffing"].(map[string]any); ok && spec.DNS != nil && spec.DNS.FakeIP != nil {
+			// Map fake addresses back to the name they were handed out for.
+			if do, ok := sn["destOverride"].([]string); ok {
+				sn["destOverride"] = append(append([]string(nil), do...), "fakedns")
+			}
+		}
 		inbounds = append(inbounds, ib)
 	}
 	cfg["inbounds"] = inbounds
@@ -144,7 +150,25 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		outs = moveFirst(outs, defTag)
 	}
 	cfg["outbounds"] = outs
-	routing := map[string]any{"domainStrategy": "AsIs", "rules": rules}
+	domainStrategy := "AsIs"
+	if d := spec.DNS; d != nil {
+		dns, fake, dnsRules, err := renderDNS(d, balancers)
+		if err != nil {
+			return nil, err
+		}
+		cfg["dns"] = dns
+		if fake != nil {
+			cfg["fakedns"] = fake
+		}
+		if len(dnsRules) > 0 {
+			// After the api rule, before user rules.
+			rules = append(append(rules[:1:1], dnsRules...), rules[1:]...)
+		}
+		if d.DomainStrategy != "" {
+			domainStrategy = d.DomainStrategy
+		}
+	}
+	routing := map[string]any{"domainStrategy": domainStrategy, "rules": rules}
 	if len(balancers) > 0 {
 		var bl []any
 		for _, b := range balancers {

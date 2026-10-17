@@ -74,7 +74,17 @@ export interface ChainHop { nodeId: string; inboundId?: string; port?: number }
 export interface HopProbe { nodeId: string; latencyMs: number; ok: boolean; error?: string }
 export interface Chain { id: string; name: string; mode: 'l4' | 'proxy'; hops: ChainHop[]; serviceUserId: string; probe: HopProbe[]; probedAt?: string; remark: string }
 export interface Outbound { id: string; nodeId: string; tag: string; type: string; settings?: any; nodeRefInboundId: string; detour: string; chainId: string; remark: string }
-export interface RouteMatch { inbound?: string[]; userGroups?: string[]; users?: string[]; domain?: string[]; domainSuffix?: string[]; domainKeyword?: string[]; geosite?: string[]; geoip?: string[]; ipCidr?: string[]; port?: string[]; network?: string }
+export interface RouteMatch { inbound?: string[]; userGroups?: string[]; users?: string[]; domain?: string[]; domainSuffix?: string[]; domainKeyword?: string[]; geosite?: string[]; geoip?: string[]; ipCidr?: string[]; ruleSets?: string[]; port?: string[]; network?: string }
+export interface RuleSet {
+  id: string; tag: string; name: string; remark: string; sourceUrl: string; domain: string[]; domainSuffix: string[]; domainKeyword: string[]; ipCidr: string[]
+  fetchedAt?: string; fetchError: string; count: number; used: string[]
+}
+export interface DNSServer { tag: string; address: string; domains?: string[]; detour?: string }
+export interface DNSSpec {
+  servers: DNSServer[]; strategy?: string; hosts?: Record<string, string[]>; domainStrategy?: string
+  fakeip?: { inet4Range?: string; inet6Range?: string; domains?: string[] }
+}
+export interface DNSConfig { scope: string; mode: string; spec: DNSSpec; updatedAt?: string }
 export interface RoutingRule { id: string; nodeId: string; match: RouteMatch; outboundTag: string; priority: number; chainId: string; remark: string }
 export interface PortPolicy { mode: 'fixed' | 'range'; fixed?: number; min?: number; max?: number }
 export interface EndpointTemplate { kind: string; cdnProfileId?: string; relayChainId?: string; address?: string; port?: number }

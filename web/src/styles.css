@@ -696,3 +696,12 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 @media (prefers-reduced-motion: reduce) { .nact-bar.indet span { animation: none; width: 100%; opacity: .5; } }
 .legend { display: inline-flex; align-items: center; gap: 4px; }
 .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+
+/* DNS server rows */
+.dns-row { display: grid; grid-template-columns: 110px minmax(0, 1.3fr) minmax(0, 1.3fr) 130px auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.dns-row.lbl { margin-bottom: 4px; }
+@media (max-width: 720px) {
+  .dns-row { grid-template-columns: 1fr 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .dns-row.lbl { display: none; }
+  .dns-row > :nth-child(2), .dns-row > :nth-child(3) { grid-column: 1 / -1; }
+}

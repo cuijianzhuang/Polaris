@@ -3,9 +3,10 @@ import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
-import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset } from '../types'
+import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet } from '../types'
+import { DNSSettings, RuleSets } from './DNSRules'
 
-type Tab = 'chains' | 'cdn' | 'routing'
+type Tab = 'chains' | 'cdn' | 'routing' | 'rulesets' | 'dns'
 
 function hopInbound(ins: Inbound[], id?: string) { return ins.find((i) => i.id === id) }
 
@@ -322,7 +323,7 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
 
 const matchKeys: { k: keyof RouteMatch; label: string }[] = [
   { k: 'geosite', label: 'geosite' }, { k: 'geoip', label: 'geoip' }, { k: 'domain', label: 'domain' }, { k: 'domainSuffix', label: 'domain_suffix' },
-  { k: 'domainKeyword', label: 'keyword' }, { k: 'ipCidr', label: 'ip_cidr' }, { k: 'port', label: 'port' }, { k: 'inbound', label: 'inbound' }, { k: 'userGroups', label: '用户分组' },
+  { k: 'domainKeyword', label: 'keyword' }, { k: 'ipCidr', label: 'ip_cidr' }, { k: 'ruleSets', label: '规则集' }, { k: 'port', label: 'port' }, { k: 'inbound', label: 'inbound' }, { k: 'userGroups', label: '用户分组' },
 ]
 
 function matchText(m: RouteMatch, groupName: (id: string) => string) {
@@ -350,6 +351,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
   const rules = useLoad(() => (nodeId ? get<RoutingRule[]>(`/nodes/${nodeId}/routing`) : Promise.resolve([])), [nodeId])
   const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
   const groups = useLoad(() => get<{ id: string; name: string }[]>('/groups'))
+  const ruleSets = useLoad(() => get<RuleSet[]>('/rulesets'))
   const [drawer, setDrawer] = useState<Outbound | 'new' | null>(null)
   const [draft, setDraft] = useState<{ priority: number; outboundTag: string; key: keyof RouteMatch; value: string } | null>(null)
   const { busy, run } = useAction()
@@ -427,6 +429,10 @@ function Routing({ nodes }: { nodes: Node[] }) {
               {draft.key === 'userGroups' ? (
                 <select className="input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
                   <option value="">选择分组</option>{(groups.data ?? []).map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              ) : draft.key === 'ruleSets' ? (
+                <select className="input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
+                  <option value="">{ruleSets.data?.length ? '选择规则集' : '先在「规则集」页新建'}</option>{(ruleSets.data ?? []).map((r) => <option key={r.id} value={r.tag}>{r.tag}{r.name ? ` · ${r.name}` : ''}（{r.count}）</option>)}
                 </select>
               ) : <input className="input mono" disabled={draft.key === 'users'} value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} placeholder={draft.key === 'geosite' ? 'netflix, openai' : ''} />}
             </Field>
@@ -509,7 +515,7 @@ export default function Chains() {
         </div>
       </div>
       <div className="tabs" role="tablist" aria-label="视图">
-        {([['chains', '链路'], ['cdn', 'CDN 配置档'], ['routing', '出站与路由']] as [Tab, string][]).map(([k, l]) => (
+        {([['chains', '链路'], ['cdn', 'CDN 配置档'], ['routing', '出站与路由'], ['rulesets', '规则集'], ['dns', 'DNS']] as [Tab, string][]).map(([k, l]) => (
           <button key={k} className={'tab' + (tab === k ? ' on' : '')} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
@@ -555,6 +561,8 @@ export default function Chains() {
         </div>
       )}
       {tab === 'routing' && (nodes.length ? <Routing nodes={nodes} /> : <div className="card"><Empty>还没有节点</Empty></div>)}
+      {tab === 'rulesets' && <RuleSets />}
+      {tab === 'dns' && <DNSSettings nodes={nodes} />}
       {chainDrawer && <ChainDrawer chain={chainDrawer === 'new' ? undefined : chainDrawer} nodes={nodes} inbounds={inbounds.data ?? []} onClose={() => setChainDrawer(null)} onSaved={() => { setChainDrawer(null); chains.reload() }} />}
       {cdnDrawer && <CDNDrawer profile={cdnDrawer === 'new' ? undefined : cdnDrawer} onClose={() => setCdnDrawer(null)} onSaved={() => { setCdnDrawer(null); cdn.reload() }} />}
     </>

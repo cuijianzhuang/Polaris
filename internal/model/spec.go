@@ -161,8 +161,10 @@ type NodeSpec struct {
 	SpeedLimits []SpeedLimit `json:"speedLimits,omitempty"`
 	// Geodata makes Xray download its .dat files on a schedule and reload
 	// them without a restart (Xray 26.4.25+).
-	Geodata   *GeodataSpec `json:"geodata,omitempty"`
-	CreatedAt time.Time    `json:"createdAt"`
+	Geodata *GeodataSpec `json:"geodata,omitempty"`
+	// DNS is the cores' resolver configuration (nil = core defaults).
+	DNS       *DNSSpec  `json:"dns,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // SpeedLimit is one port's bandwidth cap, each direction.

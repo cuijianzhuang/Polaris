@@ -623,6 +623,7 @@ func AllModels() []any {
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{},
+		&DNSConfig{}, &RuleSet{},
 	}
 }
 
@@ -700,4 +701,32 @@ type TagTraffic struct {
 	Up        int64     `json:"up"`
 	Down      int64     `json:"down"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// DNSConfig is the resolver config for every node (Scope "*") or one node.
+// Mode: global "on" / "off"; per node "inherit" / "custom" / "off".
+type DNSConfig struct {
+	Scope     string              `gorm:"primaryKey;size:32" json:"scope"`
+	Mode      string              `gorm:"size:16" json:"mode"`
+	Spec      JSON[model.DNSSpec] `json:"spec"`
+	UpdatedAt time.Time           `json:"updatedAt"`
+}
+
+// RuleSet is a named list of domains and IP ranges that routing rules and DNS
+// servers refer to by tag. With SourceURL the panel refreshes the entries
+// from a remote list daily and every node gets the result.
+type RuleSet struct {
+	ID            string         `gorm:"primaryKey;size:32" json:"id"`
+	Tag           string         `gorm:"size:64;uniqueIndex" json:"tag"`
+	Name          string         `gorm:"size:64" json:"name"`
+	Remark        string         `gorm:"size:255" json:"remark"`
+	SourceURL     string         `gorm:"size:512" json:"sourceUrl"`
+	Domain        JSON[[]string] `json:"domain"`
+	DomainSuffix  JSON[[]string] `json:"domainSuffix"`
+	DomainKeyword JSON[[]string] `json:"domainKeyword"`
+	IPCIDR        JSON[[]string] `json:"ipCidr"`
+	FetchedAt     *time.Time     `json:"fetchedAt"`
+	FetchError    string         `gorm:"size:500" json:"fetchError"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
 }

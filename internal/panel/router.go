@@ -240,6 +240,13 @@ func (s *Server) Router() http.Handler {
 	p.POST("/routing/presets/apply", s.applyRulePreset)
 	p.GET("/nodes/:id/routing", s.getRouting)
 	p.PUT("/nodes/:id/routing", s.putRouting)
+	p.GET("/dns", s.getDNS)
+	p.PUT("/dns/:scope", s.putDNS)
+	p.GET("/rulesets", s.listRuleSets)
+	p.POST("/rulesets", s.createRuleSet)
+	p.PUT("/rulesets/:id", s.updateRuleSet)
+	p.DELETE("/rulesets/:id", s.deleteRuleSet)
+	p.POST("/rulesets/:id/refresh", s.refreshRuleSetHandler)
 
 	p.GET("/dns-providers", s.listDNSProviders)
 	p.POST("/dns-providers", s.saveDNSProvider)
