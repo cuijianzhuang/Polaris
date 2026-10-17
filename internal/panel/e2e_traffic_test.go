@@ -88,7 +88,7 @@ func testTraffic(t *testing.T, vision bool) {
 		t.Fatal(err)
 	}
 	ag, err := agent.New(agent.Config{PanelURL: panelURL, DataDir: agentDir, AuthListen: fmt.Sprintf("127.0.0.1:%d", freePort(t)),
-		Heartbeat: time.Second, Traffic: time.Second, APIPortBase: freePort(t), DisableIPDetect: true}, log)
+		Heartbeat: time.Second, Traffic: time.Second, APIPortBase: agentPortBase(t), DisableIPDetect: true}, log)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -34,17 +34,65 @@ var (
 	handedOut []int
 )
 
-// claimPort records p unless it lies within 32 of a port already handed out.
+// agentSpan covers every loopback port an agent derives from its API port
+// base: core APIs at +0..+20 and, in the professional build, the speed-limit
+// listeners at +100..+105.
+const agentSpan = 128
+
+// agentBases holds the ports handed out as agent API bases.
+var agentBases []int
+
+// claimPort records p unless it lies within 32 of a port already handed out
+// or inside an agent's port range.
 func claimPort(p int) bool {
 	portsMu.Lock()
 	defer portsMu.Unlock()
+	return claimLocked(p, 32, 32)
+}
+
+// claimLocked records p unless another port lies in (p-below, p+above) or p
+// falls inside an agent's range.
+func claimLocked(p, below, above int) bool {
 	for _, q := range handedOut {
-		if p > q-32 && p < q+32 {
+		if q > p-below && q < p+above {
+			return false
+		}
+	}
+	for _, b := range agentBases {
+		if p >= b && p < b+agentSpan {
 			return false
 		}
 	}
 	handedOut = append(handedOut, p)
 	return true
+}
+
+// agentPortBase returns an API port base whose whole agent range is clear of
+// every other port handed out in this process.
+func agentPortBase(t *testing.T) int {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := l.Addr().(*net.TCPAddr).Port
+		l.Close()
+		if p+agentSpan > 65535 {
+			continue
+		}
+		portsMu.Lock()
+		ok := claimLocked(p, 32, agentSpan)
+		if ok {
+			agentBases = append(agentBases, p)
+		}
+		portsMu.Unlock()
+		if ok {
+			return p
+		}
+	}
+	t.Fatal("no free agent port range")
+	return 0
 }
 
 // freeMixedPort returns a port free for both TCP and UDP: a client's mixed
@@ -201,7 +249,7 @@ func TestEndToEnd(t *testing.T) {
 	os.WriteFile(filepath.Join(cfg.DataDir, "downloads", "install-panel.sh"), []byte(toolScript), 0o644)
 	toolPath := filepath.Join(dir, "bin", "polaris")
 	ag, err := agent.New(agent.Config{PanelURL: panelURL, DataDir: agentDir, AuthListen: fmt.Sprintf("127.0.0.1:%d", freePort(t)),
-		Heartbeat: time.Second, Traffic: time.Second, APIPortBase: freePort(t), DisableIPDetect: true, ToolPath: toolPath}, log)
+		Heartbeat: time.Second, Traffic: time.Second, APIPortBase: agentPortBase(t), DisableIPDetect: true, ToolPath: toolPath}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
