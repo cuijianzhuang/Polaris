@@ -190,6 +190,21 @@ type NodeTrafficDaily struct {
 	Tx     int64  `json:"tx"`
 }
 
+// NodeCost is what a node's server costs and when it renews. Cycle: month,
+// quarter, halfyear, year or once.
+type NodeCost struct {
+	NodeID    string     `gorm:"primaryKey;size:32" json:"nodeId"`
+	Provider  string     `gorm:"size:64" json:"provider"`
+	Amount    float64    `json:"amount"`
+	Currency  string     `gorm:"size:8" json:"currency"`
+	Cycle     string     `gorm:"size:16" json:"cycle"`
+	ExpireAt  *time.Time `json:"expireAt"`
+	AutoRenew bool       `json:"autoRenew"`
+	Note      string     `gorm:"size:255" json:"note"`
+	WarnedFor string     `gorm:"size:10" json:"-"` // expiry date the reminder was sent for
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
 // GroupNode gives a group's users every inbound on a node.
 type GroupNode struct {
 	GroupID string `gorm:"primaryKey;size:32"`
@@ -659,7 +674,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{},
 	}
 }

@@ -217,6 +217,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 		}
 		tx.Where("kind = ? AND target_id = ?", "node", id).Delete(&store.UserAccess{})
 		tx.Where("node_id = ?", id).Delete(&store.GroupNode{})
+		tx.Where("node_id = ?", id).Delete(&store.NodeCost{})
 		tx.Where("node_id = ?", id).Delete(&store.UserNodeQuota{})
 		if len(inIDs) > 0 {
 			tx.Where("kind = ? AND target_id IN ?", "inbound", inIDs).Delete(&store.UserAccess{})

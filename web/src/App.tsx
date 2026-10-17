@@ -25,6 +25,7 @@ import Audit from './pages/Audit'
 import Convert from './pages/Convert'
 import Domains from './pages/Domains'
 import Telegram from './pages/Telegram'
+import Costs from './pages/Costs'
 
 // Scope of the session: Telegram node operators see only their own nodes.
 const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
@@ -79,6 +80,7 @@ const nav: NavItem[] = [
 ]
 const sysNav = [
   { to: '/certificates', label: '证书', icon: <Icon.Lock /> },
+  { to: '/costs', label: '服务器成本', icon: <Icon.Wallet /> },
   { to: '/telegram', label: 'Telegram 机器人', icon: <Icon.Bot /> },
   { to: '/settings', label: '设置', icon: <Icon.Gear /> },
   { to: '/audit', label: '审计日志', icon: <Icon.Log /> },
@@ -268,6 +270,7 @@ export default function App() {
                       <Route path="/convert" element={<Convert />} />
                       <Route path="/domains" element={<Domains />} />
                       <Route path="/telegram" element={<Telegram />} />
+                      <Route path="/costs" element={<Costs />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   )}
