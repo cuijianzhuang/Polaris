@@ -44,11 +44,16 @@ var cfgNames = map[model.CoreType]string{
 }
 
 // applyResult describes one reconcile.
+// errInstall marks a failed core download or install.
+var errInstall = errors.New("安装内核失败")
+
 type applyResult struct {
 	ok         bool
 	method     string
 	err        error
 	rolledBack bool
+	// installFailed: a core could not be installed (worth retrying later).
+	installFailed bool
 }
 
 // Apply converges the host onto spec. Only one apply runs at a time.
@@ -124,7 +129,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	})
 
 	var errs []string
-	rolledBack := false
+	rolledBack, installFailed := false, false
 	for _, t := range types {
 		cs := wanted[t]
 		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.RealmForwards()) > 0) ||
@@ -134,6 +139,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		m, old, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
+			installFailed = installFailed || errors.Is(err, errInstall)
 			continue
 		}
 		if m == nil {
@@ -165,7 +171,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		}
 	}
 	if len(errs) > 0 {
-		return applyResult{ok: false, method: method, err: errors.New(strings.Join(errs, "; ")), rolledBack: rolledBack}
+		return applyResult{ok: false, method: method, err: errors.New(strings.Join(errs, "; ")), rolledBack: rolledBack, installFailed: installFailed}
 	}
 	a.current = spec
 	a.rev.Store(spec.Rev)
@@ -186,16 +192,16 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 	if !active && m == nil {
 		// Install ahead of time so the first inbound starts instantly.
 		if _, err := a.installer.Ensure(ctx, cs); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("%w：%w", errInstall, err)
 		}
 		return nil, nil, nil
 	}
 	bin, err := a.installer.Ensure(ctx, cs)
 	if err != nil {
 		if m != nil {
-			return nil, nil, fmt.Errorf("安装 %s 失败，继续运行 %s：%w", cs.Version, m.spec.Version, err)
+			return nil, nil, fmt.Errorf("%w %s，继续运行 %s：%w", errInstall, cs.Version, m.spec.Version, err)
 		}
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w：%w", errInstall, err)
 	}
 	work := filepath.Join(a.cfg.DataDir, "run", string(cs.Type))
 	if err := os.MkdirAll(work, 0o700); err != nil {

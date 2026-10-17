@@ -705,3 +705,12 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
   .dns-row.lbl { display: none; }
   .dns-row > :nth-child(2), .dns-row > :nth-child(3) { grid-column: 1 / -1; }
 }
+
+/* Server traffic on the node card */
+.nc-net { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mute); }
+.nc-net-row { display: flex; justify-content: space-between; gap: 8px; }
+.nc-net-row .mono { color: var(--ink-2); }
+.nc-net-bar { height: 4px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+.nc-net-bar span { display: block; height: 100%; background: var(--pri); border-radius: 2px; }
+.nc-net-bar.warn span { background: var(--warn); }
+.nc-net-bar.bad span { background: var(--bad); }

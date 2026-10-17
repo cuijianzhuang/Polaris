@@ -252,10 +252,16 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		sys.Uptime, sys.Load1 = hb.System.UptimeSeconds, hb.System.Load1
 		s.recordMetric(nodeID, sys, now)
 	}
-	s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Updates(map[string]any{
+	upd := map[string]any{
 		"status": status, "last_seen": now, "applied_rev": hb.AppliedRev, "agent_version": hb.AgentVersion, "arch": hb.Arch,
 		"system": store.NewJSON(sys),
-	})
+	}
+	if hb.System != nil {
+		for k, v := range s.accountNodeNet(&n, hb.System.RxBytes, hb.System.TxBytes, now) {
+			upd[k] = v
+		}
+	}
+	s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Updates(upd)
 	// Core state rarely changes; with heartbeats every few seconds only write
 	// it when it does (or once a minute).
 	var kb strings.Builder
@@ -359,7 +365,11 @@ func (s *Server) nodeProgressFor(nodeID string) *nodeProgress {
 	if p == nil {
 		return nil
 	}
-	if !p.Active && time.Since(p.At) > progressLinger {
+	linger := progressLinger
+	if p.Error != "" {
+		linger = 10 * time.Minute // a failure stays until someone has seen it
+	}
+	if !p.Active && time.Since(p.At) > linger {
 		delete(s.progress, nodeID)
 		return nil
 	}

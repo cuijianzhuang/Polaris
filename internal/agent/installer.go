@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -36,6 +38,11 @@ type Installer struct {
 	AllowUnverified bool
 	// progress, when set, receives the install steps and download bytes.
 	progress *progressTracker
+	// Relay, when set, fetches a GitHub URL through the panel; used when
+	// GitHub cannot be reached directly (and from then on for this run).
+	Relay func(ctx context.Context, u string) (*http.Response, error)
+
+	viaPanel atomic.Bool
 
 	mu    sync.Mutex
 	tried map[string]bool // sing-box versions already offered the stats build this run
@@ -205,11 +212,24 @@ func releaseByURL(u string) (repoTag, error) {
 	return repoTag{repo: parts[0] + "/" + parts[1], tag: strings.Join(parts[4:len(parts)-1], "/")}, nil
 }
 
+// directClient has no overall deadline (a large core on a slow link takes
+// a while); a stalled download is cut by stallTimeout instead.
+var directClient = &http.Client{Transport: &http.Transport{
+	Proxy:                 http.ProxyFromEnvironment,
+	DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ResponseHeaderTimeout: 30 * time.Second,
+	ForceAttemptHTTP2:     true,
+}}
+
+// stallTimeout ends a download that received nothing for this long.
+var stallTimeout = 60 * time.Second
+
 func (i *Installer) client() *http.Client {
 	if i.HTTP != nil {
 		return i.HTTP
 	}
-	return &http.Client{Timeout: 5 * time.Minute}
+	return directClient
 }
 
 func (i *Installer) mirror(u string) string {
@@ -223,26 +243,91 @@ func (i *Installer) get(ctx context.Context, u string) ([]byte, error) {
 	return i.getP(ctx, u, "")
 }
 
-// getP is get with the download reported under stage (when non-empty).
+// getP is get with the download reported under stage (when non-empty). It
+// goes to GitHub (or the mirror) first and through the panel when that
+// fails; after one failure the rest of the run uses the panel directly.
 func (i *Installer) getP(ctx context.Context, u, stage string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, i.mirror(u), nil)
-	if err != nil {
-		return nil, err
+	if i.Relay == nil || !i.viaPanel.Load() {
+		b, err := i.fetch(ctx, u, stage, false)
+		if err == nil || i.Relay == nil || ctx.Err() != nil {
+			return b, err
+		}
+		i.viaPanel.Store(true)
+		b, rerr := i.fetch(ctx, u, stage, true)
+		if rerr != nil {
+			return nil, fmt.Errorf("直连失败：%v；经主控下载也失败：%v", err, rerr)
+		}
+		return b, nil
 	}
-	req.Header.Set("User-Agent", "polaris-agent")
-	resp, err := i.client().Do(req)
+	b, err := i.fetch(ctx, u, stage, true)
+	if err != nil && ctx.Err() == nil {
+		// The panel may be the problem this time; try GitHub once more.
+		if b2, err2 := i.fetch(ctx, u, stage, false); err2 == nil {
+			return b2, nil
+		}
+		return nil, fmt.Errorf("经主控下载失败：%w", err)
+	}
+	return b, err
+}
+
+func (i *Installer) fetch(ctx context.Context, u, stage string, viaPanel bool) ([]byte, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var resp *http.Response
+	var err error
+	if viaPanel {
+		if stage != "" {
+			stage += "（经主控）"
+			i.step(stage, 0, 0)
+		}
+		resp, err = i.Relay(ctx, u)
+	} else {
+		var req *http.Request
+		if req, err = http.NewRequestWithContext(ctx, http.MethodGet, i.mirror(u), nil); err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "polaris-agent")
+		resp, err = i.client().Do(req)
+	}
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GET %s: %s", u, resp.Status)
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
+		return nil, fmt.Errorf("GET %s: %s %s", u, resp.Status, strings.TrimSpace(string(msg)))
 	}
-	var body io.Reader = resp.Body
+	var body io.Reader = &stallReader{r: resp.Body, cancel: cancel}
 	if stage != "" && i.progress != nil {
-		body = &progressReader{r: resp.Body, total: max(resp.ContentLength, 0), stage: stage, p: i.progress}
+		body = &progressReader{r: body, total: max(resp.ContentLength, 0), stage: stage, p: i.progress}
 	}
-	return io.ReadAll(io.LimitReader(body, 512<<20))
+	b, err := io.ReadAll(io.LimitReader(body, 512<<20))
+	if err != nil && ctx.Err() != nil {
+		return nil, fmt.Errorf("下载中断（%s 内没有收到数据）", stallTimeout)
+	}
+	if err == nil && resp.ContentLength > 0 && int64(len(b)) != resp.ContentLength {
+		return nil, fmt.Errorf("下载不完整：%d / %d 字节", len(b), resp.ContentLength)
+	}
+	return b, err
+}
+
+// stallReader cancels the request when no data arrives for stallTimeout.
+type stallReader struct {
+	r      io.Reader
+	cancel context.CancelFunc
+	t      *time.Timer
+}
+
+func (s *stallReader) Read(b []byte) (int, error) {
+	if s.t == nil {
+		s.t = time.AfterFunc(stallTimeout, s.cancel)
+	}
+	s.t.Reset(stallTimeout)
+	n, err := s.r.Read(b)
+	if err != nil {
+		s.t.Stop()
+	}
+	return n, err
 }
 
 // BinPath returns the executable path for an installed version.

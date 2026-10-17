@@ -214,6 +214,7 @@ func (s *Server) agentServer() (*http.Server, error) {
 	mux.Handle(path, withPeerCert(h))
 	mux.Handle("/agent/binary/", withPeerCert(http.HandlerFunc(s.serveAgentBinary)))
 	mux.Handle("/agent/tool", withPeerCert(http.HandlerFunc(s.serveTool)))
+	mux.Handle("/agent/core", withPeerCert(http.HandlerFunc(s.serveCoreRelay)))
 	srv := &http.Server{
 		Addr:              s.cfg.AgentListen,
 		Handler:           mux,
@@ -267,6 +268,8 @@ func (s *Server) startJobs() func() {
 	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
 	add("30 */2 * * * *", "inbound-probe", s.probeInbounds)
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
+	add("0 3 * * * *", "node-traffic-cycles", s.resetNodeCycles)
+	add("0 13 9 * * *", "server-renewals", s.costRenewals)
 	go s.backfillDaily()
 	c.Start()
 	return func() { <-c.Stop().Done() }

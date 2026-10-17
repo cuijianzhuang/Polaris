@@ -62,6 +62,7 @@ export const Icon = {
   Eye: () => <Svg><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></Svg>,
   Globe: () => <Svg><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18" /></Svg>,
   Convert: () => <Svg><path d="M4 7h13l-3-3M20 17H7l3 3" /></Svg>,
+  Wallet: () => <Svg><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M3 10h18M16 15h2" /><path d="M6 6V5a1 1 0 011-1h10a1 1 0 011 1v1" /></Svg>,
   Bot: () => <Svg><rect x="4" y="8" width="16" height="11" rx="3" /><path d="M12 4v4M9 13h.01M15 13h.01" /></Svg>,
 }
 

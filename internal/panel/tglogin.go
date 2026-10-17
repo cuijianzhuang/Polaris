@@ -134,6 +134,7 @@ var scopedRoutes = map[string]bool{
 	"GET /nodes/:id/revisions":          true,
 	"GET /nodes/:id/cores":              true,
 	"GET /nodes/:id/metrics":            true,
+	"GET /nodes/:id/net-daily":          true,
 	"POST /nodes/:id/sync":              true,
 	"POST /nodes/:id/rollback":          true,
 	"POST /cores/:id/restart":           true,
