@@ -358,7 +358,7 @@ func (b *tgBot) trafficText() string {
 		Total  int64
 	}
 	var rs []row
-	b.s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up+down) AS total").Where("hour >= ?", start).
+	realUsers(b.s.st.DB.Model(&store.TrafficHourly{})).Select("user_id, SUM(up+down) AS total").Where("hour >= ?", start).
 		Group("user_id").Order("total desc").Limit(10).Scan(&rs)
 	if len(rs) == 0 {
 		return "🏆 <b>今日流量排行</b>\n" + tgRule + "\n今日暂无流量"

@@ -46,12 +46,12 @@ func (s *Server) statsOverview(c *gin.Context) {
 
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UTC()
 	var today struct{ Up, Down int64 }
-	s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
 		Where("hour >= ?", dayStart).Scan(&today)
 
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).UTC()
 	var month struct{ Up, Down int64 }
-	s.st.DB.Model(&store.TrafficHourly{}).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
+	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
 		Where("hour >= ?", monthStart).Scan(&month)
 
 	// Trend over ?days= (default 7, max 90), bucketed by local day.
@@ -72,7 +72,7 @@ func (s *Server) statsOverview(c *gin.Context) {
 		Hour     time.Time
 		Up, Down int64
 	}
-	s.st.DB.Model(&store.TrafficHourly{}).Select("hour, SUM(up) AS up, SUM(down) AS down").
+	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("hour, SUM(up) AS up, SUM(down) AS down").
 		Where("hour >= ?", local.AddDate(0, 0, -n+1).UTC()).Group("hour").Scan(&rows)
 	for _, r := range rows {
 		if i, ok := idx[r.Hour.Local().Format("2006-01-02")]; ok {
@@ -89,7 +89,7 @@ func (s *Server) statsOverview(c *gin.Context) {
 		Down     int64  `json:"down"`
 	}
 	tops := []topUser{}
-	s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up) AS up, SUM(down) AS down").
+	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("user_id, SUM(up) AS up, SUM(down) AS down").
 		Where("hour >= ? AND user_id <> ''", dayStart).Group("user_id").Order("SUM(up+down) DESC").Limit(5).Scan(&tops)
 	for i := range tops {
 		var u store.User
@@ -147,6 +147,8 @@ func (s *Server) statsTraffic(c *gin.Context) {
 	}
 	if v := c.Query("node"); v != "" {
 		q = q.Where("node_id = ?", v)
+	} else {
+		q = realUsers(q)
 	}
 	var rows []store.TrafficHourly
 	if err := q.Find(&rows).Error; err != nil {
