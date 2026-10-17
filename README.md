@@ -54,9 +54,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 
 脚本从 GitHub Release 下载并校验 SHA-256，随机生成加密密钥和后台路径，写入 `/etc/polaris/polaris.env`，安装 systemd 服务并打印后台地址与初始密码；同时把 Agent 二进制放进数据目录，节点安装时直接从主控下载。
 **社区版与专业版**：每次发布同时提供两个版本，数据和配置通用。
-- 默认安装社区版（开源）。
-- 加 `--pro` 安装专业版，包含客户独立限速、Telegram 管理菜单、备份推送，需要在「系统 → 许可证」激活许可证。
-- 已安装的面板执行 `polaris update --pro` 切换到专业版，`polaris update --community` 切回社区版。
+- 首次安装时脚本会让你选择版本（直接回车 = 社区版；用 `curl | bash` 等非交互方式安装时默认社区版）；也可以直接加 `--pro` 或 `--community`。
+- 专业版包含客户独立限速、Telegram 管理菜单、备份推送，需要在「系统 → 许可证」激活许可证。
+- 随时切换：`polaris switch`（或菜单「20. 切换版本」），也可以指定 `polaris switch pro|community`。切换时版本号不变，配置和数据保留；切回社区版后，高级功能的设置保留，但不再生效。
 - 之后的升级沿用当前版本，节点 Agent 也自动使用对应版本。
 - Docker 镜像：专业版用 `-pro` 标签，例如 `ghcr.io/cuijianzhuang/polaris:latest-pro`。
 
@@ -70,6 +70,7 @@ polaris                      # 交互式菜单
 polaris info                 # 服务状态、后台地址、端口监听与防火墙、数据库、磁盘、系统信息
 polaris doctor               # 系统诊断：服务、端口、防火墙、域名解析与 HTTPS、时间同步、磁盘、错误日志
 polaris check-update         # 检查是否有新版本
+polaris switch [pro|community]  # 切换社区版 / 专业版（版本号不变，配置与数据保留）
 polaris update [--force]     # 升级（先备份数据库，配置不变；已是最新时跳过，--force 强制重装）
 polaris reset-password       # 忘记密码：生成新密码、解除锁定、注销所有会话
 polaris reset-2fa            # 丢失验证器：关闭二次验证

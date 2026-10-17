@@ -9,6 +9,7 @@
 #   update [--version TAG] [--force] [--pro|--community]  upgrade binaries, keep config and data (database backed up first)
 #   check-update                  compare the installed version with the latest release
 #   update-request                run an update the panel asked for (used by polaris-update.service)
+#   switch [pro|community]        switch between the community and professional editions (same version)
 #   uninstall [--purge]           remove; --purge also deletes config and data
 #   start | stop | restart | status | log
 #   info                          admin URL, ports and config summary
@@ -207,6 +208,47 @@ resolve_edition() {
     community) EP="" ;;
     *) die "未知版本：$EDITION（可选 pro / community）" ;;
   esac
+}
+
+# choose_edition asks which edition to install when nobody said and someone
+# is at the terminal (piped installs default to community).
+choose_edition() {
+  [ -z "$EDITION" ] && [ -z "${POLARIS_EDITION:-}" ] && [ -t 0 ] || return 0
+  echo
+  printf '  %s选择版本%s（之后可以随时切换：polaris switch）\n' "$C_BD" "$C_0"
+  printf '  %s1.%s 社区版  开源免费，包含全部基础功能\n' "$C_C" "$C_0"
+  printf '  %s2.%s 专业版  另含客户独立限速、Telegram 管理菜单、备份推送；需要许可证（面板「系统 → 许可证」激活）\n' "$C_C" "$C_0"
+  local c
+  read -r -p "  请选择 [1-2，默认 1]：" c || true
+  case "$c" in 2) EDITION=pro ;; *) EDITION=community ;; esac
+  ok "安装$(edition_label "$EDITION")"
+}
+
+# do_switch moves an installed panel to the other edition at its current
+# version (configuration and data are shared; nothing else changes).
+do_switch() {
+  need_installed
+  local cur target
+  cur="$(installed_edition)"
+  case "${ARG:-}" in
+    pro | community) target="$ARG" ;;
+    "") if [ "$cur" = pro ]; then target=community; else target=pro; fi ;;
+    *) die "用法：polaris switch [pro|community]" ;;
+  esac
+  if [ "$cur" = "$target" ]; then ok "已经是$(edition_label "$target")"; return 0; fi
+  banner "切换版本"
+  kv 当前 "$(panel_version) $(edition_label "$cur")"
+  kv 切换到 "${C_BD}$(edition_label "$target")${C_0}"
+  if [ "$target" = community ]; then
+    warn "社区版不含客户独立限速、Telegram 管理菜单、备份推送：这些设置会保留，但不再生效"
+  else
+    dim "    专业版功能需要许可证：切换后在面板「系统 → 许可证」激活"
+  fi
+  if [ -t 0 ] && [ "$FORCE" = 0 ] && ! confirm "  确定切换？"; then return 0; fi
+  EDITION="$target"
+  # Same version, other edition (pre-split builds go to the latest release).
+  [ "$cur" = legacy ] || VERSION="$(panel_version)"
+  do_update
 }
 # svc_uptime UNIT: seconds since the unit became active (empty if not running).
 svc_uptime() {
@@ -703,6 +745,7 @@ do_install() {
   port_busy "$PORT" && die "$(port_msg "$PORT")：请换一个面板端口（--port）"
   port_busy "$AGENT_PORT" && die "$(port_msg "$AGENT_PORT")：请换一个节点接入端口（--agent-port）"
 
+  choose_edition
   local use_caddy=0
   [ -n "$DOMAIN" ] && [ "$CADDY" = 1 ] && use_caddy=1
   SECONDS=0 STEP_N=0 STEP_TOTAL=$((3 + 2 * use_caddy))
@@ -712,7 +755,7 @@ do_install() {
   kv 访问方式 "$(if [ -n "$DOMAIN" ]; then echo "https://$DOMAIN$([ "$use_caddy" = 1 ] && echo '（自动安装 Caddy 申请证书）' || echo '（自备反向代理）')"; else echo "IP + HTTP"; fi)"
   kv 面板端口 "$PORT"
   kv 节点接入 "$AGENT_PORT"
-  kv 版本 "${VERSION:-最新}"
+  kv 版本 "${VERSION:-最新} $(edition_label "${EDITION:-community}")"
   echo
   download_release
 
@@ -1428,7 +1471,7 @@ menu() {
     if systemctl cat polaris-agent >/dev/null 2>&1; then node="升级本机节点"; else node="安装本机节点"; fi
     section "安装与升级"
     menu_row "1|安装面板" "2|升级面板" "3|检查更新"
-    menu_row "4|卸载面板"
+    menu_row "4|卸载面板" "20|切换版本 [$(edition_label "$(installed_edition)")]"
     section "服务管理"
     menu_row "5|启动" "6|停止" "7|重启"
     menu_row "8|运行状态" "9|实时日志" "10|开机自启 [$auto]"
@@ -1440,7 +1483,7 @@ menu() {
     echo
     if agent_installed; then menu_row "a|切换到节点 Agent 菜单" "0|退出"; else menu_row "0|退出"; fi
     echo
-    local c; c="$(ask "  请选择 [0-19]：")"
+    local c; c="$(ask "  请选择 [0-20]：")"
     echo
     case "$c" in
       1)
@@ -1456,6 +1499,7 @@ menu() {
         # The menu runs the old code from memory: restart it on the new script.
         if [ "$(sha256sum "$CTL" 2>/dev/null)" != "$before" ] && is_script "$CTL"; then exec "$CTL" menu; fi ;;
       3) run_action do_check_update; pause ;;
+      20) ARG=""; run_action do_switch; pause ;;
       4)
         if confirm "确定卸载 Polaris？"; then
           confirm "同时删除配置与全部数据（不可恢复）？" && PURGE=1
@@ -1520,6 +1564,7 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
     set-path|set-port|set-domain|set-url|set-sub-domain|restore) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    switch) ACTION=switch; shift; if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then ARG="$1"; shift; fi ;;
     --passphrase) BK_PASS="$2"; shift 2 ;;
     --restore) RESTORE_FILE="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
@@ -1528,14 +1573,14 @@ while [ $# -gt 0 ]; do
     --community) EDITION=community; shift ;;
     --version) if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then VERSION="$2"; shift 2; else ACTION=version; shift; fi ;;
     version|-v) ACTION=version; shift ;;
-    help) sed -n '2,22p' "$CTL" 2>/dev/null || sed -n '2,22p' "$0"; exit 0 ;;
+    help) sed -n '2,32p' "$CTL" 2>/dev/null || sed -n '2,32p' "$0"; exit 0 ;;
     --port) PORT="$2"; shift 2 ;;
     --agent-port) AGENT_PORT="$2"; shift 2 ;;
     --admin-path) ADMIN_PATH="$2"; shift 2 ;;
     --mirror) MIRROR="$2"; shift 2 ;;
     --purge) PURGE=1; shift ;;
     -u) ADMIN_USER="$2"; shift 2 ;;
-    -h|--help) sed -n '2,22p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
     *) die "未知参数：$1（--help 查看用法）" ;;
   esac
 done
@@ -1578,6 +1623,7 @@ case "$ACTION" in
   info) banner "面板信息"; show_info ;;
   doctor) do_doctor ;;
   check-update) do_check_update ;;
+  switch) do_switch ;;
   reset-password) do_reset_password ;;
   reset-2fa) do_reset_2fa ;;
   set-path) do_set_path "$ARG" ;;
