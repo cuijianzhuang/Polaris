@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { bps, bytes, coreShort, coreTagClass, nodeStatus } from '../format'
 import type { Node, NodeTraffic } from '../types'
+import { t, tr } from '../i18n'
 
 // Rate history per node, filled from heartbeats as they arrive (kept across
 // page switches for the session).
@@ -48,7 +49,7 @@ function Ring({ value, label }: { value: number; label: string }) {
 function Spark({ id }: { id: string }) {
   const h = useHistory(id)
   const W = 120, H = 36
-  if (h.length < 2) return <div className="spark-empty">收集速率中…</div>
+  if (h.length < 2) return <div className="spark-empty">{t('收集速率中…')}</div>
   const max = Math.max(1, ...h.map((p) => p.rx + p.tx))
   const pts = h.map((p, i) => `${((i / (MAX - 1)) * W + (W - ((h.length - 1) / (MAX - 1)) * W)).toFixed(1)},${(H - 2 - ((p.rx + p.tx) / max) * (H - 6)).toFixed(1)}`)
   const first = pts[0].split(',')[0]
@@ -71,7 +72,7 @@ function useTick(on: boolean) {
 
 function dur(sec: number) {
   sec = Math.max(0, Math.round(sec))
-  return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`
+  return sec < 60 ? t('{s} 秒', { s: sec }) : t('{m} 分 {s} 秒', { m: Math.floor(sec / 60), s: sec % 60 })
 }
 
 // NodeActivity shows what the agent is doing: the current step with a
@@ -87,8 +88,8 @@ export function NodeActivity({ n, compact }: { n: Node; compact?: boolean }) {
     return (
       <div className={'nact' + (compact ? ' compact' : '')} role="status" aria-live="polite">
         <div className="nact-row">
-          <span className="nact-stage"><span className="spinner" /><span className="nact-text">{p.stage || '处理中'}</span>{p.rev && !compact ? <span className="nact-dim">· rev {p.rev}</span> : null}</span>
-          <span className="nact-dim mono">{pct >= 0 ? `${bytes(p.done)} / ${bytes(p.total)} · ${Math.round(pct)}%` : p.done > 0 ? bytes(p.done) : ''}{!compact && ` · 已用 ${dur(elapsed)}`}</span>
+          <span className="nact-stage"><span className="spinner" /><span className="nact-text">{p.stage ? tr(p.stage) : t('处理中')}</span>{p.rev && !compact ? <span className="nact-dim">· rev {p.rev}</span> : null}</span>
+          <span className="nact-dim mono">{pct >= 0 ? `${bytes(p.done)} / ${bytes(p.total)} · ${Math.round(pct)}%` : p.done > 0 ? bytes(p.done) : ''}{!compact && ' · ' + t('已用 {d}', { d: dur(elapsed) })}</span>
         </div>
         <div className={'nact-bar' + (pct < 0 ? ' indet' : '')}><span style={pct >= 0 ? { width: pct + '%' } : undefined} /></div>
       </div>
@@ -97,13 +98,13 @@ export function NodeActivity({ n, compact }: { n: Node; compact?: boolean }) {
   if (p && !p.active) {
     const took = (new Date(p.at).getTime() / 1000) - p.startedAt
     return p.error
-      ? <div className={'nact bad' + (compact ? ' compact' : '')} role="status"><span className="nact-stage"><span className="nact-text">✗ {p.stage ? p.stage + ' 失败' : '失败'}</span></span>{!compact && <span className="nact-err">{p.error}</span>}</div>
-      : <div className={'nact ok' + (compact ? ' compact' : '')} role="status"><span className="nact-stage">✓ {p.rev ? `rev ${p.rev} 已应用` : '已完成'}</span><span className="nact-dim">用时 {dur(took)}</span></div>
+      ? <div className={'nact bad' + (compact ? ' compact' : '')} role="status"><span className="nact-stage"><span className="nact-text">✗ {p.stage ? t('{stage} 失败', { stage: tr(p.stage) }) : t('失败')}</span></span>{!compact && <span className="nact-err">{p.error}</span>}</div>
+      : <div className={'nact ok' + (compact ? ' compact' : '')} role="status"><span className="nact-stage">✓ {p.rev ? t('rev {rev} 已应用', { rev: p.rev }) : t('已完成')}</span><span className="nact-dim">{t('用时 {d}', { d: dur(took) })}</span></div>
   }
   if (waiting) {
     return (
       <div className={'nact' + (compact ? ' compact' : '')} role="status">
-        <div className="nact-row"><span className="nact-stage"><span className="spinner" />等待节点应用 rev {n.desiredRev}</span><span className="nact-dim mono">当前 rev {n.appliedRev}</span></div>
+        <div className="nact-row"><span className="nact-stage"><span className="spinner" />{t('等待节点应用 rev {rev}', { rev: n.desiredRev })}</span><span className="nact-dim mono">{t('当前 rev {rev}', { rev: n.appliedRev })}</span></div>
         <div className="nact-bar indet"><span /></div>
       </div>
     )
@@ -122,7 +123,7 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
         <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} />{n.flag ? n.flag + ' ' : ''}{n.name}</span>
         <span className={'st ' + st.cls}>{st.label}</span>
       </div>
-      <div className="nc-sub">{[n.region, addr].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>无公网地址</span>}{badge}</div>
+      <div className="nc-sub">{[n.region, addr].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>{t('无公网地址')}</span>}{badge}</div>
       {n.connected ? (
         <div className="nc-body">
           <div className="nc-rate">
@@ -130,12 +131,12 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
             <Spark id={n.id} />
           </div>
           <Ring value={n.system.cpu} label="CPU" />
-          <Ring value={n.system.mem} label="内存" />
+          <Ring value={n.system.mem} label={t('内存')} />
         </div>
-      ) : <div className="nc-off">{n.status === 'pending' ? '等待 Agent 接入' : '节点离线，暂无实时数据'}</div>}
+      ) : <div className="nc-off">{n.status === 'pending' ? t('等待 Agent 接入') : t('节点离线，暂无实时数据')}</div>}
       <NodeActivity n={n} compact />
       <div className="nc-foot">
-        <span className="mono">{traffic ? `今日 ${bytes(traffic.todayUp + traffic.todayDown)}` : '今日 —'}</span>
+        <span className="mono">{traffic ? t('今日 {n}', { n: bytes(traffic.todayUp + traffic.todayDown) }) : t('今日 —')}</span>
         <span>{n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>)}</span>
       </div>
     </button>

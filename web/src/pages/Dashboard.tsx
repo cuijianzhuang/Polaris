@@ -7,6 +7,7 @@ import TagTraffic from '../components/TagTraffic'
 import { Icon } from '../components/Icons'
 import { bps, bytes, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
 import type { Node, NodeTraffic } from '../types'
+import { t } from '../i18n'
 
 interface Overview {
   nodes: { online: number; total: number; timeout: number; error?: number }
@@ -20,7 +21,7 @@ interface Overview {
   cores: Record<string, number>
 }
 
-const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+const weekday = [t('周日'), t('周一'), t('周二'), t('周三'), t('周四'), t('周五'), t('周六')]
 
 function Trend({ data }: { data: Overview['trend'] }) {
   const [ref, W] = useWidth<HTMLDivElement>()
@@ -43,7 +44,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
   return (
     <div ref={ref} className="trend-wrap">
       {W > 0 && (
-        <svg className="trend" width={W} height={H} role="img" aria-label={`近 ${data.length} 天流量趋势`}>
+        <svg className="trend" width={W} height={H} role="img" aria-label={t('近 {n} 天流量趋势', { n: data.length })}>
           <defs>
             <linearGradient id="tr-down" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="var(--pri)" stopOpacity=".22" /><stop offset="1" stopColor="var(--pri)" stopOpacity="0" /></linearGradient>
           </defs>
@@ -51,7 +52,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
           <g style={{ fill: 'var(--mute)' }} fontSize="11" fontFamily="IBM Plex Mono">
             {[0, 0.5, 1].map((f) => <text key={f} x={L - 8} y={B - f * (B - T) + 4} textAnchor="end">{f ? bytes(max * f) : '0'}</text>)}
             {data.map((d, i) => (data.length - 1 - i) % every === 0 &&
-              <text key={d.date} x={x(i)} y={210} textAnchor="middle">{i === data.length - 1 ? '今天' : label(d.date)}</text>)}
+              <text key={d.date} x={x(i)} y={210} textAnchor="middle">{i === data.length - 1 ? t('今天') : label(d.date)}</text>)}
           </g>
           <path d={area('down')} fill="url(#tr-down)" />
           <path d={line('down')} fill="none" style={{ stroke: 'var(--pri)' }} strokeWidth="2.5" strokeLinejoin="round" />
@@ -67,8 +68,8 @@ function Trend({ data }: { data: Overview['trend'] }) {
       {h && hover !== null && (
         <div className="tip" style={{ left: Math.min(Math.max(x(hover), 70), W - 70), top: 4 }}>
           <div className="tip-t">{h.date} {weekday[new Date(h.date + 'T00:00:00').getDay()]}</div>
-          <div><i style={{ background: 'var(--pri)' }} />下行 <b>{bytes(h.down)}</b></div>
-          <div><i style={{ background: 'var(--warn)' }} />上行 <b>{bytes(h.up)}</b></div>
+          <div><i style={{ background: 'var(--pri)' }} />{t('下行')} <b>{bytes(h.down)}</b></div>
+          <div><i style={{ background: 'var(--warn)' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
         </div>
       )}
     </div>
@@ -77,7 +78,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
 
 function TopUsers({ list }: { list: Overview['topUsers'] }) {
   const max = Math.max(1, ...list.map((u) => u.up + u.down))
-  if (!list.length) return <div className="empty" style={{ padding: '32px 0' }}>今天还没有用户流量</div>
+  if (!list.length) return <div className="empty" style={{ padding: '32px 0' }}>{t('今天还没有用户流量')}</div>
   return (
     <ol className="toplist">
       {list.map((u, i) => (
@@ -99,37 +100,37 @@ function TopUsers({ list }: { list: Overview['topUsers'] }) {
 function Attention({ d }: { d: Overview }) {
   const a = d.attention
   const items: { n: number; text: string; to: string; cls: string }[] = [
-    { n: d.nodes.timeout, text: '个节点离线', to: '/nodes', cls: 'bad' },
-    { n: d.nodes.error ?? 0, text: '个节点下发失败', to: '/nodes', cls: 'bad' },
-    { n: a.limited, text: '个用户已超额', to: '/users?filter=limited', cls: 'bad' },
-    { n: a.expired, text: '个用户已过期', to: '/users?filter=expired', cls: 'warn' },
-    { n: a.expiring, text: `个用户 ${a.warnDays} 天内到期`, to: '/users?filter=expiring', cls: 'warn' },
-    { n: a.near, text: '个用户流量用了 80% 以上', to: '/users?filter=near', cls: 'warn' },
+    { n: d.nodes.timeout, text: t('个节点离线'), to: '/nodes', cls: 'bad' },
+    { n: d.nodes.error ?? 0, text: t('个节点下发失败'), to: '/nodes', cls: 'bad' },
+    { n: a.limited, text: t('个用户已超额'), to: '/users?filter=limited', cls: 'bad' },
+    { n: a.expired, text: t('个用户已过期'), to: '/users?filter=expired', cls: 'warn' },
+    { n: a.expiring, text: t('个用户 {days} 天内到期', { days: a.warnDays }), to: '/users?filter=expiring', cls: 'warn' },
+    { n: a.near, text: t('个用户流量用了 80% 以上'), to: '/users?filter=near', cls: 'warn' },
   ].filter((x) => x.n > 0)
   return (
-    <div className="attn" aria-label="需要关注">
+    <div className="attn" aria-label={t('需要关注')}>
       {items.length === 0
-        ? <span className="attn-item ok">✓ 一切正常：节点在线，没有超额或到期的用户</span>
+        ? <span className="attn-item ok">✓ {t('一切正常：节点在线，没有超额或到期的用户')}</span>
         : items.map((x) => <Link key={x.text} to={x.to} className={'attn-item ' + x.cls}><b>{x.n}</b>{x.text} ›</Link>)}
     </div>
   )
 }
 
-export function NodeRow({ n, t, onClick }: { n: Node; t?: NodeTraffic; onClick?: () => void }) {
+export function NodeRow({ n, t: tt, onClick }: { n: Node; t?: NodeTraffic; onClick?: () => void }) {
   const st = nodeStatus[n.status] ?? nodeStatus.pending
   const syncing = n.appliedRev < n.desiredRev
   return (
     <tr className={onClick ? 'clickable' : ''} onClick={onClick}>
       <td className="rt-head" style={{ fontWeight: 500 }}>{n.name}</td>
-      <td data-label="地区">{n.region || '—'}</td>
-      <td data-label="内核">{n.cores.length ? n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>) : '—'}</td>
-      <td data-label="CPU / 内存" className="mono">{n.connected ? `${n.system.cpu}% / ${n.system.mem}%` : '—'}</td>
-      <td data-label="实时速率" className="mono">{n.connected ? `↓ ${bps(n.system.rxBps)} ↑ ${bps(n.system.txBps)}` : '—'}</td>
-      <td data-label="今日流量" className="mono">{t ? `↑ ${bytes(t.todayUp)} ↓ ${bytes(t.todayDown)}` : '—'}</td>
-      <td data-label="配置版本" className="mono" style={syncing ? { color: 'var(--warn)' } : undefined}>
+      <td data-label={t('地区')}>{n.region || '—'}</td>
+      <td data-label={t('内核')}>{n.cores.length ? n.cores.map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>) : '—'}</td>
+      <td data-label={t('CPU / 内存')} className="mono">{n.connected ? `${n.system.cpu}% / ${n.system.mem}%` : '—'}</td>
+      <td data-label={t('实时速率')} className="mono">{n.connected ? `↓ ${bps(n.system.rxBps)} ↑ ${bps(n.system.txBps)}` : '—'}</td>
+      <td data-label={t('今日流量')} className="mono">{tt ? `↑ ${bytes(tt.todayUp)} ↓ ${bytes(tt.todayDown)}` : '—'}</td>
+      <td data-label={t('配置版本')} className="mono" style={syncing ? { color: 'var(--warn)' } : undefined}>
         {syncing ? `rev ${n.appliedRev} → ${n.desiredRev}` : `rev ${n.appliedRev}${n.appliedRev ? ' ✓' : ''}`}
       </td>
-      <td data-label="状态"><span><span className="dot" style={{ background: st.color }} />{st.label}{n.status === 'offline' && n.lastSeen ? ` · ${ago(n.lastSeen)}` : ''}</span></td>
+      <td data-label={t('状态')}><span><span className="dot" style={{ background: st.color }} />{st.label}{n.status === 'offline' && n.lastSeen ? ` · ${ago(n.lastSeen)}` : ''}</span></td>
     </tr>
   )
 }
@@ -148,47 +149,47 @@ export default function Dashboard() {
   return (
     <>
       <div className="top">
-        <div><h1>仪表盘</h1><div className="sub">全部节点 · 实时数据随心跳刷新</div></div>
+        <div><h1>{t('仪表盘')}</h1><div className="sub">{t('全部节点 · 实时数据随心跳刷新')}</div></div>
         <div className="row">
-          <button className="btn" type="button" onClick={() => nav('/nodes?new=1')}>添加节点</button>
-          <button className="btn pri" type="button" onClick={() => nav('/users?new=1')}>新建用户</button>
+          <button className="btn" type="button" onClick={() => nav('/nodes?new=1')}>{t('添加节点')}</button>
+          <button className="btn pri" type="button" onClick={() => nav('/users?new=1')}>{t('新建用户')}</button>
         </div>
       </div>
       {data && <Attention d={data} />}
-      <section className="grid g4" aria-label="概览">
-        <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">在线节点</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? `${data.nodes.timeout} 个离线` : '全部在线'}{data?.nodes.error ? ` · ${data.nodes.error} 个下发失败` : ''}</div></Link>
-        <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">在线用户</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">有效 {data?.users.active ?? 0} · 共 {data?.users.total ?? 0} 个用户</div></Link>
-        <div className="card kpi"><span className="kpi-ico violet"><Icon.Download /></span><div className="label">今日流量</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">↑ {bytes(data?.today.Up)} · ↓ {bytes(data?.today.Down)} · 本月 {bytes((data?.month.Up ?? 0) + (data?.month.Down ?? 0))}</div></div>
-        <div className="card kpi"><span className="kpi-ico warn"><Icon.Cpu /></span><div className="label">实时速率</div><div className="val">{bps(rx + tx)}</div><div className="foot">↓ {bps(rx)} · ↑ {bps(tx)}{data?.rate.peakNode ? ` · 峰值 ${data.rate.peakNode}` : ''}</div></div>
+      <section className="grid g4" aria-label={t('概览')}>
+        <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">{t('在线节点')}</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? t('{n} 个离线', { n: data.nodes.timeout }) : t('全部在线')}{data?.nodes.error ? ' · ' + t('{n} 个下发失败', { n: data.nodes.error }) : ''}</div></Link>
+        <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">{t('在线用户')}</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">{t('有效 {active} · 共 {total} 个用户', { active: data?.users.active ?? 0, total: data?.users.total ?? 0 })}</div></Link>
+        <div className="card kpi"><span className="kpi-ico violet"><Icon.Download /></span><div className="label">{t('今日流量')}</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">↑ {bytes(data?.today.Up)} · ↓ {bytes(data?.today.Down)} · {t('本月 {v}', { v: bytes((data?.month.Up ?? 0) + (data?.month.Down ?? 0)) })}</div></div>
+        <div className="card kpi"><span className="kpi-ico warn"><Icon.Cpu /></span><div className="label">{t('实时速率')}</div><div className="val">{bps(rx + tx)}</div><div className="foot">↓ {bps(rx)} · ↑ {bps(tx)}{data?.rate.peakNode ? ' · ' + t('峰值 {node}', { node: data.rate.peakNode }) : ''}</div></div>
       </section>
       <section className="grid g3">
         <div className="card" style={{ gridColumn: 'span 2', minWidth: 0 }}>
           <div className="ctitle">
-            <span>流量趋势</span>
+            <span>{t('流量趋势')}</span>
             <span className="row" style={{ gap: 12 }}>
-              <span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />下行<i className="dash" style={{ borderColor: 'var(--warn)' }} />上行</span>
-              <span className="seg-mini">{[7, 30].map((d) => <button key={d} type="button" className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{d} 天</button>)}</span>
+              <span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />{t('下行')}<i className="dash" style={{ borderColor: 'var(--warn)' }} />{t('上行')}</span>
+              <span className="seg-mini">{[7, 30].map((d) => <button key={d} type="button" className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{t('{n} 天', { n: d })}</button>)}</span>
             </span>
           </div>
           {data && <Trend data={data.trend} />}
         </div>
         <div className="card">
-          <div className="ctitle"><span>今日用户排行</span><Link to="/users" style={{ fontSize: 13, fontWeight: 500 }}>全部用户</Link></div>
+          <div className="ctitle"><span>{t('今日用户排行')}</span><Link to="/users" style={{ fontSize: 13, fontWeight: 500 }}>{t('全部用户')}</Link></div>
           {data && <TopUsers list={data.topUsers} />}
         </div>
       </section>
       <section className="card">
         <div className="ctitle">
-          <span>节点状态</span>
+          <span>{t('节点状态')}</span>
           <span className="row" style={{ gap: 6 }}>
             {cores.map(([c, n]) => <span key={c} className={coreTagClass(c)} title={coreLabel[c]}>{coreShort[c as keyof typeof coreShort] ?? c} × {n}</span>)}
-            <Link to="/nodes" style={{ fontSize: 13, fontWeight: 500, marginLeft: 6 }}>全部节点</Link>
+            <Link to="/nodes" style={{ fontSize: 13, fontWeight: 500, marginLeft: 6 }}>{t('全部节点')}</Link>
           </span>
         </div>
         <div className="scroll" style={{ marginTop: 8 }}>
-          {nodes.length === 0 ? <div className="empty">还没有节点，<Link to="/nodes?new=1">添加第一个节点</Link></div> : (
+          {nodes.length === 0 ? <div className="empty">{t('还没有节点，')}<Link to="/nodes?new=1">{t('添加第一个节点')}</Link></div> : (
             <table className="rtable">
-              <thead><tr><th>节点</th><th>地区</th><th>内核</th><th>CPU / 内存</th><th>实时速率</th><th>今日流量</th><th>配置版本</th><th>状态</th></tr></thead>
+              <thead><tr><th>{t('节点')}</th><th>{t('地区')}</th><th>{t('内核')}</th><th>{t('CPU / 内存')}</th><th>{t('实时速率')}</th><th>{t('今日流量')}</th><th>{t('配置版本')}</th><th>{t('状态')}</th></tr></thead>
               <tbody>{nodes.map((n) => <NodeRow key={n.id} n={n} t={traffic.data?.[n.id]} onClick={() => nav('/nodes?id=' + n.id)} />)}</tbody>
             </table>
           )}

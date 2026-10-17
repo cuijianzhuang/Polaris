@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useWidth } from './ui'
+import { t } from '../i18n'
 
 // Small SVG charts shared by the statistics pages (same look as TrafficChart).
 
@@ -51,8 +52,8 @@ export function StackedBars({ pts, fmt, height = 170, onSelect }: { pts: BarPoin
       {h && hover !== null && (
         <div className="tip" style={{ left: Math.min(Math.max(L + bw * (hover + 0.5), 70), W - 70), top: 0 }}>
           <div className="tip-t">{drag && drag[0] !== drag[1] ? `${pts[Math.min(...drag)].tip} ~ ${pts[Math.max(...drag)].tip}` : h.tip}</div>
-          <div><i style={{ background: 'var(--pri)' }} />下行 <b>{fmt(h.down)}</b></div>
-          <div><i style={{ background: 'var(--warn)' }} />上行 <b>{fmt(h.up)}</b></div>
+          <div><i style={{ background: 'var(--pri)' }} />{t('下行')} <b>{fmt(h.down)}</b></div>
+          <div><i style={{ background: 'var(--warn)' }} />{t('上行')} <b>{fmt(h.up)}</b></div>
         </div>
       )}
     </div>

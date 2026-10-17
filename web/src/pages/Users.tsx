@@ -8,12 +8,13 @@ import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, us
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, NodeQuota, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
+import { t } from '../i18n'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
-  { k: '', label: '全部', sum: 'all' }, { k: 'active', label: '正常', sum: 'active' }, { k: 'online', label: '在线', sum: 'online' },
-  { k: 'expiring', label: '即将到期', sum: 'expiring' }, { k: 'near', label: '流量将满', sum: 'near' }, { k: 'limited', label: '已超额', sum: 'limited' }, { k: 'expired', label: '已过期', sum: 'expired' },
-  { k: 'disabled', label: '已禁用', sum: 'disabled' },
+  { k: '', label: t('全部'), sum: 'all' }, { k: 'active', label: t('正常'), sum: 'active' }, { k: 'online', label: t('在线'), sum: 'online' },
+  { k: 'expiring', label: t('即将到期'), sum: 'expiring' }, { k: 'near', label: t('流量将满'), sum: 'near' }, { k: 'limited', label: t('已超额'), sum: 'limited' }, { k: 'expired', label: t('已过期'), sum: 'expired' },
+  { k: 'disabled', label: t('已禁用'), sum: 'disabled' },
 ]
 const PAGE = 100
 
@@ -29,9 +30,9 @@ function subURL(u: User) { return `${subBase}/sub/${u.subToken}` }
 
 function statusBadge(u: User) {
   const d = daysLeft(u.expireAt)
-  if (u.status === 'active' && isOnline(u.onlineAt)) return <span className="st ok">● 在线</span>
-  if (u.status === 'active' && d !== null && d <= 7) return <span className="st warn">即将到期</span>
-  if (u.bannedUntil && new Date(u.bannedUntil) > new Date()) return <span className="st bad">IP 超限封禁</span>
+  if (u.status === 'active' && isOnline(u.onlineAt)) return <span className="st ok">● {t('在线')}</span>
+  if (u.status === 'active' && d !== null && d <= 7) return <span className="st warn">{t('即将到期')}</span>
+  if (u.bannedUntil && new Date(u.bannedUntil) > new Date()) return <span className="st bad">{t('IP 超限封禁')}</span>
   const s = userStatus[u.status] ?? { label: u.status, cls: 'off' }
   return <span className={'st ' + s.cls}>{s.label}</span>
 }
@@ -53,10 +54,10 @@ function Access({ groups, nodeIds, groupIds, inboundIds, onChange }: {
   return (
     <section className="access">
       <div className="access-head">
-        <b>授权</b>
-        <span className="small mute">可用 <b className="mono">{effective.length}</b> 个入站 · <b className="mono">{effNodes.size}</b> 个节点</span>
+        <b>{t('授权')}</b>
+        <span className="small mute">{t('可用')} <b className="mono">{effective.length}</b> {t('个入站')} · <b className="mono">{effNodes.size}</b> {t('个节点')}</span>
       </div>
-      <Field label="节点" hint="绑定整台节点：包含其全部入站，以后新增的入站也自动生效">
+      <Field label={t('节点')} hint={t('绑定整台节点：包含其全部入站，以后新增的入站也自动生效')}>
         <div className="row">
           {nodes.map((n) => (
             <button key={n.id} type="button" className={'chip' + (nodeIds.includes(n.id) ? ' on' : '')} aria-pressed={nodeIds.includes(n.id)}
@@ -64,31 +65,31 @@ function Access({ groups, nodeIds, groupIds, inboundIds, onChange }: {
               <span className="dot" style={{ background: n.status === 'online' ? 'var(--ok)' : 'var(--input-strong)' }} />{n.name}
             </button>
           ))}
-          {nodes.length === 0 && <span className="hint">还没有节点</span>}
+          {nodes.length === 0 && <span className="hint">{t('还没有节点')}</span>}
         </div>
       </Field>
-      <Field label="分组" hint="按分组授权：分组里的入站对组内所有用户生效">
+      <Field label={t('分组')} hint={t('按分组授权：分组里的入站对组内所有用户生效')}>
         <div className="row">
           {groups.map((g) => (
             <button key={g.id} type="button" className={'chip' + (groupIds.includes(g.id) ? ' on' : '')} aria-pressed={groupIds.includes(g.id)}
               onClick={() => onChange('groupIds', toggle(groupIds, g.id))}>{g.name}<span className="mute small" style={{ marginLeft: 4 }}>{g.inboundIds.length}</span></button>
           ))}
-          {groups.length === 0 && <span className="hint">还没有分组</span>}
+          {groups.length === 0 && <span className="hint">{t('还没有分组')}</span>}
         </div>
       </Field>
       <div>
-        <button type="button" className="link" onClick={() => setShowIns(!showIns)}>{showIns ? '收起' : '单独授权入站'}{inboundIds.length > 0 && `（${inboundIds.length}）`}</button>
+        <button type="button" className="link" onClick={() => setShowIns(!showIns)}>{showIns ? t('收起') : t('单独授权入站')}{inboundIds.length > 0 && t('（{n}）', { n: inboundIds.length })}</button>
         {showIns && (
           <div className="access-ins">
             {nodes.filter((n) => ins.some((i) => i.nodeId === n.id)).map((n) => (
               <div key={n.id} className="access-node">
-                <div className="small" style={{ fontWeight: 600 }}>{n.name}{nodeIds.includes(n.id) && <span className="tag info-tag" style={{ marginLeft: 6 }}>已整台绑定</span>}</div>
+                <div className="small" style={{ fontWeight: 600 }}>{n.name}{nodeIds.includes(n.id) && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('已整台绑定')}</span>}</div>
                 <div className="row">
                   {ins.filter((i) => i.nodeId === n.id).map((i) => {
                     const covered = nodeIds.includes(n.id) || viaGroup.has(i.id)
                     const on = inboundIds.includes(i.id)
                     return (
-                      <button key={i.id} type="button" disabled={covered && !on} title={covered ? '已通过节点或分组授权' : ''}
+                      <button key={i.id} type="button" disabled={covered && !on} title={covered ? t('已通过节点或分组授权') : ''}
                         className={'chip sm' + (on || covered ? ' on' : '')} onClick={() => onChange('inboundIds', toggle(inboundIds, i.id))}>
                         {i.tag}<span className="mono small" style={{ marginLeft: 4, opacity: .7 }}>:{i.port}</span>
                       </button>
@@ -109,11 +110,11 @@ function BindNodesModal({ count, detach, onClose, onSubmit }: { count: number; d
   const { nodes } = useNodes()
   const [ids, setIds] = useState<string[]>([])
   return (
-    <Modal title={`${detach ? '解绑' : '绑定'}节点 · ${count} 个用户`} onClose={onClose} footer={<>
-      <button className="btn" type="button" onClick={onClose}>取消</button>
-      <button className={'btn ' + (detach ? 'danger solid' : 'pri')} type="button" disabled={!ids.length} onClick={() => onSubmit(ids)}>{detach ? '解绑' : '绑定'}</button>
+    <Modal title={detach ? t('解绑节点 · {n} 个用户', { n: count }) : t('绑定节点 · {n} 个用户', { n: count })} onClose={onClose} footer={<>
+      <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
+      <button className={'btn ' + (detach ? 'danger solid' : 'pri')} type="button" disabled={!ids.length} onClick={() => onSubmit(ids)}>{detach ? t('解绑') : t('绑定')}</button>
     </>}>
-      <div className="sub" style={{ margin: 0 }}>{detach ? '移除所选用户对这些节点的整台绑定（分组与单独入站授权不受影响）。' : '所选用户获得这些节点上全部入站的使用权，节点以后新增的入站也自动生效。'}</div>
+      <div className="sub" style={{ margin: 0 }}>{detach ? t('移除所选用户对这些节点的整台绑定（分组与单独入站授权不受影响）。') : t('所选用户获得这些节点上全部入站的使用权，节点以后新增的入站也自动生效。')}</div>
       <div className="row">
         {nodes.map((n: Node) => <button key={n.id} type="button" className={'chip' + (ids.includes(n.id) ? ' on' : '')} onClick={() => setIds(toggle(ids, n.id))}>{n.name}</button>)}
       </div>
@@ -125,39 +126,39 @@ type SubCheckResult = {
   status: string; problems: string[]; formats: Record<string, number>; url: string
   inbounds: { id: string; tag: string; node: string; via: string[]; included: boolean; reason?: string }[]
 }
-const viaText = (v: string) => (v === 'node' ? '整台节点' : v === 'inbound' ? '单独授权' : '分组 ' + v.replace(/^group:/, ''))
+const viaText = (v: string) => (v === 'node' ? t('整台节点') : v === 'inbound' ? t('单独授权') : t('分组 {name}', { name: v.replace(/^group:/, '') }))
 
 /** Explains what the user's subscription contains, and why something is missing. */
 function SubCheck({ userId }: { userId: string }) {
   const [res, setRes] = useState<SubCheckResult | null>(null)
   const { busy, run } = useAction()
   const check = () => run(async () => setRes(await get<SubCheckResult>(`/users/${userId}/sub-check`)))
-  const fmts: [string, string][] = [['links', '通用'], ['clash', 'Clash'], ['singbox', 'sing-box'], ['surge', 'Surge'], ['loon', 'Loon'], ['quanx', 'QX']]
+  const fmts: [string, string][] = [['links', t('通用')], ['clash', 'Clash'], ['singbox', 'sing-box'], ['surge', 'Surge'], ['loon', 'Loon'], ['quanx', 'QX']]
   return (
     <section className="field">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="lbl">订阅诊断</span>
-        <button className="btn sm" type="button" disabled={busy} onClick={check}>{res ? '重新检查' : '检查订阅'}</button>
+        <span className="lbl">{t('订阅诊断')}</span>
+        <button className="btn sm" type="button" disabled={busy} onClick={check}>{res ? t('重新检查') : t('检查订阅')}</button>
       </div>
       {res && (
         <div className="subcheck">
           {res.problems.length === 0
-            ? <div className="note ok-note">订阅正常：共 {res.formats.links ?? 0} 个节点</div>
+            ? <div className="note ok-note">{t('订阅正常：共 {n} 个节点', { n: res.formats.links ?? 0 })}</div>
             : res.problems.map((p) => <div key={p} className="note bad">{p}</div>)}
           <div className="row small">{fmts.map(([k, l]) => <span key={k} className={'tag' + ((res.formats[k] ?? 0) === 0 ? ' warn' : '')}>{l} {res.formats[k] ?? 0}</span>)}</div>
           {res.inbounds.length > 0 && (
             <table>
-              <thead><tr><th>入站</th><th>节点</th><th>授权来源</th><th>状态</th></tr></thead>
+              <thead><tr><th>{t('入站')}</th><th>{t('节点')}</th><th>{t('授权来源')}</th><th>{t('状态')}</th></tr></thead>
               <tbody>{res.inbounds.map((i) => (
                 <tr key={i.id}>
                   <td className="mono">{i.tag}</td><td>{i.node || '—'}</td>
-                  <td className="small">{i.via.map(viaText).join('、')}</td>
-                  <td className="small">{i.included ? (i.reason ? <span style={{ color: 'var(--warn-ink)' }}>⚠ {i.reason}</span> : '✓ 包含') : <span style={{ color: 'var(--bad)' }}>✗ {i.reason}</span>}</td>
+                  <td className="small">{i.via.map(viaText).join(t('、'))}</td>
+                  <td className="small">{i.included ? (i.reason ? <span style={{ color: 'var(--warn-ink)' }}>⚠ {i.reason}</span> : '✓ ' + t('包含')) : <span style={{ color: 'var(--bad)' }}>✗ {i.reason}</span>}</td>
                 </tr>
               ))}</tbody>
             </table>
           )}
-          <div className="hint">某个客户端格式为 0 表示该格式不支持这些协议组合（如 Surge 不支持 VLESS / REALITY）。</div>
+          <div className="hint">{t('某个客户端格式为 0 表示该格式不支持这些协议组合（如 Surge 不支持 VLESS / REALITY）。')}</div>
         </div>
       )}
     </section>
@@ -189,11 +190,11 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
       telegramId: Number(f.telegramId.trim()) || 0,
       renewDays: Number(f.renewDays) || 0, renewMax: Number(f.renewMax) || 0, deviceLimit: Number(f.deviceLimit) || 0,
     }
-    if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error('Telegram User ID 应为纯数字')
+    if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error(t('Telegram User ID 应为纯数字'))
     if (user) await put('/users/' + user.id, body)
     else await post('/users', body)
     onSaved()
-  }, user ? '已保存' : '用户已创建')
+  }, user ? t('已保存') : t('用户已创建'))
   const extend = (days: number) => {
     const cur = f.expire ? new Date(f.expire + 'T00:00:00') : null // local midnight, not UTC
     const base = cur && cur > new Date() ? cur : new Date()
@@ -201,93 +202,93 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
     set('expire', date(base.toISOString()))
   }
   return (
-    <Drawer title={user ? '编辑用户 · ' + user.username : '新建用户'} onClose={onClose} footer={<>
-      {user && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={() => onDelete(user)}>删除</button>}
-      <button className="btn" type="button" onClick={onClose}>取消</button>
-      <button className="btn pri" type="button" disabled={busy || !f.username} onClick={save}>保存</button>
+    <Drawer title={user ? t('编辑用户 · {name}', { name: user.username }) : t('新建用户')} onClose={onClose} footer={<>
+      {user && <button className="btn danger" type="button" style={{ marginRight: 'auto' }} onClick={() => onDelete(user)}>{t('删除')}</button>}
+      <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
+      <button className="btn pri" type="button" disabled={busy || !f.username} onClick={save}>{t('保存')}</button>
     </>}>
-      <Section step={1} title="基本信息" summary={[f.username || '未命名', f.status === 'disabled' ? '已禁用' : '启用', f.remark].filter(Boolean).join(' · ')}>
+      <Section step={1} title={t('基本信息')} summary={[f.username || t('未命名'), f.status === 'disabled' ? t('已禁用') : t('启用'), f.remark].filter(Boolean).join(' · ')}>
         <div className="form-grid">
-          <Field label="用户名" htmlFor="u-name" full><input id="u-name" className="input" value={f.username} onChange={(e) => set('username', e.target.value)} /></Field>
-          <Field label="备注" htmlFor="u-remark" full><input id="u-remark" className="input" value={f.remark} onChange={(e) => set('remark', e.target.value)} /></Field>
+          <Field label={t('用户名')} htmlFor="u-name" full><input id="u-name" className="input" value={f.username} onChange={(e) => set('username', e.target.value)} /></Field>
+          <Field label={t('备注')} htmlFor="u-remark" full><input id="u-remark" className="input" value={f.remark} onChange={(e) => set('remark', e.target.value)} /></Field>
         </div>
-        <Field label="状态">
+        <Field label={t('状态')}>
           <div className="seg">
-            <button type="button" className={'opt' + (f.status === 'active' ? ' on' : '')} onClick={() => set('status', 'active')}>启用</button>
-            <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>禁用</button>
+            <button type="button" className={'opt' + (f.status === 'active' ? ' on' : '')} onClick={() => set('status', 'active')}>{t('启用')}</button>
+            <button type="button" className={'opt' + (f.status === 'disabled' ? ' on' : '')} onClick={() => set('status', 'disabled')}>{t('禁用')}</button>
           </div>
         </Field>
       </Section>
-      <Section step={2} title="流量与限制" summary={[Number(f.limitGB) ? f.limitGB + ' GB' : '不限流量', Number(f.ipLimit) ? f.ipLimit + ' 个 IP' : '', Number(f.deviceLimit) ? f.deviceLimit + ' 台设备' : '', { none: '', daily: '每日重置', weekly: '每周重置', monthly: '每月重置', cycle: '周期重置' }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
+      <Section step={2} title={t('流量与限制')} summary={[Number(f.limitGB) ? f.limitGB + ' GB' : t('不限流量'), Number(f.ipLimit) ? t('{n} 个 IP', { n: f.ipLimit }) : '', Number(f.deviceLimit) ? t('{n} 台设备', { n: f.deviceLimit }) : '', { none: '', daily: t('每日重置'), weekly: t('每周重置'), monthly: t('每月重置'), cycle: t('周期重置') }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
         <div className="form-grid">
-          <Field label="流量配额 (GB)" htmlFor="u-limit" hint="留空或 0 为不限"><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
-          <Field label="同时在线 IP 数" htmlFor="u-ip" hint="0 为不限；受信任地址（设置中配置）不计入"><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
-          <Field label="设备数（HWID）" htmlFor="u-dev" hint="0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数"><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
-          <Field label="流量重置" htmlFor="u-reset">
+          <Field label={t('流量配额 (GB)')} htmlFor="u-limit" hint={t('留空或 0 为不限')}><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
+          <Field label={t('同时在线 IP 数')} htmlFor="u-ip" hint={t('0 为不限；受信任地址（设置中配置）不计入')}><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
+          <Field label={t('设备数（HWID）')} htmlFor="u-dev" hint={t('0 为不限；按 Happ、v2RayTun 等客户端拉订阅时上报的设备 ID 计数')}><input id="u-dev" className="input mono" value={f.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} inputMode="numeric" /></Field>
+          <Field label={t('流量重置')} htmlFor="u-reset">
             <select id="u-reset" className="input" value={f.resetPolicy} onChange={(e) => set('resetPolicy', e.target.value)}>
-              <option value="none">不重置</option><option value="daily">每天</option><option value="weekly">每周固定日</option>
-              <option value="monthly">每月固定日</option><option value="cycle">按周期滚动</option>
+              <option value="none">{t('不重置')}</option><option value="daily">{t('每天')}</option><option value="weekly">{t('每周固定日')}</option>
+              <option value="monthly">{t('每月固定日')}</option><option value="cycle">{t('按周期滚动')}</option>
             </select>
           </Field>
           {f.resetPolicy === 'weekly' && (
-            <Field label="每周几" htmlFor="u-rday">
+            <Field label={t('每周几')} htmlFor="u-rday">
               <select id="u-rday" className="input" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)}>
-                {['一', '二', '三', '四', '五', '六', '日'].map((d, i) => <option key={d} value={String(i + 1)}>周{d}</option>)}
+                {[t('周一'), t('周二'), t('周三'), t('周四'), t('周五'), t('周六'), t('周日')].map((d, i) => <option key={i} value={String(i + 1)}>{d}</option>)}
               </select>
             </Field>
           )}
           {(f.resetPolicy === 'monthly' || f.resetPolicy === 'cycle') && (
-            <Field label={f.resetPolicy === 'monthly' ? '每月几号' : '周期（天）'} htmlFor="u-rday" hint={f.resetPolicy === 'monthly' ? '29–31 在小月按月末' : undefined}>
+            <Field label={f.resetPolicy === 'monthly' ? t('每月几号') : t('周期（天）')} htmlFor="u-rday" hint={f.resetPolicy === 'monthly' ? t('29–31 在小月按月末') : undefined}>
               <input id="u-rday" className="input mono" value={f.resetDay} onChange={(e) => set('resetDay', e.target.value)} inputMode="numeric" />
             </Field>
           )}
         </div>
       </Section>
-      <Section step={3} title="有效期与续订" summary={f.expireMode === 'first' ? `首次使用后 ${f.afterDays || '?'} 天` : f.expire ? `${f.expire} 到期` : '永不到期'}>
+      <Section step={3} title={t('有效期与续订')} summary={f.expireMode === 'first' ? t('首次使用后 {n} 天', { n: f.afterDays || '?' }) : f.expire ? t('{date} 到期', { date: f.expire }) : t('永不到期')}>
         <div className="form-grid">
-          <Field label="有效期" full>
+          <Field label={t('有效期')} full>
             <div className="seg">
-              <button type="button" className={'opt' + (f.expireMode === 'date' ? ' on' : '')} onClick={() => set('expireMode', 'date')}>固定到期日<small>留空为永不到期</small></button>
-              <button type="button" className={'opt' + (f.expireMode === 'first' ? ' on' : '')} onClick={() => set('expireMode', 'first')}>首次使用后开始计时<small>产生第一笔流量时才开始算天数</small></button>
+              <button type="button" className={'opt' + (f.expireMode === 'date' ? ' on' : '')} onClick={() => set('expireMode', 'date')}>{t('固定到期日')}<small>{t('留空为永不到期')}</small></button>
+              <button type="button" className={'opt' + (f.expireMode === 'first' ? ' on' : '')} onClick={() => set('expireMode', 'first')}>{t('首次使用后开始计时')}<small>{t('产生第一笔流量时才开始算天数')}</small></button>
             </div>
           </Field>
           {f.expireMode === 'date' ? <>
-            <Field label="到期日期" htmlFor="u-exp" hint="留空为永不到期"><input id="u-exp" className="input mono" type="date" value={f.expire} onChange={(e) => set('expire', e.target.value)} /></Field>
-            <Field label="快捷续期">
-              <div className="row">{[30, 90, 365].map((d) => <button key={d} type="button" className="btn sm" onClick={() => extend(d)}>+{d} 天</button>)}</div>
+            <Field label={t('到期日期')} htmlFor="u-exp" hint={t('留空为永不到期')}><input id="u-exp" className="input mono" type="date" value={f.expire} onChange={(e) => set('expire', e.target.value)} /></Field>
+            <Field label={t('快捷续期')}>
+              <div className="row">{[30, 90, 365].map((d) => <button key={d} type="button" className="btn sm" onClick={() => extend(d)}>{t('+{n} 天', { n: d })}</button>)}</div>
             </Field>
           </> : (
-            <Field label="有效天数" htmlFor="u-after" hint="首次连接后生效，到期日自动写入"><input id="u-after" className="input mono" inputMode="numeric" value={f.afterDays} onChange={(e) => set('afterDays', e.target.value)} placeholder="30" /></Field>
+            <Field label={t('有效天数')} htmlFor="u-after" hint={t('首次连接后生效，到期日自动写入')}><input id="u-after" className="input mono" inputMode="numeric" value={f.afterDays} onChange={(e) => set('afterDays', e.target.value)} placeholder="30" /></Field>
           )}
-          <Field label="到期自动续订（天）" htmlFor="u-renew" hint="到期时自动顺延这么多天并清零流量；留空不续订">
-            <input id="u-renew" className="input mono" value={f.renewDays} onChange={(e) => set('renewDays', e.target.value)} inputMode="numeric" placeholder="例如 30" />
+          <Field label={t('到期自动续订（天）')} htmlFor="u-renew" hint={t('到期时自动顺延这么多天并清零流量；留空不续订')}>
+            <input id="u-renew" className="input mono" value={f.renewDays} onChange={(e) => set('renewDays', e.target.value)} inputMode="numeric" placeholder={t('例如 30')} />
           </Field>
-          <Field label="最多续订次数" htmlFor="u-rmax" hint={user?.renewDays ? `已续订 ${user.renewCount} 次；留空不限` : '留空不限'}>
+          <Field label={t('最多续订次数')} htmlFor="u-rmax" hint={user?.renewDays ? t('已续订 {n} 次；留空不限', { n: user.renewCount }) : t('留空不限')}>
             <input id="u-rmax" className="input mono" value={f.renewMax} disabled={!f.renewDays} onChange={(e) => set('renewMax', e.target.value)} inputMode="numeric" />
           </Field>
         </div>
       </Section>
-      <Section step={4} title="节点授权">
+      <Section step={4} title={t('节点授权')}>
         <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
           onChange={(k, v) => set(k, v)} />
       </Section>
-      <Section step={5} title="Telegram" defaultOpen={!!user?.telegramId} summary={f.telegramId ? '已绑定 ' + f.telegramId : '未绑定'}>
-          <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? '已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒' : '纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定'}>
-            <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder="例如 123456789" />
+      <Section step={5} title="Telegram" defaultOpen={!!user?.telegramId} summary={f.telegramId ? t('已绑定 {id}', { id: f.telegramId }) : t('未绑定')}>
+          <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? t('已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒') : t('纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定')}>
+            <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder={t('例如 123456789')} />
           </Field>
       </Section>
       {user && <UserLinks userId={user.id} />}
       {user && <NodeQuotas userId={user.id} />}
       {user && <Devices userId={user.id} limit={user.deviceLimit} />}
       {user && <SubCheck userId={user.id} />}
-      {user && <div className="field"><TrafficChart query={'user=' + user.id} title="流量统计" /></div>}
+      {user && <div className="field"><TrafficChart query={'user=' + user.id} title={t('流量统计')} /></div>}
       {user && (
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
-          <dt>密码</dt><dd className="mono">{user.password}</dd>
-          <dt>已用</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
-          <dt>在线 IP</dt><dd className="mono">{user.onlineIps?.join(', ') || '—'}</dd>
-          <dt>最近拉取订阅</dt><dd className="small">{user.lastSubAt ? `${datetime(user.lastSubAt)} · ${user.lastSubUa || '—'}` : '—'}</dd>
+          <dt>{t('密码')}</dt><dd className="mono">{user.password}</dd>
+          <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
+          <dt>{t('在线 IP')}</dt><dd className="mono">{user.onlineIps?.join(', ') || '—'}</dd>
+          <dt>{t('最近拉取订阅')}</dt><dd className="small">{user.lastSubAt ? `${datetime(user.lastSubAt)} · ${user.lastSubUa || '—'}` : '—'}</dd>
         </div>
       )}
     </Drawer>
@@ -301,14 +302,14 @@ function UserLinks({ userId }: { userId: string }) {
   const links = data.data?.links ?? []
   return (
     <details className="more">
-      <summary>节点链接与二维码（{links.length}）</summary>
+      <summary>{t('节点链接与二维码（{n}）', { n: links.length })}</summary>
       <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-        {links.length === 0 && <div className="sub">没有可用节点（见下方「订阅诊断」）</div>}
+        {links.length === 0 && <div className="sub">{t('没有可用节点（见下方「订阅诊断」）')}</div>}
         {links.map((l) => (
           <div key={l.uri} className="row" style={{ flexWrap: 'nowrap' }}>
             <span className="small" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={l.name}>{l.name}</span>
             <Copy text={l.uri} />
-            <button className="btn sm" type="button" onClick={() => setQr(qr === l.uri ? null : l.uri)}>二维码</button>
+            <button className="btn sm" type="button" onClick={() => setQr(qr === l.uri ? null : l.uri)}>{t('二维码')}</button>
           </div>
         ))}
         {qr && <div style={{ justifySelf: 'center' }}><QR text={qr} size={200} /></div>}
@@ -332,39 +333,39 @@ function NodeQuotas({ userId }: { userId: string }) {
     if (f.limit !== '') body.limit = gb(f.limit)
     await put(`/users/${userId}/node-quotas/${f.nodeId}`, body)
     setF({ nodeId: '', add: '', limit: '' }); data.reload()
-  }, '已保存')
+  }, t('已保存'))
   return (
     <details className="more" open={qs.length > 0}>
-      <summary>节点流量（{qs.length}）</summary>
+      <summary>{t('节点流量（{n}）', { n: qs.length })}</summary>
       <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-        <div className="hint">流量包：只能在该节点使用，先于总流量扣除，总流量用完后仍可用，用完为止（重置流量不补回）。节点上限：每个流量周期在该节点最多用多少，超出后只停这个节点。按节点倍率换算。</div>
+        <div className="hint">{t('流量包：只能在该节点使用，先于总流量扣除，总流量用完后仍可用，用完为止（重置流量不补回）。节点上限：每个流量周期在该节点最多用多少，超出后只停这个节点。按节点倍率换算。')}</div>
         {qs.map((q) => (
           <div key={q.nodeId} className="row" style={{ flexWrap: 'nowrap' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="small" style={{ fontWeight: 500 }}>{q.nodeName || q.nodeId}</div>
               <div className="hint">
-                {q.extra > 0 && <>流量包 剩余 {bytes(Math.max(q.extra - q.extraUsed, 0))} / {bytes(q.extra)}</>}
+                {q.extra > 0 && <>{t('流量包 剩余 {left} / {total}', { left: bytes(Math.max(q.extra - q.extraUsed, 0)), total: bytes(q.extra) })}</>}
                 {q.extra > 0 && q.limit > 0 && ' · '}
-                {q.limit > 0 && <span style={q.used >= q.limit ? { color: 'var(--bad)' } : undefined}>本期 {bytes(q.used)} / {bytes(q.limit)}{q.used >= q.limit ? '（已停用该节点）' : ''}</span>}
-                {!q.extra && !q.limit && '未设置'}
+                {q.limit > 0 && <span style={q.used >= q.limit ? { color: 'var(--bad)' } : undefined}>{t('本期 {used} / {limit}', { used: bytes(q.used), limit: bytes(q.limit) })}{q.used >= q.limit ? t('（已停用该节点）') : ''}</span>}
+                {!q.extra && !q.limit && t('未设置')}
               </div>
             </div>
-            {q.limit > 0 && q.used > 0 && <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await put(`/users/${userId}/node-quotas/${q.nodeId}`, { resetUsed: true }); data.reload() }, '已清零')}>清零本期</button>}
-            <button className="btn sm" type="button" onClick={() => setF({ nodeId: q.nodeId, add: '', limit: q.limit ? String(+(q.limit / GB).toFixed(2)) : '' })}>编辑</button>
-            <button className="btn sm danger" type="button" disabled={busy} onClick={() => run(async () => { await del(`/users/${userId}/node-quotas/${q.nodeId}`); data.reload() }, '已移除')}>移除</button>
+            {q.limit > 0 && q.used > 0 && <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await put(`/users/${userId}/node-quotas/${q.nodeId}`, { resetUsed: true }); data.reload() }, t('已清零'))}>{t('清零本期')}</button>}
+            <button className="btn sm" type="button" onClick={() => setF({ nodeId: q.nodeId, add: '', limit: q.limit ? String(+(q.limit / GB).toFixed(2)) : '' })}>{t('编辑')}</button>
+            <button className="btn sm danger" type="button" disabled={busy} onClick={() => run(async () => { await del(`/users/${userId}/node-quotas/${q.nodeId}`); data.reload() }, t('已移除'))}>{t('移除')}</button>
           </div>
         ))}
         <div className="form-grid">
-          <Field label="节点">
+          <Field label={t('节点')}>
             <select className="input" value={f.nodeId} onChange={(e) => setF({ ...f, nodeId: e.target.value })}>
-              <option value="">选择节点</option>
+              <option value="">{t('选择节点')}</option>
               {nodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
             </select>
           </Field>
-          <Field label="增加流量包（GB）"><input className="input mono" inputMode="decimal" placeholder="不增加" value={f.add} onChange={(e) => setF({ ...f, add: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
-          <Field label="节点上限（GB / 周期）"><input className="input mono" inputMode="decimal" placeholder="不变；0 为不限" value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
+          <Field label={t('增加流量包（GB）')}><input className="input mono" inputMode="decimal" placeholder={t('不增加')} value={f.add} onChange={(e) => setF({ ...f, add: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
+          <Field label={t('节点上限（GB / 周期）')}><input className="input mono" inputMode="decimal" placeholder={t('不变；0 为不限')} value={f.limit} onChange={(e) => setF({ ...f, limit: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
         </div>
-        <div><button className="btn sm primary" type="button" disabled={busy || !f.nodeId || (!f.add && f.limit === '')} onClick={save}>保存</button></div>
+        <div><button className="btn sm primary" type="button" disabled={busy || !f.nodeId || (!f.add && f.limit === '')} onClick={save}>{t('保存')}</button></div>
       </div>
     </details>
   )
@@ -378,19 +379,19 @@ function Devices({ userId, limit }: { userId: string; limit: number }) {
   if (!ds.length && !limit) return null
   return (
     <details className="more">
-      <summary>设备（{ds.length}{limit ? ` / ${limit}` : ''}）</summary>
+      <summary>{t('设备（{n}）', { n: limit ? `${ds.length} / ${limit}` : ds.length })}</summary>
       <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-        {ds.length === 0 && <div className="sub">还没有客户端上报设备 ID</div>}
+        {ds.length === 0 && <div className="sub">{t('还没有客户端上报设备 ID')}</div>}
         {ds.map((d) => (
           <div key={d.id} className="row" style={{ flexWrap: 'nowrap' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="small">{[d.model, d.os].filter(Boolean).join(' · ') || d.userAgent || '未知设备'}</div>
+              <div className="small">{[d.model, d.os].filter(Boolean).join(' · ') || d.userAgent || t('未知设备')}</div>
               <div className="hint mono">{d.hwid.slice(0, 16)}… · {d.ip} · {ago(d.lastSeen)}</div>
             </div>
-            <button className="btn sm danger" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/${d.id}`); data.reload() }, '已移除')}>移除</button>
+            <button className="btn sm danger" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/${d.id}`); data.reload() }, t('已移除'))}>{t('移除')}</button>
           </div>
         ))}
-        {ds.length > 1 && <div><button className="btn sm" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/all`); data.reload() }, '已清空')}>清空全部设备</button></div>}
+        {ds.length > 1 && <div><button className="btn sm" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/all`); data.reload() }, t('已清空'))}>{t('清空全部设备')}</button></div>}
       </div>
     </details>
   )
@@ -408,34 +409,34 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
     return [...m.entries()]
   }, [inbounds.data])
   return (
-    <Modal title="分组" onClose={onClose} wide>
+    <Modal title={t('分组')} onClose={onClose} wide>
       {!edit ? (
         <>
           <div className="card flush">
             <table>
-              <thead><tr><th>分组</th><th>用户</th><th>入站</th><th></th></tr></thead>
+              <thead><tr><th>{t('分组')}</th><th>{t('用户')}</th><th>{t('入站')}</th><th></th></tr></thead>
               <tbody>
                 {(groups.data ?? []).map((g) => (
                   <tr key={g.id}>
-                    <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>默认</span>}</td><td className="mono">{g.userCount}</td><td className="mono">{g.inboundIds.length}</td>
+                    <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('默认')}</span>}</td><td className="mono">{g.userCount}</td><td className="mono">{g.inboundIds.length}</td>
                     <td style={{ textAlign: 'right' }}>
-                      <button className="link" type="button" onClick={() => setEdit({ id: g.id, name: g.name, inboundIds: g.inboundIds })}>编辑</button>{'  '}
+                      <button className="link" type="button" onClick={() => setEdit({ id: g.id, name: g.name, inboundIds: g.inboundIds })}>{t('编辑')}</button>{'  '}
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
-                        if (await confirm(`删除分组 ${g.name}？组内用户将失去对应入站。`, { danger: true })) run(async () => { await del('/groups/' + g.id); groups.reload(); onChanged() })
-                      }}>删除</button>
+                        if (await confirm(t('删除分组 {name}？组内用户将失去对应入站。', { name: g.name }), { danger: true })) run(async () => { await del('/groups/' + g.id); groups.reload(); onChanged() })
+                      }}>{t('删除')}</button>
                     </td>
                   </tr>
                 ))}
-                {groups.data?.length === 0 && <tr><td colSpan={4} className="mute">还没有分组</td></tr>}
+                {groups.data?.length === 0 && <tr><td colSpan={4} className="mute">{t('还没有分组')}</td></tr>}
               </tbody>
             </table>
           </div>
-          <div><button className="btn pri" type="button" onClick={() => setEdit({ name: '', inboundIds: [] })}>+ 新建分组</button></div>
+          <div><button className="btn pri" type="button" onClick={() => setEdit({ name: '', inboundIds: [] })}>+ {t('新建分组')}</button></div>
         </>
       ) : (
         <>
-          <Field label="名称" htmlFor="g-name"><input id="g-name" className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
-          <Field label="授权入站">
+          <Field label={t('名称')} htmlFor="g-name"><input id="g-name" className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field>
+          <Field label={t('授权入站')}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflowY: 'auto' }}>
               {byNode.map(([node, ins]) => (
                 <div key={node}>
@@ -448,18 +449,18 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
                   ))}
                 </div>
               ))}
-              {byNode.length === 0 && <span className="hint">还没有入站</span>}
+              {byNode.length === 0 && <span className="hint">{t('还没有入站')}</span>}
             </div>
           </Field>
           <div className="dfoot">
-            <button className="btn" type="button" onClick={() => setEdit(null)}>返回</button>
+            <button className="btn" type="button" onClick={() => setEdit(null)}>{t('返回')}</button>
             <button className="btn pri" type="button" disabled={busy || !edit.name} onClick={() => run(async () => {
               if (edit.id) await put('/groups/' + edit.id, edit)
               else await post('/groups', edit)
               setEdit(null)
               groups.reload()
               onChanged()
-            }, '已保存')}>保存</button>
+            }, t('已保存'))}>{t('保存')}</button>
           </div>
         </>
       )}
@@ -504,7 +505,7 @@ export default function Users() {
   const { busy, run } = useAction()
   const gname = (id: string) => groups.data?.find((g) => g.id === id)?.name ?? id
   const { nodes } = useNodes()
-  const nname = (id: string) => nodes.find((n) => n.id === id)?.name ?? '已删除节点'
+  const nname = (id: string) => nodes.find((n) => n.id === id)?.name ?? t('已删除节点')
   const [bind, setBind] = useState<'attach' | 'detach' | null>(null)
   const [hidden, setHidden] = useState<string[]>([])
   const items = (list.data?.items ?? []).filter((u) => !hidden.includes(u.id))
@@ -514,7 +515,7 @@ export default function Users() {
   useEffect(() => { if (params.get('new')) setParams({}, { replace: true }) }, [params, setParams])
 
   const copySub = async (u: User) => {
-    try { await copyText(subURL(u)); toast('订阅链接已复制') } catch { window.prompt('复制失败，请手动复制：', subURL(u)) }
+    try { await copyText(subURL(u)); toast(t('订阅链接已复制')) } catch { window.prompt(t('复制失败，请手动复制：'), subURL(u)) }
   }
   // Large selections go in chunks so the progress toast can show real progress.
   const bulk = (action: string, extra?: object) => run(async () => {
@@ -523,18 +524,18 @@ export default function Users() {
     else {
       const chunks: string[][] = []
       for (let i = 0; i < ids.length; i += 25) chunks.push(ids.slice(i, i + 25))
-      await runBatch(toastApi, '正在处理用户', chunks, (c) => post('/users/bulk', { action, ids: c, ...extra }), 2)
+      await runBatch(toastApi, t('正在处理用户'), chunks, (c) => post('/users/bulk', { action, ids: c, ...extra }), 2)
     }
     setChecked([])
     list.reload()
-  }, checked.length <= 25 ? '已完成' : undefined)
+  }, checked.length <= 25 ? t('已完成') : undefined)
   // Deleting hides the rows at once; the request goes out after 5 s unless undone.
   const removeUsers = (us: User[]) => {
     const ids = us.map((u) => u.id)
     setHidden((h) => [...h, ...ids])
     setChecked((c) => c.filter((x) => !ids.includes(x)))
     setDrawer(null)
-    undo(us.length === 1 ? `已删除用户 ${us[0].username}` : `已删除 ${us.length} 个用户`, async () => {
+    undo(us.length === 1 ? t('已删除用户 {name}', { name: us[0].username }) : t('已删除 {n} 个用户', { n: us.length }), async () => {
       for (let i = 0; i < ids.length; i += 100) await post('/users/bulk', { action: 'delete', ids: ids.slice(i, i + 100) })
       list.reload()
     }, () => setHidden((h) => h.filter((x) => !ids.includes(x))))
@@ -543,36 +544,36 @@ export default function Users() {
   return (
     <>
       <div className="top">
-        <div><h1>用户</h1><div className="sub">一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站</div></div>
+        <div><h1>{t('用户')}</h1><div className="sub">{t('一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站')}</div></div>
         <div className="row">
-          <button className="btn" type="button" onClick={() => setModal('groups')}>分组</button>
+          <button className="btn" type="button" onClick={() => setModal('groups')}>{t('分组')}</button>
           <details className="menu">
-            <summary className="btn">更多</summary>
+            <summary className="btn">{t('更多')}</summary>
             <div className="menu-list" onClick={(e) => { (e.currentTarget.parentElement as HTMLDetailsElement).open = false }}>
-              <button type="button" onClick={() => setModal('import')}>导入用户（JSON / 3x-ui）</button>
-              <button type="button" onClick={() => run(async () => downloadJSON(`polaris-users-${new Date().toISOString().slice(0, 10)}.json`, await get('/users/export')), '已导出')}>导出全部用户</button>
+              <button type="button" onClick={() => setModal('import')}>{t('导入用户（JSON / 3x-ui）')}</button>
+              <button type="button" onClick={() => run(async () => downloadJSON(`polaris-users-${new Date().toISOString().slice(0, 10)}.json`, await get('/users/export')), t('已导出'))}>{t('导出全部用户')}</button>
               <button type="button" disabled={!sum.limited && !sum.expired} onClick={async () => {
-                if (await confirm(`删除全部 ${(sum.limited ?? 0) + (sum.expired ?? 0)} 个已超额 / 已过期的用户？`, { danger: true, ok: '删除' }))
-                  run(async () => { await post('/users/bulk', { action: 'delete-depleted' }); list.reload() }, '已删除')
-              }}>删除已超额 / 已过期用户</button>
+                if (await confirm(t('删除全部 {n} 个已超额 / 已过期的用户？', { n: (sum.limited ?? 0) + (sum.expired ?? 0) }), { danger: true, ok: t('删除') }))
+                  run(async () => { await post('/users/bulk', { action: 'delete-depleted' }); list.reload() }, t('已删除'))
+              }}>{t('删除已超额 / 已过期用户')}</button>
               <button type="button" onClick={async () => {
-                if (await confirm('把全部用户的已用流量清零？', { danger: true, ok: '全部重置' }))
-                  run(async () => { await post('/users/bulk', { action: 'reset-traffic', all: true }); list.reload() }, '已重置')
-              }}>重置全部用户流量</button>
+                if (await confirm(t('把全部用户的已用流量清零？'), { danger: true, ok: t('全部重置') }))
+                  run(async () => { await post('/users/bulk', { action: 'reset-traffic', all: true }); list.reload() }, t('已重置'))
+              }}>{t('重置全部用户流量')}</button>
             </div>
           </details>
-          <button className="btn" type="button" onClick={() => setModal('bulk')}>批量创建</button>
-          <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ 新建用户</button>
+          <button className="btn" type="button" onClick={() => setModal('bulk')}>{t('批量创建')}</button>
+          <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ {t('新建用户')}</button>
         </div>
       </div>
       <div className="row">
-        <label htmlFor="q" className="sr">搜索用户</label>
-        <input className="input search" id="q" placeholder="搜索用户名 / UUID / 备注" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} />
+        <label htmlFor="q" className="sr">{t('搜索用户')}</label>
+        <input className="input search" id="q" placeholder={t('搜索用户名 / UUID / 备注')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} />
         <div className="chips">
           {filters.map((f) => <button key={f.k} className={'chip' + (filter === f.k ? ' on' : '')} type="button" onClick={() => setFilter(f.k)}>{f.label}{sum[f.sum] != null && <span className="chip-n">{sum[f.sum]}</span>}</button>)}
           {(groups.data?.length ?? 0) > 0 && (
-            <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label="按分组筛选">
-              <option value="">全部分组</option>
+            <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label={t('按分组筛选')}>
+              <option value="">{t('全部分组')}</option>
               {groups.data!.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
           )}
@@ -580,24 +581,24 @@ export default function Users() {
         <span className="spacer" />
         {checked.length > 0 && (
           <>
-            <span className="small mute">已选 {checked.length}</span>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('enable')}>启用</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('disable')}>禁用</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('reset-traffic')}>重置流量</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => setModal('adjust')}>调整到期 / 流量 / 限制</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => downloadJSON('polaris-users.json', await get('/users/export?ids=' + checked.join(','))), '已导出')}>导出</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('attach')}>绑定节点</button>
-            <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('detach')}>解绑节点</button>
-            <button className="btn sm danger" type="button" disabled={busy} onClick={() => removeUsers(items.filter((u) => checked.includes(u.id)))}>删除</button>
+            <span className="small mute">{t('已选 {n}', { n: checked.length })}</span>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('enable')}>{t('启用')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('disable')}>{t('禁用')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('reset-traffic')}>{t('重置流量')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setModal('adjust')}>{t('调整到期 / 流量 / 限制')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => downloadJSON('polaris-users.json', await get('/users/export?ids=' + checked.join(','))), t('已导出'))}>{t('导出')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('attach')}>{t('绑定节点')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('detach')}>{t('解绑节点')}</button>
+            <button className="btn sm danger" type="button" disabled={busy} onClick={() => removeUsers(items.filter((u) => checked.includes(u.id)))}>{t('删除')}</button>
           </>
         )}
       </div>
       <div className="card flush scroll">
-        {items.length === 0 ? (list.loading && !list.data ? <SkeletonRows rows={6} cols={5} /> : <Empty icon={<Icon.Users />}>没有匹配的用户</Empty>) : (
+        {items.length === 0 ? (list.loading && !list.data ? <SkeletonRows rows={6} cols={5} /> : <Empty icon={<Icon.Users />}>{t('没有匹配的用户')}</Empty>) : (
           <table className="rtable">
             <thead><tr>
-              <th style={{ width: 32 }}><input type="checkbox" aria-label="全选" checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
-              {th('username', '用户')}<th>状态</th><th>授权</th>{th('used', '流量（已用 / 总量）')}{th('expire', '到期')}{th('online', '最近在线')}<th>在线 IP</th><th>操作</th>
+              <th style={{ width: 32 }}><input type="checkbox" aria-label={t('全选')} checked={checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((u) => u.id) : [])} /></th>
+              {th('username', t('用户'))}<th>{t('状态')}</th><th>{t('授权')}</th>{th('used', t('流量（已用 / 总量）'))}{th('expire', t('到期'))}{th('online', t('最近在线'))}<th>{t('在线 IP')}</th><th>{t('操作')}</th>
             </tr></thead>
             <tbody>
               {items.map((u) => {
@@ -606,30 +607,30 @@ export default function Users() {
                 const d = daysLeft(u.expireAt)
                 return (
                   <tr key={u.id} className="clickable" onClick={() => setSelected(u)}>
-                    <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={'选择 ' + u.username} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
+                    <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={t('选择 {name}', { name: u.username })} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
                     <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
-                    <td data-label="状态">{statusBadge(u)}</td>
-                    <td data-label="授权">
-                      {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title="整台节点">{nname(n)}</span>)}
+                    <td data-label={t('状态')}>{statusBadge(u)}</td>
+                    <td data-label={t('授权')}>
+                      {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title={t('整台节点')}>{nname(n)}</span>)}
                       {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
-                      {(u.inboundIds ?? []).length > 0 && <span className="tag" title="单独授权的入站">+{u.inboundIds.length} 入站</span>}
-                      {!u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">未授权</span>}
+                      {(u.inboundIds ?? []).length > 0 && <span className="tag" title={t('单独授权的入站')}>{t('+{n} 入站', { n: u.inboundIds.length })}</span>}
+                      {!u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">{t('未授权')}</span>}
                     </td>
-                    <td data-label="流量" className="rt-wrap" style={{ minWidth: 180 }}>
-                      <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : '不限'}</span>
+                    <td data-label={t('流量')} className="rt-wrap" style={{ minWidth: 180 }}>
+                      <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : t('不限')}</span>
                       <div className="bar" style={{ marginTop: 6 }}><div style={{ width: pct + '%', background: pct >= 100 ? 'var(--bad)' : 'var(--pri)' }} /></div>
                     </td>
-                    <td data-label="到期" className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? `${d} 天后` : date(u.expireAt)) : '永不'}</td>
-                    <td data-label="最近在线" className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>在线</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">从未</span>}</td>
-                    <td data-label="在线 IP" className="mono">{isOnline(u.onlineAt) ? u.onlineIps.length : 0} / {u.ipLimit || '∞'}</td>
+                    <td data-label={t('到期')} className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? t('{n} 天后', { n: d }) : date(u.expireAt)) : t('永不')}</td>
+                    <td data-label={t('最近在线')} className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>{t('在线')}</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">{t('从未')}</span>}</td>
+                    <td data-label={t('在线 IP')} className="mono">{isOnline(u.onlineAt) ? u.onlineIps.length : 0} / {u.ipLimit || '∞'}</td>
                     <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
-                      {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, '流量已重置')}>重置流量</button>
-                        : u.status === 'disabled' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post('/users/bulk', { action: 'enable', ids: [u.id] }); list.reload() }, '已启用')}>启用</button>
+                      {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, t('流量已重置'))}>{t('重置流量')}</button>
+                        : u.status === 'disabled' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post('/users/bulk', { action: 'enable', ids: [u.id] }); list.reload() }, t('已启用'))}>{t('启用')}</button>
                         : <>
-                          <button className="icon-btn" type="button" aria-label="复制订阅链接" onClick={() => copySub(u)}><Icon.Copy /></button>
-                          <button className="icon-btn" type="button" aria-label="显示二维码" onClick={() => setQr(u)}><Icon.QR /></button>
+                          <button className="icon-btn" type="button" aria-label={t('复制订阅链接')} onClick={() => copySub(u)}><Icon.Copy /></button>
+                          <button className="icon-btn" type="button" aria-label={t('显示二维码')} onClick={() => setQr(u)}><Icon.QR /></button>
                         </>}
-                      <button className="icon-btn" type="button" aria-label="编辑" onClick={() => setDrawer(u)}><Icon.Edit /></button>
+                      <button className="icon-btn" type="button" aria-label={t('编辑')} onClick={() => setDrawer(u)}><Icon.Edit /></button>
                     </td>
                   </tr>
                 )
@@ -640,31 +641,31 @@ export default function Users() {
       </div>
       {total > PAGE && (
         <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <span className="small mute">第 {page * PAGE + 1}–{Math.min(total, (page + 1) * PAGE)} 个，共 {total} 个</span>
-          <button className="btn sm" type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>上一页</button>
-          <button className="btn sm" type="button" disabled={(page + 1) * PAGE >= total} onClick={() => setPage(page + 1)}>下一页</button>
+          <span className="small mute">{t('第 {from}–{to} 个，共 {total} 个', { from: page * PAGE + 1, to: Math.min(total, (page + 1) * PAGE), total })}</span>
+          <button className="btn sm" type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('上一页')}</button>
+          <button className="btn sm" type="button" disabled={(page + 1) * PAGE >= total} onClick={() => setPage(page + 1)}>{t('下一页')}</button>
         </div>
       )}
       {sel && (
         <div className="card row" style={{ justifyContent: 'space-between', gap: 16 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 600 }}>订阅链接 · {sel.username}</div>
+            <div style={{ fontWeight: 600 }}>{t('订阅链接 · {name}', { name: sel.username })}</div>
             <div className="mono" style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 4, overflowWrap: 'anywhere' }}>{subURL(sel)}</div>
-            <div className="sub">按客户端自动输出：通用链接 · Clash/mihomo · sing-box · Surge；浏览器打开显示订阅信息页</div>
+            <div className="sub">{t('按客户端自动输出：通用链接 · Clash/mihomo · sing-box · Surge；浏览器打开显示订阅信息页')}</div>
           </div>
           <div className="row">
             <button className="btn" type="button" onClick={async () => {
-              if (!(await confirm('重置后旧订阅链接和已导入的节点立即失效（同时更换 UUID / 密码），用户需要重新导入订阅。确定重置？', { danger: true, ok: '重置' }))) return
-              run(async () => { await post(`/users/${sel.id}/reset-token`); list.reload() }, '已重置：旧链接和旧节点立即失效')
-            }}>重置 token</button>
-            <button className="btn" type="button" onClick={() => setQr(sel)}>二维码</button>
-            <button className="btn" type="button" onClick={() => copySub(sel)}>复制</button>
+              if (!(await confirm(t('重置后旧订阅链接和已导入的节点立即失效（同时更换 UUID / 密码），用户需要重新导入订阅。确定重置？'), { danger: true, ok: t('重置') }))) return
+              run(async () => { await post(`/users/${sel.id}/reset-token`); list.reload() }, t('已重置：旧链接和旧节点立即失效'))
+            }}>{t('重置 token')}</button>
+            <button className="btn" type="button" onClick={() => setQr(sel)}>{t('二维码')}</button>
+            <button className="btn" type="button" onClick={() => copySub(sel)}>{t('复制')}</button>
           </div>
         </div>
       )}
       {drawer && groups.data && <UserDrawer user={drawer === 'new' ? undefined : drawer} groups={groups.data} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); list.reload() }} onDelete={(u) => removeUsers([u])} />}
       {qr && (
-        <Modal title={'订阅 · ' + qr.username} onClose={() => setQr(null)}>
+        <Modal title={t('订阅 · {name}', { name: qr.username })} onClose={() => setQr(null)}>
           <QR text={subURL(qr)} size={220} />
           <CopyBox text={subURL(qr)} />
         </Modal>
