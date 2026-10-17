@@ -192,8 +192,8 @@ func TestAgentFetchedOnDemand(t *testing.T) {
 			if !good {
 				sha = strings.Repeat("0", 64)
 			}
-			fmt.Fprintf(w, "%s  polaris-agent-linux-arm64\n", sha)
-		case strings.HasSuffix(r.URL.Path, "/v9.9.9/polaris-agent-linux-arm64"):
+			fmt.Fprintf(w, "%s  polaris-agent-%slinux-arm64\n", sha, editionAsset()) // this edition's asset
+		case strings.HasSuffix(r.URL.Path, "/v9.9.9/polaris-agent-"+editionAsset()+"linux-arm64"):
 			w.Write(bin)
 		default:
 			http.NotFound(w, r)
@@ -226,7 +226,7 @@ func TestAgentFetchedOnDemand(t *testing.T) {
 	if st, body := get("/download/polaris-agent-linux-arm64"); st != 200 || body != string(bin) {
 		t.Fatalf("binary %d %q", st, body)
 	}
-	if v, _ := os.ReadFile(filepath.Join(s.downloadsDir(), ".version-arm64")); strings.TrimSpace(string(v)) != "v9.9.9" {
+	if v, _ := os.ReadFile(filepath.Join(s.downloadsDir(), ".version-arm64")); strings.TrimSpace(string(v)) != agentMarker() { // "v9.9.9", or "v9.9.9 pro"
 		t.Fatalf("marker %q", v)
 	}
 	before := hits

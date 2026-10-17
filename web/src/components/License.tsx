@@ -8,7 +8,7 @@ export type LicenseState = {
   expiresAt?: string; updatesUntil?: string; trialUntil?: string; warnings: string[]
 }
 type LicenseView = {
-  state: LicenseState; instance: string; usage: { nodes: number; users: number }; server: boolean; keys: boolean
+  state: LicenseState; instance: string; usage: { nodes: number; users: number }; server: boolean; keys: boolean; edition?: 'pro' | 'community'
   license?: { id: string; customer: string; plan: string; offline: boolean; issuedAt: string; expiresAt?: string; updatesUntil?: string }
   invalid?: boolean; checkedAt?: string; warning?: string
 }
@@ -46,6 +46,7 @@ export default function License() {
         <h2>{t('许可证')}</h2>
         <span className={'tag ' + (st.source === 'license' || st.plan === 'open' ? 'ok' : st.plan === 'trial' ? 'warn' : '')}>{planLabel(st.plan)}</span>
       </div>
+      {d.edition === 'community' && <div className="note">{t('当前是社区版构建（从开源代码编译），不包含高级功能。官方发布版包含专业版功能，安装许可证后即可启用。')}</div>}
       {st.plan === 'open' && <div className="note">{t('当前版本未启用授权校验，所有功能可用。')}</div>}
       {st.plan === 'trial' && <div className="note warn">{t('高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。', { n: days })}</div>}
       {d.invalid && <div className="note bad">{t('已安装的许可证对本面板无效（签名、实例或版本不符），请重新激活。')}</div>}

@@ -347,7 +347,8 @@ func (s *Server) joinScript(c *gin.Context) {
 func (s *Server) renderInstallScript(r *http.Request, tok string) string {
 	return strings.NewReplacer("__PANEL_HTTP__", s.requestBase(r), "__PANEL_VERSION__", Version, "__PANEL_TOKEN__", tok,
 		"__PANEL_AGENT__", s.agentURLFor(r), "__PANEL_CA__", s.ca.Fingerprint(),
-		"__SHA_AMD64__", s.agentSHA("amd64"), "__SHA_ARM64__", s.agentSHA("arm64")).Replace(installSh)
+		"__SHA_AMD64__", s.agentSHA("amd64"), "__SHA_ARM64__", s.agentSHA("arm64"),
+		"__AGENT_ASSET__", "polaris-agent-"+editionAsset()+"linux").Replace(installSh)
 }
 
 var validHost = regexp.MustCompile(`^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:[0-9]{1,5})?$`)

@@ -2,7 +2,6 @@ package panel
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -58,31 +57,12 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 		return b.userNodesText(id.user), [][]button{backRow("v:nodes")}
 	case "bindhelp":
 		return "🔗 <b>绑定账号</b>\n" + tgRule + "\n把面板发给你的<b>订阅链接</b>发给我：\n<code>/bind https://…/sub/…</code>\n\n也可以在订阅页点「Telegram 绑定」一键完成。", [][]button{backRow("")}
-	case "status":
-		if id.admin == nil {
-			return "仅管理员可用", [][]button{backRow("")}
-		}
-		return b.statusText(id), [][]button{{{Text: "🖥 节点列表", Data: "n:l"}}, backRow("v:status")}
-	case "users":
-		if !id.owner() {
-			return "仅超级管理员可用", [][]button{backRow("")}
-		}
-		page, _ := strconv.Atoi(arg)
-		return b.userList(page)
-	case "top":
-		if !id.owner() {
-			return "仅超级管理员可用", [][]button{backRow("")}
-		}
-		return b.trafficText(), [][]button{backRow("v:top")}
+	case "status", "users", "top", "update":
+		return b.adminView(name, arg, id)
 	case "help":
 		return b.helpText(id), [][]button{backRow("")}
 	case "pro":
 		return tgProText, [][]button{backRow("")}
-	case "update":
-		if !id.owner() {
-			return "仅超级管理员可用", [][]button{backRow("")}
-		}
-		return b.updateView()
 	}
 	return b.homeText(id), b.homeButtons(id)
 }
@@ -223,164 +203,3 @@ func (b *tgBot) userNodesText(u *store.User) string {
 }
 
 // --- admin views ---
-
-func (b *tgBot) statusText(id tgIdentity) string {
-	ns := b.visibleNodes(id)
-	online := 0
-	for _, n := range ns {
-		if n.Status == "online" || n.Status == "syncing" {
-			online++
-		}
-	}
-	traffic := b.s.nodeTrafficStats()
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "📈 <b>概览</b>\n%s\n🖥 节点  <b>%d</b> / %d 在线\n", tgRule, online, len(ns))
-	if id.owner() {
-		var active, onlineUsers int64
-		b.s.st.DB.Model(&store.User{}).Where("is_service = ? AND status = ?", false, "active").Count(&active)
-		b.s.st.DB.Model(&store.User{}).Where("is_service = ? AND online_at > ?", false, time.Now().Add(-2*time.Minute)).Count(&onlineUsers)
-		var up, down int64
-		for _, t := range traffic {
-			up, down = up+t.TodayUp, down+t.TodayDown
-		}
-		fmt.Fprintf(&sb, "👥 用户  <b>%d</b> 在线 · %d 有效\n📶 今日  <b>%s</b>（↑ %s ↓ %s）\n", onlineUsers, active,
-			sub.HumanBytes(up+down), sub.HumanBytes(up), sub.HumanBytes(down))
-	}
-	if len(ns) > 0 {
-		sb.WriteString(tgRule + "\n")
-	}
-	for _, n := range ns {
-		line := statusDot(n.Status) + " " + esc(n.Name)
-		if t := traffic[n.ID]; t != nil && t.TodayUp+t.TodayDown > 0 {
-			line += "  · 今日 " + sub.HumanBytes(t.TodayUp+t.TodayDown)
-		}
-		if n.AppliedRev < n.DesiredRev {
-			line += fmt.Sprintf("  · 同步中 %d/%d", n.AppliedRev, n.DesiredRev)
-		}
-		sb.WriteString(line + "\n")
-	}
-	return sb.String()
-}
-
-func (b *tgBot) adminNodesView(id tgIdentity) (string, [][]button) {
-	ns := b.visibleNodes(id)
-	if len(ns) == 0 {
-		return "🖥 <b>节点管理</b>\n" + tgRule + "\n没有可管理的节点", [][]button{backRow("")}
-	}
-	var rows [][]button
-	for i := 0; i < len(ns); i += 2 { // two per row
-		row := []button{{Text: statusDot(ns[i].Status) + " " + ns[i].Name, Data: "n:v:" + ns[i].ID}}
-		if i+1 < len(ns) {
-			row = append(row, button{Text: statusDot(ns[i+1].Status) + " " + ns[i+1].Name, Data: "n:v:" + ns[i+1].ID})
-		}
-		rows = append(rows, row)
-	}
-	rows = append(rows, backRow("n:l"))
-	return fmt.Sprintf("🖥 <b>节点管理</b>（%d）\n%s\n点按节点查看详情与操作", len(ns), tgRule), rows
-}
-
-func (b *tgBot) adminNodes(chat, msg int64, id tgIdentity) {
-	text, rows := b.adminNodesView(id)
-	if msg > 0 {
-		b.edit(chat, msg, text, rows...)
-	} else {
-		b.send(chat, text, rows...)
-	}
-}
-
-const tgUsersPerPage = 8
-
-func (b *tgBot) userList(page int) (string, [][]button) {
-	var total int64
-	b.s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&total)
-	pages := int((total + tgUsersPerPage - 1) / tgUsersPerPage)
-	if page < 0 || page >= pages {
-		page = 0
-	}
-	var us []store.User
-	b.s.st.DB.Where("is_service = ?", false).Order("username").Offset(page * tgUsersPerPage).Limit(tgUsersPerPage).Find(&us)
-	rows := userRows(us)
-	if pages > 1 {
-		var nav []button
-		if page > 0 {
-			nav = append(nav, button{Text: "‹ 上一页", Data: "v:users:" + strconv.Itoa(page-1)})
-		}
-		nav = append(nav, button{Text: fmt.Sprintf("%d / %d", page+1, pages), Data: "v:users:" + strconv.Itoa(page)})
-		if page < pages-1 {
-			nav = append(nav, button{Text: "下一页 ›", Data: "v:users:" + strconv.Itoa(page+1)})
-		}
-		rows = append(rows, nav)
-	}
-	rows = append(rows, backRow(""))
-	return fmt.Sprintf("👥 <b>用户</b>（%d）\n%s\n点按用户查看与操作；搜索请发送 <code>/users 关键词</code>", total, tgRule), rows
-}
-
-func userRows(us []store.User) [][]button {
-	icon := map[string]string{"active": "🟢", "limited": "⛔", "expired": "⌛", "disabled": "🚫"}
-	var rows [][]button
-	for _, u := range us {
-		rows = append(rows, []button{{Text: icon[u.Status] + " " + u.Username + " · " + sub.HumanBytes(u.Used()), Data: "u:v:" + u.ID}})
-	}
-	return rows
-}
-
-func (b *tgBot) searchUsers(chat int64, q string) {
-	if q == "" {
-		text, rows := b.userList(0)
-		b.send(chat, text, rows...)
-		return
-	}
-	var us []store.User
-	like := "%" + q + "%"
-	b.s.st.DB.Where("is_service = ?", false).Where("username LIKE ? OR uuid LIKE ? OR remark LIKE ?", like, like, like).
-		Order("username").Limit(20).Find(&us)
-	switch len(us) {
-	case 0:
-		b.send(chat, "🔍 没有匹配「"+esc(q)+"」的用户", backRow(""))
-	case 1:
-		b.send(chat, b.userCard(&us[0]), adminUserButtons(&us[0])...)
-	default:
-		rows := append(userRows(us), backRow(""))
-		b.send(chat, fmt.Sprintf("🔍 「%s」找到 %d 个用户", esc(q), len(us)), rows...)
-	}
-}
-
-func adminUserButtons(u *store.User) [][]button {
-	toggle := button{Text: "🚫 禁用", Data: "u:d:" + u.ID}
-	if u.Status == "disabled" {
-		toggle = button{Text: "✅ 启用", Data: "u:e:" + u.ID}
-	}
-	return [][]button{
-		{toggle, {Text: "♻️ 重置流量", Data: "u:t:" + u.ID}},
-		{{Text: "📅 续期 30 天", Data: "u:x:" + u.ID}, {Text: "🔑 重置订阅", Data: "u:k:" + u.ID}},
-		{{Text: "🔄 刷新", Data: "u:v:" + u.ID}, {Text: "« 用户列表", Data: "v:users:0"}, btnHome},
-	}
-}
-
-func (b *tgBot) trafficText() string {
-	now := time.Now()
-	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UTC()
-	type row struct {
-		UserID string
-		Total  int64
-	}
-	var rs []row
-	realUsers(b.s.st.DB.Model(&store.TrafficHourly{})).Select("user_id, SUM(up+down) AS total").Where("hour >= ?", start).
-		Group("user_id").Order("total desc").Limit(10).Scan(&rs)
-	if len(rs) == 0 {
-		return "🏆 <b>今日流量排行</b>\n" + tgRule + "\n今日暂无流量"
-	}
-	medal := []string{"🥇", "🥈", "🥉"}
-	var sb strings.Builder
-	sb.WriteString("🏆 <b>今日流量排行</b>\n" + tgRule + "\n")
-	for i, r := range rs {
-		var u store.User
-		b.s.st.DB.Select("username").First(&u, "id = ?", r.UserID)
-		rank := fmt.Sprintf(" %d.", i+1)
-		if i < len(medal) {
-			rank = medal[i]
-		}
-		fmt.Fprintf(&sb, "%s %s  <b>%s</b>\n", rank, esc(orDefault(u.Username, r.UserID)), sub.HumanBytes(r.Total))
-	}
-	return sb.String()
-}

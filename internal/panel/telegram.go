@@ -443,38 +443,17 @@ func (b *tgBot) handle(u tgUpdate) {
 		}
 		b.sendSub(chat, id.user)
 	case "/nodes":
-		if id.admin != nil {
-			b.adminNodes(chat, 0, id)
-		} else if id.user != nil {
-			b.userNodes(chat, id.user)
-		} else {
-			b.send(chat, "无权限")
-		}
-	case "/node":
-		b.findNode(chat, arg, id)
-	case "/status":
 		if id.admin == nil {
-			b.send(chat, "仅管理员可用")
+			if id.user != nil {
+				b.userNodes(chat, id.user)
+			} else {
+				b.send(chat, "无权限")
+			}
 			return
 		}
-		text, rows := b.view("status", "", id)
-		b.send(chat, text, rows...)
-	case "/users", "/user":
-		if !id.owner() {
-			b.send(chat, "仅超级管理员可用")
-			return
-		}
-		b.searchUsers(chat, arg)
-	case "/traffic":
-		if !id.owner() {
-			b.send(chat, "仅超级管理员可用")
-			return
-		}
-		text, rows := b.view("top", "", id)
-		b.send(chat, text, rows...)
-	case "/update", "/upgrade":
-		text, rows := b.view("update", "", id)
-		b.send(chat, text, rows...)
+		b.adminCommand(cmd, arg, chat, id)
+	case "/node", "/status", "/users", "/user", "/traffic", "/update", "/upgrade":
+		b.adminCommand(cmd, arg, chat, id)
 	case "/login":
 		if id.admin == nil {
 			b.send(chat, "仅管理员可用。普通用户请使用 /me、/sub、/nodes 查看自己的账号与节点。")
@@ -572,91 +551,6 @@ func (b *tgBot) sendSub(chat int64, u *store.User) {
 
 // --- admin views ---
 
-func (b *tgBot) visibleNodes(id tgIdentity) []store.Node {
-	var ns []store.Node
-	b.s.st.DB.Order("sort_order, name").Find(&ns)
-	var out []store.Node
-	for _, n := range ns {
-		if id.canNode(n.ID) {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
-func statusDot(st string) string {
-	switch st {
-	case "online":
-		return "🟢"
-	case "syncing":
-		return "🟡"
-	case "pending":
-		return "⚪"
-	}
-	return "🔴"
-}
-
-func (b *tgBot) findNode(chat int64, name string, id tgIdentity) {
-	for _, n := range b.visibleNodes(id) {
-		if strings.EqualFold(n.Name, name) || n.ID == name {
-			text, rows := b.nodeCard(&n)
-			b.send(chat, text, rows...)
-			return
-		}
-	}
-	b.send(chat, "未找到节点（或无权限）")
-}
-
-func (b *tgBot) nodeCard(n *store.Node) (string, [][]button) {
-	cores, _ := b.s.nodeCores(n.ID)
-	var cs []string
-	for _, c := range cores {
-		cs = append(cs, fmt.Sprintf("%s %s %s", c.Type, c.Version, map[string]string{"running": "✅", "installing": "⏳"}[c.Status]))
-	}
-	var inCount int64
-	b.s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", n.ID).Count(&inCount)
-	last := "—"
-	if n.LastSeen != nil {
-		last = n.LastSeen.Local().Format("01-02 15:04:05")
-	}
-	today := "—"
-	if t := b.s.nodeTrafficStats()[n.ID]; t != nil {
-		today = fmt.Sprintf("↑ %s ↓ %s", sub.HumanBytes(t.TodayUp), sub.HumanBytes(t.TodayDown))
-	}
-	sync := fmt.Sprintf("rev %d ✓", n.AppliedRev)
-	if n.AppliedRev < n.DesiredRev {
-		sync = fmt.Sprintf("rev %d → %d 同步中", n.AppliedRev, n.DesiredRev)
-	}
-	text := fmt.Sprintf("%s <b>%s</b>  %s\n%s\n📍 地址  <code>%s</code>\n⚙️ 配置  %s\n🧩 内核  %s\n🔌 入站  %d 个\n💻 CPU %.1f%% · 内存 %.1f%%\n📶 实时  ↓ %s ↑ %s\n📊 今日  %s\n🕒 心跳  %s",
-		statusDot(n.Status), esc(n.Name), esc(n.Region), tgRule, esc(nodeHost(n)), sync, esc(orDefault(strings.Join(cs, "，"), "—")), inCount,
-		n.System.V.CPU, n.System.V.Mem, bpsText(n.System.V.RxBps), bpsText(n.System.V.TxBps), today, last)
-	if n.LastError != "" {
-		text += "\n⚠️ " + esc(truncate(n.LastError, 300))
-	}
-	rows := [][]button{{{Text: "🔁 强制同步", Data: "n:s:" + n.ID}, {Text: "⏪ 回滚上一版", Data: "n:b:" + n.ID}}}
-	var restart []button
-	for _, c := range cores {
-		if c.Type == "xray" || c.Type == "singbox" || c.Type == "hysteria" {
-			restart = append(restart, button{Text: "♻️ 重启 " + string(c.Type), Data: "n:r:" + n.ID + ":" + string(c.Type)})
-		}
-	}
-	if len(restart) > 0 {
-		rows = append(rows, restart)
-	}
-	rows = append(rows, []button{{Text: "🔄 刷新", Data: "n:v:" + n.ID}, {Text: "« 节点列表", Data: "n:l"}, btnHome})
-	return text, rows
-}
-
-func bpsText(v uint64) string {
-	switch {
-	case v >= 1e9:
-		return fmt.Sprintf("%.2f Gbps", float64(v)/1e9)
-	case v >= 1e6:
-		return fmt.Sprintf("%.1f Mbps", float64(v)/1e6)
-	}
-	return fmt.Sprintf("%d Kbps", v/1000)
-}
-
 // --- callbacks ---
 
 // tgProText explains locked admin menus.
@@ -666,7 +560,7 @@ const tgProText = "🔒 <b>管理菜单需要专业版</b>\n" + tgRule + "\n节�
 // self-service, sign-in, alerts and the home screen stay free.
 func tgAdvanced(parts []string) bool {
 	switch parts[0] {
-	case "me", "ul", "m":
+	case "me", "ul", "wl", "m": // self-service, user center and panel sign-in, alert toggle
 		return false
 	case "v":
 		if len(parts) < 2 {
@@ -717,10 +611,8 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.sendSub(chat, id.user)
 		}
 		answer("")
-	case "up": // version update: up:<panel|all|agents|mode>
-		if len(parts) == 2 {
-			b.onUpdateCallback(chat, msg, parts[1], id, answer)
-		}
+	case "up", "n", "u": // admin menus: version update, nodes, users
+		b.adminCallback(ctx, parts, chat, msg, id, answer)
 	case "ul": // user center sign-in: ul:<request>:<number|x>
 		if len(parts) == 3 {
 			b.portalLoginAnswer(chat, msg, parts[1], parts[2], id, answer)
@@ -757,105 +649,6 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.edit(chat, msg, text, rows...)
 			answer(map[bool]string{true: "已开启告警通知", false: "已关闭告警通知"}[on])
 		}
-	case "n":
-		if len(parts) >= 2 && parts[1] == "l" {
-			b.adminNodes(chat, msg, id)
-			answer("")
-			return
-		}
-		if len(parts) < 3 || !id.canNode(parts[2]) {
-			answer("无权限")
-			return
-		}
-		var n store.Node
-		if b.s.st.DB.First(&n, "id = ?", parts[2]).Error != nil {
-			answer("节点不存在")
-			return
-		}
-		who := "tg:" + id.admin.Name
-		switch parts[1] {
-		case "s":
-			rev, _, err := b.s.Publish(n.ID, "telegram sync", true)
-			if err != nil {
-				answer("失败：" + err.Error())
-				return
-			}
-			b.s.audit(who, "node.sync", n.Name, fmt.Sprintf("rev %d", rev), "")
-			answer(fmt.Sprintf("已下发 rev %d", rev))
-		case "b":
-			rev, err := b.s.rollbackTo(&n, 0)
-			if err != nil {
-				answer("回滚失败：" + err.Error())
-				return
-			}
-			b.s.audit(who, "node.rollback", n.Name, fmt.Sprintf("-> rev %d", rev), "")
-			answer(fmt.Sprintf("已回滚，新版本 rev %d", rev))
-		case "r":
-			if len(parts) < 4 {
-				return
-			}
-			res, err := b.s.hub.Command(ctx, n.ID, "restart_core", map[string]string{"type": parts[3]}, 30*time.Second)
-			switch {
-			case err != nil:
-				answer("失败：" + err.Error())
-				return
-			case !res.Ok:
-				answer("失败：" + res.Error)
-				return
-			}
-			b.s.audit(who, "core.restart", n.Name, parts[3], "")
-			answer(parts[3] + " 已重启")
-		default:
-			answer("")
-		}
-		b.s.st.DB.First(&n, "id = ?", n.ID)
-		text, rows := b.nodeCard(&n)
-		b.edit(chat, msg, text, rows...)
-	case "u":
-		if !id.owner() || len(parts) < 3 {
-			answer("无权限")
-			return
-		}
-		var u store.User
-		if b.s.st.DB.First(&u, "id = ? AND is_service = ?", parts[2], false).Error != nil {
-			answer("用户不存在")
-			return
-		}
-		who := "tg:" + id.admin.Name
-		done := ""
-		switch parts[1] {
-		case "d", "e":
-			st := map[string]string{"d": "disabled", "e": "active"}[parts[1]]
-			b.s.st.DB.Model(&u).Update("status", st)
-			b.s.recomputeStatus(u.ID)
-			done = map[string]string{"d": "已禁用", "e": "已启用"}[parts[1]]
-		case "t":
-			b.s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now(), "warned_usage": false})
-			b.s.resetNodeUsage(u.ID)
-			b.s.recomputeStatus(u.ID)
-			done = "流量已重置"
-		case "x":
-			base := time.Now()
-			if u.ExpireAt != nil && u.ExpireAt.After(base) {
-				base = *u.ExpireAt
-			}
-			b.s.st.DB.Model(&u).Updates(map[string]any{"expire_at": base.AddDate(0, 0, 30), "warned_expire": nil})
-			b.s.recomputeStatus(u.ID)
-			done = "已续期 30 天"
-		case "k":
-			if err := b.s.rotateUserCredentials(&u); err != nil {
-				answer("重置失败")
-				return
-			}
-			done = "订阅已重置"
-		}
-		if done != "" {
-			b.s.audit(who, "user.telegram", u.Username, done, "")
-			b.s.MarkDirty("telegram user action", b.s.nodesForUsers(u.ID)...)
-		}
-		answer(done)
-		b.s.st.DB.First(&u, "id = ?", u.ID)
-		b.edit(chat, msg, b.userCard(&u), adminUserButtons(&u)...)
 	default:
 		answer("")
 	}

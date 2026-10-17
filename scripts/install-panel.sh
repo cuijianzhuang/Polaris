@@ -5,10 +5,11 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh)
 #
 # With no arguments an interactive menu opens. Non-interactive commands:
-#   install [--domain NAME] [--no-caddy] [--version TAG] [--port N] [--agent-port N] [--admin-path P] [--restore FILE]
-#   update [--version TAG] [--force]  upgrade binaries, keep config and data (database backed up first)
+#   install [--pro] [--domain NAME] [--no-caddy] [--version TAG] [--port N] [--agent-port N] [--admin-path P] [--restore FILE]
+#   update [--version TAG] [--force] [--pro|--community]  upgrade binaries, keep config and data (database backed up first)
 #   check-update                  compare the installed version with the latest release
 #   update-request                run an update the panel asked for (used by polaris-update.service)
+#   switch [pro|community]        switch between the community and professional editions (same version)
 #   uninstall [--purge]           remove; --purge also deletes config and data
 #   start | stop | restart | status | log
 #   info                          admin URL, ports and config summary
@@ -27,6 +28,8 @@
 #   doctor                        check service, ports, firewall, DNS/HTTPS, clock and disk
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
+#   --pro / --community: the professional edition (paid features, needs a
+#   license) or the community edition; updates keep the installed one.
 set -euo pipefail
 
 REPO="cuijianzhuang/Polaris"
@@ -46,7 +49,7 @@ UNIT=/etc/systemd/system/polaris.service
 CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
-FORCE=0 DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
+FORCE=0 EDITION="" DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
 BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 
 shopt -s extglob
@@ -178,6 +181,75 @@ banner() {
 # --- status ----------------------------------------------------------------------
 
 panel_version() { [ -x "$BIN" ] && "$BIN" --version 2>/dev/null | awk '{print $2}'; return 0; }
+# installed_edition: the edition of the installed panel — "pro", "community",
+# or "legacy" for builds from before the split (they print no edition and
+# contained the paid features).
+installed_edition() {
+  local e=""
+  [ -x "$BIN" ] && e="$("$BIN" --version 2>/dev/null | awk '{print $3}')"
+  case "$e" in pro | community) echo "$e" ;; "") if [ -x "$BIN" ]; then echo legacy; else echo community; fi ;; *) echo community ;; esac
+}
+edition_label() { case "$1" in pro) echo 专业版 ;; legacy) echo 旧版 ;; *) echo 社区版 ;; esac; }
+
+# resolve_edition: --pro / --community, else POLARIS_EDITION, else what is
+# installed (a pre-split build moves to pro, which keeps its features), else
+# community. EP is the release asset infix ("pro-" or ""). EDITION_GUESSED
+# marks a choice nobody made, which may fall back to community.
+resolve_edition() {
+  EDITION_GUESSED=""
+  [ -n "$EDITION" ] || EDITION="${POLARIS_EDITION:-}"
+  if [ -z "$EDITION" ] && [ -x "$BIN" ]; then
+    EDITION="$(installed_edition)"
+    [ "$EDITION" = legacy ] && EDITION=pro EDITION_GUESSED=1
+  fi
+  [ -n "$EDITION" ] || EDITION=community
+  case "$EDITION" in
+    pro) EP="pro-" ;;
+    community) EP="" ;;
+    *) die "未知版本：$EDITION（可选 pro / community）" ;;
+  esac
+}
+
+# choose_edition asks which edition to install when nobody said and someone
+# is at the terminal (piped installs default to community).
+choose_edition() {
+  [ -z "$EDITION" ] && [ -z "${POLARIS_EDITION:-}" ] && [ -t 0 ] || return 0
+  echo
+  printf '  %s选择版本%s（之后可以随时切换：polaris switch）\n' "$C_BD" "$C_0"
+  printf '  %s1.%s 社区版  开源免费，包含全部基础功能\n' "$C_C" "$C_0"
+  printf '  %s2.%s 专业版  另含客户独立限速、Telegram 管理菜单、备份推送；需要许可证（面板「系统 → 许可证」激活）\n' "$C_C" "$C_0"
+  local c
+  read -r -p "  请选择 [1-2，默认 1]：" c || true
+  case "$c" in 2) EDITION=pro ;; *) EDITION=community ;; esac
+  ok "安装$(edition_label "$EDITION")"
+}
+
+# do_switch moves an installed panel to the other edition at its current
+# version (configuration and data are shared; nothing else changes).
+do_switch() {
+  need_installed
+  local cur target
+  cur="$(installed_edition)"
+  case "${ARG:-}" in
+    pro | community) target="$ARG" ;;
+    "") if [ "$cur" = pro ]; then target=community; else target=pro; fi ;;
+    *) die "用法：polaris switch [pro|community]" ;;
+  esac
+  if [ "$cur" = "$target" ]; then ok "已经是$(edition_label "$target")"; return 0; fi
+  banner "切换版本"
+  kv 当前 "$(panel_version) $(edition_label "$cur")"
+  kv 切换到 "${C_BD}$(edition_label "$target")${C_0}"
+  if [ "$target" = community ]; then
+    warn "社区版不含客户独立限速、Telegram 管理菜单、备份推送：这些设置会保留，但不再生效"
+  else
+    dim "    专业版功能需要许可证：切换后在面板「系统 → 许可证」激活"
+  fi
+  if [ -t 0 ] && [ "$FORCE" = 0 ] && ! confirm "  确定切换？"; then return 0; fi
+  EDITION="$target"
+  # Same version, other edition (pre-split builds go to the latest release).
+  [ "$cur" = legacy ] || VERSION="$(panel_version)"
+  do_update
+}
 # svc_uptime UNIT: seconds since the unit became active (empty if not running).
 svc_uptime() {
   local mono now
@@ -376,14 +448,25 @@ download_release() {
   resolve_version
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  step "下载 Polaris $VERSION ($ARCH)${MIRROR:+ · 镜像 $MIRROR}"
-  PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
+  resolve_edition
+  step "下载 Polaris $VERSION $(edition_label "$EDITION") ($ARCH)${MIRROR:+ · 镜像 $MIRROR}"
+  PANEL_TGZ="polaris-panel-$EP$VERSION-linux-$ARCH.tar.gz"
+  AGENT_ASSET="polaris-agent-${EP}linux-$ARCH"
   fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
     die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
+  if ! grep -q " \*\?$PANEL_TGZ\$" "$TMP/checksums.txt"; then
+    [ -n "$EDITION_GUESSED" ] || die "$VERSION 没有$(edition_label "$EDITION")的发布包（$PANEL_TGZ）"
+    warn "$VERSION 没有专业版发布包，改为安装社区版（不含客户独立限速、Telegram 管理菜单、备份推送）"
+    EDITION=community EP="" EDITION_GUESSED=""
+    PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
+    AGENT_ASSET="polaris-agent-linux-$ARCH"
+  elif [ -n "$EDITION_GUESSED" ]; then
+    ok "当前版本包含高级功能，升级为专业版以保留它们（需要许可证，有 30 天试用；改用社区版：polaris update --community）"
+  fi
   local f want got
   # Only this machine's architecture: the panel fetches another agent build
   # itself the first time a node of that architecture needs it.
-  local files=("$PANEL_TGZ" "polaris-agent-linux-$ARCH")
+  local files=("$PANEL_TGZ" "$AGENT_ASSET")
   # Releases before the installer existed do not ship it; only fetch what is listed.
   grep -q ' \*\?install-panel.sh$' "$TMP/checksums.txt" && files+=(install-panel.sh)
   for f in "${files[@]}"; do
@@ -401,8 +484,10 @@ install_files() {
   install -m 0755 "$TMP/polaris" "$BIN"
   # Agent binaries served at /download/ so node installs pull them from this panel.
   install -d -m 0755 -o polaris -g polaris "$DATA" "$DATA/downloads"
-  install -m 0755 -o polaris -g polaris "$TMP/polaris-agent-linux-$ARCH" "$DATA/downloads/"
-  printf '%s\n' "$VERSION" > "$DATA/downloads/.version-$ARCH"
+  # Nodes always ask for polaris-agent-linux-<arch>: the edition's build goes there.
+  install -m 0755 -o polaris -g polaris "$TMP/$AGENT_ASSET" "$DATA/downloads/polaris-agent-linux-$ARCH"
+  local mark="$VERSION${EP:+ pro}" # the panel compares this with its own version and edition
+  printf '%s\n' "$mark" > "$DATA/downloads/.version-$ARCH"
   chown polaris:polaris "$DATA/downloads/.version-$ARCH"
   # Builds of the other architecture from an older version would be served
   # with a stale checksum: drop them (re-fetched on demand), and the old
@@ -410,7 +495,7 @@ install_files() {
   local a
   for a in amd64 arm64; do
     [ "$a" = "$ARCH" ] && continue
-    if [ "$(cat "$DATA/downloads/.version-$a" 2>/dev/null)" != "$VERSION" ]; then
+    if [ "$(cat "$DATA/downloads/.version-$a" 2>/dev/null)" != "$mark" ]; then
       rm -f "$DATA/downloads/polaris-agent-linux-$a" "$DATA/downloads/.version-$a"
     fi
   done
@@ -606,7 +691,7 @@ show_info() {
   domain="$(panel_domain)"
 
   section "服务"
-  kv 版本 "$(panel_version)"
+  kv 版本 "$(panel_version) $(edition_label "$(installed_edition)")"
   kv 面板 "$(svc_line polaris)"
   if systemctl is-enabled --quiet polaris 2>/dev/null; then kv 开机自启 "是"; else kv 开机自启 "${C_Y}否${C_0}"; fi
   systemctl cat polaris-agent >/dev/null 2>&1 && kv 本机节点 "$(svc_line polaris-agent)"
@@ -660,6 +745,7 @@ do_install() {
   port_busy "$PORT" && die "$(port_msg "$PORT")：请换一个面板端口（--port）"
   port_busy "$AGENT_PORT" && die "$(port_msg "$AGENT_PORT")：请换一个节点接入端口（--agent-port）"
 
+  choose_edition
   local use_caddy=0
   [ -n "$DOMAIN" ] && [ "$CADDY" = 1 ] && use_caddy=1
   SECONDS=0 STEP_N=0 STEP_TOTAL=$((3 + 2 * use_caddy))
@@ -669,7 +755,7 @@ do_install() {
   kv 访问方式 "$(if [ -n "$DOMAIN" ]; then echo "https://$DOMAIN$([ "$use_caddy" = 1 ] && echo '（自动安装 Caddy 申请证书）' || echo '（自备反向代理）')"; else echo "IP + HTTP"; fi)"
   kv 面板端口 "$PORT"
   kv 节点接入 "$AGENT_PORT"
-  kv 版本 "${VERSION:-最新}"
+  kv 版本 "${VERSION:-最新} $(edition_label "${EDITION:-community}")"
   echo
   download_release
 
@@ -769,7 +855,8 @@ do_update() {
   [ -n "$VERSION" ] || STEP_TOTAL=4
   banner "升级面板"
   resolve_version
-  if [ -n "$cur" ] && [ "$cur" = "$VERSION" ] && [ "$FORCE" = 0 ] && [ -f "$UNIT" ]; then
+  resolve_edition
+  if [ -n "$cur" ] && [ "$cur" = "$VERSION" ] && [ "$EDITION" = "$(installed_edition)" ] && [ "$FORCE" = 0 ] && [ -f "$UNIT" ]; then
     ok "已是最新版本 $cur（加 --force 可重新安装）"
     # A tool older than the updater replaced itself during the update but
     # never set it up: do it now.
@@ -777,8 +864,8 @@ do_update() {
     update_self
     return 0
   fi
-  kv 当前版本 "${cur:-未安装}"
-  kv 目标版本 "${C_BD}$VERSION${C_0}"
+  kv 当前版本 "${cur:-未安装}${cur:+ $(edition_label "$(installed_edition)")}"
+  kv 目标版本 "${C_BD}$VERSION $(edition_label "$EDITION")${C_0}"
   kv 更新说明 "https://github.com/$REPO/releases/tag/$VERSION"
   echo
   id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
@@ -1384,7 +1471,7 @@ menu() {
     if systemctl cat polaris-agent >/dev/null 2>&1; then node="升级本机节点"; else node="安装本机节点"; fi
     section "安装与升级"
     menu_row "1|安装面板" "2|升级面板" "3|检查更新"
-    menu_row "4|卸载面板"
+    menu_row "4|卸载面板" "20|切换版本 [$(edition_label "$(installed_edition)")]"
     section "服务管理"
     menu_row "5|启动" "6|停止" "7|重启"
     menu_row "8|运行状态" "9|实时日志" "10|开机自启 [$auto]"
@@ -1396,7 +1483,7 @@ menu() {
     echo
     if agent_installed; then menu_row "a|切换到节点 Agent 菜单" "0|退出"; else menu_row "0|退出"; fi
     echo
-    local c; c="$(ask "  请选择 [0-19]：")"
+    local c; c="$(ask "  请选择 [0-20]：")"
     echo
     case "$c" in
       1)
@@ -1412,6 +1499,7 @@ menu() {
         # The menu runs the old code from memory: restart it on the new script.
         if [ "$(sha256sum "$CTL" 2>/dev/null)" != "$before" ] && is_script "$CTL"; then exec "$CTL" menu; fi ;;
       3) run_action do_check_update; pause ;;
+      20) ARG=""; run_action do_switch; pause ;;
       4)
         if confirm "确定卸载 Polaris？"; then
           confirm "同时删除配置与全部数据（不可恢复）？" && PURGE=1
@@ -1476,20 +1564,23 @@ while [ $# -gt 0 ]; do
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
     set-path|set-port|set-domain|set-url|set-sub-domain|restore) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    switch) ACTION=switch; shift; if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then ARG="$1"; shift; fi ;;
     --passphrase) BK_PASS="$2"; shift 2 ;;
     --restore) RESTORE_FILE="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --no-caddy) CADDY=0; shift ;;
+    --pro) EDITION=pro; shift ;;
+    --community) EDITION=community; shift ;;
     --version) if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then VERSION="$2"; shift 2; else ACTION=version; shift; fi ;;
     version|-v) ACTION=version; shift ;;
-    help) sed -n '2,22p' "$CTL" 2>/dev/null || sed -n '2,22p' "$0"; exit 0 ;;
+    help) sed -n '2,32p' "$CTL" 2>/dev/null || sed -n '2,32p' "$0"; exit 0 ;;
     --port) PORT="$2"; shift 2 ;;
     --agent-port) AGENT_PORT="$2"; shift 2 ;;
     --admin-path) ADMIN_PATH="$2"; shift 2 ;;
     --mirror) MIRROR="$2"; shift 2 ;;
     --purge) PURGE=1; shift ;;
     -u) ADMIN_USER="$2"; shift 2 ;;
-    -h|--help) sed -n '2,22p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
     *) die "未知参数：$1（--help 查看用法）" ;;
   esac
 done
@@ -1532,6 +1623,7 @@ case "$ACTION" in
   info) banner "面板信息"; show_info ;;
   doctor) do_doctor ;;
   check-update) do_check_update ;;
+  switch) do_switch ;;
   reset-password) do_reset_password ;;
   reset-2fa) do_reset_2fa ;;
   set-path) do_set_path "$ARG" ;;
