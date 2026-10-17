@@ -103,7 +103,7 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/sso/:id/login-url", s.loginGuard, s.ssoLoginURL)
 	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
 
-	p := api.Group("", s.authRequired, s.scopeGuard, s.trackChanges)
+	p := api.Group("", s.authRequired, s.scopeGuard, s.trackChanges, s.idempotency)
 	p.GET("/ws", func(c *gin.Context) {
 		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})
@@ -205,6 +205,8 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/users/:id", s.updateUser)
 	p.DELETE("/users/:id", s.deleteUser)
 	p.POST("/users/:id/reset-traffic", s.resetUserTraffic)
+	p.POST("/users/:id/renew", s.renewUser)
+	p.POST("/users/:id/add-traffic", s.addUserTraffic)
 	p.POST("/users/:id/reset-token", s.resetUserToken)
 	p.GET("/users/:id/node-quotas", s.listNodeQuotas)
 	p.PUT("/users/:id/node-quotas/:node", s.putNodeQuota)
@@ -322,6 +324,10 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/backup/files/:name", s.requireSudo, s.backupDelete)
 	p.POST("/backup/files/:name/restore", s.requireSudo, s.backupRestore)
 	p.GET("/settings", s.getSettings)
+	p.GET("/tokens", s.listTokens)
+	p.GET("/tokens/self", s.tokenSelf)
+	p.POST("/tokens", s.requireSudo, s.createToken)
+	p.DELETE("/tokens/:id", s.requireSudo, s.deleteToken)
 	p.PUT("/brand/logo", s.putBrandLogo)
 	p.DELETE("/brand/logo", s.deleteBrandLogo)
 	p.PUT("/settings", s.putSettings)

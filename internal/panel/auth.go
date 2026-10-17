@@ -69,6 +69,10 @@ func (s *Server) authRequired(c *gin.Context) {
 	if tok == "" && strings.HasSuffix(c.Request.URL.Path, "/ws") {
 		tok = c.Query("token")
 	}
+	if strings.HasPrefix(tok, apiTokenPrefix) {
+		s.authToken(c, tok)
+		return
+	}
 	cl, err := s.parseToken(tok)
 	if err != nil || cl.User != "" {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
