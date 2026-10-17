@@ -180,17 +180,27 @@ banner() {
 # --- status ----------------------------------------------------------------------
 
 panel_version() { [ -x "$BIN" ] && "$BIN" --version 2>/dev/null | awk '{print $2}'; return 0; }
-# installed_edition: "pro" when the professional build is installed, else "community".
+# installed_edition: the edition of the installed panel — "pro", "community",
+# or "legacy" for builds from before the split (they print no edition and
+# contained the paid features).
 installed_edition() {
-  if [ -x "$BIN" ] && [ "$("$BIN" --version 2>/dev/null | awk '{print $3}')" = pro ]; then echo pro; else echo community; fi
+  local e=""
+  [ -x "$BIN" ] && e="$("$BIN" --version 2>/dev/null | awk '{print $3}')"
+  case "$e" in pro | community) echo "$e" ;; "") if [ -x "$BIN" ]; then echo legacy; else echo community; fi ;; *) echo community ;; esac
 }
-edition_label() { if [ "$1" = pro ]; then echo 专业版; else echo 社区版; fi; }
+edition_label() { case "$1" in pro) echo 专业版 ;; legacy) echo 旧版 ;; *) echo 社区版 ;; esac; }
 
 # resolve_edition: --pro / --community, else POLARIS_EDITION, else what is
-# installed, else community. EP is the release asset infix ("pro-" or "").
+# installed (a pre-split build moves to pro, which keeps its features), else
+# community. EP is the release asset infix ("pro-" or ""). EDITION_GUESSED
+# marks a choice nobody made, which may fall back to community.
 resolve_edition() {
+  EDITION_GUESSED=""
   [ -n "$EDITION" ] || EDITION="${POLARIS_EDITION:-}"
-  if [ -z "$EDITION" ] && [ -x "$BIN" ]; then EDITION="$(installed_edition)"; fi
+  if [ -z "$EDITION" ] && [ -x "$BIN" ]; then
+    EDITION="$(installed_edition)"
+    [ "$EDITION" = legacy ] && EDITION=pro EDITION_GUESSED=1
+  fi
   [ -n "$EDITION" ] || EDITION=community
   case "$EDITION" in
     pro) EP="pro-" ;;
@@ -402,8 +412,15 @@ download_release() {
   AGENT_ASSET="polaris-agent-${EP}linux-$ARCH"
   fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
     die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
-  grep -q " \*\?$PANEL_TGZ\$" "$TMP/checksums.txt" ||
-    die "$VERSION 没有$(edition_label "$EDITION")的发布包（$PANEL_TGZ）"
+  if ! grep -q " \*\?$PANEL_TGZ\$" "$TMP/checksums.txt"; then
+    [ -n "$EDITION_GUESSED" ] || die "$VERSION 没有$(edition_label "$EDITION")的发布包（$PANEL_TGZ）"
+    warn "$VERSION 没有专业版发布包，改为安装社区版（不含客户独立限速、Telegram 管理菜单、备份推送）"
+    EDITION=community EP="" EDITION_GUESSED=""
+    PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
+    AGENT_ASSET="polaris-agent-linux-$ARCH"
+  elif [ -n "$EDITION_GUESSED" ]; then
+    ok "当前版本包含高级功能，升级为专业版以保留它们（需要许可证，有 30 天试用；改用社区版：polaris update --community）"
+  fi
   local f want got
   # Only this machine's architecture: the panel fetches another agent build
   # itself the first time a node of that architecture needs it.

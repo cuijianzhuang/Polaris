@@ -26,11 +26,8 @@ func main() {
 	debug := flag.Bool("debug", false, "debug logging")
 	flag.Parse()
 	if *showVersion {
-		if panel.Edition() == "pro" {
-			fmt.Println("polaris", panel.Version, "pro") // install-panel.sh reads the third field
-		} else {
-			fmt.Println("polaris", panel.Version)
-		}
+		// install-panel.sh reads the third field (builds before the split print none)
+		fmt.Println("polaris", panel.Version, panel.Edition())
 		return
 	}
 	lvl := slog.LevelInfo

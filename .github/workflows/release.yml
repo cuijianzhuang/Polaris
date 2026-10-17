@@ -144,7 +144,7 @@ jobs:
           ./dist/polaris-agent-linux-amd64 --version | tee /dev/stderr | grep -F "$VERSION"
           mkdir -p /tmp/c /tmp/p
           tar -xzf dist/polaris-panel-${VERSION}-linux-amd64.tar.gz -C /tmp/c polaris
-          /tmp/c/polaris --version | tee /dev/stderr | grep -qx "polaris ${VERSION}"
+          /tmp/c/polaris --version | tee /dev/stderr | grep -qx "polaris ${VERSION} community"
           if [ -f dist/polaris-panel-pro-${VERSION}-linux-amd64.tar.gz ]; then
             ./dist/polaris-agent-pro-linux-amd64 --version | tee /dev/stderr | grep -F "$VERSION"
             tar -xzf dist/polaris-panel-pro-${VERSION}-linux-amd64.tar.gz -C /tmp/p polaris
