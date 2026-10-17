@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react'
 import { get } from '../api'
 import { bytes } from '../format'
 import { useLoad, usePoll, useWidth } from './ui'
+import { t } from '../i18n'
 
 type Range = '24h' | '7d' | '30d'
 const ranges: { k: Range; label: string; n: number; hour: boolean }[] = [
-  { k: '24h', label: '24 小时', n: 24, hour: true },
-  { k: '7d', label: '7 天', n: 7, hour: false },
-  { k: '30d', label: '30 天', n: 30, hour: false },
+  { k: '24h', label: t('24 小时'), n: 24, hour: true },
+  { k: '7d', label: t('7 天'), n: 7, hour: false },
+  { k: '30d', label: t('30 天'), n: 30, hour: false },
 ]
 const pad = (n: number) => String(n).padStart(2, '0')
 const dayKey = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -57,10 +58,10 @@ export default function TrafficChart({ query, title }: { query: string; title: s
         <span className="seg-mini">{ranges.map((x) => <button key={x.k} type="button" className={range === x.k ? 'on' : ''} onClick={() => setRange(x.k)}>{x.label}</button>)}</span>
       </div>
       <div className="tchart-sum">
-        <div><span>合计</span><b>{bytes(up + down)}</b></div>
-        <div><span><i style={{ background: 'var(--pri)' }} />下行</span><b>{bytes(down)}</b></div>
-        <div><span><i style={{ background: 'var(--warn)' }} />上行</span><b>{bytes(up)}</b></div>
-        <div><span>峰值 / {r.hour ? '小时' : '天'}</span><b>{bytes(max === 1 ? 0 : max)}</b></div>
+        <div><span>{t('合计')}</span><b>{bytes(up + down)}</b></div>
+        <div><span><i style={{ background: 'var(--pri)' }} />{t('下行')}</span><b>{bytes(down)}</b></div>
+        <div><span><i style={{ background: 'var(--warn)' }} />{t('上行')}</span><b>{bytes(up)}</b></div>
+        <div><span>{r.hour ? t('峰值 / 小时') : t('峰值 / 天')}</span><b>{bytes(max === 1 ? 0 : max)}</b></div>
       </div>
       <div ref={ref} className="trend-wrap" style={{ marginTop: 8 }}>
         {W > 0 && (
@@ -86,8 +87,8 @@ export default function TrafficChart({ query, title }: { query: string; title: s
         {h && hover !== null && (
           <div className="tip" style={{ left: Math.min(Math.max(L + bw * (hover + 0.5), 70), W - 70), top: 0 }}>
             <div className="tip-t">{r.hour ? `${dayKey(h.d)} ${h.label}` : dayKey(h.d)}</div>
-            <div><i style={{ background: 'var(--pri)' }} />下行 <b>{bytes(h.down)}</b></div>
-            <div><i style={{ background: 'var(--warn)' }} />上行 <b>{bytes(h.up)}</b></div>
+            <div><i style={{ background: 'var(--pri)' }} />{t('下行')} <b>{bytes(h.down)}</b></div>
+            <div><i style={{ background: 'var(--warn)' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
           </div>
         )}
       </div>
