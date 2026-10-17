@@ -60,7 +60,10 @@ type Options struct {
 	APIListen string // loopback address for the core's management API
 	// AuthURL is the agent-local callback for cores that support external auth.
 	AuthURL string
-	Logger  *slog.Logger
+	// Limit, when set, routes users listed in NodeSpec.UserLimits through
+	// the agent's limiter and back (cores with per-user routing only).
+	Limit  *model.LimitWire
+	Logger *slog.Logger
 }
 
 // Factory builds an adapter.

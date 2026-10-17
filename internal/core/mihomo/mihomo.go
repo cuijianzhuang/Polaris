@@ -89,18 +89,35 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		"profile": map[string]any{"store-selected": false},
 	}
 	var listeners []any
-	for _, in := range spec.InboundsFor(model.CoreMihomo) {
+	ins := spec.InboundsFor(model.CoreMihomo)
+	for _, in := range ins {
 		l, err := renderListener(in)
 		if err != nil {
 			return nil, fmt.Errorf("inbound %s: %w", in.Tag, err)
 		}
 		listeners = append(listeners, l)
 	}
-	cfg["listeners"] = listeners
 	proxies, groups, err := renderOutbounds(spec.Outbounds)
 	if err != nil {
 		return nil, err
 	}
+	lim := core.PlanLimits(a.opt.Limit, spec, ins)
+	var limRules []string
+	if lim != nil {
+		// Limited users detour through the agent's limiter and come back
+		// here as "<id>#lim", where every other rule applies.
+		var us []any
+		for _, u := range lim.Users {
+			us = append(us, map[string]any{"username": u + model.LimitAlias, "password": lim.Secret})
+			tag := model.LimitOutboundPrefix + u
+			proxies = append(proxies, map[string]any{"name": tag, "type": "socks5", "server": lim.LimiterHost,
+				"port": lim.LimiterPort, "username": u, "password": lim.Secret, "udp": true})
+			limRules = append(limRules, "IN-USER,"+u+","+tag)
+		}
+		listeners = append(listeners, map[string]any{"name": model.LimitInbound, "type": "socks",
+			"listen": lim.ReentryHost, "port": lim.ReentryPort, "udp": true, "users": us})
+	}
+	cfg["listeners"] = listeners
 	if len(proxies) > 0 {
 		cfg["proxies"] = proxies
 	}
@@ -119,7 +136,7 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		}
 		resolve = d.DomainStrategy == "IPIfNonMatch" || d.DomainStrategy == "IPOnDemand"
 	}
-	cfg["rules"] = renderRules(spec.Routes, resolve)
+	cfg["rules"] = append(limRules, renderRules(core.AliasRoutes(spec), resolve)...)
 	out, err := yaml.Marshal(cfg)
 	if err != nil {
 		return nil, err

@@ -119,3 +119,10 @@ export function flag(code?: string): string {
 export function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
+
+// coreInstalling: the core waits for its install. Older agents never report
+// cores without inbounds, so a node that applied its latest revision counts
+// its cores as installed.
+export function coreInstalling(c: { status: string }, n: { connected: boolean; appliedRev: number; desiredRev: number; progress?: { active: boolean } | null }): boolean {
+  return c.status === 'installing' && !(n.connected && n.appliedRev >= n.desiredRev && !n.progress?.active)
+}

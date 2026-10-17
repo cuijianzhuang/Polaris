@@ -16,6 +16,13 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/model"
 )
 
+// idleCore is a wanted core without a running adapter: installed but with
+// nothing to serve, or failed to install.
+type idleCore struct {
+	version string
+	err     string
+}
+
 // managed is one running core on this host.
 type managed struct {
 	spec    model.CoreSpec
@@ -36,6 +43,20 @@ func (a *Agent) apiListen(t model.CoreType) string {
 		return ""
 	}
 	return "127.0.0.1:" + strconv.Itoa(a.cfg.APIPortBase+off)
+}
+
+// limitOffsets place each core's limiter listener (and, one above it, the
+// core's re-entry inbound) after the API ports; cores without per-user
+// routing (Hysteria2) have none.
+var limitOffsets = map[model.CoreType]int{model.CoreXray: 100, model.CoreSingbox: 102, model.CoreMihomo: 104}
+
+func (a *Agent) limitWire(t model.CoreType) *model.LimitWire {
+	off, ok := limitOffsets[t]
+	if !ok || a.lim == nil {
+		return nil
+	}
+	base := a.cfg.APIPortBase + off
+	return a.lim.wire("127.0.0.1:"+strconv.Itoa(base), "127.0.0.1:"+strconv.Itoa(base+1))
 }
 
 var cfgNames = map[model.CoreType]string{
@@ -66,6 +87,9 @@ type applyResult struct {
 func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
+	if a.lim != nil {
+		a.lim.setLimits(spec.UserLimits) // rates change in place, no core reload
+	}
 	prev := a.current
 	// Refuse up front, leaving running cores untouched, when another program
 	// holds a port the new spec needs. Ports our cores hold come from what
@@ -130,6 +154,15 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 
 	var errs []string
 	rolledBack, installFailed := false, false
+	// Cores installed ahead of time (no inbounds yet) or whose install
+	// failed have no running adapter; the heartbeat still reports them so the
+	// panel does not show them as installing forever.
+	idle := map[model.CoreType]idleCore{}
+	defer func() {
+		a.coresMu.Lock()
+		a.idle = idle
+		a.coresMu.Unlock()
+	}()
 	for _, t := range types {
 		cs := wanted[t]
 		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.RealmForwards()) > 0) ||
@@ -140,10 +173,14 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
 			installFailed = installFailed || errors.Is(err, errInstall)
+			if a.cores[t] == nil {
+				idle[t] = idleCore{version: cs.Version, err: err.Error()}
+			}
 			continue
 		}
 		if m == nil {
-			continue // installed, nothing to serve
+			idle[t] = idleCore{version: cs.Version} // installed, nothing to serve
+			continue
 		}
 		if t == model.CoreXray && spec.Geodata != nil {
 			a.progress.step("下载 Geo 数据", 0, 0)
@@ -210,6 +247,7 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 	ad, err := core.New(cs.Type, core.Options{
 		Version: cs.Version, BinPath: bin, WorkDir: work, APIListen: a.apiListen(cs.Type),
 		AuthURL: "http://" + a.cfg.AuthListen + "/auth/" + string(cs.Type), Logger: a.log,
+		Limit: a.limitWire(cs.Type),
 	})
 	if err != nil {
 		return nil, nil, err
@@ -350,13 +388,18 @@ func userOnlyDiff(prev, next *model.NodeSpec, t model.CoreType) (map[string][]mo
 			in.Users = nil
 			ins = append(ins, in)
 		}
+		var all []model.User
+		for _, us := range users {
+			all = append(all, us...)
+		}
 		b, _ := json.Marshal(struct {
 			In  []model.Inbound
 			Out []model.Outbound
 			R   []model.RouteRule
 			F   []model.ForwardRule
 			Fr  []model.FrontRule
-		}{ins, s.Outbounds, s.Routes, s.Forwards, s.Fronts})
+			L   []string // limited users change the rendered routing
+		}{ins, s.Outbounds, s.Routes, s.Forwards, s.Fronts, s.LimitedUsers(all)})
 		return b, users
 	}
 	pb, pu := strip(prev)
