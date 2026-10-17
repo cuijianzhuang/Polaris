@@ -214,6 +214,7 @@ func (s *Server) agentServer() (*http.Server, error) {
 	mux.Handle(path, withPeerCert(h))
 	mux.Handle("/agent/binary/", withPeerCert(http.HandlerFunc(s.serveAgentBinary)))
 	mux.Handle("/agent/tool", withPeerCert(http.HandlerFunc(s.serveTool)))
+	mux.Handle("/agent/core", withPeerCert(http.HandlerFunc(s.serveCoreRelay)))
 	srv := &http.Server{
 		Addr:              s.cfg.AgentListen,
 		Handler:           mux,

@@ -365,7 +365,11 @@ func (s *Server) nodeProgressFor(nodeID string) *nodeProgress {
 	if p == nil {
 		return nil
 	}
-	if !p.Active && time.Since(p.At) > progressLinger {
+	linger := progressLinger
+	if p.Error != "" {
+		linger = 10 * time.Minute // a failure stays until someone has seen it
+	}
+	if !p.Active && time.Since(p.At) > linger {
 		delete(s.progress, nodeID)
 		return nil
 	}

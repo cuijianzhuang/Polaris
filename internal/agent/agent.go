@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -136,6 +137,14 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})
 	}
 	a.installer.progress = &a.progress
+	relay := httpClient(id.tlsConfig())
+	a.installer.Relay = func(ctx context.Context, u string) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.PanelURL, "/")+"/agent/core?u="+url.QueryEscape(u), nil)
+		if err != nil {
+			return nil, err
+		}
+		return relay.Do(req)
+	}
 	if !cfg.DisableIPDetect {
 		a.ips = newIPDetector(cfg.IPEcho4, cfg.IPEcho6, 0)
 	}
@@ -338,9 +347,18 @@ func (a *Agent) setCore(t model.CoreType, m *managed) {
 	}
 }
 
+// installRetry are the pauses before retrying a failed core download.
+var installRetry = []time.Duration{30 * time.Second, 2 * time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute}
+
 // reconcileLoop pulls and applies specs as revisions are announced.
 func (a *Agent) reconcileLoop(ctx context.Context) {
 	failed := int64(-1)
+	// A revision that failed only because a core could not be downloaded is
+	// retried with growing pauses (network trouble passes); others wait for
+	// a new revision.
+	var retryAt time.Time
+	attempts := 0
+	var retry *time.Timer
 	for {
 		var rev int64
 		select {
@@ -365,7 +383,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		if spec.Rev == a.appliedRev() {
 			continue
 		}
-		if spec.Rev == failed {
+		if spec.Rev == failed && (retryAt.IsZero() || time.Now().Before(retryAt)) {
 			continue // do not retry a revision that already failed; wait for a new one
 		}
 		end := a.progress.begin(spec.Rev, "应用配置")
@@ -374,7 +392,26 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		res := &polarisv1.ApplyResult{Rev: spec.Rev, Ok: r.ok, Method: r.method, RolledBack: r.rolledBack}
 		if r.err != nil {
 			res.Error = r.err.Error()
-			failed = spec.Rev
+			if failed != spec.Rev {
+				attempts = 0
+			}
+			failed, retryAt = spec.Rev, time.Time{}
+			if r.installFailed && attempts < len(installRetry) {
+				d := installRetry[attempts]
+				attempts++
+				retryAt = time.Now().Add(d - time.Second)
+				res.Error += fmt.Sprintf("（%s 后自动重试）", d)
+				if retry != nil {
+					retry.Stop()
+				}
+				rev := spec.Rev
+				retry = time.AfterFunc(d, func() {
+					select {
+					case a.wantRev <- rev:
+					default:
+					}
+				})
+			}
 			a.log.Error("apply spec", "rev", spec.Rev, "err", r.err, "rolled_back", r.rolledBack)
 		} else {
 			a.log.Info("applied spec", "rev", spec.Rev, "method", r.method)
