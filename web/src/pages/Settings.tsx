@@ -259,7 +259,7 @@ function Updates() {
 type AccessInfo = { adminPath: string; publicUrl: string; listen: string; domain?: string; updater: boolean; pending?: boolean
   last?: { action: string; value: string; ok: boolean; log: string; at: string } }
 
-const accessLabel: Record<string, string> = { 'set-path': t('后台路径'), 'set-domain': t('面板域名'), 'set-port': t('面板端口'), 'set-url': t('公开地址') }
+const accessLabel: Record<string, string> = { 'set-path': t('后台路径'), 'set-domain': t('面板域名'), 'set-port': t('面板端口'), 'set-url': t('公开地址'), 'set-sub-domain': t('订阅域名') }
 
 // Access: how the panel is reached (admin path, HTTPS domain, port, public
 // address). These live in /etc/polaris/polaris.env; the change is carried
@@ -267,7 +267,7 @@ const accessLabel: Record<string, string> = { 'set-path': t('后台路径'), 'se
 // the panel, so the page then moves to the new address.
 function Access() {
   const a = useLoad(() => get<AccessInfo>('/system/access'))
-  const [f, setF] = useState<{ path?: string; domain?: string; port?: string; url?: string }>({})
+  const [f, setF] = useState<{ path?: string; domain?: string; port?: string; url?: string; sub?: string }>({})
   const [moving, setMoving] = useState<{ to: string; note: string } | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -338,6 +338,17 @@ function Access() {
             <button className="btn" type="button" disabled={busy || !d?.updater || !f.domain?.trim() || f.domain.trim() === d?.domain}
               onClick={() => apply('set-domain', f.domain!.trim(), 'https://' + f.domain!.trim().toLowerCase() + adminPath + '/', t('正在安装 Caddy 并签发证书，通常需要半分钟到一分钟。'),
                 t('面板将改用 https://{domain} 访问，订阅链接也会变成这个域名（用户需重新导入；不想变可在订阅设置里填订阅域名）。已接入的节点不受影响。', { domain: f.domain!.trim() }))}>{t('启用 HTTPS')}</button>
+          </div>
+        </Field>
+        <Field label={t('订阅域名（HTTPS）')} hint={t('给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变')}>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input className="input mono" value={f.sub ?? ''} placeholder="sub.example.com" onChange={(e) => setF({ ...f, sub: e.target.value })} />
+            <button className="btn" type="button" disabled={busy || !d?.updater || !f.sub?.trim()}
+              onClick={async () => {
+                const dom = f.sub!.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+                if (!await confirm(t('为 {domain} 签发证书并作为订阅域名？订阅链接会改用 https://{domain}，用户需要重新导入订阅；面板不会重启。', { domain: dom }), { ok: t('应用') })) return
+                run(async () => { await post('/system/access', { action: 'set-sub-domain', value: dom }); a.reload() }, t('已提交，证书签发通常需要半分钟'))
+              }}>{t('配置')}</button>
           </div>
         </Field>
         <Field label={t('面板端口')} hint={d?.domain ? t('已用域名访问时，这是 Caddy 转发的本机端口') : t('订阅链接里的端口会随之改变；云服务器需在安全组放行新端口')}>

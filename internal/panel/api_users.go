@@ -26,6 +26,8 @@ type userReq struct {
 	RenewDays       int        `json:"renewDays"`
 	RenewMax        int        `json:"renewMax"`
 	DeviceLimit     int        `json:"deviceLimit"`
+	SpeedUpMbps     int        `json:"speedUpMbps"`
+	SpeedDownMbps   int        `json:"speedDownMbps"`
 	Remark          string     `json:"remark"`
 	GroupIDs        []string   `json:"groupIds"`
 	NodeIDs         []string   `json:"nodeIds"`    // nil = unchanged on update
@@ -210,6 +212,7 @@ func newUser(req *userReq) store.User {
 		TrafficLimit: req.TrafficLimit, ExpireAt: req.ExpireAt, ExpireAfterDays: req.ExpireAfterDays, IPLimit: req.IPLimit, Status: "active",
 		SubToken: pki.Token(32), ResetPolicy: orDefault(req.ResetPolicy, "none"), ResetDay: req.ResetDay,
 		RenewDays: max(req.RenewDays, 0), RenewMax: max(req.RenewMax, 0), DeviceLimit: max(req.DeviceLimit, 0),
+		SpeedUpMbps: max(req.SpeedUpMbps, 0), SpeedDownMbps: max(req.SpeedDownMbps, 0),
 		Remark: req.Remark, OnlineIPs: store.NewJSON([]string{}),
 	}
 	if u.UUID == "" {
@@ -271,22 +274,24 @@ func (s *Server) createUser(c *gin.Context) {
 // bulkUsers creates N users from a prefix, or applies an action to many.
 func (s *Server) bulkUsers(c *gin.Context) {
 	var req struct {
-		Action   string   `json:"action"` // create / delete / delete-depleted / enable / disable / reset-traffic / extend / set-limits / add-group
-		IDs      []string `json:"ids"`
-		All      bool     `json:"all"` // reset-traffic: every user
-		Prefix   string   `json:"prefix"`
-		Postfix  string   `json:"postfix"`
-		Start    int      `json:"start"`  // first number (default 1)
-		Method   string   `json:"method"` // create: seq (prefix+number+postfix, default) / random
-		Count    int      `json:"count"`
-		AddBytes int64    `json:"addBytes"`    // extend: added to a limited quota
-		IPLimit  *int     `json:"ipLimit"`     // set-limits
-		DevLimit *int     `json:"deviceLimit"` // set-limits
-		Template *userReq `json:"template"`    // create only (a pointer, so other actions need not send it)
-		Days     int      `json:"days"`
-		GroupID  string   `json:"groupId"`
-		NodeIDs  []string `json:"nodeIds"`    // attach-nodes / detach-nodes
-		Inbounds []string `json:"inboundIds"` // attach-inbounds / detach-inbounds
+		Action    string   `json:"action"` // create / delete / delete-depleted / enable / disable / reset-traffic / extend / set-limits / add-group
+		IDs       []string `json:"ids"`
+		All       bool     `json:"all"` // reset-traffic: every user
+		Prefix    string   `json:"prefix"`
+		Postfix   string   `json:"postfix"`
+		Start     int      `json:"start"`  // first number (default 1)
+		Method    string   `json:"method"` // create: seq (prefix+number+postfix, default) / random
+		Count     int      `json:"count"`
+		AddBytes  int64    `json:"addBytes"`      // extend: added to a limited quota
+		IPLimit   *int     `json:"ipLimit"`       // set-limits
+		DevLimit  *int     `json:"deviceLimit"`   // set-limits
+		SpeedUp   *int     `json:"speedUpMbps"`   // set-limits
+		SpeedDown *int     `json:"speedDownMbps"` // set-limits
+		Template  *userReq `json:"template"`      // create only (a pointer, so other actions need not send it)
+		Days      int      `json:"days"`
+		GroupID   string   `json:"groupId"`
+		NodeIDs   []string `json:"nodeIds"`    // attach-nodes / detach-nodes
+		Inbounds  []string `json:"inboundIds"` // attach-inbounds / detach-inbounds
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -429,6 +434,12 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			if req.DevLimit != nil {
 				upd["device_limit"] = max(*req.DevLimit, 0)
 			}
+			if req.SpeedUp != nil {
+				upd["speed_up_mbps"] = max(*req.SpeedUp, 0)
+			}
+			if req.SpeedDown != nil {
+				upd["speed_down_mbps"] = max(*req.SpeedDown, 0)
+			}
 			if req.Template != nil {
 				upd["traffic_limit"] = max(req.Template.TrafficLimit, 0)
 			}
@@ -518,6 +529,7 @@ func (s *Server) updateUser(c *gin.Context) {
 		u.RenewCount = 0 // a new renewal plan starts counting again
 	}
 	u.RenewDays, u.RenewMax, u.DeviceLimit = max(req.RenewDays, 0), max(req.RenewMax, 0), max(req.DeviceLimit, 0)
+	u.SpeedUpMbps, u.SpeedDownMbps = max(req.SpeedUpMbps, 0), max(req.SpeedDownMbps, 0)
 	if req.UUID != "" {
 		u.UUID = req.UUID
 	}
@@ -546,7 +558,7 @@ func (s *Server) updateUser(c *gin.Context) {
 		// update the counters concurrently and must not be overwritten.
 		if err := tx.Model(&u).Select("username", "traffic_limit", "expire_at", "ip_limit", "expire_after_days",
 			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "status",
-			"renew_days", "renew_max", "renew_count", "device_limit").Updates(&u).Error; err != nil {
+			"renew_days", "renew_max", "renew_count", "device_limit", "speed_up_mbps", "speed_down_mbps").Updates(&u).Error; err != nil {
 			return err
 		}
 		if req.GroupIDs != nil {
@@ -688,6 +700,9 @@ type groupReq struct {
 	InboundIDs []string `json:"inboundIds"`
 	NodeIDs    []string `json:"nodeIds"` // nil = unchanged
 	Level      *int     `json:"level"`   // nil = unchanged
+	// The group's speed plan, Mbps (nil = unchanged, 0 = none).
+	SpeedUpMbps   *int `json:"speedUpMbps"`
+	SpeedDownMbps *int `json:"speedDownMbps"`
 }
 
 func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create bool) {
@@ -703,6 +718,12 @@ func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create
 	g.Name, g.Remark = req.Name, req.Remark
 	if req.Level != nil {
 		g.Level = *req.Level
+	}
+	if req.SpeedUpMbps != nil && max(*req.SpeedUpMbps, 0) != g.SpeedUpMbps {
+		g.SpeedUpMbps, nodesChanged = max(*req.SpeedUpMbps, 0), true
+	}
+	if req.SpeedDownMbps != nil && max(*req.SpeedDownMbps, 0) != g.SpeedDownMbps {
+		g.SpeedDownMbps, nodesChanged = max(*req.SpeedDownMbps, 0), true
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Save(g).Error; err != nil {

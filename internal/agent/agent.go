@@ -86,6 +86,7 @@ type Agent struct {
 	// apply (installing a core can take minutes).
 	rev   atomic.Int64
 	cores map[model.CoreType]*managed // written under applyMu and coresMu
+	idle  map[model.CoreType]idleCore // wanted cores without an adapter (coresMu)
 	// coresMu lets heartbeats, online-IP reports and auth callbacks read
 	// the cores without waiting for an apply to finish.
 	coresMu sync.RWMutex
@@ -100,6 +101,7 @@ type Agent struct {
 	acme acmeHTTP  // ACME HTTP-01 challenge server (panel-driven)
 	fw   *firewall // host firewall rules for the spec's ports
 	sh   *shaper   // tc bandwidth caps for the spec's limited ports
+	lim  *limiter  // per-user speed limits (cores detour limited users here)
 
 	restartMu sync.Mutex
 	restart   bool // set by a self-update: Run returns ErrRestart
@@ -132,6 +134,7 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	a.client = polarisv1connect.NewAgentServiceClient(httpClient(id.tlsConfig()), cfg.PanelURL, connect.WithGRPC())
 	a.fw = newFirewall(cfg.DataDir)
 	a.sh = newShaper(cfg.DataDir)
+	a.lim = newLimiter(cfg.DataDir, log)
 	a.installer = &Installer{Dir: filepath.Join(cfg.DataDir, "cores"), Mirror: cfg.Mirror, AllowUnverified: cfg.AllowUnverified}
 	a.progress.send = func(p *polarisv1.Progress) {
 		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})
@@ -181,7 +184,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		if time.Since(start) > time.Minute {
 			backoff = time.Second
 		}
-		a.log.Warn("panel stream closed, reconnecting", "err", err, "in", backoff)
+		if e := fmt.Sprint(err); strings.Contains(e, "GOAWAY") && strings.Contains(e, "NO_ERROR") {
+			// The panel closed the stream on purpose (restart or upgrade).
+			a.log.Info("panel restarted, reconnecting", "in", backoff)
+		} else {
+			a.log.Warn("panel stream closed, reconnecting", "err", err, "in", backoff)
+		}
 		select {
 		case <-time.After(backoff):
 		case <-ctx.Done():
@@ -305,6 +313,14 @@ func (a *Agent) sendHeartbeat() error {
 		}
 		hb.Cores = append(hb.Cores, cs)
 	}
+	a.coresMu.RLock()
+	for t, ic := range a.idle {
+		if _, ok := a.cores[t]; !ok {
+			hb.Cores = append(hb.Cores, &polarisv1.CoreState{Type: string(t), Version: ic.version, Error: ic.err,
+				InstalledVersions: a.installer.Installed(t)})
+		}
+	}
+	a.coresMu.RUnlock()
 	return a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Heartbeat{Heartbeat: hb}})
 }
 
@@ -483,6 +499,13 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 		all = append(all, ds)
 	}
 	merged := model.MergeDeltas(all...)
+	kept := merged[:0]
+	for _, d := range merged {
+		if !model.IsLimiterCounter(d.UserID) { // the limiter detour would count twice
+			kept = append(kept, d)
+		}
+	}
+	merged = kept
 	if len(merged) == 0 {
 		return
 	}
@@ -553,6 +576,9 @@ func (a *Agent) sendOnlineIPs(ctx context.Context) {
 			continue
 		}
 		for u, list := range ips {
+			if strings.HasSuffix(u, model.LimitAlias) {
+				continue // the limiter's own loopback connections
+			}
 			if merged[u] == nil {
 				merged[u] = map[string]bool{}
 			}

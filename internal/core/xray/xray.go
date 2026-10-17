@@ -139,15 +139,40 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		}
 		inbounds = append(inbounds, ib)
 	}
+	lim := core.PlanLimits(a.opt.Limit, spec, spec.InboundsFor(model.CoreXray))
+	if lim != nil {
+		// Limited users come back from the agent's limiter here, as "<id>#lim".
+		var accts []any
+		for _, u := range lim.Users {
+			accts = append(accts, map[string]any{"user": u + model.LimitAlias, "pass": lim.Secret})
+		}
+		inbounds = append(inbounds, map[string]any{
+			"tag": model.LimitInbound, "listen": lim.ReentryHost, "port": lim.ReentryPort, "protocol": "socks",
+			"settings": map[string]any{"auth": "password", "udp": true, "ip": lim.ReentryHost, "accounts": accts},
+			// Recover the domain for routing rules (the limiter forwards addresses as given).
+			"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
+		})
+	}
 	cfg["inbounds"] = inbounds
 
 	outs, balancers, observe, err := renderOutbounds(spec.Outbounds, a.legacyKCP())
 	if err != nil {
 		return nil, err
 	}
-	rules, defTag := renderRules(spec.Routes, balancers)
+	rules, defTag := renderRules(core.AliasRoutes(spec), balancers)
 	if defTag != "" {
 		outs = moveFirst(outs, defTag)
+	}
+	var limRules []any
+	if lim != nil {
+		for _, u := range lim.Users {
+			tag := model.LimitOutboundPrefix + u
+			outs = append(outs, map[string]any{"tag": tag, "protocol": "socks", "settings": map[string]any{
+				"servers": []any{map[string]any{"address": lim.LimiterHost, "port": lim.LimiterPort,
+					"users": []any{map[string]any{"user": u, "pass": lim.Secret}}}},
+			}})
+			limRules = append(limRules, map[string]any{"type": "field", "user": []string{u}, "outboundTag": tag})
+		}
 	}
 	cfg["outbounds"] = outs
 	domainStrategy := "AsIs"
@@ -167,6 +192,11 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if d.DomainStrategy != "" {
 			domainStrategy = d.DomainStrategy
 		}
+	}
+	if len(limRules) > 0 {
+		// First after the api rule: a limited user's traffic detours through
+		// the limiter, then meets every other rule as "<id>#lim".
+		rules = append(append(rules[:1:1], limRules...), rules[1:]...)
 	}
 	routing := map[string]any{"domainStrategy": domainStrategy, "rules": rules}
 	if len(balancers) > 0 {

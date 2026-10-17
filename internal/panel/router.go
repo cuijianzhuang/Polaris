@@ -69,6 +69,7 @@ func (s *Server) Router() http.Handler {
 	r := gin.New()
 	r.Use(gin.Recovery(), securityHeaders)
 	r.RemoveExtraSlash = true
+	r.Use(s.subHostGate(s.decoy()))
 
 	// Public routes.
 	r.GET("/sub/:token", s.subscription)

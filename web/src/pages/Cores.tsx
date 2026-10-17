@@ -7,7 +7,7 @@ import { useNodes } from '../App'
 import GeodataCard from '../components/GeodataCard'
 import { NodeActivity } from '../components/NodeCard'
 import { Empty, Modal, useAction, useConfirm, useLoad } from '../components/ui'
-import { ago, coreColor, coreLabel, coreTagClass } from '../format'
+import { ago, coreColor, coreLabel, coreTagClass, coreInstalling } from '../format'
 import { t } from '../i18n'
 import type { Core, CoreType, Node } from '../types'
 import { BatchCoreUpgrade, CoreForm, versionLess } from './Nodes'
@@ -112,8 +112,8 @@ export default function Cores() {
                         {c.runningVersion && c.runningVersion !== c.version && <div className="small" style={{ color: 'var(--warn)' }}>{t('切换中 · 运行 v{v}', { v: c.runningVersion })}</div>}
                       </td>
                       <td>
-                        <span className={'st ' + (running ? 'ok' : c.status === 'installing' && n.connected ? 'warn' : 'off')}>{running ? t('● 运行中') : c.status === 'installing' ? (n.connected ? t('安装中') : t('等待节点上线')) : c.inbounds ? t('已停止') : t('空闲')}</span>
-                        {!n.connected && c.status !== 'installing' && <div className="small mute">{t('节点离线')}</div>}
+                        <span className={'st ' + (running ? 'ok' : coreInstalling(c, n) && n.connected ? 'warn' : 'off')}>{running ? t('● 运行中') : coreInstalling(c, n) ? (n.connected ? t('安装中') : t('等待节点上线')) : c.inbounds ? t('已停止') : t('空闲')}</span>
+                        {!n.connected && !coreInstalling(c, n) && <div className="small mute">{t('节点离线')}</div>}
                         {n.progress?.active && n.progress.stage.includes(c.type) && <div style={{ marginTop: 4, maxWidth: 260 }}><NodeActivity n={n} compact /></div>}
                         {c.error && <div className="small" style={{ color: 'var(--bad)', maxWidth: 260 }}>{c.error}</div>}
                       </td>

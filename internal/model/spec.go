@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -159,6 +160,10 @@ type NodeSpec struct {
 	// SpeedLimits caps the bandwidth of inbound ports with tc on the node;
 	// everyone on the port shares the cap.
 	SpeedLimits []SpeedLimit `json:"speedLimits,omitempty"`
+	// UserLimits caps single users' bandwidth on this node. Cores hand a
+	// limited user's traffic to the agent's limiter, which shapes it and
+	// passes it back to the core's routing.
+	UserLimits []UserLimit `json:"userLimits,omitempty"`
 	// Geodata makes Xray download its .dat files on a schedule and reload
 	// them without a restart (Xray 26.4.25+).
 	Geodata *GeodataSpec `json:"geodata,omitempty"`
@@ -173,6 +178,81 @@ type SpeedLimit struct {
 	Port    int    `json:"port"`
 	Network string `json:"network"` // "tcp", "udp" or "tcp,udp"
 	Mbps    int    `json:"mbps"`
+}
+
+// UserLimit is one user's bandwidth on a node, kbit/s per direction
+// (0 = that direction unlimited).
+type UserLimit struct {
+	User     string `json:"user"`
+	UpKbps   int    `json:"upKbps,omitempty"`
+	DownKbps int    `json:"downKbps,omitempty"`
+}
+
+// Limiter wiring shared by the agent and the core renderers.
+const (
+	// LimitAlias marks the account a limited user's traffic carries when it
+	// comes back from the limiter ("<user>#lim"): rules naming the user also
+	// name the alias, and traffic counters ignore it.
+	LimitAlias = "#lim"
+	// LimitInbound is the tag of the core inbound the limiter feeds back into.
+	LimitInbound = "polaris-limit-in"
+	// LimitOutboundPrefix starts the tags of the per-user limiter outbounds.
+	LimitOutboundPrefix = "polaris-lim-"
+)
+
+// LimitWire is how one core reaches the limiter and back.
+type LimitWire struct {
+	Limiter string // agent limiter, 127.0.0.1:port (SOCKS5)
+	Reentry string // the core's inbound for limited traffic, 127.0.0.1:port
+	Secret  string // SOCKS5 password on both hops
+}
+
+// LimitedUsers returns the ids in UserLimits that the given users include.
+func (s *NodeSpec) LimitedUsers(users []User) []string {
+	if len(s.UserLimits) == 0 {
+		return nil
+	}
+	lim := map[string]bool{}
+	for _, l := range s.UserLimits {
+		lim[l.User] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, u := range users {
+		if lim[u.ID] && !seen[u.ID] {
+			seen[u.ID] = true
+			out = append(out, u.ID)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// WithLimitAliases adds "<id>#lim" for every limited id in a rule's user
+// list, so the rule still matches after the traffic returns from the limiter.
+func (s *NodeSpec) WithLimitAliases(users []string) []string {
+	if len(s.UserLimits) == 0 || len(users) == 0 {
+		return users
+	}
+	lim := map[string]bool{}
+	for _, l := range s.UserLimits {
+		lim[l.User] = true
+	}
+	out := append([]string(nil), users...)
+	for _, u := range users {
+		if lim[u] {
+			out = append(out, u+LimitAlias)
+		}
+	}
+	return out
+}
+
+// IsLimiterCounter reports traffic counters that belong to the limiter
+// detour (alias users, the re-entry inbound, limiter outbounds); counting
+// them would count limited users twice.
+func IsLimiterCounter(key string) bool {
+	return strings.HasSuffix(key, LimitAlias) || key == "inbound>>>"+LimitInbound ||
+		strings.HasPrefix(key, "outbound>>>"+LimitOutboundPrefix)
 }
 
 // GeodataSpec is Xray's "geodata" block.

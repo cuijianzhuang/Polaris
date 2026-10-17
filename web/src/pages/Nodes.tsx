@@ -6,7 +6,7 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
-import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed } from '../format'
+import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed, coreInstalling } from '../format'
 import VersionPicker from '../components/VersionPicker'
 import { t } from '../i18n'
 import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
@@ -465,7 +465,7 @@ export default function Nodes() {
                     <article key={c.id} className="core">
                       <div className="row" style={{ justifyContent: 'space-between' }}>
                         <div className="cname"><span className="swatch" style={{ background: coreColor[c.type] }} />{coreLabel[c.type]}{c.isDefault && <span className="tag">{t('默认')}</span>}</div>
-                        <span className={'st ' + (working ? 'warn' : running ? 'ok' : c.status === 'installing' ? 'warn' : 'off')}>{working ? t('处理中…') : running ? '● ' + t('运行中') : c.status === 'installing' ? t('安装中') : c.inbounds ? t('已停止') : t('空闲')}</span>
+                        <span className={'st ' + (working ? 'warn' : running ? 'ok' : coreInstalling(c, sel) ? 'warn' : 'off')}>{working ? t('处理中…') : running ? '● ' + t('运行中') : coreInstalling(c, sel) ? t('安装中') : c.inbounds ? t('已停止') : t('空闲')}</span>
                       </div>
                       <div className="meta">
                         <div><span>{t('版本')}</span>{scoped ? <span className="mono" style={{ color: 'var(--ink)', fontSize: 13 }}>v{c.version}</span> : <button className="link mono" type="button" onClick={() => setCoreForm({ core: c })}>v{c.version}</button>}

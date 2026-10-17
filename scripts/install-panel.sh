@@ -16,6 +16,7 @@
 #   reset-2fa [-u NAME]           turn off two-factor authentication
 #   set-path PATH | set-port N    change the admin path (/ turns it off) / panel port
 #   set-domain NAME               switch to HTTPS on a domain via Caddy
+#   set-sub-domain NAME           serve subscriptions on their own HTTPS domain via Caddy
 #   set-url URL                   public address used in subscription / install links
 #   backup [--passphrase P]       backup to /root (with a passphrase: encrypted, restores on any server)
 #   restore FILE [--passphrase P] replace the data with a backup (made here or on another server)
@@ -493,7 +494,7 @@ do_update_request() {
   action="${line%% *}" arg=""
   [ "$action" = "$line" ] || arg="${line#* }"
   case "$action" in
-    set-path|set-domain|set-port|set-url) ;;
+    set-path|set-domain|set-port|set-url|set-sub-domain) ;;
     ""|latest) action=update VERSION="" ;;
     v*) arg="$action" action=update VERSION="$arg" ;;
     *) arg="$action" action=update VERSION="v$arg" ;;
@@ -507,6 +508,7 @@ do_update_request() {
     set-domain) ( set -e; do_set_domain "$arg" ) >"$log" 2>&1 ;;
     set-port) ( set -e; do_set_port "$arg" ) >"$log" 2>&1 ;;
     set-url) ( set -e; do_set_url "$arg" ) >"$log" 2>&1 ;;
+    set-sub-domain) ( set -e; do_set_sub_domain "$arg" ) >"$log" 2>&1 ;;
   esac
   rc=$?
   set -e
@@ -983,6 +985,29 @@ do_set_domain() {
   warn "订阅地址已变为 https://$domain/…，旧的 http 订阅链接失效，用户需要重新导入；可在防火墙关闭 $port/tcp，放行 80、443"
 }
 
+# do_set_sub_domain DOMAIN: a separate HTTPS domain for subscription links.
+# Caddy proxies it to the panel like the admin domain; the panel serves only
+# subscriptions and the user center there. The admin address is unchanged.
+do_set_sub_domain() {
+  need_installed
+  local domain="$1" port p owner
+  valid_domain "$domain" || die "域名格式不正确：$domain"
+  port="$(env_get POLARIS_LISTEN)"; port="${port##*:}"
+  for p in 80 443; do
+    if port_busy "$p" && ! systemctl is-active --quiet caddy; then
+      owner="$(port_owner "$p")"
+      die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 127.0.0.1:$port，再到后台「订阅设置」填写订阅域名 https://$domain"
+    fi
+  done
+  install_caddy
+  step "配置 Caddy 站点 $domain"
+  caddy_site "$domain" "$port"
+  systemctl is-active --quiet caddy || die "Caddy 未能启动（journalctl -u caddy 查看原因）"
+  open_port 80; open_port 443
+  ok "订阅域名 ${C_BD}https://$domain${C_0} 已就绪（证书由 Caddy 自动签发，首次访问可能需要几秒）"
+  dim "  后台「订阅设置 → 订阅域名」填 https://$domain 后，订阅链接改用这个域名；该域名只开放订阅和用户中心"
+}
+
 do_backup() {
   need_installed
   local ts out file
@@ -1450,7 +1475,7 @@ while [ $# -gt 0 ]; do
     join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
-    set-path|set-port|set-domain|set-url|restore) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    set-path|set-port|set-domain|set-url|set-sub-domain|restore) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
     --passphrase) BK_PASS="$2"; shift 2 ;;
     --restore) RESTORE_FILE="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
@@ -1513,6 +1538,7 @@ case "$ACTION" in
   set-port) do_set_port "$ARG" ;;
   set-domain) do_set_domain "$ARG" ;;
   set-url) do_set_url "$ARG" ;;
+  set-sub-domain) do_set_sub_domain "$ARG" ;;
   backup) do_backup ;;
   restore) do_restore "$ARG" ;;
   node) do_node ;;

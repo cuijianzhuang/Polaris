@@ -134,7 +134,21 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	rules, ruleSets, final := renderRules(spec.Routes)
+	lim := core.PlanLimits(a.opt.Limit, spec, ins)
+	if lim != nil {
+		// Limited users come back from the agent's limiter here, as "<id>#lim".
+		var us []any
+		for _, u := range lim.Users {
+			us = append(us, map[string]any{"username": u + model.LimitAlias, "password": lim.Secret})
+		}
+		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": model.LimitInbound,
+			"listen": lim.ReentryHost, "listen_port": lim.ReentryPort, "users": us})
+		for _, u := range lim.Users {
+			outs = append(outs, map[string]any{"type": "socks", "tag": model.LimitOutboundPrefix + u, "server": lim.LimiterHost,
+				"server_port": lim.LimiterPort, "version": "5", "username": u, "password": lim.Secret})
+		}
+	}
+	rules, ruleSets, final := renderRules(core.AliasRoutes(spec))
 	if len(sniffTags) > 0 {
 		rules = append([]any{map[string]any{"inbound": sniffTags, "action": "sniff"}}, rules...)
 	}
@@ -160,6 +174,22 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			rules = append(append(rules[:at:at], map[string]any{"action": "resolve"}), rules[at:]...)
 			route["rules"] = rules
 		}
+	}
+	if lim != nil {
+		// After the sniff rule: a limited user's traffic detours through the
+		// limiter, comes back as "<id>#lim" (sniffed again) and then meets
+		// every other rule.
+		at := 0
+		if len(sniffTags) > 0 {
+			at = 1
+		}
+		add := []any{}
+		for _, u := range lim.Users {
+			add = append(add, map[string]any{"auth_user": []string{u}, "outbound": model.LimitOutboundPrefix + u})
+		}
+		add = append(add, map[string]any{"inbound": []string{model.LimitInbound}, "action": "sniff"})
+		rules = append(append(append([]any(nil), rules[:at]...), add...), rules[at:]...)
+		route["rules"] = rules
 	}
 	if len(ruleSets) > 0 {
 		route["rule_set"] = ruleSets

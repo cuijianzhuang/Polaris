@@ -75,7 +75,7 @@ export function BulkCreateModal({ groups, onClose, onDone }: { groups: Group[]; 
 
 /** Adjust many users at once: extend expiry, add traffic, set limits. */
 export function AdjustModal({ ids, onClose, onDone }: { ids: string[]; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ days: '30', addGB: '', setLimit: false, limitGB: '', setIP: false, ip: '0', setDev: false, dev: '0' })
+  const [f, setF] = useState({ days: '30', addGB: '', setLimit: false, limitGB: '', setIP: false, ip: '0', setDev: false, dev: '0', setSpeed: false, up: '', down: '' })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
   return (
@@ -84,9 +84,10 @@ export function AdjustModal({ ids, onClose, onDone }: { ids: string[]; onClose: 
       <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
         const days = Number(f.days) || 0, add = Math.round((Number(f.addGB) || 0) * GB)
         if (days || add) await post('/users/bulk', { action: 'extend', ids, days, addBytes: add })
-        if (f.setLimit || f.setIP || f.setDev) {
+        if (f.setLimit || f.setIP || f.setDev || f.setSpeed) {
           await post('/users/bulk', {
             action: 'set-limits', ids, ipLimit: f.setIP ? Number(f.ip) || 0 : undefined, deviceLimit: f.setDev ? Number(f.dev) || 0 : undefined,
+            speedUpMbps: f.setSpeed ? Number(f.up) || 0 : undefined, speedDownMbps: f.setSpeed ? Number(f.down) || 0 : undefined,
             template: f.setLimit ? { username: 'x', trafficLimit: Math.round((Number(f.limitGB) || 0) * GB) } : undefined,
           })
         }
@@ -106,6 +107,12 @@ export function AdjustModal({ ids, onClose, onDone }: { ids: string[]; onClose: 
         </Field>
         <Field label={<label className="row small"><input type="checkbox" checked={f.setDev} onChange={(e) => set('setDev', e.target.checked)} />{t('设置设备数')}</label>}>
           <input className="input mono" disabled={!f.setDev} value={f.dev} onChange={(e) => set('dev', e.target.value)} />
+        </Field>
+        <Field label={<label className="row small"><input type="checkbox" checked={f.setSpeed} onChange={(e) => set('setSpeed', e.target.checked)} />{t('设置限速 上行 / 下行 (Mbps)')}</label>} hint={t('留空或 0 为跟随分组套餐')}>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input aria-label={t('上行 Mbps')} className="input mono" disabled={!f.setSpeed} value={f.up} placeholder={t('上行')} onChange={(e) => set('up', e.target.value)} />
+            <input aria-label={t('下行 Mbps')} className="input mono" disabled={!f.setSpeed} value={f.down} placeholder={t('下行')} onChange={(e) => set('down', e.target.value)} />
+          </div>
         </Field>
       </div>
     </Modal>

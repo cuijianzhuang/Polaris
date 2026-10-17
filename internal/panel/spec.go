@@ -174,6 +174,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	}
 	certCache := map[string]*store.Certificate{}
 	spec.IPLimits = map[string]int{}
+	limited := map[string]store.User{} // candidates for per-user speed limits
 	for i := range ins {
 		m := s.toModelInbound(&ins[i])
 		if m.Security.Type == model.SecTLS && m.Security.CertificateID != "" {
@@ -200,12 +201,20 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 			}
 		}
 		sort.Slice(m.Users, func(a, b int) bool { return m.Users[a].ID < m.Users[b].ID })
+		if m.Core != model.CoreHysteria { // Hysteria2 cannot route by user
+			for _, u := range users[m.ID] {
+				if !capped[u.ID] {
+					limited[u.ID] = u
+				}
+			}
+		}
 		if ins[i].SpeedLimitMbps > 0 && m.Enabled && m.Port > 0 && !strings.HasPrefix(m.Listen, "127.") {
 			spec.SpeedLimits = append(spec.SpeedLimits, model.SpeedLimit{Tag: m.Tag, Port: m.Port, Network: m.Network(), Mbps: ins[i].SpeedLimitMbps})
 		}
 		spec.Inbounds = append(spec.Inbounds, m)
 	}
 	resolveFallbacks(spec.Inbounds)
+	spec.UserLimits = s.userLimits(limited)
 
 	if spec.Outbounds, err = s.buildOutbounds(node.ID); err != nil {
 		return nil, err
@@ -554,4 +563,49 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// userLimits resolves each user's speed limit: the user's own rate per
+// direction, else the highest plan among their groups.
+func (s *Server) userLimits(us map[string]store.User) []model.UserLimit {
+	if len(us) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(us))
+	for id := range us {
+		ids = append(ids, id)
+	}
+	type row struct {
+		UserID        string
+		SpeedUpMbps   int
+		SpeedDownMbps int
+	}
+	var rows []row
+	s.st.DB.Table("user_groups").Select("user_groups.user_id, groups.speed_up_mbps, groups.speed_down_mbps").
+		Joins("JOIN groups ON groups.id = user_groups.group_id").
+		Where("user_groups.user_id IN ? AND (groups.speed_up_mbps > 0 OR groups.speed_down_mbps > 0)", ids).Scan(&rows)
+	plan := map[string][2]int{}
+	for _, r := range rows {
+		p := plan[r.UserID]
+		plan[r.UserID] = [2]int{max(p[0], r.SpeedUpMbps), max(p[1], r.SpeedDownMbps)}
+	}
+	var out []model.UserLimit
+	for _, id := range ids {
+		u := us[id]
+		if u.IsService {
+			continue // chain service accounts carry other users' traffic
+		}
+		up, down := u.SpeedUpMbps, u.SpeedDownMbps
+		if up <= 0 {
+			up = plan[id][0]
+		}
+		if down <= 0 {
+			down = plan[id][1]
+		}
+		if up > 0 || down > 0 {
+			out = append(out, model.UserLimit{User: id, UpKbps: up * 1000, DownKbps: down * 1000})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].User < out[j].User })
+	return out
 }
