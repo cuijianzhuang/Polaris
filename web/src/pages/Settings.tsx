@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
+import Webhooks from '../components/Webhooks'
 import { accents, styles, useTheme, type ThemeMode } from '../theme'
 import { logoURL, refreshBrand, useBrand } from '../brand'
 import { CopyBox, Empty, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
@@ -180,6 +181,7 @@ const settingTabs = [
   { id: 'security', label: t('账号安全'), hint: t('密码、二次验证、登录设备、登录防护'), icon: <Icon.Lock /> },
   { id: 'update', label: t('版本与更新'), hint: t('在线升级、自动更新'), icon: <Icon.Refresh /> },
   { id: 'backup', label: t('备份与恢复'), hint: t('自动备份、恢复'), icon: <Icon.Download /> },
+  { id: 'webhooks', label: 'Webhook', hint: t('事件推送到插件、机器人'), icon: <Icon.Bot /> },
   { id: 'appearance', label: t('外观'), hint: t('主题与配色'), icon: <Icon.Sun /> },
 ]
 
@@ -520,6 +522,7 @@ export default function Settings() {
         </>}
         {tab === 'update' && <Updates />}
         {tab === 'appearance' && <Appearance />}
+        {tab === 'webhooks' && <Webhooks />}
         {tab === 'backup' && <Backups />}
         {tab === 'security' && <>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
