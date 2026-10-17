@@ -46,6 +46,7 @@ func main() {
 		users := fs.Int("users", 0, "user cap (0 = unlimited)")
 		features := fs.String("features", strings.Join(license.AllFeatures, ","), "comma-separated features")
 		offline := fs.Bool("offline", false, "never contact the license server")
+		out := fs.String("out", "", "write the license to this file (e.g. acme.lic) instead of stdout")
 		fs.Parse(os.Args[2:])
 		raw, err := base64.StdEncoding.DecodeString(*key)
 		if err != nil || len(raw) != ed25519.PrivateKeySize {
@@ -66,6 +67,14 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
+		}
+		if *out != "" {
+			if err := os.WriteFile(*out, []byte(text+"\n"), 0o600); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			fmt.Println("written to", *out)
+			return
 		}
 		fmt.Println(text)
 	default:

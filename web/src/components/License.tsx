@@ -73,11 +73,19 @@ export default function License() {
             <button className="btn pri" type="button" disabled={busy || !key.trim() || !d.server} onClick={() => run(async () => { await post('/license/activate', { key }); setKey(''); v.reload() }, t('已激活'))}>{t('激活')}</button>
           </div>
         </Field>
-        <Field label={t('粘贴许可证')} hint={t('离线许可证或授权后台下载的许可证文本')}>
+        <Field label={t('粘贴许可证')} hint={t('离线许可证或授权后台下载的许可证文本；也可以直接导入 .lic 文件')}>
           <textarea className="input mono" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
         <div className="row">
           <button className="btn" type="button" disabled={busy || !text.trim()} onClick={() => run(async () => { await post('/license', { text }); setText(''); v.reload() }, t('许可证已安装'))}>{t('安装许可证')}</button>
+          <label className={'btn' + (busy ? ' disabled' : '')} style={{ cursor: 'pointer' }}>
+            {t('导入许可证文件')}
+            <input type="file" accept=".lic,.txt,text/plain" hidden disabled={busy} onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = '' // the same file can be chosen again
+              if (file) run(async () => { await post('/license', { text: (await file.text()).trim() }); v.reload() }, t('许可证已安装'))
+            }} />
+          </label>
           {d.license && <button className="btn danger" type="button" disabled={busy} onClick={async () => {
             if (await confirm(t('停用后本面板恢复为社区版，许可证可以在另一台面板上激活。确定停用？'), { danger: true }))
               run(async () => { const r = await post<LicenseView>('/license/deactivate'); v.reload(); if (r?.warning) throw new Error(r.warning) }, t('已停用'))

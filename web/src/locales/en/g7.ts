@@ -130,7 +130,6 @@ const m: Record<string, string> = {
   '激活': 'Activate',
   '激活码': 'Activation key',
   '社区版': 'Community',
-  '离线许可证或授权后台下载的许可证文本': 'An offline license or the license text downloaded from the license portal',
   '粘贴许可证': 'Paste license',
   '联网校验': 'Online check',
   '联网激活，许可证会绑定到本面板（实例 ID）': 'Online activation binds the license to this panel (instance ID)',
@@ -140,5 +139,7 @@ const m: Record<string, string> = {
   '需要专业版许可证（系统 → 许可证）': 'Needs a Pro license (System → License)',
   '高级功能': 'Paid features',
   '高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。': 'Paid features trial: {n} days left. Afterwards what is configured keeps working but can no longer be changed.',
+  '导入许可证文件': 'Import license file',
+  '离线许可证或授权后台下载的许可证文本；也可以直接导入 .lic 文件': 'An offline license or the license text from the license portal; or import a .lic file',
 }
 export default m
