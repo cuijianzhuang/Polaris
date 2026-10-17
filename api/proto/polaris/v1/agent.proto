@@ -71,6 +71,17 @@ message Heartbeat {
   // CPU architecture (GOARCH: amd64 / arm64), so the panel only caches the
   // agent builds its nodes need. Empty from older agents.
   string arch = 7;
+  // Users under a per-user speed limit on this node, with their current
+  // speed. Empty from older agents.
+  repeated LimitedUser limited = 8;
+}
+
+message LimitedUser {
+  string user_id = 1;
+  int32 up_kbps = 2;   // allowance, 0 = unlimited
+  int32 down_kbps = 3;
+  int64 up_bps = 4;    // measured since the previous heartbeat
+  int64 down_bps = 5;
 }
 
 message SystemStats {

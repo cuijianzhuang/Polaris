@@ -19,6 +19,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"golang.org/x/net/http2"
 
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/api/gen/polaris/v1/polarisv1connect"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/secret"
@@ -49,9 +50,10 @@ type Server struct {
 	tgWeb       tgWebLogins  // login-page Telegram sign-in requests
 	portalWeb   tgWebLogins  // user center Telegram sign-in requests
 	hbMu        sync.Mutex
-	restartHook func()                   // tests: replaces the re-exec after a restore
-	hbCores     map[string]hbCoreState   // last core state written per node
-	progress    map[string]*nodeProgress // live agent activity per node (guarded by hbMu)
+	restartHook func()                              // tests: replaces the re-exec after a restore
+	hbCores     map[string]hbCoreState              // last core state written per node
+	progress    map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
+	limited     map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
 	jwtKey      []byte
 	rt          *realtime
 

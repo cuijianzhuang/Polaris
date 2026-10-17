@@ -565,15 +565,12 @@ func truncate(s string, n int) string {
 	return s[:n]
 }
 
-// userLimits resolves each user's speed limit: the user's own rate per
-// direction, else the highest plan among their groups.
-func (s *Server) userLimits(us map[string]store.User) []model.UserLimit {
-	if len(us) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(us))
-	for id := range us {
-		ids = append(ids, id)
+// groupPlans returns, per user, the highest speed plan (up, down Mbps)
+// among the user's groups.
+func (s *Server) groupPlans(ids []string) map[string][2]int {
+	plan := map[string][2]int{}
+	if len(ids) == 0 {
+		return plan
 	}
 	type row struct {
 		UserID        string
@@ -584,24 +581,43 @@ func (s *Server) userLimits(us map[string]store.User) []model.UserLimit {
 	s.st.DB.Table("user_groups").Select("user_groups.user_id, groups.speed_up_mbps, groups.speed_down_mbps").
 		Joins("JOIN groups ON groups.id = user_groups.group_id").
 		Where("user_groups.user_id IN ? AND (groups.speed_up_mbps > 0 OR groups.speed_down_mbps > 0)", ids).Scan(&rows)
-	plan := map[string][2]int{}
 	for _, r := range rows {
 		p := plan[r.UserID]
 		plan[r.UserID] = [2]int{max(p[0], r.SpeedUpMbps), max(p[1], r.SpeedDownMbps)}
 	}
+	return plan
+}
+
+// effectiveSpeed is the user's own rate per direction, else the plan's.
+func effectiveSpeed(u *store.User, plan [2]int) (up, down int) {
+	up, down = u.SpeedUpMbps, u.SpeedDownMbps
+	if up <= 0 {
+		up = plan[0]
+	}
+	if down <= 0 {
+		down = plan[1]
+	}
+	return up, down
+}
+
+// userLimits resolves each user's speed limit: the user's own rate per
+// direction, else the highest plan among their groups.
+func (s *Server) userLimits(us map[string]store.User) []model.UserLimit {
+	if len(us) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(us))
+	for id := range us {
+		ids = append(ids, id)
+	}
+	plan := s.groupPlans(ids)
 	var out []model.UserLimit
 	for _, id := range ids {
 		u := us[id]
 		if u.IsService {
 			continue // chain service accounts carry other users' traffic
 		}
-		up, down := u.SpeedUpMbps, u.SpeedDownMbps
-		if up <= 0 {
-			up = plan[id][0]
-		}
-		if down <= 0 {
-			down = plan[id][1]
-		}
+		up, down := effectiveSpeed(&u, plan[id])
 		if up > 0 || down > 0 {
 			out = append(out, model.UserLimit{User: id, UpKbps: up * 1000, DownKbps: down * 1000})
 		}
