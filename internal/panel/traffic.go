@@ -252,8 +252,15 @@ func (s *Server) settleTraffic() error {
 					Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "hour"}},
 					DoUpdates: clause.Assignments(map[string]any{
 						"up": gorm.Expr("traffic_hourlies.up + ?", up), "down": gorm.Expr("traffic_hourlies.down + ?", down),
+						"raw_recorded": true,
+						"raw_up":       gorm.Expr("traffic_hourlies.raw_up + ?", v[0]), "raw_down": gorm.Expr("traffic_hourlies.raw_down + ?", v[1]),
+						"recorded_up": gorm.Expr("traffic_hourlies.recorded_up + ?", up), "recorded_down": gorm.Expr("traffic_hourlies.recorded_down + ?", down),
+						"account_up": gorm.Expr("traffic_hourlies.account_up + ?", cu), "account_down": gorm.Expr("traffic_hourlies.account_down + ?", cd),
+						"rate_min": gorm.Expr("CASE WHEN traffic_hourlies.raw_recorded = ? OR traffic_hourlies.rate_min > ? THEN ? ELSE traffic_hourlies.rate_min END", false, rate, rate),
+						"rate_max": gorm.Expr("CASE WHEN traffic_hourlies.raw_recorded = ? OR traffic_hourlies.rate_max < ? THEN ? ELSE traffic_hourlies.rate_max END", false, rate, rate),
 					}),
-				}).Create(&store.TrafficHourly{UserID: uid, NodeID: nodeID, Hour: hour, Up: up, Down: down}).Error; err != nil {
+				}).Create(&store.TrafficHourly{UserID: uid, NodeID: nodeID, Hour: hour, Up: up, Down: down,
+					RawRecorded: true, RawUp: v[0], RawDown: v[1], RecordedUp: up, RecordedDown: down, AccountUp: cu, AccountDown: cd, RateMin: rate, RateMax: rate}).Error; err != nil {
 					return err
 				}
 				if err := tx.Clauses(clause.OnConflict{

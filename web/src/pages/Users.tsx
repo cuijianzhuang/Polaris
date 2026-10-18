@@ -2,6 +2,7 @@ import { ProTag, useFeature } from '../components/License'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import TrafficChart from '../components/TrafficChart'
+import UserTrafficSources from '../components/UserTrafficSources'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
@@ -292,6 +293,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
       {user && <Devices userId={user.id} limit={user.deviceLimit} />}
       {user && <SubCheck userId={user.id} />}
       {user && <div className="field"><TrafficChart query={'user=' + user.id} title={t('流量统计')} /></div>}
+      {user && <UserTrafficSources key={user.id} userId={user.id} />}
       {user && (
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
