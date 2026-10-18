@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -74,7 +74,8 @@ func (s *Server) licenseServer() string {
 }
 
 // licenseServerSource returns the license server and where it comes from:
-// env (POLARIS_LICENSE_SERVER), setting (the license page), build, or "".
+// env (POLARIS_LICENSE_SERVER), legacy setting, build, or "".
+// Deployment configuration stays internal; panel APIs cannot change it.
 func (s *Server) licenseServerSource() (string, string) {
 	if v := strings.TrimSpace(os.Getenv("POLARIS_LICENSE_SERVER")); v != "" {
 		return strings.TrimRight(v, "/"), "env"
@@ -247,35 +248,92 @@ func (s *Server) installLicense(text string) (*license.License, error) {
 	return l, nil
 }
 
-// licenseCall posts to the license server.
+type licenseServerHealth struct {
+	ServerHash string    `json:"serverHash"`
+	Status     string    `json:"status"`
+	CheckedAt  time.Time `json:"checkedAt"`
+}
+
+func licenseServerHash(base string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(base))) }
+
+func (s *Server) licenseServerHealth() licenseServerHealth {
+	base := s.licenseServer()
+	if base == "" {
+		return licenseServerHealth{Status: "unconfigured"}
+	}
+	var health licenseServerHealth
+	if json.Unmarshal([]byte(s.st.GetSetting("license_server_health", "")), &health) != nil ||
+		health.ServerHash != licenseServerHash(base) || health.CheckedAt.IsZero() ||
+		(health.Status != "available" && health.Status != "unavailable") {
+		return licenseServerHealth{Status: "unchecked"}
+	}
+	return health
+}
+
+// licenseCall posts to the license server. Never return transport errors or
+// arbitrary remote messages: they can disclose the server URL in panel APIs.
 func (s *Server) licenseCall(ctx context.Context, path string, body any, out any) error {
 	base := s.licenseServer()
 	if base == "" {
-		return errors.New("未配置授权服务器（POLARIS_LICENSE_SERVER）")
+		return errors.New("授权服务未配置，请联系服务提供方")
 	}
-	b, _ := json.Marshal(body)
+	health := licenseServerHealth{ServerHash: licenseServerHash(base), Status: "unavailable"}
+	defer func() {
+		health.CheckedAt = time.Now()
+		value, _ := json.Marshal(health)
+		if err := s.st.SetSetting("license_server_health", string(value)); err != nil {
+			s.log.Warn("license server status could not be saved")
+		}
+	}()
+	b, err := json.Marshal(body)
+	if err != nil {
+		return errors.New("授权请求格式不正确")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(b))
 	if err != nil {
-		return err
+		return errors.New("授权服务配置无效，请联系服务提供方")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "polaris-panel/"+Version)
 	resp, err := licClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("连接授权服务器失败：%w", err)
+		return errors.New("连接授权服务器失败，请稍后重试")
 	}
 	defer resp.Body.Close()
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, (64<<10)+1))
+	if err != nil || len(data) > 64<<10 {
+		return errors.New("授权服务器响应无效，请稍后重试")
+	}
 	if resp.StatusCode != http.StatusOK {
 		var e struct {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(data, &e) == nil && e.Error != "" {
-			return errors.New(e.Error)
+			if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+				health.Status = "available" // a rejected key is not a network outage
+			}
+			switch e.Error {
+			case "请求格式不正确", "面板实例 ID 不正确", "尝试次数过多，请 15 分钟后再试",
+				"激活码无效", "激活码不存在，请检查是否输入正确", "该许可证已被吊销", "许可证不存在",
+				"该许可证已在另一台面板上激活。请先在原面板「许可证」页面点击停用，或联系我们解绑",
+				"授权服务器内部错误，请稍后再试":
+				return errors.New(e.Error)
+			}
+			if date, ok := strings.CutPrefix(e.Error, "该许可证已于 "); ok {
+				if date, ok = strings.CutSuffix(date, " 到期，请续费后再激活"); ok {
+					if _, err := time.Parse("2006-01-02", date); err == nil {
+						return errors.New(e.Error)
+					}
+				}
+			}
 		}
-		return fmt.Errorf("授权服务器返回 %s", resp.Status)
+		return fmt.Errorf("授权服务器请求失败（HTTP %d）", resp.StatusCode)
 	}
-	return json.Unmarshal(data, out)
+	if err := json.Unmarshal(data, out); err != nil {
+		return errors.New("授权服务器响应无效，请稍后重试")
+	}
+	health.Status = "available"
+	return nil
 }
 
 // activateLicense exchanges an activation key for a license bound to this
@@ -360,7 +418,11 @@ func (s *Server) licenseView() gin.H {
 	out := gin.H{"state": st, "instance": s.instanceID(), "usage": gin.H{"nodes": nodes, "users": users},
 		"server": s.licenseServer() != "", "keys": len(s.licenseKeys()) > 0, "planName": planNames[st.Plan],
 		"edition": Edition(), "allFeatures": license.AllFeatures}
-	out["serverURL"], out["serverSource"] = s.licenseServerSource()
+	health := s.licenseServerHealth()
+	out["serverStatus"] = health.Status
+	if !health.CheckedAt.IsZero() {
+		out["serverCheckedAt"] = health.CheckedAt
+	}
 	if l := s.installedLicense(); l != nil {
 		out["license"] = gin.H{"id": l.ID, "customer": l.Customer, "plan": l.Plan, "offline": l.Offline,
 			"issuedAt": l.IssuedAt, "expiresAt": l.ExpiresAt, "updatesUntil": l.UpdatesUntil, "features": l.Granted(), "allGranted": l.AllGranted(), "limits": l.Limits}
@@ -427,27 +489,9 @@ func (s *Server) deactivateLicenseAPI(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// POST /license/server {url}: the license server for online activation and
-// the daily check ("" = the one built in).
+// POST /license/server: kept as an explicit denial for older clients.
 func (s *Server) setLicenseServer(c *gin.Context) {
-	var req struct {
-		URL string `json:"url"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		badRequest(c, err)
-		return
-	}
-	v := strings.TrimRight(strings.TrimSpace(req.URL), "/")
-	if v != "" {
-		u, err := url.Parse(v)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-			badRequest(c, errors.New("授权服务器地址应为 https://域名 形式"))
-			return
-		}
-	}
-	s.st.SetSetting("license_server", v)
-	s.auditCtx(c, "license.server", v, "")
-	c.JSON(http.StatusOK, s.licenseView())
+	c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "授权服务器不支持通过面板修改"})
 }
 
 // POST /license/check: run the daily check now (picks up renewals and

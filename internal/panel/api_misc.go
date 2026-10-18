@@ -159,6 +159,10 @@ func (s *Server) putSettings(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if _, ok := req["license_server"]; ok {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "授权服务器不支持通过面板修改"})
+		return
+	}
 	for k, v := range req {
 		if editableSettings[k] && (sudoSettings[k] || secretSettings[k] && v != "") && !s.sudoOK(c) {
 			if cur := s.st.GetSetting(k, ""); sudoSettings[k] && cur == v {
@@ -374,5 +378,10 @@ func (s *Server) listAudit(c *gin.Context) {
 	}
 	var logs []store.AuditLog
 	q.Limit(limit).Offset(offset).Find(&logs)
+	for i := range logs {
+		if logs[i].Action == "license.server" {
+			logs[i].Target, logs[i].Detail = "（已隐藏）", ""
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"items": logs, "total": total})
 }

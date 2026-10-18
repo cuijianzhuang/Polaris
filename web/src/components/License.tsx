@@ -10,7 +10,7 @@ export type LicenseState = {
 }
 type LicenseView = {
   state: LicenseState; instance: string; usage: { nodes: number; users: number }; server: boolean; keys: boolean; edition?: 'pro' | 'community'
-  serverURL?: string; serverSource?: '' | 'env' | 'setting' | 'build'; allFeatures?: string[]
+  serverStatus?: 'unconfigured' | 'unchecked' | 'available' | 'unavailable'; serverCheckedAt?: string; allFeatures?: string[]
   license?: { id: string; customer: string; plan: string; offline: boolean; issuedAt: string; expiresAt?: string; updatesUntil?: string; features?: string[]; allGranted?: boolean }
   invalid?: boolean; checkedAt?: string; warning?: string
 }
@@ -51,7 +51,6 @@ export default function License() {
   const [key, setKey] = useState('')
   const [text, setText] = useState('')
   const [mode, setMode] = useState<'key' | 'text'>('key')
-  const [server, setServer] = useState<string | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const d = v.data
@@ -62,7 +61,10 @@ export default function License() {
   const trialDays = st.trialUntil ? Math.max(0, Math.ceil((new Date(st.trialUntil).getTime() - Date.now()) / 864e5)) : 0
   const expDays = daysUntil(st.expiresAt)
   const licensed = st.source === 'license' || st.plan === 'open'
-  const serverValue = server ?? (d.serverSource === 'setting' ? d.serverURL ?? '' : '')
+  const serverStatus = d.serverStatus ?? (d.server ? 'unchecked' : 'unconfigured')
+  const serverStatusLabel = {
+    unconfigured: t('未配置'), unchecked: t('尚未校验'), available: t('连接正常'), unavailable: t('连接异常'),
+  }[serverStatus]
   const apply = (r: LicenseView | undefined) => { if (r?.warning) throw new Error(r.warning) }
 
   return (
@@ -147,11 +149,11 @@ export default function License() {
           </div>
         </div>
         {mode === 'key' ? <>
-          {!d.server && <div className="note warn">{t('还没有设置授权服务器，无法用激活码联网激活。请在下方「授权服务器」填写地址，或改用许可证文件。')}</div>}
+          {!d.server && <div className="note warn">{t('授权服务未配置，请联系服务提供方，或改用许可证文件。')}</div>}
           <Field label={t('激活码')} hint={t('联网激活，许可证会绑定到本面板（实例 ID）')}>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
               <input className="input mono" value={key} onChange={(e) => setKey(e.target.value)} placeholder="XXXXX-XXXXX-XXXXX-XXXXX" disabled={!d.server} style={{ letterSpacing: 1 }} />
-              <button className="btn pri" type="button" disabled={busy || !key.trim() || !d.server} onClick={() => run(async () => { await post('/license/activate', { key }); setKey(''); v.reload() }, t('已激活'))}>{t('激活')}</button>
+              <button className="btn pri" type="button" disabled={busy || !key.trim() || !d.server} onClick={() => run(async () => { try { await post('/license/activate', { key }); setKey('') } finally { v.reload() } }, t('已激活'))}>{t('激活')}</button>
             </div>
           </Field>
         </> : <>
@@ -176,15 +178,10 @@ export default function License() {
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <h3>{t('本机与授权服务器')}</h3>
         <Field label={t('实例 ID')} hint={t('授权后台生成许可证文件时需要填写')}><CopyBox text={d.instance} /></Field>
-        {d.keys && <Field label={t('授权服务器')} hint={d.serverSource === 'env'
-          ? t('由环境变量 POLARIS_LICENSE_SERVER 指定：{u}', { u: d.serverURL ?? '' })
-          : d.serverSource === 'build' && !serverValue ? t('使用内置地址：{u}；填写后以这里为准', { u: d.serverURL ?? '' })
-          : t('授权服务器的地址，例如 https://license.example.com；留空使用内置地址')}>
-          <div className="row" style={{ flexWrap: 'nowrap' }}>
-            <input className="input mono" value={serverValue} placeholder={d.serverSource === 'build' ? d.serverURL : 'https://license.example.com'}
-              disabled={d.serverSource === 'env'} onChange={(e) => setServer(e.target.value)} />
-            <button className="btn" type="button" disabled={busy || d.serverSource === 'env' || server === null}
-              onClick={() => run(async () => { await post('/license/server', { url: serverValue.trim() }); setServer(null); v.reload() }, t('已保存'))}>{t('保存')}</button>
+        {d.keys && <Field label={t('授权服务器状态')} hint={t('状态根据最近一次授权通信结果更新')}>
+          <div className="row" role="status">
+            <span className={'tag ' + (serverStatus === 'available' ? 'ok' : serverStatus === 'unavailable' ? 'bad' : 'warn')}>{serverStatusLabel}</span>
+            {d.serverCheckedAt && <span className="small mute">{t('最近通信：{t}', { t: new Date(d.serverCheckedAt).toLocaleString() })}</span>}
           </div>
         </Field>}
         {d.checkedAt && lic && !lic.offline && <div className="small mute">{t('最近联网校验：{t}', { t: new Date(d.checkedAt).toLocaleString() })}</div>}

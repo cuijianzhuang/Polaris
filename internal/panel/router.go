@@ -278,7 +278,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/license", s.requireSudo, s.postLicense)
 	p.POST("/license/activate", s.requireSudo, s.activateLicenseAPI)
 	p.POST("/license/deactivate", s.requireSudo, s.deactivateLicenseAPI)
-	p.POST("/license/server", s.requireSudo, s.setLicenseServer)
+	p.POST("/license/server", s.setLicenseServer)
 	p.POST("/license/check", s.checkLicenseAPI)
 	p.POST("/domains/sync-all", s.syncAllBindingsAPI)
 	p.POST("/domains/:id/sync", s.syncBindingAPI)
