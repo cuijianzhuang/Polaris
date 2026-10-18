@@ -20,16 +20,18 @@ function load(): Promise<Brand> {
   return cached
 }
 
-// The built-in favicon in index.html is kept to restore it.
-let builtin: string | null = null
+// Remember each built-in URL/type so removing a custom logo restores both
+// the favicon and the touch icon, regardless of the built-in image format.
+const builtins = new Map<HTMLLinkElement, { href: string; type: string | null }>()
 function applyFavicon(b: Brand) {
-  const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]'))
-  const svg = links.find((l) => l.type === 'image/svg+xml')
-  if (!svg) return
-  if (builtin === null) builtin = svg.href
-  svg.removeAttribute('type')
-  svg.href = b.logo ? logoURL(b.logo) : builtin
-  if (!b.logo) svg.type = 'image/svg+xml'
+  const links = document.querySelectorAll<HTMLLinkElement>('link[data-polaris-icon]')
+  for (const link of links) {
+    if (!builtins.has(link)) builtins.set(link, { href: link.href, type: link.getAttribute('type') })
+    const builtin = builtins.get(link)!
+    link.href = b.logo ? logoURL(b.logo) : builtin.href
+    if (b.logo || builtin.type === null) link.removeAttribute('type')
+    else link.type = builtin.type
+  }
 }
 
 // refreshBrand reloads after the logo or title changed.
