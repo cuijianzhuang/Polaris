@@ -198,6 +198,24 @@ func (s *Server) settleTraffic() error {
 	}
 	perUser := map[string][2]int64{}
 	quotas := s.loadNodeQuotas(data)
+	// Plans may carry their own node rates (professional edition).
+	prates := s.planRates()
+	userPlan := map[string]string{}
+	if len(prates) > 0 {
+		var ids []string
+		for _, users := range data {
+			for uid := range users {
+				if !isTagCounter(uid) {
+					ids = append(ids, uid)
+				}
+			}
+		}
+		var us []store.User
+		s.st.DB.Select("id", "plan_id").Where("id IN ? AND plan_id <> ''", ids).Find(&us)
+		for _, u := range us {
+			userPlan[u.ID] = u.PlanID
+		}
+	}
 	var quotaNodes []string // nodes where a user hit a cap or ran out of a pack
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		for nodeID, users := range data {
@@ -226,6 +244,10 @@ func (s *Server) settleTraffic() error {
 						return err
 					}
 					continue
+				}
+				rate := rate
+				if r := prates[userPlan[uid]][nodeID]; r > 0 {
+					rate = r
 				}
 				up := int64(math.Round(float64(v[0]) * rate))
 				down := int64(math.Round(float64(v[1]) * rate))
@@ -364,8 +386,10 @@ func (s *Server) autoRenew(u *store.User, now time.Time) bool {
 	}
 	u.ExpireAt, u.UsedUp, u.UsedDown, u.RenewCount, u.LastResetAt = &exp, 0, 0, u.RenewCount+1, &now
 	u.WarnedUsage, u.WarnedExpire = false, nil
+	u.TrafficLimit, u.ExtraTraffic = packLimit(u.TrafficLimit, u.ExtraTraffic), 0
 	s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
-		"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil})
+		"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil,
+		"traffic_limit": u.TrafficLimit, "extra_traffic": 0})
 	s.resetNodeUsage(u.ID)
 	s.audit("system", "user.renew", u.Username, fmt.Sprintf("+%d 天，至 %s（第 %d 次）", u.RenewDays, exp.Format("2006-01-02"), u.RenewCount), "")
 	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
@@ -432,7 +456,9 @@ func (s *Server) resetTrafficCycles() {
 			due = now.Sub(last) >= time.Duration(days)*24*time.Hour
 		}
 		if due {
-			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": now})
+			// A new period: traffic packs bought for the last one expire.
+			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": now,
+				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0})
 			s.resetNodeUsage(u.ID)
 			s.audit("system", "user.reset_traffic", u.Username, u.ResetPolicy, "")
 			if u.Status == "limited" {
@@ -576,4 +602,13 @@ func isTagCounter(id string) bool {
 // them, since the hop is load on that node.
 func realUsers(q *gorm.DB) *gorm.DB {
 	return q.Where("user_id NOT IN (SELECT id FROM users WHERE is_service = ?)", true)
+}
+
+// packLimit is a quota without the traffic packs that expire with the
+// period (never below what is left without them, nor unlimited by mistake).
+func packLimit(limit, extra int64) int64 {
+	if extra <= 0 || limit <= extra {
+		return limit
+	}
+	return limit - extra
 }

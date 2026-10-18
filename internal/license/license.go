@@ -24,10 +24,11 @@ const (
 	FeatureDDNS       = "ddns"        // domain bindings, addresses following node IPs
 	FeatureBranding   = "branding"    // custom logo on the panel, login page and favicon
 	FeatureThemes     = "themes"      // exclusive themes (black gold)
+	FeaturePlanAddons = "plan_addons" // traffic packs and per-plan node rates
 )
 
 // AllFeatures lists every paid feature (what a trial unlocks).
-var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes}
+var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons}
 
 // Limit kinds.
 const (

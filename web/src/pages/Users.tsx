@@ -332,6 +332,7 @@ function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { user?: 
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
           <dt>{t('密码')}</dt><dd className="mono">{user.password}</dd>
+          {(user.extraTraffic ?? 0) > 0 && <><dt>{t('流量包')}</dt><dd className="mono">+{bytes(user.extraTraffic!)} <span className="mute small">{t('（本周期有效，已计入流量配额）')}</span></dd></>}
           <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
           <dt>{t('在线设备')}</dt>
           <dd className="small">

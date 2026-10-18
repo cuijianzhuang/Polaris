@@ -156,6 +156,9 @@ type User struct {
 	// OnlineDevices is what is connected right now, filled per request from
 	// the panel's live reports (never stored).
 	OnlineDevices []OnlineDevice `gorm:"-" json:"onlineDevices"`
+	// ExtraTraffic is the part of TrafficLimit added by traffic packs this
+	// period; it goes when the period ends (traffic reset or a new period).
+	ExtraTraffic int64 `json:"extraTraffic"`
 	// PlanID is the user's current plan (a Group with Plan set), "" = none.
 	PlanID       string     `gorm:"size:32;index" json:"planId"`
 	IsService    bool       `gorm:"index" json:"isService"`  // chain service account
@@ -206,14 +209,17 @@ type Group struct {
 	Sort         int    `json:"sort"`
 	// Sale lists the plan in the Telegram bot's shop at these prices (0 =
 	// not sold that way).
-	Sale       bool      `json:"sale"`
-	PriceStars int       `json:"priceStars"` // Telegram Stars
-	PriceCNY   float64   `json:"priceCny"`   // yuan, paid through EPay
-	PriceUSDT  float64   `json:"priceUsdt"`  // USDT on TRON (TRC20)
-	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
-	InboundIDs []string  `gorm:"-" json:"inboundIds"`
-	UserCount  int64     `gorm:"-" json:"userCount"`
-	CreatedAt  time.Time `json:"createdAt"`
+	Sale       bool    `json:"sale"`
+	PriceStars int     `json:"priceStars"` // Telegram Stars
+	PriceCNY   float64 `json:"priceCny"`   // yuan, paid through EPay
+	PriceUSDT  float64 `json:"priceUsdt"`  // USDT on TRON (TRC20)
+	// NodeRates overrides node traffic multipliers for the plan's users
+	// (professional edition), filled per request.
+	NodeRates  map[string]float64 `gorm:"-" json:"nodeRates,omitempty"`
+	NodeIDs    []string           `gorm:"-" json:"nodeIds"`
+	InboundIDs []string           `gorm:"-" json:"inboundIds"`
+	UserCount  int64              `gorm:"-" json:"userCount"`
+	CreatedAt  time.Time          `json:"createdAt"`
 }
 
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).
@@ -721,7 +727,7 @@ func AllModels() []any {
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
-		&Order{}, &RedeemCode{},
+		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
 	}
 }
 
@@ -930,6 +936,8 @@ type Order struct {
 	UserID     string     `gorm:"size:32;index" json:"userId"`
 	PlanID     string     `gorm:"size:32" json:"planId"`
 	PlanName   string     `gorm:"size:64" json:"planName"`
+	Kind       string     `gorm:"size:8" json:"kind"` // "" = plan, pack = traffic pack
+	PackID     string     `gorm:"size:32" json:"packId"`
 	Method     string     `gorm:"size:16;index" json:"method"` // stars / epay / usdt / code / manual
 	Amount     string     `gorm:"size:32" json:"amount"`       // decimal text in Currency
 	Currency   string     `gorm:"size:8" json:"currency"`      // XTR / CNY / USDT
@@ -941,15 +949,39 @@ type Order struct {
 	PaidAt     *time.Time `json:"paidAt"`
 }
 
-// RedeemCode is a prepaid code for a plan, sold elsewhere and redeemed in
-// the bot.
+// RedeemCode is a prepaid code for a plan or a traffic pack, sold
+// elsewhere and redeemed in the bot.
 type RedeemCode struct {
 	Code      string     `gorm:"primaryKey;size:32" json:"code"`
 	PlanID    string     `gorm:"size:32;index" json:"planId"`
+	PackID    string     `gorm:"size:32" json:"packId"` // set for a traffic pack code (PlanID empty)
 	Batch     string     `gorm:"size:64;index" json:"batch"`
 	CreatedBy string     `gorm:"size:64" json:"createdBy"`
 	ExpiresAt *time.Time `json:"expiresAt"`
 	UsedBy    string     `gorm:"size:32" json:"usedBy"` // user id
 	UsedAt    *time.Time `gorm:"index" json:"usedAt"`
 	CreatedAt time.Time  `json:"createdAt"`
+}
+
+// TrafficPack is extra traffic sold on top of a plan (professional
+// edition). It adds to the account's quota until the period ends.
+type TrafficPack struct {
+	ID         string         `gorm:"primaryKey;size:32" json:"id"`
+	Name       string         `gorm:"size:64" json:"name"`
+	Traffic    int64          `json:"traffic"` // bytes
+	PlanIDs    JSON[[]string] `json:"planIds"` // plans that may buy it; empty = any user with a traffic quota
+	Sale       bool           `json:"sale"`
+	PriceStars int            `json:"priceStars"`
+	PriceCNY   float64        `json:"priceCny"`
+	PriceUSDT  float64        `json:"priceUsdt"`
+	Sort       int            `json:"sort"`
+	CreatedAt  time.Time      `json:"createdAt"`
+}
+
+// PlanNodeRate is a plan's own traffic multiplier on one node (professional
+// edition), replacing the node's rate for the plan's users.
+type PlanNodeRate struct {
+	PlanID string  `gorm:"primaryKey;size:32"`
+	NodeID string  `gorm:"primaryKey;size:32;index"`
+	Rate   float64 `gorm:"not null"`
 }

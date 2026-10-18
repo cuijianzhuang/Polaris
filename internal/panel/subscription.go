@@ -120,6 +120,10 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	}
 	nameTpl := s.st.GetSetting("sub_name_template", "{flag} {node} {protocol}")
 	showRate := s.st.GetSetting("sub_show_rate", "true") == "true"
+	var prates map[string]float64
+	if u != nil {
+		prates = s.planRates()[u.PlanID]
+	}
 	var out []sub.Node
 	for _, in := range ins {
 		node, ok := nodes[in.NodeID]
@@ -140,7 +144,11 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		vars := map[string]string{"flag": sub.Flag(node.Flag), "region": node.Region, "node": node.Name,
 			"protocol": sub.ProtocolLabel(base), "tag": in.Tag, "kind": "", "rate": ""}
 		if showRate {
-			vars["rate"] = rateLabel(node.TrafficRate)
+			rate := node.TrafficRate
+			if r := prates[node.ID]; r > 0 {
+				rate = r
+			}
+			vars["rate"] = rateLabel(rate)
 		}
 		// Proxy-chain relay inbounds are named "[relay] → [landing]".
 		for _, ch := range chains {

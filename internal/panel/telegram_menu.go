@@ -65,6 +65,8 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 		return tgProText, [][]button{backRow("")}
 	case "shop":
 		return b.shopView(id)
+	case "packs":
+		return b.packsView(id)
 	case "redeem":
 		return redeemHelp(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
 	case "terms":

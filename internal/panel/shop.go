@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -33,6 +34,8 @@ const (
 	payUSDT   = "usdt"
 	payCode   = "code"
 	payManual = "manual"
+
+	kindPack = "pack" // Order.Kind of a traffic pack
 
 	maxPendingOrders = 5
 )
@@ -80,13 +83,18 @@ func (s *Server) salePlans() []store.Group {
 // orderPrice is what plan p costs with method, as decimal text and currency;
 // ok is false when it is not sold that way.
 func (s *Server) orderPrice(p *store.Group, method string) (amount, currency string, ok bool) {
+	return s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, method)
+}
+
+// priceFor picks the price for a way to pay among a product's prices.
+func (s *Server) priceFor(stars int, cny, usdt float64, method string) (amount, currency string, ok bool) {
 	switch method {
 	case payStars:
-		return strconv.Itoa(p.PriceStars), "XTR", s.starsOn() && p.PriceStars > 0
+		return strconv.Itoa(stars), "XTR", s.starsOn() && stars > 0
 	case payEPay:
-		return fmt.Sprintf("%.2f", p.PriceCNY), "CNY", s.epayOn() && p.PriceCNY >= 0.01
+		return fmt.Sprintf("%.2f", cny), "CNY", s.epayOn() && cny >= 0.01
 	case payUSDT:
-		return fmt.Sprintf("%.4f", p.PriceUSDT), "USDT", s.usdtOn() && p.PriceUSDT >= 0.01
+		return fmt.Sprintf("%.4f", usdt), "USDT", s.usdtOn() && usdt >= 0.01
 	}
 	return "", "", false
 }
@@ -181,6 +189,26 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			return nil // already paid
 		}
 		fresh = true
+		if o.Kind == kindPack {
+			var pk store.TrafficPack
+			if err := tx.First(&pk, "id = ?", o.PackID).Error; err != nil {
+				return commandInputError{"流量包 " + o.PlanName + " 已删除，请联系管理员处理"}
+			}
+			if (o.UserID == "" || tx.First(u, "id = ? AND is_service = ?", o.UserID, false).Error != nil) &&
+				tx.First(u, "telegram_id = ? AND is_service = ?", o.TelegramID, false).Error != nil {
+				return commandInputError{"没有找到要加流量的账号"}
+			}
+			var err error
+			if detail, err = s.applyPack(tx, u, &pk, now); err != nil {
+				return err
+			}
+			u.Status = computeStatus(u, now)
+			if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error; err != nil {
+				return err
+			}
+			o.UserID, o.Detail = u.ID, truncate(detail, 255)
+			return tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error
+		}
 		if err := tx.First(&p, "id = ? AND plan = ?", o.PlanID, true).Error; err != nil {
 			return commandInputError{"套餐 " + o.PlanName + " 已删除，请联系管理员处理"}
 		}
@@ -234,7 +262,11 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 	if created {
 		s.userEvent("user.created", u, map[string]any{"via": "shop"})
 	}
-	s.userEvent("user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "order_id": o.ID, "detail": detail})
+	if o.Kind == kindPack {
+		s.userEvent("user.traffic_added", u, map[string]any{"pack_id": o.PackID, "order_id": o.ID, "detail": detail})
+	} else {
+		s.userEvent("user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "order_id": o.ID, "detail": detail})
+	}
 	s.notify(Event{Kind: "order.paid", Text: fmt.Sprintf("💰 新订单：%s 购买 %s（%s %s，%s）", who, o.PlanName, o.Amount, o.Currency, methodName[o.Method]),
 		Data: map[string]any{"order": orderBrief(o), "user": userBrief(u)}})
 	go s.tg.orderDelivered(o, u, created)
@@ -283,13 +315,33 @@ func (s *Server) redeem(tgID int64, tgName, userID, code string) (*store.Order, 
 	if s.st.DB.First(&rc, "code = ?", code).Error != nil {
 		return nil, nil, errors.New("兑换码无效")
 	}
-	var p store.Group
-	if s.st.DB.First(&p, "id = ? AND plan = ?", rc.PlanID, true).Error != nil {
-		return nil, nil, errors.New("兑换码对应的套餐已删除，请联系管理员")
-	}
 	now := time.Now()
-	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, PlanID: p.ID, PlanName: p.Name,
+	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID,
 		Method: payCode, Amount: code, Status: "pending", CreatedAt: now, ExpiresAt: now}
+	if rc.PackID != "" {
+		// A traffic pack code tops up an existing account.
+		var pk store.TrafficPack
+		if s.st.DB.First(&pk, "id = ?", rc.PackID).Error != nil {
+			return nil, nil, errors.New("兑换码对应的流量包已删除，请联系管理员")
+		}
+		var u *store.User
+		if userID != "" {
+			u = &store.User{}
+			if s.st.DB.First(u, "id = ?", userID).Error != nil {
+				u = nil
+			}
+		}
+		if err := packFor(&pk, u); err != nil {
+			return nil, nil, err
+		}
+		o.Kind, o.PackID, o.PlanName = kindPack, pk.ID, pk.Name
+	} else {
+		var p store.Group
+		if s.st.DB.First(&p, "id = ? AND plan = ?", rc.PlanID, true).Error != nil {
+			return nil, nil, errors.New("兑换码对应的套餐已删除，请联系管理员")
+		}
+		o.PlanID, o.PlanName = p.ID, p.Name
+	}
 	if err := s.st.DB.Create(o).Error; err != nil {
 		return nil, nil, err
 	}
@@ -467,7 +519,8 @@ func (s *Server) listCodes(c *gin.Context) {
 // createCodes is POST /redeem-codes {planId, count, batch, expireDays}.
 func (s *Server) createCodes(c *gin.Context) {
 	var req struct {
-		PlanID     string `json:"planId" binding:"required"`
+		PlanID     string `json:"planId"`
+		PackID     string `json:"packId"` // a traffic pack instead of a plan (professional edition)
 		Count      int    `json:"count"`
 		Batch      string `json:"batch"`
 		ExpireDays int    `json:"expireDays"`
@@ -480,21 +533,39 @@ func (s *Server) createCodes(c *gin.Context) {
 		badRequest(c, errors.New("数量 1–1000，有效天数 0–3650，批次名最长 64 个字符"))
 		return
 	}
-	p, err := loadPlan(s.st.DB, req.PlanID)
-	if err != nil {
-		badRequest(c, err)
-		return
+	rc := store.RedeemCode{Batch: strings.TrimSpace(req.Batch), CreatedBy: c.GetString("admin")}
+	target := ""
+	if req.PackID != "" {
+		if !s.requireFeature(c, license.FeaturePlanAddons) {
+			return
+		}
+		var pk store.TrafficPack
+		if err := s.st.DB.First(&pk, "id = ?", req.PackID).Error; err != nil {
+			badRequest(c, errors.New("流量包不存在"))
+			return
+		}
+		rc.PackID, target = pk.ID, pk.Name
+	} else {
+		p, err := loadPlan(s.st.DB, req.PlanID)
+		if err != nil {
+			badRequest(c, err)
+			return
+		}
+		rc.PlanID, target = p.ID, p.Name
 	}
 	var exp *time.Time
 	if req.ExpireDays > 0 {
 		e := time.Now().AddDate(0, 0, req.ExpireDays)
 		exp = &e
 	}
+	rc.ExpiresAt = exp
 	codes := make([]string, 0, req.Count)
-	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		for range req.Count {
 			code := newRedeemCode()
-			if err := tx.Create(&store.RedeemCode{Code: code, PlanID: p.ID, Batch: strings.TrimSpace(req.Batch), CreatedBy: c.GetString("admin"), ExpiresAt: exp}).Error; err != nil {
+			row := rc
+			row.Code = code
+			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}
 			codes = append(codes, code)
@@ -505,7 +576,7 @@ func (s *Server) createCodes(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.auditCtx(c, "redeem.create", p.Name, fmt.Sprintf("%d codes, batch %q", len(codes), req.Batch))
+	s.auditCtx(c, "redeem.create", target, fmt.Sprintf("%d codes, batch %q", len(codes), req.Batch))
 	c.JSON(http.StatusOK, gin.H{"codes": codes})
 }
 

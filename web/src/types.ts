@@ -64,7 +64,7 @@ export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; onlineDevices: OnlineDevice[]; remark: string; groupIds: string[]; createdAt: string
-  nodeIds: string[]; inboundIds: string[]; telegramId: number; planId?: string
+  nodeIds: string[]; inboundIds: string[]; telegramId: number; planId?: string; extraTraffic?: number
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
 }
 export interface UserDevice { id: string; hwid: string; os: string; model: string; userAgent: string; ip: string; firstSeen: string; lastSeen: string }
@@ -74,6 +74,10 @@ export interface Group {
   plan?: boolean; trafficLimit?: number; days?: number; resetPolicy?: string; resetDay?: number; deviceLimit?: number; ipLimit?: number
   price?: string; fallbackId?: string; fallbackName?: string; sort?: number
   sale?: boolean; priceStars?: number; priceCny?: number; priceUsdt?: number
+  nodeRates?: Record<string, number>
+}
+export interface TrafficPack {
+  id: string; name: string; traffic: number; planIds: string[]; sale: boolean; priceStars: number; priceCny: number; priceUsdt: number; sort: number
 }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
 export interface CDNProfile {
