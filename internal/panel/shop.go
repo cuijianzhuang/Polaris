@@ -374,6 +374,23 @@ func (s *Server) listOrders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": os, "total": total, "usernames": names, "revenue": sums, "status": s.shopStatus()})
 }
 
+// ordersToday counts today's paid orders (panel local time) and sums them
+// per currency; redeem codes count but add no revenue.
+func (s *Server) ordersToday() (n int, revenue map[string]float64) {
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	var os []store.Order
+	s.st.DB.Where("status = ? AND paid_at >= ?", "paid", start).Find(&os)
+	revenue = map[string]float64{}
+	for _, o := range os {
+		if o.Currency != "" {
+			v, _ := strconv.ParseFloat(o.Amount, 64)
+			revenue[o.Currency] += v
+		}
+	}
+	return len(os), revenue
+}
+
 // shopStatus tells the admin UI what is set up.
 func (s *Server) shopStatus() gin.H {
 	return gin.H{"enabled": s.shopOn(), "stars": s.starsOn(), "epay": s.epayOn(), "usdt": s.usdtOn(), "bot": s.tg.username(),

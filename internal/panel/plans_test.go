@@ -3,9 +3,11 @@ package panel
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -183,5 +185,46 @@ func TestPlans(t *testing.T) {
 	}
 	if got := reach("u2"); len(got) != 0 {
 		t.Fatalf("deleted plan still reaches %v", got)
+	}
+}
+
+// TestPlanAction: the bot's user card names the plan, admins renew or switch
+// plans outside a request, and today's paid orders are summed per currency.
+func TestPlanAction(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	_, out := c.do("POST", "/plans", map[string]any{"name": "免费版", "level": 1, "trafficLimit": 1 << 30})
+	free := out["id"].(string)
+	_, out = c.do("POST", "/plans", map[string]any{"name": "专业版", "level": 1, "trafficLimit": 100 << 30, "days": 30, "fallbackId": free})
+	pro := out["id"].(string)
+	s.st.DB.Create(&store.User{ID: "u1", Username: "alice", UUID: "u1", Status: "active", SubToken: "tok-u1-0123456789", UsedDown: 5 << 30})
+	if _, err := s.planAction("tg:boss", "u1", pro, true); err != nil {
+		t.Fatal(err)
+	}
+	var u store.User
+	s.st.DB.First(&u, "id = ?", "u1")
+	if u.PlanID != pro || u.Used() != 0 || u.ExpireAt == nil {
+		t.Fatalf("after start: %+v", u)
+	}
+	if card := s.tg.userCard(&u); !strings.Contains(card, "专业版") || !strings.Contains(card, "到期后转为 免费版") {
+		t.Fatalf("card: %s", card)
+	}
+	exp := *u.ExpireAt
+	if _, err := s.planAction("tg:boss", "u1", pro, true); err != nil {
+		t.Fatal(err)
+	}
+	s.st.DB.First(&u, "id = ?", "u1")
+	if d := u.ExpireAt.Sub(exp); d < 30*24*time.Hour-time.Minute {
+		t.Fatalf("renew moved expiry by %v", d)
+	}
+	if _, err := s.planAction("tg:boss", "u1", "nope", false); err == nil {
+		t.Fatal("unknown plan accepted")
+	}
+	now := time.Now()
+	for i, o := range []store.Order{{Amount: "15.00", Currency: "CNY"}, {Amount: "100", Currency: "XTR"}, {Amount: "5.00", Currency: "CNY"}, {Amount: "CODE", Method: payCode}} {
+		o.ID, o.Status, o.PaidAt, o.CreatedAt = fmt.Sprintf("o%d", i), "paid", &now, now
+		s.st.DB.Create(&o)
+	}
+	if n, rev := s.ordersToday(); n != 4 || rev["CNY"] != 20 || rev["XTR"] != 100 || len(rev) != 2 {
+		t.Fatalf("today %d %v", n, rev)
 	}
 }

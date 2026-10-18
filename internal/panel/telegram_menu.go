@@ -154,6 +154,13 @@ func (b *tgBot) userCard(u *store.User) string {
 	used := u.Used()
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "👤 <b>%s</b>  %s\n%s\n", esc(u.Username), userStatusText[u.Status], tgRule)
+	if name, next := b.s.planNames(u); name != "" {
+		line := "📦 套餐  <b>" + esc(name) + "</b>"
+		if next != "" {
+			line += "（到期后转为 " + esc(next) + "）"
+		}
+		sb.WriteString(line + "\n")
+	}
 	if u.TrafficLimit > 0 {
 		pct := float64(used) * 100 / float64(u.TrafficLimit)
 		fmt.Fprintf(&sb, "📊 流量  <b>%s</b> / %s\n<code>%s</code> %.1f%%\n", sub.HumanBytes(used), sub.HumanBytes(u.TrafficLimit), tgBar(pct), pct)

@@ -308,3 +308,51 @@ func setUserGroups(tx *gorm.DB, u *store.User, groupIDs []string) error {
 	}
 	return tx.Create(&store.UserGroup{UserID: u.ID, GroupID: u.PlanID}).Error
 }
+
+// planNames is the name of u's plan and of the plan it falls back to ("" when
+// none).
+func (s *Server) planNames(u *store.User) (name, next string) {
+	if u.PlanID == "" {
+		return "", ""
+	}
+	var p store.Group
+	if s.st.DB.First(&p, "id = ? AND plan = ?", u.PlanID, true).Error != nil {
+		return "", ""
+	}
+	var f store.Group
+	if p.FallbackID != "" && s.st.DB.First(&f, "id = ? AND plan = ?", p.FallbackID, true).Error == nil {
+		next = f.Name
+	}
+	return p.Name, next
+}
+
+// planAction puts a user on a plan outside an HTTP request (the Telegram
+// admin menu): renew extends the plan the user is on, otherwise a fresh
+// period starts. It rebuilds the affected nodes and records who did it.
+func (s *Server) planAction(actor, userID, planID string, renew bool) (string, error) {
+	before := s.nodesForUsers(userID)
+	var u store.User
+	var detail string
+	now := time.Now()
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&u, "id = ? AND is_service = ?", userID, false).Error; err != nil {
+			return err
+		}
+		p, err := loadPlan(tx, planID)
+		if err != nil {
+			return err
+		}
+		if detail, err = applyPlan(tx, &u, p, renew, now); err != nil {
+			return err
+		}
+		u.Status = computeStatus(&u, now)
+		return tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error
+	})
+	if err != nil {
+		return "", err
+	}
+	s.MarkDirty("user.plan", append(before, s.nodesForUsers(u.ID)...)...)
+	s.audit(actor, "user.plan", u.Username, detail, "")
+	s.userEvent("user.plan_changed", &u, map[string]any{"plan_id": u.PlanID, "detail": detail})
+	return detail, nil
+}
