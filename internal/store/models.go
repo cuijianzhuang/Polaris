@@ -683,7 +683,7 @@ func AllModels() []any {
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
-		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{},
+		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{},
 	}
 }
 
@@ -701,6 +701,39 @@ type APIToken struct {
 	LastUsedAt *time.Time     `json:"lastUsedAt"`
 	LastIP     string         `gorm:"size:64" json:"lastIp"`
 	ExpiresAt  *time.Time     `json:"expiresAt"`
+}
+
+// Webhook sends events to an outside URL: signed JSON for plugins, or a
+// text message for chat tools (discord, slack, wecom, dingtalk, feishu).
+type Webhook struct {
+	ID         string         `gorm:"primaryKey;size:32" json:"id"`
+	Name       string         `gorm:"size:64" json:"name"`
+	URL        string         `gorm:"size:1024" json:"url"`
+	Format     string         `gorm:"size:16" json:"format"` // json / discord / slack / wecom / dingtalk / feishu
+	Secret     string         `gorm:"size:255" json:"-"`     // sealed; JSON signing key or the robot's signing secret
+	Events     JSON[[]string] `json:"events"`                // empty = every event; "user.*" = a prefix
+	Enabled    bool           `json:"enabled"`
+	PluginID   string         `gorm:"size:64;index" json:"pluginId,omitempty"`
+	LastStatus string         `gorm:"size:16" json:"lastStatus"`
+	LastAt     *time.Time     `json:"lastAt"`
+	CreatedAt  time.Time      `json:"createdAt"`
+}
+
+// WebhookDelivery is one event sent (or to be sent) to one webhook.
+type WebhookDelivery struct {
+	ID          string     `gorm:"primaryKey;size:32" json:"id"`
+	WebhookID   string     `gorm:"size:32;index" json:"webhookId"`
+	EventID     string     `gorm:"size:40" json:"eventId"`
+	Type        string     `gorm:"size:64" json:"type"`
+	Payload     string     `json:"payload"`
+	Status      string     `gorm:"size:16;index" json:"status"` // pending / sending / success / failed
+	Attempts    int        `json:"attempts"`
+	NextAt      time.Time  `gorm:"index" json:"nextAt"`
+	LastCode    int        `json:"lastCode"`
+	LastError   string     `gorm:"size:512" json:"lastError"`
+	LastAt      *time.Time `json:"lastAt"`
+	DeliveredAt *time.Time `json:"deliveredAt"`
+	CreatedAt   time.Time  `gorm:"index" json:"createdAt"`
 }
 
 // IdempotencyKey remembers the answer to a write sent with an
