@@ -191,6 +191,7 @@ func (s *Server) listUsers(c *gin.Context) {
 		return
 	}
 	s.withGroups(us)
+	s.withOnline(us)
 	c.JSON(http.StatusOK, gin.H{"items": us, "total": total, "summary": summary})
 }
 
@@ -202,6 +203,7 @@ func (s *Server) getUser(c *gin.Context) {
 	}
 	us := []store.User{u}
 	s.withGroups(us)
+	s.withOnline(us)
 	c.JSON(http.StatusOK, us[0])
 }
 

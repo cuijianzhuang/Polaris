@@ -139,12 +139,36 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []): { data: 
   return { data, error, loading, reload: () => setTick((t) => t + 1) }
 }
 
+// Refresh interval of live pages, one setting for all of them (0 = off).
+const REFRESH_KEY = 'polaris.refresh'
+export const refreshChoices = [5000, 10000, 15000, 30000, 60000, 0]
+export function useRefresh(def: number): [number, (ms: number) => void] {
+  const [ms, setMs] = useState(() => {
+    try { const v = Number(localStorage.getItem(REFRESH_KEY)); if (localStorage.getItem(REFRESH_KEY) !== null && refreshChoices.includes(v)) return v } catch { /* storage unavailable */ }
+    return def
+  })
+  return [ms, (v) => { setMs(v); try { localStorage.setItem(REFRESH_KEY, String(v)) } catch { /* private mode */ } }]
+}
+
+// RefreshPicker chooses how often a live page reloads; reload now is the button next to it.
+export function RefreshPicker({ ms, onChange, onNow }: { ms: number; onChange: (ms: number) => void; onNow: () => void }) {
+  return (
+    <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+      <button className="btn sm" type="button" onClick={onNow} title={t('立即刷新')} aria-label={t('立即刷新')}>↻</button>
+      <select className="input" style={{ width: 'auto', minHeight: 32 }} value={ms} onChange={(e) => onChange(Number(e.target.value))} aria-label={t('自动刷新频率')}>
+        {refreshChoices.map((v) => <option key={v} value={v}>{v ? t('每 {n} 秒刷新', { n: v / 1000 }) : t('不自动刷新')}</option>)}
+      </select>
+    </span>
+  )
+}
+
 // usePoll re-runs reload every ms while the tab is visible, and right away
 // when the tab comes back, so live numbers keep moving without a refresh.
 export function usePoll(reload: () => void, ms: number) {
   const ref = useRef(reload)
   ref.current = reload
   useEffect(() => {
+    if (!ms) return // 0 = automatic refresh is off
     const t = setInterval(() => { if (!document.hidden) ref.current() }, ms)
     const vis = () => { if (!document.hidden) ref.current() }
     document.addEventListener('visibilitychange', vis)

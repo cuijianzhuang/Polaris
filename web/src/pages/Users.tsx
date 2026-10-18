@@ -5,7 +5,7 @@ import TrafficChart from '../components/TrafficChart'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useToast, SkeletonRows, Section, useUndo, useToastApi, runBatch } from '../components/ui'
+import { Copy, CopyBox, copyText, Drawer, Empty, Field, Modal, QR, useAction, useConfirm, useLoad, usePoll, useRefresh, RefreshPicker, useToast, SkeletonRows, Section, useUndo, useToastApi, runBatch } from '../components/ui'
 import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStatus } from '../format'
 import type { Group, Inbound, Node, NodeQuota, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
@@ -297,7 +297,14 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
           <dt>{t('密码')}</dt><dd className="mono">{user.password}</dd>
           <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
-          <dt>{t('在线 IP')}</dt><dd className="mono">{user.onlineIps?.join(', ') || '—'}</dd>
+          <dt>{t('在线设备')}</dt>
+          <dd className="small">
+            {(user.onlineDevices ?? []).length === 0
+              ? <span className="mute">{isOnline(user.onlineAt) ? t('在线，但所用内核不上报来源 IP（仅 Xray 支持）') : '—'}</span>
+              : (user.onlineDevices ?? []).map((d) => (
+                <div key={d.ip}><span className="mono">{d.ip}</span> · {d.nodes.join(', ') || '—'} · {ago(d.seen)}{(d.model || d.os) && <> · {[d.model, d.os].filter(Boolean).join(' ')}</>}</div>
+              ))}
+          </dd>
           <dt>{t('最近拉取订阅')}</dt><dd className="small">{user.lastSubAt ? `${datetime(user.lastSubAt)} · ${user.lastSubUa || '—'}` : '—'}</dd>
         </div>
       )}
@@ -518,7 +525,8 @@ export default function Users() {
   const list = useLoad(() => get<{ items: User[]; total: number; summary?: Record<string, number> }>(
     `/users?limit=${PAGE}&offset=${page * PAGE}&q=${encodeURIComponent(query)}&filter=${filter}&group=${group}${sort.k ? `&sort=${sort.k}&order=${sort.desc ? 'desc' : 'asc'}` : ''}`),
   [query, filter, group, sort, page])
-  usePoll(list.reload, 15000)
+  const [refreshMs, setRefreshMs] = useRefresh(15000)
+  usePoll(list.reload, refreshMs)
   const sum = list.data?.summary ?? {}
   const total = list.data?.total ?? 0
   const sortBy = (k: string) => setSort((s) => (s.k === k ? { k, desc: !s.desc } : { k, desc: k !== 'username' }))
@@ -598,6 +606,7 @@ export default function Users() {
               }}>{t('重置全部用户流量')}</button>
             </div>
           </details>
+          <RefreshPicker ms={refreshMs} onChange={setRefreshMs} onNow={list.reload} />
           <button className="btn" type="button" onClick={() => setModal('bulk')}>{t('批量创建')}</button>
           <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ {t('新建用户')}</button>
         </div>
@@ -659,7 +668,9 @@ export default function Users() {
                     </td>
                     <td data-label={t('到期')} className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? t('{n} 天后', { n: d }) : date(u.expireAt)) : t('永不')}</td>
                     <td data-label={t('最近在线')} className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>{t('在线')}</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">{t('从未')}</span>}</td>
-                    <td data-label={t('在线 IP')} className="mono">{isOnline(u.onlineAt) ? u.onlineIps.length : 0} / {u.ipLimit || '∞'}</td>
+                    <td data-label={t('在线 IP')} className="mono">{isOnline(u.onlineAt) && u.onlineIps.length === 0
+                      ? <span className="mute" title={t('在线，但所用内核不上报来源 IP（仅 Xray 支持）')}>—</span>
+                      : u.onlineIps.length} / {u.ipLimit || '∞'}</td>
                     <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
                       {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, t('流量已重置'))}>{t('重置流量')}</button>
                         : u.status === 'disabled' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post('/users/bulk', { action: 'enable', ids: [u.id] }); list.reload() }, t('已启用'))}>{t('启用')}</button>

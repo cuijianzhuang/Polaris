@@ -510,8 +510,9 @@ func (s *Server) alertOnce(key string, every time.Duration) bool {
 }
 
 // onlineIPWindow is how long a reported source IP counts as online. Agents
-// report every minute and only list users that have connections.
-const onlineIPWindow = 3 * time.Minute
+// report every 20 seconds and only list users that have connections, so an
+// IP that stops being reported is gone after three missed reports.
+const onlineIPWindow = 75 * time.Second
 
 // monthlyBoundary is the reset instant for "day of month" in the month
 // offset from now's; days past the month's end mean its last day.
