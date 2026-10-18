@@ -109,7 +109,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/ws", func(c *gin.Context) {
 		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})
-	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPI(r)) })
+	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPIFor(r, apiTokenOf(c))) })
 	p.GET("/auth/me", s.me)
 	p.POST("/auth/password", s.changePassword)
 	p.POST("/auth/totp/setup", s.requireSudo, s.totpSetup)
@@ -468,6 +468,10 @@ func (s *Server) download(c *gin.Context) {
 
 // openAPI describes the registered routes (generated from the router).
 func (s *Server) openAPI(r *gin.Engine) map[string]any {
+	return s.openAPIFor(r, nil)
+}
+
+func (s *Server) openAPIFor(r *gin.Engine, token *store.APIToken) map[string]any {
 	paths := map[string]map[string]any{}
 	base := s.cfg.APIBase()
 	routes := r.Routes()
@@ -477,6 +481,9 @@ func (s *Server) openAPI(r *gin.Engine) map[string]any {
 			continue
 		}
 		p := strings.TrimPrefix(rt.Path, base)
+		if token != nil && !tokenAllows(token, rt.Method+" "+p) {
+			continue
+		}
 		var params []map[string]any
 		parts := strings.Split(p, "/")
 		for i, seg := range parts {
@@ -507,7 +514,7 @@ func (s *Server) openAPI(r *gin.Engine) map[string]any {
 		"servers": []map[string]string{{"url": base}},
 		"paths":   paths,
 		"components": map[string]any{"securitySchemes": map[string]any{
-			"bearer": map[string]string{"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}}},
+			"bearer": map[string]string{"type": "http", "scheme": "bearer", "bearerFormat": "JWT or plt_ API token"}}},
 	}
 }
 

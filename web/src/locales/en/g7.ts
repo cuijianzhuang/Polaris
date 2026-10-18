@@ -1,5 +1,9 @@
 // Group levels, server traffic allowance, server costs, core install progress, sidebar groups.
 const m: Record<string, string> = {
+  '查看用户（含代理凭据）': 'Read users (including proxy credentials)',
+  '仅续期用户': 'Renew users only',
+  '仅增加用户流量': 'Add user traffic only',
+  '读取订阅链接与诊断': 'Read subscription links and diagnostics',
   '扩展': 'Extensions',
   '管理 API 令牌，连接外部工具与服务': 'Manage API tokens and connect external tools and services',
   '当前许可证不限数量': 'No limit under the current license',
