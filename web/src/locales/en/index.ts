@@ -5,9 +5,10 @@ import g4 from './g4'
 import g5 from './g5'
 import g6 from './g6'
 import g7 from './g7'
+import g8 from './g8'
 import core from './core'
 
 // English UI strings keyed by the Chinese source text, split by area so
 // files can be edited independently.
-const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7 }
+const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8 }
 export default en

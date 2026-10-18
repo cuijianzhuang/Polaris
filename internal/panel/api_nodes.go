@@ -2,6 +2,7 @@ package panel
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -82,6 +83,8 @@ type nodeReq struct {
 	Domain      string           `json:"domain"`
 	Region      string           `json:"region"`
 	Flag        string           `json:"flag"`
+	Lat         *float64         `json:"lat"` // map position; both or neither, null clears
+	Lng         *float64         `json:"lng"`
 	Labels      []string         `json:"labels"`
 	DefaultCore model.CoreType   `json:"defaultCore"`
 	TrafficRate float64          `json:"trafficRate"`
@@ -92,9 +95,30 @@ type nodeReq struct {
 	Cores       []model.CoreSpec `json:"cores"`
 }
 
+// validNodePos checks the optional map coordinates: both or neither, in range.
+func validNodePos(lat, lng *float64) error {
+	if (lat == nil) != (lng == nil) {
+		return fmt.Errorf("纬度和经度需同时填写或同时留空")
+	}
+	if lat == nil {
+		return nil
+	}
+	if math.IsNaN(*lat) || *lat < -90 || *lat > 90 {
+		return fmt.Errorf("纬度应在 -90 到 90 之间")
+	}
+	if math.IsNaN(*lng) || *lng < -180 || *lng > 180 {
+		return fmt.Errorf("经度应在 -180 到 180 之间")
+	}
+	return nil
+}
+
 func (s *Server) createNode(c *gin.Context) {
 	var req nodeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	if err := validNodePos(req.Lat, req.Lng); err != nil {
 		badRequest(c, err)
 		return
 	}
@@ -119,7 +143,7 @@ func (s *Server) createNode(c *gin.Context) {
 		req.DefaultCore = req.Cores[0].Type
 	}
 	n := store.Node{ID: store.NewID(), Name: req.Name, Address: req.Address, Domain: req.Domain, Region: req.Region,
-		Flag: strings.ToUpper(req.Flag), Labels: store.NewJSON(nonNilStrs(req.Labels)), DefaultCore: req.DefaultCore,
+		Flag: strings.ToUpper(req.Flag), Lat: req.Lat, Lng: req.Lng, Labels: store.NewJSON(nonNilStrs(req.Labels)), DefaultCore: req.DefaultCore,
 		TrafficRate: req.TrafficRate, SortOrder: req.SortOrder, Status: "pending", DDNS: req.DDNS, NoFirewall: req.NoFirewall}
 	if req.Level != nil && *req.Level > 0 && *req.Level <= 99 {
 		n.Level = *req.Level
@@ -163,12 +187,16 @@ func (s *Server) updateNode(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if err := validNodePos(req.Lat, req.Lng); err != nil {
+		badRequest(c, err)
+		return
+	}
 	if req.DDNS && !n.DDNS && !s.requireFeature(c, license.FeatureDDNS) {
 		return // turning DDNS on is a paid feature (keeping it on is not)
 	}
 	addrChanged := n.Address != req.Address || n.Domain != req.Domain
 	upd := map[string]any{"name": req.Name, "address": req.Address, "domain": req.Domain, "region": req.Region,
-		"flag": strings.ToUpper(req.Flag), "labels": store.NewJSON(nonNilStrs(req.Labels)), "sort_order": req.SortOrder, "d_dns": req.DDNS, "no_firewall": req.NoFirewall} // GORM names the DDNS field d_dns
+		"flag": strings.ToUpper(req.Flag), "lat": req.Lat, "lng": req.Lng, "labels": store.NewJSON(nonNilStrs(req.Labels)), "sort_order": req.SortOrder, "d_dns": req.DDNS, "no_firewall": req.NoFirewall} // GORM names the DDNS field d_dns
 	if req.TrafficRate > 0 {
 		upd["traffic_rate"] = req.TrafficRate
 	}

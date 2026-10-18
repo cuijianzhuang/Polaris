@@ -36,7 +36,7 @@ export interface Core {
   runningVersion?: string; prevVersion?: string; noUserTraffic?: boolean
 }
 export interface Node {
-  id: string; name: string; address: string; domain: string; region: string; flag: string; labels: string[]
+  id: string; name: string; address: string; domain: string; region: string; flag: string; lat?: number | null; lng?: number | null; labels: string[]
   agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress

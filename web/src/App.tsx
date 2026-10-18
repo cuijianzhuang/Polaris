@@ -18,6 +18,7 @@ import PluginPage from './pages/PluginPage'
 import Dashboard from './pages/Dashboard'
 import Stats from './pages/Stats'
 import Nodes from './pages/Nodes'
+import NodeMap from './pages/NodeMap'
 import Cores from './pages/Cores'
 import Forwards from './pages/Forwards'
 import Inbounds from './pages/Inbounds'
@@ -76,6 +77,7 @@ const nav: NavItem[] = [
   { to: '/stats', label: t('统计'), icon: <Icon.Chart /> },
   { to: '/nodes', label: t('节点'), icon: <Icon.Nodes />, children: [
     { to: '/nodes', label: t('节点列表'), icon: <Icon.Server /> },
+    { to: '/map', label: t('节点地图'), icon: <Icon.Map /> },
     { to: '/cores', label: t('内核'), icon: <Icon.Cpu /> },
     { to: '/costs', label: t('服务器成本'), icon: <Icon.Wallet /> },
   ] },
@@ -280,6 +282,7 @@ export default function App() {
                       <Route path="/" element={<Dashboard />} />
                       <Route path="/stats" element={<Stats />} />
                       <Route path="/nodes" element={<Nodes />} />
+                      <Route path="/map" element={<NodeMap />} />
                       <Route path="/cores" element={<Cores />} />
                       <Route path="/forwards" element={<Forwards />} />
                       <Route path="/inbounds" element={<Inbounds />} />

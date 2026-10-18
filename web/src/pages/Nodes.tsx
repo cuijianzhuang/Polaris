@@ -224,7 +224,7 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
 function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (install?: Install) => void }) {
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
-    flag: node?.flag ?? '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
+    flag: node?.flag ?? '', lat: node?.lat != null ? String(node.lat) : '', lng: node?.lng != null ? String(node.lng) : '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
     netLimitGb: node?.netLimit ? +(node.netLimit / GB).toFixed(2) : 0, netMode: node?.netMode || 'sum', netResetDay: node?.netResetDay ?? 1, netWarnPct: node?.netWarnPct || 80,
     netUsedGb: node ? +(netUsed(node) / GB).toFixed(2) : 0,
     defaultCore: (node?.defaultCore ?? 'xray') as CoreType, xray: true, singbox: false, ddns: node?.ddns ?? false, firewall: !(node?.noFirewall ?? false),
@@ -234,7 +234,11 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const defaults = useCoreDefaults()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const save = () => run(async () => {
+    const lat = f.lat.trim(), lng = f.lng.trim()
+    if ((lat === '') !== (lng === '')) throw new Error(t('纬度和经度需同时填写或同时留空'))
+    if (lat !== '' && (!(Math.abs(Number(lat)) <= 90) || !(Math.abs(Number(lng)) <= 180))) throw new Error(t('纬度应在 -90 到 90、经度应在 -180 到 180 之间'))
     const body: any = {
+      lat: lat === '' ? null : Number(lat), lng: lng === '' ? null : Number(lng),
       name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate), level: Number(f.level) || 0,
       labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
@@ -266,6 +270,12 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         <Field label={t('公网地址')} htmlFor="n-addr" hint={t('没填节点域名时，订阅里客户端连接这个 IP 或域名；都留空则用 Agent 检测到的公网 IP')}><input id="n-addr" className="input mono" value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="203.0.113.10" /></Field>
         <Field label={t('节点域名')} htmlFor="n-domain" hint={t('填了就优先用于订阅（客户端连这个域名），也用于 ACME 证书与 {node.domain}')}><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
         <Field label={t('国家代码')} htmlFor="n-flag" hint={t('如 JP，订阅显示旗帜')}><input id="n-flag" className="input mono" maxLength={2} value={f.flag} onChange={(e) => set('flag', e.target.value.toUpperCase())} /></Field>
+        <Field label={t('位置（纬度 / 经度）')} htmlFor="n-lat" hint={t('可选，用于节点地图；留空则按地区名或国家代码推算位置')}>
+          <div className="row" style={{ flexWrap: 'nowrap' }}>
+            <input id="n-lat" className="input mono" inputMode="decimal" placeholder="35.68" aria-label={t('纬度')} value={f.lat} onChange={(e) => set('lat', e.target.value)} />
+            <input id="n-lng" className="input mono" inputMode="decimal" placeholder="139.76" aria-label={t('经度')} value={f.lng} onChange={(e) => set('lng', e.target.value)} />
+          </div>
+        </Field>
         <Field label={t('流量倍率')} htmlFor="n-rate" hint={t('结算时按倍率换算')}><input id="n-rate" className="input mono" type="number" step="0.1" min="0.1" value={f.trafficRate} onChange={(e) => set('trafficRate', e.target.value)} /></Field>
         <Field label={t('服务器月流量')} htmlFor="n-netlimit" hint={t('服务商给的流量额度，GB；0 = 不限。统计整台服务器网卡的收发，达到提醒阈值和超出时 Telegram 提醒')}><input id="n-netlimit" className="input mono" type="number" min="0" step="1" value={f.netLimitGb} onChange={(e) => set('netLimitGb', e.target.value)} /></Field>
         <Field label={t('计费方式')} htmlFor="n-netmode" hint={t('按服务商的统计规则选')}>
