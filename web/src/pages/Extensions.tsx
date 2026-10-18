@@ -23,8 +23,8 @@ export default function Extensions() {
           <div className="sub">{t('安装插件，管理 API 令牌和 Webhook，连接外部工具与服务')}</div>
         </div>
       </div>
-      <div className="seg c3 fixed" style={{ marginBottom: 14, maxWidth: 420 }}>
-        {all.map((x) => <button key={x.id} type="button" className={'opt' + (tab === x.id ? ' on' : '')} aria-pressed={tab === x.id} onClick={() => setQ({ tab: x.id }, { replace: true })}>{x.label}</button>)}
+      <div className="tabs" role="tablist" style={{ marginBottom: 14 }}>
+        {all.map((x) => <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} className={'tab' + (tab === x.id ? ' on' : '')} onClick={() => setQ({ tab: x.id }, { replace: true })}>{x.label}</button>)}
       </div>
       {tab === 'plugins' && <PluginManager />}
       {tab === 'tokens' && <APITokens />}
