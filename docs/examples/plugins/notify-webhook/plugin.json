@@ -1,0 +1,41 @@
+{
+  "manifestVersion": 1,
+  "id": "org.polaris.notify-webhook",
+  "name": "Webhook 通知",
+  "version": "1.0.0",
+  "description": "把选定节点的状态与配置告警发送到管理员配置的 HTTPS 接收服务。",
+  "publisher": "Polaris",
+  "runtime": "host-webhook-v1",
+  "requires": {
+    "hostApi": "^1.0.0"
+  },
+  "extensionPoints": ["notification.sink"],
+  "permissions": {
+    "events": ["node.offline.v1", "node.online.v1", "node.apply_failed.v1"],
+    "fields": ["resource.id", "resource.kind", "data.reason_code"],
+    "apiScopes": [],
+    "network": "configured-endpoint-only"
+  },
+  "configSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["endpoint", "signingSecret"],
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "format": "uri",
+        "maxLength": 2048,
+        "title": "HTTPS 接收地址"
+      },
+      "signingSecret": {
+        "type": "string",
+        "minLength": 32,
+        "maxLength": 256,
+        "writeOnly": true,
+        "format": "password",
+        "title": "签名密钥"
+      }
+    }
+  }
+}
