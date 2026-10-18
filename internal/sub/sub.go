@@ -45,6 +45,9 @@ type Node struct {
 	ForceUDP bool // ask clients to relay UDP even where it is optional
 }
 
+// ExtraLink is a titled link on the user center page.
+type ExtraLink struct{ Title, URL string }
+
 // Info is the account summary shared by every format.
 type Info struct {
 	Title    string
@@ -65,6 +68,8 @@ type Info struct {
 	// Portal renders the page as the signed-in user center (reset link and
 	// sign-out actions instead of the bot binding button).
 	Portal bool
+	// Extras are links plugins add to the user center (Portal pages only).
+	Extras []ExtraLink
 	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").
 	NodeQuotas []NodeQuotaLine
 	// ExpireAfterDays: validity starts on first use (no Expire yet).

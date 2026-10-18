@@ -24,9 +24,10 @@
 12. [统计与监控](#monitoring)
 13. [升级、备份与迁移](#maintenance)
 14. [专业版与许可证](#license)
-15. [故障排查](#troubleshooting)
-16. [兼容性与功能边界](#compatibility)
-17. [配置与命令参考](#configuration)
+15. [扩展与插件](#plugins)
+16. [故障排查](#troubleshooting)
+17. [兼容性与功能边界](#compatibility)
+18. [配置与命令参考](#configuration)
 
 <a id="concepts"></a>
 
@@ -551,6 +552,22 @@ curl -X POST "$PANEL/api/v1/users/$USER_ID/add-traffic" -H "Authorization: Beare
 
 `$PANEL` 包含后台路径，例如 `https://panel.example.com/x7k2`。令牌的操作会记录在审计日志里，操作人显示为 `token:名称`。
 
+### Webhook
+
+在「系统 → 设置 → Webhook」把事件推送到外部服务：
+
+- **JSON 格式**（插件、自建服务）：面板发送 POST 请求，请求体为 `{"id","type","created_at","data"}`，`data` 里带用户（`user`）或节点（`node`）信息。请求头包括 `X-Polaris-Event`（事件类型）、`X-Polaris-Delivery`（投递编号），以及签名 `X-Polaris-Signature: t=<时间戳>,v1=<签名>`。签名为 `HMAC-SHA256(签名密钥, "<时间戳>.<请求体>")` 的十六进制。签名密钥只在创建时显示一次。
+- **机器人格式**：Discord、Slack、企业微信、钉钉、飞书，发送一行文本消息。钉钉和飞书开启「加签」时填写加签密钥。
+- 事件按类型订阅，比如 `user.created`、`user.expired`、`node.offline`；也可以订阅一整组（`user.*`）。都不勾选表示接收全部事件。
+- 接收方返回 2xx 即算成功。失败后分别在 1 分钟、5 分钟、30 分钟、2 小时、12 小时后重试，共 6 次。「记录」里可以查看最近 7 天的投递内容和错误，并手动重发。
+
+校验签名的示例（Node.js）：
+
+```js
+const [t, v1] = req.headers['x-polaris-signature'].replace('t=', '').split(',v1=')
+const ok = crypto.createHmac('sha256', SECRET).update(`${t}.${rawBody}`).digest('hex') === v1
+```
+
 ### 审计日志
 
 在「系统 → 审计日志」查看配置变更、操作者和相关记录。发生意外修改时，结合时间、节点配置结果和服务日志定位原因。向外部反馈时应先脱敏，尤其是用户名、IP、订阅令牌和凭据。
@@ -665,9 +682,26 @@ polaris restore /path/to/polaris-backup.tar.gz.enc
 
 需要更换实例时，先在旧面板停用许可证，再到新面板激活；旧面板无法操作时联系许可证提供方处理解绑。升级安装可能存在针对已有高级配置的试用期，新安装是否有试用以页面显示为准。
 
+<a id="plugins"></a>
+
+## 15. 扩展与插件
+
+插件是**独立运行的外部服务**（任意语言），通过受限的 API 令牌和签名 Webhook 与面板对接，用来做支付商城、通知渠道、用户同步等。开发文档、SDK 和示例见 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins)。
+
+管理入口：「扩展 → 插件」。
+
+1. **安装**：点「安装插件」，填入插件地址（可以是内网或 `127.0.0.1`）和插件作者给的安装码（如有）。面板读取插件清单，列出它申请的权限和订阅的事件，确认后需要二次验证（sudo）。面板为插件创建专用令牌和 Webhook，并把凭据直接交给插件。
+2. **手动配对**：插件不支持自动安装时，面板只显示一次令牌和密钥，复制到插件里；插件开始应答健康检查后自动变为「在线」。
+3. **配置**：按插件声明生成表单；密钥类字段保存后不再显示，留空表示保持原值。保存后面板会通知插件。
+4. **页面与入口**：插件声明的后台页面出现在「扩展」里，在面板内嵌显示；声明的用户入口（如「购买 / 续期」）出现在用户中心。
+5. **健康与升级**：面板每分钟检查插件是否在线，状态变化会发 `system.plugin_offline` / `system.plugin_online` 事件。插件升级后点「刷新清单」；新增权限或事件需要重新确认。
+6. **停用与卸载**：停用后不再投递事件，页面和入口隐藏；卸载会吊销令牌并删除关联 Webhook。
+
+安全提示：插件拥有它被授予的权限，安装前请核对权限列表（尤其是 `users:write`、`subs:read`）；插件只能使用自己的令牌，拿不到管理员会话。社区版最多同时安装 3 个插件，激活专业版后按授权上限（0 为不限）。
+
 <a id="troubleshooting"></a>
 
-## 15. 故障排查
+## 16. 故障排查
 
 先确认故障发生在哪一层：**后台访问、Agent 接入、内核应用、订阅生成、客户端连接**。不要同时修改多个环节。
 
@@ -705,7 +739,7 @@ polaris log
 
 <a id="compatibility"></a>
 
-## 16. 兼容性与功能边界
+## 17. 兼容性与功能边界
 
 - **客户端与内核组合**：面板按版本能力校验选项，并按订阅格式过滤不兼容节点。导入成功不等于客户端支持每一种协议参数。
 - **Xray REALITY**：当前代码将 Xray 26.9.8 起的 REALITY 标记为需要 X25519MLKEM768 客户端能力，并提示 sing-box / Clash / mihomo 格式会跳过相关节点。需要兼容这些客户端时，按界面建议选择 sing-box 内核，或评估兼容的 Xray 版本；后续版本以能力提示为准。
@@ -719,7 +753,7 @@ polaris log
 
 <a id="configuration"></a>
 
-## 17. 配置与命令参考
+## 18. 配置与命令参考
 
 ### 环境变量
 

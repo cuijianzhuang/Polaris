@@ -213,7 +213,7 @@ func (s *Server) requireFeature(c *gin.Context, f string) bool {
 	return false
 }
 
-// limitOK checks a node / user cap before adding n more.
+// limitOK checks a node / user / plugin cap before adding n more.
 func (s *Server) limitOK(c *gin.Context, kind string, adding int) bool {
 	max := s.license().Limit(kind)
 	if max <= 0 {
@@ -225,11 +225,13 @@ func (s *Server) limitOK(c *gin.Context, kind string, adding int) bool {
 		s.st.DB.Model(&store.Node{}).Count(&cur)
 	case license.LimitUsers:
 		s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&cur)
+	case license.LimitPlugins:
+		s.st.DB.Model(&store.Plugin{}).Count(&cur)
 	}
 	if int(cur)+adding <= max {
 		return true
 	}
-	what := map[string]string{license.LimitNodes: "节点", license.LimitUsers: "用户"}[kind]
+	what := map[string]string{license.LimitNodes: "节点", license.LimitUsers: "用户", license.LimitPlugins: "插件"}[kind]
 	c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
 		"error": fmt.Sprintf("当前许可最多 %d 个%s（已有 %d 个），请升级许可证", max, what, cur), "limit": kind, "plan": "pro"})
 	return false
@@ -412,10 +414,11 @@ func (s *Server) checkLicenseNow() error {
 
 func (s *Server) licenseView() gin.H {
 	st := s.license()
-	var nodes, users int64
+	var nodes, users, plugins int64
 	s.st.DB.Model(&store.Node{}).Count(&nodes)
 	s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&users)
-	out := gin.H{"state": st, "instance": s.instanceID(), "usage": gin.H{"nodes": nodes, "users": users},
+	s.st.DB.Model(&store.Plugin{}).Count(&plugins)
+	out := gin.H{"state": st, "instance": s.instanceID(), "usage": gin.H{"nodes": nodes, "users": users, "plugins": plugins},
 		"server": s.licenseServer() != "", "keys": len(s.licenseKeys()) > 0, "planName": planNames[st.Plan],
 		"edition": Edition(), "allFeatures": license.AllFeatures}
 	health := s.licenseServerHealth()

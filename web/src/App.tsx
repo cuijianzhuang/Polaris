@@ -5,6 +5,7 @@ import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { recordRates } from './components/NodeCard'
 import { setPremiumThemes, useTheme } from './theme'
+import { usePlugins } from './plugins'
 import { useBrand } from './brand'
 import { useFeature } from './components/License'
 import { t } from './i18n'
@@ -13,6 +14,7 @@ import { ConfirmProvider, ToastProvider } from './components/ui'
 import SudoPrompt from './components/SudoPrompt'
 import type { Node } from './types'
 import Login from './pages/Login'
+import PluginPage from './pages/PluginPage'
 import Dashboard from './pages/Dashboard'
 import Stats from './pages/Stats'
 import Nodes from './pages/Nodes'
@@ -184,9 +186,15 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
     return () => document.removeEventListener('keydown', k)
   }, [])
   useEffect(() => { setPalette(false) }, [loc.pathname, loc.search])
+  // Installed plugins add their admin pages under 扩展.
+  const plugins = usePlugins(!scoped)
+  const items = nav.map((n) => {
+    const pg = (plugins?.plugins ?? []).filter((p) => p.enabled).flatMap((p) => (p.manifest.pages ?? []).map((x) => ({ to: `/plugins/${p.id}/${x.id}`, label: x.title, icon: <Icon.Extension /> })))
+    return n.to === '/extensions' && pg.length > 0 ? { ...n, children: [{ to: '/extensions', label: t('扩展管理'), icon: <Icon.Extension /> }, ...pg] } : n
+  })
   const pages: PaletteItem[] = scoped
     ? [{ id: 'p/nodes', label: t('我的节点'), icon: <Icon.Server />, to: '/nodes', group: t('页面') }]
-    : nav.flatMap((n) => n.children ?? [n]).map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: t('页面') }))
+    : items.flatMap((n) => n.children ?? [n]).map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: t('页面') }))
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   const inTabs = tabs.some((tb) => (tb.end ? loc.pathname === tb.to : loc.pathname.startsWith(tb.to)))
   return (
@@ -209,7 +217,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
           </>
         ) : (
           <>
-            {nav.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
+            {items.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
           </>
         )}
         <div className="side-foot">
@@ -290,6 +298,7 @@ export default function App() {
                       <Route path="/telegram" element={<Telegram />} />
                       <Route path="/costs" element={<Costs />} />
                       <Route path="/extensions" element={<Extensions />} />
+                      <Route path="/plugins/:id/:page" element={<PluginPage />} />
                       <Route path="/license" element={<LicensePage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>

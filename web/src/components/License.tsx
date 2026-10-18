@@ -5,11 +5,11 @@ import { Icon } from './Icons'
 import { CopyBox, Field, useAction, useConfirm, useLoad } from './ui'
 
 export type LicenseState = {
-  plan: string; source: string; limits: { nodes: number; users: number }; features: string[]
+  plan: string; source: string; limits: { nodes: number; users: number; plugins?: number }; features: string[]
   expiresAt?: string; updatesUntil?: string; trialUntil?: string; warnings: string[]
 }
 type LicenseView = {
-  state: LicenseState; instance: string; usage: { nodes: number; users: number }; server: boolean; keys: boolean; edition?: 'pro' | 'community'
+  state: LicenseState; instance: string; usage: { nodes: number; users: number; plugins?: number }; server: boolean; keys: boolean; edition?: 'pro' | 'community'
   serverStatus?: 'unconfigured' | 'unchecked' | 'available' | 'unavailable'; serverCheckedAt?: string; allFeatures?: string[]
   license?: { id: string; customer: string; plan: string; offline: boolean; issuedAt: string; expiresAt?: string; updatesUntil?: string; features?: string[]; allGranted?: boolean }
   invalid?: boolean; checkedAt?: string; warning?: string
@@ -112,6 +112,7 @@ export default function License() {
         </div>
         <Meter label={t('节点')} used={d.usage.nodes} max={st.limits.nodes} icon={<Icon.Server />} />
         <Meter label={t('用户')} used={d.usage.users} max={st.limits.users} icon={<Icon.Users />} />
+        <Meter label={t('插件')} used={d.usage.plugins ?? 0} max={st.limits.plugins ?? 0} icon={<Icon.Extension />} />
       </div>
 
       {/* Features */}

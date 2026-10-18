@@ -39,8 +39,9 @@ var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeT
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
 var tokenRoutes = map[string]string{
-	"GET /tokens/self":  "",
-	"GET /openapi.json": "",
+	"GET /tokens/self":   "",
+	"GET /plugin/config": "", // a plugin's own token only; checked in the handler
+	"GET /openapi.json":  "",
 
 	"GET /users":                          ScopeUsersRead,
 	"GET /users/export":                   ScopeUsersRead,
@@ -97,6 +98,14 @@ func (s *Server) authToken(c *gin.Context, tok string) {
 	if s.st.DB.First(&t, "hash = ?", hashToken(tok)).Error != nil || (t.ExpiresAt != nil && time.Now().After(*t.ExpiresAt)) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "API 令牌无效或已过期"})
 		return
+	}
+	if t.PluginID != "" {
+		var n int64
+		s.st.DB.Model(&store.Plugin{}).Where("id = ? AND enabled = ?", t.PluginID, true).Count(&n)
+		if n == 0 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "插件已停用或已卸载"})
+			return
+		}
 	}
 	route := c.Request.Method + " " + strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
 	need, ok := tokenRoutes[route]

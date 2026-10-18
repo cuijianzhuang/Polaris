@@ -858,3 +858,7 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
   .nm-layout { grid-template-columns: minmax(0, 1fr); }
   .nm-list { max-height: none !important; }
 }
+
+/* plugin pages embedded in the panel */
+.plugin-frame { display: block; width: 100%; height: calc(100vh - 170px); min-height: 480px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--card); }
+@media (max-width: 820px) { .plugin-frame { height: calc(100vh - 220px); } }

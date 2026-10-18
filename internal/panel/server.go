@@ -80,6 +80,7 @@ type Server struct {
 	health       healthState
 	tg           *tgBot
 	tgEvents     chan Event
+	hookEvents   chan Event
 	seenBase     atomic.Value // string: public base URL the admin UI is reached at
 	auditChanges atomic.Bool  // record row changes made by admins (audit_changes)
 	changes      changeLog
@@ -120,6 +121,8 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	tgEvents := make(chan Event, 256)
 	s.sinks = append(s.sinks, tgEvents)
 	s.tgEvents = tgEvents
+	s.hookEvents = make(chan Event, 1024)
+	s.sinks = append(s.sinks, s.hookEvents)
 	if cfg.RedisURL != "" {
 		rb, err := newRedisBuffer(cfg.RedisURL)
 		if err != nil {
@@ -173,6 +176,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.rt.run(ctx)
 	go s.tg.run(ctx)
 	go s.tg.runNotifications(ctx, s.tgEvents)
+	// A delivery cut off by a restart is sent again.
+	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ?", "sending").Update("status", "pending")
+	go s.runWebhooks(ctx, s.hookEvents)
 	stopJobs := s.startJobs()
 	defer stopJobs()
 
@@ -258,6 +264,8 @@ func (s *Server) startJobs() func() {
 		s.enforceLimits()
 	})
 	add("*/15 * * * * *", "offline", s.markOfflineNodes)
+	add("*/30 * * * * *", "webhooks", s.retryWebhooks)
+	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
 	add("0 41 6 * * *", "license", s.checkLicense)
@@ -299,6 +307,7 @@ func (s *Server) markOfflineNodes() {
 
 func (s *Server) cleanup() {
 	s.pruneIdempotency()
+	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -7)).Delete(&store.WebhookDelivery{})
 	s.st.DB.Where("hour < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.TrafficHourly{})
 	s.st.DB.Where("at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.NodeMetric{})
 	s.st.DB.Where("expires_at < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.AdminSession{}) // kept a while: new-address alerts compare against them

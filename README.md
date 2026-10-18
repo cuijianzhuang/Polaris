@@ -179,7 +179,7 @@ scripts/pro.sh clean
 | `internal/sub`、`internal/license` | 订阅处理与许可证校验 |
 | `web` | React + TypeScript + Vite 后台 |
 
-登录后的 API 文档位于 `<后台路径>/api/v1/openapi.json`，实时节点数据通过 `<后台路径>/api/v1/ws` 提供。外部服务对接见 [API 令牌与订单接口](docs/plugins/api-tokens.md)。设计资料见[客户独立限速](docs/design/per-user-speed-limit.md)、[许可证机制](docs/design/licensing.md)和[插件系统设计提案](docs/design/plugins.md)。插件方案及[外部服务示例清单](docs/examples/plugins/external-notify/polaris-plugin.json)用于后续四个开发 PR，目前尚未实现插件管理器。
+登录后的 API 文档位于 `<后台路径>/api/v1/openapi.json`，实时节点数据通过 `<后台路径>/api/v1/ws` 提供。外部服务对接见 [API 令牌与订单接口](docs/plugins/api-tokens.md)。设计资料见[客户独立限速](docs/design/per-user-speed-limit.md)、[许可证机制](docs/design/licensing.md)和[插件系统设计提案](docs/design/plugins.md)。插件开发见 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins)，管理入口在「扩展 → 插件」，使用说明见[用户手册](docs/user-guide.md#plugins)。
 
 ## 安全部署与问题反馈
 

@@ -9,6 +9,10 @@ type Event struct {
 	Text   string
 	// UserOnly skips admins (per-user reminders; admins get the daily report).
 	UserOnly bool
+	// Type is the dotted name for webhooks ("user.expired"); derived from
+	// Kind when empty. Data adds structured fields to the webhook payload.
+	Type string
+	Data map[string]any
 }
 
 // notify fans an event out to every registered sink without blocking.
