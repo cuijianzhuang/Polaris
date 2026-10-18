@@ -74,6 +74,8 @@ const m: Record<string, string> = {
   '打开': 'open',
   '打开 Telegram': 'Open Telegram',
   '打开菜单': 'Open menu',
+  '收起侧栏': 'Collapse sidebar',
+  '展开侧栏': 'Expand sidebar',
   '搜索': 'Search',
   '搜索页面、节点…': 'Search pages, nodes…',
   '搜索页面、节点、用户…': 'Search pages, nodes, users…',

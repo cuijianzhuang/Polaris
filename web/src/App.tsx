@@ -123,18 +123,18 @@ function TopProgress() {
 
 // NavGroup is a collapsible sidebar entry; it opens itself while one of its
 // pages is shown.
-function NavGroup({ item }: { item: NavItem }) {
+function NavGroup({ item, folded, onUnfold }: { item: NavItem; folded: boolean; onUnfold: () => void }) {
   const loc = useLocation()
   const here = item.children!.some((c) => loc.pathname === c.to || loc.pathname.startsWith(c.to + '/'))
   const [open, setOpen] = useState(here)
   useEffect(() => { if (here) setOpen(true) }, [here])
   return (
     <div className={'navgroup' + (open ? ' open' : '')}>
-      <button type="button" className={'nav' + (here && !open ? ' active' : '')} aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className={'nav' + (here && !open ? ' active' : '')} aria-expanded={open} title={folded ? item.label : undefined} onClick={() => { if (folded) { setOpen(true); onUnfold() } else setOpen(!open) }}>
         {item.icon}{item.label}<span className="chev" aria-hidden="true"><Icon.Chevron /></span>
       </button>
       <div className="navsub">
-        {item.children!.map((c) => <NavLink key={c.to} to={c.to} className="nav">{c.icon}{c.label}</NavLink>)}
+        {item.children!.map((c) => <NavLink key={c.to} to={c.to} className="nav" title={folded ? c.label : undefined}>{c.icon}{c.label}</NavLink>)}
       </div>
     </div>
   )
@@ -165,6 +165,9 @@ const tabs = [
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
   const { title } = useBrand()
   const [menu, setMenu] = useState(false) // the sidebar, as a drawer on phones
+  // On wide screens the sidebar folds to an icon rail; remembered per browser.
+  const [folded, setFolded] = useState(() => { try { return localStorage.getItem('polaris.sidebar') === 'folded' } catch { return false } })
+  const fold = (v: boolean) => { setFolded(v); try { localStorage.setItem('polaris.sidebar', v ? 'folded' : 'open') } catch { /* private mode */ } }
   useEffect(() => { document.title = title }, [title])
   const themesOK = useFeature('themes')
   useEffect(() => { setPremiumThemes(themesOK) }, [themesOK])
@@ -198,7 +201,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   const inTabs = tabs.some((tb) => (tb.end ? loc.pathname === tb.to : loc.pathname.startsWith(tb.to)))
   return (
-    <div className="app">
+    <div className={'app' + (folded ? ' folded' : '')}>
       <TopProgress />
       <header className="mtop">
         <button type="button" className="mtop-btn" aria-label={t('打开菜单')} aria-expanded={menu} onClick={() => setMenu(true)}><Icon.Menu /></button>
@@ -208,16 +211,16 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       </header>
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
       <nav className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
-        <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
-        <button type="button" className="side-search" onClick={() => setPalette(true)}><Icon.Search /><span>{t('搜索')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
+        <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-fold" aria-label={folded ? t('展开侧栏') : t('收起侧栏')} aria-pressed={folded} title={folded ? t('展开侧栏') : t('收起侧栏')} onClick={() => fold(!folded)}><Icon.Fold /></button><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
+        <button type="button" className="side-search" title={folded ? t('搜索') : undefined} onClick={() => setPalette(true)}><Icon.Search /><span>{t('搜索')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         {scoped ? (
           <>
-            <NavLink to="/nodes" className="nav"><Icon.Server />{t('我的节点')}</NavLink>
+            <NavLink to="/nodes" className="nav" title={folded ? t('我的节点') : undefined}><Icon.Server />{t('我的节点')}</NavLink>
             <div className="navsec">{t('Telegram 节点管理员 · 仅可查看分配给你的节点')}</div>
           </>
         ) : (
           <>
-            {items.map((n) => n.children ? <NavGroup key={n.label} item={n} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav">{n.icon}{n.label}</NavLink>)}
+            {items.map((n) => n.children ? <NavGroup key={n.label} item={n} folded={folded} onUnfold={() => fold(false)} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav" title={folded ? n.label : undefined}>{n.icon}{n.label}</NavLink>)}
           </>
         )}
         <div className="side-foot">
