@@ -2,10 +2,10 @@
 
 插件框架已独立建仓：[cuijianzhuang/polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins)。完整设计、协议和独立插件示例以新仓库为准，本页保留 Polaris 宿主侧的接入索引。
 
-- [完整架构与协议设计](https://github.com/cuijianzhuang/polaris-plugins/blob/develop/docs/design.md)
-- [仓库边界与实施路线](https://github.com/cuijianzhuang/polaris-plugins/blob/develop/docs/roadmap.md)
-- [外部通知插件清单示例](https://github.com/cuijianzhuang/polaris-plugins/blob/develop/examples/external-notify/polaris-plugin.json)
-- [插件框架贡献指南](https://github.com/cuijianzhuang/polaris-plugins/blob/develop/CONTRIBUTING.md)
+- [完整架构与协议设计](https://github.com/cuijianzhuang/polaris-plugins/blob/main/docs/design.md)
+- [仓库边界与实施路线](https://github.com/cuijianzhuang/polaris-plugins/blob/main/docs/roadmap.md)
+- [外部通知插件清单示例](https://github.com/cuijianzhuang/polaris-plugins/blob/main/examples/external-notify/polaris-plugin.json)
+- [插件框架贡献指南](https://github.com/cuijianzhuang/polaris-plugins/blob/main/CONTRIBUTING.md)
 
 [返回项目首页](../../README.md)
 
