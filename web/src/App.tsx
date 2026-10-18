@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { Component, createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
@@ -166,6 +166,24 @@ const tabs = [
   { to: '/users', label: t('用户'), icon: <Icon.Users /> },
 ]
 
+// PageBoundary keeps a failing page from blanking the whole panel: the menu
+// stays and the error is shown (it resets on navigation via main's key).
+class PageBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error) { console.error(error) }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <h2>{t('页面出错了')}</h2>
+        <div className="note bad mono small" style={{ overflowWrap: 'anywhere' }}>{this.state.error.message}</div>
+        <div><button className="btn" type="button" onClick={() => location.reload()}>{t('重新加载')}</button></div>
+      </div>
+    )
+  }
+}
+
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
   const { title } = useBrand()
   const [menu, setMenu] = useState(false) // the sidebar, as a drawer on phones
@@ -234,7 +252,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
           <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
         </div>
       </nav>
-      <main className="main" key={loc.pathname}>{children}</main>
+      <main className="main" key={loc.pathname}><PageBoundary>{children}</PageBoundary></main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} pages={pages} nodes={nodes} searchUsers={!scoped} />
       {!scoped && <nav className="mtabs" aria-label={t('快捷导航')}>
         {tabs.map((tb) => <NavLink key={tb.to} to={tb.to} end={tb.end} className="mtab">{tb.icon}<span>{tb.label}</span></NavLink>)}

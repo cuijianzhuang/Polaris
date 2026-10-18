@@ -41,9 +41,9 @@ function Orders() {
   const d = list.data
   return (
     <>
-      {d && d.revenue.length > 0 && (
+      {(d?.revenue ?? []).length > 0 && (
         <div className="row" style={{ gap: 12 }}>
-          {d.revenue.map((r) => (
+          {(d?.revenue ?? []).map((r) => (
             <div key={r.currency} className="card" style={{ margin: 0, padding: '12px 16px' }}>
               <div className="small mute">{t('近 30 天收入')} · {r.currency === 'XTR' ? 'Stars' : r.currency}</div>
               <div style={{ fontWeight: 600, fontSize: 20 }}>{r.currency === 'CNY' ? '¥' : ''}{+r.total.toFixed(4)}{r.currency === 'XTR' ? ' ⭐' : r.currency === 'USDT' ? ' USDT' : ''}</div>
@@ -59,14 +59,14 @@ function Orders() {
         </div>
       </div>
       <div className="card flush scroll">
-        {d?.items.length === 0 ? <Empty>{t('还没有订单')}</Empty> : (
+        {d && (d.items ?? []).length === 0 ? <Empty>{t('还没有订单')}</Empty> : (
           <table className="rtable">
             <thead><tr><th>{t('时间')}</th><th>{t('买家')}</th><th>{t('套餐')}</th><th>{t('付款')}</th><th>{t('金额')}</th><th>{t('状态')}</th><th></th></tr></thead>
             <tbody>
               {(d?.items ?? []).map((o) => (
                 <tr key={o.id}>
                   <td data-label={t('时间')} className="small">{datetime(o.paidAt || o.createdAt)}<div className="mono small mute">{o.id}</div></td>
-                  <td data-label={t('买家')}>{o.userId ? <b>{d!.usernames[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
+                  <td data-label={t('买家')}>{o.userId ? <b>{d?.usernames?.[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
                   <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
                   <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}</td>
                   <td data-label={t('金额')} className="mono">{money(o)}</td>
@@ -106,12 +106,12 @@ function Codes() {
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const pname = (c: Code) => c.packId
-    ? <><span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>{packs.data?.items.find((p) => p.id === c.packId)?.name ?? t('已删除')}</>
+    ? <><span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>{packs.data?.items?.find((p) => p.id === c.packId)?.name ?? t('已删除')}</>
     : plans.data?.find((p) => p.id === c.planId)?.name ?? t('已删除套餐')
   return (
     <>
       <div className="row">
-        <button className="btn pri" type="button" onClick={() => setGen({ kind: 'plan', planId: plans.data?.[0]?.id ?? '', packId: packs.data?.items[0]?.id ?? '', count: '10', batch: '', expireDays: '' })}>{t('+ 生成兑换码')}</button>
+        <button className="btn pri" type="button" onClick={() => setGen({ kind: 'plan', planId: plans.data?.[0]?.id ?? '', packId: packs.data?.items?.[0]?.id ?? '', count: '10', batch: '', expireDays: '' })}>{t('+ 生成兑换码')}</button>
         <select className="input" style={{ width: 'auto' }} value={batch} onChange={(e) => setBatch(e.target.value)} aria-label={t('批次')}>
           <option value="">{t('全部批次')}</option>
           {(list.data?.batches ?? []).map((b) => <option key={b} value={b}>{b}</option>)}
@@ -125,7 +125,7 @@ function Codes() {
         }}>{t('删除本批未使用的码')}</button>}
       </div>
       <div className="card flush scroll">
-        {list.data?.items.length === 0 ? <Empty>{t('还没有兑换码')}</Empty> : (
+        {list.data && (list.data.items ?? []).length === 0 ? <Empty>{t('还没有兑换码')}</Empty> : (
           <table className="rtable">
             <thead><tr><th>{t('兑换码')}</th><th>{t('套餐')}</th><th>{t('批次')}</th><th>{t('有效期')}</th><th>{t('状态')}</th><th></th></tr></thead>
             <tbody>
@@ -159,7 +159,7 @@ function Codes() {
             </div>
           </Field>
           {gen.kind === 'plan' && plans.data?.length === 0 && <div className="note">{t('还没有套餐，请先新建套餐。')}</div>}
-          {gen.kind === 'pack' && packs.data?.items.length === 0 && <div className="note">{t('还没有流量包，请先在「流量包」里新建。')}</div>}
+          {gen.kind === 'pack' && packs.data?.items?.length === 0 && <div className="note">{t('还没有流量包，请先在「流量包」里新建。')}</div>}
           <div className="form-grid">
             {gen.kind === 'plan' ? (
               <Field label={t('套餐')} htmlFor="c-plan">
@@ -205,12 +205,12 @@ function Packs() {
   return (
     <>
       <div className="row">
-        <button className="btn pri" type="button" disabled={!ok} onClick={() => setEdit({ name: '', gb: '50', planIds: [], sale: true, priceStars: '', priceCny: '', priceUsdt: '', sort: list.data?.items.length ?? 0 })}>{t('+ 新建流量包')}</button>
+        <button className="btn pri" type="button" disabled={!ok} onClick={() => setEdit({ name: '', gb: '50', planIds: [], sale: true, priceStars: '', priceCny: '', priceUsdt: '', sort: list.data?.items?.length ?? 0 })}>{t('+ 新建流量包')}</button>
         <ProTag on={ok} />
         <span className="sub" style={{ margin: 0 }}>{t('用户流量不够时在机器人里加购，不改变套餐和到期时间；只在当前流量周期内有效，流量重置或开始新周期时失效。')}</span>
       </div>
       <div className="card flush scroll">
-        {list.data?.items.length === 0 ? <Empty>{t('还没有流量包')}</Empty> : (
+        {list.data && (list.data.items ?? []).length === 0 ? <Empty>{t('还没有流量包')}</Empty> : (
           <table className="rtable">
             <thead><tr><th>{t('名称')}</th><th>{t('流量')}</th><th>{t('适用套餐')}</th><th>{t('价格')}</th><th>{t('状态')}</th><th></th></tr></thead>
             <tbody>
