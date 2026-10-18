@@ -33,6 +33,6 @@ const m: Record<string, string> = {
   '每 {n} 秒刷新': 'Refresh every {n} s',
   '不自动刷新': 'Do not refresh automatically',
   '在线设备': 'Online devices',
-  '在线，但所用内核不上报来源 IP（仅 Xray 支持）': 'Online, but its core does not report source IPs (Xray only)',
+  '在线，但没有拿到来源 IP（刚连上，或走的是不上报 IP 的入站，如端口转发）': 'Online, but no source IP yet (just connected, or via an inbound that reports none, e.g. port forwarding)',
 }
 export default m
