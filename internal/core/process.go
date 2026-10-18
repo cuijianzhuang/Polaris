@@ -24,6 +24,10 @@ type Process struct {
 	Dir  string
 	Env  []string
 	Log  *slog.Logger
+	// Filter sees every output line first; returning true consumes it, so
+	// it is not kept in the log buffer (used for high-volume lines an adapter
+	// only needs to count). Set before Start.
+	Filter func(line string) bool
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
@@ -94,7 +98,11 @@ func (p *Process) pump(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
 	for sc.Scan() {
-		p.logs.Add(sc.Text())
+		line := sc.Text()
+		if p.Filter != nil && p.Filter(line) {
+			continue
+		}
+		p.logs.Add(line)
 	}
 }
 

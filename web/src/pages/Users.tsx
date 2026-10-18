@@ -300,7 +300,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           <dt>{t('在线设备')}</dt>
           <dd className="small">
             {(user.onlineDevices ?? []).length === 0
-              ? <span className="mute">{isOnline(user.onlineAt) ? t('在线，但所用内核不上报来源 IP（仅 Xray 支持）') : '—'}</span>
+              ? <span className="mute">{isOnline(user.onlineAt) ? t('在线，但没有拿到来源 IP（刚连上，或走的是不上报 IP 的入站，如端口转发）') : '—'}</span>
               : (user.onlineDevices ?? []).map((d) => (
                 <div key={d.ip}><span className="mono">{d.ip}</span> · {d.nodes.join(', ') || '—'} · {ago(d.seen)}{(d.model || d.os) && <> · {[d.model, d.os].filter(Boolean).join(' ')}</>}</div>
               ))}
@@ -669,7 +669,7 @@ export default function Users() {
                     <td data-label={t('到期')} className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? t('{n} 天后', { n: d }) : date(u.expireAt)) : t('永不')}</td>
                     <td data-label={t('最近在线')} className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>{t('在线')}</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">{t('从未')}</span>}</td>
                     <td data-label={t('在线 IP')} className="mono">{isOnline(u.onlineAt) && u.onlineIps.length === 0
-                      ? <span className="mute" title={t('在线，但所用内核不上报来源 IP（仅 Xray 支持）')}>—</span>
+                      ? <span className="mute" title={t('在线，但没有拿到来源 IP（刚连上，或走的是不上报 IP 的入站，如端口转发）')}>—</span>
                       : u.onlineIps.length} / {u.ipLimit || '∞'}</td>
                     <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
                       {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, t('流量已重置'))}>{t('重置流量')}</button>

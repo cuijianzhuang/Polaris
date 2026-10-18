@@ -43,6 +43,7 @@ type Adapter struct {
 	stats   bool                // binary built with with_v2ray_api
 	secret  string              // Clash API secret (builds without v2ray_api)
 	conns   map[string][2]int64 // Clash API per-connection counters at last poll
+	online  *onlineTracker      // users and source IPs read from the connection log lines
 }
 
 // New constructs a sing-box adapter.
@@ -53,9 +54,10 @@ func New(o core.Options) *Adapter {
 	if o.APIListen == "" {
 		o.APIListen = "127.0.0.1:10086"
 	}
-	a := &Adapter{opt: o, seen: map[string][2]int64{}, stats: true, conns: map[string][2]int64{}}
+	a := &Adapter{opt: o, seen: map[string][2]int64{}, stats: true, conns: map[string][2]int64{}, online: newOnlineTracker()}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("sing-box", o.BinPath, o.WorkDir, o.Logger, "run", "-c", a.configPath(), "-D", o.WorkDir)
+		a.proc.Filter = a.online.line
 		a.stats = hasBuildTag(o.BinPath, "with_v2ray_api")
 		if !a.stats {
 			o.Logger.Warn("sing-box built without with_v2ray_api: per-user traffic is unavailable, counting inbound/outbound totals via the Clash API", "bin", o.BinPath)
@@ -195,7 +197,7 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		route["rule_set"] = ruleSets
 	}
 	cfg := map[string]any{
-		"log":       map[string]any{"level": "warn", "timestamp": true},
+		"log":       map[string]any{"level": "info", "timestamp": true}, // info: the connection lines tell who is online (see online.go)
 		"inbounds":  nonNil(inbounds),
 		"outbounds": outs,
 		"route":     route,
@@ -739,10 +741,6 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	}
 	a.seen = cur
 	return out, nil
-}
-
-func (a *Adapter) OnlineIPs(context.Context) (map[string][]string, error) {
-	return nil, core.ErrNotSupported
 }
 
 func (a *Adapter) Health(ctx context.Context) model.CoreStatus {

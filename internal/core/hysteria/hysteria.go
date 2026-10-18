@@ -49,6 +49,9 @@ type Adapter struct {
 	last  *model.NodeSpec
 	users map[string]map[string]string // inbound tag -> password -> user id
 	insts map[string]*instance
+
+	cmu     sync.Mutex
+	clients map[string][]client // user id -> where its connections authenticated from
 }
 
 func New(o core.Options) *Adapter {
@@ -230,6 +233,9 @@ func (a *Adapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.mu.RUnlock()
+	if ok {
+		a.noteClient(id, req.Addr)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": ok, "id": id})
 }
@@ -374,10 +380,6 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 		return nil, lastErr
 	}
 	return model.MergeDeltas(all...), nil
-}
-
-func (a *Adapter) OnlineIPs(context.Context) (map[string][]string, error) {
-	return nil, core.ErrNotSupported
 }
 
 func (a *Adapter) Health(context.Context) model.CoreStatus {
