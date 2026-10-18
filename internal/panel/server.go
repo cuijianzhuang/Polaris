@@ -60,6 +60,10 @@ type Server struct {
 	jwtKey      []byte
 	rt          *realtime
 
+	licenseMu              sync.Mutex           // serializes checks, installation and deactivation
+	licenseManualAvailable atomic.Int64         // nanosecond timestamp for the UI cooldown
+	licenseSchedule        licenseCheckSchedule // guarded by licenseMu
+
 	dirtyMu sync.Mutex
 	dirty   map[string]string
 	kick    chan struct{}
@@ -179,6 +183,9 @@ func (s *Server) Run(ctx context.Context) error {
 	// A delivery cut off by a restart is sent again.
 	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ?", "sending").Update("status", "pending")
 	go s.runWebhooks(ctx, s.hookEvents)
+	licenseCtx, stopLicense := context.WithCancel(ctx)
+	defer stopLicense()
+	go s.runLicenseChecks(licenseCtx)
 	stopJobs := s.startJobs()
 	defer stopJobs()
 
@@ -268,7 +275,6 @@ func (s *Server) startJobs() func() {
 	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
-	add("0 41 6 * * *", "license", s.checkLicense)
 	add("0 23 4 * * *", "certs", s.renewCertificates)
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)

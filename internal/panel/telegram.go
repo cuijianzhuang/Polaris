@@ -587,6 +587,10 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 		b.edit(chat, msg, tgProText, backRow(""))
 		return
 	}
+	if tgLicenseManagementWrite(parts) && b.s.license().ManagementReadOnly {
+		answer(licenseReadOnlyMessage)
+		return
+	}
 	switch parts[0] {
 	case "me":
 		if id.user == nil {

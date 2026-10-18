@@ -221,7 +221,7 @@ func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
 }
 
 // AdminLicense runs `polaris admin license show|install FILE|deactivate`
-// against the database (the panel picks the change up within a day, or at
+// against the database (the panel picks the change up within a few minutes, or at
 // once after a restart).
 func AdminLicense(cfg *Config, action, file string) (string, error) {
 	st, err := openStore(cfg)
