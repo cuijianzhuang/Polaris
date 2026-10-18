@@ -153,6 +153,9 @@ type User struct {
 	OnlineAt      *time.Time     `json:"onlineAt"`
 	BannedUntil   *time.Time     `json:"bannedUntil"`
 	OnlineIPs     JSON[[]string] `json:"onlineIps"`
+	// OnlineDevices is what is connected right now, filled per request from
+	// the panel's live reports (never stored).
+	OnlineDevices []OnlineDevice `gorm:"-" json:"onlineDevices"`
 	IsService     bool           `gorm:"index" json:"isService"`  // chain service account
 	TelegramID    int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
 	WarnedUsage   bool           `json:"-"`                       // 80% traffic warning sent this cycle
@@ -821,6 +824,16 @@ func (q UserNodeQuota) PackLeft() int64 { return max(q.Extra-q.ExtraUsed, 0) }
 
 // Capped reports whether the per-node cap is reached.
 func (q UserNodeQuota) Capped() bool { return q.Limit > 0 && q.Used >= q.Limit }
+
+// OnlineDevice is one source IP a user is connected from, with the nodes it
+// reached and, when the same IP fetched the subscription, the client's model.
+type OnlineDevice struct {
+	IP    string    `json:"ip"`
+	Nodes []string  `json:"nodes"`
+	Seen  time.Time `json:"seen"`
+	Model string    `json:"model,omitempty"`
+	OS    string    `json:"os,omitempty"`
+}
 
 // UserDevice is a client device (HWID) that fetched a user's subscription.
 type UserDevice struct {

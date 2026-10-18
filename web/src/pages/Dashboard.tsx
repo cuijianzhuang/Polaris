@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { useNodes } from '../App'
-import { useLoad, usePoll, useWidth } from '../components/ui'
+import { RefreshPicker, useLoad, usePoll, useRefresh, useWidth } from '../components/ui'
 import TagTraffic from '../components/TagTraffic'
 import { Icon } from '../components/Icons'
 import { bps, bytes, coreLabel, coreShort, coreTagClass, nodeStatus, ago } from '../format'
@@ -142,7 +142,9 @@ export default function Dashboard() {
   const overview = useLoad(() => get<Overview>('/stats/overview?days=' + days), [nodes.length, days])
   const data = overview.data
   const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [nodes.length])
-  usePoll(() => { overview.reload(); traffic.reload() }, 10000)
+  const [refreshMs, setRefreshMs] = useRefresh(10000)
+  const reloadAll = () => { overview.reload(); traffic.reload() }
+  usePoll(reloadAll, refreshMs)
   const live = nodes.filter((n) => n.connected)
   const rx = live.reduce((s, n) => s + n.system.rxBps, 0), tx = live.reduce((s, n) => s + n.system.txBps, 0)
   const cores = Object.entries(data?.cores ?? {}).filter(([, n]) => n > 0)
@@ -151,6 +153,7 @@ export default function Dashboard() {
       <div className="top">
         <div><h1>{t('仪表盘')}</h1><div className="sub">{t('全部节点 · 实时数据随心跳刷新')}</div></div>
         <div className="row">
+          <RefreshPicker ms={refreshMs} onChange={setRefreshMs} onNow={reloadAll} />
           <button className="btn" type="button" onClick={() => nav('/nodes?new=1')}>{t('添加节点')}</button>
           <button className="btn pri" type="button" onClick={() => nav('/users?new=1')}>{t('新建用户')}</button>
         </div>

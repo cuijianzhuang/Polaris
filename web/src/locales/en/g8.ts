@@ -28,5 +28,11 @@ const m: Record<string, string> = {
   '经度': 'Longitude',
   '纬度和经度需同时填写或同时留空': 'Fill in both latitude and longitude, or leave both empty',
   '纬度应在 -90 到 90、经度应在 -180 到 180 之间': 'Latitude must be within -90 to 90 and longitude within -180 to 180',
+  '立即刷新': 'Refresh now',
+  '自动刷新频率': 'Auto refresh interval',
+  '每 {n} 秒刷新': 'Refresh every {n} s',
+  '不自动刷新': 'Do not refresh automatically',
+  '在线设备': 'Online devices',
+  '在线，但所用内核不上报来源 IP（仅 Xray 支持）': 'Online, but its core does not report source IPs (Xray only)',
 }
 export default m
