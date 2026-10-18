@@ -30,7 +30,8 @@ type userReq struct {
 	SpeedUpMbps     int        `json:"speedUpMbps"`
 	SpeedDownMbps   int        `json:"speedDownMbps"`
 	Remark          string     `json:"remark"`
-	GroupIDs        []string   `json:"groupIds"`
+	GroupIDs        []string   `json:"groupIds"`   // ordinary groups; plan groups are ignored
+	PlanID          *string    `json:"planId"`     // nil = unchanged on update; sets the plan, not its limits
 	NodeIDs         []string   `json:"nodeIds"`    // nil = unchanged on update
 	InboundIDs      []string   `json:"inboundIds"` // nil = unchanged on update
 	TelegramID      *int64     `json:"telegramId"` // nil = unchanged, 0 = unbind
@@ -47,7 +48,7 @@ func (s *Server) withGroups(us []store.User) {
 		ids[i] = u.ID
 	}
 	var ugs []store.UserGroup
-	s.st.DB.Where("user_id IN ?", ids).Find(&ugs)
+	s.st.DB.Where("user_id IN ? AND group_id NOT IN (?)", ids, plansOnly(s.st.DB)).Find(&ugs)
 	m := map[string][]string{}
 	for _, g := range ugs {
 		m[g.UserID] = append(m[g.UserID], g.GroupID)
@@ -251,20 +252,21 @@ func (s *Server) createUser(c *gin.Context) {
 	if req.TelegramID != nil {
 		u.TelegramID = *req.TelegramID
 	}
-	if req.GroupIDs == nil && req.NodeIDs == nil && req.InboundIDs == nil {
+	if req.GroupIDs == nil && req.NodeIDs == nil && req.InboundIDs == nil && (req.PlanID == nil || *req.PlanID == "") {
 		req.GroupIDs = s.defaultGroupIDs() // outside the transaction (single SQLite connection)
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if u.TelegramID != 0 { // one account per Telegram user, as with /bind
 			tx.Model(&store.User{}).Where("telegram_id = ?", u.TelegramID).Update("telegram_id", 0)
 		}
+		if err := userPlanID(tx, &u, req.PlanID); err != nil {
+			return err
+		}
 		if err := tx.Create(&u).Error; err != nil {
 			return err
 		}
-		for _, g := range req.GroupIDs {
-			if err := tx.Create(&store.UserGroup{UserID: u.ID, GroupID: g}).Error; err != nil {
-				return err
-			}
+		if err := setUserGroups(tx, &u, req.GroupIDs); err != nil {
+			return err
 		}
 		if err := setAccess(tx, u.ID, "node", req.NodeIDs); err != nil {
 			return err
@@ -284,7 +286,7 @@ func (s *Server) createUser(c *gin.Context) {
 // bulkUsers creates N users from a prefix, or applies an action to many.
 func (s *Server) bulkUsers(c *gin.Context) {
 	var req struct {
-		Action    string   `json:"action"` // create / delete / delete-depleted / enable / disable / reset-traffic / extend / set-limits / add-group
+		Action    string   `json:"action"` // create / delete / delete-depleted / enable / disable / reset-traffic / extend / set-limits / add-group / plan
 		IDs       []string `json:"ids"`
 		All       bool     `json:"all"` // reset-traffic: every user
 		Prefix    string   `json:"prefix"`
@@ -302,6 +304,8 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		GroupID   string   `json:"groupId"`
 		NodeIDs   []string `json:"nodeIds"`    // attach-nodes / detach-nodes
 		Inbounds  []string `json:"inboundIds"` // attach-inbounds / detach-inbounds
+		PlanID    string   `json:"planId"`     // plan
+		Mode      string   `json:"mode"`       // plan: renew (default) / switch
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -366,7 +370,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	if len(req.IDs) > 0 && req.Action != "create" {
 		before = s.nodesForUsers(req.IDs...)
 	}
-	if t := req.Template; req.Action == "create" && t != nil && t.GroupIDs == nil && t.NodeIDs == nil && t.InboundIDs == nil {
+	if t := req.Template; req.Action == "create" && t != nil && t.GroupIDs == nil && t.NodeIDs == nil && t.InboundIDs == nil && (t.PlanID == nil || *t.PlanID == "") {
 		t.GroupIDs = s.defaultGroupIDs()
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
@@ -383,13 +387,14 @@ func (s *Server) bulkUsers(c *gin.Context) {
 				t.Username = name
 				t.UUID, t.Password = "", ""
 				u := newUser(&t)
+				if err := userPlanID(tx, &u, t.PlanID); err != nil {
+					return err
+				}
 				if err := tx.Create(&u).Error; err != nil {
 					return err
 				}
-				for _, g := range t.GroupIDs {
-					if err := tx.Create(&store.UserGroup{UserID: u.ID, GroupID: g}).Error; err != nil {
-						return err
-					}
+				if err := setUserGroups(tx, &u, t.GroupIDs); err != nil {
+					return err
 				}
 				if err := setAccess(tx, u.ID, "node", t.NodeIDs); err != nil {
 					return err
@@ -470,9 +475,26 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			}
 		case "add-group":
 			affected = req.IDs
+			if len(dropPlanGroups(tx, []string{req.GroupID})) == 0 {
+				return fmt.Errorf("套餐请用「开通套餐」操作")
+			}
 			for _, id := range req.IDs {
 				tx.Where("user_id = ? AND group_id = ?", id, req.GroupID).Delete(&store.UserGroup{})
 				if err := tx.Create(&store.UserGroup{UserID: id, GroupID: req.GroupID}).Error; err != nil {
+					return err
+				}
+			}
+		case "plan":
+			affected = req.IDs
+			p, err := loadPlan(tx, req.PlanID)
+			if err != nil {
+				return err
+			}
+			var us []store.User
+			tx.Where("id IN ? AND is_service = ?", req.IDs, false).Find(&us)
+			now := time.Now()
+			for i := range us {
+				if _, err := applyPlan(tx, &us[i], p, req.Mode != "switch", now); err != nil {
 					return err
 				}
 			}
@@ -584,14 +606,24 @@ func (s *Server) updateUser(c *gin.Context) {
 			"renew_days", "renew_max", "renew_count", "device_limit", "speed_up_mbps", "speed_down_mbps").Updates(&u).Error; err != nil {
 			return err
 		}
+		if req.PlanID != nil {
+			if err := userPlanID(tx, &u, req.PlanID); err != nil {
+				return err
+			}
+			if err := tx.Model(&u).Update("plan_id", u.PlanID).Error; err != nil {
+				return err
+			}
+		}
 		if req.GroupIDs != nil {
 			if err := tx.Where("user_id = ?", u.ID).Delete(&store.UserGroup{}).Error; err != nil {
 				return err
 			}
-			for _, g := range req.GroupIDs {
-				if err := tx.Create(&store.UserGroup{UserID: u.ID, GroupID: g}).Error; err != nil {
-					return err
-				}
+			if err := setUserGroups(tx, &u, req.GroupIDs); err != nil {
+				return err
+			}
+		} else if req.PlanID != nil {
+			if err := setPlanMembership(tx, u.ID, u.PlanID); err != nil {
+				return err
 			}
 		}
 		if err := setAccess(tx, u.ID, "node", req.NodeIDs); err != nil {
@@ -832,6 +864,10 @@ func (s *Server) deleteGroup(c *gin.Context) {
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.GroupInbound{})
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.GroupNode{})
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.UserGroup{})
+	if g.Plan { // its users keep their limits, without a plan
+		s.st.DB.Model(&store.User{}).Where("plan_id = ?", g.ID).Update("plan_id", "")
+		s.st.DB.Model(&store.Group{}).Where("fallback_id = ?", g.ID).Update("fallback_id", "")
+	}
 	s.st.DB.Delete(&g)
 	if g.Level > 0 || gnodes > 0 {
 		s.MarkAllDirty("group deleted")

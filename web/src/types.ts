@@ -64,11 +64,16 @@ export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; onlineDevices: OnlineDevice[]; remark: string; groupIds: string[]; createdAt: string
-  nodeIds: string[]; inboundIds: string[]; telegramId: number
+  nodeIds: string[]; inboundIds: string[]; telegramId: number; planId?: string
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
 }
 export interface UserDevice { id: string; hwid: string; os: string; model: string; userAgent: string; ip: string; firstSeen: string; lastSeen: string }
-export interface Group { id: string; name: string; remark: string; inboundIds: string[]; nodeIds: string[]; level: number; userCount: number; isDefault?: boolean; speedUpMbps?: number; speedDownMbps?: number }
+export interface Group {
+  id: string; name: string; remark: string; inboundIds: string[]; nodeIds: string[]; level: number; userCount: number; isDefault?: boolean; speedUpMbps?: number; speedDownMbps?: number
+  // A plan is a group sold as a package.
+  plan?: boolean; trafficLimit?: number; days?: number; resetPolicy?: string; resetDay?: number; deviceLimit?: number; ipLimit?: number
+  price?: string; fallbackId?: string; fallbackName?: string; sort?: number
+}
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
 export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]

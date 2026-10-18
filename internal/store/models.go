@@ -156,16 +156,18 @@ type User struct {
 	// OnlineDevices is what is connected right now, filled per request from
 	// the panel's live reports (never stored).
 	OnlineDevices []OnlineDevice `gorm:"-" json:"onlineDevices"`
-	IsService     bool           `gorm:"index" json:"isService"`  // chain service account
-	TelegramID    int64          `gorm:"index" json:"telegramId"` // bound Telegram chat
-	WarnedUsage   bool           `json:"-"`                       // 80% traffic warning sent this cycle
-	WarnedExpire  *time.Time     `json:"-"`
-	Remark        string         `gorm:"size:255" json:"remark"`
-	GroupIDs      []string       `gorm:"-" json:"groupIds"`
-	NodeIDs       []string       `gorm:"-" json:"nodeIds"`    // direct node bindings
-	InboundIDs    []string       `gorm:"-" json:"inboundIds"` // direct inbound bindings
-	CreatedAt     time.Time      `json:"createdAt"`
-	UpdatedAt     time.Time      `json:"updatedAt"`
+	// PlanID is the user's current plan (a Group with Plan set), "" = none.
+	PlanID       string     `gorm:"size:32;index" json:"planId"`
+	IsService    bool       `gorm:"index" json:"isService"`  // chain service account
+	TelegramID   int64      `gorm:"index" json:"telegramId"` // bound Telegram chat
+	WarnedUsage  bool       `json:"-"`                       // 80% traffic warning sent this cycle
+	WarnedExpire *time.Time `json:"-"`
+	Remark       string     `gorm:"size:255" json:"remark"`
+	GroupIDs     []string   `gorm:"-" json:"groupIds"`
+	NodeIDs      []string   `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs   []string   `gorm:"-" json:"inboundIds"` // direct inbound bindings
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
 // Used returns total used bytes.
@@ -187,12 +189,25 @@ type Group struct {
 	Level int `json:"level"`
 	// SpeedUpMbps / SpeedDownMbps are the group's plan: members without
 	// their own limit get the highest plan among their groups (0 = none).
-	SpeedUpMbps   int       `json:"speedUpMbps"`
-	SpeedDownMbps int       `json:"speedDownMbps"`
-	NodeIDs       []string  `gorm:"-" json:"nodeIds"`
-	InboundIDs    []string  `gorm:"-" json:"inboundIds"`
-	UserCount     int64     `gorm:"-" json:"userCount"`
-	CreatedAt     time.Time `json:"createdAt"`
+	SpeedUpMbps   int `json:"speedUpMbps"`
+	SpeedDownMbps int `json:"speedDownMbps"`
+	// A plan (Plan = true) is a group sold as a package. Applying it to a
+	// user makes it the user's only plan group and sets the limits below;
+	// the group's level, nodes, inbounds and speed decide what it reaches.
+	Plan         bool      `gorm:"index" json:"plan"`
+	TrafficLimit int64     `json:"trafficLimit"` // bytes, 0 = unlimited
+	Days         int       `json:"days"`         // validity, 0 = no expiry
+	ResetPolicy  string    `gorm:"size:16" json:"resetPolicy"`
+	ResetDay     int       `json:"resetDay"`
+	DeviceLimit  int       `json:"deviceLimit"`
+	IPLimit      int       `json:"ipLimit"`
+	Price        string    `gorm:"size:32" json:"price"`      // shown only, e.g. "¥15 / 月"
+	FallbackID   string    `gorm:"size:32" json:"fallbackId"` // plan applied on expiry; "" = the account expires
+	Sort         int       `json:"sort"`
+	NodeIDs      []string  `gorm:"-" json:"nodeIds"`
+	InboundIDs   []string  `gorm:"-" json:"inboundIds"`
+	UserCount    int64     `gorm:"-" json:"userCount"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).

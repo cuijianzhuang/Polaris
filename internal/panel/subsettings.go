@@ -160,6 +160,16 @@ func (s *Server) pageExtras(info *sub.Info, u *store.User, nodes []sub.Node) {
 		return
 	}
 	info.Status = u.Status
+	if u.PlanID != "" {
+		var p store.Group
+		if s.st.DB.First(&p, "id = ? AND plan = ?", u.PlanID, true).Error == nil {
+			info.PlanName = p.Name
+			var next store.Group
+			if p.FallbackID != "" && s.st.DB.First(&next, "id = ? AND plan = ?", p.FallbackID, true).Error == nil {
+				info.PlanNext = next.Name
+			}
+		}
+	}
 	planInfo(info, u)
 	info.SpeedNote = s.speedNote(u)
 	if s.tg != nil && s.tg.isRunning() {

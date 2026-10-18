@@ -28,13 +28,14 @@ const (
 	ScopeUsersWrite   = "users:write"
 	ScopeUsersRenew   = "users:renew"
 	ScopeTrafficAdd   = "users:traffic:add"
+	ScopeUsersPlan    = "users:plan"
 	ScopeSubsRead     = "subs:read"
 	ScopeNodesRead    = "nodes:read"
 	ScopeTrafficRead  = "traffic:read"
 	ScopeSettingsRead = "settings:read"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
@@ -61,6 +62,8 @@ var tokenRoutes = map[string]string{
 	"POST /users/:id/reset-token":         ScopeUsersWrite,
 	"POST /users/:id/renew":               ScopeUsersRenew,
 	"POST /users/:id/add-traffic":         ScopeTrafficAdd,
+	"POST /users/:id/plan":                ScopeUsersPlan,
+	"GET /plans":                          ScopeUsersPlan,
 	"DELETE /users/:id/devices/:did":      ScopeUsersWrite,
 	"PUT /users/:id/node-quotas/:node":    ScopeUsersWrite,
 	"DELETE /users/:id/node-quotas/:node": ScopeUsersWrite,

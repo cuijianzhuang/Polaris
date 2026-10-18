@@ -3,6 +3,7 @@ package panel
 import (
 	"bytes"
 	"context"
+	"errors"
 	"html"
 	"io"
 	"io/fs"
@@ -40,6 +41,8 @@ func dbError(c *gin.Context, err error) {
 	switch {
 	case store.IsNotFound(err):
 		notFound(c)
+	case errors.As(err, new(commandInputError)):
+		badRequest(c, err)
 	case store.IsDuplicate(err):
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "名称或标签已存在"})
 	default:
@@ -209,6 +212,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/users/:id/reset-traffic", s.resetUserTraffic)
 	p.POST("/users/:id/renew", s.renewUser)
 	p.POST("/users/:id/add-traffic", s.addUserTraffic)
+	p.POST("/users/:id/plan", s.setUserPlan)
 	p.POST("/users/:id/reset-token", s.resetUserToken)
 	p.GET("/users/:id/node-quotas", s.listNodeQuotas)
 	p.PUT("/users/:id/node-quotas/:node", s.putNodeQuota)
@@ -220,6 +224,10 @@ func (s *Server) Router() http.Handler {
 	p.POST("/groups", s.createGroup)
 	p.PUT("/groups/:id", s.updateGroup)
 	p.DELETE("/groups/:id", s.deleteGroup)
+	p.GET("/plans", s.listPlans)
+	p.POST("/plans", s.createPlan)
+	p.PUT("/plans/:id", s.updatePlan)
+	p.DELETE("/plans/:id", s.deleteGroup)
 
 	p.GET("/stats/overview", s.statsOverview)
 	p.GET("/stats/traffic", s.statsTraffic)

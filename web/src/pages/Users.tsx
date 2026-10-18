@@ -11,6 +11,7 @@ import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStat
 import type { Group, Inbound, Node, NodeQuota, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
 import { t, tr } from '../i18n'
+import { planSummary, PlansModal, UserPlanModal } from '../components/Plans'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
@@ -167,8 +168,12 @@ function SubCheck({ userId }: { userId: string }) {
   )
 }
 
-function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void; onDelete: (u: User) => void }) {
+function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void; onDelete: (u: User) => void }) {
   const speedOK = useFeature('speed_limit')
+  const groups = all.filter((g) => !g.plan)
+  const plans = all.filter((g) => g.plan)
+  const [planModal, setPlanModal] = useState(false)
+  const sp = plans.length > 0 || user?.planId ? 1 : 0 // the plan section shifts the step numbers
   const initLimitGB = user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : ''
   const [f, setF] = useState({
     username: user?.username ?? '', limitGB: initLimitGB,
@@ -180,7 +185,22 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
     renewDays: user?.renewDays ? String(user.renewDays) : '', renewMax: user?.renewMax ? String(user.renewMax) : '',
     deviceLimit: String(user?.deviceLimit ?? 0),
     speedUp: user?.speedUpMbps ? String(user.speedUpMbps) : '', speedDown: user?.speedDownMbps ? String(user.speedDownMbps) : '',
+    planId: user?.planId ?? '',
   })
+  // Picking a plan fills in its limits; they can still be edited.
+  const pickPlan = (id: string) => {
+    const p = plans.find((x) => x.id === id)
+    setF((x) => {
+      if (!p) return { ...x, planId: id }
+      const exp = new Date()
+      exp.setDate(exp.getDate() + (p.days ?? 0))
+      return {
+        ...x, planId: id, limitGB: p.trafficLimit ? String(+(p.trafficLimit / GB).toFixed(2)) : '', ipLimit: String(p.ipLimit ?? 0),
+        deviceLimit: String(p.deviceLimit ?? 0), resetPolicy: p.resetPolicy || 'none', resetDay: String(p.resetDay || 1),
+        expireMode: 'date', expire: p.days ? date(exp.toISOString()) : '', speedUp: '', speedDown: '',
+      }
+    })
+  }
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
   const save = () => run(async () => {
@@ -193,7 +213,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
       remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
       telegramId: Number(f.telegramId.trim()) || 0,
       renewDays: Number(f.renewDays) || 0, renewMax: Number(f.renewMax) || 0, deviceLimit: Number(f.deviceLimit) || 0,
-      speedUpMbps: Number(f.speedUp) || 0, speedDownMbps: Number(f.speedDown) || 0,
+      speedUpMbps: Number(f.speedUp) || 0, speedDownMbps: Number(f.speedDown) || 0, planId: f.planId,
     }
     if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error(t('Telegram User ID 应为纯数字'))
     if (user) await put('/users/' + user.id, body)
@@ -224,7 +244,21 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           </div>
         </Field>
       </Section>
-      <Section step={2} title={t('流量与限制')} summary={[Number(f.limitGB) ? f.limitGB + ' GB' : t('不限流量'), Number(f.ipLimit) ? t('{n} 个 IP', { n: f.ipLimit }) : '', Number(f.deviceLimit) ? t('{n} 台设备', { n: f.deviceLimit }) : '', Number(f.speedUp) || Number(f.speedDown) ? t('限速 ↑{up} ↓{down} Mbps', { up: Number(f.speedUp) || '∞', down: Number(f.speedDown) || '∞' }) : '', { none: '', daily: t('每日重置'), weekly: t('每周重置'), monthly: t('每月重置'), cycle: t('周期重置') }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
+      {(plans.length > 0 || user?.planId) && (
+        <Section step={2} title={t('套餐')} summary={plans.find((p) => p.id === f.planId)?.name ?? t('无套餐')}>
+          <div className="form-grid">
+            <Field label={t('套餐')} htmlFor="u-plan" full hint={t('选择后自动填入套餐的流量、到期、设备数等，可再单独修改；套餐决定可用节点')}>
+              <select id="u-plan" className="input" value={f.planId} onChange={(e) => pickPlan(e.target.value)}>
+                <option value="">{t('无套餐')}</option>
+                {plans.map((p) => <option key={p.id} value={p.id}>{p.name} · {planSummary(p)}</option>)}
+              </select>
+            </Field>
+          </div>
+          {user && <button className="btn sm" type="button" onClick={() => setPlanModal(true)}>{t('开通 / 续费套餐…')}</button>}
+          {planModal && user && <UserPlanModal ids={[user.id]} current={user.planId} onClose={() => setPlanModal(false)} onDone={() => { setPlanModal(false); onSaved() }} />}
+        </Section>
+      )}
+      <Section step={2 + sp} title={t('流量与限制')} summary={[Number(f.limitGB) ? f.limitGB + ' GB' : t('不限流量'), Number(f.ipLimit) ? t('{n} 个 IP', { n: f.ipLimit }) : '', Number(f.deviceLimit) ? t('{n} 台设备', { n: f.deviceLimit }) : '', Number(f.speedUp) || Number(f.speedDown) ? t('限速 ↑{up} ↓{down} Mbps', { up: Number(f.speedUp) || '∞', down: Number(f.speedDown) || '∞' }) : '', { none: '', daily: t('每日重置'), weekly: t('每周重置'), monthly: t('每月重置'), cycle: t('周期重置') }[f.resetPolicy as 'none']].filter(Boolean).join(' · ')}>
         <div className="form-grid">
           <Field label={t('流量配额 (GB)')} htmlFor="u-limit" hint={t('留空或 0 为不限')}><input id="u-limit" className="input mono" value={f.limitGB} onChange={(e) => set('limitGB', e.target.value)} inputMode="decimal" /></Field>
           <Field label={t('同时在线 IP 数')} htmlFor="u-ip" hint={t('0 为不限；受信任地址（设置中配置）不计入')}><input id="u-ip" className="input mono" value={f.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} inputMode="numeric" /></Field>
@@ -255,7 +289,7 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           )}
         </div>
       </Section>
-      <Section step={3} title={t('有效期与续订')} summary={f.expireMode === 'first' ? t('首次使用后 {n} 天', { n: f.afterDays || '?' }) : f.expire ? t('{date} 到期', { date: f.expire }) : t('永不到期')}>
+      <Section step={3 + sp} title={t('有效期与续订')} summary={f.expireMode === 'first' ? t('首次使用后 {n} 天', { n: f.afterDays || '?' }) : f.expire ? t('{date} 到期', { date: f.expire }) : t('永不到期')}>
         <div className="form-grid">
           <Field label={t('有效期')} full>
             <div className="seg">
@@ -279,11 +313,11 @@ function UserDrawer({ user, groups, onClose, onSaved, onDelete }: { user?: User;
           </Field>
         </div>
       </Section>
-      <Section step={4} title={t('节点授权')}>
+      <Section step={4 + sp} title={t('节点授权')}>
         <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
           onChange={(k, v) => set(k, v)} />
       </Section>
-      <Section step={5} title="Telegram" defaultOpen={!!user?.telegramId} summary={f.telegramId ? t('已绑定 {id}', { id: f.telegramId }) : t('未绑定')}>
+      <Section step={5 + sp} title="Telegram" defaultOpen={!!user?.telegramId} summary={f.telegramId ? t('已绑定 {id}', { id: f.telegramId }) : t('未绑定')}>
           <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? t('已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒') : t('纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定')}>
             <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder={t('例如 123456789')} />
           </Field>
@@ -438,7 +472,7 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
             <table>
               <thead><tr><th>{t('分组')}</th><th>{t('等级')}</th><th>{t('限速')}</th><th>{t('用户')}</th><th>{t('节点')}</th><th>{t('入站')}</th><th></th></tr></thead>
               <tbody>
-                {(groups.data ?? []).map((g) => (
+                {(groups.data ?? []).filter((g) => !g.plan).map((g) => (
                   <tr key={g.id}>
                     <td style={{ fontWeight: 500 }}>{g.name}{g.isDefault && <span className="tag info-tag" style={{ marginLeft: 6 }}>{t('默认')}</span>}</td><td>{g.level > 0 ? <span className="tag info-tag">Lv.{g.level}</span> : <span className="mute">—</span>}</td><td className="mono small">{g.speedUpMbps || g.speedDownMbps ? `↑${g.speedUpMbps || '∞'} ↓${g.speedDownMbps || '∞'}` : <span className="mute">—</span>}</td><td className="mono">{g.userCount}</td>
                     <td className="mono" title={[...new Set([...tiered(g.level), ...nodes.filter((n) => g.nodeIds?.includes(n.id))].map((n) => n.name))].join('、')}>{new Set([...tiered(g.level).map((n) => n.id), ...(g.nodeIds ?? [])]).size}</td><td className="mono">{g.inboundIds.length}</td>
@@ -450,7 +484,7 @@ function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: (
                     </td>
                   </tr>
                 ))}
-                {groups.data?.length === 0 && <tr><td colSpan={7} className="mute">{t('还没有分组')}</td></tr>}
+                {groups.data?.filter((g) => !g.plan).length === 0 && <tr><td colSpan={7} className="mute">{t('还没有分组')}</td></tr>}
               </tbody>
             </table>
           </div>
@@ -545,7 +579,7 @@ export default function Users() {
   const [drawer, setDrawer] = useState<User | 'new' | null>(params.get('new') ? 'new' : null)
   const [selected, setSelected] = useState<User | null>(null)
   const [qr, setQr] = useState<User | null>(null)
-  const [modal, setModal] = useState<'groups' | 'bulk' | 'adjust' | 'import' | null>(null)
+  const [modal, setModal] = useState<'groups' | 'plans' | 'plan' | 'bulk' | 'adjust' | 'import' | null>(null)
   const [checked, setChecked] = useState<string[]>([])
   const toast = useToast()
   const { busy, run } = useAction()
@@ -592,6 +626,7 @@ export default function Users() {
       <div className="top">
         <div><h1>{t('用户')}</h1><div className="sub">{t('一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站')}</div></div>
         <div className="row">
+          <button className="btn" type="button" onClick={() => setModal('plans')}>{t('套餐')}</button>
           <button className="btn" type="button" onClick={() => setModal('groups')}>{t('分组')}</button>
           <details className="menu">
             <summary className="btn">{t('更多')}</summary>
@@ -621,7 +656,7 @@ export default function Users() {
           {(groups.data?.length ?? 0) > 0 && (
             <select className="input" style={{ width: 'auto', minHeight: 34 }} value={group} onChange={(e) => setGroup(e.target.value)} aria-label={t('按分组筛选')}>
               <option value="">{t('全部分组')}</option>
-              {groups.data!.map((g) => <option key={g.id} value={g.id}>{tr(g.name)}</option>)}
+              {groups.data!.map((g) => <option key={g.id} value={g.id}>{g.plan ? t('套餐 · {name}', { name: g.name }) : tr(g.name)}</option>)}
             </select>
           )}
         </div>
@@ -632,6 +667,7 @@ export default function Users() {
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('enable')}>{t('启用')}</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('disable')}>{t('禁用')}</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => bulk('reset-traffic')}>{t('重置流量')}</button>
+            <button className="btn sm" type="button" disabled={busy} onClick={() => setModal('plan')}>{t('开通套餐')}</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => setModal('adjust')}>{t('调整到期 / 流量 / 限制')}</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => downloadJSON('polaris-users.json', await get('/users/export?ids=' + checked.join(','))), t('已导出'))}>{t('导出')}</button>
             <button className="btn sm" type="button" disabled={busy} onClick={() => setBind('attach')}>{t('绑定节点')}</button>
@@ -659,9 +695,10 @@ export default function Users() {
                     <td data-label={t('状态')}>{statusBadge(u)}</td>
                     <td data-label={t('授权')}>
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title={t('整台节点')}>{nname(n)}</span>)}
+                      {u.planId && <span className="tag info-tag" title={t('套餐')}>{gname(u.planId)}</span>}
                       {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
                       {(u.inboundIds ?? []).length > 0 && <span className="tag" title={t('单独授权的入站')}>{t('+{n} 入站', { n: u.inboundIds.length })}</span>}
-                      {!u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">{t('未授权')}</span>}
+                      {!u.planId && !u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">{t('未授权')}</span>}
                     </td>
                     <td data-label={t('流量')} className="rt-wrap" style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : t('不限')}</span>
@@ -720,11 +757,13 @@ export default function Users() {
           <CopyBox text={subURL(qr)} />
         </Modal>
       )}
+      {modal === 'plans' && <PlansModal onClose={() => setModal(null)} onChanged={() => { groups.reload(); list.reload() }} />}
+      {modal === 'plan' && <UserPlanModal ids={checked} onClose={() => setModal(null)} onDone={() => { setModal(null); setChecked([]); list.reload() }} />}
       {modal === 'groups' && <GroupsModal onClose={() => setModal(null)} onChanged={() => { groups.reload(); list.reload() }} />}
       {bind && <BindNodesModal count={checked.length} detach={bind === 'detach'} onClose={() => setBind(null)} onSubmit={(ids) => {
         bulk(bind === 'detach' ? 'detach-nodes' : 'attach-nodes', { nodeIds: ids }); setBind(null)
       }} />}
-      {modal === 'bulk' && groups.data && <BulkCreateModal groups={groups.data} onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
+      {modal === 'bulk' && groups.data && <BulkCreateModal groups={groups.data.filter((g) => !g.plan)} onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
       {modal === 'adjust' && <AdjustModal ids={checked} onClose={() => setModal(null)} onDone={() => { setModal(null); setChecked([]); list.reload() }} />}
       {modal === 'import' && <ImportModal onClose={() => setModal(null)} onDone={() => { setModal(null); list.reload() }} />}
     </>

@@ -39,6 +39,7 @@ type userExport struct {
 	TelegramID      int64      `json:"telegramId,omitempty"`
 	Remark          string     `json:"remark,omitempty"`
 	Groups          []string   `json:"groups,omitempty"` // group names
+	Plan            string     `json:"plan,omitempty"`   // plan name
 
 	// 3x-ui client fields.
 	Email      string `json:"email,omitempty"`
@@ -123,7 +124,7 @@ func (s *Server) exportUsers(c *gin.Context) {
 		e := userExport{Username: u.Username, UUID: u.UUID, Password: u.Password, SSSeed: u.SSSeed, SubToken: u.SubToken,
 			TrafficLimit: u.TrafficLimit, UsedUp: u.UsedUp, UsedDown: u.UsedDown, ExpireAt: u.ExpireAt, ExpireAfterDays: u.ExpireAfterDays,
 			IPLimit: u.IPLimit, DeviceLimit: u.DeviceLimit, ResetPolicy: u.ResetPolicy, ResetDay: u.ResetDay, RenewDays: u.RenewDays,
-			RenewMax: u.RenewMax, Status: u.Status, TelegramID: u.TelegramID, Remark: u.Remark}
+			RenewMax: u.RenewMax, Status: u.Status, TelegramID: u.TelegramID, Remark: u.Remark, Plan: gname[u.PlanID]}
 		for _, g := range u.GroupIDs {
 			if n := gname[g]; n != "" {
 				e.Groups = append(e.Groups, n)
@@ -166,11 +167,15 @@ func (s *Server) importUsers(c *gin.Context) {
 	for _, u := range uuids {
 		taken["id:"+u] = true
 	}
-	gid := map[string]string{}
+	gid, planID := map[string]string{}, map[string]string{}
 	var gs []store.Group
 	s.st.DB.Find(&gs)
 	for _, g := range gs {
-		gid[g.Name] = g.ID
+		if g.Plan {
+			planID[g.Name] = g.ID
+		} else {
+			gid[g.Name] = g.ID
+		}
 	}
 	defaults := req.GroupIDs
 	if defaults == nil {
@@ -204,6 +209,7 @@ func (s *Server) importUsers(c *gin.Context) {
 				u.SubToken = pki.Token(32)
 			}
 			u.UsedUp, u.UsedDown, u.TelegramID = max(e.UsedUp, 0), max(e.UsedDown, 0), max(e.TelegramID, 0)
+			u.PlanID = planID[e.Plan]
 			u.Status = computeStatus(&u, time.Now())
 			if err := tx.Create(&u).Error; err != nil {
 				return fmt.Errorf("%s: %w", e.Username, err)
@@ -214,7 +220,9 @@ func (s *Server) importUsers(c *gin.Context) {
 					groups[g] = true
 				}
 			}
-			if len(e.Groups) == 0 {
+			if u.PlanID != "" {
+				groups[u.PlanID] = true
+			} else if len(e.Groups) == 0 {
 				for _, g := range defaults {
 					groups[g] = true
 				}

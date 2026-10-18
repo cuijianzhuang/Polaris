@@ -323,7 +323,7 @@ func (s *Server) enforceLimits() {
 	var users []store.User
 	s.st.DB.Where("status IN ? AND is_service = ?", []string{"active", "limited", "expired"}, false).Find(&users)
 	for _, u := range users {
-		if s.autoRenew(&u, now) {
+		if s.autoRenew(&u, now) || s.planFallback(&u, now) {
 			changed = append(changed, u.ID)
 		}
 		want := computeStatus(&u, now)

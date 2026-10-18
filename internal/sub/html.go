@@ -66,9 +66,10 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 <div><span class="mute">下载</span><b>{{bytes .Download}}</b></div>
 </div>
 <div class="plan">
-<div><span>📦 套餐</span><b>{{if .Total}}{{bytes .Total}}{{else}}不限流量{{end}}</b></div>
+<div><span>📦 套餐</span><b>{{if .PlanName}}{{.PlanName}} · {{end}}{{if .Total}}{{bytes .Total}}{{else}}不限流量{{end}}</b></div>
 <div><span>⏳ 到期</span><b class="{{.ExpireLevel}}">{{.ExpiryText}}</b></div>
 {{if .Expire}}<div><span>🕒 到期时间</span><b>{{.Expire}}</b></div>{{end}}
+{{if .PlanNext}}<div><span>⤵️ 到期后</span><b>转为 {{.PlanNext}}</b></div>{{end}}
 {{if .ResetNote}}<div><span>♻️ 流量重置</span><b>{{.ResetNote}}</b></div>{{end}}
 {{if .SpeedNote}}<div><span>🚀 限速</span><b>{{.SpeedNote}}</b></div>{{end}}
 {{range .NodeQuotas}}<div><span>📍 {{.Node}}</span><b{{if .Bad}} class="bad"{{end}}>{{.Text}}</b></div>{{end}}
@@ -165,7 +166,7 @@ func RenderPage(info Info) ([]byte, error) {
 	data := map[string]any{
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": ExpiryLeft(info), "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
-		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote, "SpeedNote": info.SpeedNote,
+		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,
 		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
 		"Clients": clientLinks(info), "Links": links, "Chart": chart, "ChartMax": max, "ChartDays": len(info.Daily),
