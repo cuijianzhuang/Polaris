@@ -238,3 +238,18 @@ func TestShop(t *testing.T) {
 		t.Fatal("closed shop took an order")
 	}
 }
+
+// TestOrdersEmpty: with nothing sold the lists are [] — a null revenue
+// list once blanked the shop page.
+func TestOrdersEmpty(t *testing.T) {
+	_, _, admin := newAdminClient(t)
+	code, out := admin.do("GET", "/orders", nil)
+	if code != 200 {
+		t.Fatalf("orders %d", code)
+	}
+	for _, k := range []string{"items", "revenue"} {
+		if _, ok := out[k].([]any); !ok {
+			t.Fatalf("%s is %#v, want []", k, out[k])
+		}
+	}
+}

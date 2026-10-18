@@ -190,5 +190,7 @@ const m: Record<string, string> = {
   "用户在机器人里发送 /redeem 兑换码，流量加到本周期配额，下次流量重置或新周期时失效。": "Users send /redeem <code>; the traffic joins this period's quota and ends at the next reset or new period.",
   "给已有账号加本周期流量": "Adds traffic to an existing account for this period",
   "还没有流量包，请先在「流量包」里新建。": "No traffic packs yet; create one under Traffic packs first.",
+  "重新加载": "Reload",
+  "页面出错了": "This page hit an error",
 }
 export default m

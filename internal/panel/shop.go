@@ -411,7 +411,7 @@ func (s *Server) listOrders(c *gin.Context) {
 		Total    float64 `json:"total"`
 		Count    int64   `json:"count"`
 	}
-	var sums []sum
+	sums := []sum{} // [] rather than null when nothing was sold
 	var paid []store.Order
 	s.st.DB.Where("status = ? AND paid_at > ? AND method IN ?", "paid", time.Now().AddDate(0, 0, -30), []string{payStars, payEPay, payUSDT}).Find(&paid)
 	for _, o := range paid {
