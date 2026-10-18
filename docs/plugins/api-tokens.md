@@ -14,7 +14,7 @@
 | `users:read` | 现有用户列表、详情、导出、分组、设备、节点配额，以及订阅读取；**可读取用户代理凭据** |
 | `users:write` | 现有用户创建、修改、删除及流量操作；兼容续期 / 加流量，保留原有响应字段 |
 | `nodes:read` | 节点、节点详情和入站读取 |
-| `traffic:read` | 汇总、用户 / 节点及标签流量统计 |
+| `traffic:read` | 汇总、用户 / 节点及标签流量统计；`GET /users/:id/traffic-sources` 查询按小时和节点的来源（不含用户凭据） |
 | `settings:read` | 现有设置读取 |
 
 以上范围当前为面板全局范围，不提供按客户或节点隔离的租户权限。只需处理订单的服务，优先申请 `users:renew` 和 / 或 `users:traffic:add`，不授予 `users:write` 或 `users:read`。业务服务应自行保存用户 ID 对应关系。

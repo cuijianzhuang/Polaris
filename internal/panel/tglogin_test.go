@@ -70,6 +70,7 @@ func TestTelegramLoginScope(t *testing.T) {
 	expect(opc, "PUT", "/nodes/"+mine, 403)           // editing is not an operator action
 	expect(opc, "GET", "/nodes/"+mine+"/render", 403) // native config holds keys
 	expect(opc, "GET", "/users", 403)
+	expect(opc, "GET", "/users/any/traffic-sources", 403)
 	expect(opc, "GET", "/settings", 403)
 	expect(opc, "GET", "/stats/traffic?node="+mine, 200)
 	expect(opc, "GET", "/stats/traffic?node="+other, 403)

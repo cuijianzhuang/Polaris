@@ -46,6 +46,7 @@ var tokenRoutes = map[string]string{
 	"GET /users":                          ScopeUsersRead,
 	"GET /users/export":                   ScopeUsersRead,
 	"GET /users/:id":                      ScopeUsersRead,
+	"GET /users/:id/traffic-sources":      ScopeTrafficRead,
 	"GET /users/:id/links":                ScopeSubsRead,
 	"GET /users/:id/sub-check":            ScopeSubsRead,
 	"GET /users/:id/devices":              ScopeUsersRead,

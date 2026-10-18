@@ -213,6 +213,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/users/:id/node-quotas", s.listNodeQuotas)
 	p.PUT("/users/:id/node-quotas/:node", s.putNodeQuota)
 	p.DELETE("/users/:id/node-quotas/:node", s.deleteNodeQuota)
+	p.GET("/users/:id/traffic-sources", s.userTrafficSources)
 	p.GET("/users/:id/links", s.userLinks)
 
 	p.GET("/groups", s.listGroups)

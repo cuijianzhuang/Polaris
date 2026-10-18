@@ -39,7 +39,6 @@ type Adapter struct {
 	last    *model.NodeSpec
 	api     *core.APIClient
 	service string
-	seen    map[string][2]int64 // cumulative counters at last collection
 	stats   bool                // binary built with with_v2ray_api
 	secret  string              // Clash API secret (builds without v2ray_api)
 	conns   map[string][2]int64 // Clash API per-connection counters at last poll
@@ -54,7 +53,7 @@ func New(o core.Options) *Adapter {
 	if o.APIListen == "" {
 		o.APIListen = "127.0.0.1:10086"
 	}
-	a := &Adapter{opt: o, seen: map[string][2]int64{}, stats: true, conns: map[string][2]int64{}, online: newOnlineTracker()}
+	a := &Adapter{opt: o, stats: true, conns: map[string][2]int64{}, online: newOnlineTracker()}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("sing-box", o.BinPath, o.WorkDir, o.Logger, "run", "-c", a.configPath(), "-D", o.WorkDir)
 		a.proc.Filter = a.online.line
@@ -636,11 +635,11 @@ func (a *Adapter) Validate(cfg []byte) error {
 	return core.RunCheck(a.opt.BinPath, "check", "-c", f)
 }
 
-// resetCounters forgets the cumulative counters: a (re)started or reloaded
-// sing-box counts from zero again.
+// resetCounters clears the Clash connection baseline only for a new process.
+// The v2ray stats path reads and resets counters atomically at the core.
 func (a *Adapter) resetCounters() {
 	a.mu.Lock()
-	a.seen = map[string][2]int64{}
+	a.conns = map[string][2]int64{}
 	a.mu.Unlock()
 }
 
@@ -648,7 +647,9 @@ func (a *Adapter) Start(ctx context.Context) error {
 	if a.proc == nil {
 		return fmt.Errorf("sing-box binary not configured")
 	}
-	a.resetCounters()
+	if !a.proc.Running() {
+		a.resetCounters()
+	}
 	return a.proc.Start(ctx)
 }
 
@@ -656,7 +657,6 @@ func (a *Adapter) Stop(ctx context.Context) error {
 	if a.proc == nil {
 		return nil
 	}
-	a.resetCounters()
 	return a.proc.Stop(ctx)
 }
 
@@ -665,9 +665,8 @@ func (a *Adapter) Reload(ctx context.Context) error {
 	if a.proc == nil {
 		return fmt.Errorf("sing-box binary not configured")
 	}
-	a.resetCounters()
 	if !a.proc.Running() {
-		return a.proc.Start(ctx)
+		return a.Start(ctx)
 	}
 	return a.proc.Signal(syscall.SIGHUP)
 }
@@ -689,9 +688,9 @@ func (a *Adapter) client() (*core.APIClient, error) {
 	return c, nil
 }
 
-// CollectTraffic reads cumulative counters and returns the difference to the
-// previous read. A counter that went backwards means the core restarted, in
-// which case the current value is the delta.
+// CollectTraffic reads and resets counters at the core, just like Xray.
+// Keeping the delta in the core avoids replaying lifetime totals when the
+// collector or configuration is reloaded.
 func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, error) {
 	if !a.stats {
 		if a.secret == "" {
@@ -712,7 +711,7 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 		candidates = []string{svc}
 	}
 	for _, s := range candidates {
-		stats, err = c.QueryStats(ctx, s, "", false) // users, inbounds and outbounds
+		stats, err = c.QueryStats(ctx, s, "", true) // users, inbounds and outbounds
 		if err == nil {
 			svc = s
 			break
@@ -724,22 +723,15 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	if err != nil {
 		return nil, err
 	}
-	cur := core.AllTraffic(stats)
 	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.service = svc
+	a.mu.Unlock()
 	var out []model.TrafficDelta
-	for id, v := range cur {
-		prev := a.seen[id]
-		d := model.TrafficDelta{UserID: id, Up: v[0] - prev[0], Down: v[1] - prev[1]}
-		if d.Up < 0 || d.Down < 0 {
-			d.Up, d.Down = v[0], v[1]
-		}
-		if d.Up != 0 || d.Down != 0 {
-			out = append(out, d)
+	for id, v := range core.AllTraffic(stats) {
+		if v[0] != 0 || v[1] != 0 {
+			out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
 		}
 	}
-	a.seen = cur
 	return out, nil
 }
 

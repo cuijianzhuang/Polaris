@@ -1,5 +1,23 @@
 // Group levels, server traffic allowance, server costs, core install progress, sidebar groups.
 const m: Record<string, string> = {
+  '共 {n} 条': '{n} records',
+  "流量来源": "Traffic sources",
+  "未记录": "Not recorded",
+  "时间范围": "Time range",
+  "按面板结算小时展示；离线补报可能晚于实际使用时间。箭头表示上行与下行。": "Grouped by panel settlement hour; offline reports may arrive after actual use. Arrows indicate upload and download.",
+  "所选范围合计": "Totals for the selected range",
+  "原始流量": "Raw traffic",
+  "倍率后流量": "Traffic after multiplier",
+  "账户扣量": "Account charge",
+  "包含旧记录：原始流量和账户扣量合计仅含已记录部分；部分记录的倍率也仅覆盖该部分。未记录不代表零流量。": "Includes older records: raw traffic and account charge totals cover only recorded portions; multipliers on partial rows also cover only those portions. Unrecorded does not mean zero traffic.",
+  "所选范围暂无流量记录": "No traffic recorded in this range",
+  "流量来源明细": "Traffic source details",
+  "结算小时": "Settlement hour",
+  "倍率": "Multiplier",
+  "已删除或未知节点": "Deleted or unknown node",
+  "部分记录": "Partially recorded",
+  "倍率记录结算时的实际值；同小时变更显示范围。节点流量包先于账户扣除。重置或手动调整会影响当前已用量，但不会改写历史来源。": "Multipliers reflect values at settlement; changes within an hour appear as a range. Node packs are spent before the account quota. Resets and manual adjustments affect current usage but do not rewrite traffic history.",
+
   '查看用户（含代理凭据）': 'Read users (including proxy credentials)',
   '仅续期用户': 'Renew users only',
   '仅增加用户流量': 'Add user traffic only',

@@ -258,6 +258,17 @@ type TrafficHourly struct {
 	Hour   time.Time `gorm:"primaryKey"`
 	Up     int64
 	Down   int64
+	// Older rows have no raw/account evidence. RecordedUp/Down track only
+	// the portion captured after this schema, including mixed upgrade hours.
+	RawRecorded  bool    `gorm:"not null;default:false"`
+	RawUp        int64   `gorm:"not null;default:0"`
+	RawDown      int64   `gorm:"not null;default:0"`
+	RecordedUp   int64   `gorm:"not null;default:0"`
+	RecordedDown int64   `gorm:"not null;default:0"`
+	AccountUp    int64   `gorm:"not null;default:0"`
+	AccountDown  int64   `gorm:"not null;default:0"`
+	RateMin      float64 `gorm:"not null;default:0"`
+	RateMax      float64 `gorm:"not null;default:0"`
 }
 
 // Certificate is a TLS certificate distributed to nodes.
