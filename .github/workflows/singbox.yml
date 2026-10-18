@@ -24,6 +24,8 @@ concurrency:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    # Builds are published only from the cuijianzhuang copy, not the mirror.
+    if: github.repository_owner == 'cuijianzhuang'
     outputs:
       versions: ${{ steps.p.outputs.versions }}
     steps:
