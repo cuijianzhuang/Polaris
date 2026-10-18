@@ -85,6 +85,9 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 {{range .Links}}<div class="node"><details><summary class="row nw"><span class="nm" title="{{.Name}}">{{.Name}}</span><span class="tag">{{.Protocol}}</span><button class="btn sm" type="button" data-copy="{{.Link}}">复制</button></summary>
 {{if .QR}}<img class="qr" style="margin-top:10px" src="{{.QR}}" alt="{{.Name}} 二维码">{{end}}</details></div>{{end}}
 </section>{{end}}
+{{if and .Portal .Extras}}<section class="card"><h2>更多服务</h2><div class="grid">
+{{range .Extras}}<a class="btn" href="{{.URL}}" target="_blank" rel="noopener">{{.Title}}</a>{{end}}
+</div></section>{{end}}
 {{if or .SupportURL .BotURL}}<section class="card"><div class="grid">
 {{if .BotURL}}<a class="btn" href="{{.BotURL}}">Telegram 机器人绑定</a>{{end}}
 {{if .SupportURL}}<a class="btn" href="{{.SupportURL}}">联系客服</a>{{end}}
@@ -163,7 +166,7 @@ func RenderPage(info Info) ([]byte, error) {
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": ExpiryLeft(info), "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote, "SpeedNote": info.SpeedNote,
-		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "NodeQuotas": info.NodeQuotas,
+		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
 		"Clients": clientLinks(info), "Links": links, "Chart": chart, "ChartMax": max, "ChartDays": len(info.Daily),
 	}
@@ -175,6 +178,21 @@ func RenderPage(info Info) ([]byte, error) {
 }
 
 // safeURL only lets http(s) and tg links through.
+type extraLink struct {
+	Title string
+	URL   template.URL
+}
+
+func extraLinks(in []ExtraLink) []extraLink {
+	var out []extraLink
+	for _, l := range in {
+		if u := safeURL(l.URL); u != "" && l.Title != "" {
+			out = append(out, extraLink{l.Title, u})
+		}
+	}
+	return out
+}
+
 func safeURL(s string) template.URL {
 	if strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "tg://") {
 		return template.URL(s)

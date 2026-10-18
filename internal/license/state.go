@@ -44,6 +44,8 @@ func (s State) Limit(kind string) int {
 		return s.Limits.Nodes
 	case LimitUsers:
 		return s.Limits.Users
+	case LimitPlugins:
+		return s.Limits.Plugins
 	}
 	return 0
 }

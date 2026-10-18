@@ -124,6 +124,9 @@ func (s *Server) portalPage(c *gin.Context) {
 	s.pageExtras(&info, u, nodes)
 	info.BotURL = "" // already bound: that is how they signed in
 	info.Portal = true
+	for _, l := range s.pluginPortalLinks(u) {
+		info.Extras = append(info.Extras, sub.ExtraLink{Title: l.Title, URL: l.URL})
+	}
 	b, err := sub.RenderPage(info)
 	if err != nil {
 		serverError(c, err)

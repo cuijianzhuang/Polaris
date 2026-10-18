@@ -26,7 +26,7 @@
   "customer": "某某公司",
   "email": "admin@example.com",
   "plan": "pro",
-  "limits": { "nodes": 20, "users": 2000 },
+  "limits": { "nodes": 20, "users": 2000, "plugins": 10 },
   "features": ["speed_limit", "sso", "costs", "reports", "tg_menu"],
   "instance": "inst_3h9x…",
   "issued_at": "2026-10-17",
@@ -36,6 +36,7 @@
 ```
 
 字段说明：
+- `limits`：数量上限，0 或缺省表示不限。`plugins` 是可同时安装的插件数；社区版（无许可证）固定为 3，授权后以许可证为准（0 不限）。
 - `instance`：绑定的面板实例，可以为空（不绑定）。
 - `expires_at`：到期时间，为空表示永久授权。
 - `updates_until`：在这个日期之前发布的版本都可以使用。

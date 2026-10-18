@@ -31,18 +31,24 @@ var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, 
 
 // Limit kinds.
 const (
-	LimitNodes = "nodes"
-	LimitUsers = "users"
+	LimitNodes   = "nodes"
+	LimitUsers   = "users"
+	LimitPlugins = "plugins"
 )
 
-// Community edition: no paid features; node and user caps are not set yet
-// (0 = unlimited).
-var Community = Limits{Nodes: 0, Users: 0}
+// CommunityPlugins is how many plugins the community edition may install.
+const CommunityPlugins = 3
 
-// Limits caps what an instance may manage (0 = unlimited).
+// Community edition: no paid features; node and user caps are not set yet
+// (0 = unlimited); plugins are capped at CommunityPlugins.
+var Community = Limits{Nodes: 0, Users: 0, Plugins: CommunityPlugins}
+
+// Limits caps what an instance may manage (0 = unlimited). A license issued
+// before plugins existed carries no plugins cap, which means unlimited.
 type Limits struct {
-	Nodes int `json:"nodes"`
-	Users int `json:"users"`
+	Nodes   int `json:"nodes"`
+	Users   int `json:"users"`
+	Plugins int `json:"plugins,omitempty"`
 }
 
 // License is the signed document.
