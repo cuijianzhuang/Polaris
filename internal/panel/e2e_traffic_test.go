@@ -23,7 +23,7 @@ import (
 // TestTrafficAccounting pushes real bytes through a node and checks that
 // they land on the user, the node and the dashboard, up and down.
 func TestTrafficAccounting(t *testing.T) {
-	// Parallel: both wait for the same once-a-minute settlement.
+	// Parallel: both wait for the periodic traffic settlement.
 	t.Run("vless-tcp", func(t *testing.T) { t.Parallel(); testTraffic(t, false) })
 	// Vision splices TLS payloads kernel-side; they must still be counted.
 	t.Run("reality-vision", func(t *testing.T) { t.Parallel(); testTraffic(t, true) })
@@ -192,11 +192,12 @@ func testTraffic(t *testing.T, vision bool) {
 		t.Fatalf("download through node failed (%d bytes): %s %s", len(body), errOut, logs.tail(20))
 	}
 
-	// Settlement runs every minute.
+	// Reports and settlements are asynchronous. Handshake traffic can settle
+	// before the payload, so wait for the full download rather than any traffic.
 	var got map[string]any
 	waitFor(t, "user traffic settled", 90*time.Second, func() bool {
 		a.do("GET", "/users/"+user["id"].(string), nil, &got)
-		return got["usedDown"].(float64) > 0
+		return got["usedDown"].(float64) >= float64(len(payload)) && got["usedUp"].(float64) > 0
 	})
 	if got["usedDown"].(float64) < float64(len(payload)) || got["usedUp"].(float64) <= 0 {
 		t.Fatalf("user traffic: up %v down %v, want down >= %d", got["usedUp"], got["usedDown"], len(payload))
