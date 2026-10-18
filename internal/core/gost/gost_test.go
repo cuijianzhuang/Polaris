@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/core/coretest"
 	"github.com/cuijianzhuang/polaris/internal/model"
 )
 
@@ -53,14 +53,7 @@ gost_service_transfer_output_bytes_total{host="h",service="fwd-a"} 2.5e+03
 	}
 }
 
-func freePort(t *testing.T) int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
-}
+func freePort(t *testing.T) int { return coretest.FreePort(t) }
 
 func run(t *testing.T, bin string, spec *model.NodeSpec, api string) *Adapter {
 	dir := t.TempDir()

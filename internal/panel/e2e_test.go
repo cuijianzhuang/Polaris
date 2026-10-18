@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/agent"
+	"github.com/cuijianzhuang/polaris/internal/core/coretest"
 	"github.com/cuijianzhuang/polaris/internal/panel"
 )
 
@@ -47,7 +48,7 @@ var agentBases []int
 func claimPort(p int) bool {
 	portsMu.Lock()
 	defer portsMu.Unlock()
-	return claimLocked(p, 32, 32)
+	return claimLocked(p, 32, 32) && coretest.Claim(p) // coretest: also against other packages' tests
 }
 
 // claimLocked records p unless another port lies in (p-below, p+above) or p
