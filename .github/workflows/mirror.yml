@@ -1,0 +1,61 @@
+name: mirror
+# Keeps this repository and its twin under the other owner
+# (cuijianzhuang/<name> <-> PolarisPanelOrg/<name>) in step: main only, no
+# tags, fast-forward only. Needs the secret MIRROR_TOKEN: a token that can
+# push to both repositories (classic: repo + workflow). Without it the job
+# does nothing. If the two sides ever diverge it fails and waits for a person.
+# Releases are cut only from the cuijianzhuang copy (see release.yml).
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ${{ secrets.MIRROR_TOKEN }}
+      OTHER: ${{ github.repository_owner == 'cuijianzhuang' && 'PolarisPanelOrg' || 'cuijianzhuang' }}/${{ github.event.repository.name }}
+    steps:
+      - id: gate
+        run: |
+          if [ -z "$TOKEN" ]; then echo "::warning::MIRROR_TOKEN is not set; skipping"; else echo "go=1" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.go == '1'
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.MIRROR_TOKEN }}
+      - name: Sync main with ${{ env.OTHER }}
+        if: steps.gate.outputs.go == '1'
+        run: |
+          set -euo pipefail
+          git remote add other "https://x-access-token:${TOKEN}@github.com/${OTHER}.git"
+          ours=$(git rev-parse HEAD)
+          if git fetch other main 2>/dev/null; then
+            theirs=$(git rev-parse FETCH_HEAD)
+            if [ "$ours" = "$theirs" ]; then
+              echo "in sync at $ours"
+            elif git merge-base --is-ancestor "$theirs" "$ours"; then
+              echo "pushing $ours to $OTHER"
+              git push other "$ours:refs/heads/main"
+            elif git merge-base --is-ancestor "$ours" "$theirs"; then
+              echo "pulling $theirs from $OTHER"
+              git push origin "$theirs:refs/heads/main"
+            else
+              echo "::error::main has diverged from $OTHER; merge them by hand"
+              exit 1
+            fi
+          else
+            echo "no main on $OTHER yet (or no access); pushing"
+            git push other "$ours:refs/heads/main"
+          fi

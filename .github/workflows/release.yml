@@ -27,6 +27,9 @@ concurrency:
 jobs:
   version:
     runs-on: ubuntu-latest
+    # Releases come only from the cuijianzhuang copy; the mirror under the
+    # organization must not cut versions of its own.
+    if: github.repository_owner == 'cuijianzhuang'
     outputs:
       version: ${{ steps.v.outputs.version }}
       skip: ${{ steps.v.outputs.skip }}
