@@ -189,3 +189,70 @@ export function SSOProviders() {
 function CopyBoxInline({ text }: { text: string }) {
   return <div className="row" style={{ flexWrap: 'nowrap' }}><code style={{ flex: 1, wordBreak: 'break-all' }}>{text}</code><button className="btn sm" type="button" onClick={() => copyText(text)}>{t('复制')}</button></div>
 }
+
+type APIToken = { id: string; name: string; pluginId?: string; prefix: string; scopes: string[]; createdBy: string; createdAt: string; lastUsedAt?: string; lastIp?: string; expiresAt?: string }
+const scopeLabel = (): Record<string, string> => ({
+  'users:read': t('查看用户'), 'users:write': t('管理用户（创建、修改、续费、加流量）'), 'nodes:read': t('查看节点和入站'),
+  'traffic:read': t('查看流量统计'), 'settings:read': t('查看设置'),
+})
+
+// APITokens: tokens for scripts and plugins to call the API without logging in.
+export function APITokens() {
+  const list = useLoad(() => get<{ tokens: APIToken[]; scopes: string[] }>('/tokens'))
+  const [form, setForm] = useState<{ name: string; scopes: string[]; days: number } | null>(null)
+  const [secret, setSecret] = useState('')
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const ts = list.data?.tokens ?? []
+  const labels = scopeLabel()
+  const toggle = (sc: string) => setForm((f) => f && ({ ...f, scopes: f.scopes.includes(sc) ? f.scopes.filter((x) => x !== sc) : [...f.scopes, sc] }))
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="ctitle"><span>{t('API 令牌')}</span><button className="btn sm" type="button" onClick={() => setForm({ name: '', scopes: ['users:read'], days: 0 })}>{t('+ 新建令牌')}</button></div>
+      <div className="sub" style={{ margin: 0 }}>{t('给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。插件安装时会自动创建自己的令牌。')}</div>
+      {ts.length === 0 && <div className="hint">{t('还没有 API 令牌。')}</div>}
+      {ts.map((tk) => (
+        <div key={tk.id} className="row" style={{ flexWrap: 'nowrap', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 500 }}>{tk.name} <span className="mono small mute">{tk.prefix}…</span>{tk.pluginId && <span className="tag" style={{ marginLeft: 4 }}>{t('插件')}</span>}
+              {tk.expiresAt && new Date(tk.expiresAt) < new Date() && <span className="tag bad" style={{ marginLeft: 4 }}>{t('已过期')}</span>}</div>
+            <div className="hint">{tk.scopes.length ? tk.scopes.map((s) => labels[s] ?? s).join('、') : t('仅能读取令牌自身信息')}</div>
+            <div className="hint">{tk.lastUsedAt ? t('最近使用 {when}', { when: ago(tk.lastUsedAt) }) + (tk.lastIp ? ' · ' + tk.lastIp : '') : t('从未使用')}{' · '}{tk.expiresAt ? t('{date} 到期', { date: tk.expiresAt.slice(0, 10) }) : t('永久有效')}</div>
+          </div>
+          <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
+            if (await confirm(t('吊销令牌 {name}？使用它的脚本或插件会立即失去访问权限。', { name: tk.name }), { danger: true, ok: t('吊销') })) run(async () => { await del('/tokens/' + tk.id); list.reload() }, t('已吊销'))
+          }}>{t('吊销')}</button>
+        </div>
+      ))}
+      {form && (
+        <Modal title={t('新建 API 令牌')} onClose={() => setForm(null)} footer={<>
+          <button className="btn" type="button" onClick={() => setForm(null)}>{t('取消')}</button>
+          <button className="btn pri" type="button" disabled={busy || !form.name.trim()} onClick={() => run(async () => {
+            const r = await post<{ secret: string }>('/tokens', { ...form, name: form.name.trim() })
+            setForm(null); setSecret(r.secret); list.reload()
+          })}>{t('创建')}</button>
+        </>}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <Field label={t('名称')}><input className="input" value={form.name} maxLength={64} placeholder={t('例如：发卡网对接')} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
+            <Field label={t('权限范围')}>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {(list.data?.scopes ?? Object.keys(labels)).map((sc) => <label key={sc} className="chk"><input type="checkbox" checked={form.scopes.includes(sc)} onChange={() => toggle(sc)} />{labels[sc] ?? sc} <span className="mono small mute">{sc}</span></label>)}
+              </div>
+            </Field>
+            <Field label={t('有效期')}>
+              <select className="input" value={form.days} onChange={(e) => setForm({ ...form, days: Number(e.target.value) })}>
+                <option value={0}>{t('永久')}</option><option value={30}>{t('30 天')}</option><option value={90}>{t('90 天')}</option><option value={365}>{t('1 年')}</option>
+              </select>
+            </Field>
+          </div>
+        </Modal>
+      )}
+      {secret && (
+        <Modal title={t('令牌已创建')} onClose={() => setSecret('')} footer={<button className="btn pri" type="button" onClick={() => setSecret('')}>{t('我已保存')}</button>}>
+          <div className="sub" style={{ margin: '0 0 10px' }}>{t('令牌')}<b>{t('只显示这一次')}</b>{t('，请立即复制保存。丢失后只能吊销重建。')}</div>
+          <CopyBoxInline text={secret} />
+        </Modal>
+      )}
+    </section>
+  )
+}

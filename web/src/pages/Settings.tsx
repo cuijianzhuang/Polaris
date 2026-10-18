@@ -1,7 +1,7 @@
 import { ProTag, useFeature } from '../components/License'
 import { useEffect, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
-import { LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
+import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
 import { accents, styles, useTheme, type ThemeMode } from '../theme'
 import { logoURL, refreshBrand, useBrand } from '../brand'
@@ -588,6 +588,7 @@ export default function Settings() {
           )}
         </section>
         <SSOProviders />
+        <APITokens />
         <Sessions />
         <LoginProtection />
         </>}

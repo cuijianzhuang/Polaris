@@ -683,8 +683,34 @@ func AllModels() []any {
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
-		&DNSConfig{}, &RuleSet{},
+		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{},
 	}
+}
+
+// APIToken lets scripts and plugins call the API without a login session.
+// Only the SHA-256 of the token is stored; Scopes limit what it may call.
+type APIToken struct {
+	ID         string         `gorm:"primaryKey;size:32" json:"id"`
+	Name       string         `gorm:"size:64" json:"name"`
+	PluginID   string         `gorm:"size:64;index" json:"pluginId,omitempty"` // set for a plugin's own token
+	Hash       string         `gorm:"size:64;uniqueIndex" json:"-"`
+	Prefix     string         `gorm:"size:16" json:"prefix"` // first characters, to recognise a token
+	Scopes     JSON[[]string] `json:"scopes"`
+	CreatedBy  string         `gorm:"size:64" json:"createdBy"`
+	CreatedAt  time.Time      `json:"createdAt"`
+	LastUsedAt *time.Time     `json:"lastUsedAt"`
+	LastIP     string         `gorm:"size:64" json:"lastIp"`
+	ExpiresAt  *time.Time     `json:"expiresAt"`
+}
+
+// IdempotencyKey remembers the answer to a write sent with an
+// Idempotency-Key header, so a retried call (a payment callback delivered
+// twice) is not applied twice. Kept for a day.
+type IdempotencyKey struct {
+	Key       string    `gorm:"primaryKey;size:200"` // caller + method + route + header value
+	Status    int       `json:"status"`
+	Body      []byte    `json:"-"`
+	CreatedAt time.Time `gorm:"index"`
 }
 
 // TrafficDaily is a user's traffic on a node per day (panel local time). It
