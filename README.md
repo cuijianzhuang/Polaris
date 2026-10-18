@@ -10,7 +10,6 @@
   <a href="https://github.com/cuijianzhuang/Polaris/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/cuijianzhuang/Polaris/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white" alt="CI"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/cuijianzhuang/Polaris/release.yml?label=%E7%BC%96%E8%AF%91%E5%8F%91%E5%B8%83&logo=go&logoColor=white" alt="编译发布"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/releases/latest"><img src="https://img.shields.io/github/v/release/cuijianzhuang/Polaris?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=0E7490" alt="最新版本"></a>
-  <a href="https://github.com/cuijianzhuang/Polaris/releases"><img src="https://img.shields.io/github/downloads/cuijianzhuang/Polaris/total?label=%E4%B8%8B%E8%BD%BD&color=0E7490" alt="下载量"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/cuijianzhuang/Polaris?logo=go&logoColor=white" alt="Go 版本">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
   <br>
