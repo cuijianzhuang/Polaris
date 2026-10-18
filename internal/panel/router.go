@@ -72,6 +72,8 @@ func (s *Server) Router() http.Handler {
 	r.Use(s.subHostGate(s.decoy()))
 
 	// Public routes.
+	r.GET("/favicon.ico", s.siteIcon)
+	r.GET("/apple-touch-icon.png", s.siteIcon)
 	r.GET("/sub/:token", s.subscription)
 	r.GET("/sub/p/:token", s.profileSubscription)
 	r.GET("/sub/cb/:token", s.subCallbackHandler)

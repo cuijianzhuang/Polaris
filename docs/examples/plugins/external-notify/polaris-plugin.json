@@ -1,0 +1,21 @@
+{
+  "manifestVersion": 1,
+  "id": "webhook-notify",
+  "name": "通知服务",
+  "version": "1.0.0",
+  "author": "Example Publisher",
+  "homepage": "https://plugins.example.com/notify",
+  "requires": { "hostApi": "^1.0.0" },
+  "runtime": "external",
+  "scopes": ["events"],
+  "events": ["node.offline", "node.online", "node.apply_failed"],
+  "pages": [
+    { "id": "deliveries", "title": "通知记录", "icon": "log", "path": "/admin/deliveries" }
+  ],
+  "portal": [],
+  "settings": [
+    { "key": "channel", "label": "目标渠道", "type": "string", "required": true },
+    { "key": "channel_token", "label": "渠道密钥", "type": "secret", "required": true }
+  ],
+  "subscription": { "formats": [], "transform": false }
+}
