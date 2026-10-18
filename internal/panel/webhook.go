@@ -38,7 +38,7 @@ var kindTypes = map[string]string{
 	"expire_warn": "user.expire_warn", "traffic_spike": "user.traffic_spike",
 	"login_ban": "admin.login_banned", "admin_login_new_ip": "admin.login_new_ip", "admin_recovery_code": "admin.recovery_code_used",
 	"backup_failed": "system.backup_failed", "cert_failed": "system.cert_failed", "license": "system.license",
-	"panel_update": "system.panel_update",
+	"panel_update": "system.panel_update", "plugin_offline": "system.plugin_offline", "plugin_online": "system.plugin_online",
 }
 
 // EventTypes lists every type a webhook can subscribe to.
@@ -50,6 +50,7 @@ var EventTypes = []string{
 	"inbound.down", "inbound.up", "routing.health",
 	"admin.login_banned", "admin.login_new_ip", "admin.recovery_code_used",
 	"system.backup_failed", "system.cert_failed", "system.license", "system.panel_update",
+	"system.plugin_offline", "system.plugin_online",
 }
 
 // eventType is the dotted type of an event ("user.expired").
@@ -317,6 +318,16 @@ func chatBody(format, text, target, secret string) ([]byte, string, error) {
 	return b, target, err
 }
 
+// checkEvents accepts known types, "*" and group patterns ("user.*").
+func checkEvents(evs []string) error {
+	for _, e := range evs {
+		if e != "*" && !slices.Contains(EventTypes, e) && !(strings.HasSuffix(e, ".*") && slices.ContainsFunc(EventTypes, func(t string) bool { return strings.HasPrefix(t, strings.TrimSuffix(e, "*")) })) {
+			return fmt.Errorf("未知事件 %q", e)
+		}
+	}
+	return nil
+}
+
 // --- API ---
 
 type webhookReq struct {
@@ -340,10 +351,8 @@ func (r *webhookReq) check() error {
 	if !slices.Contains(webhookFormats, r.Format) {
 		return fmt.Errorf("未知格式 %q", r.Format)
 	}
-	for _, e := range r.Events {
-		if e != "*" && !slices.Contains(EventTypes, e) && !(strings.HasSuffix(e, ".*") && slices.ContainsFunc(EventTypes, func(t string) bool { return strings.HasPrefix(t, strings.TrimSuffix(e, "*")) })) {
-			return fmt.Errorf("未知事件 %q", e)
-		}
+	if err := checkEvents(r.Events); err != nil {
+		return err
 	}
 	if r.Name = strings.TrimSpace(r.Name); r.Name == "" {
 		r.Name = u.Host
@@ -411,6 +420,10 @@ func (s *Server) updateWebhook(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if h.PluginID != "" {
+		badRequest(c, errors.New("这个 Webhook 属于插件，请在「插件」页面管理"))
+		return
+	}
 	var req webhookReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -445,6 +458,10 @@ func (s *Server) deleteWebhook(c *gin.Context) {
 	var h store.Webhook
 	if err := s.st.DB.First(&h, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
+		return
+	}
+	if h.PluginID != "" {
+		badRequest(c, errors.New("这个 Webhook 属于插件，请在「插件」页面卸载插件"))
 		return
 	}
 	s.st.DB.Where("webhook_id = ?", h.ID).Delete(&store.WebhookDelivery{})

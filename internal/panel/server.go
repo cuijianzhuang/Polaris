@@ -265,6 +265,7 @@ func (s *Server) startJobs() func() {
 	})
 	add("*/15 * * * * *", "offline", s.markOfflineNodes)
 	add("*/30 * * * * *", "webhooks", s.retryWebhooks)
+	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
 	add("0 41 6 * * *", "license", s.checkLicense)

@@ -683,7 +683,7 @@ func AllModels() []any {
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
-		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{},
+		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 	}
 }
 
@@ -701,6 +701,26 @@ type APIToken struct {
 	LastUsedAt *time.Time     `json:"lastUsedAt"`
 	LastIP     string         `gorm:"size:64" json:"lastIp"`
 	ExpiresAt  *time.Time     `json:"expiresAt"`
+}
+
+// Plugin is an installed third-party plugin: an outside service described
+// by its manifest, with its own API token and event webhook.
+type Plugin struct {
+	ID         string     `gorm:"primaryKey;size:64" json:"id"` // the manifest id
+	Name       string     `gorm:"size:64" json:"name"`
+	Version    string     `gorm:"size:32" json:"version"`
+	BaseURL    string     `gorm:"size:1024" json:"baseUrl"`
+	Manifest   string     `json:"-"`                        // the manifest as fetched (JSON)
+	Settings   string     `json:"-"`                        // JSON object; secret values sealed
+	Secret     string     `gorm:"size:255" json:"-"`        // sealed; signs calls to the plugin and page tokens
+	TokenID    string     `gorm:"size:32" json:"tokenId"`   // its API token
+	WebhookID  string     `gorm:"size:32" json:"webhookId"` // its event webhook
+	Enabled    bool       `json:"enabled"`
+	Status     string     `gorm:"size:16" json:"status"` // online / offline / manual (handshake not done)
+	LastSeenAt *time.Time `json:"lastSeenAt"`
+	LastError  string     `gorm:"size:512" json:"lastError"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 // Webhook sends events to an outside URL: signed JSON for plugins, or a

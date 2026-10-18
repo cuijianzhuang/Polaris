@@ -782,3 +782,7 @@ html[data-style="blackgold"] .kpi .val { color: var(--gold); }
 html[data-style="blackgold"] ::selection { background: rgba(239, 190, 150, .35); }
 html[data-style="blackgold"] .login { background: radial-gradient(1100px 560px at 15% -10%, rgba(239, 190, 150, .24), transparent 60%), radial-gradient(900px 500px at 110% 110%, rgba(239, 190, 150, .10), transparent 60%), #181B24; }
 html[data-style="blackgold"] .login .card { border-color: rgba(239, 190, 150, .16); }
+
+/* plugin pages embedded in the panel */
+.plugin-frame { display: block; width: 100%; height: calc(100vh - 170px); min-height: 480px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--card); }
+@media (max-width: 820px) { .plugin-frame { height: calc(100vh - 220px); } }
