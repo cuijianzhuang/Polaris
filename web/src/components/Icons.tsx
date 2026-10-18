@@ -52,6 +52,7 @@ export const Icon = {
   QR: () => <Svg><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><path d="M14 14h3v3M21 14v7h-7" /></Svg>,
   Edit: () => <Svg><path d="M4 20h4L19 9l-4-4L4 16z" /></Svg>,
   Trash: () => <Svg><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></Svg>,
+  Fold: () => <Svg><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M9.5 4.5v15" /></Svg>,
   Close: () => <Svg><path d="M6 6l12 12M18 6L6 18" /></Svg>,
   Plus: () => <Svg><path d="M12 5v14M5 12h14" /></Svg>,
   Refresh: () => <Svg><path d="M20 12a8 8 0 11-2.3-5.6M20 4v5h-5" /></Svg>,
