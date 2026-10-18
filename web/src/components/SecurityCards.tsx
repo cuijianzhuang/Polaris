@@ -209,7 +209,7 @@ export function APITokens() {
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="ctitle"><span>{t('API 令牌')}</span><button className="btn sm" type="button" onClick={() => setForm({ name: '', scopes: ['users:read'], days: 0 })}>{t('+ 新建令牌')}</button></div>
-      <div className="sub" style={{ margin: 0 }}>{t('给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。插件安装时会自动创建自己的令牌。')}</div>
+      <div className="sub" style={{ margin: 0 }}>{t('给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。')}</div>
       {ts.length === 0 && <div className="hint">{t('还没有 API 令牌。')}</div>}
       {ts.map((tk) => (
         <div key={tk.id} className="row" style={{ flexWrap: 'nowrap', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
