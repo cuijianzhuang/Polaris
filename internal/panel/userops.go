@@ -67,7 +67,7 @@ func (s *Server) renewUser(c *gin.Context) {
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("user renewed", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.renew", u.Username, detail)
-	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已续期：" + detail})
+	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已续期：" + detail, Data: map[string]any{"days": req.Days, "reset_traffic": req.ResetTraffic}})
 	s.userJSON(c, u.ID)
 }
 
@@ -99,6 +99,7 @@ func (s *Server) addUserTraffic(c *gin.Context) {
 		s.MarkDirty("traffic added", s.nodesForUsers(u.ID)...)
 	}
 	s.auditCtx(c, "user.add_traffic", u.Username, detail)
+	s.userEvent("user.traffic_added", &u, map[string]any{"gb": req.GB})
 	s.userJSON(c, u.ID)
 }
 

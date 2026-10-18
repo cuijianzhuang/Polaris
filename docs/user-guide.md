@@ -538,6 +538,22 @@ curl -X POST "$PANEL/api/v1/users/$USER_ID/add-traffic" -H "Authorization: Beare
 
 `$PANEL` 包含后台路径，例如 `https://panel.example.com/x7k2`。令牌的操作会记录在审计日志里，操作人显示为 `token:名称`。
 
+### Webhook
+
+在「系统 → 设置 → Webhook」把事件推送到外部服务：
+
+- **JSON 格式**（插件、自建服务）：面板发送 POST 请求，请求体为 `{"id","type","created_at","data"}`，`data` 里带用户（`user`）或节点（`node`）信息。请求头包括 `X-Polaris-Event`（事件类型）、`X-Polaris-Delivery`（投递编号），以及签名 `X-Polaris-Signature: t=<时间戳>,v1=<签名>`。签名为 `HMAC-SHA256(签名密钥, "<时间戳>.<请求体>")` 的十六进制。签名密钥只在创建时显示一次。
+- **机器人格式**：Discord、Slack、企业微信、钉钉、飞书，发送一行文本消息。钉钉和飞书开启「加签」时填写加签密钥。
+- 事件按类型订阅，比如 `user.created`、`user.expired`、`node.offline`；也可以订阅一整组（`user.*`）。都不勾选表示接收全部事件。
+- 接收方返回 2xx 即算成功。失败后分别在 1 分钟、5 分钟、30 分钟、2 小时、12 小时后重试，共 6 次。「记录」里可以查看最近 7 天的投递内容和错误，并手动重发。
+
+校验签名的示例（Node.js）：
+
+```js
+const [t, v1] = req.headers['x-polaris-signature'].replace('t=', '').split(',v1=')
+const ok = crypto.createHmac('sha256', SECRET).update(`${t}.${rawBody}`).digest('hex') === v1
+```
+
 ### 审计日志
 
 在「系统 → 审计日志」查看配置变更、操作者和相关记录。发生意外修改时，结合时间、节点配置结果和服务日志定位原因。向外部反馈时应先脱敏，尤其是用户名、IP、订阅令牌和凭据。
