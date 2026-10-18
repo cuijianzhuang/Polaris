@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
+
+	"github.com/cuijianzhuang/polaris/internal/core/coretest"
 )
 
 func TestACMEHTTPServer(t *testing.T) {
@@ -46,27 +47,5 @@ func TestACMEHTTPServer(t *testing.T) {
 	}
 }
 
-// handedOut keeps freePortT from returning a port twice: the tests run in
-// parallel and a released port can come back from the kernel to another one.
-var handedOut = struct {
-	sync.Mutex
-	m map[int]bool
-}{m: map[int]bool{}}
-
-func freePortT(t *testing.T) int {
-	for {
-		l, err := net.Listen("tcp", ":0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := l.Addr().(*net.TCPAddr).Port
-		l.Close()
-		handedOut.Lock()
-		seen := handedOut.m[p]
-		handedOut.m[p] = true
-		handedOut.Unlock()
-		if !seen {
-			return p
-		}
-	}
-}
+// freePortT hands out a port no other test (in any package) was given.
+func freePortT(t *testing.T) int { return coretest.FreePort(t) }

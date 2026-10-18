@@ -3,7 +3,6 @@ package singbox
 import (
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,14 +17,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/model"
 )
 
-func freePort(t *testing.T) int {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
-}
+func freePort(t *testing.T) int { return coretest.FreePort(t) }
 
 // TestLiveClashTraffic: an official sing-box (no v2ray_api) still reports
 // inbound and outbound totals through its Clash API.
