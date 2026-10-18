@@ -25,6 +25,7 @@ import Inbounds from './pages/Inbounds'
 import Chains from './pages/Chains'
 import Templates from './pages/Templates'
 import Users from './pages/Users'
+import Shop from './pages/Shop'
 import SubTemplates from './pages/SubTemplates'
 import Certificates from './pages/Certificates'
 import Settings from './pages/Settings'
@@ -87,7 +88,10 @@ const nav: NavItem[] = [
     { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward /> },
   ] },
   { to: '/chains', label: t('链路与路由'), icon: <Icon.Chain /> },
-  { to: '/users', label: t('用户'), icon: <Icon.Users /> },
+  { to: '/users', label: t('用户'), icon: <Icon.Users />, children: [
+    { to: '/users', label: t('用户'), icon: <Icon.Users /> },
+    { to: '/shop', label: t('售卖'), icon: <Icon.Wallet /> },
+  ] },
   { to: '/sub-templates', label: t('订阅'), icon: <Icon.Sub />, children: [
     { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub /> },
     { to: '/convert', label: t('订阅转换'), icon: <Icon.Convert /> },
@@ -294,6 +298,7 @@ export default function App() {
                       <Route path="/chains" element={<Chains />} />
                       <Route path="/templates" element={<Templates />} />
                       <Route path="/users" element={<Users />} />
+                      <Route path="/shop" element={<Shop />} />
                       <Route path="/sub-templates" element={<SubTemplates />} />
                       <Route path="/certificates" element={<Certificates />} />
                       <Route path="/settings" element={<Settings />} />

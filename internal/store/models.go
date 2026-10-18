@@ -194,20 +194,26 @@ type Group struct {
 	// A plan (Plan = true) is a group sold as a package. Applying it to a
 	// user makes it the user's only plan group and sets the limits below;
 	// the group's level, nodes, inbounds and speed decide what it reaches.
-	Plan         bool      `gorm:"index" json:"plan"`
-	TrafficLimit int64     `json:"trafficLimit"` // bytes, 0 = unlimited
-	Days         int       `json:"days"`         // validity, 0 = no expiry
-	ResetPolicy  string    `gorm:"size:16" json:"resetPolicy"`
-	ResetDay     int       `json:"resetDay"`
-	DeviceLimit  int       `json:"deviceLimit"`
-	IPLimit      int       `json:"ipLimit"`
-	Price        string    `gorm:"size:32" json:"price"`      // shown only, e.g. "¥15 / 月"
-	FallbackID   string    `gorm:"size:32" json:"fallbackId"` // plan applied on expiry; "" = the account expires
-	Sort         int       `json:"sort"`
-	NodeIDs      []string  `gorm:"-" json:"nodeIds"`
-	InboundIDs   []string  `gorm:"-" json:"inboundIds"`
-	UserCount    int64     `gorm:"-" json:"userCount"`
-	CreatedAt    time.Time `json:"createdAt"`
+	Plan         bool   `gorm:"index" json:"plan"`
+	TrafficLimit int64  `json:"trafficLimit"` // bytes, 0 = unlimited
+	Days         int    `json:"days"`         // validity, 0 = no expiry
+	ResetPolicy  string `gorm:"size:16" json:"resetPolicy"`
+	ResetDay     int    `json:"resetDay"`
+	DeviceLimit  int    `json:"deviceLimit"`
+	IPLimit      int    `json:"ipLimit"`
+	Price        string `gorm:"size:32" json:"price"`      // shown only, e.g. "¥15 / 月"
+	FallbackID   string `gorm:"size:32" json:"fallbackId"` // plan applied on expiry; "" = the account expires
+	Sort         int    `json:"sort"`
+	// Sale lists the plan in the Telegram bot's shop at these prices (0 =
+	// not sold that way).
+	Sale       bool      `json:"sale"`
+	PriceStars int       `json:"priceStars"` // Telegram Stars
+	PriceCNY   float64   `json:"priceCny"`   // yuan, paid through EPay
+	PriceUSDT  float64   `json:"priceUsdt"`  // USDT on TRON (TRC20)
+	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
+	InboundIDs []string  `gorm:"-" json:"inboundIds"`
+	UserCount  int64     `gorm:"-" json:"userCount"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).
@@ -715,6 +721,7 @@ func AllModels() []any {
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
+		&Order{}, &RedeemCode{},
 	}
 }
 
@@ -911,4 +918,38 @@ type RuleSet struct {
 	FetchError    string         `gorm:"size:500" json:"fetchError"`
 	CreatedAt     time.Time      `json:"createdAt"`
 	UpdatedAt     time.Time      `json:"updatedAt"`
+}
+
+// Order is a plan bought in the Telegram bot. Its ID is what the payment
+// provider echoes back (invoice payload, out_trade_no). PayRef holds the
+// provider's transaction id: unique, so one payment fulfils one order.
+type Order struct {
+	ID         string     `gorm:"primaryKey;size:32" json:"id"`
+	TelegramID int64      `gorm:"index" json:"telegramId"`
+	TGName     string     `gorm:"size:64" json:"tgName"`
+	UserID     string     `gorm:"size:32;index" json:"userId"`
+	PlanID     string     `gorm:"size:32" json:"planId"`
+	PlanName   string     `gorm:"size:64" json:"planName"`
+	Method     string     `gorm:"size:16;index" json:"method"` // stars / epay / usdt / code / manual
+	Amount     string     `gorm:"size:32" json:"amount"`       // decimal text in Currency
+	Currency   string     `gorm:"size:8" json:"currency"`      // XTR / CNY / USDT
+	Status     string     `gorm:"size:16;index" json:"status"` // pending / paid / expired / failed
+	PayRef     *string    `gorm:"size:128;uniqueIndex" json:"payRef"`
+	Detail     string     `gorm:"size:255" json:"detail"`
+	CreatedAt  time.Time  `gorm:"index" json:"createdAt"`
+	ExpiresAt  time.Time  `json:"expiresAt"`
+	PaidAt     *time.Time `json:"paidAt"`
+}
+
+// RedeemCode is a prepaid code for a plan, sold elsewhere and redeemed in
+// the bot.
+type RedeemCode struct {
+	Code      string     `gorm:"primaryKey;size:32" json:"code"`
+	PlanID    string     `gorm:"size:32;index" json:"planId"`
+	Batch     string     `gorm:"size:64;index" json:"batch"`
+	CreatedBy string     `gorm:"size:64" json:"createdBy"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+	UsedBy    string     `gorm:"size:32" json:"usedBy"` // user id
+	UsedAt    *time.Time `gorm:"index" json:"usedAt"`
+	CreatedAt time.Time  `json:"createdAt"`
 }

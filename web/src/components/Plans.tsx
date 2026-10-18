@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { ProTag, useFeature } from './License'
-import { Field, Modal, useAction, useConfirm, useLoad } from './ui'
+import { Field, Modal, Switch, useAction, useConfirm, useLoad } from './ui'
 import { bytes, GB } from '../format'
 import type { Group, Node } from '../types'
 import { t } from '../i18n'
@@ -30,9 +30,10 @@ const resetText = (p: string | undefined, day: number | undefined) => ({
 type Edit = {
   id?: string; name: string; price: string; sort: number; level: number; nodeIds: string[]; limitGB: string; days: string
   resetPolicy: string; resetDay: string; deviceLimit: string; ipLimit: string; speedUp: string; speedDown: string; fallbackId: string
+  sale: boolean; priceStars: string; priceCny: string; priceUsdt: string
 }
 
-const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '' }
+const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '' }
 
 function toEdit(p: Group): Edit {
   return {
@@ -40,6 +41,7 @@ function toEdit(p: Group): Edit {
     limitGB: p.trafficLimit ? String(+(p.trafficLimit / GB).toFixed(2)) : '', days: p.days ? String(p.days) : '',
     resetPolicy: p.resetPolicy || 'none', resetDay: String(p.resetDay || 1), deviceLimit: String(p.deviceLimit ?? 0), ipLimit: String(p.ipLimit ?? 0),
     speedUp: p.speedUpMbps ? String(p.speedUpMbps) : '', speedDown: p.speedDownMbps ? String(p.speedDownMbps) : '', fallbackId: p.fallbackId ?? '',
+    sale: !!p.sale, priceStars: p.priceStars ? String(p.priceStars) : '', priceCny: p.priceCny ? String(p.priceCny) : '', priceUsdt: p.priceUsdt ? String(p.priceUsdt) : '',
   }
 }
 
@@ -60,6 +62,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
       resetPolicy: e.resetPolicy === 'none' ? '' : e.resetPolicy, resetDay: Number(e.resetDay) || 0,
       deviceLimit: Number(e.deviceLimit) || 0, ipLimit: Number(e.ipLimit) || 0,
       speedUpMbps: Number(e.speedUp) || 0, speedDownMbps: Number(e.speedDown) || 0, fallbackId: e.fallbackId,
+      sale: e.sale, priceStars: Math.round(Number(e.priceStars) || 0), priceCny: Number(e.priceCny) || 0, priceUsdt: Number(e.priceUsdt) || 0,
     }
     if (e.id) await put('/plans/' + e.id, body)
     else await post('/plans', body)
@@ -120,6 +123,14 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
             {nodes.length === 0 && <span className="hint">{t('还没有节点')}</span>}
           </div>
         </Field>
+        <div className="toggle"><span>{t('在 Telegram 机器人售卖（价格留空表示不支持该付款方式；付款方式在「用户 → 售卖 → 支付设置」里开启）')}</span><Switch label={t('售卖')} on={edit.sale} onChange={(v) => set('sale', v)} /></div>
+        {edit.sale && (
+          <div className="form-grid">
+            <Field label={t('Telegram Stars 价格')} htmlFor="p-stars" hint={t('整数，单位 ⭐')}><input id="p-stars" className="input mono" inputMode="numeric" value={edit.priceStars} onChange={(e) => set('priceStars', e.target.value)} /></Field>
+            <Field label={t('易支付价格（元）')} htmlFor="p-cny"><input id="p-cny" className="input mono" inputMode="decimal" value={edit.priceCny} onChange={(e) => set('priceCny', e.target.value)} /></Field>
+            <Field label={t('USDT 价格')} htmlFor="p-usdt" hint={t('实付会多 0.0001–0.05 用于对账')}><input id="p-usdt" className="input mono" inputMode="decimal" value={edit.priceUsdt} onChange={(e) => set('priceUsdt', e.target.value)} /></Field>
+          </div>
+        )}
         <div className="note">{t('可用节点：')}{reach.map((n) => n.name).join('、') || t('暂无（给节点设置等级，或在上面选择节点）')}</div>
         {edit.id && <div className="sub">{t('修改后：已开通的用户立即按新的节点和限速生效；流量、到期时间在下次开通或续费时更新。')}</div>}
       </Modal>
@@ -138,6 +149,10 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
                 <div style={{ fontWeight: 600, fontSize: 16 }}>{p.name}</div>
                 {p.price && <div className="plan-price">{p.price}</div>}
+              </div>
+              <div className="row" style={{ gap: 6 }}>
+                {p.sale ? <span className="tag ok">{t('在售')}</span> : null}
+                {p.sale && <span className="small mute">{[p.priceCny ? `¥${p.priceCny}` : '', p.priceStars ? `${p.priceStars} ⭐` : '', p.priceUsdt ? `${p.priceUsdt} USDT` : ''].filter(Boolean).join(' · ')}</span>}
               </div>
               <div className="row" style={{ gap: 6 }}>
                 {p.level > 0 && <span className="tag info-tag">Lv.{p.level}</span>}

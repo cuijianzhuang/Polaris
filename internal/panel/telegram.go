@@ -68,6 +68,7 @@ type tgUpdate struct {
 		Message *tgMessage `json:"message"`
 		Data    string     `json:"data"`
 	} `json:"callback_query"`
+	PreCheckout *tgPreCheckout `json:"pre_checkout_query"`
 }
 
 type tgMessage struct {
@@ -77,7 +78,8 @@ type tgMessage struct {
 		ID   int64  `json:"id"`
 		Type string `json:"type"`
 	} `json:"chat"`
-	Text string `json:"text"`
+	Text              string     `json:"text"`
+	SuccessfulPayment *tgPayment `json:"successful_payment"`
 }
 
 type tgUser struct {
@@ -285,7 +287,7 @@ func (b *tgBot) poll(ctx context.Context, token, base string) {
 		}
 		var ups []tgUpdate
 		pctx, cancel := context.WithTimeout(ctx, 65*time.Second)
-		err := b.call(pctx, "getUpdates", map[string]any{"offset": offset, "timeout": b.pollTimeout(), "allowed_updates": []string{"message", "callback_query"}}, &ups)
+		err := b.call(pctx, "getUpdates", map[string]any{"offset": offset, "timeout": b.pollTimeout(), "allowed_updates": []string{"message", "callback_query", "pre_checkout_query"}}, &ups)
 		cancel()
 		if err != nil {
 			msg := err.Error()
@@ -318,6 +320,8 @@ func (b *tgBot) pollTimeout() int {
 func (b *tgBot) registerCommands(ctx context.Context) {
 	cmds := []map[string]string{
 		{"command": "menu", "description": "🏠 主菜单"}, {"command": "me", "description": "📊 我的流量与到期"},
+		{"command": "buy", "description": "🛒 购买套餐"}, {"command": "redeem", "description": "🎟 兑换码 /redeem 码"},
+		{"command": "orders", "description": "📋 我的订单"}, {"command": "terms", "description": "📄 购买条款"}, {"command": "paysupport", "description": "💬 支付与售后"},
 		{"command": "sub", "description": "🔗 订阅链接与二维码"}, {"command": "nodes", "description": "🌐 节点"},
 		{"command": "status", "description": "📈 概览（管理员）"}, {"command": "users", "description": "👥 用户（管理员）"},
 		{"command": "traffic", "description": "🏆 今日排行（管理员）"}, {"command": "login", "description": "🛠 登录管理后台（管理员）"},
@@ -381,7 +385,15 @@ func (b *tgBot) handle(u tgUpdate) {
 		if m.Chat.Type != "private" || u.Callback.From.ID != m.Chat.ID {
 			return
 		}
-		b.onCallback(u.Callback.ID, m.Chat.ID, m.MessageID, u.Callback.Data)
+		b.onCallback(u.Callback.ID, m.Chat.ID, m.MessageID, u.Callback.Data, u.Callback.From)
+		return
+	}
+	if u.PreCheckout != nil {
+		b.onPreCheckout(u.PreCheckout)
+		return
+	}
+	if u.Message != nil && u.Message.SuccessfulPayment != nil && u.Message.Chat.Type == "private" {
+		b.onStarsPaid(u.Message.Chat.ID, u.Message.SuccessfulPayment)
 		return
 	}
 	if u.Message == nil || u.Message.Text == "" {
@@ -413,6 +425,18 @@ func (b *tgBot) handle(u tgUpdate) {
 			return
 		}
 		text, rows := b.view("home", "", id)
+		b.send(chat, text, rows...)
+	case "/buy", "/shop":
+		text, rows := b.view("shop", "", id)
+		b.send(chat, text, rows...)
+	case "/redeem":
+		b.redeemCommand(chat, u.Message.From, arg, id)
+	case "/terms":
+		b.send(chat, b.termsView(), backRow(""))
+	case "/paysupport", "/support":
+		b.send(chat, b.supportView(), backRow(""))
+	case "/orders":
+		text, rows := b.ordersView(chat)
 		b.send(chat, text, rows...)
 	case "/help":
 		text, rows := b.view("help", "", id)
@@ -560,21 +584,21 @@ const tgProText = "🔒 <b>管理菜单需要专业版</b>\n" + tgRule + "\n节�
 // self-service, sign-in, alerts and the home screen stay free.
 func tgAdvanced(parts []string) bool {
 	switch parts[0] {
-	case "me", "ul", "wl", "m": // self-service, user center and panel sign-in, alert toggle
+	case "me", "ul", "wl", "m", "s": // self-service, user center and panel sign-in, alert toggle, shop
 		return false
 	case "v":
 		if len(parts) < 2 {
 			return false
 		}
 		switch parts[1] {
-		case "", "me", "nodes", "bindhelp", "help", "pro", "home":
+		case "", "me", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders":
 			return false
 		}
 	}
 	return true
 }
 
-func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
+func (b *tgBot) onCallback(cbID string, chat, msg int64, data string, from tgUser) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 	answer := func(text string) {
@@ -615,6 +639,8 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			b.sendSub(chat, id.user)
 		}
 		answer("")
+	case "s": // shop
+		b.shopCallback(ctx, parts, chat, msg, from, id, answer)
 	case "up", "n", "u": // admin menus: version update, nodes, users
 		b.adminCallback(ctx, parts, chat, msg, id, answer)
 	case "ul": // user center sign-in: ul:<request>:<number|x>
@@ -634,6 +660,9 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string) {
 			arg = parts[2]
 		}
 		text, rows := b.view(view, arg, id)
+		if view == "orders" {
+			text, rows = b.ordersView(chat)
+		}
 		b.edit(chat, msg, text, rows...)
 		answer("")
 	case "m":

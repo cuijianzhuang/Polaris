@@ -3,6 +3,7 @@ package panel
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"slices"
 	"time"
@@ -148,15 +149,19 @@ func (s *Server) listPlans(c *gin.Context) {
 // planReq is a plan's own fields on top of groupReq.
 type planReq struct {
 	groupReq
-	TrafficLimit int64  `json:"trafficLimit"`
-	Days         int    `json:"days"`
-	ResetPolicy  string `json:"resetPolicy"`
-	ResetDay     int    `json:"resetDay"`
-	DeviceLimit  int    `json:"deviceLimit"`
-	IPLimit      int    `json:"ipLimit"`
-	Price        string `json:"price"`
-	FallbackID   string `json:"fallbackId"`
-	Sort         int    `json:"sort"`
+	TrafficLimit int64   `json:"trafficLimit"`
+	Days         int     `json:"days"`
+	ResetPolicy  string  `json:"resetPolicy"`
+	ResetDay     int     `json:"resetDay"`
+	DeviceLimit  int     `json:"deviceLimit"`
+	IPLimit      int     `json:"ipLimit"`
+	Price        string  `json:"price"`
+	FallbackID   string  `json:"fallbackId"`
+	Sort         int     `json:"sort"`
+	Sale         bool    `json:"sale"`
+	PriceStars   int     `json:"priceStars"`
+	PriceCNY     float64 `json:"priceCny"`
+	PriceUSDT    float64 `json:"priceUsdt"`
 }
 
 func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
@@ -171,6 +176,9 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 		return
 	case !slices.Contains(planResetPolicies, req.ResetPolicy):
 		badRequest(c, fmt.Errorf("未知的重置周期 %q", req.ResetPolicy))
+		return
+	case req.PriceStars < 0 || req.PriceStars > 100000 || req.PriceCNY < 0 || req.PriceCNY > 1e6 || req.PriceUSDT < 0 || req.PriceUSDT > 1e6:
+		badRequest(c, errors.New("价格超出范围"))
 		return
 	case len(req.Price) > 32:
 		badRequest(c, errors.New("售价最长 32 个字符"))
@@ -188,6 +196,8 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 	g.Plan, g.IsDefault = true, false
 	g.TrafficLimit, g.Days, g.ResetPolicy, g.ResetDay = req.TrafficLimit, req.Days, req.ResetPolicy, req.ResetDay
 	g.DeviceLimit, g.IPLimit, g.Price, g.FallbackID, g.Sort = req.DeviceLimit, req.IPLimit, req.Price, req.FallbackID, req.Sort
+	g.Sale, g.PriceStars = req.Sale, req.PriceStars
+	g.PriceCNY, g.PriceUSDT = math.Round(req.PriceCNY*100)/100, math.Round(req.PriceUSDT*100)/100
 	s.saveGroup(c, g, &req.groupReq, create)
 }
 

@@ -74,7 +74,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const get = <T = any>(p: string) => api<T>('GET', p)
 export const post = <T = any>(p: string, b?: unknown) => api<T>('POST', p, b ?? {})
 export const put = <T = any>(p: string, b?: unknown) => api<T>('PUT', p, b ?? {})
-export const del = <T = any>(p: string) => api<T>('DELETE', p)
+export const del = <T = any>(p: string, b?: unknown) => api<T>('DELETE', p, b)
 
 // wsURL builds the realtime endpoint URL (token passed as query parameter).
 export function wsURL(): string {

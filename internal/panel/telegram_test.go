@@ -21,6 +21,7 @@ type fakeTG struct {
 	nextID  int64
 	sent    []map[string]any // sendMessage / editMessageText payloads
 	answers []string
+	calls   map[string][]map[string]any // every call by method
 }
 
 func (f *fakeTG) push(u map[string]any) {
@@ -50,6 +51,12 @@ func (f *fakeTG) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var result any = true
 	f.mu.Lock()
+	if method != "getUpdates" {
+		if f.calls == nil {
+			f.calls = map[string][]map[string]any{}
+		}
+		f.calls[method] = append(f.calls[method], body)
+	}
 	switch method {
 	case "getMe":
 		result = map[string]any{"id": 1, "username": "polaris_bot"}

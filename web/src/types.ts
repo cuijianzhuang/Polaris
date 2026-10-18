@@ -73,6 +73,7 @@ export interface Group {
   // A plan is a group sold as a package.
   plan?: boolean; trafficLimit?: number; days?: number; resetPolicy?: string; resetDay?: number; deviceLimit?: number; ipLimit?: number
   price?: string; fallbackId?: string; fallbackName?: string; sort?: number
+  sale?: boolean; priceStars?: number; priceCny?: number; priceUsdt?: number
 }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
 export interface CDNProfile {
