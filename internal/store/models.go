@@ -705,12 +705,14 @@ type APIToken struct {
 
 // IdempotencyKey remembers the answer to a write sent with an
 // Idempotency-Key header, so a retried call (a payment callback delivered
-// twice) is not applied twice. Kept for a day.
+// twice) is not applied twice. User-command changes and their responses are
+// committed in the same transaction. Records are kept for a day.
 type IdempotencyKey struct {
-	Key       string    `gorm:"primaryKey;size:200"` // caller + method + route + header value
-	Status    int       `json:"status"`
-	Body      []byte    `json:"-"`
-	CreatedAt time.Time `gorm:"index"`
+	Key         string    `gorm:"primaryKey;size:200"`         // digest of stable caller, method, resource and header
+	RequestHash string    `gorm:"size:64;not null;default:''"` // normalized query and request body
+	Status      int       `json:"status"`
+	Body        []byte    `json:"-"`
+	CreatedAt   time.Time `gorm:"index"`
 }
 
 // TrafficDaily is a user's traffic on a node per day (panel local time). It

@@ -1,10 +1,7 @@
 package panel
 
 import (
-	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -12,11 +9,9 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -31,23 +26,27 @@ const apiTokenPrefix = "plt_"
 const (
 	ScopeUsersRead    = "users:read"
 	ScopeUsersWrite   = "users:write"
+	ScopeUsersRenew   = "users:renew"
+	ScopeTrafficAdd   = "users:traffic:add"
+	ScopeSubsRead     = "subs:read"
 	ScopeNodesRead    = "nodes:read"
 	ScopeTrafficRead  = "traffic:read"
 	ScopeSettingsRead = "settings:read"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
 var tokenRoutes = map[string]string{
-	"GET /tokens/self": "",
+	"GET /tokens/self":  "",
+	"GET /openapi.json": "",
 
 	"GET /users":                          ScopeUsersRead,
 	"GET /users/export":                   ScopeUsersRead,
 	"GET /users/:id":                      ScopeUsersRead,
-	"GET /users/:id/links":                ScopeUsersRead,
-	"GET /users/:id/sub-check":            ScopeUsersRead,
+	"GET /users/:id/links":                ScopeSubsRead,
+	"GET /users/:id/sub-check":            ScopeSubsRead,
 	"GET /users/:id/devices":              ScopeUsersRead,
 	"GET /users/:id/node-quotas":          ScopeUsersRead,
 	"GET /groups":                         ScopeUsersRead,
@@ -58,8 +57,8 @@ var tokenRoutes = map[string]string{
 	"PUT /users/:id/traffic":              ScopeUsersWrite,
 	"POST /users/:id/reset-traffic":       ScopeUsersWrite,
 	"POST /users/:id/reset-token":         ScopeUsersWrite,
-	"POST /users/:id/renew":               ScopeUsersWrite,
-	"POST /users/:id/add-traffic":         ScopeUsersWrite,
+	"POST /users/:id/renew":               ScopeUsersRenew,
+	"POST /users/:id/add-traffic":         ScopeTrafficAdd,
 	"DELETE /users/:id/devices/:did":      ScopeUsersWrite,
 	"PUT /users/:id/node-quotas/:node":    ScopeUsersWrite,
 	"DELETE /users/:id/node-quotas/:node": ScopeUsersWrite,
@@ -105,7 +104,7 @@ func (s *Server) authToken(c *gin.Context, tok string) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "API 令牌不能访问此接口"})
 		return
 	}
-	if need != "" && !slices.Contains(t.Scopes.V, need) {
+	if !tokenAllows(&t, route) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "API 令牌缺少权限 " + need, "scope": need})
 		return
 	}
@@ -209,57 +208,18 @@ func (s *Server) tokenSelf(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": t.ID, "name": t.Name, "pluginId": t.PluginID, "scopes": t.Scopes.V, "expiresAt": t.ExpiresAt, "version": Version})
 }
 
-// --- idempotency ---
-
-// idemWriter keeps a copy of the response body.
-type idemWriter struct {
-	gin.ResponseWriter
-	buf bytes.Buffer
-}
-
-func (w *idemWriter) Write(b []byte) (int, error) {
-	w.buf.Write(b)
-	return w.ResponseWriter.Write(b)
-}
-
-var idemLocks sync.Map
-
-// idempotency replays the stored answer of a write repeated with the same
-// Idempotency-Key header by the same caller within a day.
-func (s *Server) idempotency(c *gin.Context) {
-	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
-	if key == "" || c.Request.Method == http.MethodGet {
-		c.Next()
-		return
+// tokenAllows is shared by authentication and the filtered OpenAPI view.
+// Existing broad scopes remain compatible; new tokens can request less.
+func tokenAllows(t *store.APIToken, route string) bool {
+	need, ok := tokenRoutes[route]
+	if !ok {
+		return false
 	}
-	if len(key) > 100 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Idempotency-Key 最长 100 个字符"})
-		return
+	if need == "" || slices.Contains(t.Scopes.V, need) {
+		return true
 	}
-	full := c.GetString("admin") + " " + c.Request.Method + " " + c.Request.URL.Path + " " + key
-	if len(full) > 200 {
-		h := sha256.Sum256([]byte(full))
-		full = hex.EncodeToString(h[:])
+	if (need == ScopeUsersRenew || need == ScopeTrafficAdd) && slices.Contains(t.Scopes.V, ScopeUsersWrite) {
+		return true
 	}
-	// Same key at the same time: the second call waits and then replays.
-	mu, _ := idemLocks.LoadOrStore(full, &sync.Mutex{})
-	mu.(*sync.Mutex).Lock()
-	defer func() { mu.(*sync.Mutex).Unlock(); idemLocks.Delete(full) }()
-	var prev store.IdempotencyKey
-	if s.st.DB.First(&prev, "key = ? AND created_at > ?", full, time.Now().Add(-24*time.Hour)).Error == nil {
-		c.Header("Idempotent-Replayed", "true")
-		c.Data(prev.Status, "application/json; charset=utf-8", prev.Body)
-		c.Abort()
-		return
-	}
-	w := &idemWriter{ResponseWriter: c.Writer}
-	c.Writer = w
-	c.Next()
-	if st := w.Status(); st < 500 {
-		s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.IdempotencyKey{Key: full, Status: st, Body: w.buf.Bytes(), CreatedAt: time.Now()})
-	}
-}
-
-func (s *Server) pruneIdempotency() {
-	s.st.DB.Where("created_at < ?", time.Now().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{})
+	return need == ScopeSubsRead && slices.Contains(t.Scopes.V, ScopeUsersRead)
 }

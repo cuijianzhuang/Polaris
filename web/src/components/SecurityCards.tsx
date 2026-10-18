@@ -192,7 +192,8 @@ function CopyBoxInline({ text }: { text: string }) {
 
 type APIToken = { id: string; name: string; pluginId?: string; prefix: string; scopes: string[]; createdBy: string; createdAt: string; lastUsedAt?: string; lastIp?: string; expiresAt?: string }
 const scopeLabel = (): Record<string, string> => ({
-  'users:read': t('查看用户'), 'users:write': t('管理用户（创建、修改、续费、加流量）'), 'nodes:read': t('查看节点和入站'),
+  'users:read': t('查看用户（含代理凭据）'), 'users:write': t('管理用户（创建、修改、续费、加流量）'), 'nodes:read': t('查看节点和入站'),
+  'users:renew': t('仅续期用户'), 'users:traffic:add': t('仅增加用户流量'), 'subs:read': t('读取订阅链接与诊断'),
   'traffic:read': t('查看流量统计'), 'settings:read': t('查看设置'),
 })
 
@@ -209,7 +210,7 @@ export function APITokens() {
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="ctitle"><span>{t('API 令牌')}</span><button className="btn sm" type="button" onClick={() => setForm({ name: '', scopes: ['users:read'], days: 0 })}>{t('+ 新建令牌')}</button></div>
-      <div className="sub" style={{ margin: 0 }}>{t('给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。插件安装时会自动创建自己的令牌。')}</div>
+      <div className="sub" style={{ margin: 0 }}>{t('给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。')}</div>
       {ts.length === 0 && <div className="hint">{t('还没有 API 令牌。')}</div>}
       {ts.map((tk) => (
         <div key={tk.id} className="row" style={{ flexWrap: 'nowrap', gap: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>

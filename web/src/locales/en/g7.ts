@@ -1,5 +1,9 @@
 // Group levels, server traffic allowance, server costs, core install progress, sidebar groups.
 const m: Record<string, string> = {
+  '查看用户（含代理凭据）': 'Read users (including proxy credentials)',
+  '仅续期用户': 'Renew users only',
+  '仅增加用户流量': 'Add user traffic only',
+  '读取订阅链接与诊断': 'Read subscription links and diagnostics',
   '当前许可证不限数量': 'No limit under the current license',
   '已授权': 'Licensed',
   '试用中': 'Trial',
@@ -194,7 +198,7 @@ const m: Record<string, string> = {
   '查看设置': 'View settings',
   'API 令牌': 'API tokens',
   '+ 新建令牌': '+ New token',
-  '给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。插件安装时会自动创建自己的令牌。': 'For scripts and plugins calling the API with the header Authorization: Bearer plt_…. A token reaches only the scopes you tick and can never change settings or admins. Plugins create their own token when installed.',
+  '给脚本和插件调用接口用，请求头带 Authorization: Bearer plt_…。令牌只能访问勾选的权限范围，不能修改设置或管理员。': 'For scripts and plugins calling the API with the header Authorization: Bearer plt_…. A token reaches only the scopes you tick and can never change settings or admins.',
   '还没有 API 令牌。': 'No API tokens yet.',
   '插件': 'Plugin',
   '仅能读取令牌自身信息': 'Can only read its own token info',
