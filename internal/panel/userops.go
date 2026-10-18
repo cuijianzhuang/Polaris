@@ -109,6 +109,9 @@ func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB,
 		return
 	}
 	s.MarkDirty(action, append(dirty, s.nodesForUsers(user.ID)...)...)
+	if action == "user.pack" {
+		s.userEvent("user.traffic_added", &user, map[string]any{"detail": detail})
+	}
 	if action == "user.plan" {
 		s.userEvent("user.plan_changed", &user, map[string]any{"plan_id": user.PlanID, "detail": detail})
 	}

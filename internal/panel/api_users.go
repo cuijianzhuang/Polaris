@@ -465,7 +465,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 				upd["speed_down_mbps"] = max(*req.SpeedDown, 0)
 			}
 			if req.Template != nil {
-				upd["traffic_limit"] = max(req.Template.TrafficLimit, 0)
+				upd["traffic_limit"], upd["extra_traffic"] = max(req.Template.TrafficLimit, 0), 0
 			}
 			if len(upd) == 0 {
 				return fmt.Errorf("nothing to set")
@@ -567,6 +567,9 @@ func (s *Server) updateUser(c *gin.Context) {
 		return
 	}
 	before := s.nodesForUsers(u.ID)
+	if req.TrafficLimit != u.TrafficLimit {
+		u.ExtraTraffic = 0 // the admin set the quota outright
+	}
 	u.Username, u.TrafficLimit, u.ExpireAt, u.IPLimit = req.Username, req.TrafficLimit, req.ExpireAt, req.IPLimit
 	u.ExpireAfterDays = req.ExpireAfterDays
 	u.ResetPolicy, u.ResetDay, u.Remark = orDefault(req.ResetPolicy, "none"), req.ResetDay, req.Remark
@@ -601,7 +604,7 @@ func (s *Server) updateUser(c *gin.Context) {
 		}
 		// Only the edited columns: traffic settlement, IP bans and resets
 		// update the counters concurrently and must not be overwritten.
-		if err := tx.Model(&u).Select("username", "traffic_limit", "expire_at", "ip_limit", "expire_after_days",
+		if err := tx.Model(&u).Select("username", "traffic_limit", "extra_traffic", "expire_at", "ip_limit", "expire_after_days",
 			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "status",
 			"renew_days", "renew_max", "renew_count", "device_limit", "speed_up_mbps", "speed_down_mbps").Updates(&u).Error; err != nil {
 			return err
@@ -865,6 +868,7 @@ func (s *Server) deleteGroup(c *gin.Context) {
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.GroupNode{})
 	s.st.DB.Where("group_id = ?", g.ID).Delete(&store.UserGroup{})
 	if g.Plan { // its users keep their limits, without a plan
+		s.st.DB.Where("plan_id = ?", g.ID).Delete(&store.PlanNodeRate{})
 		s.st.DB.Model(&store.User{}).Where("plan_id = ?", g.ID).Update("plan_id", "")
 		s.st.DB.Model(&store.Group{}).Where("fallback_id = ?", g.ID).Update("fallback_id", "")
 	}

@@ -591,7 +591,7 @@ func tgAdvanced(parts []string) bool {
 			return false
 		}
 		switch parts[1] {
-		case "", "me", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders":
+		case "", "me", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders", "packs":
 			return false
 		}
 	}

@@ -40,15 +40,20 @@ func (b *tgBot) username() string {
 
 // planPrices is a plan's prices for the shop list ("¥15 · 150 ⭐ · 2.5 USDT").
 func (s *Server) planPrices(p *store.Group) string {
+	return s.productPrices(p.PriceStars, p.PriceCNY, p.PriceUSDT)
+}
+
+// productPrices lists a product's prices in the configured ways to pay.
+func (s *Server) productPrices(stars int, cny, usdt float64) string {
 	var parts []string
-	if _, _, ok := s.orderPrice(p, payEPay); ok {
-		parts = append(parts, "¥"+strconv.FormatFloat(p.PriceCNY, 'f', -1, 64))
+	if _, _, ok := s.priceFor(stars, cny, usdt, payEPay); ok {
+		parts = append(parts, "¥"+strconv.FormatFloat(cny, 'f', -1, 64))
 	}
-	if _, _, ok := s.orderPrice(p, payStars); ok {
-		parts = append(parts, strconv.Itoa(p.PriceStars)+" ⭐")
+	if _, _, ok := s.priceFor(stars, cny, usdt, payStars); ok {
+		parts = append(parts, strconv.Itoa(stars)+" ⭐")
 	}
-	if _, _, ok := s.orderPrice(p, payUSDT); ok {
-		parts = append(parts, strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64)+" USDT")
+	if _, _, ok := s.priceFor(stars, cny, usdt, payUSDT); ok {
+		parts = append(parts, strconv.FormatFloat(usdt, 'f', -1, 64)+" USDT")
 	}
 	return strings.Join(parts, " · ")
 }
@@ -99,6 +104,9 @@ func (b *tgBot) shopView(id tgIdentity) (string, [][]button) {
 	}
 	if id.user == nil && !b.s.shopAutoCreate() {
 		sb.WriteString("\n\n购买前请先绑定账号。")
+	}
+	if len(b.s.salePacks(id.user)) > 0 {
+		rows = append(rows, []button{{Text: "📦 加购流量包", Data: "v:packs"}})
 	}
 	rows = append(rows, []button{{Text: "🎟 兑换码", Data: "v:redeem"}, {Text: "📋 我的订单", Data: "v:orders"}})
 	if b.s.shopTerms() != "" {
@@ -243,30 +251,31 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			return
 		}
 		answer("")
-		mins := int(time.Until(o.ExpiresAt).Round(time.Minute).Minutes())
-		switch o.Method {
-		case payStars:
-			n, _ := strconv.Atoi(o.Amount)
-			err := b.call(ctx, "sendInvoice", map[string]any{"chat_id": chat, "title": truncate(o.PlanName, 32),
-				"description": truncate(b.s.st.GetSetting("site_title", "Polaris")+" · "+o.PlanName, 255), "payload": o.ID,
-				"currency": "XTR", "prices": []map[string]any{{"label": truncate(o.PlanName, 32), "amount": n}}}, nil)
-			if err != nil {
-				b.send(chat, "发送账单失败："+esc(err.Error()))
-			}
-		case payEPay:
-			typ := payEPay
-			if len(parts) > 4 {
-				typ = parts[4]
-			}
-			b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n套餐：%s\n金额：¥%s（%s）\n\n请在 %d 分钟内完成支付，付款后自动开通。",
-				o.ID, tgRule, esc(o.PlanName), o.Amount, esc(orDefault(epayTypeName[typ], typ)), mins),
-				[]button{{Text: "💳 去支付 ¥" + o.Amount, URL: b.s.epayLink(o, typ)}},
-				[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}})
-		case payUSDT:
-			b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n套餐：%s\n网络：<b>TRON (TRC20)</b>\n地址：<code>%s</code>\n金额：<code>%s</code> USDT\n\n⚠️ 请<b>精确转账上面的金额</b>（含小数），金额不符无法自动到账。\n请在 %d 分钟内完成转账，到账确认后自动开通。",
-				o.ID, tgRule, esc(o.PlanName), esc(b.s.st.GetSetting("shop_usdt_address", "")), o.Amount, mins),
-				[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}})
+		typ := ""
+		if len(parts) > 4 {
+			typ = parts[4]
 		}
+		b.sendPayment(ctx, chat, o, typ)
+	case "k": // traffic pack card
+		text, rows := b.packCard(id, parts[2])
+		b.edit(chat, msg, text, rows...)
+		answer("")
+	case "n": // s:n:<pack>:<method>[:<type>] new pack order
+		if len(parts) < 4 {
+			answer("")
+			return
+		}
+		o, err := b.s.newPackOrder(chat, tgName(from), id.user, parts[2], parts[3])
+		if err != nil {
+			answer(err.Error())
+			return
+		}
+		answer("")
+		typ := ""
+		if len(parts) > 4 {
+			typ = parts[4]
+		}
+		b.sendPayment(ctx, chat, o, typ)
 	case "q":
 		var o store.Order
 		if b.s.st.DB.First(&o, "id = ? AND telegram_id = ?", parts[2], chat).Error != nil {
@@ -309,9 +318,13 @@ func (b *tgBot) onPreCheckout(q *tgPreCheckout) {
 		reply["ok"], reply["error_message"] = false, "商店未开启"
 	default:
 		var n int64
-		b.s.st.DB.Model(&store.Group{}).Where("id = ? AND plan = ? AND sale = ?", o.PlanID, true, true).Count(&n)
+		if o.Kind == kindPack {
+			b.s.st.DB.Model(&store.TrafficPack{}).Where("id = ? AND sale = ?", o.PackID, true).Count(&n)
+		} else {
+			b.s.st.DB.Model(&store.Group{}).Where("id = ? AND plan = ? AND sale = ?", o.PlanID, true, true).Count(&n)
+		}
 		if n == 0 {
-			reply["ok"], reply["error_message"] = false, "套餐已下架"
+			reply["ok"], reply["error_message"] = false, "商品已下架"
 		}
 	}
 	_ = b.call(ctx, "answerPreCheckoutQuery", reply, nil)
@@ -364,4 +377,83 @@ func (b *tgBot) redeemCommand(chat int64, from tgUser, arg string, id tgIdentity
 		b.send(chat, "❌ "+esc(err.Error()), backRow(""))
 	}
 	// Success is announced by orderDelivered.
+}
+
+// sendPayment sends the way to pay an open order: a Stars invoice, an EPay
+// link (typ = alipay, wxpay, …) or the USDT transfer details.
+func (b *tgBot) sendPayment(ctx context.Context, chat int64, o *store.Order, typ string) {
+	mins := int(time.Until(o.ExpiresAt).Round(time.Minute).Minutes())
+	switch o.Method {
+	case payStars:
+		n, _ := strconv.Atoi(o.Amount)
+		err := b.call(ctx, "sendInvoice", map[string]any{"chat_id": chat, "title": truncate(o.PlanName, 32),
+			"description": truncate(b.s.st.GetSetting("site_title", "Polaris")+" · "+o.PlanName, 255), "payload": o.ID,
+			"currency": "XTR", "prices": []map[string]any{{"label": truncate(o.PlanName, 32), "amount": n}}}, nil)
+		if err != nil {
+			b.send(chat, "发送账单失败："+esc(err.Error()))
+		}
+	case payEPay:
+		if typ == "" {
+			typ = payEPay
+		}
+		b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n商品：%s\n金额：¥%s（%s）\n\n请在 %d 分钟内完成支付，付款后自动开通。",
+			o.ID, tgRule, esc(o.PlanName), o.Amount, esc(orDefault(epayTypeName[typ], typ)), mins),
+			[]button{{Text: "💳 去支付 ¥" + o.Amount, URL: b.s.epayLink(o, typ)}},
+			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}})
+	case payUSDT:
+		b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n商品：%s\n网络：<b>TRON (TRC20)</b>\n地址：<code>%s</code>\n金额：<code>%s</code> USDT\n\n⚠️ 请<b>精确转账上面的金额</b>（含小数），金额不符无法自动到账。\n请在 %d 分钟内完成转账，到账确认后自动开通。",
+			o.ID, tgRule, esc(o.PlanName), esc(b.s.st.GetSetting("shop_usdt_address", "")), o.Amount, mins),
+			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}})
+	}
+}
+
+// packsView lists the traffic packs the user may buy.
+func (b *tgBot) packsView(id tgIdentity) (string, [][]button) {
+	var sb strings.Builder
+	sb.WriteString("📦 <b>流量包</b>\n" + tgRule + "\n流量不够用时加购，不改变套餐和到期时间；<b>本流量周期内有效</b>，下次流量重置或续费新周期时失效。\n")
+	var rows [][]button
+	for _, p := range b.s.salePacks(id.user) {
+		prices := b.s.productPrices(p.PriceStars, p.PriceCNY, p.PriceUSDT)
+		if prices == "" {
+			continue
+		}
+		fmt.Fprintf(&sb, "\n<b>%s</b>  +%s\n%s\n", esc(p.Name), sub.HumanBytes(p.Traffic), esc(prices))
+		rows = append(rows, []button{{Text: p.Name + " · +" + sub.HumanBytes(p.Traffic), Data: "s:k:" + p.ID}})
+	}
+	if len(rows) == 0 {
+		sb.WriteString("\n暂时没有可购买的流量包。")
+	}
+	rows = append(rows, []button{{Text: "« 返回", Data: "v:shop"}, btnHome})
+	return sb.String(), rows
+}
+
+// packCard offers the ways to pay for one pack.
+func (b *tgBot) packCard(id tgIdentity, packID string) (string, [][]button) {
+	back := [][]button{{{Text: "« 返回", Data: "v:packs"}, btnHome}}
+	var p store.TrafficPack
+	if !b.s.shopOn() || b.s.st.DB.First(&p, "id = ? AND sale = ?", packID, true).Error != nil {
+		return "这个流量包已下架。", back
+	}
+	if err := packFor(&p, id.user); err != nil {
+		return esc(err.Error()), back
+	}
+	text := fmt.Sprintf("📦 <b>%s</b>\n%s\n本周期增加 <b>%s</b> 流量，下次流量重置或开始新周期时失效。\n\n选择付款方式（付款即表示同意<b>购买条款</b>，见 /terms）：",
+		esc(p.Name), tgRule, sub.HumanBytes(p.Traffic))
+	var rows [][]button
+	if a, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payStars); ok {
+		rows = append(rows, []button{{Text: "⭐ " + a + " Stars", Data: "s:n:" + p.ID + ":" + payStars}})
+	}
+	if a, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payEPay); ok {
+		var row []button
+		for _, t := range b.s.epayTypes() {
+			row = append(row, button{Text: orDefault(epayTypeName[t], t) + " ¥" + a, Data: "s:n:" + p.ID + ":" + payEPay + ":" + t})
+		}
+		if len(row) > 0 {
+			rows = append(rows, row)
+		}
+	}
+	if _, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payUSDT); ok {
+		rows = append(rows, []button{{Text: "💲 USDT (TRC20) " + strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64), Data: "s:n:" + p.ID + ":" + payUSDT}})
+	}
+	return text, append(rows, back...)
 }

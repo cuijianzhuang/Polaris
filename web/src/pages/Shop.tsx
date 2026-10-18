@@ -4,14 +4,16 @@ import { del, get, post, put } from '../api'
 import { CopyBox, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
 import { PlansModal } from '../components/Plans'
 import { datetime } from '../format'
-import type { Group } from '../types'
+import { ProTag } from '../components/License'
+import { bytes, GB } from '../format'
+import type { Group, TrafficPack } from '../types'
 import { t } from '../i18n'
 
 // Shop: plans sold in the Telegram bot — orders, redeem codes and the ways
 // to pay.
 
 type Order = {
-  id: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
+  id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
   status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null
 }
 type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; publicUrl: boolean }
@@ -65,7 +67,7 @@ function Orders() {
                 <tr key={o.id}>
                   <td data-label={t('时间')} className="small">{datetime(o.paidAt || o.createdAt)}<div className="mono small mute">{o.id}</div></td>
                   <td data-label={t('买家')}>{o.userId ? <b>{d!.usernames[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
-                  <td data-label={t('套餐')}>{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
+                  <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
                   <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}</td>
                   <td data-label={t('金额')} className="mono">{money(o)}</td>
                   <td data-label={t('状态')}><span className={'st ' + (statusLabel[o.status]?.[1] ?? '')}>{statusLabel[o.status]?.[0] ?? o.status}</span></td>
@@ -170,6 +172,85 @@ function Codes() {
   )
 }
 
+type PackEdit = { id?: string; name: string; gb: string; planIds: string[]; sale: boolean; priceStars: string; priceCny: string; priceUsdt: string; sort: number }
+
+function Packs() {
+  const list = useLoad(() => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs'))
+  const plans = useLoad(() => get<Group[]>('/plans'))
+  const [edit, setEdit] = useState<PackEdit | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const ok = !!list.data?.licensed
+  const pname = (id: string) => plans.data?.find((p) => p.id === id)?.name ?? id
+  const price = (p: TrafficPack) => [p.priceCny ? `¥${p.priceCny}` : '', p.priceStars ? `${p.priceStars} ⭐` : '', p.priceUsdt ? `${p.priceUsdt} USDT` : ''].filter(Boolean).join(' · ') || '—'
+  return (
+    <>
+      <div className="row">
+        <button className="btn pri" type="button" disabled={!ok} onClick={() => setEdit({ name: '', gb: '50', planIds: [], sale: true, priceStars: '', priceCny: '', priceUsdt: '', sort: list.data?.items.length ?? 0 })}>{t('+ 新建流量包')}</button>
+        <ProTag on={ok} />
+        <span className="sub" style={{ margin: 0 }}>{t('用户流量不够时在机器人里加购，不改变套餐和到期时间；只在当前流量周期内有效，流量重置或开始新周期时失效。')}</span>
+      </div>
+      <div className="card flush scroll">
+        {list.data?.items.length === 0 ? <Empty>{t('还没有流量包')}</Empty> : (
+          <table className="rtable">
+            <thead><tr><th>{t('名称')}</th><th>{t('流量')}</th><th>{t('适用套餐')}</th><th>{t('价格')}</th><th>{t('状态')}</th><th></th></tr></thead>
+            <tbody>
+              {(list.data?.items ?? []).map((p) => (
+                <tr key={p.id}>
+                  <td data-label={t('名称')}><b>{p.name}</b></td>
+                  <td data-label={t('流量')} className="mono">+{bytes(p.traffic)}</td>
+                  <td data-label={t('适用套餐')}>{p.planIds.length ? p.planIds.map(pname).join('、') : <span className="mute">{t('所有限流量的账号')}</span>}</td>
+                  <td data-label={t('价格')} className="small">{price(p)}</td>
+                  <td data-label={t('状态')}>{p.sale ? <span className="st ok">{t('在售')}</span> : <span className="st off">{t('未上架')}</span>}</td>
+                  <td className="rt-actions">
+                    <button className="link" type="button" disabled={!ok} onClick={() => setEdit({ id: p.id, name: p.name, gb: String(+(p.traffic / GB).toFixed(2)), planIds: p.planIds, sale: p.sale,
+                      priceStars: p.priceStars ? String(p.priceStars) : '', priceCny: p.priceCny ? String(p.priceCny) : '', priceUsdt: p.priceUsdt ? String(p.priceUsdt) : '', sort: p.sort })}>{t('编辑')}</button>
+                    <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
+                      if (await confirm(t('删除流量包 {name}？已加给用户的流量不受影响。', { name: p.name }), { danger: true })) run(async () => { await del('/traffic-packs/' + p.id); list.reload() })
+                    }}>{t('删除')}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {edit && (
+        <Modal title={edit.id ? t('编辑流量包') : t('新建流量包')} onClose={() => setEdit(null)} footer={<>
+          <button className="btn" type="button" onClick={() => setEdit(null)}>{t('取消')}</button>
+          <button className="btn pri" type="button" disabled={busy || !edit.name.trim() || !(Number(edit.gb) > 0)} onClick={() => run(async () => {
+            const body = { name: edit.name.trim(), traffic: Math.round(Number(edit.gb) * GB), planIds: edit.planIds, sale: edit.sale,
+              priceStars: Math.round(Number(edit.priceStars) || 0), priceCny: Number(edit.priceCny) || 0, priceUsdt: Number(edit.priceUsdt) || 0, sort: edit.sort }
+            if (edit.id) await put('/traffic-packs/' + edit.id, body)
+            else await post('/traffic-packs', body)
+            setEdit(null); list.reload()
+          }, t('已保存'))}>{t('保存')}</button>
+        </>}>
+          <div className="form-grid">
+            <Field label={t('名称')} htmlFor="k-name"><input id="k-name" className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} placeholder={t('例如 加油包 50G')} /></Field>
+            <Field label={t('流量 (GB)')} htmlFor="k-gb"><input id="k-gb" className="input mono" inputMode="decimal" value={edit.gb} onChange={(e) => setEdit({ ...edit, gb: e.target.value })} /></Field>
+            <Field label={t('Telegram Stars 价格')} htmlFor="k-stars"><input id="k-stars" className="input mono" inputMode="numeric" value={edit.priceStars} onChange={(e) => setEdit({ ...edit, priceStars: e.target.value })} /></Field>
+            <Field label={t('易支付价格（元）')} htmlFor="k-cny"><input id="k-cny" className="input mono" inputMode="decimal" value={edit.priceCny} onChange={(e) => setEdit({ ...edit, priceCny: e.target.value })} /></Field>
+            <Field label={t('USDT 价格')} htmlFor="k-usdt"><input id="k-usdt" className="input mono" inputMode="decimal" value={edit.priceUsdt} onChange={(e) => setEdit({ ...edit, priceUsdt: e.target.value })} /></Field>
+            <Field label={t('排序')} htmlFor="k-sort" hint={t('小的排前面')}><input id="k-sort" className="input mono" type="number" value={edit.sort} onChange={(e) => setEdit({ ...edit, sort: Number(e.target.value) || 0 })} /></Field>
+          </div>
+          <Field label={t('适用套餐')} hint={t('不选 = 所有限流量的账号都能买')}>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+              {(plans.data ?? []).map((p) => {
+                const on = edit.planIds.includes(p.id)
+                return <button key={p.id} type="button" className={'chip' + (on ? ' on' : '')} aria-pressed={on}
+                  onClick={() => setEdit({ ...edit, planIds: on ? edit.planIds.filter((x) => x !== p.id) : [...edit.planIds, p.id] })}>{p.name}</button>
+              })}
+              {plans.data?.length === 0 && <span className="hint">{t('还没有套餐')}</span>}
+            </div>
+          </Field>
+          <div className="toggle"><span>{t('在 Telegram 机器人售卖')}</span><Switch label={t('售卖')} on={edit.sale} onChange={(v) => setEdit({ ...edit, sale: v })} /></div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
 function PaySettings({ status }: { status?: ShopStatus }) {
   const settings = useLoad(() => get<Record<string, any>>('/settings'))
   const keys = ['shop_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_terms', 'shop_support'] as const
@@ -236,7 +317,7 @@ export default function Shop() {
   const st = useLoad(() => get<{ status: ShopStatus }>('/orders?limit=1'))
   const [plans, setPlans] = useState(false)
   const s = st.data?.status
-  const tabs = [{ id: 'orders', label: t('订单') }, { id: 'codes', label: t('兑换码') }, { id: 'pay', label: t('支付设置') }]
+  const tabs = [{ id: 'orders', label: t('订单') }, { id: 'packs', label: t('流量包') }, { id: 'codes', label: t('兑换码') }, { id: 'pay', label: t('支付设置') }]
   return (
     <>
       <div className="top">
@@ -250,6 +331,7 @@ export default function Shop() {
         {tabs.map((x) => <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} className={'tab' + (tab === x.id ? ' on' : '')} onClick={() => setParams({ tab: x.id }, { replace: true })}>{x.label}</button>)}
       </div>
       {tab === 'orders' && <Orders />}
+      {tab === 'packs' && <Packs />}
       {tab === 'codes' && <Codes />}
       {tab === 'pay' && <PaySettings status={s} />}
       {plans && <PlansModal onClose={() => setPlans(false)} onChanged={() => st.reload()} />}

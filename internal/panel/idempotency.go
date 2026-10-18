@@ -139,7 +139,7 @@ func (s *Server) idempotency(c *gin.Context) {
 	}
 	c.Set(idemContextKey, info)
 	route := c.Request.Method + " " + strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
-	if route == "POST /users/:id/renew" || route == "POST /users/:id/add-traffic" || route == "POST /users/:id/plan" {
+	if route == "POST /users/:id/renew" || route == "POST /users/:id/add-traffic" || route == "POST /users/:id/plan" || route == "POST /users/:id/pack" {
 		// These handlers reserve the key, mutate the user and store their answer
 		// in one database transaction. A response-only cache cannot do that.
 		c.Next()

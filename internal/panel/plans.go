@@ -3,6 +3,7 @@ package panel
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"net/http"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -82,7 +84,17 @@ func applyPlan(tx *gorm.DB, u *store.User, p *store.Group, renew bool, now time.
 		exp = &e
 	}
 	reset := !renew || computeStatus(u, now) != "active"
-	upd := map[string]any{"plan_id": p.ID, "traffic_limit": p.TrafficLimit, "expire_at": exp, "expire_after_days": 0,
+	// Traffic packs last for the current period: a renewal keeps them, a
+	// fresh period drops them.
+	extra := u.ExtraTraffic
+	if reset || p.TrafficLimit == 0 {
+		extra = 0
+	}
+	limit := p.TrafficLimit
+	if limit > 0 {
+		limit += extra
+	}
+	upd := map[string]any{"plan_id": p.ID, "traffic_limit": limit, "extra_traffic": extra, "expire_at": exp, "expire_after_days": 0,
 		"reset_policy": orDefault(p.ResetPolicy, "none"), "reset_day": p.ResetDay, "device_limit": p.DeviceLimit, "ip_limit": p.IPLimit,
 		"speed_up_mbps": 0, "speed_down_mbps": 0, "warned_expire": nil}
 	if reset {
@@ -97,7 +109,7 @@ func applyPlan(tx *gorm.DB, u *store.User, p *store.Group, renew bool, now time.
 	if err := setPlanMembership(tx, u.ID, p.ID); err != nil {
 		return "", err
 	}
-	u.PlanID, u.TrafficLimit, u.ExpireAt, u.ExpireAfterDays = p.ID, p.TrafficLimit, exp, 0
+	u.PlanID, u.TrafficLimit, u.ExtraTraffic, u.ExpireAt, u.ExpireAfterDays = p.ID, limit, extra, exp, 0
 	u.ResetPolicy, u.ResetDay, u.DeviceLimit, u.IPLimit = orDefault(p.ResetPolicy, "none"), p.ResetDay, p.DeviceLimit, p.IPLimit
 	u.SpeedUpMbps, u.SpeedDownMbps = 0, 0
 	if reset {
@@ -141,6 +153,7 @@ func (s *Server) listPlans(c *gin.Context) {
 		s.st.DB.Model(&store.GroupNode{}).Where("group_id = ?", ps[i].ID).Pluck("node_id", &ps[i].NodeIDs)
 		ps[i].InboundIDs, ps[i].NodeIDs = nonNilStrs(ps[i].InboundIDs), nonNilStrs(ps[i].NodeIDs)
 		s.st.DB.Model(&store.User{}).Where("plan_id = ?", ps[i].ID).Count(&ps[i].UserCount)
+		ps[i].NodeRates = s.planNodeRates(ps[i].ID)
 		out[i] = planView{Group: ps[i], FallbackName: names[ps[i].FallbackID]}
 	}
 	c.JSON(http.StatusOK, out)
@@ -162,6 +175,9 @@ type planReq struct {
 	PriceStars   int     `json:"priceStars"`
 	PriceCNY     float64 `json:"priceCny"`
 	PriceUSDT    float64 `json:"priceUsdt"`
+	// NodeRates replaces node multipliers for the plan's users (nil =
+	// unchanged; professional edition).
+	NodeRates map[string]float64 `json:"nodeRates"`
 }
 
 func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
@@ -186,6 +202,32 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 	case req.FallbackID != "" && req.FallbackID == g.ID:
 		badRequest(c, errors.New("到期降级不能指向套餐自己"))
 		return
+	}
+	for _, r := range req.NodeRates {
+		if r < 0 || r > 100 || math.IsNaN(r) {
+			badRequest(c, errors.New("节点倍率应在 0–100 之间（0 = 用节点自己的倍率）"))
+			return
+		}
+	}
+	if req.NodeRates != nil {
+		if !maps.Equal(nonZeroRates(req.NodeRates), s.planNodeRates(g.ID)) && !s.requireFeature(c, license.FeaturePlanAddons) {
+			return
+		}
+		if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("plan_id = ?", g.ID).Delete(&store.PlanNodeRate{}).Error; err != nil {
+				return err
+			}
+			for node, r := range nonZeroRates(req.NodeRates) {
+				if err := tx.Create(&store.PlanNodeRate{PlanID: g.ID, NodeID: node, Rate: r}).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			dbError(c, err)
+			return
+		}
+		g.NodeRates = nonZeroRates(req.NodeRates)
 	}
 	if req.FallbackID != "" {
 		if _, err := loadPlan(s.st.DB, req.FallbackID); err != nil {
@@ -355,4 +397,25 @@ func (s *Server) planAction(actor, userID, planID string, renew bool) (string, e
 	s.audit(actor, "user.plan", u.Username, detail, "")
 	s.userEvent("user.plan_changed", &u, map[string]any{"plan_id": u.PlanID, "detail": detail})
 	return detail, nil
+}
+
+// planNodeRates reads a plan's own node multipliers.
+func (s *Server) planNodeRates(planID string) map[string]float64 {
+	var rs []store.PlanNodeRate
+	s.st.DB.Where("plan_id = ?", planID).Find(&rs)
+	out := map[string]float64{}
+	for _, r := range rs {
+		out[r.NodeID] = r.Rate
+	}
+	return out
+}
+
+func nonZeroRates(m map[string]float64) map[string]float64 {
+	out := map[string]float64{}
+	for k, v := range m {
+		if v > 0 {
+			out[k] = math.Round(v*100) / 100
+		}
+	}
+	return out
 }

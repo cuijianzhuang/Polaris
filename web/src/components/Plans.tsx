@@ -31,9 +31,10 @@ type Edit = {
   id?: string; name: string; price: string; sort: number; level: number; nodeIds: string[]; limitGB: string; days: string
   resetPolicy: string; resetDay: string; deviceLimit: string; ipLimit: string; speedUp: string; speedDown: string; fallbackId: string
   sale: boolean; priceStars: string; priceCny: string; priceUsdt: string
+  nodeRates: Record<string, string>
 }
 
-const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '' }
+const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {} }
 
 function toEdit(p: Group): Edit {
   return {
@@ -42,11 +43,13 @@ function toEdit(p: Group): Edit {
     resetPolicy: p.resetPolicy || 'none', resetDay: String(p.resetDay || 1), deviceLimit: String(p.deviceLimit ?? 0), ipLimit: String(p.ipLimit ?? 0),
     speedUp: p.speedUpMbps ? String(p.speedUpMbps) : '', speedDown: p.speedDownMbps ? String(p.speedDownMbps) : '', fallbackId: p.fallbackId ?? '',
     sale: !!p.sale, priceStars: p.priceStars ? String(p.priceStars) : '', priceCny: p.priceCny ? String(p.priceCny) : '', priceUsdt: p.priceUsdt ? String(p.priceUsdt) : '',
+    nodeRates: Object.fromEntries(Object.entries(p.nodeRates ?? {}).map(([k, v]) => [k, String(v)])),
   }
 }
 
 export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const speedOK = useFeature('speed_limit')
+  const addonsOK = useFeature('plan_addons')
   const plans = useLoad(() => get<Group[]>('/plans'))
   const [edit, setEdit] = useState<Edit | null>(null)
   const { busy, run } = useAction()
@@ -63,6 +66,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
       deviceLimit: Number(e.deviceLimit) || 0, ipLimit: Number(e.ipLimit) || 0,
       speedUpMbps: Number(e.speedUp) || 0, speedDownMbps: Number(e.speedDown) || 0, fallbackId: e.fallbackId,
       sale: e.sale, priceStars: Math.round(Number(e.priceStars) || 0), priceCny: Number(e.priceCny) || 0, priceUsdt: Number(e.priceUsdt) || 0,
+      nodeRates: Object.fromEntries(Object.entries(e.nodeRates).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => (v as number) > 0)),
     }
     if (e.id) await put('/plans/' + e.id, body)
     else await post('/plans', body)
@@ -132,6 +136,20 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
           </div>
         )}
         <div className="note">{t('可用节点：')}{reach.map((n) => n.name).join('、') || t('暂无（给节点设置等级，或在上面选择节点）')}</div>
+        {reach.length > 0 && (
+          <Field label={<>{t('套餐专属节点倍率')}<ProTag on={addonsOK} /></>} hint={t('这个套餐的用户在该节点按此倍率扣流量，替代节点自己的倍率；留空 = 用节点倍率')}>
+            <div className="form-grid">
+              {reach.map((n) => (
+                <label key={n.id} className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+                  <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                  <input className="input mono" style={{ width: 110 }} inputMode="decimal" disabled={!addonsOK} aria-label={t('{node} 的倍率', { node: n.name })}
+                    placeholder={'×' + (n.trafficRate || 1)} value={edit.nodeRates[n.id] ?? ''}
+                    onChange={(e) => set('nodeRates', { ...edit.nodeRates, [n.id]: e.target.value })} />
+                </label>
+              ))}
+            </div>
+          </Field>
+        )}
         {edit.id && <div className="sub">{t('修改后：已开通的用户立即按新的节点和限速生效；流量、到期时间在下次开通或续费时更新。')}</div>}
       </Modal>
     )

@@ -34,6 +34,8 @@ const (
 	payCode   = "code"
 	payManual = "manual"
 
+	kindPack = "pack" // Order.Kind of a traffic pack
+
 	maxPendingOrders = 5
 )
 
@@ -80,13 +82,18 @@ func (s *Server) salePlans() []store.Group {
 // orderPrice is what plan p costs with method, as decimal text and currency;
 // ok is false when it is not sold that way.
 func (s *Server) orderPrice(p *store.Group, method string) (amount, currency string, ok bool) {
+	return s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, method)
+}
+
+// priceFor picks the price for a way to pay among a product's prices.
+func (s *Server) priceFor(stars int, cny, usdt float64, method string) (amount, currency string, ok bool) {
 	switch method {
 	case payStars:
-		return strconv.Itoa(p.PriceStars), "XTR", s.starsOn() && p.PriceStars > 0
+		return strconv.Itoa(stars), "XTR", s.starsOn() && stars > 0
 	case payEPay:
-		return fmt.Sprintf("%.2f", p.PriceCNY), "CNY", s.epayOn() && p.PriceCNY >= 0.01
+		return fmt.Sprintf("%.2f", cny), "CNY", s.epayOn() && cny >= 0.01
 	case payUSDT:
-		return fmt.Sprintf("%.4f", p.PriceUSDT), "USDT", s.usdtOn() && p.PriceUSDT >= 0.01
+		return fmt.Sprintf("%.4f", usdt), "USDT", s.usdtOn() && usdt >= 0.01
 	}
 	return "", "", false
 }
@@ -181,6 +188,26 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			return nil // already paid
 		}
 		fresh = true
+		if o.Kind == kindPack {
+			var pk store.TrafficPack
+			if err := tx.First(&pk, "id = ?", o.PackID).Error; err != nil {
+				return commandInputError{"流量包 " + o.PlanName + " 已删除，请联系管理员处理"}
+			}
+			if (o.UserID == "" || tx.First(u, "id = ? AND is_service = ?", o.UserID, false).Error != nil) &&
+				tx.First(u, "telegram_id = ? AND is_service = ?", o.TelegramID, false).Error != nil {
+				return commandInputError{"没有找到要加流量的账号"}
+			}
+			var err error
+			if detail, err = s.applyPack(tx, u, &pk, now); err != nil {
+				return err
+			}
+			u.Status = computeStatus(u, now)
+			if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error; err != nil {
+				return err
+			}
+			o.UserID, o.Detail = u.ID, truncate(detail, 255)
+			return tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error
+		}
 		if err := tx.First(&p, "id = ? AND plan = ?", o.PlanID, true).Error; err != nil {
 			return commandInputError{"套餐 " + o.PlanName + " 已删除，请联系管理员处理"}
 		}
@@ -234,7 +261,11 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 	if created {
 		s.userEvent("user.created", u, map[string]any{"via": "shop"})
 	}
-	s.userEvent("user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "order_id": o.ID, "detail": detail})
+	if o.Kind == kindPack {
+		s.userEvent("user.traffic_added", u, map[string]any{"pack_id": o.PackID, "order_id": o.ID, "detail": detail})
+	} else {
+		s.userEvent("user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "order_id": o.ID, "detail": detail})
+	}
 	s.notify(Event{Kind: "order.paid", Text: fmt.Sprintf("💰 新订单：%s 购买 %s（%s %s，%s）", who, o.PlanName, o.Amount, o.Currency, methodName[o.Method]),
 		Data: map[string]any{"order": orderBrief(o), "user": userBrief(u)}})
 	go s.tg.orderDelivered(o, u, created)
