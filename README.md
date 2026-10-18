@@ -12,6 +12,7 @@
   <a href="https://github.com/cuijianzhuang/Polaris/releases/latest"><img src="https://img.shields.io/github/v/release/cuijianzhuang/Polaris?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=0E7490" alt="最新版本"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/releases"><img src="https://img.shields.io/github/downloads/cuijianzhuang/Polaris/total?label=%E4%B8%8B%E8%BD%BD&color=0E7490" alt="下载量"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/cuijianzhuang/Polaris?logo=go&logoColor=white" alt="Go 版本">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
   <br>
   <a href="https://github.com/cuijianzhuang/Polaris/stargazers"><img src="https://img.shields.io/github/stars/cuijianzhuang/Polaris?style=social" alt="Stars"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/network/members"><img src="https://img.shields.io/github/forks/cuijianzhuang/Polaris?style=social" alt="Forks"></a>
@@ -62,6 +63,12 @@ flowchart LR
 主控默认使用 SQLite，可选 PostgreSQL；Redis 用于可选的流量计数缓冲，基础部署无需单独安装数据库服务。
 
 ## 版本与许可证
+
+本仓库社区代码采用 [GNU Affero General Public License v3.0](LICENSE)（SPDX：`AGPL-3.0-only`）。允许商业使用；分发软件或通过网络提供修改版服务时，需要履行该协议规定的对应源码提供、版权声明等义务。
+
+未包含在本仓库中的 `polaris-pro` 等私有代码，其许可条款由相应权利人另行提供；面板激活码不替代开源协议义务。如需在 AGPL 条款之外使用或分发相关代码，应另行取得相应权利人的授权。第三方依赖和独立内核仍遵循各自许可证。
+
+Copyright © 2026 Polaris contributors.
 
 | 项目 | 社区版 | 专业版 |
 | --- | --- | --- |
