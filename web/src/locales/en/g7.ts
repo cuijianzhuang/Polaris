@@ -17,6 +17,9 @@ const m: Record<string, string> = {
   "已删除或未知节点": "Deleted or unknown node",
   "部分记录": "Partially recorded",
   "倍率记录结算时的实际值；同小时变更显示范围。节点流量包先于账户扣除。重置或手动调整会影响当前已用量，但不会改写历史来源。": "Multipliers reflect values at settlement; changes within an hour appear as a range. Node packs are spent before the account quota. Resets and manual adjustments affect current usage but do not rewrite traffic history.",
+  "{n} 秒后可再次校验": "Check again in {n} seconds",
+  "连续 14 天未成功校验后，管理修改暂停；已有代理、流量上报和订阅继续运行。联网校验成功或导入有效离线许可证后恢复。": "After 14 days without successful verification, administrative changes are paused. Existing proxies, traffic reporting and subscriptions continue. A successful online check or a valid offline license restores management access.",
+  "超过 14 天未成功校验许可证，管理修改已暂停；已有代理继续运行，请联网校验或导入离线许可证": "The license has not been verified successfully for over 14 days. Administrative changes are paused; existing proxies keep running. Verify online or import an offline license.",
 
   '查看用户（含代理凭据）': 'Read users (including proxy credentials)',
   '仅续期用户': 'Renew users only',
@@ -37,7 +40,7 @@ const m: Record<string, string> = {
   '此日期前发布的版本都可以使用': 'Releases published before this date can be used',
   '可以升级到任何新版本': 'Can upgrade to any new version',
   '全部高级功能（含以后新增）': 'All paid features (including future ones)',
-  '授权后台调整了功能后，点上方「立即校验」即可更新；否则会在每日联网校验时自动更新。': 'After the features are changed in the license backend, click "Check now" above to update; otherwise the daily online check picks it up.',
+  '启动时自动校验，此后每 6 小时加 0–30 分钟随机延迟校验；失败后按 5 分钟、30 分钟、2 小时间隔重试。授权变更可点「立即校验」更新。': 'Checks run at startup, then every 6 hours with a random 0–30 minute delay. Failed checks retry after 5 minutes, 30 minutes, then every 2 hours. Use Check now to apply license changes sooner.',
   '更换许可证': 'Replace license',
   '许可证文件': 'License file',
   '授权服务未配置，请联系服务提供方，或改用许可证文件。': 'The license service is not configured. Contact your provider or use a license file.',

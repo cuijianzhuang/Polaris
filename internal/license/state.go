@@ -6,7 +6,7 @@ import (
 )
 
 // Grace is how long an online license keeps working while the license
-// server cannot be reached; afterwards the panel only warns.
+// server cannot be reached; afterwards administrative changes are read-only.
 const Grace = 14 * 24 * time.Hour
 
 // Inputs is what the panel knows; Evaluate turns it into the State in effect.
@@ -14,6 +14,7 @@ type Inputs struct {
 	License    *License  // installed and verified (nil = none)
 	Revoked    bool      // the license server said so
 	LastCheck  time.Time // last successful online check (online licenses)
+	FirstSeen  time.Time // first local installation, only a fallback before any online check
 	TrialUntil time.Time // paid features unlocked for upgrading installs
 	Released   time.Time // release date of this build (zero = unknown)
 	Now        time.Time
@@ -24,14 +25,15 @@ type Inputs struct {
 
 // State is the license in effect.
 type State struct {
-	Plan       string     `json:"plan"`   // community / trial / pro / enterprise
-	Source     string     `json:"source"` // none / license / trial
-	Limits     Limits     `json:"limits"`
-	Features   []string   `json:"features"`
-	ExpiresAt  string     `json:"expiresAt,omitempty"`
-	Updates    string     `json:"updatesUntil,omitempty"`
-	TrialUntil *time.Time `json:"trialUntil,omitempty"`
-	Warnings   []string   `json:"warnings"`
+	Plan               string     `json:"plan"`   // community / trial / pro / enterprise
+	Source             string     `json:"source"` // none / license / trial
+	Limits             Limits     `json:"limits"`
+	Features           []string   `json:"features"`
+	ExpiresAt          string     `json:"expiresAt,omitempty"`
+	Updates            string     `json:"updatesUntil,omitempty"`
+	TrialUntil         *time.Time `json:"trialUntil,omitempty"`
+	Warnings           []string   `json:"warnings"`
+	ManagementReadOnly bool       `json:"managementReadOnly"`
 }
 
 // Allow reports whether a paid feature is available.
@@ -52,8 +54,8 @@ func (s State) Limit(kind string) int {
 
 // Evaluate decides what is in effect. A license that expired, was revoked
 // or does not cover this release falls back to the community edition (the
-// trial still applies while it lasts); an unreachable license server never
-// downgrades on its own, it only warns after the grace period.
+// trial still applies while it lasts). An unreachable license server keeps
+// runtime entitlements, but administrative changes are blocked after Grace.
 func Evaluate(in Inputs) State {
 	st := State{Plan: "community", Source: "none", Limits: Community, Features: []string{}, Warnings: []string{}}
 	if in.Unenforced {
@@ -78,8 +80,15 @@ func Evaluate(in Inputs) State {
 					st.Warnings = append(st.Warnings, "许可证将于 "+l.ExpiresAt+" 到期")
 				}
 			}
-			if !l.Offline && !in.LastCheck.IsZero() && in.Now.Sub(in.LastCheck) > Grace {
-				st.Warnings = append(st.Warnings, "超过 14 天未能连接授权服务器，请检查网络")
+			if !l.Offline {
+				last := in.LastCheck
+				if last.IsZero() {
+					last = in.FirstSeen
+				}
+				if !last.IsZero() && in.Now.Sub(last) > Grace {
+					st.ManagementReadOnly = true
+					st.Warnings = append(st.Warnings, "超过 14 天未成功校验许可证，管理修改已暂停；已有代理继续运行，请联网校验或导入离线许可证")
+				}
 			}
 			return st
 		}

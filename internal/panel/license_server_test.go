@@ -94,6 +94,10 @@ func TestLicenseServerStatusAndCheck(t *testing.T) {
 	}
 	// Neither a transport failure nor the API warning may disclose its URL.
 	t.Setenv("POLARIS_LICENSE_SERVER", "http://127.0.0.1:1")
+	// Simulate the manual-check cooldown having elapsed before testing failure privacy.
+	s.licenseMu.Lock()
+	s.licenseSchedule.lastAttempt = time.Now().Add(-licenseCheckCooldown)
+	s.licenseMu.Unlock()
 	code, out = c.do("POST", "/license/check", nil)
 	if code != 200 || out["warning"] == nil || out["serverStatus"] != "unavailable" {
 		t.Fatalf("unreachable: %d %v", code, out)

@@ -136,3 +136,32 @@ func TestEveryFeature(t *testing.T) {
 		t.Fatalf("state %v", st.Features)
 	}
 }
+
+func TestOnlineGraceReadOnly(t *testing.T) {
+	now := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name                      string
+		last, first               time.Time
+		offline, unenforced, want bool
+	}{
+		{name: "within", last: now.Add(-Grace + time.Second)},
+		{name: "boundary", last: now.Add(-Grace)},
+		{name: "over", last: now.Add(-Grace - time.Second), want: true},
+		{name: "first-import-over", first: now.Add(-Grace - time.Second), want: true},
+		{name: "first-import-within", first: now.Add(-time.Hour)},
+		{name: "check-overrides-first-seen", last: now.Add(-time.Hour), first: now.Add(-2 * Grace)},
+		{name: "offline", last: now.Add(-2 * Grace), offline: true},
+		{name: "unenforced", last: now.Add(-2 * Grace), unenforced: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := &License{ID: "l", Plan: "pro", Offline: tc.offline, Features: []string{FeatureSpeedLimit}}
+			st := Evaluate(Inputs{License: l, Now: now, LastCheck: tc.last, FirstSeen: tc.first, Unenforced: tc.unenforced})
+			if st.ManagementReadOnly != tc.want {
+				t.Fatalf("%+v", st)
+			}
+			if !st.Allow(FeatureSpeedLimit) {
+				t.Fatal("grace must not revoke existing runtime entitlements")
+			}
+		})
+	}
+}

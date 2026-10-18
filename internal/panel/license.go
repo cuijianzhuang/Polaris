@@ -22,7 +22,7 @@ import (
 )
 
 // Licensing on the panel side: the installed license (verified offline
-// with the built-in public keys), online activation, a daily check with the
+// with the built-in public keys), online activation, periodic checks with the
 // license server, and the 30-day trial for installs that already used the
 // paid features when they upgraded. Nothing here ever stops a running
 // service: without a license, paid features cannot be changed, but what
@@ -39,8 +39,10 @@ var BuildDate = ""
 var DefaultLicenseServer = ""
 
 type licenseState struct {
-	st  license.State
-	lic *license.License
+	st     license.State
+	lic    *license.License
+	inputs *license.Inputs // immutable snapshot; time-dependent state is evaluated on read
+	text   string          // detect external CLI installation while running
 }
 
 var licClient = &http.Client{Timeout: 20 * time.Second}
@@ -133,7 +135,8 @@ func (s *Server) usesPaidFeatures() bool {
 // reloadLicense re-evaluates the license in effect from the settings.
 func (s *Server) reloadLicense() {
 	var lic *license.License
-	if text := s.st.GetSetting("license_text", ""); text != "" {
+	text := s.st.GetSetting("license_text", "")
+	if text != "" {
 		l, err := license.Parse(text, s.licenseKeys(), s.instanceID())
 		if err != nil {
 			s.log.Warn("installed license is not valid", "err", err)
@@ -141,16 +144,28 @@ func (s *Server) reloadLicense() {
 			lic = l
 		}
 	}
+	// Never refresh this fallback on re-import: only a real online response
+	// may extend the grace period. Keep it across deactivation as well.
+	firstSeen := settingTime(s, "license_online_since")
+	if lic != nil && !lic.Offline && firstSeen.IsZero() {
+		firstSeen = time.Now()
+		if err := s.st.SetSetting("license_online_since", firstSeen.Format(time.RFC3339)); err != nil {
+			// Fail closed for edits if the anchor cannot be persisted.
+			firstSeen = time.Now().Add(-license.Grace - time.Second)
+			s.log.Warn("could not persist license grace anchor")
+		}
+	}
 	released, _ := time.Parse("2006-01-02", BuildDate)
-	st := license.Evaluate(license.Inputs{
+	inputs := license.Inputs{
 		License: lic, Revoked: s.st.GetSetting("license_revoked", "") == "1",
-		LastCheck: settingTime(s, "license_check_at"), TrialUntil: settingTime(s, "license_trial_until"),
+		LastCheck: settingTime(s, "license_check_at"), FirstSeen: firstSeen, TrialUntil: settingTime(s, "license_trial_until"),
 		Released: released, Now: time.Now(), Unenforced: len(s.licenseKeys()) == 0,
-	})
+	}
+	st := license.Evaluate(inputs)
 	if !proBuild {
 		st = communityBuild(st)
 	}
-	s.lic.Store(&licenseState{st: st, lic: lic})
+	s.lic.Store(&licenseState{st: st, lic: lic, inputs: &inputs, text: text})
 }
 
 // Edition names this build: "pro" with the polaris-pro sources, else
@@ -189,6 +204,15 @@ func communityBuild(st license.State) license.State {
 // license is the state in effect.
 func (s *Server) license() license.State {
 	if p := s.lic.Load(); p != nil {
+		if p.inputs != nil {
+			in := *p.inputs
+			in.Now = time.Now()
+			st := license.Evaluate(in)
+			if !proBuild {
+				st = communityBuild(st)
+			}
+			return st
+		}
 		return p.st
 	}
 	return license.Evaluate(license.Inputs{Now: time.Now()})
@@ -239,13 +263,27 @@ func (s *Server) limitOK(c *gin.Context, kind string, adding int) bool {
 
 // installLicense verifies and stores a license text.
 func (s *Server) installLicense(text string) (*license.License, error) {
+	s.licenseMu.Lock()
+	defer s.licenseMu.Unlock()
+	return s.installLicenseLocked(text)
+}
+
+// installLicenseLocked does not treat a local signature as proof of contact.
+func (s *Server) installLicenseLocked(text string) (*license.License, error) {
 	l, err := license.Parse(text, s.licenseKeys(), s.instanceID())
 	if err != nil {
 		return nil, err
 	}
-	s.st.SetSetting("license_text", strings.Join(strings.Fields(text), ""))
-	s.st.SetSetting("license_revoked", "")
-	s.st.SetSetting("license_check_at", time.Now().Format(time.RFC3339))
+	if err := s.st.SetSetting("license_text", strings.Join(strings.Fields(text), "")); err != nil {
+		return nil, err
+	}
+	// A re-imported online document cannot undo a recorded revocation.
+	if l.Offline {
+		if err := s.st.SetSetting("license_revoked", ""); err != nil {
+			return nil, err
+		}
+	}
+	s.licenseSchedule.next = time.Time{} // check a new online import promptly
 	s.reloadLicense()
 	return l, nil
 }
@@ -341,76 +379,106 @@ func (s *Server) licenseCall(ctx context.Context, path string, body any, out any
 // activateLicense exchanges an activation key for a license bound to this
 // instance.
 func (s *Server) activateLicense(ctx context.Context, key string) (*license.License, error) {
+	s.licenseMu.Lock()
+	defer s.licenseMu.Unlock()
 	var out struct {
 		License string `json:"license"`
 	}
 	if err := s.licenseCall(ctx, "/v1/activate", map[string]string{"key": strings.TrimSpace(key), "instance": s.instanceID(), "version": Version}, &out); err != nil {
 		return nil, err
 	}
-	return s.installLicense(out.License)
+	l, err := s.installLicenseLocked(out.License)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.st.SetSetting("license_revoked", ""); err != nil {
+		return nil, err
+	}
+	if err := s.recordLicenseVerified(); err != nil {
+		return nil, err
+	}
+	s.licenseSchedule.failures = 0
+	s.licenseSchedule.next = time.Now().Add(nextLicenseCheckDelay(0))
+	return l, nil
 }
 
 // deactivateLicense releases the license from this instance (to move it).
 // The local copy is removed even when the server cannot be reached; the
 // binding can then be released in the license backend.
 func (s *Server) deactivateLicense(ctx context.Context) error {
+	s.licenseMu.Lock()
+	defer s.licenseMu.Unlock()
 	var err error
 	if l := s.installedLicense(); l != nil && !l.Offline {
 		var out map[string]any
 		err = s.licenseCall(ctx, "/v1/deactivate", map[string]string{"license_id": l.ID, "instance": s.instanceID()}, &out)
 	}
-	s.st.SetSetting("license_text", "")
-	s.st.SetSetting("license_revoked", "")
+	if err := s.st.SetSetting("license_text", ""); err != nil {
+		return err
+	}
+	// A locally removed document must not erase a known revocation. Only
+	// verified activation/check or a valid offline document can clear it.
 	s.reloadLicense()
 	return err
 }
 
-// checkLicense is the daily online check: revocation and renewals. A
-// failed check only records nothing new; the state warns after the grace
-// period.
-func (s *Server) checkLicense() { s.checkLicenseNow() }
+// checkLicense remains a forced check for internal callers and tests.
+func (s *Server) checkLicense() { _ = s.performLicenseCheck(context.Background(), false) }
 
-// checkLicenseNow runs the check and reports a failure to reach the server.
-func (s *Server) checkLicenseNow() error {
+// checkLicenseLocked updates local state only after a valid remote response.
+// The caller serializes it with activation, imports and deactivation.
+func (s *Server) checkLicenseLocked(ctx context.Context) error {
 	l := s.installedLicense()
-	if l == nil {
-		if s.st.GetSetting("license_text", "") != "" {
-			s.reloadLicense() // e.g. a license for a newer key set
-		}
+	if l == nil || l.Offline {
 		return nil
 	}
-	if l.Offline {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var out struct {
 		OK      bool   `json:"ok"`
 		Revoked bool   `json:"revoked"`
-		License string `json:"license"` // a renewed license, if any
+		License string `json:"license"`
 	}
 	if err := s.licenseCall(ctx, "/v1/check", map[string]string{"license_id": l.ID, "instance": s.instanceID(), "version": Version}, &out); err != nil {
 		s.log.Warn("license check failed", "err", err)
 		s.reloadLicense()
 		return err
 	}
-	s.st.SetSetting("license_check_at", time.Now().Format(time.RFC3339))
+	if !out.OK && !out.Revoked {
+		return errors.New("授权服务器未确认许可证有效，请稍后重试")
+	}
 	if out.Revoked {
-		s.st.SetSetting("license_revoked", "1")
-		s.notify(Event{Kind: "license", Text: "⚠️ 许可证 " + l.ID + " 已被吊销，面板已恢复为社区版（已生效的配置保持不变）"})
+		wasRevoked := s.st.GetSetting("license_revoked", "") == "1"
+		if err := s.st.SetSetting("license_revoked", "1"); err != nil {
+			return err
+		}
+		if !wasRevoked {
+			s.notify(Event{Kind: "license", Text: "⚠️ 许可证 " + l.ID + " 已被吊销，面板已恢复为社区版（已生效的配置保持不变）"})
+		}
 	} else {
-		s.st.SetSetting("license_revoked", "")
 		if out.License != "" {
-			if _, err := s.installLicense(out.License); err != nil {
-				s.log.Warn("renewed license rejected", "err", err)
+			renewed, err := license.Parse(out.License, s.licenseKeys(), s.instanceID())
+			if err != nil || renewed.ID != l.ID || renewed.Offline {
+				return errors.New("授权服务器返回的许可证无效，请稍后重试")
+			}
+			if _, err := s.installLicenseLocked(out.License); err != nil {
+				return err
 			}
 		}
+		if err := s.st.SetSetting("license_revoked", ""); err != nil {
+			return err
+		}
+	}
+	return s.recordLicenseVerified()
+}
+
+func (s *Server) recordLicenseVerified() error {
+	if err := s.st.SetSetting("license_check_at", time.Now().Format(time.RFC3339)); err != nil {
+		return err
 	}
 	s.reloadLicense()
 	return nil
 }
-
-// --- API ---
 
 func (s *Server) licenseView() gin.H {
 	st := s.license()
@@ -434,6 +502,9 @@ func (s *Server) licenseView() gin.H {
 	}
 	if t := settingTime(s, "license_check_at"); !t.IsZero() {
 		out["checkedAt"] = t
+	}
+	if at := s.licenseManualAvailable.Load(); at != 0 {
+		out["checkAvailableAt"] = time.Unix(0, at)
 	}
 	return out
 }
@@ -497,7 +568,7 @@ func (s *Server) setLicenseServer(c *gin.Context) {
 	c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "授权服务器不支持通过面板修改"})
 }
 
-// POST /license/check: run the daily check now (picks up renewals and
+// POST /license/check: run an online check now (picks up renewals and
 // feature changes made in the license backend).
 func (s *Server) checkLicenseAPI(c *gin.Context) {
 	l := s.installedLicense()
@@ -505,7 +576,13 @@ func (s *Server) checkLicenseAPI(c *gin.Context) {
 		badRequest(c, errors.New("没有需要联网校验的许可证"))
 		return
 	}
-	err := s.checkLicenseNow()
+	err := s.performLicenseCheck(c.Request.Context(), true)
+	var wait *licenseCheckWait
+	if errors.As(err, &wait) {
+		c.Header("Retry-After", fmt.Sprint(wait.seconds))
+		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": wait.Error(), "retryAfter": wait.seconds})
+		return
+	}
 	out := s.licenseView()
 	if err != nil {
 		out["warning"] = "联网校验失败：" + err.Error()

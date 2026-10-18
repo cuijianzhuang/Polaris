@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
 import { get, post } from '../api'
-import { t } from '../i18n'
+import { t, tr } from '../i18n'
 import { Icon } from './Icons'
 import { CopyBox, Field, useAction, useConfirm, useLoad } from './ui'
 
 export type LicenseState = {
   plan: string; source: string; limits: { nodes: number; users: number; plugins?: number }; features: string[]
-  expiresAt?: string; updatesUntil?: string; trialUntil?: string; warnings: string[]
+  expiresAt?: string; updatesUntil?: string; trialUntil?: string; warnings: string[]; managementReadOnly?: boolean
 }
 type LicenseView = {
   state: LicenseState; instance: string; usage: { nodes: number; users: number; plugins?: number }; server: boolean; keys: boolean; edition?: 'pro' | 'community'
   serverStatus?: 'unconfigured' | 'unchecked' | 'available' | 'unavailable'; serverCheckedAt?: string; allFeatures?: string[]
   license?: { id: string; customer: string; plan: string; offline: boolean; issuedAt: string; expiresAt?: string; updatesUntil?: string; features?: string[]; allGranted?: boolean }
-  invalid?: boolean; checkedAt?: string; warning?: string
+  invalid?: boolean; checkedAt?: string; checkAvailableAt?: string; warning?: string
 }
 
 const planLabel = (p: string) => ({ community: t('社区版'), trial: t('试用'), pro: t('专业版'), enterprise: t('企业版'), open: t('未启用授权') } as Record<string, string>)[p] ?? p
@@ -48,6 +48,8 @@ function Meter({ label, used, max, icon }: { label: string; used: number; max: n
 export default function License() {
   const v = useLoad(() => get<LicenseView>('/license'))
   cached = null // a change here refreshes the locks elsewhere
+  const [clock, setClock] = useState(Date.now)
+  useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer) }, [])
   const [key, setKey] = useState('')
   const [text, setText] = useState('')
   const [mode, setMode] = useState<'key' | 'text'>('key')
@@ -57,6 +59,7 @@ export default function License() {
   if (!d) return <section className="card">{t('加载中…')}</section>
   const st = d.state
   const lic = d.license
+  const retryIn = Math.max(0, Math.ceil(((d.checkAvailableAt ? new Date(d.checkAvailableAt).getTime() : 0) - clock) / 1000))
   const features = d.allFeatures?.length ? d.allFeatures : knownFeatures
   const trialDays = st.trialUntil ? Math.max(0, Math.ceil((new Date(st.trialUntil).getTime() - Date.now()) / 864e5)) : 0
   const expDays = daysUntil(st.expiresAt)
@@ -84,16 +87,17 @@ export default function License() {
               <div className="sub">{lic ? <>{lic.customer || '—'} · <span className="mono">{lic.id}</span></> : t('输入激活码或导入许可证文件即可启用专业版功能')}</div>
             </div>
           </div>
-          {lic && !lic.offline && d.server && <button className="btn" type="button" disabled={busy}
-            onClick={() => run(async () => { const r = await post<LicenseView>('/license/check'); v.reload(); apply(r) }, t('已从授权服务器更新'))}>
-            <Icon.Refresh /> {t('立即校验')}</button>}
+          {lic && !lic.offline && d.server && <button className="btn" type="button" disabled={busy || retryIn > 0}
+            onClick={() => run(async () => { try { apply(await post<LicenseView>('/license/check')) } finally { v.reload() } }, t('已从授权服务器更新'))}>
+            <Icon.Refresh /> {retryIn > 0 ? t('{n} 秒后可再次校验', { n: retryIn }) : t('立即校验')}</button>}
         </div>
         {d.edition === 'community' && <div className="note">{t('当前是社区版构建（从开源代码编译），不包含高级功能。官方发布版包含专业版功能，安装许可证后即可启用。')}</div>}
         {st.plan === 'open' && <div className="note">{t('当前版本未启用授权校验，所有功能可用。')}</div>}
         {st.plan === 'trial' && <div className="note warn">{t('高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。', { n: trialDays })}</div>}
         {d.invalid && <div className="note bad">{t('已安装的许可证对本面板无效（签名、实例或版本不符），请重新激活。')}</div>}
-        {st.warnings.map((w) => <div key={w} className="note warn">{w}</div>)}
+        {st.warnings.map((w) => <div key={w} className="note warn">{tr(w)}</div>)}
         {d.warning && <div className="note warn">{d.warning}</div>}
+        {lic && !lic.offline && <div className="hint">{t('连续 14 天未成功校验后，管理修改暂停；已有代理、流量上报和订阅继续运行。联网校验成功或导入有效离线许可证后恢复。')}</div>}
       </section>
 
       {/* Dates and usage */}
@@ -136,8 +140,8 @@ export default function License() {
             )
           })}
         </div>
-        {lic && licensed && !lic.allGranted && features.some((f) => !st.features.includes(f)) &&
-          <div className="hint" style={{ marginTop: 10 }}>{t('授权后台调整了功能后，点上方「立即校验」即可更新；否则会在每日联网校验时自动更新。')}</div>}
+        {lic && !lic.offline &&
+          <div className="hint" style={{ marginTop: 10 }}>{t('启动时自动校验，此后每 6 小时加 0–30 分钟随机延迟校验；失败后按 5 分钟、30 分钟、2 小时间隔重试。授权变更可点「立即校验」更新。')}</div>}
       </section>
 
       {/* Activation */}

@@ -105,7 +105,7 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/sso/:id/login-url", s.loginGuard, s.ssoLoginURL)
 	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
 
-	p := api.Group("", s.authRequired, s.scopeGuard, s.trackChanges, s.idempotency)
+	p := api.Group("", s.authRequired, s.scopeGuard, s.licenseManagementGuard, s.trackChanges, s.idempotency)
 	p.GET("/ws", func(c *gin.Context) {
 		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})
