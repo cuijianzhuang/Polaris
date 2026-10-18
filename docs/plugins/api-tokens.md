@@ -10,6 +10,7 @@
 | --- | --- |
 | `users:renew` | 仅 `POST /users/:id/renew`，返回权益摘要 |
 | `users:traffic:add` | 仅 `POST /users/:id/add-traffic`，返回权益摘要 |
+| `users:plan` | `GET /plans` 和 `POST /users/:id/plan`（开通 / 续费套餐），返回权益摘要 |
 | `subs:read` | 指定用户的节点链接及订阅诊断；包含代理链接 / 订阅地址，需当作凭据访问权限 |
 | `users:read` | 现有用户列表、详情、导出、分组、设备、节点配额，以及订阅读取；**可读取用户代理凭据** |
 | `users:write` | 现有用户创建、修改、删除及流量操作；兼容续期 / 加流量，保留原有响应字段 |
@@ -46,6 +47,24 @@ curl -X POST "$PANEL/api/v1/users/$USER_ID/add-traffic" \
 - `gb` 大于 0、最多 1048576，按 `gb × 2^30` 换算为字节，小于 1 字节或配额溢出时拒绝。不限流量账号保持不限。
 - 禁用账号不会因为续期 / 加流量而自动启用；内部链路服务账号不能通过这些接口修改。
 - 只有细分写权限的令牌得到 `id`、`username`、`status`、`trafficLimit`、`usedUp`、`usedDown`、`expireAt` 和 `expireAfterDays`，不会取得 UUID、密码或订阅令牌。已有宽权限调用方保留 User 响应兼容性。
+
+## 套餐
+
+```bash
+# 列出套餐（id、name、price、trafficLimit、days、level 等）
+curl "$PANEL/api/v1/plans" -H "Authorization: Bearer $TOKEN"
+
+# 开通或续费：已是这个套餐则顺延，否则从今天开始并清零已用流量
+curl -X POST "$PANEL/api/v1/users/$USER_ID/plan" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: order-1002" \
+  -d '{"planId":"PLAN_ID"}'
+```
+
+- `mode` 默认 `renew`：用户已是该套餐时到期日顺延、账号正常则保留已用流量；否则视同 `switch`。`switch` 总是从今天重新计时并清零已用流量。
+- `planId` 为空字符串表示取消套餐，保留当前限额。
+- 成功后发出 `user.plan_changed` 事件；到期自动降级也发这个事件（`reason: "expired"`）。
 
 ## 订单幂等与并发
 

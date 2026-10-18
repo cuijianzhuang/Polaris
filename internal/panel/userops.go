@@ -21,7 +21,8 @@ func (e commandInputError) Error() string { return e.message }
 
 // User commands serialize against the same user row and, when a key is
 // supplied, commit the mutation, audit and replayable result atomically.
-func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB, *store.User, time.Time) (string, error)) {
+// dirty lists extra nodes to rebuild, e.g. ones the user may be leaving.
+func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB, *store.User, time.Time) (string, error), dirty ...string) {
 	var info *idempotencyRequest
 	if v, ok := c.Get(idemContextKey); ok {
 		info = v.(*idempotencyRequest)
@@ -107,7 +108,10 @@ func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB,
 		replayIdempotency(c, *cached)
 		return
 	}
-	s.MarkDirty(action, s.nodesForUsers(user.ID)...)
+	s.MarkDirty(action, append(dirty, s.nodesForUsers(user.ID)...)...)
+	if action == "user.plan" {
+		s.userEvent("user.plan_changed", &user, map[string]any{"plan_id": user.PlanID, "detail": detail})
+	}
 	if action == "user.renew" {
 		s.notify(Event{Kind: "user_renewed", UserID: user.ID, Text: "🔄 用户 " + user.Username + " 已续期：" + detail})
 	}
@@ -125,7 +129,7 @@ func commandUserView(c *gin.Context, u *store.User) any {
 	if t == nil || slices.Contains(t.Scopes.V, ScopeUsersRead) || slices.Contains(t.Scopes.V, ScopeUsersWrite) {
 		return u
 	}
-	return gin.H{"id": u.ID, "username": u.Username, "status": u.Status, "trafficLimit": u.TrafficLimit, "usedUp": u.UsedUp, "usedDown": u.UsedDown, "expireAt": u.ExpireAt, "expireAfterDays": u.ExpireAfterDays}
+	return gin.H{"id": u.ID, "username": u.Username, "status": u.Status, "planId": u.PlanID, "trafficLimit": u.TrafficLimit, "usedUp": u.UsedUp, "usedDown": u.UsedDown, "expireAt": u.ExpireAt, "expireAfterDays": u.ExpireAfterDays}
 }
 
 // POST /users/:id/renew: expired accounts start from now; first-use accounts

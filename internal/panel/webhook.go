@@ -45,7 +45,7 @@ var kindTypes = map[string]string{
 var EventTypes = []string{
 	"user.created", "user.updated", "user.deleted", "user.renewed", "user.traffic_added", "user.traffic_reset", "user.token_reset",
 	"user.bulk", "user.expired", "user.traffic_exceeded", "user.reactivated", "user.traffic_warn", "user.expire_warn",
-	"user.ip_limit", "user.traffic_spike",
+	"user.ip_limit", "user.traffic_spike", "user.plan_changed",
 	"node.offline", "node.online", "node.apply_failed", "node.traffic_alert", "node.renewal_due",
 	"inbound.down", "inbound.up", "routing.health",
 	"admin.login_banned", "admin.login_new_ip", "admin.recovery_code_used",
@@ -85,7 +85,7 @@ func matchEvent(subs []string, typ string) bool {
 // userBrief is the user as events describe it.
 func userBrief(u *store.User) map[string]any {
 	return map[string]any{"id": u.ID, "username": u.Username, "status": u.Status, "expire_at": u.ExpireAt,
-		"traffic_limit": u.TrafficLimit, "used_up": u.UsedUp, "used_down": u.UsedDown, "telegram_id": u.TelegramID, "remark": u.Remark}
+		"traffic_limit": u.TrafficLimit, "used_up": u.UsedUp, "used_down": u.UsedDown, "telegram_id": u.TelegramID, "remark": u.Remark, "plan_id": u.PlanID}
 }
 
 // userEvent notifies a user change. Its Text is empty: these are for

@@ -878,3 +878,9 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
   .app.folded .side-foot .me { justify-content: center; gap: 0; }
 }
 @media (max-width: 760px) { .side-fold { display: none; } }
+
+/* plans */
+.plans { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.plan-card { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.plan-price { font-weight: 600; color: var(--pri); white-space: nowrap; }
+@media (max-width: 760px) { .plans { grid-template-columns: minmax(0, 1fr); } }
