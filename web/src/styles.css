@@ -64,6 +64,8 @@ button { font: inherit; }
 /* layout */
 .app { display: flex; min-height: 100vh; }
 .side { flex: 0 0 248px; background: var(--side); color: var(--side-ink); border-right: 1px solid var(--side-line); padding: 18px 12px 14px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+/* Expanded groups should scroll, not squeeze links, search or the account row. */
+.side > * { flex-shrink: 0; }
 .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 650; font-size: 16px; letter-spacing: -.01em; padding: 2px 10px 18px; }
 .nav { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--r-sm); color: var(--side-ink); text-decoration: none; min-height: 22px; font-weight: 500; font-size: 13.5px; transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease); }
 .nav svg { transition: transform var(--dur) var(--ease), color var(--dur) var(--ease); flex: none; width: 18px; height: 18px; color: var(--faint); }
