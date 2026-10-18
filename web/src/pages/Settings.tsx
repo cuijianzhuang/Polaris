@@ -307,7 +307,7 @@ function Updates() {
         </Field>
         <Field label={t('自动升级时间')} hint={t('服务器本地时间；某个版本自动升级失败后不再自动重试，可手动升级')}>
           <select className="input mono" value={h} disabled={m !== 'panel' && m !== 'all'} onChange={(e) => setHour(e.target.value)}>
-            {Array.from({ length: 24 }, (_, i) => <option key={i} value={String(i)}>{String(i).padStart(2, '0')}:41</option>)}
+            {Array.from({ length: 24 }, (_, i) => <option key={i} value={String(i)}>{String(i).padStart(2, '0')}:00</option>)}
           </select>
         </Field>
       </div>
