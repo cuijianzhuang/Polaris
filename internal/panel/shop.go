@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -314,13 +315,33 @@ func (s *Server) redeem(tgID int64, tgName, userID, code string) (*store.Order, 
 	if s.st.DB.First(&rc, "code = ?", code).Error != nil {
 		return nil, nil, errors.New("兑换码无效")
 	}
-	var p store.Group
-	if s.st.DB.First(&p, "id = ? AND plan = ?", rc.PlanID, true).Error != nil {
-		return nil, nil, errors.New("兑换码对应的套餐已删除，请联系管理员")
-	}
 	now := time.Now()
-	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, PlanID: p.ID, PlanName: p.Name,
+	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID,
 		Method: payCode, Amount: code, Status: "pending", CreatedAt: now, ExpiresAt: now}
+	if rc.PackID != "" {
+		// A traffic pack code tops up an existing account.
+		var pk store.TrafficPack
+		if s.st.DB.First(&pk, "id = ?", rc.PackID).Error != nil {
+			return nil, nil, errors.New("兑换码对应的流量包已删除，请联系管理员")
+		}
+		var u *store.User
+		if userID != "" {
+			u = &store.User{}
+			if s.st.DB.First(u, "id = ?", userID).Error != nil {
+				u = nil
+			}
+		}
+		if err := packFor(&pk, u); err != nil {
+			return nil, nil, err
+		}
+		o.Kind, o.PackID, o.PlanName = kindPack, pk.ID, pk.Name
+	} else {
+		var p store.Group
+		if s.st.DB.First(&p, "id = ? AND plan = ?", rc.PlanID, true).Error != nil {
+			return nil, nil, errors.New("兑换码对应的套餐已删除，请联系管理员")
+		}
+		o.PlanID, o.PlanName = p.ID, p.Name
+	}
 	if err := s.st.DB.Create(o).Error; err != nil {
 		return nil, nil, err
 	}
@@ -498,7 +519,8 @@ func (s *Server) listCodes(c *gin.Context) {
 // createCodes is POST /redeem-codes {planId, count, batch, expireDays}.
 func (s *Server) createCodes(c *gin.Context) {
 	var req struct {
-		PlanID     string `json:"planId" binding:"required"`
+		PlanID     string `json:"planId"`
+		PackID     string `json:"packId"` // a traffic pack instead of a plan (professional edition)
 		Count      int    `json:"count"`
 		Batch      string `json:"batch"`
 		ExpireDays int    `json:"expireDays"`
@@ -511,21 +533,39 @@ func (s *Server) createCodes(c *gin.Context) {
 		badRequest(c, errors.New("数量 1–1000，有效天数 0–3650，批次名最长 64 个字符"))
 		return
 	}
-	p, err := loadPlan(s.st.DB, req.PlanID)
-	if err != nil {
-		badRequest(c, err)
-		return
+	rc := store.RedeemCode{Batch: strings.TrimSpace(req.Batch), CreatedBy: c.GetString("admin")}
+	target := ""
+	if req.PackID != "" {
+		if !s.requireFeature(c, license.FeaturePlanAddons) {
+			return
+		}
+		var pk store.TrafficPack
+		if err := s.st.DB.First(&pk, "id = ?", req.PackID).Error; err != nil {
+			badRequest(c, errors.New("流量包不存在"))
+			return
+		}
+		rc.PackID, target = pk.ID, pk.Name
+	} else {
+		p, err := loadPlan(s.st.DB, req.PlanID)
+		if err != nil {
+			badRequest(c, err)
+			return
+		}
+		rc.PlanID, target = p.ID, p.Name
 	}
 	var exp *time.Time
 	if req.ExpireDays > 0 {
 		e := time.Now().AddDate(0, 0, req.ExpireDays)
 		exp = &e
 	}
+	rc.ExpiresAt = exp
 	codes := make([]string, 0, req.Count)
-	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		for range req.Count {
 			code := newRedeemCode()
-			if err := tx.Create(&store.RedeemCode{Code: code, PlanID: p.ID, Batch: strings.TrimSpace(req.Batch), CreatedBy: c.GetString("admin"), ExpiresAt: exp}).Error; err != nil {
+			row := rc
+			row.Code = code
+			if err := tx.Create(&row).Error; err != nil {
 				return err
 			}
 			codes = append(codes, code)
@@ -536,7 +576,7 @@ func (s *Server) createCodes(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.auditCtx(c, "redeem.create", p.Name, fmt.Sprintf("%d codes, batch %q", len(codes), req.Batch))
+	s.auditCtx(c, "redeem.create", target, fmt.Sprintf("%d codes, batch %q", len(codes), req.Batch))
 	c.JSON(http.StatusOK, gin.H{"codes": codes})
 }
 

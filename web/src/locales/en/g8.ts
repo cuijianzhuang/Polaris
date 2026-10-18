@@ -185,5 +185,10 @@ const m: Record<string, string> = {
   "这个套餐的用户在该节点按此倍率扣流量，替代节点自己的倍率；留空 = 用节点倍率": "This plan's users are charged at this rate on the node instead of the node's own; empty = the node's rate",
   "适用套餐": "Plans",
   "（本周期有效，已计入流量配额）": "(this period, included in the quota)",
+  "兑换内容": "Redeems",
+  "开通或续费套餐，没有账号会自动创建": "Starts or renews a plan; creates an account if needed",
+  "用户在机器人里发送 /redeem 兑换码，流量加到本周期配额，下次流量重置或新周期时失效。": "Users send /redeem <code>; the traffic joins this period's quota and ends at the next reset or new period.",
+  "给已有账号加本周期流量": "Adds traffic to an existing account for this period",
+  "还没有流量包，请先在「流量包」里新建。": "No traffic packs yet; create one under Traffic packs first.",
 }
 export default m

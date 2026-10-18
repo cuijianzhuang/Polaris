@@ -70,4 +70,7 @@ func TestPackLifecycle(t *testing.T) {
 	if s.planRates() != nil {
 		t.Fatal("community plan rates")
 	}
+	if code, _ := c.do("POST", "/redeem-codes", map[string]any{"packId": "pk", "count": 1}); code != 402 {
+		t.Fatalf("community pack codes: %d", code)
+	}
 }

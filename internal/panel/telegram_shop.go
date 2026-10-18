@@ -166,7 +166,7 @@ func (b *tgBot) ordersView(chat int64) (string, [][]button) {
 var orderStatusText = map[string]string{"pending": "⏳ 待支付", "paid": "✅ 已支付", "expired": "⌛ 已过期", "failed": "❗ 开通失败", "refunded": "↩️ 已退款"}
 
 func redeemHelp() string {
-	return "🎟 <b>兑换码</b>\n" + tgRule + "\n发送：\n<code>/redeem 兑换码</code>\n\n兑换后立即开通对应套餐；没有账号会自动创建。"
+	return "🎟 <b>兑换码</b>\n" + tgRule + "\n发送：\n<code>/redeem 兑换码</code>\n\n兑换后立即开通对应套餐（没有账号会自动创建），或给账号加上流量包。"
 }
 
 func (b *tgBot) planCard(id tgIdentity, planID string) (string, [][]button) {

@@ -949,11 +949,12 @@ type Order struct {
 	PaidAt     *time.Time `json:"paidAt"`
 }
 
-// RedeemCode is a prepaid code for a plan, sold elsewhere and redeemed in
-// the bot.
+// RedeemCode is a prepaid code for a plan or a traffic pack, sold
+// elsewhere and redeemed in the bot.
 type RedeemCode struct {
 	Code      string     `gorm:"primaryKey;size:32" json:"code"`
 	PlanID    string     `gorm:"size:32;index" json:"planId"`
+	PackID    string     `gorm:"size:32" json:"packId"` // set for a traffic pack code (PlanID empty)
 	Batch     string     `gorm:"size:64;index" json:"batch"`
 	CreatedBy string     `gorm:"size:64" json:"createdBy"`
 	ExpiresAt *time.Time `json:"expiresAt"`

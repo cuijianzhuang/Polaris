@@ -17,7 +17,7 @@ type Order = {
   status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null
 }
 type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; publicUrl: boolean }
-type Code = { code: string; planId: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
+type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
 
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
 const statusLabel: Record<string, [string, string]> = {
@@ -100,15 +100,18 @@ function Codes() {
   const [used, setUsed] = useState('')
   const list = useLoad(() => get<{ items: Code[]; total: number; batches: string[] }>(`/redeem-codes?batch=${encodeURIComponent(batch)}&used=${used}`), [batch, used])
   const plans = useLoad(() => get<Group[]>('/plans'))
-  const [gen, setGen] = useState<{ planId: string; count: string; batch: string; expireDays: string } | null>(null)
+  const packs = useLoad(() => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs'))
+  const [gen, setGen] = useState<{ kind: 'plan' | 'pack'; planId: string; packId: string; count: string; batch: string; expireDays: string } | null>(null)
   const [made, setMade] = useState<string[] | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
-  const pname = (id: string) => plans.data?.find((p) => p.id === id)?.name ?? t('已删除套餐')
+  const pname = (c: Code) => c.packId
+    ? <><span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>{packs.data?.items.find((p) => p.id === c.packId)?.name ?? t('已删除')}</>
+    : plans.data?.find((p) => p.id === c.planId)?.name ?? t('已删除套餐')
   return (
     <>
       <div className="row">
-        <button className="btn pri" type="button" onClick={() => setGen({ planId: plans.data?.[0]?.id ?? '', count: '10', batch: '', expireDays: '' })}>{t('+ 生成兑换码')}</button>
+        <button className="btn pri" type="button" onClick={() => setGen({ kind: 'plan', planId: plans.data?.[0]?.id ?? '', packId: packs.data?.items[0]?.id ?? '', count: '10', batch: '', expireDays: '' })}>{t('+ 生成兑换码')}</button>
         <select className="input" style={{ width: 'auto' }} value={batch} onChange={(e) => setBatch(e.target.value)} aria-label={t('批次')}>
           <option value="">{t('全部批次')}</option>
           {(list.data?.batches ?? []).map((b) => <option key={b} value={b}>{b}</option>)}
@@ -129,7 +132,7 @@ function Codes() {
               {(list.data?.items ?? []).map((c) => (
                 <tr key={c.code}>
                   <td className="mono" data-label={t('兑换码')}>{c.code}</td>
-                  <td data-label={t('套餐')}>{pname(c.planId)}</td>
+                  <td data-label={t('套餐')}>{pname(c)}</td>
                   <td data-label={t('批次')}>{c.batch || <span className="mute">—</span>}</td>
                   <td data-label={t('有效期')} className="small">{c.expiresAt ? datetime(c.expiresAt) : t('长期')}</td>
                   <td data-label={t('状态')}>{c.usedAt ? <span className="st off">{t('已使用 {time}', { time: datetime(c.usedAt) })}</span> : <span className="st ok">{t('未使用')}</span>}</td>
@@ -143,23 +146,39 @@ function Codes() {
       {gen && (
         <Modal title={t('生成兑换码')} onClose={() => setGen(null)} footer={<>
           <button className="btn" type="button" onClick={() => setGen(null)}>{t('取消')}</button>
-          <button className="btn pri" type="button" disabled={busy || !gen.planId} onClick={() => run(async () => {
-            const r = await post<{ codes: string[] }>('/redeem-codes', { planId: gen.planId, count: Number(gen.count) || 0, batch: gen.batch.trim(), expireDays: Number(gen.expireDays) || 0 })
+          <button className="btn pri" type="button" disabled={busy || (gen.kind === 'plan' ? !gen.planId : !gen.packId)} onClick={() => run(async () => {
+            const target = gen.kind === 'plan' ? { planId: gen.planId } : { packId: gen.packId }
+            const r = await post<{ codes: string[] }>('/redeem-codes', { ...target, count: Number(gen.count) || 0, batch: gen.batch.trim(), expireDays: Number(gen.expireDays) || 0 })
             setGen(null); setMade(r.codes); list.reload()
           })}>{t('生成')}</button>
         </>}>
-          {plans.data?.length === 0 && <div className="note">{t('还没有套餐，请先新建套餐。')}</div>}
+          <Field label={t('兑换内容')}>
+            <div className="seg">
+              <button type="button" className={'opt' + (gen.kind === 'plan' ? ' on' : '')} onClick={() => setGen({ ...gen, kind: 'plan' })}>{t('套餐')}<small>{t('开通或续费套餐，没有账号会自动创建')}</small></button>
+              <button type="button" className={'opt' + (gen.kind === 'pack' ? ' on' : '')} disabled={!packs.data?.licensed} onClick={() => setGen({ ...gen, kind: 'pack' })}>{t('流量包')} <ProTag on={!!packs.data?.licensed} /><small>{t('给已有账号加本周期流量')}</small></button>
+            </div>
+          </Field>
+          {gen.kind === 'plan' && plans.data?.length === 0 && <div className="note">{t('还没有套餐，请先新建套餐。')}</div>}
+          {gen.kind === 'pack' && packs.data?.items.length === 0 && <div className="note">{t('还没有流量包，请先在「流量包」里新建。')}</div>}
           <div className="form-grid">
-            <Field label={t('套餐')} htmlFor="c-plan">
-              <select id="c-plan" className="input" value={gen.planId} onChange={(e) => setGen({ ...gen, planId: e.target.value })}>
-                {(plans.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
+            {gen.kind === 'plan' ? (
+              <Field label={t('套餐')} htmlFor="c-plan">
+                <select id="c-plan" className="input" value={gen.planId} onChange={(e) => setGen({ ...gen, planId: e.target.value })}>
+                  {(plans.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </Field>
+            ) : (
+              <Field label={t('流量包')} htmlFor="c-pack">
+                <select id="c-pack" className="input" value={gen.packId} onChange={(e) => setGen({ ...gen, packId: e.target.value })}>
+                  {(packs.data?.items ?? []).map((p) => <option key={p.id} value={p.id}>{p.name} · +{bytes(p.traffic)}</option>)}
+                </select>
+              </Field>
+            )}
             <Field label={t('数量')} htmlFor="c-count" hint="1–1000"><input id="c-count" className="input mono" inputMode="numeric" value={gen.count} onChange={(e) => setGen({ ...gen, count: e.target.value })} /></Field>
             <Field label={t('批次名')} htmlFor="c-batch" hint={t('例如销售渠道，便于筛选和作废')}><input id="c-batch" className="input" value={gen.batch} onChange={(e) => setGen({ ...gen, batch: e.target.value })} /></Field>
             <Field label={t('有效天数')} htmlFor="c-exp" hint={t('多少天内必须兑换；留空为长期')}><input id="c-exp" className="input mono" inputMode="numeric" value={gen.expireDays} onChange={(e) => setGen({ ...gen, expireDays: e.target.value })} /></Field>
           </div>
-          <div className="sub">{t('用户在机器人里发送 /redeem 兑换码 即可开通（续费同一套餐顺延，换套餐清零已用流量）。')}</div>
+          <div className="sub">{gen.kind === 'plan' ? t('用户在机器人里发送 /redeem 兑换码 即可开通（续费同一套餐顺延，换套餐清零已用流量）。') : t('用户在机器人里发送 /redeem 兑换码，流量加到本周期配额，下次流量重置或新周期时失效。')}</div>
         </Modal>
       )}
       {made && (
