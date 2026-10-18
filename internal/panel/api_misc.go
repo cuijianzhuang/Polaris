@@ -101,12 +101,14 @@ func (s *Server) renewCert(c *gin.Context) {
 // --- settings ---
 
 var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true,
-	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true}
+	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true,
+	"shop_epay_key": true, "shop_usdt_apikey": true}
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
 var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true, "audit_changes": true,
-	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true}
+	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true,
+	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true} // where payments go
 
 var editableSettings = map[string]bool{
 	"site_title": true, "reality_scan_candidates": true, "expire_warn_days": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
@@ -125,6 +127,9 @@ var editableSettings = map[string]bool{
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
 	"auto_update": true, "auto_update_hour": true,
+	"shop_enabled": true, "shop_auto_create": true, "shop_user_prefix": true, "shop_order_minutes": true, "shop_stars": true,
+	"shop_epay_url": true, "shop_epay_pid": true, "shop_epay_key": true, "shop_epay_types": true,
+	"shop_usdt_address": true, "shop_usdt_apikey": true, "shop_terms": true, "shop_support": true,
 	"ddns_auto_provider": true, "ddns_auto_zone": true, "ddns_auto_family": true, "ddns_auto_address": true,
 }
 

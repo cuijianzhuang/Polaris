@@ -63,6 +63,14 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 		return b.helpText(id), [][]button{backRow("")}
 	case "pro":
 		return tgProText, [][]button{backRow("")}
+	case "shop":
+		return b.shopView(id)
+	case "redeem":
+		return redeemHelp(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
+	case "terms":
+		return b.termsView(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
+	case "paysupport":
+		return b.supportView(), [][]button{{{Text: "📋 我的订单", Data: "v:orders"}, btnHome}}
 	}
 	return b.homeText(id), b.homeButtons(id)
 }
@@ -85,7 +93,11 @@ func (b *tgBot) homeText(id tgIdentity) string {
 		fmt.Fprintf(&sb, "👤 %s  %s\n%s\n", esc(u.Username), userStatusText[u.Status], line)
 	}
 	if id.admin == nil && id.user == nil {
-		sb.WriteString("你还没有绑定账号。\n点下方「绑定账号」查看方法。\n")
+		if b.s.shopOn() && b.s.shopAutoCreate() {
+			sb.WriteString("你还没有账号。\n可以直接「购买套餐」，付款后自动开通；已有账号请先「绑定账号」。\n")
+		} else {
+			sb.WriteString("你还没有绑定账号。\n点下方「绑定账号」查看方法。\n")
+		}
 	}
 	sb.WriteString("\n请选择：")
 	return sb.String()
@@ -99,6 +111,9 @@ func (b *tgBot) homeButtons(id tgIdentity) [][]button {
 			[]button{{Text: "🌐 可用节点", Data: "v:nodes"}})
 	} else if id.admin == nil {
 		rows = append(rows, []button{{Text: "🔗 绑定账号", Data: "v:bindhelp"}})
+	}
+	if b.s.shopOn() && (id.user != nil || id.admin == nil) {
+		rows = append(rows, []button{{Text: "🛒 购买套餐", Data: "v:shop"}, {Text: "🎟 兑换码", Data: "v:redeem"}})
 	}
 	if id.admin != nil {
 		if !b.s.license().Allow(license.FeatureTGMenu) {

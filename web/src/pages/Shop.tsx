@@ -1,0 +1,258 @@
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { del, get, post, put } from '../api'
+import { CopyBox, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
+import { PlansModal } from '../components/Plans'
+import { datetime } from '../format'
+import type { Group } from '../types'
+import { t } from '../i18n'
+
+// Shop: plans sold in the Telegram bot — orders, redeem codes and the ways
+// to pay.
+
+type Order = {
+  id: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
+  status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null
+}
+type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; publicUrl: boolean }
+type Code = { code: string; planId: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
+
+const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
+const statusLabel: Record<string, [string, string]> = {
+  pending: [t('待支付'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'],
+}
+
+function money(o: Order) {
+  if (o.method === 'code') return <span className="mono small">{o.amount}</span>
+  if (o.currency === 'XTR') return `${o.amount} ⭐`
+  if (o.currency === 'CNY') return `¥${o.amount}`
+  return `${o.amount} ${o.currency}`
+}
+
+function Orders() {
+  const [status, setStatus] = useState('')
+  const [q, setQ] = useState('')
+  const list = useLoad(() => get<{ items: Order[]; total: number; usernames: Record<string, string>; revenue: { currency: string; total: number; count: number }[]; status: ShopStatus }>(
+    `/orders?limit=200&status=${status}&q=${encodeURIComponent(q)}`), [status, q])
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const d = list.data
+  return (
+    <>
+      {d && d.revenue.length > 0 && (
+        <div className="row" style={{ gap: 12 }}>
+          {d.revenue.map((r) => (
+            <div key={r.currency} className="card" style={{ margin: 0, padding: '12px 16px' }}>
+              <div className="small mute">{t('近 30 天收入')} · {r.currency === 'XTR' ? 'Stars' : r.currency}</div>
+              <div style={{ fontWeight: 600, fontSize: 20 }}>{r.currency === 'CNY' ? '¥' : ''}{+r.total.toFixed(4)}{r.currency === 'XTR' ? ' ⭐' : r.currency === 'USDT' ? ' USDT' : ''}</div>
+              <div className="small mute">{t('{n} 笔', { n: r.count })}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="row">
+        <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索订单号 / 用户 / 套餐')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索订单')} />
+        <div className="chips">
+          {['', 'paid', 'pending', 'expired', 'failed', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
+        </div>
+      </div>
+      <div className="card flush scroll">
+        {d?.items.length === 0 ? <Empty>{t('还没有订单')}</Empty> : (
+          <table className="rtable">
+            <thead><tr><th>{t('时间')}</th><th>{t('买家')}</th><th>{t('套餐')}</th><th>{t('付款')}</th><th>{t('金额')}</th><th>{t('状态')}</th><th></th></tr></thead>
+            <tbody>
+              {(d?.items ?? []).map((o) => (
+                <tr key={o.id}>
+                  <td data-label={t('时间')} className="small">{datetime(o.paidAt || o.createdAt)}<div className="mono small mute">{o.id}</div></td>
+                  <td data-label={t('买家')}>{o.userId ? <b>{d!.usernames[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
+                  <td data-label={t('套餐')}>{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
+                  <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}</td>
+                  <td data-label={t('金额')} className="mono">{money(o)}</td>
+                  <td data-label={t('状态')}><span className={'st ' + (statusLabel[o.status]?.[1] ?? '')}>{statusLabel[o.status]?.[0] ?? o.status}</span></td>
+                  <td className="rt-actions">
+                    {(o.status === 'pending' || o.status === 'expired') && o.method !== 'code' && (
+                      <button className="btn sm" type="button" disabled={busy} onClick={async () => {
+                        if (await confirm(t('确认已经收到这笔付款（{amount}），手动开通套餐 {plan}？', { amount: `${o.amount} ${o.currency}`, plan: o.planName }), { ok: t('手动开通') }))
+                          run(async () => { await post(`/orders/${o.id}/fulfil`); list.reload() }, t('已开通'))
+                      }}>{t('手动开通')}</button>
+                    )}
+                    {o.status === 'paid' && o.method === 'stars' && (
+                      <button className="btn sm" type="button" disabled={busy} onClick={async () => {
+                        if (await confirm(t('把 {amount} ⭐ 退还给买家？套餐不会自动收回，如需收回请到用户页调整。', { amount: o.amount }), { danger: true, ok: t('退款') }))
+                          run(async () => { await post(`/orders/${o.id}/refund`); list.reload() }, t('已退款'))
+                      }}>{t('退款')}</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  )
+}
+
+function Codes() {
+  const [batch, setBatch] = useState('')
+  const [used, setUsed] = useState('')
+  const list = useLoad(() => get<{ items: Code[]; total: number; batches: string[] }>(`/redeem-codes?batch=${encodeURIComponent(batch)}&used=${used}`), [batch, used])
+  const plans = useLoad(() => get<Group[]>('/plans'))
+  const [gen, setGen] = useState<{ planId: string; count: string; batch: string; expireDays: string } | null>(null)
+  const [made, setMade] = useState<string[] | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const pname = (id: string) => plans.data?.find((p) => p.id === id)?.name ?? t('已删除套餐')
+  return (
+    <>
+      <div className="row">
+        <button className="btn pri" type="button" onClick={() => setGen({ planId: plans.data?.[0]?.id ?? '', count: '10', batch: '', expireDays: '' })}>{t('+ 生成兑换码')}</button>
+        <select className="input" style={{ width: 'auto' }} value={batch} onChange={(e) => setBatch(e.target.value)} aria-label={t('批次')}>
+          <option value="">{t('全部批次')}</option>
+          {(list.data?.batches ?? []).map((b) => <option key={b} value={b}>{b}</option>)}
+        </select>
+        <div className="chips">
+          {[['', t('全部')], ['no', t('未使用')], ['yes', t('已使用')]].map(([k, l]) => <button key={k} type="button" className={'chip' + (used === k ? ' on' : '')} onClick={() => setUsed(k)}>{l}</button>)}
+        </div>
+        <span className="spacer" />
+        {batch && <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
+          if (await confirm(t('删除批次 {batch} 中所有未使用的兑换码？', { batch }), { danger: true })) run(async () => { await del('/redeem-codes?batch=' + encodeURIComponent(batch)); setBatch(''); list.reload() }, t('已删除'))
+        }}>{t('删除本批未使用的码')}</button>}
+      </div>
+      <div className="card flush scroll">
+        {list.data?.items.length === 0 ? <Empty>{t('还没有兑换码')}</Empty> : (
+          <table className="rtable">
+            <thead><tr><th>{t('兑换码')}</th><th>{t('套餐')}</th><th>{t('批次')}</th><th>{t('有效期')}</th><th>{t('状态')}</th><th></th></tr></thead>
+            <tbody>
+              {(list.data?.items ?? []).map((c) => (
+                <tr key={c.code}>
+                  <td className="mono" data-label={t('兑换码')}>{c.code}</td>
+                  <td data-label={t('套餐')}>{pname(c.planId)}</td>
+                  <td data-label={t('批次')}>{c.batch || <span className="mute">—</span>}</td>
+                  <td data-label={t('有效期')} className="small">{c.expiresAt ? datetime(c.expiresAt) : t('长期')}</td>
+                  <td data-label={t('状态')}>{c.usedAt ? <span className="st off">{t('已使用 {time}', { time: datetime(c.usedAt) })}</span> : <span className="st ok">{t('未使用')}</span>}</td>
+                  <td className="rt-actions">{!c.usedAt && <button className="link" type="button" style={{ color: 'var(--bad)' }} onClick={() => run(async () => { await del('/redeem-codes', { codes: [c.code] }); list.reload() })}>{t('删除')}</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {gen && (
+        <Modal title={t('生成兑换码')} onClose={() => setGen(null)} footer={<>
+          <button className="btn" type="button" onClick={() => setGen(null)}>{t('取消')}</button>
+          <button className="btn pri" type="button" disabled={busy || !gen.planId} onClick={() => run(async () => {
+            const r = await post<{ codes: string[] }>('/redeem-codes', { planId: gen.planId, count: Number(gen.count) || 0, batch: gen.batch.trim(), expireDays: Number(gen.expireDays) || 0 })
+            setGen(null); setMade(r.codes); list.reload()
+          })}>{t('生成')}</button>
+        </>}>
+          {plans.data?.length === 0 && <div className="note">{t('还没有套餐，请先新建套餐。')}</div>}
+          <div className="form-grid">
+            <Field label={t('套餐')} htmlFor="c-plan">
+              <select id="c-plan" className="input" value={gen.planId} onChange={(e) => setGen({ ...gen, planId: e.target.value })}>
+                {(plans.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </Field>
+            <Field label={t('数量')} htmlFor="c-count" hint="1–1000"><input id="c-count" className="input mono" inputMode="numeric" value={gen.count} onChange={(e) => setGen({ ...gen, count: e.target.value })} /></Field>
+            <Field label={t('批次名')} htmlFor="c-batch" hint={t('例如销售渠道，便于筛选和作废')}><input id="c-batch" className="input" value={gen.batch} onChange={(e) => setGen({ ...gen, batch: e.target.value })} /></Field>
+            <Field label={t('有效天数')} htmlFor="c-exp" hint={t('多少天内必须兑换；留空为长期')}><input id="c-exp" className="input mono" inputMode="numeric" value={gen.expireDays} onChange={(e) => setGen({ ...gen, expireDays: e.target.value })} /></Field>
+          </div>
+          <div className="sub">{t('用户在机器人里发送 /redeem 兑换码 即可开通（续费同一套餐顺延，换套餐清零已用流量）。')}</div>
+        </Modal>
+      )}
+      {made && (
+        <Modal title={t('已生成 {n} 个兑换码', { n: made.length })} onClose={() => setMade(null)}>
+          <div className="note">{t('请现在复制保存。以后也可以在列表里查看。')}</div>
+          <CopyBox text={made.join('\n')} />
+        </Modal>
+      )}
+    </>
+  )
+}
+
+function PaySettings({ status }: { status?: ShopStatus }) {
+  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const keys = ['shop_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_terms', 'shop_support'] as const
+  const defaults: Record<string, string> = { shop_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay' }
+  const [f, setF] = useState<Record<string, string>>({})
+  const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
+  const { busy, run } = useAction()
+  useEffect(() => {
+    const d = settings.data
+    if (d) setF(Object.fromEntries(keys.map((k) => [k, d[k] ?? defaults[k] ?? ''])))
+  }, [settings.data]) // eslint-disable-line react-hooks/exhaustive-deps
+  const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
+  const sw = (k: string) => f[k] === 'true'
+  if (!settings.data) return null
+  return (
+    <div className="grid g2">
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h2>{t('商店')}</h2>
+        {!status?.botRunning && <div className="note warn">{t('Telegram 机器人未运行。请先在「系统 → Telegram 机器人」里启用。')}</div>}
+        <div className="toggle"><span>{t('在机器人里开放购买（菜单显示「购买套餐」和「兑换码」）')}</span><Switch label={t('开放购买')} on={sw('shop_enabled')} onChange={(v) => set('shop_enabled', String(v))} /></div>
+        <div className="toggle"><span>{t('没有账号的 Telegram 用户付款后自动创建账号并绑定')}</span><Switch label={t('自动建号')} on={sw('shop_auto_create')} onChange={(v) => set('shop_auto_create', String(v))} /></div>
+        <div className="form-grid">
+          <Field label={t('新账号用户名前缀')} htmlFor="s-prefix" hint={t('用户名为 前缀 + Telegram ID')}><input id="s-prefix" className="input mono" value={f.shop_user_prefix ?? ''} onChange={(e) => set('shop_user_prefix', e.target.value)} /></Field>
+          <Field label={t('订单有效时间（分钟）')} htmlFor="s-ttl" hint={t('超时未付款的订单关闭；之后到账的付款仍会自动开通')}><input id="s-ttl" className="input mono" inputMode="numeric" value={f.shop_order_minutes ?? ''} onChange={(e) => set('shop_order_minutes', e.target.value)} /></Field>
+        </div>
+        <Field label={t('购买条款')} htmlFor="s-terms" hint={t('用户在机器人里用 /terms 查看；付款即视为同意。Telegram 要求用 Stars 收款的机器人提供条款')}>
+          <textarea id="s-terms" className="input" rows={4} value={f.shop_terms ?? ''} onChange={(e) => set('shop_terms', e.target.value)} placeholder={t('例如：套餐付款后立即开通，虚拟商品不支持无理由退款……')} />
+        </Field>
+        <Field label={t('售后联系方式')} htmlFor="s-support" hint={t('用户在机器人里用 /paysupport 查看，例如 @your_support')}><input id="s-support" className="input" value={f.shop_support ?? ''} onChange={(e) => set('shop_support', e.target.value)} /></Field>
+        <div className="sub">{t('在「用户 → 套餐」里给套餐勾选「在机器人售卖」并填写各付款方式的价格。')}</div>
+      </section>
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>Telegram Stars</h2><span className={'st ' + (status?.stars ? 'ok' : 'off')}>{status?.stars ? t('已启用') : t('未启用')}</span></div>
+        <div className="toggle"><span>{t('接受 Telegram Stars 付款（电报内置，无需商户号；收入在 Telegram 账户中，经 Fragment 提现）')}</span><Switch label="Stars" on={sw('shop_stars')} onChange={(v) => set('shop_stars', String(v))} /></div>
+      </section>
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('易支付 / EPay')}</h2><span className={'st ' + (status?.epay ? 'ok' : 'off')}>{status?.epay ? t('已配置') : t('未配置')}</span></div>
+        <Field label={t('接口地址')} htmlFor="s-epay-url" hint={t('易支付网关地址，例如 https://pay.example.com')}><input id="s-epay-url" className="input mono" value={f.shop_epay_url ?? ''} onChange={(e) => set('shop_epay_url', e.target.value)} placeholder="https://pay.example.com" /></Field>
+        <div className="form-grid">
+          <Field label={t('商户 ID')} htmlFor="s-epay-pid"><input id="s-epay-pid" className="input mono" value={f.shop_epay_pid ?? ''} onChange={(e) => set('shop_epay_pid', e.target.value)} /></Field>
+          <Field label={t('商户密钥')} htmlFor="s-epay-key" hint={settings.data.shop_epay_key_set ? t('已保存（留空不修改）') : t('加密存储')}><input id="s-epay-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_epay_key} onChange={(e) => setSecrets({ ...secrets, shop_epay_key: e.target.value })} /></Field>
+        </div>
+        <Field label={t('支付方式')} htmlFor="s-epay-types" hint={t('逗号分隔：alipay 支付宝、wxpay 微信、qqpay QQ 钱包')}><input id="s-epay-types" className="input mono" value={f.shop_epay_types ?? ''} onChange={(e) => set('shop_epay_types', e.target.value)} /></Field>
+        <Field label={t('异步通知地址')} hint={status?.publicUrl ? t('网关会自动使用这个地址，一般无需在商户后台另外填写') : t('未设置面板公网地址（POLARIS_PUBLIC_URL）：请确认这个地址能从公网访问')}><CopyBox text={status?.notifyUrl ?? ''} /></Field>
+      </section>
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT (TRC20)</h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>
+        <Field label={t('收款地址')} htmlFor="s-usdt-addr" hint={t('TRON 网络地址（T 开头）。每笔订单金额带不同的小数尾数，按金额自动对账')}><input id="s-usdt-addr" className="input mono" value={f.shop_usdt_address ?? ''} onChange={(e) => set('shop_usdt_address', e.target.value)} placeholder="T…" /></Field>
+        <Field label="TronGrid API Key" htmlFor="s-usdt-key" hint={settings.data.shop_usdt_apikey_set ? t('已保存（留空不修改）') : t('在 trongrid.io 免费申请；不填也能用，但容易被限流')}><input id="s-usdt-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_usdt_apikey} onChange={(e) => setSecrets({ ...secrets, shop_usdt_apikey: e.target.value })} /></Field>
+        <div className="sub">{t('面板每 30 秒查询一次链上到账，确认后自动开通。')}</div>
+      </section>
+      <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
+        await put('/settings', { ...f, ...secrets })
+        setSecrets({ shop_epay_key: '', shop_usdt_apikey: '' })
+        settings.reload()
+      }, t('已保存'))}>{t('保存')}</button></div>
+    </div>
+  )
+}
+
+export default function Shop() {
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') || 'orders'
+  const st = useLoad(() => get<{ status: ShopStatus }>('/orders?limit=1'))
+  const [plans, setPlans] = useState(false)
+  const s = st.data?.status
+  const tabs = [{ id: 'orders', label: t('订单') }, { id: 'codes', label: t('兑换码') }, { id: 'pay', label: t('支付设置') }]
+  return (
+    <>
+      <div className="top">
+        <div><h1>{t('售卖')}</h1><div className="sub">{t('用户在 Telegram 机器人里购买套餐：Telegram Stars、易支付、USDT 或兑换码，付款后自动开通')}</div></div>
+        <div className="row">
+          {s && <span className={'st ' + (s.enabled && s.botRunning ? 'ok' : 'off')}>{s.enabled ? (s.botRunning ? t('● 营业中 @{bot}', { bot: s.bot }) : t('机器人未运行')) : t('未开放')}</span>}
+          <button className="btn" type="button" onClick={() => setPlans(true)}>{t('管理套餐')}</button>
+        </div>
+      </div>
+      <div className="tabs" role="tablist" style={{ marginBottom: 14 }}>
+        {tabs.map((x) => <button key={x.id} type="button" role="tab" aria-selected={tab === x.id} className={'tab' + (tab === x.id ? ' on' : '')} onClick={() => setParams({ tab: x.id }, { replace: true })}>{x.label}</button>)}
+      </div>
+      {tab === 'orders' && <Orders />}
+      {tab === 'codes' && <Codes />}
+      {tab === 'pay' && <PaySettings status={s} />}
+      {plans && <PlansModal onClose={() => setPlans(false)} onChanged={() => st.reload()} />}
+    </>
+  )
+}
