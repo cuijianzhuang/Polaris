@@ -181,6 +181,8 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
     return () => { document.removeEventListener('keydown', esc); document.body.classList.remove('noscroll') }
   }, [menu])
   const { scoped } = useScope()
+  const accountName = user.replace(/^tg:/, '')
+  const accountRole = scoped ? t('节点管理员') : user.startsWith('tg:') ? t('Telegram 登录') : t('管理员')
   const { nodes } = useNodes()
   const [palette, setPalette] = useState(false)
   useEffect(() => {
@@ -224,8 +226,8 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
           </>
         )}
         <div className="side-foot">
-          <span className="me"><span className="avatar">{(user.replace(/^tg:/, '')[0] || '?').toUpperCase()}</span><span className="me-text"><b>{user.replace(/^tg:/, '')}</b><small>{scoped ? t('节点管理员') : user.startsWith('tg:') ? t('Telegram 登录') : t('管理员')}</small></span></span>
-          <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
+          <span className="me"><span className="avatar" title={accountName}>{(accountName[0] || '?').toUpperCase()}</span><span className="me-text"><b title={accountName}>{accountName}</b><small title={accountRole}>{accountRole}</small></span></span>
+          <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
         </div>
       </nav>
       <main className="main" key={loc.pathname}>{children}</main>

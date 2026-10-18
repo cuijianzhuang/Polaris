@@ -84,7 +84,7 @@ button.nav { width: 100%; border: none; background: none; font: inherit; font-we
 .navsub .nav { padding: 7px 10px; font-size: 13px; }
 .navsub .nav.active::before { left: -11px; }
 .navsec { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); padding: 18px 10px 6px; }
-.side-foot { margin-top: auto; padding: 12px 6px 0 10px; border-top: 1px solid var(--side-line); font-size: 13px; font-weight: 500; color: var(--ink-2); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.side-foot { margin-top: auto; padding: 12px 6px 0 10px; border-top: 1px solid var(--side-line); font-size: 13px; font-weight: 500; color: var(--ink-2); display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
 .side-foot button { background: var(--card); border: 1px solid var(--line); color: var(--ink-2); border-radius: var(--r-sm); padding: 4px 10px; cursor: pointer; font-size: 12px; transition: background-color var(--dur) var(--ease); }
 .side-foot button:hover { background: var(--side-hover); }
 .main { flex: 1; min-width: 0; padding: 32px 40px 40px; display: flex; flex-direction: column; gap: 22px; max-width: 1560px; }
@@ -565,12 +565,16 @@ a.attn-item:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .side-search svg { width: 16px; height: 16px; flex: none; }
 .side-search span { flex: 1; text-align: left; }
 kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--mute); background: var(--card); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; line-height: 17px; display: inline-block; min-width: 18px; text-align: center; }
-.side-foot .me { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.side-foot .me { display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%; }
+.side-foot .me-text { flex: 1; }
+.side-actions { display: flex; align-items: center; gap: 8px; }
+.side-actions > button { flex: none; min-height: 32px; min-width: 32px; }
+.side-actions .logout { margin-left: auto; }
 .avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 600; color: #fff; background: linear-gradient(135deg, var(--pri), color-mix(in srgb, var(--pri) 55%, #7C3AED)); }
 .avatar.sm { width: 28px; height: 28px; font-size: 12px; }
 .me-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .me-text b { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.me-text small { font-size: 11.5px; color: var(--faint); font-weight: 400; }
+.me-text small { font-size: 11.5px; color: var(--faint); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .side-foot .theme-btn { border: none !important; background: none !important; color: var(--mute); padding: 6px; border-radius: var(--r-sm); }
 .side-foot .theme-btn:hover { background: var(--side-hover) !important; color: var(--ink); }
 
@@ -863,13 +867,14 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
   .side { transition: flex-basis .2s var(--ease); }
   .app.folded .side { flex-basis: 64px; padding-left: 8px; padding-right: 8px; overflow-x: hidden; }
   .app.folded .brand { flex-direction: column; gap: 10px; padding: 2px 0 12px; align-items: center; }
-  .app.folded .brand-name, .app.folded .nav .chev, .app.folded .navsub, .app.folded .side-search span, .app.folded .side-search kbd, .app.folded .side-foot .me-text, .app.folded .side-foot .row, .app.folded .navsec { display: none; }
+  .app.folded .brand-name, .app.folded .nav .chev, .app.folded .navsub, .app.folded .side-search span, .app.folded .side-search kbd, .app.folded .side-foot .me-text, .app.folded .side-foot .side-actions, .app.folded .navsec { display: none; }
   .app.folded .side-fold { margin-left: 0; }
   .app.folded .side-fold svg { transform: scaleX(-1); }
   .app.folded .nav { font-size: 0; justify-content: center; padding: 10px 0; gap: 0; }
   .app.folded .nav svg { width: 20px; height: 20px; }
   .app.folded .nav.active::before { left: -8px; }
   .app.folded .side-search { justify-content: center; padding: 0; }
-  .app.folded .side-foot { justify-content: center; padding: 12px 0 0; }
+  .app.folded .side-foot { align-items: center; padding: 12px 0 0; }
+  .app.folded .side-foot .me { justify-content: center; gap: 0; }
 }
 @media (max-width: 760px) { .side-fold { display: none; } }
