@@ -16,6 +16,8 @@ type Node struct {
 	Domain       string           `gorm:"size:255" json:"domain"`  // optional, for ACME and {node.domain}
 	Region       string           `gorm:"size:64" json:"region"`
 	Flag         string           `gorm:"size:8" json:"flag"` // ISO country code for emoji flags
+	Lat          *float64         `json:"lat"`                // optional map position, degrees; both or neither
+	Lng          *float64         `json:"lng"`
 	Labels       JSON[[]string]   `json:"labels"`
 	AgentVersion string           `gorm:"size:32" json:"agentVersion"`
 	Arch         string           `gorm:"size:16" json:"arch"`         // agent GOARCH, "" until a new agent reports it
