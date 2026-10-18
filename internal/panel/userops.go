@@ -111,6 +111,9 @@ func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB,
 	if action == "user.renew" {
 		s.notify(Event{Kind: "user_renewed", UserID: user.ID, Text: "🔄 用户 " + user.Username + " 已续期：" + detail})
 	}
+	if action == "user.add_traffic" {
+		s.userEvent("user.traffic_added", &user, map[string]any{"detail": detail})
+	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 }
 

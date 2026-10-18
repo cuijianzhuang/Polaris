@@ -663,7 +663,7 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 		case <-ctx.Done():
 			return
 		case e := <-events:
-			if !b.isRunning() {
+			if !b.isRunning() || e.Text == "" { // no text: webhook-only events
 				continue
 			}
 			var admins []store.TGAdmin
