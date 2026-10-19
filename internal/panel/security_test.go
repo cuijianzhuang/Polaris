@@ -200,9 +200,7 @@ func TestNodeCannotReportForeignUsers(t *testing.T) {
 		t.Fatalf("node users: %v", set)
 	}
 	s.handleOnlineIPs("n1", &polarisv1.OnlineIPs{Users: []*polarisv1.UserIPs{{UserId: "victim", Ips: []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"}}}})
-	s.onlineMu.Lock()
-	_, tracked := s.onlineIPs["victim"]
-	s.onlineMu.Unlock()
+	_, tracked := s.shared.onlineIPs([]string{"victim"})["victim"]
 	if tracked {
 		t.Fatal("online IPs accepted for a user the node does not serve")
 	}

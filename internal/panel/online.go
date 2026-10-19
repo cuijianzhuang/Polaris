@@ -19,10 +19,14 @@ func (s *Server) withOnline(us []store.User) {
 		at    time.Time
 	}
 	live := map[string]map[string]*seen{} // user -> ip -> where and when
-	s.onlineMu.Lock()
+	uids := make([]string, len(us))
+	for i, u := range us {
+		uids[i] = u.ID
+	}
+	snap := s.shared.onlineIPs(uids)
 	now := time.Now()
 	for _, u := range us {
-		for node, ips := range s.onlineIPs[u.ID] {
+		for node, ips := range snap[u.ID] {
 			for ip, at := range ips {
 				if now.Sub(at) >= onlineIPWindow {
 					continue
@@ -42,7 +46,6 @@ func (s *Server) withOnline(us []store.User) {
 			}
 		}
 	}
-	s.onlineMu.Unlock()
 
 	var ids []string
 	for id := range live {
