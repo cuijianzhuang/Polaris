@@ -3,7 +3,11 @@
 package panel
 
 import (
+	"context"
+	"net/http"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"gorm.io/gorm"
 
@@ -37,3 +41,26 @@ func (s *Server) applyPack(*gorm.DB, *store.User, *store.TrafficPack, time.Time)
 // planRates: per-plan node rates are a professional feature; every user
 // pays the node's own rate.
 func (s *Server) planRates() map[string]map[string]float64 { return nil }
+
+// Online payments (Telegram Stars, EPay, USDT) are a professional feature:
+// the community shop sells through redeem codes.
+func (s *Server) payments() bool { return false }
+
+func (s *Server) epayNotify(c *gin.Context) { c.String(http.StatusNotFound, "fail") }
+
+func (s *Server) pollUSDT() {}
+
+func (b *tgBot) onPreCheckout(q *tgPreCheckout) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = b.call(ctx, "answerPreCheckoutQuery", map[string]any{"pre_checkout_query_id": q.ID, "ok": false, "error_message": errPayments.Error()}, nil)
+}
+
+func (b *tgBot) onStarsPaid(chat int64, p *tgPayment) {
+	b.s.log.Warn("stars payment in a community build", "payload", p.Payload, "charge", p.ChargeID)
+	b.send(chat, "已收到付款，但本面板未开启在线收款，请联系管理员（凭证："+esc(p.ChargeID)+"）")
+}
+
+func (b *tgBot) sendPayment(_ context.Context, chat int64, _ *store.Order, _ string) {
+	b.send(chat, errPayments.Error()+"，可以使用兑换码购买。", []button{{Text: "🎟 兑换码", Data: "v:redeem"}, btnHome})
+}

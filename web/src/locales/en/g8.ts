@@ -196,5 +196,8 @@ const m: Record<string, string> = {
   "取消订单": "Cancel order",
   "订单已取消": "Order cancelled",
   "取消订单 {id}？买家将不能再用 Stars 付款；易支付 / USDT 如果仍然付款，到账后照常开通。": "Cancel order {id}? The buyer can no longer pay it with Stars; an EPay or USDT payment that still arrives is delivered as usual.",
+  "在线收款（Telegram Stars、易支付、USDT）是专业版功能。社区版可以用兑换码售卖：在「兑换码」里生成，放到发卡平台出售，用户在机器人里用 /redeem 兑换。": "Online payments (Telegram Stars, EPay, USDT) are a Pro feature. The community edition sells with redeem codes: generate them under Redeem codes, sell them on a card shop, and buyers redeem them in the bot with /redeem.",
+  "在线收款": "Online payments",
+  "机器人商店支持 Telegram Stars、易支付、USDT 自动收款": "Telegram Stars, EPay and USDT payments in the bot shop",
 }
 export default m

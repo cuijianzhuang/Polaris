@@ -25,8 +25,9 @@ const featureInfo = (): Record<string, [string, string]> => ({
   branding: [t('自定义 Logo'), t('侧边栏、登录页和浏览器图标换成你自己的 Logo')],
   themes: [t('专属主题'), t('黑金等专属界面风格')],
   plan_addons: [t('套餐增值'), t('流量包加购、套餐专属节点倍率')],
+  shop_payments: [t('在线收款'), t('机器人商店支持 Telegram Stars、易支付、USDT 自动收款')],
 })
-const knownFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns', 'branding', 'themes', 'plan_addons']
+const knownFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns', 'branding', 'themes', 'plan_addons', 'shop_payments']
 
 const daysUntil = (d?: string) => d ? Math.ceil((new Date(d + 'T23:59:59').getTime() - Date.now()) / 864e5) : null
 
