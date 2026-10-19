@@ -68,6 +68,9 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 	case "packs":
 		return b.packsView(id)
 	case "redeem":
+		if !b.s.codesOn() {
+			return "兑换码兑换已停用，请联系管理员。", [][]button{backRow("")}
+		}
 		return redeemHelp(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
 	case "terms":
 		return b.termsView(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
@@ -115,7 +118,11 @@ func (b *tgBot) homeButtons(id tgIdentity) [][]button {
 		rows = append(rows, []button{{Text: "🔗 绑定账号", Data: "v:bindhelp"}})
 	}
 	if b.s.shopOn() && (id.user != nil || id.admin == nil) {
-		rows = append(rows, []button{{Text: "🛒 购买套餐", Data: "v:shop"}, {Text: "🎟 兑换码", Data: "v:redeem"}})
+		row := []button{{Text: "🛒 购买套餐", Data: "v:shop"}}
+		if b.s.codesOn() {
+			row = append(row, button{Text: "🎟 兑换码", Data: "v:redeem"})
+		}
+		rows = append(rows, row)
 	}
 	if id.admin != nil {
 		if !b.s.license().Allow(license.FeatureTGMenu) {

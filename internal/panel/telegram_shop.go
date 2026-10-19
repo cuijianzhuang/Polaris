@@ -95,7 +95,10 @@ func (b *tgBot) shopView(id tgIdentity) (string, [][]button) {
 			if b.s.payments() {
 				continue // no way to pay for it here
 			}
-			prices = orDefault(p.Price, "兑换码购买") // community shop: sold by redeem codes
+			prices = orDefault(p.Price, "暂未开放付款方式")
+			if b.s.codesOn() {
+				prices = orDefault(p.Price, "兑换码购买")
+			}
 		}
 		fmt.Fprintf(&sb, "\n<b>%s</b>  %s\n%s\n", esc(p.Name), esc(prices), esc(b.s.tgPlanLine(&p)))
 		label := p.Name
@@ -116,7 +119,10 @@ func (b *tgBot) shopView(id tgIdentity) (string, [][]button) {
 	if n := b.s.unpaidCount(id.chat); n > 0 {
 		rows = append(rows, []button{{Text: fmt.Sprintf("⏳ 未付款订单（%d）", n), Data: "v:unpaid"}})
 	}
-	rows = append(rows, []button{{Text: "🎟 兑换码", Data: "v:redeem"}, {Text: "📋 我的订单", Data: "v:orders"}})
+	if b.s.codesOn() {
+		rows = append(rows, []button{{Text: "🎟 兑换码", Data: "v:redeem"}})
+	}
+	rows = append(rows, []button{{Text: "📋 我的订单", Data: "v:orders"}})
 	if b.s.shopTerms() != "" {
 		rows = append(rows, []button{{Text: "📄 购买条款", Data: "v:terms"}, {Text: "💬 售后", Data: "v:paysupport"}})
 	}
@@ -199,7 +205,10 @@ func (b *tgBot) unpaidView(chat int64) (string, [][]button) {
 		n := strconv.Itoa(i + 1)
 		mins := int(time.Until(o.ExpiresAt).Round(time.Minute).Minutes())
 		fmt.Fprintf(&sb, "\n%s. <b>%s</b> · %s · %s\n<code>%s</code> · 剩 %d 分钟\n", n, esc(o.PlanName), esc(orderAmount(&o)), esc(payMethodName[o.Method]), o.ID, mins)
-		row := []button{{Text: "💳 继续支付 " + n, Data: "s:r:" + o.ID}}
+		var row []button
+		if b.s.methodOn(o.Method) {
+			row = append(row, button{Text: "💳 继续支付 " + n, Data: "s:r:" + o.ID})
+		}
 		if o.Method != payStars {
 			row = append(row, button{Text: "🔄 查询 " + n, Data: "s:q:" + o.ID})
 		}
@@ -265,6 +274,9 @@ func (b *tgBot) planCard(id tgIdentity, planID string) (string, [][]button) {
 	if len(rows) == 0 {
 		text := sb.String()
 		text = text[:strings.LastIndex(text, "\n\n选择付款方式")]
+		if !b.s.codesOn() {
+			return text + "\n\n暂未开放付款方式，请联系管理员。", [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
+		}
 		return text + "\n\n🎟 这个套餐通过兑换码开通：取得兑换码后发送 <code>/redeem 兑换码</code>。", [][]button{
 			{{Text: "🎟 兑换码", Data: "v:redeem"}}, {{Text: "« 返回", Data: "v:shop"}, btnHome}}
 	}
@@ -296,6 +308,15 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			return
 		}
 		userID := ""
+		typ := ""
+		if len(parts) > 4 {
+			typ = parts[4]
+		}
+		typ, err := b.s.paymentType(parts[3], typ)
+		if err != nil {
+			answer(err.Error())
+			return
+		}
 		if id.user != nil {
 			userID = id.user.ID
 		}
@@ -305,10 +326,6 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			return
 		}
 		answer("")
-		typ := ""
-		if len(parts) > 4 {
-			typ = parts[4]
-		}
 		b.sendPayment(ctx, chat, msg, o, typ)
 	case "k": // traffic pack card
 		text, rows := b.packCard(id, parts[2])
@@ -319,16 +336,21 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			answer("")
 			return
 		}
+		typ := ""
+		if len(parts) > 4 {
+			typ = parts[4]
+		}
+		typ, err := b.s.paymentType(parts[3], typ)
+		if err != nil {
+			answer(err.Error())
+			return
+		}
 		o, err := b.s.newPackOrder(chat, tgName(from), id.user, parts[2], parts[3])
 		if err != nil {
 			answer(err.Error())
 			return
 		}
 		answer("")
-		typ := ""
-		if len(parts) > 4 {
-			typ = parts[4]
-		}
 		b.sendPayment(ctx, chat, msg, o, typ)
 	case "q":
 		var o store.Order
@@ -425,6 +447,11 @@ func (b *tgBot) resumeOrder(ctx context.Context, parts []string, chat, msg int64
 			typ = types[0]
 		}
 	}
+	typ, err := b.s.paymentType(o.Method, typ)
+	if err != nil {
+		answer(err.Error())
+		return
+	}
 	answer("")
 	b.sendPayment(ctx, chat, msg, &o, typ)
 }
@@ -450,6 +477,10 @@ func (b *tgBot) orderDelivered(o *store.Order, u *store.User, created bool) {
 
 // redeemCommand handles /redeem <code>.
 func (b *tgBot) redeemCommand(chat int64, from tgUser, arg string, id tgIdentity) {
+	if !b.s.codesOn() {
+		b.send(chat, "兑换码兑换已停用，请联系管理员。", backRow(""))
+		return
+	}
 	if arg == "" {
 		b.send(chat, redeemHelp(), backRow(""))
 		return
