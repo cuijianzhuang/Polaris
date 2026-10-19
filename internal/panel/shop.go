@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -104,13 +105,17 @@ func (s *Server) starsOn() bool {
 }
 
 func (s *Server) epayOn() bool {
-	return s.payments() && s.st.GetSetting("shop_epay_url", "") != "" && s.st.GetSetting("shop_epay_pid", "") != "" && s.st.GetSetting("shop_epay_key", "") != ""
+	return s.payments() && s.st.GetSetting("shop_epay_enabled", "true") == "true" && len(s.epayTypes()) > 0 && s.st.GetSetting("shop_epay_url", "") != "" && s.st.GetSetting("shop_epay_pid", "") != "" && s.st.GetSetting("shop_epay_key", "") != ""
 }
 
 func (s *Server) epayTypes() []string {
+	var disabled []string
+	if json.Unmarshal([]byte(s.st.GetSetting("shop_epay_disabled_types", "[]")), &disabled) != nil {
+		return nil
+	}
 	var out []string
 	for _, t := range strings.Split(s.st.GetSetting("shop_epay_types", "alipay,wxpay"), ",") {
-		if t = strings.TrimSpace(t); t != "" && len(t) <= 16 {
+		if t = strings.TrimSpace(t); t != "" && len(t) <= 16 && !slices.Contains(disabled, t) && !slices.Contains(out, t) {
 			out = append(out, t)
 		}
 	}
@@ -130,7 +135,49 @@ func (s *Server) methodOn(method string) bool {
 	return false
 }
 
-func (s *Server) usdtOn() bool { return s.payments() && s.st.GetSetting("shop_usdt_address", "") != "" }
+func (s *Server) usdtOn() bool {
+	return s.payments() && s.st.GetSetting("shop_usdt_enabled", "true") == "true" && s.st.GetSetting("shop_usdt_address", "") != ""
+}
+
+func (s *Server) codesOn() bool { return s.st.GetSetting("shop_code_enabled", "true") == "true" }
+
+// paymentType validates old bot buttons as well as current purchase entries.
+func (s *Server) paymentType(method, typ string) (string, error) {
+	if !s.methodOn(method) {
+		return "", errors.New("这个付款方式已停用，请重新选择")
+	}
+	if method != payEPay {
+		return "", nil
+	}
+	types := s.epayTypes()
+	if typ == "" && len(types) > 0 {
+		typ = types[0]
+	}
+	if !slices.Contains(types, typ) {
+		return "", errors.New("这个付款渠道已停用，请重新选择")
+	}
+	return typ, nil
+}
+
+func validatePaymentSetting(k, v string) error {
+	switch k {
+	case "shop_epay_enabled", "shop_usdt_enabled", "shop_code_enabled":
+		if v != "true" && v != "false" {
+			return errors.New("支付开关必须为 true 或 false")
+		}
+	case "shop_epay_disabled_types":
+		var disabled []string
+		if len(v) > 1024 || json.Unmarshal([]byte(v), &disabled) != nil || disabled == nil || len(disabled) > 32 {
+			return errors.New("易支付停用渠道必须为 JSON 字符串数组，最多32项")
+		}
+		for _, typ := range disabled {
+			if len(typ) < 1 || len(typ) > 16 || strings.TrimSpace(typ) != typ {
+				return errors.New("易支付渠道标识须为1至16字节，不能包含首尾空白")
+			}
+		}
+	}
+	return nil
+}
 
 // salePlans lists the plans on sale, in display order.
 func (s *Server) salePlans() []store.Group {
@@ -426,6 +473,9 @@ func (s *Server) redeem(tgID int64, tgName, userID, code string) (*store.Order, 
 }
 
 func (s *Server) redeemFor(b shopBuyer, code string) (*store.Order, *store.User, error) {
+	if !s.codesOn() {
+		return nil, nil, errors.New("兑换码兑换已停用，请联系管理员")
+	}
 	tgID, tgName, userID := b.TGID, b.TGName, b.UserID
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" || len(code) > 32 {

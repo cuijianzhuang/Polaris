@@ -1,5 +1,17 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+  '支付宝': 'Alipay',
+  '微信支付': 'WeChat Pay',
+  'QQ 钱包': 'QQ Wallet',
+  '网银': 'Online banking',
+  '在机器人里开放购买': 'Open purchases in the bot',
+  '各支付开关同时作用于机器人和网页商店。关闭后不再提供新的付款入口，保留收款配置，已有订单到账继续处理。': 'Payment switches apply to both the bot and web shop. Turning a method off removes new payment entries, keeps its configuration and continues processing receipts for existing orders.',
+  '启用易支付': 'Enable EPay',
+  '启用 USDT 收款': 'Enable USDT payments',
+  '易支付渠道': 'EPay channel',
+  '下列渠道与易支付总开关共同生效。关闭子渠道会保留其配置。': 'These channels also require EPay to be enabled. Turning a channel off keeps its configuration.',
+  '启用兑换码兑换': 'Enable code redemption',
+  '关闭后隐藏机器人和网页的兑换入口，未使用的兑换码保留，重新开启后可继续兑换。': 'Turning this off hides redemption in the bot and web shop. Unused codes are kept and can be redeemed after re-enabling.',
   '节点地图': 'Node map',
   '世界地图': 'World map',
   '全部节点的位置与在线状态 · 点击标记查看详情': 'Where every node is and whether it is online · click a marker for details',

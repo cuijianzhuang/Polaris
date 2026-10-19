@@ -129,6 +129,7 @@ var editableSettings = map[string]bool{
 	"auto_update": true, "auto_update_hour": true,
 	"shop_enabled": true, "shop_web_enabled": true, "shop_auto_create": true, "shop_user_prefix": true, "shop_order_minutes": true, "shop_stars": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_epay_key": true, "shop_epay_types": true,
+	"shop_epay_enabled": true, "shop_usdt_enabled": true, "shop_code_enabled": true, "shop_epay_disabled_types": true,
 	"shop_usdt_address": true, "shop_usdt_apikey": true, "shop_terms": true, "shop_support": true,
 	"ddns_auto_provider": true, "ddns_auto_zone": true, "ddns_auto_family": true, "ddns_auto_address": true,
 }
@@ -148,6 +149,15 @@ func (s *Server) getSettings(c *gin.Context) {
 		out[st.Key] = st.Value
 	}
 	out["admin_path"] = s.cfg.AdminPath
+	// Missing switches keep the behavior of existing installations.
+	for _, key := range []string{"shop_epay_enabled", "shop_usdt_enabled", "shop_code_enabled"} {
+		if _, exists := out[key]; !exists {
+			out[key] = "true"
+		}
+	}
+	if _, exists := out["shop_epay_disabled_types"]; !exists {
+		out["shop_epay_disabled_types"] = "[]"
+	}
 	out["public_url"] = s.cfg.PublicURL
 	out["agent_url"] = s.agentURL()
 	out["ca_sha256"] = s.ca.Fingerprint()
@@ -174,6 +184,12 @@ func (s *Server) putSettings(c *gin.Context) {
 				continue // unchanged: the settings form sends every field
 			}
 			sudoRequired(c)
+			return
+		}
+	}
+	for k, v := range req {
+		if err := validatePaymentSetting(k, v); err != nil {
+			badRequest(c, err)
 			return
 		}
 	}
