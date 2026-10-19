@@ -160,10 +160,10 @@ func (s *Server) salePacks(u *store.User) []store.TrafficPack {
 
 // newPackOrder opens a traffic pack order for a bound Telegram user.
 func (s *Server) newPackOrder(tgID int64, tgName string, u *store.User, packID, method string) (*store.Order, error) {
-	return s.newPackOrderFor(shopBuyer{TGID: tgID, TGName: tgName}, u, packID, method)
+	return s.newPackOrderFor(shopBuyer{TGID: tgID, TGName: tgName}, u, packID, method, "")
 }
 
-func (s *Server) newPackOrderFor(b shopBuyer, u *store.User, packID, method string) (*store.Order, error) {
+func (s *Server) newPackOrderFor(b shopBuyer, u *store.User, packID, method, chain string) (*store.Order, error) {
 	if !s.shopOn() {
 		return nil, errShopClosed
 	}
@@ -184,5 +184,8 @@ func (s *Server) newPackOrderFor(b shopBuyer, u *store.User, packID, method stri
 	now := time.Now()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: u.ID, WebKey: b.WebKey, Kind: kindPack, PackID: p.ID,
 		PlanName: p.Name, Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
+	if err := s.setUSDTChain(o, chain); err != nil {
+		return nil, err
+	}
 	return s.openShopOrder(o, p.PriceUSDT)
 }

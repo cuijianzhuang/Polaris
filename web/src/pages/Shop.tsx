@@ -14,11 +14,18 @@ import { t } from '../i18n'
 
 type Order = {
   id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
-  status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null; web?: boolean
+  status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null; web?: boolean; chain?: string
 }
 type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; returnUrl?: string; publicUrl: boolean; payments?: boolean; webShop?: boolean; webShopUrl?: string; portal?: boolean }
 type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
 
+// USDT networks (ids match the server's usdtNets).
+const usdtNets = [
+  { id: 'tron', name: 'TRON (TRC20)', short: 'TRC20', evm: false },
+  { id: 'bsc', name: 'BNB Smart Chain (BEP20)', short: 'BEP20', evm: true },
+  { id: 'polygon', name: 'Polygon PoS', short: 'Polygon', evm: true },
+  { id: 'arbitrum', name: 'Arbitrum One', short: 'Arbitrum', evm: true },
+]
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
 const statusLabel: Record<string, [string, string]> = {
   pending: [t('待支付'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'], cancelled: [t('已取消'), 'off'],
@@ -68,7 +75,7 @@ function Orders() {
                   <td data-label={t('时间')} className="small">{datetime(o.paidAt || o.createdAt)}<div className="mono small mute">{o.id}</div></td>
                   <td data-label={t('买家')}>{o.userId ? <b>{d?.usernames?.[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.web && <span className="tag" style={{ marginRight: 4 }}>{t('网页')}</span>}{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
                   <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
-                  <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}</td>
+                  <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}{o.method === 'usdt' && <div className="mute">{usdtNets.find((n) => n.id === (o.chain || 'tron'))?.short}</div>}</td>
                   <td data-label={t('金额')} className="mono">{money(o)}</td>
                   <td data-label={t('状态')}><span className={'st ' + (statusLabel[o.status]?.[1] ?? '')}>{statusLabel[o.status]?.[0] ?? o.status}</span></td>
                   <td className="rt-actions">
@@ -278,8 +285,8 @@ function Packs() {
 
 function PaySettings({ status }: { status?: ShopStatus }) {
   const settings = useLoad(() => get<Record<string, any>>('/settings'))
-  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_terms', 'shop_support'] as const
-  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay' }
+  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_usdt_evm_address', 'shop_usdt_chains', 'shop_usdt_rpc_bsc', 'shop_usdt_rpc_polygon', 'shop_usdt_rpc_arbitrum', 'shop_terms', 'shop_support'] as const
+  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay', shop_usdt_chains: 'tron' }
   const [f, setF] = useState<Record<string, string>>({})
   const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
   const payOK = useFeature('shop_payments')
@@ -290,6 +297,9 @@ function PaySettings({ status }: { status?: ShopStatus }) {
   }, [settings.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const sw = (k: string) => f[k] === 'true'
+  const chains = (f.shop_usdt_chains ?? '').split(',').filter(Boolean)
+  const setChain = (id: string, on: boolean) => set('shop_usdt_chains', usdtNets.filter((n) => (n.id === id ? on : chains.includes(n.id))).map((n) => n.id).join(','))
+  const evmOn = usdtNets.some((n) => n.evm && chains.includes(n.id))
   if (!settings.data) return null
   return (
     <div className="grid g2">
@@ -329,9 +339,25 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         <Field label={t('同步跳转地址')} hint={t('付款后买家先回到这个面板地址，再自动打开机器人。请在易支付商户后台把面板域名加入授权域名，否则会提示「支付返回域名未通过审核」')}><CopyBox text={status?.returnUrl ?? ''} /></Field>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT (TRC20)<ProTag on={payOK} /></h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>
-        <Field label={t('收款地址')} htmlFor="s-usdt-addr" hint={t('TRON 网络地址（T 开头）。每笔订单金额带不同的小数尾数，按金额自动对账')}><input id="s-usdt-addr" className="input mono" value={f.shop_usdt_address ?? ''} onChange={(e) => set('shop_usdt_address', e.target.value)} placeholder="T…" /></Field>
-        <Field label="TronGrid API Key" htmlFor="s-usdt-key" hint={settings.data.shop_usdt_apikey_set ? t('已保存（留空不修改）') : t('在 trongrid.io 免费申请；不填也能用，但容易被限流')}><input id="s-usdt-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_usdt_apikey} onChange={(e) => setSecrets({ ...secrets, shop_usdt_apikey: e.target.value })} /></Field>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT<ProTag on={payOK} /></h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>
+        <div className="sub">{t('选择接受的网络，买家下单时自选网络，付款页显示收款地址和二维码。每笔订单金额带不同的小数尾数，按金额自动对账。')}</div>
+        {usdtNets.map((n) => (
+          <div className="toggle" key={n.id}><span>{n.name}</span><Switch label={n.short} on={chains.includes(n.id)} onChange={(v) => setChain(n.id, v)} /></div>
+        ))}
+        {chains.includes('tron') && <>
+          <Field label={t('TRON 收款地址')} htmlFor="s-usdt-addr" hint={t('TRON 网络地址（T 开头）')}><input id="s-usdt-addr" className="input mono" value={f.shop_usdt_address ?? ''} onChange={(e) => set('shop_usdt_address', e.target.value)} placeholder="T…" /></Field>
+          <Field label="TronGrid API Key" htmlFor="s-usdt-key" hint={settings.data.shop_usdt_apikey_set ? t('已保存（留空不修改）') : t('在 trongrid.io 免费申请；不填也能用，但容易被限流')}><input id="s-usdt-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_usdt_apikey} onChange={(e) => setSecrets({ ...secrets, shop_usdt_apikey: e.target.value })} /></Field>
+        </>}
+        {evmOn && <>
+          <Field label={t('EVM 收款地址')} htmlFor="s-usdt-evm" hint={t('BEP20、Polygon、Arbitrum 共用一个 0x 地址。请用自己掌握私钥的钱包地址，不要用交易所充值地址')}><input id="s-usdt-evm" className="input mono" value={f.shop_usdt_evm_address ?? ''} onChange={(e) => set('shop_usdt_evm_address', e.target.value)} placeholder="0x…" /></Field>
+          <details>
+            <summary className="small">{t('自定义 RPC 节点（可选）')}</summary>
+            <div className="sub" style={{ margin: '8px 0' }}>{t('默认使用公共 RPC；公共节点限流时可填自己的节点（如 Alchemy、QuickNode、Ankr）。')}</div>
+            {usdtNets.filter((n) => n.evm && chains.includes(n.id)).map((n) => (
+              <Field key={n.id} label={n.name} htmlFor={'s-rpc-' + n.id}><input id={'s-rpc-' + n.id} className="input mono" value={f['shop_usdt_rpc_' + n.id] ?? ''} onChange={(e) => set('shop_usdt_rpc_' + n.id, e.target.value)} placeholder="https://…" /></Field>
+            ))}
+          </details>
+        </>}
         <div className="sub">{t('面板每 30 秒查询一次链上到账，确认后自动开通。')}</div>
       </section>
       <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {

@@ -130,7 +130,7 @@ func (s *Server) methodOn(method string) bool {
 	return false
 }
 
-func (s *Server) usdtOn() bool { return s.payments() && s.st.GetSetting("shop_usdt_address", "") != "" }
+func (s *Server) usdtOn() bool { return len(s.usdtNetsOn()) > 0 }
 
 // salePlans lists the plans on sale, in display order.
 func (s *Server) salePlans() []store.Group {
@@ -169,10 +169,12 @@ type shopBuyer struct {
 // newOrder opens an order for a Telegram user. userID is the bound account
 // ("" = none yet).
 func (s *Server) newOrder(tgID int64, tgName, userID, planID, method string) (*store.Order, error) {
-	return s.newOrderFor(shopBuyer{TGID: tgID, TGName: tgName, UserID: userID}, planID, method)
+	return s.newOrderFor(shopBuyer{TGID: tgID, TGName: tgName, UserID: userID}, planID, method, "")
 }
 
-func (s *Server) newOrderFor(b shopBuyer, planID, method string) (*store.Order, error) {
+// newOrderFor opens a plan order; chain is the USDT network ("" = the
+// first one on).
+func (s *Server) newOrderFor(b shopBuyer, planID, method, chain string) (*store.Order, error) {
 	if !s.shopOn() {
 		return nil, errShopClosed
 	}
@@ -190,6 +192,9 @@ func (s *Server) newOrderFor(b shopBuyer, planID, method string) (*store.Order, 
 	now := time.Now()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: b.UserID, WebKey: b.WebKey, PlanID: p.ID, PlanName: p.Name,
 		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
+	if err := s.setUSDTChain(o, chain); err != nil {
+		return nil, err
+	}
 	return s.openShopOrder(o, p.PriceUSDT)
 }
 
@@ -235,7 +240,7 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 	}
 	if o.Method == payUSDT {
 		var err error
-		if o.Amount, err = s.uniqueUSDTAmount(usdtPrice, now); err != nil {
+		if o.Amount, err = s.uniqueUSDTAmount(usdtPrice, o.Chain, now); err != nil {
 			return nil, err
 		}
 	}
@@ -245,13 +250,31 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 	return o, nil
 }
 
+// setUSDTChain picks the network of a USDT order.
+func (s *Server) setUSDTChain(o *store.Order, chain string) error {
+	if o.Method != payUSDT {
+		return nil
+	}
+	n, ok := s.usdtNetFor(chain)
+	if !ok {
+		return errors.New("这个 USDT 网络暂不可用")
+	}
+	o.Chain = n.ID
+	return nil
+}
+
 // uniqueUSDTAmount adds 0.0001–0.0500 to the price so each recent
-// USDT order has its own amount: a transfer is matched to its order by
-// amount alone.
-func (s *Server) uniqueUSDTAmount(price float64, now time.Time) (string, error) {
+// USDT order on a network has its own amount: a transfer is matched to its
+// order by amount alone.
+func (s *Server) uniqueUSDTAmount(price float64, chain string, now time.Time) (string, error) {
 	var used []string
-	s.st.DB.Model(&store.Order{}).Where("method = ? AND status IN ? AND created_at > ?", payUSDT, unpaidStatuses, now.Add(-usdtLookback)).
-		Pluck("amount", &used)
+	q := s.st.DB.Model(&store.Order{}).Where("method = ? AND status IN ? AND created_at > ?", payUSDT, unpaidStatuses, now.Add(-usdtLookback))
+	if chain == "tron" || chain == "" {
+		q = q.Where("chain IN ?", []string{"", "tron"})
+	} else {
+		q = q.Where("chain = ?", chain)
+	}
+	q.Pluck("amount", &used)
 	base := int64(math.Round(price * 1e4))
 	for range 50 {
 		n, _ := rand.Int(rand.Reader, big.NewInt(500)) // at most 0.05 USDT over the price
@@ -596,7 +619,7 @@ func (s *Server) ordersToday() (n int, revenue map[string]float64) {
 // shopStatus tells the admin UI what is set up.
 func (s *Server) shopStatus() gin.H {
 	return gin.H{"enabled": s.shopOn(), "stars": s.starsOn(), "epay": s.epayOn(), "usdt": s.usdtOn(), "bot": s.tg.username(),
-		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "returnUrl": s.epayReturnURL(), "publicUrl": s.cfg.PublicURL != "", "payments": s.payments(), "webShop": s.webShopOn(), "webShopUrl": s.panelBase() + shopWebPath, "portal": s.portalEnabled()}
+		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "returnUrl": s.epayReturnURL(), "publicUrl": s.cfg.PublicURL != "", "usdtChains": s.usdtChainIDs(), "payments": s.payments(), "webShop": s.webShopOn(), "webShopUrl": s.panelBase() + shopWebPath, "portal": s.portalEnabled()}
 }
 
 // fulfilOrder is POST /orders/:id/fulfil: the admin confirms a payment the

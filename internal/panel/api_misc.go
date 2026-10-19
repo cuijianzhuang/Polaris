@@ -108,7 +108,8 @@ var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "g
 // needs a recent re-verification (secrets only when a new value is set).
 var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true, "audit_changes": true,
 	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true,
-	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true} // where payments go
+	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,
+	"shop_usdt_rpc_bsc": true, "shop_usdt_rpc_polygon": true, "shop_usdt_rpc_arbitrum": true} // where payments go, and who confirms them
 
 var editableSettings = map[string]bool{
 	"site_title": true, "reality_scan_candidates": true, "expire_warn_days": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
@@ -129,7 +130,8 @@ var editableSettings = map[string]bool{
 	"auto_update": true, "auto_update_hour": true,
 	"shop_enabled": true, "shop_web_enabled": true, "shop_auto_create": true, "shop_user_prefix": true, "shop_order_minutes": true, "shop_stars": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_epay_key": true, "shop_epay_types": true,
-	"shop_usdt_address": true, "shop_usdt_apikey": true, "shop_terms": true, "shop_support": true,
+	"shop_usdt_address": true, "shop_usdt_apikey": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,
+	"shop_usdt_rpc_bsc": true, "shop_usdt_rpc_polygon": true, "shop_usdt_rpc_arbitrum": true, "shop_terms": true, "shop_support": true,
 	"ddns_auto_provider": true, "ddns_auto_zone": true, "ddns_auto_family": true, "ddns_auto_address": true,
 }
 
@@ -198,6 +200,10 @@ func (s *Server) putSettings(c *gin.Context) {
 			badRequest(c, errors.New("你正通过这个域名打开后台；设为订阅域名后它只开放订阅，后台会打不开。请用后台地址访问后再设置，或关闭「订阅域名只开放订阅」"))
 			return
 		}
+	}
+	if err := validUSDTSettings(req); err != nil {
+		badRequest(c, err)
+		return
 	}
 	var keys []string
 	for k, v := range req {

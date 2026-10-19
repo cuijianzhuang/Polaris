@@ -259,7 +259,7 @@ func (b *tgBot) planCard(id tgIdentity, planID string) (string, [][]button) {
 			}
 		}
 		if _, _, ok := b.s.orderPrice(&p, payUSDT); ok {
-			rows = append(rows, []button{{Text: "💲 USDT (TRC20) " + strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64), Data: "s:m:" + p.ID + ":" + payUSDT}})
+			rows = append(rows, b.s.usdtButtons("s:m:"+p.ID, p.PriceUSDT)...)
 		}
 	}
 	if len(rows) == 0 {
@@ -299,16 +299,16 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 		if id.user != nil {
 			userID = id.user.ID
 		}
-		o, err := b.s.newOrder(chat, tgName(from), userID, parts[2], parts[3])
+		typ := ""
+		if len(parts) > 4 {
+			typ = parts[4]
+		}
+		o, err := b.s.newOrderFor(shopBuyer{TGID: chat, TGName: tgName(from), UserID: userID}, parts[2], parts[3], usdtChainArg(parts[3], typ))
 		if err != nil {
 			answer(err.Error())
 			return
 		}
 		answer("")
-		typ := ""
-		if len(parts) > 4 {
-			typ = parts[4]
-		}
 		b.sendPayment(ctx, chat, msg, o, typ)
 	case "k": // traffic pack card
 		text, rows := b.packCard(id, parts[2])
@@ -319,16 +319,16 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			answer("")
 			return
 		}
-		o, err := b.s.newPackOrder(chat, tgName(from), id.user, parts[2], parts[3])
+		typ := ""
+		if len(parts) > 4 {
+			typ = parts[4]
+		}
+		o, err := b.s.newPackOrderFor(shopBuyer{TGID: chat, TGName: tgName(from)}, id.user, parts[2], parts[3], usdtChainArg(parts[3], typ))
 		if err != nil {
 			answer(err.Error())
 			return
 		}
 		answer("")
-		typ := ""
-		if len(parts) > 4 {
-			typ = parts[4]
-		}
 		b.sendPayment(ctx, chat, msg, o, typ)
 	case "q":
 		var o store.Order
@@ -510,7 +510,31 @@ func (b *tgBot) packCard(id tgIdentity, packID string) (string, [][]button) {
 		}
 	}
 	if _, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payUSDT); ok {
-		rows = append(rows, []button{{Text: "💲 USDT (TRC20) " + strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64), Data: "s:n:" + p.ID + ":" + payUSDT}})
+		rows = append(rows, b.s.usdtButtons("s:n:"+p.ID, p.PriceUSDT)...)
 	}
 	return text, append(rows, back...)
+}
+
+// usdtChainArg is the USDT network in a buy callback's type slot.
+func usdtChainArg(method, typ string) string {
+	if method == payUSDT {
+		return typ
+	}
+	return ""
+}
+
+// usdtButtons is one USDT button per network that takes orders, two to a row.
+func (s *Server) usdtButtons(prefix string, price float64) [][]button {
+	var rows [][]button
+	var row []button
+	for _, n := range s.usdtNetsOn() {
+		row = append(row, button{Text: "💲 USDT · " + n.Short + " " + strconv.FormatFloat(price, 'f', -1, 64), Data: prefix + ":" + payUSDT + ":" + n.ID})
+		if len(row) == 2 {
+			rows, row = append(rows, row), nil
+		}
+	}
+	if row != nil {
+		rows = append(rows, row)
+	}
+	return rows
 }
