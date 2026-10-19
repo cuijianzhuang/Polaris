@@ -246,6 +246,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/orders/:id/fulfil", s.requireSudo, s.fulfilOrder)
 	p.POST("/orders/:id/refund", s.requireSudo, s.refundOrder)
 	p.POST("/orders/:id/cancel", s.adminCancelOrder)
+	p.DELETE("/orders", s.deleteOrders)
 	p.GET("/redeem-codes", s.listCodes)
 	p.POST("/redeem-codes", s.createCodes)
 	p.DELETE("/redeem-codes", s.deleteCodes)

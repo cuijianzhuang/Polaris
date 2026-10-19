@@ -952,6 +952,7 @@ type Order struct {
 	Chain      string     `gorm:"size:16" json:"chain"`   // USDT network (tron, bsc, polygon, arbitrum; "" = tron)
 	WebKey     string     `gorm:"size:64;index" json:"-"` // web shop: hash of the buyer's browser key
 	Web        bool       `gorm:"-" json:"web"`           // bought in the web shop (set by listOrders)
+	Deletable  bool       `gorm:"-" json:"deletable"`     // the admin may delete it (set by listOrders)
 }
 
 // RedeemCode is a prepaid code for a plan or a traffic pack, sold
