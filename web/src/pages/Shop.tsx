@@ -168,7 +168,7 @@ function Codes() {
           <Field label={t('兑换内容')}>
             <div className="seg">
               <button type="button" className={'opt' + (gen.kind === 'plan' ? ' on' : '')} onClick={() => setGen({ ...gen, kind: 'plan' })}>{t('套餐')}<small>{t('开通或续费套餐，没有账号会自动创建')}</small></button>
-              <button type="button" className={'opt' + (gen.kind === 'pack' ? ' on' : '')} disabled={!packs.data?.licensed} onClick={() => setGen({ ...gen, kind: 'pack' })}>{t('流量包')} <ProTag on={!!packs.data?.licensed} /><small>{t('给已有账号加本周期流量')}</small></button>
+              <button type="button" className={'opt' + (gen.kind === 'pack' ? ' on' : '')} disabled={packs.data?.licensed === false} onClick={() => setGen({ ...gen, kind: 'pack' })}>{t('流量包')} <ProTag on={packs.data?.licensed !== false} /><small>{t('给已有账号加本周期流量')}</small></button>
             </div>
           </Field>
           {gen.kind === 'plan' && plans.data?.length === 0 && <div className="note">{t('还没有套餐，请先新建套餐。')}</div>}
@@ -212,7 +212,7 @@ function Packs() {
   const [edit, setEdit] = useState<PackEdit | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
-  const ok = !!list.data?.licensed
+  const ok = list.data?.licensed !== false // locked only once the server says so: no lock flash while loading
   const pname = (id: string) => plans.data?.find((p) => p.id === id)?.name ?? id
   const price = (p: TrafficPack) => [p.priceCny ? `¥${p.priceCny}` : '', p.priceStars ? `${p.priceStars} ⭐` : '', p.priceUsdt ? `${p.priceUsdt} USDT` : ''].filter(Boolean).join(' · ') || '—'
   return (
