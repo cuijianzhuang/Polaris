@@ -53,7 +53,7 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 .tag{white-space:nowrap;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--bg);color:var(--mute)}
 .who{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
 </style></head><body><main>
-{{if .Portal}}<div class="who"><span>👤 已通过 Telegram 登录</span><span class="sp"></span><button class="btn sm" type="button" data-portal="reset">重置订阅链接</button><button class="btn sm" type="button" data-portal="logout">退出</button></div>{{end}}
+{{if .Portal}}<div class="who"><span>👤 已通过 Telegram 登录</span><span class="sp"></span>{{if .Rename}}<button class="btn sm" type="button" data-portal="rename">修改用户名</button>{{end}}<button class="btn sm" type="button" data-portal="reset">重置订阅链接</button><button class="btn sm" type="button" data-portal="logout">退出</button></div>{{end}}
 {{if .Announce}}<section class="note" role="note">📢 {{.Announce}}</section>{{end}}
 <section class="card">
 <div class="row"><h1>{{.Title}}</h1><span class="sp"></span>{{if .Status}}<span class="st {{.Status}}">{{.StatusLabel}}</span>{{end}}</div>
@@ -100,8 +100,10 @@ function copyText(t){if(navigator.clipboard&&window.isSecureContext){return navi
 document.addEventListener('click',function(e){var b=e.target.closest('[data-copy]');if(!b)return;e.preventDefault();var t=b.getAttribute('data-copy'),l=b.textContent;
 copyText(t).then(function(){b.textContent='已复制';setTimeout(function(){b.textContent=l},1500)},function(){prompt('复制以下内容',t)})});
 {{if .Portal}}document.addEventListener('click',function(e){var b=e.target.closest('[data-portal]');if(!b)return;var a=b.getAttribute('data-portal');
-if(a==='reset'&&!confirm('重置后旧订阅链接和已导入的节点立即失效，所有客户端都需要重新导入。确定重置？'))return;b.disabled=true;
-fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1'},credentials:'same-origin'}).then(function(r){if(!r.ok)throw 0;location.replace('/u')}).catch(function(){b.disabled=false;alert('操作失败，请刷新后重试')})});{{end}}
+if(a==='reset'&&!confirm('重置后旧订阅链接和已导入的节点立即失效，所有客户端都需要重新导入。确定重置？'))return;
+var body=null;if(a==='rename'){var n=prompt('新用户名（3–32 位字母、数字或 _ . -，7 天内只能改一次；订阅链接不受影响）',{{.Username}});if(n===null||!n.trim())return;body=JSON.stringify({username:n.trim()})}
+b.disabled=true;
+fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:body,credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'');location.replace('/u')})}).catch(function(e){b.disabled=false;alert(e.message||'操作失败，请刷新后重试')})});{{end}}
 </script></body></html>`))
 
 type pageClient struct {
@@ -167,7 +169,7 @@ func RenderPage(info Info) ([]byte, error) {
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": ExpiryLeft(info), "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,
-		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
+		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "Rename": info.Portal && info.Rename, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
 		"Clients": clientLinks(info), "Links": links, "Chart": chart, "ChartMax": max, "ChartDays": len(info.Daily),
 	}

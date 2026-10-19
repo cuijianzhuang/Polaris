@@ -325,6 +325,7 @@ func (b *tgBot) registerCommands(ctx context.Context) {
 		{"command": "buy", "description": "🛒 购买套餐"}, {"command": "redeem", "description": "🎟 兑换码 /redeem 码"},
 		{"command": "orders", "description": "📋 我的订单"}, {"command": "terms", "description": "📄 购买条款"}, {"command": "paysupport", "description": "💬 支付与售后"},
 		{"command": "sub", "description": "🔗 订阅链接与二维码"}, {"command": "nodes", "description": "🌐 节点"},
+		{"command": "rename", "description": "✏️ 修改用户名 /rename 新用户名"},
 		{"command": "status", "description": "📈 概览（管理员）"}, {"command": "users", "description": "👥 用户（管理员）"},
 		{"command": "traffic", "description": "🏆 今日排行（管理员）"}, {"command": "login", "description": "🛠 登录管理后台（管理员）"},
 		{"command": "update", "description": "⬆️ 版本更新（管理员）"},
@@ -448,6 +449,21 @@ func (b *tgBot) handle(u tgUpdate) {
 		b.send(chat, fmt.Sprintf("Chat ID：<code>%d</code>\n%s", chat, b.roleLine(id)))
 	case "/bind":
 		b.bind(chat, u.Message.From, arg, id)
+	case "/rename":
+		if id.user == nil {
+			text, rows := b.view("bindhelp", "", id)
+			b.send(chat, text, rows...)
+			return
+		}
+		if arg == "" {
+			b.send(chat, b.renameView(id.user), backRow("v:me"))
+			return
+		}
+		if err := b.s.renameSelf(id.user, arg, "tg"); err != nil {
+			b.send(chat, "❌ "+esc(err.Error()), []button{{Text: "✏️ 修改说明", Data: "v:rename"}}, backRow("v:me"))
+			return
+		}
+		b.send(chat, "✅ 用户名已改为 <b>"+esc(id.user.Username)+"</b>\n订阅链接和节点不受影响，无需重新导入。\n\n"+b.userCard(id.user), b.userButtons(id.user)...)
 	case "/unbind":
 		if id.user != nil {
 			b.s.st.DB.Model(&store.User{}).Where("id = ?", id.user.ID).Update("telegram_id", 0)
@@ -461,7 +477,7 @@ func (b *tgBot) handle(u tgUpdate) {
 			b.send(chat, text, rows...)
 			return
 		}
-		b.send(chat, b.userCard(id.user), userButtons()...)
+		b.send(chat, b.userCard(id.user), b.userButtons(id.user)...)
 	case "/sub":
 		if id.user == nil {
 			text, rows := b.view("bindhelp", "", id)
@@ -558,7 +574,7 @@ func (b *tgBot) bind(chat int64, from tgUser, arg string, id tgIdentity) {
 	b.s.st.DB.Model(u).Update("telegram_id", chat)
 	b.s.audit("telegram", "tg.user_bind", u.Username, fmt.Sprintf("chat %d", chat), "")
 	u.TelegramID = chat
-	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(u), userButtons()...)
+	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(u), b.userButtons(u)...)
 }
 
 // --- user views ---
@@ -594,7 +610,7 @@ func tgAdvanced(parts []string) bool {
 			return false
 		}
 		switch parts[1] {
-		case "", "me", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders", "packs", "unpaid":
+		case "", "me", "rename", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders", "packs", "unpaid":
 			return false
 		}
 	}
@@ -626,7 +642,7 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string, from tgUse
 		}
 		switch parts[1] {
 		case "card":
-			b.edit(chat, msg, b.userCard(id.user), userButtons()...)
+			b.edit(chat, msg, b.userCard(id.user), b.userButtons(id.user)...)
 		case "sub":
 			b.sendSub(chat, id.user)
 		case "nodes":

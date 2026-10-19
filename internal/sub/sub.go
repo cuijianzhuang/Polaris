@@ -70,6 +70,8 @@ type Info struct {
 	// Portal renders the page as the signed-in user center (reset link and
 	// sign-out actions instead of the bot binding button).
 	Portal bool
+	// Rename offers the signed-in user a username change (Portal pages only).
+	Rename bool
 	// Extras are links plugins add to the user center (Portal pages only).
 	Extras []ExtraLink
 	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").

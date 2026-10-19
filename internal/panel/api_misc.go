@@ -128,7 +128,7 @@ var editableSettings = map[string]bool{
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
 	"auto_update": true, "auto_update_hour": true,
-	"shop_enabled": true, "shop_web_enabled": true, "shop_auto_create": true, "shop_user_prefix": true, "shop_order_minutes": true, "shop_stars": true,
+	"shop_enabled": true, "shop_web_enabled": true, "shop_auto_create": true, "shop_user_rename": true, "shop_user_prefix": true, "shop_order_minutes": true, "shop_stars": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_epay_key": true, "shop_epay_types": true,
 	"shop_epay_enabled": true, "shop_usdt_enabled": true, "shop_code_enabled": true, "shop_epay_disabled_types": true,
 	"shop_usdt_address": true, "shop_usdt_apikey": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,

@@ -125,6 +125,7 @@ func (s *Server) portalPage(c *gin.Context) {
 	s.pageExtras(&info, u, nodes)
 	info.BotURL = "" // already bound: that is how they signed in
 	info.Portal = true
+	info.Rename = u.SelfService && s.selfRenameOn()
 	if s.webShopOn() {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
 	}
@@ -211,6 +212,31 @@ func (s *Server) portalReset(c *gin.Context) {
 	}
 	s.setPortalCookie(c, tok, int(portalSessionTTL.Seconds()))
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// portalRename: POST /u/rename {username} — buyers whose account the shop
+// created pick their own username.
+func (s *Server) portalRename(c *gin.Context) {
+	if !portalWrite(c) {
+		return
+	}
+	u := s.portalUser(c)
+	if u == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请重新登录"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	if err := s.renameSelf(u, req.Username, "portal"); err != nil {
+		badRequest(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "username": u.Username})
 }
 
 // portalLoginPrompt answers /start ulogin_<id>.

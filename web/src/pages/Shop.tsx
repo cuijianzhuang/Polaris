@@ -285,8 +285,8 @@ function Packs() {
 
 function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => void }) {
   const settings = useLoad(() => get<Record<string, any>>('/settings'))
-  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_enabled', 'shop_usdt_enabled', 'shop_code_enabled', 'shop_epay_disabled_types', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_usdt_evm_address', 'shop_usdt_chains', 'shop_usdt_rpc_bsc', 'shop_usdt_rpc_polygon', 'shop_usdt_rpc_arbitrum', 'shop_terms', 'shop_support'] as const
-  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_enabled: 'true', shop_usdt_enabled: 'true', shop_code_enabled: 'true', shop_epay_disabled_types: '[]', shop_epay_types: 'alipay,wxpay', shop_usdt_chains: 'tron' }
+  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_rename', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_enabled', 'shop_usdt_enabled', 'shop_code_enabled', 'shop_epay_disabled_types', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_usdt_evm_address', 'shop_usdt_chains', 'shop_usdt_rpc_bsc', 'shop_usdt_rpc_polygon', 'shop_usdt_rpc_arbitrum', 'shop_terms', 'shop_support'] as const
+  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_rename: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_enabled: 'true', shop_usdt_enabled: 'true', shop_code_enabled: 'true', shop_epay_disabled_types: '[]', shop_epay_types: 'alipay,wxpay', shop_usdt_chains: 'tron' }
   const [f, setF] = useState<Record<string, string>>({})
   const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
   const payOK = useFeature('shop_payments')
@@ -320,6 +320,7 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
           ? <div className="note warn">{t('网页商店需要先在「订阅设置」里开启用户中心。')}</div>
           : status?.webShopUrl && <Field label={t('网页商店地址')}><CopyBox text={status.webShopUrl} /></Field>)}
         <div className="toggle"><span>{t('没有账号的 Telegram 用户付款后自动创建账号并绑定')}</span><Switch label={t('自动建号')} on={sw('shop_auto_create')} onChange={(v) => set('shop_auto_create', String(v))} /></div>
+        <div className="toggle"><span>{t('允许购买时自动创建的账号自己修改用户名（机器人 /rename 或用户中心，7 天一次；订阅链接不变）')}</span><Switch label={t('自助改名')} on={sw('shop_user_rename')} onChange={(v) => set('shop_user_rename', String(v))} /></div>
         <div className="form-grid">
           <Field label={t('新账号用户名前缀')} htmlFor="s-prefix" hint={t('用户名为 前缀 + Telegram ID')}><input id="s-prefix" className="input mono" value={f.shop_user_prefix ?? ''} onChange={(e) => set('shop_user_prefix', e.target.value)} /></Field>
           <Field label={t('订单有效时间（分钟）')} htmlFor="s-ttl" hint={t('超时未付款的订单关闭；之后到账的付款仍会自动开通')}><input id="s-ttl" className="input mono" inputMode="numeric" value={f.shop_order_minutes ?? ''} onChange={(e) => set('shop_order_minutes', e.target.value)} /></Field>
