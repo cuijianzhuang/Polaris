@@ -121,3 +121,32 @@ func TestOrdersEmpty(t *testing.T) {
 		}
 	}
 }
+
+// TestPayReturn: payment gateways send the buyer back to the panel's own
+// domain (the one authorized with them), which forwards to the bot.
+func TestPayReturn(t *testing.T) {
+	s, srv, _ := newAdminClient(t)
+	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := noRedirect.Get(srv.URL + epayReturnPath + "?out_trade_no=x&trade_status=TRADE_SUCCESS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("without a bot: %d", resp.StatusCode)
+	}
+	s.tg.mu.Lock()
+	s.tg.me = "polaris_bot"
+	s.tg.mu.Unlock()
+	resp, err = noRedirect.Get(srv.URL + epayReturnPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "https://t.me/polaris_bot" {
+		t.Fatalf("with a bot: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	if !strings.HasSuffix(s.epayReturnURL(), epayReturnPath) {
+		t.Fatal(s.epayReturnURL())
+	}
+}

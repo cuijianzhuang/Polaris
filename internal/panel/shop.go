@@ -47,12 +47,28 @@ var unpaidStatuses = []string{"pending", "expired", "cancelled"}
 
 const (
 	epayNotifyPath = "/pay/epay/notify"
+	epayReturnPath = "/pay/return"
 	// usdtLookback is how long a USDT order's amount stays reserved and late
 	// transfers are still matched.
 	usdtLookback = 3 * time.Hour
 )
 
 func (s *Server) epayNotifyURL() string { return s.panelBase() + epayNotifyPath }
+
+// epayReturnURL is where a payment gateway sends the buyer back: a page on
+// the panel's own domain (the one authorized with the gateway), which then
+// opens the bot.
+func (s *Server) epayReturnURL() string { return s.panelBase() + epayReturnPath }
+
+// payReturn is GET /pay/return: back from the payment page to the bot.
+func (s *Server) payReturn(c *gin.Context) {
+	if bot := s.tg.username(); bot != "" {
+		c.Redirect(http.StatusFound, "https://t.me/"+bot)
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">`+
+		`<title>支付完成</title><p style="font:16px sans-serif;text-align:center;margin-top:30vh">支付完成，请回到 Telegram 查看开通结果。</p>`))
+}
 
 var (
 	errShopClosed = errors.New("商店未开启")
@@ -526,7 +542,7 @@ func (s *Server) ordersToday() (n int, revenue map[string]float64) {
 // shopStatus tells the admin UI what is set up.
 func (s *Server) shopStatus() gin.H {
 	return gin.H{"enabled": s.shopOn(), "stars": s.starsOn(), "epay": s.epayOn(), "usdt": s.usdtOn(), "bot": s.tg.username(),
-		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "publicUrl": s.cfg.PublicURL != "", "payments": s.payments()}
+		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "returnUrl": s.epayReturnURL(), "publicUrl": s.cfg.PublicURL != "", "payments": s.payments()}
 }
 
 // fulfilOrder is POST /orders/:id/fulfil: the admin confirms a payment the
