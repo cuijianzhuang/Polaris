@@ -32,7 +32,8 @@ type Config struct {
 		DSN   string `koanf:"dsn"`
 		Debug bool   `koanf:"debug"`
 	} `koanf:"db"`
-	// RedisURL is ignored: unsettled traffic now lives in the database.
+	// RedisURL (optional) shares online IPs, rate limits and alert
+	// de-duplication between panel instances. Traffic billing never uses it.
 	RedisURL string `koanf:"redis_url"`
 	// SecretKey encrypts sensitive columns and signs JWTs. Required.
 	SecretKey string `koanf:"secret_key"`

@@ -243,7 +243,7 @@ func (s *Server) webShopBuy(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	if !webShopLimit(c) {
+	if !s.webShopLimit(c) {
 		return
 	}
 	u := s.portalUser(c)
@@ -320,7 +320,7 @@ func (s *Server) webShopRedeem(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	if !webShopLimit(c) {
+	if !s.webShopLimit(c) {
 		return
 	}
 	b, ok := s.shopBuyerOf(c, s.portalUser(c))
@@ -336,12 +336,10 @@ func (s *Server) webShopRedeem(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"id": o.ID, "url": shopWebPath + "/order/" + o.ID})
 }
 
-// webShopLimiter slows down guessing redeem codes and order spam from one
+// webShopLimit slows down guessing redeem codes and order spam from one
 // address.
-var webShopLimiter = newIPLimiter(10)
-
-func webShopLimit(c *gin.Context) bool {
-	if !webShopLimiter.Allow(clientIP(c.Request)) {
+func (s *Server) webShopLimit(c *gin.Context) bool {
+	if !s.shopLimit.Allow(clientIP(c.Request)) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "操作太频繁，请稍后再试"})
 		return false
 	}
