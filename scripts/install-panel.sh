@@ -56,7 +56,10 @@ BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 DB_CHOICE="" REDIS_CHOICE="" DB_DSN="" REDIS_URL=""
 # A PostgreSQL on this server, reached over its Unix socket as the polaris
 # system user (peer authentication: no password to keep).
-LOCAL_PG_DSN="postgresql://polaris@/polaris?host=/var/run/postgresql"
+# (postgresql://polaris@/polaris?host=SOCKET_DIR[&port=N]: setup_local_pg
+# writes the cluster's own socket directory and port, which Debian moves off
+# 5432 when that port is taken.)
+is_local_pg() { case "$1" in "postgresql://polaris@/polaris?host="*) return 0 ;; esac; return 1; }
 DB_DROPIN=/etc/systemd/system/polaris.service.d/database.conf
 
 shopt -s extglob
@@ -294,7 +297,7 @@ choose_database() {
 db_label() { # DSN -> what the user sees
   case "$1" in
     "") echo "SQLite" ;;
-    "$LOCAL_PG_DSN") echo "PostgreSQL（本机）" ;;
+    "postgresql://polaris@/polaris?host="*) echo "PostgreSQL（本机）" ;;
     *) echo "PostgreSQL（$(printf '%s' "$1" | sed -E 's#^[a-z]+://([^@/]*@)?##; s#[/?].*##; s#^.*host=([^ ]*).*#\1#')）" ;;
   esac
 }
@@ -308,7 +311,7 @@ pkg_install() { # packages...
   else return 1; fi
 }
 
-pg_su() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 "$@"; }
+pg_su() { (cd / && runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 "$@"); }
 
 # setup_local_pg installs PostgreSQL on this server if needed and creates the
 # polaris role and database (owned by it, peer authentication).
@@ -326,14 +329,34 @@ setup_local_pg() {
   systemctl enable --now postgresql >/dev/null 2>&1 || true
   local i
   for i in $(seq 1 20); do
-    runuser -u postgres -- psql -X -tAc 'SELECT 1' >/dev/null 2>&1 && break
+    pg_su -tAc 'SELECT 1' >/dev/null 2>&1 && break
     [ "$i" = 20 ] && die "PostgreSQL 未能启动（systemctl status postgresql 查看）"
     sleep 1
   done
   id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
   [ "$(pg_su -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'polaris'")" = 1 ] || pg_su -c "CREATE ROLE polaris LOGIN"
-  [ "$(pg_su -tAc "SELECT 1 FROM pg_database WHERE datname = 'polaris'")" = 1 ] || runuser -u postgres -- createdb -O polaris polaris
-  DB_DSN="$LOCAL_PG_DSN"
+  # UTF8 whatever the server's locale: a cluster made under LANG=C defaults to
+  # SQL_ASCII, which the panel cannot use. An empty database from an earlier
+  # attempt with another encoding is recreated.
+  local enc
+  enc="$(pg_su -tAc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = 'polaris'")"
+  if [ -n "$enc" ] && [ "$enc" != UTF8 ]; then
+    if [ "$(pg_su -d polaris -tAc "SELECT to_regclass('public.admins') IS NOT NULL")" = t ]; then
+      die "本机数据库 polaris 的编码是 $enc（需要 UTF8）且已有数据：请先备份并删除它（sudo -u postgres dropdb polaris）后重试"
+    fi
+    pg_su -c "DROP DATABASE polaris"
+    enc=""
+  fi
+  [ -n "$enc" ] || pg_su -c "CREATE DATABASE polaris OWNER polaris ENCODING 'UTF8' TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'"
+  # The cluster's real socket directory and port: psql finds a cluster on
+  # another port by itself (Debian's wrapper), the panel does not.
+  local port sock
+  port="$(pg_su -tAc 'SHOW port')"
+  sock="$(pg_su -tAc 'SHOW unix_socket_directories' | cut -d, -f1 | tr -d ' ')"
+  [[ "$port" =~ ^[0-9]+$ ]] || die "无法读取 PostgreSQL 端口"
+  case "$sock" in /*) ;; *) sock=/var/run/postgresql ;; esac
+  DB_DSN="postgresql://polaris@/polaris?host=$sock"
+  [ "$port" = 5432 ] || DB_DSN="$DB_DSN&port=$port"
   ok "数据库 polaris（本机，Unix socket 免密码连接）"
 }
 
@@ -342,8 +365,17 @@ setup_local_pg() {
 check_pg_target() { # dsn fresh(0/1)
   command -v psql >/dev/null || { dim "  未安装 psql，跳过连接检查（启动时检查）"; return 0; }
   local q=(psql -X -tA "$1")
-  [ "$1" = "$LOCAL_PG_DSN" ] && q=(runuser -u polaris -- psql -X -tA "$1")
+  # A local database is reached as the polaris user (peer authentication),
+  # with the port pinned so psql cannot pick another cluster.
+  if is_local_pg "$1"; then
+    local port
+    port="$(printf '%s' "$1" | sed -n 's/.*[?&]port=\([0-9]*\).*/\1/p')"
+    q=(env -C / PGPORT="${port:-5432}" runuser -u polaris -- psql -X -tA "$1")
+  fi
   "${q[@]}" -c 'SELECT 1' >/dev/null 2>&1 || die "无法连接数据库：$(db_label "$1")，请检查地址、账号和网络"
+  local enc
+  enc="$("${q[@]}" -c "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()" 2>/dev/null)"
+  [ -z "$enc" ] || [ "$enc" = UTF8 ] || die "数据库编码是 $enc，需要 UTF8：请用 CREATE DATABASE … ENCODING 'UTF8' TEMPLATE template0 重新建库"
   if [ "$2" = 1 ] && [ "$("${q[@]}" -c "SELECT to_regclass('admins') IS NOT NULL" 2>/dev/null)" = t ]; then
     die "数据库里已有 Polaris 数据（可能来自之前的安装，用的是另一把密钥）。请换一个空数据库，或先清空它"
   fi
@@ -362,7 +394,7 @@ setup_local_redis() {
 
 # db_dropin starts the panel after a database or Redis on this server.
 db_dropin() {
-  if [ "$(env_get POLARIS_DB_DSN)" = "$LOCAL_PG_DSN" ] || [ "$(env_get POLARIS_REDIS_URL)" = "redis://127.0.0.1:6379/0" ]; then
+  if is_local_pg "$(env_get POLARIS_DB_DSN)" || [ "$(env_get POLARIS_REDIS_URL)" = "redis://127.0.0.1:6379/0" ]; then
     mkdir -p "${DB_DROPIN%/*}"
     printf '[Unit]\nAfter=postgresql.service redis-server.service redis.service\n' > "$DB_DROPIN"
   else
@@ -1153,8 +1185,8 @@ do_uninstall() {
   systemctl daemon-reload
   if [ "$PURGE" = 1 ]; then
     warn "删除配置与数据：$ETC $DATA"
-    if [ "$(env_get POLARIS_DB_DSN)" = "$LOCAL_PG_DSN" ] && command -v psql >/dev/null; then
-      runuser -u postgres -- dropdb --if-exists polaris 2>/dev/null && runuser -u postgres -- dropuser --if-exists polaris 2>/dev/null \
+    if is_local_pg "$(env_get POLARIS_DB_DSN)" && command -v psql >/dev/null; then
+      pg_su -c "DROP DATABASE IF EXISTS polaris" 2>/dev/null && pg_su -c "DROP ROLE IF EXISTS polaris" 2>/dev/null \
         && warn "已删除本机 PostgreSQL 数据库 polaris（PostgreSQL 本身保留）"
     elif [ -n "$(env_get POLARIS_DB_DSN)" ]; then
       warn "外部数据库 $(db_label "$(env_get POLARIS_DB_DSN)") 中的数据未删除"
