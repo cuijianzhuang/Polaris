@@ -390,11 +390,11 @@ func (s *Server) deleteSubTemplate(c *gin.Context) {
 func (s *Server) listAudit(c *gin.Context) {
 	q := s.st.DB.Order("id desc")
 	if v := c.Query("action"); v != "" {
-		q = q.Where("action LIKE ?", v+"%")
+		q = q.Where(s.st.Like("action LIKE ?"), v+"%")
 	}
 	if v := c.Query("q"); v != "" {
 		like := "%" + v + "%"
-		q = q.Where("target LIKE ? OR detail LIKE ? OR admin LIKE ?", like, like, like)
+		q = q.Where(s.st.Like("target LIKE ? OR detail LIKE ? OR admin LIKE ?"), like, like, like)
 	}
 	var total int64
 	q.Model(&store.AuditLog{}).Count(&total)

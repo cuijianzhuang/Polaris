@@ -166,6 +166,9 @@ func TestBackupRestore(t *testing.T) {
 // TestLegacyBackupRestore: a format-1 backup (a bare SQLite file) still restores.
 func TestLegacyBackupRestore(t *testing.T) {
 	s, _, _ := newAdminClient(t)
+	if s.st.DB.Dialector.Name() != "sqlite" {
+		t.Skip("format-1 backups are SQLite database files")
+	}
 	s.st.DB.Create(&store.User{ID: "u1", Username: "legacy", UUID: "22222222-2222-2222-2222-222222222222", Password: "p", Status: "active", SubToken: "t2"})
 	db := filepath.Join(t.TempDir(), "old.db")
 	if err := s.st.DB.Exec("VACUUM INTO ?", db).Error; err != nil {

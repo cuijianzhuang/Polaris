@@ -8,6 +8,18 @@ on:
 jobs:
   go:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: polaris
+          POSTGRES_PASSWORD: polaris
+          POSTGRES_DB: polaris
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U polaris" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      POLARIS_TEST_POSTGRES_DSN: postgres://polaris:polaris@127.0.0.1:5432/polaris?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -36,6 +48,10 @@ jobs:
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_GOST_BIN: /tmp/cores/gost/gost
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
+      - name: Panel tests on PostgreSQL
+        run: go test -count=1 ./internal/panel/
+        env:
+          POLARIS_TEST_ALL_POSTGRES: '1'
       - name: Professional edition (polaris-pro sources, when PRO_TOKEN is available)
         env:
           PRO_TOKEN: ${{ secrets.PRO_TOKEN }}

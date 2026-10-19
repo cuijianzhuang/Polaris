@@ -250,6 +250,9 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 	s.shopMu.Lock()
 	defer s.shopMu.Unlock()
 	now := time.Now()
+	// PostgreSQL keeps microseconds: the returned order must equal what a
+	// later read of it gives.
+	o.CreatedAt, o.ExpiresAt = o.CreatedAt.Truncate(time.Microsecond), o.ExpiresAt.Truncate(time.Microsecond)
 	if o.Method == payStars {
 		var existing store.Order
 		err := s.st.DB.Where("telegram_id = ? AND user_id = ? AND plan_id = ? AND pack_id = ? AND kind = ? AND method = ? AND amount = ? AND currency = ? AND status = ? AND expires_at > ?",
@@ -602,8 +605,8 @@ func (s *Server) listOrders(c *gin.Context) {
 	}
 	if v := strings.TrimSpace(c.Query("q")); v != "" {
 		like := "%" + v + "%"
-		q = q.Where("id = ? OR tg_name LIKE ? OR plan_name LIKE ? OR user_id IN (?)", v, like, like,
-			s.st.DB.Model(&store.User{}).Select("id").Where("username LIKE ?", like))
+		q = q.Where(s.st.Like("id = ? OR tg_name LIKE ? OR plan_name LIKE ? OR user_id IN (?)"), v, like, like,
+			s.st.DB.Model(&store.User{}).Select("id").Where(s.st.Like("username LIKE ?"), like))
 	}
 	var total int64
 	q.Count(&total)

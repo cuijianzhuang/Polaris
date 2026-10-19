@@ -34,6 +34,11 @@ func newTrafficServers(t *testing.T, pgDSN string) (*Server, *Server) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() {
+			if db, err := s.st.DB.DB(); err == nil {
+				db.Close()
+			}
+		})
 		return s
 	}
 	a := open()

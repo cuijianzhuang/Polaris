@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/crypto/scrypt"
 	"gorm.io/gorm"
@@ -132,7 +133,15 @@ func exportTable(db *gorm.DB, model any, emit func([]map[string]any) error) (int
 		return 0, err
 	}
 	typ := reflect.TypeOf(model).Elem()
-	order := strings.Join(sch.PrimaryFieldDBNames, ", ")
+	keys := sch.PrimaryFieldDBNames
+	if len(keys) == 0 { // e.g. tag_traffics: page in a stable order anyway
+		for _, f := range sch.Fields {
+			if f.DBName != "" {
+				keys = append(keys, f.DBName)
+			}
+		}
+	}
+	order := strings.Join(keys, ", ")
 	n := 0
 	for off := 0; ; off += exportBatch {
 		slice := reflect.New(reflect.SliceOf(typ))
@@ -234,21 +243,68 @@ func importAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string
 					}
 				}
 			}
-			for i := 0; i < len(rows); i += 100 {
-				batch := rows[i:min(i+100, len(rows))]
-				if err := tx.Model(m).Create(&batch).Error; err != nil {
-					return fmt.Errorf("写入 %s 失败: %w", sch.Table, err)
+			if _, err := insertRows(tx, m, sch, rows); err != nil {
+				return err
+			}
+		}
+		if err := resetSequences(tx, sch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// insertRows writes exported rows into tx. Text longer than a column's
+// size is cut to fit when the target enforces sizes (PostgreSQL; SQLite
+// never did); the cut columns are returned as "table.column".
+func insertRows(tx *gorm.DB, m any, sch *schema.Schema, rows []map[string]any) ([]string, error) {
+	var cut []string
+	if tx.Dialector.Name() == "postgres" {
+		seen := map[string]bool{}
+		for _, f := range sch.Fields {
+			if f.DBName == "" || f.Size <= 0 || f.DataType != schema.String {
+				continue
+			}
+			for _, r := range rows {
+				v, ok := r[f.DBName].(string)
+				if !ok || utf8.RuneCountInString(v) <= f.Size {
+					continue
+				}
+				if strings.Contains(v, "enc:v1:") {
+					return nil, fmt.Errorf("%s.%s: 加密内容超过列长度 %d，无法截断", sch.Table, f.DBName, f.Size)
+				}
+				r[f.DBName] = string([]rune(v)[:f.Size])
+				if !seen[f.DBName] {
+					seen[f.DBName] = true
+					cut = append(cut, sch.Table+"."+f.DBName)
 				}
 			}
 		}
-		// PostgreSQL: explicit ids leave the serial sequence behind.
-		if tx.Dialector.Name() == "postgres" {
-			for _, f := range sch.Fields {
-				if f.AutoIncrement && f.DBName != "" {
-					tx.Exec(fmt.Sprintf("SELECT setval(pg_get_serial_sequence('%s', '%s'), COALESCE((SELECT MAX(%s) FROM %s), 0) + 1, false)",
-						sch.Table, f.DBName, f.DBName, sch.Table))
-				}
-			}
+	}
+	for i := 0; i < len(rows); i += 100 {
+		batch := rows[i:min(i+100, len(rows))]
+		if err := tx.Model(m).Create(&batch).Error; err != nil {
+			return nil, fmt.Errorf("写入 %s 失败: %w", sch.Table, err)
+		}
+	}
+	return cut, nil
+}
+
+// resetSequences moves PostgreSQL serial sequences past the copied ids
+// (explicit ids leave them behind).
+func resetSequences(tx *gorm.DB, sch *schema.Schema) error {
+	if tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	for _, f := range sch.Fields {
+		if !f.AutoIncrement || f.DBName == "" {
+			continue
+		}
+		q := fmt.Sprintf(`SELECT setval(seq, COALESCE((SELECT MAX(%[2]s) FROM %[1]s), 0) + 1, false)
+			FROM (SELECT pg_get_serial_sequence(?, ?) AS seq) s WHERE seq IS NOT NULL`,
+			tx.Statement.Quote(sch.Table), tx.Statement.Quote(f.DBName))
+		if err := tx.Exec(q, sch.Table, f.DBName).Error; err != nil {
+			return fmt.Errorf("重置 %s 序列失败: %w", sch.Table, err)
 		}
 	}
 	return nil
