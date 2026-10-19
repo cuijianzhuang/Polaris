@@ -38,6 +38,7 @@ const (
 	kindPack = "pack" // Order.Kind of a traffic pack
 
 	maxPendingOrders = 5
+	maxWebPending    = 200 // open anonymous web shop orders, shop-wide
 )
 
 // unpaidStatuses are the order states a payment can still settle: a
@@ -62,6 +63,15 @@ func (s *Server) epayReturnURL() string { return s.panelBase() + epayReturnPath 
 
 // payReturn is GET /pay/return: back from the payment page to the bot.
 func (s *Server) payReturn(c *gin.Context) {
+	// Gateways append the order (out_trade_no) when they send the buyer back;
+	// a web shop order returns to its page instead of the bot.
+	if id := c.Query("out_trade_no"); id != "" && len(id) <= 64 {
+		var o store.Order
+		if s.st.DB.Select("id, web_key").First(&o, "id = ?", id).Error == nil && o.WebKey != "" {
+			c.Redirect(http.StatusFound, shopWebPath+"/order/"+o.ID)
+			return
+		}
+	}
 	if bot := s.tg.username(); bot != "" {
 		c.Redirect(http.StatusFound, "https://t.me/"+bot)
 		return
@@ -148,13 +158,25 @@ func (s *Server) priceFor(stars int, cny, usdt float64, method string) (amount, 
 	return "", "", false
 }
 
+// shopBuyer is who places an order: a Telegram chat, an account, or a web
+// shop browser (WebKey, the hash of its key) — any mix of them.
+type shopBuyer struct {
+	TGID           int64
+	TGName, UserID string
+	WebKey         string
+}
+
 // newOrder opens an order for a Telegram user. userID is the bound account
 // ("" = none yet).
 func (s *Server) newOrder(tgID int64, tgName, userID, planID, method string) (*store.Order, error) {
+	return s.newOrderFor(shopBuyer{TGID: tgID, TGName: tgName, UserID: userID}, planID, method)
+}
+
+func (s *Server) newOrderFor(b shopBuyer, planID, method string) (*store.Order, error) {
 	if !s.shopOn() {
 		return nil, errShopClosed
 	}
-	if userID == "" && !s.shopAutoCreate() {
+	if b.UserID == "" && !s.shopAutoCreate() {
 		return nil, errors.New("请先绑定账号再购买")
 	}
 	var p store.Group
@@ -166,7 +188,7 @@ func (s *Server) newOrder(tgID int64, tgName, userID, planID, method string) (*s
 		return nil, errors.New("这个套餐不支持该付款方式")
 	}
 	now := time.Now()
-	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, PlanID: p.ID, PlanName: p.Name,
+	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: b.UserID, WebKey: b.WebKey, PlanID: p.ID, PlanName: p.Name,
 		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
 	return s.openShopOrder(o, p.PriceUSDT)
 }
@@ -190,11 +212,26 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 		}
 	}
 	var pending int64
-	if err := s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", o.TelegramID, "pending", now).Count(&pending).Error; err != nil {
+	q := s.st.DB.Model(&store.Order{}).Where("status = ? AND expires_at > ?", "pending", now)
+	if o.TelegramID != 0 {
+		q = q.Where("telegram_id = ?", o.TelegramID)
+	} else {
+		q = q.Where("web_key = ? AND telegram_id = 0", o.WebKey)
+	}
+	if err := q.Count(&pending).Error; err != nil {
 		return nil, err
 	}
 	if pending >= maxPendingOrders {
 		return nil, errors.New("未支付的订单太多，请先完成或等待过期")
+	}
+	if o.TelegramID == 0 {
+		// Anonymous web orders: a cap on the whole shop keeps a script from
+		// filling the order book.
+		var all int64
+		s.st.DB.Model(&store.Order{}).Where("status = ? AND expires_at > ? AND telegram_id = 0", "pending", now).Count(&all)
+		if all >= maxWebPending {
+			return nil, errors.New("下单的人太多，请稍后再试")
+		}
 	}
 	if o.Method == payUSDT {
 		var err error
@@ -352,8 +389,17 @@ func orderBrief(o *store.Order) map[string]any {
 		"currency": o.Currency, "telegram_id": o.TelegramID, "user_id": o.UserID}
 }
 
-// shopNewUser creates and binds an account for a Telegram buyer.
+// shopNewUser creates and binds an account for a Telegram buyer, or an
+// unbound one for a web shop buyer.
 func shopNewUser(tx *gorm.DB, o *store.Order, prefix string) (*store.User, error) {
+	if o.TelegramID == 0 && o.WebKey != "" {
+		name := prefix + "w" + strings.ToLower(pki.Token(6))
+		u := newUser(&userReq{Username: name, Remark: "网页购买 " + o.ID})
+		if err := tx.Create(&u).Error; err != nil {
+			return nil, err
+		}
+		return &u, nil
+	}
 	if o.TelegramID == 0 {
 		return nil, commandInputError{"没有可开通的账号"}
 	}
@@ -376,6 +422,11 @@ func shopNewUser(tx *gorm.DB, o *store.Order, prefix string) (*store.User, error
 
 // redeem spends a code for a Telegram user.
 func (s *Server) redeem(tgID int64, tgName, userID, code string) (*store.Order, *store.User, error) {
+	return s.redeemFor(shopBuyer{TGID: tgID, TGName: tgName, UserID: userID}, code)
+}
+
+func (s *Server) redeemFor(b shopBuyer, code string) (*store.Order, *store.User, error) {
+	tgID, tgName, userID := b.TGID, b.TGName, b.UserID
 	code = strings.ToUpper(strings.TrimSpace(code))
 	if code == "" || len(code) > 32 {
 		return nil, nil, errors.New("兑换码无效")
@@ -388,7 +439,7 @@ func (s *Server) redeem(tgID int64, tgName, userID, code string) (*store.Order, 
 		return nil, nil, errors.New("兑换码无效")
 	}
 	now := time.Now()
-	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID,
+	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, WebKey: b.WebKey,
 		Method: payCode, Amount: code, Status: "pending", CreatedAt: now, ExpiresAt: now}
 	if rc.PackID != "" {
 		// A traffic pack code tops up an existing account.
@@ -519,6 +570,9 @@ func (s *Server) listOrders(c *gin.Context) {
 		sums[i].Total += v
 		sums[i].Count++
 	}
+	for i := range os {
+		os[i].Web = os[i].WebKey != ""
+	}
 	c.JSON(http.StatusOK, gin.H{"items": os, "total": total, "usernames": names, "revenue": sums, "status": s.shopStatus()})
 }
 
@@ -542,7 +596,7 @@ func (s *Server) ordersToday() (n int, revenue map[string]float64) {
 // shopStatus tells the admin UI what is set up.
 func (s *Server) shopStatus() gin.H {
 	return gin.H{"enabled": s.shopOn(), "stars": s.starsOn(), "epay": s.epayOn(), "usdt": s.usdtOn(), "bot": s.tg.username(),
-		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "returnUrl": s.epayReturnURL(), "publicUrl": s.cfg.PublicURL != "", "payments": s.payments()}
+		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "returnUrl": s.epayReturnURL(), "publicUrl": s.cfg.PublicURL != "", "payments": s.payments(), "webShop": s.webShopOn(), "webShopUrl": s.panelBase() + shopWebPath, "portal": s.portalEnabled()}
 }
 
 // fulfilOrder is POST /orders/:id/fulfil: the admin confirms a payment the

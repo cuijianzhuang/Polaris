@@ -160,6 +160,10 @@ func (s *Server) salePacks(u *store.User) []store.TrafficPack {
 
 // newPackOrder opens a traffic pack order for a bound Telegram user.
 func (s *Server) newPackOrder(tgID int64, tgName string, u *store.User, packID, method string) (*store.Order, error) {
+	return s.newPackOrderFor(shopBuyer{TGID: tgID, TGName: tgName}, u, packID, method)
+}
+
+func (s *Server) newPackOrderFor(b shopBuyer, u *store.User, packID, method string) (*store.Order, error) {
 	if !s.shopOn() {
 		return nil, errShopClosed
 	}
@@ -178,7 +182,7 @@ func (s *Server) newPackOrder(tgID int64, tgName string, u *store.User, packID, 
 		return nil, errors.New("这个流量包不支持该付款方式")
 	}
 	now := time.Now()
-	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: u.ID, Kind: kindPack, PackID: p.ID,
+	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: u.ID, WebKey: b.WebKey, Kind: kindPack, PackID: p.ID,
 		PlanName: p.Name, Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
 	return s.openShopOrder(o, p.PriceUSDT)
 }

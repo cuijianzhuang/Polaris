@@ -14,9 +14,9 @@ import { t } from '../i18n'
 
 type Order = {
   id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
-  status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null
+  status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null; web?: boolean
 }
-type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; returnUrl?: string; publicUrl: boolean; payments?: boolean }
+type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; returnUrl?: string; publicUrl: boolean; payments?: boolean; webShop?: boolean; webShopUrl?: string; portal?: boolean }
 type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
 
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
@@ -66,7 +66,7 @@ function Orders() {
               {(d?.items ?? []).map((o) => (
                 <tr key={o.id}>
                   <td data-label={t('时间')} className="small">{datetime(o.paidAt || o.createdAt)}<div className="mono small mute">{o.id}</div></td>
-                  <td data-label={t('买家')}>{o.userId ? <b>{d?.usernames?.[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
+                  <td data-label={t('买家')}>{o.userId ? <b>{d?.usernames?.[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.web && <span className="tag" style={{ marginRight: 4 }}>{t('网页')}</span>}{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
                   <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
                   <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}</td>
                   <td data-label={t('金额')} className="mono">{money(o)}</td>
@@ -278,8 +278,8 @@ function Packs() {
 
 function PaySettings({ status }: { status?: ShopStatus }) {
   const settings = useLoad(() => get<Record<string, any>>('/settings'))
-  const keys = ['shop_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_terms', 'shop_support'] as const
-  const defaults: Record<string, string> = { shop_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay' }
+  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_terms', 'shop_support'] as const
+  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay' }
   const [f, setF] = useState<Record<string, string>>({})
   const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
   const payOK = useFeature('shop_payments')
@@ -297,6 +297,10 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         <h2>{t('商店')}</h2>
         {!status?.botRunning && <div className="note warn">{t('Telegram 机器人未运行。请先在「系统 → Telegram 机器人」里启用。')}</div>}
         <div className="toggle"><span>{t('在机器人里开放购买（菜单显示「购买套餐」和「兑换码」）')}</span><Switch label={t('开放购买')} on={sw('shop_enabled')} onChange={(v) => set('shop_enabled', String(v))} /></div>
+        <div className="toggle"><span>{t('网页商店：在用户中心 /u/shop 购买套餐和流量包（登录用户中心可续费；未登录可直接购买新账号）')}</span><Switch label={t('网页商店')} on={sw('shop_web_enabled')} onChange={(v) => set('shop_web_enabled', String(v))} /></div>
+        {sw('shop_web_enabled') && (status?.portal === false
+          ? <div className="note warn">{t('网页商店需要先在「订阅设置」里开启用户中心。')}</div>
+          : status?.webShopUrl && <Field label={t('网页商店地址')}><CopyBox text={status.webShopUrl} /></Field>)}
         <div className="toggle"><span>{t('没有账号的 Telegram 用户付款后自动创建账号并绑定')}</span><Switch label={t('自动建号')} on={sw('shop_auto_create')} onChange={(v) => set('shop_auto_create', String(v))} /></div>
         <div className="form-grid">
           <Field label={t('新账号用户名前缀')} htmlFor="s-prefix" hint={t('用户名为 前缀 + Telegram ID')}><input id="s-prefix" className="input mono" value={f.shop_user_prefix ?? ''} onChange={(e) => set('shop_user_prefix', e.target.value)} /></Field>
