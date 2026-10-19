@@ -309,7 +309,7 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 		if len(parts) > 4 {
 			typ = parts[4]
 		}
-		b.sendPayment(ctx, chat, o, typ)
+		b.sendPayment(ctx, chat, msg, o, typ)
 	case "k": // traffic pack card
 		text, rows := b.packCard(id, parts[2])
 		b.edit(chat, msg, text, rows...)
@@ -329,7 +329,7 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 		if len(parts) > 4 {
 			typ = parts[4]
 		}
-		b.sendPayment(ctx, chat, o, typ)
+		b.sendPayment(ctx, chat, msg, o, typ)
 	case "q":
 		var o store.Order
 		if b.s.st.DB.First(&o, "id = ? AND telegram_id = ?", parts[2], chat).Error != nil {
@@ -367,16 +367,17 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			return
 		}
 		b.edit(chat, msg, fmt.Sprintf("❌ <b>取消订单</b>\n%s\n<code>%s</code>\n%s · %s\n\n确定取消吗？取消后请不要再付款。", tgRule, o.ID, esc(o.PlanName), esc(orderAmount(&o))),
-			[]button{{Text: "✅ 确定取消", Data: "s:x:" + o.ID}, {Text: "« 不取消", Data: "v:unpaid"}})
+			[]button{{Text: "✅ 确定取消", Data: "s:x:" + o.ID}, {Text: "« 继续支付", Data: "s:r:" + o.ID}})
 		answer("")
 	case "x": // s:x:<order> cancel
-		if _, err := b.s.cancelOrder(chat, parts[2]); err != nil {
+		o, err := b.s.cancelOrder(chat, parts[2])
+		if err != nil {
 			answer(err.Error())
 			return
 		}
 		answer("订单已取消")
-		text, rows := b.unpaidView(chat)
-		b.edit(chat, msg, text, rows...)
+		b.edit(chat, msg, fmt.Sprintf("🚫 <b>订单已取消</b>\n%s\n<code>%s</code>\n%s · %s\n\n本订单已关闭，请勿继续付款。如取消前已完成扣款，将按真实到账处理。", tgRule, o.ID, esc(o.PlanName), esc(orderAmount(o))),
+			[]button{{Text: "⏳ 未付款订单", Data: "v:unpaid"}, {Text: "« 商店", Data: "v:shop"}})
 	default:
 		answer("")
 	}
@@ -425,7 +426,7 @@ func (b *tgBot) resumeOrder(ctx context.Context, parts []string, chat, msg int64
 		}
 	}
 	answer("")
-	b.sendPayment(ctx, chat, &o, typ)
+	b.sendPayment(ctx, chat, msg, &o, typ)
 }
 
 // orderDelivered tells the buyer the plan is on.

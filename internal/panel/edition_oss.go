@@ -61,6 +61,6 @@ func (b *tgBot) onStarsPaid(chat int64, p *tgPayment) {
 	b.send(chat, "已收到付款，但本面板未开启在线收款，请联系管理员（凭证："+esc(p.ChargeID)+"）")
 }
 
-func (b *tgBot) sendPayment(_ context.Context, chat int64, _ *store.Order, _ string) {
-	b.send(chat, errPayments.Error()+"，可以使用兑换码购买。", []button{{Text: "🎟 兑换码", Data: "v:redeem"}, btnHome})
+func (b *tgBot) sendPayment(_ context.Context, chat, msg int64, _ *store.Order, _ string) {
+	b.edit(chat, msg, errPayments.Error()+"，可以使用兑换码购买。", []button{{Text: "🎟 兑换码", Data: "v:redeem"}, btnHome})
 }
