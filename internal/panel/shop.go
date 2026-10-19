@@ -45,7 +45,19 @@ const (
 // money is delivered all the same.
 var unpaidStatuses = []string{"pending", "expired", "cancelled"}
 
-var errShopClosed = errors.New("商店未开启")
+const (
+	epayNotifyPath = "/pay/epay/notify"
+	// usdtLookback is how long a USDT order's amount stays reserved and late
+	// transfers are still matched.
+	usdtLookback = 3 * time.Hour
+)
+
+func (s *Server) epayNotifyURL() string { return s.panelBase() + epayNotifyPath }
+
+var (
+	errShopClosed = errors.New("商店未开启")
+	errPayments   = errors.New("在线收款是专业版功能")
+)
 
 func (s *Server) shopOn() bool { return s.st.GetSetting("shop_enabled", "false") == "true" }
 
@@ -60,10 +72,13 @@ func (s *Server) orderTTL() time.Duration {
 }
 
 // payMethods lists the ways to pay that are configured (EPay types expanded).
-func (s *Server) starsOn() bool { return s.st.GetSetting("shop_stars", "false") == "true" }
+// Each way to pay needs its settings and online payments (professional).
+func (s *Server) starsOn() bool {
+	return s.payments() && s.st.GetSetting("shop_stars", "false") == "true"
+}
 
 func (s *Server) epayOn() bool {
-	return s.st.GetSetting("shop_epay_url", "") != "" && s.st.GetSetting("shop_epay_pid", "") != "" && s.st.GetSetting("shop_epay_key", "") != ""
+	return s.payments() && s.st.GetSetting("shop_epay_url", "") != "" && s.st.GetSetting("shop_epay_pid", "") != "" && s.st.GetSetting("shop_epay_key", "") != ""
 }
 
 func (s *Server) epayTypes() []string {
@@ -76,7 +91,20 @@ func (s *Server) epayTypes() []string {
 	return out
 }
 
-func (s *Server) usdtOn() bool { return s.st.GetSetting("shop_usdt_address", "") != "" }
+// methodOn reports whether orders may still be paid with method.
+func (s *Server) methodOn(method string) bool {
+	switch method {
+	case payStars:
+		return s.starsOn()
+	case payEPay:
+		return s.epayOn()
+	case payUSDT:
+		return s.usdtOn()
+	}
+	return false
+}
+
+func (s *Server) usdtOn() bool { return s.payments() && s.st.GetSetting("shop_usdt_address", "") != "" }
 
 // salePlans lists the plans on sale, in display order.
 func (s *Server) salePlans() []store.Group {
@@ -498,7 +526,7 @@ func (s *Server) ordersToday() (n int, revenue map[string]float64) {
 // shopStatus tells the admin UI what is set up.
 func (s *Server) shopStatus() gin.H {
 	return gin.H{"enabled": s.shopOn(), "stars": s.starsOn(), "epay": s.epayOn(), "usdt": s.usdtOn(), "bot": s.tg.username(),
-		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "publicUrl": s.cfg.PublicURL != ""}
+		"botRunning": s.tg.isRunning(), "notifyUrl": s.epayNotifyURL(), "publicUrl": s.cfg.PublicURL != "", "payments": s.payments()}
 }
 
 // fulfilOrder is POST /orders/:id/fulfil: the admin confirms a payment the

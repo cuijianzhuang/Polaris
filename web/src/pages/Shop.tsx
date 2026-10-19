@@ -4,7 +4,7 @@ import { del, get, post, put } from '../api'
 import { CopyBox, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
 import { PlansModal } from '../components/Plans'
 import { datetime } from '../format'
-import { ProTag } from '../components/License'
+import { ProTag, useFeature } from '../components/License'
 import { bytes, GB } from '../format'
 import type { Group, TrafficPack } from '../types'
 import { t } from '../i18n'
@@ -16,7 +16,7 @@ type Order = {
   id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
   status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null
 }
-type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; publicUrl: boolean }
+type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; publicUrl: boolean; payments?: boolean }
 type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
 
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
@@ -282,6 +282,7 @@ function PaySettings({ status }: { status?: ShopStatus }) {
   const defaults: Record<string, string> = { shop_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay' }
   const [f, setF] = useState<Record<string, string>>({})
   const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
+  const payOK = useFeature('shop_payments')
   const { busy, run } = useAction()
   useEffect(() => {
     const d = settings.data
@@ -307,12 +308,13 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         <Field label={t('售后联系方式')} htmlFor="s-support" hint={t('用户在机器人里用 /paysupport 查看，例如 @your_support')}><input id="s-support" className="input" value={f.shop_support ?? ''} onChange={(e) => set('shop_support', e.target.value)} /></Field>
         <div className="sub">{t('在「用户 → 套餐」里给套餐勾选「在机器人售卖」并填写各付款方式的价格。')}</div>
       </section>
+      {!payOK && <div className="note">{t('在线收款（Telegram Stars、易支付、USDT）是专业版功能。社区版可以用兑换码售卖：在「兑换码」里生成，放到发卡平台出售，用户在机器人里用 /redeem 兑换。')}</div>}
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>Telegram Stars</h2><span className={'st ' + (status?.stars ? 'ok' : 'off')}>{status?.stars ? t('已启用') : t('未启用')}</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>Telegram Stars<ProTag on={payOK} /></h2><span className={'st ' + (status?.stars ? 'ok' : 'off')}>{status?.stars ? t('已启用') : t('未启用')}</span></div>
         <div className="toggle"><span>{t('接受 Telegram Stars 付款（电报内置，无需商户号；收入在 Telegram 账户中，经 Fragment 提现）')}</span><Switch label="Stars" on={sw('shop_stars')} onChange={(v) => set('shop_stars', String(v))} /></div>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('易支付 / EPay')}</h2><span className={'st ' + (status?.epay ? 'ok' : 'off')}>{status?.epay ? t('已配置') : t('未配置')}</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('易支付 / EPay')}<ProTag on={payOK} /></h2><span className={'st ' + (status?.epay ? 'ok' : 'off')}>{status?.epay ? t('已配置') : t('未配置')}</span></div>
         <Field label={t('接口地址')} htmlFor="s-epay-url" hint={t('易支付网关地址，例如 https://pay.example.com')}><input id="s-epay-url" className="input mono" value={f.shop_epay_url ?? ''} onChange={(e) => set('shop_epay_url', e.target.value)} placeholder="https://pay.example.com" /></Field>
         <div className="form-grid">
           <Field label={t('商户 ID')} htmlFor="s-epay-pid"><input id="s-epay-pid" className="input mono" value={f.shop_epay_pid ?? ''} onChange={(e) => set('shop_epay_pid', e.target.value)} /></Field>
@@ -322,7 +324,7 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         <Field label={t('异步通知地址')} hint={status?.publicUrl ? t('网关会自动使用这个地址，一般无需在商户后台另外填写') : t('未设置面板公网地址（POLARIS_PUBLIC_URL）：请确认这个地址能从公网访问')}><CopyBox text={status?.notifyUrl ?? ''} /></Field>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT (TRC20)</h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT (TRC20)<ProTag on={payOK} /></h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>
         <Field label={t('收款地址')} htmlFor="s-usdt-addr" hint={t('TRON 网络地址（T 开头）。每笔订单金额带不同的小数尾数，按金额自动对账')}><input id="s-usdt-addr" className="input mono" value={f.shop_usdt_address ?? ''} onChange={(e) => set('shop_usdt_address', e.target.value)} placeholder="T…" /></Field>
         <Field label="TronGrid API Key" htmlFor="s-usdt-key" hint={settings.data.shop_usdt_apikey_set ? t('已保存（留空不修改）') : t('在 trongrid.io 免费申请；不填也能用，但容易被限流')}><input id="s-usdt-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_usdt_apikey} onChange={(e) => setSecrets({ ...secrets, shop_usdt_apikey: e.target.value })} /></Field>
         <div className="sub">{t('面板每 30 秒查询一次链上到账，确认后自动开通。')}</div>

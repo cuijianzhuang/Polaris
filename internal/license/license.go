@@ -17,18 +17,19 @@ import (
 
 // Paid features.
 const (
-	FeatureSpeedLimit = "speed_limit" // per-user speed limits
-	FeatureTGMenu     = "tg_menu"     // Telegram admin menus
-	FeatureBackupPush = "backup_push" // backups pushed to S3 / WebDAV / Telegram
-	FeatureSubConvert = "sub_convert" // subscription sources and groups
-	FeatureDDNS       = "ddns"        // domain bindings, addresses following node IPs
-	FeatureBranding   = "branding"    // custom logo on the panel, login page and favicon
-	FeatureThemes     = "themes"      // exclusive themes (black gold)
-	FeaturePlanAddons = "plan_addons" // traffic packs and per-plan node rates
+	FeatureSpeedLimit   = "speed_limit"   // per-user speed limits
+	FeatureTGMenu       = "tg_menu"       // Telegram admin menus
+	FeatureBackupPush   = "backup_push"   // backups pushed to S3 / WebDAV / Telegram
+	FeatureSubConvert   = "sub_convert"   // subscription sources and groups
+	FeatureDDNS         = "ddns"          // domain bindings, addresses following node IPs
+	FeatureBranding     = "branding"      // custom logo on the panel, login page and favicon
+	FeatureThemes       = "themes"        // exclusive themes (black gold)
+	FeaturePlanAddons   = "plan_addons"   // traffic packs and per-plan node rates
+	FeatureShopPayments = "shop_payments" // online payments in the bot shop (Stars, EPay, USDT)
 )
 
 // AllFeatures lists every paid feature (what a trial unlocks).
-var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons}
+var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons, FeatureShopPayments}
 
 // Limit kinds.
 const (

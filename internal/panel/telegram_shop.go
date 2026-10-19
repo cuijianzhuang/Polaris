@@ -2,9 +2,7 @@ package panel
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -94,7 +92,10 @@ func (b *tgBot) shopView(id tgIdentity) (string, [][]button) {
 	for _, p := range b.s.salePlans() {
 		prices := b.s.planPrices(&p)
 		if prices == "" {
-			continue
+			if b.s.payments() {
+				continue // no way to pay for it here
+			}
+			prices = orDefault(p.Price, "兑换码购买") // community shop: sold by redeem codes
 		}
 		fmt.Fprintf(&sb, "\n<b>%s</b>  %s\n%s\n", esc(p.Name), esc(prices), esc(b.s.tgPlanLine(&p)))
 		label := p.Name
@@ -261,6 +262,12 @@ func (b *tgBot) planCard(id tgIdentity, planID string) (string, [][]button) {
 			rows = append(rows, []button{{Text: "💲 USDT (TRC20) " + strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64), Data: "s:m:" + p.ID + ":" + payUSDT}})
 		}
 	}
+	if len(rows) == 0 {
+		text := sb.String()
+		text = text[:strings.LastIndex(text, "\n\n选择付款方式")]
+		return text + "\n\n🎟 这个套餐通过兑换码开通：取得兑换码后发送 <code>/redeem 兑换码</code>。", [][]button{
+			{{Text: "🎟 兑换码", Data: "v:redeem"}}, {{Text: "« 返回", Data: "v:shop"}, btnHome}}
+	}
 	rows = append(rows, []button{{Text: "« 返回", Data: "v:shop"}, btnHome})
 	return sb.String(), rows
 }
@@ -394,6 +401,9 @@ func (b *tgBot) resumeOrder(ctx context.Context, parts []string, chat, msg int64
 	case !b.s.shopOn():
 		answer(errShopClosed.Error())
 		return
+	case !b.s.methodOn(o.Method):
+		answer("这个付款方式已停用，请重新下单")
+		return
 	}
 	typ := ""
 	if len(parts) > 3 {
@@ -417,49 +427,6 @@ func (b *tgBot) resumeOrder(ctx context.Context, parts []string, chat, msg int64
 	}
 	answer("")
 	b.sendPayment(ctx, chat, msg, &o, typ)
-}
-
-// onPreCheckout approves a Stars payment that matches its open order.
-func (b *tgBot) onPreCheckout(q *tgPreCheckout) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	reply := map[string]any{"pre_checkout_query_id": q.ID, "ok": true}
-	var o store.Order
-	switch {
-	case b.s.st.DB.First(&o, "id = ? AND method = ?", q.Payload, payStars).Error != nil:
-		reply["ok"], reply["error_message"] = false, "订单不存在"
-	case o.Status != "pending" || time.Now().After(o.ExpiresAt):
-		reply["ok"], reply["error_message"] = false, "订单已过期或已处理，请重新下单"
-	case q.Currency != "XTR" || strconv.FormatInt(q.TotalAmount, 10) != o.Amount || q.From.ID != o.TelegramID:
-		reply["ok"], reply["error_message"] = false, "订单信息不符"
-	case !b.s.shopOn():
-		reply["ok"], reply["error_message"] = false, "商店未开启"
-	default:
-		var n int64
-		if o.Kind == kindPack {
-			b.s.st.DB.Model(&store.TrafficPack{}).Where("id = ? AND sale = ?", o.PackID, true).Count(&n)
-		} else {
-			b.s.st.DB.Model(&store.Group{}).Where("id = ? AND plan = ? AND sale = ?", o.PlanID, true, true).Count(&n)
-		}
-		if n == 0 {
-			reply["ok"], reply["error_message"] = false, "商品已下架"
-		}
-	}
-	_ = b.call(ctx, "answerPreCheckoutQuery", reply, nil)
-}
-
-// onStarsPaid fulfils the order of a completed Stars payment.
-func (b *tgBot) onStarsPaid(chat int64, p *tgPayment) {
-	var o store.Order
-	if b.s.st.DB.First(&o, "id = ? AND method = ?", p.Payload, payStars).Error != nil ||
-		p.Currency != "XTR" || strconv.FormatInt(p.TotalAmount, 10) != o.Amount {
-		b.s.log.Warn("stars payment without a matching order", "payload", p.Payload, "charge", p.ChargeID)
-		b.send(chat, "已收到付款，但没有找到对应订单，请联系管理员（凭证："+esc(p.ChargeID)+"）")
-		return
-	}
-	if _, _, _, err := b.s.fulfil(o.ID, "stars:"+p.ChargeID, nil); err != nil {
-		b.send(chat, "已收到付款，但开通失败："+esc(err.Error())+"\n请联系管理员（订单 "+o.ID+"）")
-	}
 }
 
 // orderDelivered tells the buyer the plan is on.
@@ -495,83 +462,6 @@ func (b *tgBot) redeemCommand(chat int64, from tgUser, arg string, id tgIdentity
 		b.send(chat, "❌ "+esc(err.Error()), backRow(""))
 	}
 	// Success is announced by orderDelivered.
-}
-
-// sendPayment shows the way to pay an open order: a Stars checkout, an EPay
-// link (typ = alipay, wxpay, …) or the USDT transfer details.
-func (b *tgBot) sendPayment(ctx context.Context, chat, msg int64, o *store.Order, typ string) {
-	mins := int(time.Until(o.ExpiresAt).Round(time.Minute).Minutes())
-	switch o.Method {
-	case payStars:
-		link, err := b.starsLink(ctx, chat, o)
-		if err != nil {
-			b.s.log.Warn("telegram Stars checkout unavailable", "order", o.ID)
-			b.edit(chat, msg, "暂时无法打开付款，订单可能已失效或 Telegram 暂不可用。请从未付款订单查看并重试。",
-				[]button{{Text: "⏳ 未付款订单", Data: "v:unpaid"}, {Text: "« 商店", Data: "v:shop"}})
-			return
-		}
-		b.edit(chat, msg, fmt.Sprintf("🧾 <b>待支付订单</b>\n%s\n<code>%s</code>\n商品：%s\n金额：%s ⭐\n有效至：%s\n\n关闭付款窗口不会取消订单。可继续支付，或在这里取消订单。",
-			tgRule, o.ID, esc(o.PlanName), esc(o.Amount), o.ExpiresAt.In(time.FixedZone("CST", 8*3600)).Format("01-02 15:04（北京时间）")),
-			[]button{{Text: "⭐ 继续支付 " + o.Amount + " Stars", URL: link}},
-			[]button{{Text: "❌ 取消订单", Data: "s:c:" + o.ID}, {Text: "⏳ 未付款订单", Data: "v:unpaid"}})
-	case payEPay:
-		if typ == "" {
-			typ = payEPay
-		}
-		b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n商品：%s\n金额：¥%s（%s）\n\n请在 %d 分钟内完成支付，付款后自动开通。",
-			o.ID, tgRule, esc(o.PlanName), o.Amount, esc(orDefault(epayTypeName[typ], typ)), mins),
-			[]button{{Text: "💳 去支付 ¥" + o.Amount, URL: b.s.epayLink(o, typ)}},
-			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}, {Text: "❌ 取消订单", Data: "s:c:" + o.ID}})
-	case payUSDT:
-		b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n商品：%s\n网络：<b>TRON (TRC20)</b>\n地址：<code>%s</code>\n金额：<code>%s</code> USDT\n\n⚠️ 请<b>精确转账上面的金额</b>（含小数），金额不符无法自动到账。\n请在 %d 分钟内完成转账，到账确认后自动开通。",
-			o.ID, tgRule, esc(o.PlanName), esc(b.s.st.GetSetting("shop_usdt_address", "")), o.Amount, mins),
-			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}, {Text: "❌ 取消订单", Data: "s:c:" + o.ID}})
-	}
-}
-
-// starsLink caches Telegram's native invoice link for an owned checkout.
-// Reopening it does not send another invoice message into the conversation.
-func (b *tgBot) starsLink(ctx context.Context, chat int64, o *store.Order) (string, error) {
-	b.starsMu.Lock()
-	defer b.starsMu.Unlock()
-	if err := b.s.st.DB.First(o, "id = ? AND telegram_id = ? AND method = ?", o.ID, chat, payStars).Error; err != nil {
-		return "", err
-	}
-	if o.Status != "pending" || !time.Now().Before(o.ExpiresAt) {
-		return "", errors.New("订单已失效")
-	}
-	b.mu.Lock()
-	botID := b.selfID
-	b.mu.Unlock()
-	if botID < 1 {
-		return "", errors.New("机器人尚未连接")
-	}
-	if o.StarsURL != "" && o.StarsBotID == botID {
-		return o.StarsURL, nil
-	}
-	n, err := strconv.Atoi(o.Amount)
-	if err != nil || n < 1 {
-		return "", errors.New("订单金额无效")
-	}
-	var link string
-	if err = b.call(ctx, "createInvoiceLink", map[string]any{"title": truncate(o.PlanName, 32),
-		"description": truncate(b.s.st.GetSetting("site_title", "Polaris")+" · "+o.PlanName, 255), "payload": o.ID,
-		"provider_token": "", "currency": "XTR", "prices": []map[string]any{{"label": truncate(o.PlanName, 32), "amount": n}}}, &link); err != nil {
-		return "", err
-	}
-	u, err := url.Parse(link)
-	if err != nil || u.Scheme != "https" || u.Host != "t.me" || u.User != nil {
-		return "", errors.New("无效付款链接")
-	}
-	res := b.s.st.DB.Model(&store.Order{}).Where("id = ? AND status = ? AND expires_at > ?", o.ID, "pending", time.Now()).Updates(map[string]any{"stars_url": link, "stars_bot_id": botID})
-	if res.Error != nil {
-		return "", res.Error
-	}
-	if res.RowsAffected != 1 {
-		return "", errors.New("订单已失效")
-	}
-	o.StarsURL, o.StarsBotID = link, botID
-	return link, nil
 }
 
 // packsView lists the traffic packs the user may buy.
