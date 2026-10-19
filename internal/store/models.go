@@ -160,10 +160,14 @@ type User struct {
 	// period; it goes when the period ends (traffic reset or a new period).
 	ExtraTraffic int64 `json:"extraTraffic"`
 	// PlanID is the user's current plan (a Group with Plan set), "" = none.
-	PlanID       string     `gorm:"size:32;index" json:"planId"`
-	IsService    bool       `gorm:"index" json:"isService"`  // chain service account
-	TelegramID   int64      `gorm:"index" json:"telegramId"` // bound Telegram chat
-	WarnedUsage  bool       `json:"-"`                       // 80% traffic warning sent this cycle
+	PlanID     string `gorm:"size:32;index" json:"planId"`
+	IsService  bool   `gorm:"index" json:"isService"`  // chain service account
+	TelegramID int64  `gorm:"index" json:"telegramId"` // bound Telegram chat
+	// SelfService marks an account the shop created for its buyer: the buyer
+	// may rename it (Telegram /rename, user center) when the shop allows it.
+	SelfService  bool       `json:"selfService"`
+	RenamedAt    *time.Time `json:"-"` // last self-service rename
+	WarnedUsage  bool       `json:"-"` // 80% traffic warning sent this cycle
 	WarnedExpire *time.Time `json:"-"`
 	Remark       string     `gorm:"size:255" json:"remark"`
 	GroupIDs     []string   `gorm:"-" json:"groupIds"`

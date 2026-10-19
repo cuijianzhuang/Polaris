@@ -65,7 +65,7 @@ func TestWebShopCommunity(t *testing.T) {
 	var o store.Order
 	s.st.DB.First(&o, "id = ?", res.ID)
 	var u store.User
-	if o.Status != "paid" || o.WebKey == "" || s.st.DB.First(&u, "id = ?", o.UserID).Error != nil || u.PlanID != plan || u.TelegramID != 0 {
+	if o.Status != "paid" || o.WebKey == "" || s.st.DB.First(&u, "id = ?", o.UserID).Error != nil || u.PlanID != plan || u.TelegramID != 0 || !u.SelfService {
 		t.Fatalf("redeemed order %+v user %+v", o, u)
 	}
 	code, page := buyer.req("GET", res.URL, nil, false)

@@ -263,5 +263,7 @@ const m: Record<string, string> = {
   "订单过期 24 小时后才能删除：这段时间内迟到的易支付回调或 USDT 转账仍会开通。": "An order can be deleted 24 hours after it closes: a late EPay callback or USDT transfer within that time still fulfils it.",
   "请用搜索或筛选缩小范围": "Narrow down with search or filters",
   "账号": "Account",
+  "允许购买时自动创建的账号自己修改用户名（机器人 /rename 或用户中心，7 天一次；订阅链接不变）": "Let accounts created at purchase rename themselves (bot /rename or the user center, once every 7 days; the subscription link stays the same)",
+  "自助改名": "Self-service rename",
 }
 export default m
