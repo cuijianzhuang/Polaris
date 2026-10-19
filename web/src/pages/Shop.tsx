@@ -16,7 +16,7 @@ type Order = {
   id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
   status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null
 }
-type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; publicUrl: boolean; payments?: boolean }
+type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; returnUrl?: string; publicUrl: boolean; payments?: boolean }
 type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
 
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
@@ -322,6 +322,7 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         </div>
         <Field label={t('支付方式')} htmlFor="s-epay-types" hint={t('逗号分隔：alipay 支付宝、wxpay 微信、qqpay QQ 钱包')}><input id="s-epay-types" className="input mono" value={f.shop_epay_types ?? ''} onChange={(e) => set('shop_epay_types', e.target.value)} /></Field>
         <Field label={t('异步通知地址')} hint={status?.publicUrl ? t('网关会自动使用这个地址，一般无需在商户后台另外填写') : t('未设置面板公网地址（POLARIS_PUBLIC_URL）：请确认这个地址能从公网访问')}><CopyBox text={status?.notifyUrl ?? ''} /></Field>
+        <Field label={t('同步跳转地址')} hint={t('付款后买家先回到这个面板地址，再自动打开机器人。请在易支付商户后台把面板域名加入授权域名，否则会提示「支付返回域名未通过审核」')}><CopyBox text={status?.returnUrl ?? ''} /></Field>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT (TRC20)<ProTag on={payOK} /></h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>

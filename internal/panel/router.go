@@ -80,6 +80,7 @@ func (s *Server) Router() http.Handler {
 	r.GET("/sub/:token", s.subscription)
 	r.GET(epayNotifyPath, s.epayNotify)
 	r.POST(epayNotifyPath, s.epayNotify)
+	r.GET(epayReturnPath, s.payReturn)
 	r.GET("/sub/p/:token", s.profileSubscription)
 	r.GET("/sub/cb/:token", s.subCallbackHandler)
 	r.GET("/sub/scheme/:name", s.serveSchemeINI)

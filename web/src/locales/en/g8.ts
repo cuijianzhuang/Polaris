@@ -199,5 +199,7 @@ const m: Record<string, string> = {
   "在线收款（Telegram Stars、易支付、USDT）是专业版功能。社区版可以用兑换码售卖：在「兑换码」里生成，放到发卡平台出售，用户在机器人里用 /redeem 兑换。": "Online payments (Telegram Stars, EPay, USDT) are a Pro feature. The community edition sells with redeem codes: generate them under Redeem codes, sell them on a card shop, and buyers redeem them in the bot with /redeem.",
   "在线收款": "Online payments",
   "机器人商店支持 Telegram Stars、易支付、USDT 自动收款": "Telegram Stars, EPay and USDT payments in the bot shop",
+  "同步跳转地址": "Return URL",
+  "付款后买家先回到这个面板地址，再自动打开机器人。请在易支付商户后台把面板域名加入授权域名，否则会提示「支付返回域名未通过审核」": "After paying, the buyer comes back to this panel address, which opens the bot. Add the panel's domain to the authorized domains in the EPay merchant dashboard, or the gateway rejects the return domain.",
 }
 export default m
