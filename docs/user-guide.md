@@ -70,7 +70,7 @@
 - 主控和节点能够访问所需的 GitHub 发布文件；节点能够连接主控。
 - 主控域名已解析到正确的公网 IP；如果配置了 AAAA 记录，也要保证 IPv6 可达。
 - 准备使用的端口未被其他服务占用，云安全组和系统防火墙规则一致。
-- 主控默认使用 SQLite，基础部署无需先准备 PostgreSQL 或 Redis。
+- 主控默认使用 SQLite，基础部署无需先准备 PostgreSQL。
 
 | 位置 | 端口 / 协议 | 用途 |
 | --- | --- | --- |
@@ -743,7 +743,7 @@ polaris restore /path/to/polaris-backup.tar.gz.enc
 
 备份保留内部 CA，因此保留原连接域名且让它指向新主控时，已接入节点通常无需重装。**如果主控域名或 Agent 接入地址变化，必须同步更新节点的连接配置**；恢复数据库不会自动改掉每台节点保存的主控地址。
 
-数据库支持 SQLite / PostgreSQL 间的备份恢复；外部 PostgreSQL 连接、Redis、DNS、云安全组和反向代理仍需在目标环境单独配置。
+数据库支持 SQLite / PostgreSQL 间的备份恢复；外部 PostgreSQL 连接、DNS、云安全组和反向代理仍需在目标环境单独配置。
 
 <a id="license"></a>
 
@@ -858,7 +858,6 @@ polaris log
 | `POLARIS_AGENT_HOSTS` | Agent 使用的主控域名或 IP，写入服务端证书 |
 | `POLARIS_DATA_DIR` | 数据目录，程序默认 `./data`；一键安装通常为 `/var/lib/polaris`，Docker 为 `/data` |
 | `POLARIS_DB_DSN` | 设置 PostgreSQL DSN；未设置时使用数据目录中的 SQLite |
-| `POLARIS_REDIS_URL` | 可选流量计数缓冲，未配置时使用内存 |
 | `POLARIS_INITIAL_ADMIN_USERNAME` | 首次创建管理员的用户名 |
 | `POLARIS_INITIAL_ADMIN_PASSWORD` | 首次创建管理员的密码；留空时生成并记录到启动日志 |
 | `POLARIS_DECOY` | 非后台路径的处理，默认返回 404，也可反代到指定站点 |

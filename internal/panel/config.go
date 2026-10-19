@@ -32,7 +32,7 @@ type Config struct {
 		DSN   string `koanf:"dsn"`
 		Debug bool   `koanf:"debug"`
 	} `koanf:"db"`
-	// RedisURL enables Redis as the traffic counter buffer (optional).
+	// RedisURL is ignored: unsettled traffic now lives in the database.
 	RedisURL string `koanf:"redis_url"`
 	// SecretKey encrypts sensitive columns and signs JWTs. Required.
 	SecretKey string `koanf:"secret_key"`

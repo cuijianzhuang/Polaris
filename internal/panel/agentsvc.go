@@ -16,7 +16,6 @@ import (
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/api/gen/polaris/v1/polarisv1connect"
-	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -199,33 +198,22 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	return connect.NewResponse(&polarisv1.GetSpecResponse{Rev: rev, SpecJson: []byte(raw)}), nil
 }
 
-// ReportTraffic buffers traffic batches; replays of a batch are ignored.
+// ReportTraffic stores traffic batches durably before acknowledging them;
+// repeats of a batch are acknowledged but not counted again, however late
+// they arrive.
 func (a *agentService) ReportTraffic(ctx context.Context, req *connect.Request[polarisv1.ReportTrafficRequest]) (*connect.Response[polarisv1.ReportTrafficResponse], error) {
 	n, err := a.node(ctx)
 	if err != nil {
 		return nil, err
 	}
-	resp := &polarisv1.ReportTrafficResponse{}
-	allowed := a.s.nodeUsers(n.ID)
-	for _, b := range req.Msg.Batches {
-		if b.BatchId == "" || a.s.traffic.Seen(n.ID+"/"+b.BatchId) {
-			resp.AcceptedBatchIds = append(resp.AcceptedBatchIds, b.BatchId)
-			continue
-		}
-		ds := make([]model.TrafficDelta, 0, len(b.Users))
-		for _, u := range b.Users {
-			if !allowed[u.UserId] && !isTagCounter(u.UserId) {
-				continue // not a user of this node
-			}
-			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: max(u.Up, 0), Down: max(u.Down, 0)})
-		}
-		if err := a.s.traffic.Add(n.ID, ds); err != nil {
-			a.s.traffic.Forget(n.ID + "/" + b.BatchId) // let the retry count
-			return nil, connect.NewError(connect.CodeUnavailable, err)
-		}
-		resp.AcceptedBatchIds = append(resp.AcceptedBatchIds, b.BatchId)
+	ids, dup, err := a.s.ingestTraffic(n.ID, req.Msg.Batches, a.s.nodeUsers(n.ID))
+	if err != nil {
+		return nil, connect.NewError(connect.CodeUnavailable, err) // nothing counted; the agent retries
 	}
-	return connect.NewResponse(resp), nil
+	if dup > 0 {
+		a.s.log.Debug("repeated traffic batches ignored", "node", n.ID, "count", dup)
+	}
+	return connect.NewResponse(&polarisv1.ReportTrafficResponse{AcceptedBatchIds: ids}), nil
 }
 
 func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {

@@ -173,6 +173,13 @@ message TrafficBatch {
   string batch_id = 1;
   int64 collected_at = 2;
   repeated UserTraffic users = 3;
+  // seq numbers the agent's batches within epoch, from 1. The panel keeps
+  // the highest seq it accepted per node and epoch, so a replay counts once
+  // however late it comes. 0 = an older agent: deduplicated by batch_id.
+  uint64 seq = 4;
+  // epoch is chosen when the agent starts its traffic queue (a reinstall
+  // starts a new one).
+  string epoch = 5;
 }
 
 message UserTraffic {
