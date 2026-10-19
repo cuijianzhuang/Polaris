@@ -336,10 +336,11 @@ func (b *tgBot) registerCommands(ctx context.Context) {
 type tgIdentity struct {
 	admin *store.TGAdmin
 	user  *store.User
+	chat  int64
 }
 
 func (b *tgBot) identify(chat int64) tgIdentity {
-	var id tgIdentity
+	id := tgIdentity{chat: chat}
 	var a store.TGAdmin
 	if b.s.st.DB.First(&a, "chat_id = ?", chat).Error == nil {
 		id.admin = &a
@@ -591,7 +592,7 @@ func tgAdvanced(parts []string) bool {
 			return false
 		}
 		switch parts[1] {
-		case "", "me", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders", "packs":
+		case "", "me", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders", "packs", "unpaid":
 			return false
 		}
 	}
@@ -660,8 +661,11 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string, from tgUse
 			arg = parts[2]
 		}
 		text, rows := b.view(view, arg, id)
-		if view == "orders" {
+		switch view {
+		case "orders":
 			text, rows = b.ordersView(chat)
+		case "unpaid":
+			text, rows = b.unpaidView(chat)
 		}
 		b.edit(chat, msg, text, rows...)
 		answer("")

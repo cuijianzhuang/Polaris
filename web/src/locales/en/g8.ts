@@ -192,5 +192,9 @@ const m: Record<string, string> = {
   "还没有流量包，请先在「流量包」里新建。": "No traffic packs yet; create one under Traffic packs first.",
   "重新加载": "Reload",
   "页面出错了": "This page hit an error",
+  "已取消": "Cancelled",
+  "取消订单": "Cancel order",
+  "订单已取消": "Order cancelled",
+  "取消订单 {id}？买家将不能再用 Stars 付款；易支付 / USDT 如果仍然付款，到账后照常开通。": "Cancel order {id}? The buyer can no longer pay it with Stars; an EPay or USDT payment that still arrives is delivered as usual.",
 }
 export default m

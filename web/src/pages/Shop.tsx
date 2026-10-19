@@ -21,7 +21,7 @@ type Code = { code: string; planId: string; packId?: string; batch: string; expi
 
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
 const statusLabel: Record<string, [string, string]> = {
-  pending: [t('待支付'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'],
+  pending: [t('待支付'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'], cancelled: [t('已取消'), 'off'],
 }
 
 function money(o: Order) {
@@ -55,7 +55,7 @@ function Orders() {
       <div className="row">
         <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索订单号 / 用户 / 套餐')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索订单')} />
         <div className="chips">
-          {['', 'paid', 'pending', 'expired', 'failed', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
+          {['', 'paid', 'pending', 'expired', 'cancelled', 'failed', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
         </div>
       </div>
       <div className="card flush scroll">
@@ -72,11 +72,17 @@ function Orders() {
                   <td data-label={t('金额')} className="mono">{money(o)}</td>
                   <td data-label={t('状态')}><span className={'st ' + (statusLabel[o.status]?.[1] ?? '')}>{statusLabel[o.status]?.[0] ?? o.status}</span></td>
                   <td className="rt-actions">
-                    {(o.status === 'pending' || o.status === 'expired') && o.method !== 'code' && (
+                    {(o.status === 'pending' || o.status === 'expired' || o.status === 'cancelled') && o.method !== 'code' && (
                       <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                         if (await confirm(t('确认已经收到这笔付款（{amount}），手动开通套餐 {plan}？', { amount: `${o.amount} ${o.currency}`, plan: o.planName }), { ok: t('手动开通') }))
                           run(async () => { await post(`/orders/${o.id}/fulfil`); list.reload() }, t('已开通'))
                       }}>{t('手动开通')}</button>
+                    )}
+                    {o.status === 'pending' && (
+                      <button className="btn sm" type="button" disabled={busy} onClick={async () => {
+                        if (await confirm(t('取消订单 {id}？买家将不能再用 Stars 付款；易支付 / USDT 如果仍然付款，到账后照常开通。', { id: o.id }), { danger: true, ok: t('取消订单') }))
+                          run(async () => { await post(`/orders/${o.id}/cancel`); list.reload() }, t('订单已取消'))
+                      }}>{t('取消订单')}</button>
                     )}
                     {o.status === 'paid' && o.method === 'stars' && (
                       <button className="btn sm" type="button" disabled={busy} onClick={async () => {

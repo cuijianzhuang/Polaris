@@ -56,7 +56,7 @@ func (s *Server) pollUSDT() {
 	}
 	now := time.Now()
 	var open []store.Order
-	s.st.DB.Where("method = ? AND status IN ? AND created_at > ?", payUSDT, []string{"pending", "expired"}, now.Add(-usdtLookback)).
+	s.st.DB.Where("method = ? AND status IN ? AND created_at > ?", payUSDT, unpaidStatuses, now.Add(-usdtLookback)).
 		Order("created_at").Find(&open)
 	if len(open) == 0 {
 		return
