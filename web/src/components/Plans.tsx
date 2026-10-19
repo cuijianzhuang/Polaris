@@ -47,11 +47,14 @@ function toEdit(p: Group): Edit {
   }
 }
 
-export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+// PlansPanel is the plans page body: plan cards, the node matrix and the
+// plan editor (a dialog over the page).
+export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
   const speedOK = useFeature('speed_limit')
   const addonsOK = useFeature('plan_addons')
   const plans = useLoad(() => get<Group[]>('/plans'))
   const [edit, setEdit] = useState<Edit | null>(null)
+  const onClose = () => setEdit(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const { nodes } = useNodes()
@@ -72,7 +75,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
     else await post('/plans', body)
     setEdit(null)
     plans.reload()
-    onChanged()
+    onChanged?.()
   }, t('已保存'))
 
   if (edit) {
@@ -156,8 +159,11 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
   }
 
   return (
-    <Modal title={t('套餐')} onClose={onClose} xwide footer={<button className="btn pri" type="button" onClick={() => setEdit({ ...blank, sort: list.length })}>{t('+ 新建套餐')}</button>}>
-      <div className="sub" style={{ margin: 0 }}>{t('像机场一样分级售卖：套餐决定可用哪些服务器（按节点等级）和流量、时长、设备数。开通或换套餐时已用流量清零，续费同一套餐顺延到期时间。')}</div>
+    <>
+      <div className="top">
+        <div><h1>{t('套餐')}</h1><div className="sub">{t('像机场一样分级售卖：套餐决定可用哪些服务器（按节点等级）和流量、时长、设备数。开通或换套餐时已用流量清零，续费同一套餐顺延到期时间。')}</div></div>
+        <div className="row"><button className="btn pri" type="button" onClick={() => setEdit({ ...blank, sort: list.length })}>{t('+ 新建套餐')}</button></div>
+      </div>
       {plans.data && list.length === 0 && <div className="note">{t('还没有套餐。常见做法：先建一个不限期的「免费版」（Lv.1，少量流量），再建付费套餐并把「到期后」设为降级到免费版。')}</div>}
       <div className="plans">
         {list.map((p) => {
@@ -183,7 +189,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
                 <span>
                   <button className="link" type="button" onClick={() => setEdit(toEdit(p))}>{t('编辑')}</button>
                   <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
-                    if (await confirm(t('删除套餐 {name}？已开通的用户保留当前流量和到期时间，但失去套餐里的节点。', { name: p.name }), { danger: true })) run(async () => { await del('/plans/' + p.id); plans.reload(); onChanged() })
+                    if (await confirm(t('删除套餐 {name}？已开通的用户保留当前流量和到期时间，但失去套餐里的节点。', { name: p.name }), { danger: true })) run(async () => { await del('/plans/' + p.id); plans.reload(); onChanged?.() })
                   }}>{t('删除')}</button>
                 </span>
               </div>
@@ -206,7 +212,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
           </table>
         </div>
       )}
-    </Modal>
+    </>
   )
 }
 
