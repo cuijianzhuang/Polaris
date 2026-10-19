@@ -38,9 +38,11 @@ type tgBot struct {
 	http *http.Client
 
 	mu      sync.Mutex
+	starsMu sync.Mutex // serializes native checkout link creation
 	token   string
 	base    string
 	me      string // bot username
+	selfID  int64  // stable bot identity, even when the username changes
 	lastErr string
 	running bool
 	codes   map[string]bindCode // one-time admin bind codes
@@ -275,7 +277,7 @@ func (b *tgBot) poll(ctx context.Context, token, base string) {
 		return
 	}
 	b.mu.Lock()
-	b.me = me.Username
+	b.me, b.selfID = me.Username, me.ID
 	b.mu.Unlock()
 	b.setRunning(true, "")
 	b.registerCommands(ctx)

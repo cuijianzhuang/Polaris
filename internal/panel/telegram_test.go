@@ -71,6 +71,8 @@ func (f *fakeTG) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result = out
 	case "sendMessage", "editMessageText":
 		f.sent = append(f.sent, body)
+	case "createInvoiceLink":
+		result = "https://t.me/$" + body["payload"].(string)
 	case "answerCallbackQuery":
 		f.answers = append(f.answers, body["text"].(string))
 	}

@@ -68,6 +68,7 @@ type Server struct {
 	dirty   map[string]string
 	kick    chan struct{}
 	pubMu   sync.Mutex
+	shopMu  sync.Mutex // serializes pending checkout reuse and USDT amount allocation
 
 	onlineMu  sync.Mutex
 	onlineIPs map[string]map[string]map[string]time.Time // user -> node -> ip

@@ -122,19 +122,42 @@ func (s *Server) newOrder(tgID int64, tgName, userID, planID, method string) (*s
 		return nil, errors.New("这个套餐不支持该付款方式")
 	}
 	now := time.Now()
-	var pending int64
-	s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", tgID, "pending", now).Count(&pending)
-	if pending >= maxPendingOrders {
-		return nil, errors.New("未支付的订单太多，请先完成或等待过期")
-	}
-	if method == payUSDT {
-		var err error
-		if amount, err = s.uniqueUSDTAmount(p.PriceUSDT, now); err != nil {
+	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, PlanID: p.ID, PlanName: p.Name,
+		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
+	return s.openShopOrder(o, p.PriceUSDT)
+}
+
+// openShopOrder reuses an unexpired Stars checkout for the same buyer,
+// account, product and price. Closing Telegram's payment window sends no
+// cancellation event; repeated purchase taps must not open another order.
+func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order, error) {
+	s.shopMu.Lock()
+	defer s.shopMu.Unlock()
+	now := time.Now()
+	if o.Method == payStars {
+		var existing store.Order
+		err := s.st.DB.Where("telegram_id = ? AND user_id = ? AND plan_id = ? AND pack_id = ? AND kind = ? AND method = ? AND amount = ? AND currency = ? AND status = ? AND expires_at > ?",
+			o.TelegramID, o.UserID, o.PlanID, o.PackID, o.Kind, payStars, o.Amount, o.Currency, "pending", now).Order("created_at desc").First(&existing).Error
+		if err == nil {
+			return &existing, nil
+		}
+		if !store.IsNotFound(err) {
 			return nil, err
 		}
 	}
-	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, PlanID: p.ID, PlanName: p.Name,
-		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
+	var pending int64
+	if err := s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", o.TelegramID, "pending", now).Count(&pending).Error; err != nil {
+		return nil, err
+	}
+	if pending >= maxPendingOrders {
+		return nil, errors.New("未支付的订单太多，请先完成或等待过期")
+	}
+	if o.Method == payUSDT {
+		var err error
+		if o.Amount, err = s.uniqueUSDTAmount(usdtPrice, now); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.st.DB.Create(o).Error; err != nil {
 		return nil, err
 	}

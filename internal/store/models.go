@@ -947,6 +947,8 @@ type Order struct {
 	CreatedAt  time.Time  `gorm:"index" json:"createdAt"`
 	ExpiresAt  time.Time  `json:"expiresAt"`
 	PaidAt     *time.Time `json:"paidAt"`
+	StarsURL   string     `gorm:"type:text" json:"-"` // cached native checkout link; never expose in admin responses
+	StarsBotID int64      `json:"-"`                  // links belong to the bot that created them
 }
 
 // RedeemCode is a prepaid code for a plan or a traffic pack, sold
