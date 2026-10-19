@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
 import { CopyBox, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
-import { PlansModal } from '../components/Plans'
 import { datetime } from '../format'
 import { ProTag, useFeature } from '../components/License'
 import { bytes, GB } from '../format'
@@ -507,7 +506,6 @@ export default function Shop() {
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') || 'orders'
   const st = useLoad(() => get<{ status: ShopStatus }>('/orders?limit=1'))
-  const [plans, setPlans] = useState(false)
   const s = st.data?.status
   const tabs = [{ id: 'orders', label: t('订单') }, { id: 'packs', label: t('流量包') }, { id: 'codes', label: t('兑换码') }, { id: 'pay', label: t('支付设置') }]
   return (
@@ -516,7 +514,7 @@ export default function Shop() {
         <div><h1>{t('售卖')}</h1><div className="sub">{t('用户在 Telegram 机器人里购买套餐：Telegram Stars、易支付、USDT 或兑换码，付款后自动开通')}</div></div>
         <div className="row">
           {s && <span className={'st ' + (s.enabled && s.botRunning ? 'ok' : 'off')}>{s.enabled ? (s.botRunning ? t('● 营业中 @{bot}', { bot: s.bot }) : t('机器人未运行')) : t('未开放')}</span>}
-          <button className="btn" type="button" onClick={() => setPlans(true)}>{t('管理套餐')}</button>
+          <Link className="btn" to="/plans">{t('管理套餐')}</Link>
         </div>
       </div>
       <div className="tabs" role="tablist" style={{ marginBottom: 14 }}>
@@ -526,7 +524,6 @@ export default function Shop() {
       {tab === 'packs' && <Packs />}
       {tab === 'codes' && <Codes />}
       {tab === 'pay' && <PaySettings status={s} onSaved={st.reload} />}
-      {plans && <PlansModal onClose={() => setPlans(false)} onChanged={() => st.reload()} />}
     </>
   )
 }

@@ -11,7 +11,7 @@ import { ago, bytes, coreShort, date, datetime, daysLeft, GB, isOnline, userStat
 import type { Group, Inbound, Node, NodeQuota, User, UserDevice } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal, TrafficEdit } from '../components/UserTools'
 import { t, tr } from '../i18n'
-import { planSummary, PlansModal, UserPlanModal } from '../components/Plans'
+import { planSummary, UserPlanModal } from '../components/Plans'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
@@ -580,7 +580,7 @@ export default function Users() {
   const [drawer, setDrawer] = useState<User | 'new' | null>(params.get('new') ? 'new' : null)
   const [selected, setSelected] = useState<User | null>(null)
   const [qr, setQr] = useState<User | null>(null)
-  const [modal, setModal] = useState<'groups' | 'plans' | 'plan' | 'bulk' | 'adjust' | 'import' | null>(null)
+  const [modal, setModal] = useState<'groups' | 'plan' | 'bulk' | 'adjust' | 'import' | null>(null)
   const [checked, setChecked] = useState<string[]>([])
   const toast = useToast()
   const { busy, run } = useAction()
@@ -627,7 +627,6 @@ export default function Users() {
       <div className="top">
         <div><h1>{t('用户')}</h1><div className="sub">{t('一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站')}</div></div>
         <div className="row">
-          <button className="btn" type="button" onClick={() => setModal('plans')}>{t('套餐')}</button>
           <button className="btn" type="button" onClick={() => setModal('groups')}>{t('分组')}</button>
           <details className="menu">
             <summary className="btn">{t('更多')}</summary>
@@ -758,7 +757,6 @@ export default function Users() {
           <CopyBox text={subURL(qr)} />
         </Modal>
       )}
-      {modal === 'plans' && <PlansModal onClose={() => setModal(null)} onChanged={() => { groups.reload(); list.reload() }} />}
       {modal === 'plan' && <UserPlanModal ids={checked} onClose={() => setModal(null)} onDone={() => { setModal(null); setChecked([]); list.reload() }} />}
       {modal === 'groups' && <GroupsModal onClose={() => setModal(null)} onChanged={() => { groups.reload(); list.reload() }} />}
       {bind && <BindNodesModal count={checked.length} detach={bind === 'detach'} onClose={() => setBind(null)} onSubmit={(ids) => {

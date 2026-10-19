@@ -47,32 +47,74 @@ function toEdit(p: Group): Edit {
   }
 }
 
-export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+// planPresets are starting points for new plans, airport style: Lv.1 plain
+// lines, Lv.2 better lines, Lv.3 premium lines (a level includes the lower
+// ones). Paid plans fall back to the free plan when they run out.
+const planPresets: { name: string; note: string; fallback?: boolean; e: Partial<Edit> }[] = [
+  { name: t('免费版'), note: t('不限期 · 每月 5 GB · 限速 10 Mbps'), e: { level: 1, limitGB: '5', days: '', resetPolicy: 'monthly', resetDay: '1', deviceLimit: '1', speedUp: '10', speedDown: '10' } },
+  { name: t('体验版'), note: t('3 天 · 10 GB，适合配兑换码'), fallback: true, e: { level: 1, limitGB: '10', days: '3', deviceLimit: '2' } },
+  { name: t('基础月付'), note: t('Lv.1 · 30 天 · 100 GB · ¥10'), fallback: true, e: { level: 1, limitGB: '100', days: '30', deviceLimit: '3', sale: true, priceCny: '10', price: t('¥{n}/月', { n: 10 }) } },
+  { name: t('标准月付'), note: t('Lv.2 · 30 天 · 300 GB · ¥20'), fallback: true, e: { level: 2, limitGB: '300', days: '30', deviceLimit: '5', sale: true, priceCny: '20', price: t('¥{n}/月', { n: 20 }) } },
+  { name: t('高级月付'), note: t('Lv.3 · 30 天 · 1000 GB · ¥40'), fallback: true, e: { level: 3, limitGB: '1000', days: '30', deviceLimit: '8', sale: true, priceCny: '40', price: t('¥{n}/月', { n: 40 }) } },
+  { name: t('标准年付'), note: t('Lv.2 · 365 天 · 每 30 天 300 GB · ¥200'), fallback: true, e: { level: 2, limitGB: '300', days: '365', resetPolicy: 'cycle', resetDay: '30', deviceLimit: '5', sale: true, priceCny: '200', price: t('¥{n}/年', { n: 200 }) } },
+  { name: t('不限时流量'), note: t('Lv.2 · 500 GB 用完为止 · ¥50'), e: { level: 2, limitGB: '500', days: '', deviceLimit: '5', sale: true, priceCny: '50', price: '¥50' } },
+]
+
+function planBody(e: Edit) {
+  return {
+    name: e.name.trim(), price: e.price.trim(), sort: Number(e.sort) || 0, level: e.level, nodeIds: e.nodeIds,
+    trafficLimit: Math.round(Number(e.limitGB || 0) * GB), days: Number(e.days) || 0,
+    resetPolicy: e.resetPolicy === 'none' ? '' : e.resetPolicy, resetDay: Number(e.resetDay) || 0,
+    deviceLimit: Number(e.deviceLimit) || 0, ipLimit: Number(e.ipLimit) || 0,
+    speedUpMbps: Number(e.speedUp) || 0, speedDownMbps: Number(e.speedDown) || 0, fallbackId: e.fallbackId,
+    sale: e.sale, priceStars: Math.round(Number(e.priceStars) || 0), priceCny: Number(e.priceCny) || 0, priceUsdt: Number(e.priceUsdt) || 0,
+    nodeRates: Object.fromEntries(Object.entries(e.nodeRates).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => (v as number) > 0)),
+  }
+}
+
+// PlansPanel is the plans page body: plan cards, the node matrix and the
+// plan editor (a dialog over the page).
+export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
   const speedOK = useFeature('speed_limit')
   const addonsOK = useFeature('plan_addons')
   const plans = useLoad(() => get<Group[]>('/plans'))
   const [edit, setEdit] = useState<Edit | null>(null)
+  const onClose = () => setEdit(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const { nodes } = useNodes()
   const list = plans.data ?? []
   const set = (k: keyof Edit, v: unknown) => setEdit((e) => (e ? { ...e, [k]: v } : e))
 
+  const freeID = () => list.find((p) => p.name === t('免费版'))?.id ?? ''
+  const fromPreset = (i: number) => {
+    const pr = planPresets[i]
+    setEdit({ ...blank, ...pr.e, name: pr.name, sort: list.length, fallbackId: pr.fallback ? freeID() : '' })
+  }
+  // createPresets adds every preset not there yet, the free plan first so
+  // the others can fall back to it.
+  const createPresets = async () => {
+    const missing = planPresets.filter((pr) => !list.some((p) => p.name === pr.name))
+    if (!missing.length || !await confirm(t('创建 {n} 个推荐套餐：{names}？价格和流量之后都可以修改；在售的套餐需要配置付款方式后才能购买。', { n: missing.length, names: missing.map((pr) => pr.name).join('、') }), { ok: t('创建') })) return
+    run(async () => {
+      let free = freeID()
+      let sort = list.length
+      for (const pr of missing) {
+        const created = await post<Group>('/plans', planBody({ ...blank, ...pr.e, name: pr.name, sort: sort++, fallbackId: pr.fallback ? free : '' }))
+        if (pr.name === t('免费版')) free = created.id
+      }
+      plans.reload()
+      onChanged?.()
+    }, t('已创建'))
+  }
+
   const save = (e: Edit) => run(async () => {
-    const body = {
-      name: e.name.trim(), price: e.price.trim(), sort: Number(e.sort) || 0, level: e.level, nodeIds: e.nodeIds,
-      trafficLimit: Math.round(Number(e.limitGB || 0) * GB), days: Number(e.days) || 0,
-      resetPolicy: e.resetPolicy === 'none' ? '' : e.resetPolicy, resetDay: Number(e.resetDay) || 0,
-      deviceLimit: Number(e.deviceLimit) || 0, ipLimit: Number(e.ipLimit) || 0,
-      speedUpMbps: Number(e.speedUp) || 0, speedDownMbps: Number(e.speedDown) || 0, fallbackId: e.fallbackId,
-      sale: e.sale, priceStars: Math.round(Number(e.priceStars) || 0), priceCny: Number(e.priceCny) || 0, priceUsdt: Number(e.priceUsdt) || 0,
-      nodeRates: Object.fromEntries(Object.entries(e.nodeRates).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => (v as number) > 0)),
-    }
+    const body = planBody(e)
     if (e.id) await put('/plans/' + e.id, body)
     else await post('/plans', body)
     setEdit(null)
     plans.reload()
-    onChanged()
+    onChanged?.()
   }, t('已保存'))
 
   if (edit) {
@@ -82,6 +124,13 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
         <button className="btn" type="button" onClick={() => setEdit(null)}>{t('返回')}</button>
         <button className="btn pri" type="button" disabled={busy || !edit.name.trim()} onClick={() => save(edit)}>{t('保存')}</button>
       </>}>
+        {!edit.id && (
+          <Field label={t('从模板开始')} hint={t('点一下自动填好，再按需修改；Lv.1 普通线路、Lv.2 优质线路、Lv.3 专线')}>
+            <div className="chips" style={{ flexWrap: 'wrap' }}>
+              {planPresets.map((pr, i) => <button key={pr.name} type="button" className={'chip' + (edit.name === pr.name ? ' on' : '')} title={pr.note} onClick={() => fromPreset(i)}>{pr.name}</button>)}
+            </div>
+          </Field>
+        )}
         <div className="form-grid">
           <Field label={t('名称')} htmlFor="p-name"><input id="p-name" className="input" value={edit.name} onChange={(e) => set('name', e.target.value)} placeholder={t('例如 专业版')} /></Field>
           <Field label={t('售价')} htmlFor="p-price" hint={t('只用于展示，支付插件也会读取')}><input id="p-price" className="input" value={edit.price} onChange={(e) => set('price', e.target.value)} placeholder="¥15" /></Field>
@@ -156,9 +205,15 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
   }
 
   return (
-    <Modal title={t('套餐')} onClose={onClose} xwide footer={<button className="btn pri" type="button" onClick={() => setEdit({ ...blank, sort: list.length })}>{t('+ 新建套餐')}</button>}>
-      <div className="sub" style={{ margin: 0 }}>{t('像机场一样分级售卖：套餐决定可用哪些服务器（按节点等级）和流量、时长、设备数。开通或换套餐时已用流量清零，续费同一套餐顺延到期时间。')}</div>
-      {plans.data && list.length === 0 && <div className="note">{t('还没有套餐。常见做法：先建一个不限期的「免费版」（Lv.1，少量流量），再建付费套餐并把「到期后」设为降级到免费版。')}</div>}
+    <>
+      <div className="top">
+        <div><h1>{t('套餐')}</h1><div className="sub">{t('像机场一样分级售卖：套餐决定可用哪些服务器（按节点等级）和流量、时长、设备数。开通或换套餐时已用流量清零，续费同一套餐顺延到期时间。')}</div></div>
+        <div className="row"><button className="btn pri" type="button" onClick={() => setEdit({ ...blank, sort: list.length })}>{t('+ 新建套餐')}</button></div>
+      </div>
+      {plans.data && list.length === 0 && <div className="note row" style={{ justifyContent: 'space-between' }}>
+        <span>{t('还没有套餐。常见做法：先建一个不限期的「免费版」（Lv.1，少量流量），再建付费套餐并把「到期后」设为降级到免费版。')}</span>
+        <button className="btn sm pri" type="button" disabled={busy} onClick={createPresets}>{t('一键创建推荐套餐')}</button>
+      </div>}
       <div className="plans">
         {list.map((p) => {
           const reach = planNodes(p, nodes)
@@ -183,7 +238,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
                 <span>
                   <button className="link" type="button" onClick={() => setEdit(toEdit(p))}>{t('编辑')}</button>
                   <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
-                    if (await confirm(t('删除套餐 {name}？已开通的用户保留当前流量和到期时间，但失去套餐里的节点。', { name: p.name }), { danger: true })) run(async () => { await del('/plans/' + p.id); plans.reload(); onChanged() })
+                    if (await confirm(t('删除套餐 {name}？已开通的用户保留当前流量和到期时间，但失去套餐里的节点。', { name: p.name }), { danger: true })) run(async () => { await del('/plans/' + p.id); plans.reload(); onChanged?.() })
                   }}>{t('删除')}</button>
                 </span>
               </div>
@@ -206,7 +261,7 @@ export function PlansModal({ onClose, onChanged }: { onClose: () => void; onChan
           </table>
         </div>
       )}
-    </Modal>
+    </>
   )
 }
 
