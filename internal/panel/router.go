@@ -97,6 +97,12 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/poll", s.portalGate(decoy, s.portalLoginPoll))
 		r.POST(portalPath+"/logout", s.portalGate(decoy, s.portalLogout))
 		r.POST(portalPath+"/reset", s.portalGate(decoy, s.portalReset))
+		r.GET(shopWebPath, s.portalGate(decoy, s.webShopPage))
+		r.POST(shopWebPath+"/order", s.portalGate(decoy, s.webShopBuy))
+		r.POST(shopWebPath+"/redeem", s.portalGate(decoy, s.webShopRedeem))
+		r.GET(shopWebPath+"/order/:id", s.portalGate(decoy, s.webShopOrderPage))
+		r.GET(shopWebPath+"/order/:id/status", s.portalGate(decoy, s.webShopOrderStatus))
+		r.POST(shopWebPath+"/order/:id/cancel", s.portalGate(decoy, s.webShopCancel))
 	}
 	api := r.Group(s.cfg.APIBase())
 	api.POST("/auth/login", s.loginGuard, s.login)

@@ -201,5 +201,10 @@ const m: Record<string, string> = {
   "机器人商店支持 Telegram Stars、易支付、USDT 自动收款": "Telegram Stars, EPay and USDT payments in the bot shop",
   "同步跳转地址": "Return URL",
   "付款后买家先回到这个面板地址，再自动打开机器人。请在易支付商户后台把面板域名加入授权域名，否则会提示「支付返回域名未通过审核」": "After paying, the buyer comes back to this panel address, which opens the bot. Add the panel's domain to the authorized domains in the EPay merchant dashboard, or the gateway rejects the return domain.",
+  "网页": "Web",
+  "网页商店：在用户中心 /u/shop 购买套餐和流量包（登录用户中心可续费；未登录可直接购买新账号）": "Web shop: buy plans and traffic packs in the user center at /u/shop (signed-in users renew; others buy a new account)",
+  "网页商店": "Web shop",
+  "网页商店需要先在「订阅设置」里开启用户中心。": "The web shop needs the user center, turned on under Subscription settings.",
+  "网页商店地址": "Web shop address",
 }
 export default m

@@ -947,8 +947,10 @@ type Order struct {
 	CreatedAt  time.Time  `gorm:"index" json:"createdAt"`
 	ExpiresAt  time.Time  `json:"expiresAt"`
 	PaidAt     *time.Time `json:"paidAt"`
-	StarsURL   string     `gorm:"type:text" json:"-"` // cached native checkout link; never expose in admin responses
-	StarsBotID int64      `json:"-"`                  // links belong to the bot that created them
+	StarsURL   string     `gorm:"type:text" json:"-"`     // cached native checkout link; never expose in admin responses
+	StarsBotID int64      `json:"-"`                      // links belong to the bot that created them
+	WebKey     string     `gorm:"size:64;index" json:"-"` // web shop: hash of the buyer's browser key
+	Web        bool       `gorm:"-" json:"web"`           // bought in the web shop (set by listOrders)
 }
 
 // RedeemCode is a prepaid code for a plan or a traffic pack, sold

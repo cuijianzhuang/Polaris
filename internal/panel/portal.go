@@ -106,6 +106,7 @@ func (s *Server) portalPage(c *gin.Context) {
 		_ = portalLoginTpl.Execute(&buf, map[string]any{
 			"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")),
 			"Bot":   s.tgWebLoginEnabled(),
+			"Shop":  s.webShopOn(),
 		})
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(buf.String()))
 		return
@@ -124,6 +125,9 @@ func (s *Server) portalPage(c *gin.Context) {
 	s.pageExtras(&info, u, nodes)
 	info.BotURL = "" // already bound: that is how they signed in
 	info.Portal = true
+	if s.webShopOn() {
+		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
+	}
 	for _, l := range s.pluginPortalLinks(u) {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: l.Title, URL: l.URL})
 	}
@@ -264,6 +268,7 @@ h1{font-size:20px;margin:0}.mute{color:var(--mute);font-size:13px;margin:0}
 {{else}}
 <p class="err">管理员尚未启用 Telegram 机器人，暂时无法登录。</p>
 {{end}}
+{{if .Shop}}<a class="btn alt" href="/u/shop">🛒 购买套餐</a>{{end}}
 </div></main>
 {{if .Bot}}<script>
 (function(){

@@ -64,3 +64,6 @@ func (b *tgBot) onStarsPaid(chat int64, p *tgPayment) {
 func (b *tgBot) sendPayment(_ context.Context, chat, msg int64, _ *store.Order, _ string) {
 	b.edit(chat, msg, errPayments.Error()+"，可以使用兑换码购买。", []button{{Text: "🎟 兑换码", Data: "v:redeem"}, btnHome})
 }
+
+// epayLink: no payment gateway in community builds.
+func (s *Server) epayLink(*store.Order, string) string { return "" }
