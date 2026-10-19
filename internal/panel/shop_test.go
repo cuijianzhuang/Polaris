@@ -75,8 +75,8 @@ func TestShop(t *testing.T) {
 		return strings.Contains(fake.textsTo(500), "专业版") && strings.Contains(fake.textsTo(500), "100 ⭐")
 	})
 	fake.push(cb(500, "s:m:"+plan+":stars"))
-	waitUntil(t, "invoice", func() bool { return len(fake.callsOf("sendInvoice")) == 1 })
-	inv := fake.callsOf("sendInvoice")[0]
+	waitUntil(t, "invoice link", func() bool { return len(fake.callsOf("createInvoiceLink")) == 1 })
+	inv := fake.callsOf("createInvoiceLink")[0]
 	orderID := inv["payload"].(string)
 	if inv["currency"] != "XTR" {
 		t.Fatalf("invoice %v", inv)

@@ -178,21 +178,7 @@ func (s *Server) newPackOrder(tgID int64, tgName string, u *store.User, packID, 
 		return nil, errors.New("这个流量包不支持该付款方式")
 	}
 	now := time.Now()
-	var pending int64
-	s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", tgID, "pending", now).Count(&pending)
-	if pending >= maxPendingOrders {
-		return nil, errors.New("未支付的订单太多，请先完成或等待过期")
-	}
-	if method == payUSDT {
-		var err error
-		if amount, err = s.uniqueUSDTAmount(p.PriceUSDT, now); err != nil {
-			return nil, err
-		}
-	}
 	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: u.ID, Kind: kindPack, PackID: p.ID,
 		PlanName: p.Name, Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
-	if err := s.st.DB.Create(o).Error; err != nil {
-		return nil, err
-	}
-	return o, nil
+	return s.openShopOrder(o, p.PriceUSDT)
 }

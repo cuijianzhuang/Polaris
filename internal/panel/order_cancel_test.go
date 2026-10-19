@@ -12,7 +12,7 @@ import (
 )
 
 // TestOrderCancelResume: a buyer finds unpaid orders in the bot, pays one
-// again (picking another EPay type, or a fresh Stars invoice) and cancels
+// again (picking another EPay type, or the same native Stars checkout) and cancels
 // another. A cancelled Stars invoice is refused at checkout; money that
 // still arrives for a cancelled order is delivered.
 func TestOrderCancelResume(t *testing.T) {
@@ -55,13 +55,12 @@ func TestOrderCancelResume(t *testing.T) {
 	fake.push(cb(700, "s:m:"+plan+":epay:alipay"))
 	var epay store.Order
 	waitUntil(t, "epay order row", func() bool { return s.st.DB.First(&epay, "telegram_id = ? AND method = ?", 700, payEPay).Error == nil })
-	if !hasButton(fake, "s:c:"+epay.ID) {
-		t.Fatal("payment message without a cancel button")
-	}
+	waitUntil(t, "epay cancel button", func() bool { return hasButton(fake, "s:c:"+epay.ID) })
 	// A Stars order.
 	fake.push(cb(700, "s:m:"+plan+":stars"))
-	waitUntil(t, "invoice", func() bool { return len(fake.callsOf("sendInvoice")) == 1 })
-	stars := fake.callsOf("sendInvoice")[0]["payload"].(string)
+	waitUntil(t, "invoice link", func() bool { return len(fake.callsOf("createInvoiceLink")) == 1 })
+	stars := fake.callsOf("createInvoiceLink")[0]["payload"].(string)
+	waitUntil(t, "Stars cancel button", func() bool { return hasButton(fake, "s:c:"+stars) })
 
 	// The shop and the unpaid list show both.
 	fake.push(msg(700, "/buy"))
@@ -84,11 +83,12 @@ func TestOrderCancelResume(t *testing.T) {
 		}
 		return false
 	})
-	// Resume the Stars order: a new invoice for the same order.
+	// Resume Stars by editing the current card with its cached native link.
+	edits := len(fake.callsOf("editMessageText"))
 	fake.push(cb(700, "s:r:"+stars))
-	waitUntil(t, "second invoice", func() bool { return len(fake.callsOf("sendInvoice")) == 2 })
-	if p := fake.callsOf("sendInvoice")[1]["payload"]; p != stars {
-		t.Fatalf("resumed invoice for %v", p)
+	waitUntil(t, "resumed card", func() bool { return len(fake.callsOf("editMessageText")) > edits })
+	if len(fake.callsOf("createInvoiceLink")) != 1 || len(fake.callsOf("sendInvoice")) != 0 {
+		t.Fatal("resuming Stars sent another invoice")
 	}
 
 	// Someone else cannot cancel it; the buyer can, after confirming.
@@ -101,6 +101,7 @@ func TestOrderCancelResume(t *testing.T) {
 	}
 	fake.push(cb(700, "s:x:"+stars))
 	waitUntil(t, "cancelled", func() bool { return status(stars) == "cancelled" })
+	waitUntil(t, "cancelled receipt", func() bool { return strings.Contains(fake.textsTo(700), "<b>订单已取消</b>") })
 	if n := s.unpaidCount(700); n != 1 {
 		t.Fatalf("unpaid after cancel %d", n)
 	}
