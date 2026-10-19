@@ -103,7 +103,7 @@ type Inbound struct {
 	Transport        JSON[model.TransportSpec] `json:"transport"`
 	Security         JSON[model.SecuritySpec]  `json:"security"`
 	Sniffing         JSON[model.SniffSpec]     `json:"sniffing"`
-	Extra            json.RawMessage           `gorm:"type:text" json:"extra,omitempty"`
+	Extra            json.RawMessage           `gorm:"type:text;serializer:rawjson" json:"extra,omitempty"`
 	Enabled          bool                      `json:"enabled"`
 	TemplateID       string                    `gorm:"size:32;index" json:"templateId,omitempty"`
 	TemplateItemKey  string                    `gorm:"size:64" json:"templateItemKey,omitempty"` // which template item generated it
@@ -478,7 +478,7 @@ type Outbound struct {
 	NodeID           string             `gorm:"size:32;index;uniqueIndex:idx_out_node_tag" json:"nodeId"`
 	Tag              string             `gorm:"size:64;uniqueIndex:idx_out_node_tag" json:"tag"`
 	Type             model.OutboundType `gorm:"size:16" json:"type"`
-	Settings         json.RawMessage    `gorm:"type:text" json:"settings,omitempty"`
+	Settings         json.RawMessage    `gorm:"type:text;serializer:rawjson" json:"settings,omitempty"`
 	NodeRefInboundID string             `gorm:"size:32;index" json:"nodeRefInboundId"`
 	Detour           string             `gorm:"size:64" json:"detour"`
 	ChainID          string             `gorm:"size:32;index" json:"chainId"` // managed by a chain

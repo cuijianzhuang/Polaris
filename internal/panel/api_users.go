@@ -150,7 +150,7 @@ func (s *Server) listUsers(c *gin.Context) {
 	q := base.Session(&gorm.Session{})
 	if v := strings.TrimSpace(c.Query("q")); v != "" {
 		like := "%" + v + "%"
-		q = q.Where("username LIKE ? OR uuid LIKE ? OR remark LIKE ?", like, like, like)
+		q = q.Where(s.st.Like("username LIKE ? OR uuid LIKE ? OR remark LIKE ?"), like, like, like)
 	}
 	q = userFilter(q, c.Query("filter"), now, warn)
 	if g := c.Query("group"); g != "" {

@@ -17,7 +17,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup", "restore", "node-token":
+		case "admin", "backup", "restore", "node-token", "migrate":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -65,6 +65,8 @@ const usage = `usage:
   polaris backup FILE [-passphrase P]       backup archive (SQLite or PostgreSQL); encrypted with a
                                             passphrase it carries the secret key and restores anywhere
   polaris restore FILE [-passphrase P]      replace the data with a backup (stop the panel first)
+  polaris migrate -to DSN [-replace]       copy all data to another database (e.g. SQLite ->
+                                            postgres://user:pass@host/db); stop the panel first
   polaris node-token [-n NAME]              one-time install token for a node on this server
                                             (creates the node "本机" unless it exists)
 Configuration is read from the environment (POLARIS_*) or -config FILE.`
@@ -77,6 +79,8 @@ func maintenance(cmd string, args []string) int {
 	pass := fs.String("p", "", "new password (default: random)")
 	nodeName := fs.String("n", "", "node name (default: 本机)")
 	passphrase := fs.String("passphrase", os.Getenv("POLARIS_BACKUP_PASSPHRASE"), "backup passphrase")
+	to := fs.String("to", "", "migrate: target database DSN")
+	replace := fs.Bool("replace", false, "migrate: overwrite a target that already has data")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
 	sub := ""
 	if cmd == "admin" {
@@ -123,6 +127,24 @@ func maintenance(cmd string, args []string) int {
 			return fail(err)
 		}
 		fmt.Println("restored; the previous data was saved to", snap)
+	case cmd == "migrate":
+		if *to == "" || len(pos) != 0 {
+			fs.Usage()
+			return 2
+		}
+		res, err := panel.Migrate(cfg, *to, *replace)
+		if err != nil {
+			return fail(err)
+		}
+		for _, t := range res.Tables {
+			if t.Source > 0 {
+				fmt.Printf("  %-24s %d\n", t.Name, t.Target)
+			}
+		}
+		for _, c := range res.Truncated {
+			fmt.Fprintln(os.Stderr, "warning: values longer than the column were cut:", c)
+		}
+		fmt.Printf("migrated %d rows; row counts match.\nNext: set POLARIS_DB_DSN to the target, then start the panel.\n", res.Rows)
 	case cmd == "node-token":
 		tok, created, err := panel.LocalNodeToken(cfg, *nodeName)
 		if err != nil {

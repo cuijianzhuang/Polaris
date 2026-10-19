@@ -745,6 +745,24 @@ polaris restore /path/to/polaris-backup.tar.gz.enc
 
 数据库支持 SQLite / PostgreSQL 间的备份恢复；外部 PostgreSQL 连接、DNS、云安全组和反向代理仍需在目标环境单独配置。
 
+### 从 SQLite 切换到 PostgreSQL
+
+主控数据量大，或准备运行多个主控实例时，可以把数据库换成 PostgreSQL（12 及以上）。数据目录里的 CA 证书等文件不变，`secret_key` 也必须保持不变。
+
+1. 在 PostgreSQL 里创建一个空数据库和账号，例如 `CREATE DATABASE polaris;`。
+2. 停止主控：`systemctl stop polaris`。
+3. 复制数据（会读取当前配置的 SQLite 数据库）：
+
+   ```bash
+   polaris migrate -to 'postgres://polaris:密码@127.0.0.1:5432/polaris?sslmode=disable'
+   ```
+
+   命令在一个事务里复制全部数据，并逐表核对行数；任何一步失败，目标库都保持原样。目标库已有数据时会拒绝写入，确认覆盖请加 `-replace`。SQLite 不限制文本长度，超出 PostgreSQL 列长度的内容（例如超长备注）会被截断，命令结束时会列出受影响的列。
+4. 在环境配置里设置 `POLARIS_DB_DSN` 为同一个地址，然后启动主控：`systemctl start polaris`。
+5. 确认运行正常后，原来的 `polaris.db` 可以保留一段时间作为回退。要换回 SQLite，把 `-to` 换成 SQLite 文件路径，反向执行即可。
+
+PostgreSQL 地址可以写成 `postgres://` / `postgresql://` URL，也可以写成 `host=… user=… dbname=…` 形式。每个主控实例最多使用 20 个数据库连接。
+
 <a id="license"></a>
 
 ## 14. 专业版与许可证
@@ -857,7 +875,7 @@ polaris log
 | `POLARIS_AGENT_LISTEN` | Agent mTLS 监听，默认 `:9443` |
 | `POLARIS_AGENT_HOSTS` | Agent 使用的主控域名或 IP，写入服务端证书 |
 | `POLARIS_DATA_DIR` | 数据目录，程序默认 `./data`；一键安装通常为 `/var/lib/polaris`，Docker 为 `/data` |
-| `POLARIS_DB_DSN` | 设置 PostgreSQL DSN；未设置时使用数据目录中的 SQLite |
+| `POLARIS_DB_DSN` | 设置 PostgreSQL DSN；未设置时使用数据目录中的 SQLite。从 SQLite 迁移见 `polaris migrate` |
 | `POLARIS_REDIS_URL` | 可选。多个主控实例共享在线 IP（IP 数限制、在线设备）、订阅 / 网页商店限流和告警去重；单实例无需配置。Redis 不可用时自动退回各实例本机内存。流量计费不使用 Redis |
 | `POLARIS_INITIAL_ADMIN_USERNAME` | 首次创建管理员的用户名 |
 | `POLARIS_INITIAL_ADMIN_PASSWORD` | 首次创建管理员的密码；留空时生成并记录到启动日志 |
@@ -889,6 +907,7 @@ polaris log
 | `polaris check-update` / `polaris update` | 检查 / 升级主控 |
 | `polaris switch community` / `polaris switch pro` | 切换版本类型，保留数据与配置 |
 | `polaris backup` / `polaris restore FILE` | 创建 / 恢复备份；恢复会替换目标数据 |
+| `polaris migrate -to DSN [-replace]` | 把全部数据复制到另一个数据库（如 SQLite → PostgreSQL），先停止主控 |
 | `polaris reset-password` / `polaris reset-2fa` | 重置管理员密码 / 关闭两步验证 |
 | `polaris help` | 查看当前安装版本支持的全部命令 |
 

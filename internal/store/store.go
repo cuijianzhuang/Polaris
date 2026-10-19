@@ -42,11 +42,11 @@ type cachedSetting struct {
 // writes that bypass SetSetting, such as a restored database).
 const settingTTL = time.Minute
 
-// Open connects and migrates. DSNs starting with postgres:// or postgresql://
-// use PostgreSQL; anything else is a SQLite file path.
+// Open connects and migrates. PostgreSQL DSNs are recognised by
+// IsPostgresDSN; anything else is a SQLite file path.
 func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 	var dial gorm.Dialector
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+	if IsPostgresDSN(dsn) {
 		dial = postgres.Open(dsn)
 	} else {
 		if !strings.Contains(dsn, "?") {
@@ -62,8 +62,17 @@ func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if sqlDB, err := db.DB(); err == nil && dial.Name() == "sqlite" {
-		sqlDB.SetMaxOpenConns(1) // SQLite: serialise writers
+	if sqlDB, err := db.DB(); err == nil {
+		if dial.Name() == "sqlite" {
+			sqlDB.SetMaxOpenConns(1) // SQLite: serialise writers
+		} else {
+			// PostgreSQL: bounded so several panel instances fit within the
+			// server's max_connections (100 by default).
+			sqlDB.SetMaxOpenConns(20)
+			sqlDB.SetMaxIdleConns(5)
+			sqlDB.SetConnMaxLifetime(30 * time.Minute)
+			sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+		}
 	}
 	hadSelfService := db.Migrator().HasColumn(&User{}, "self_service")
 	if err := db.AutoMigrate(AllModels()...); err != nil {
@@ -74,6 +83,22 @@ func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 		db.Model(&User{}).Where("remark LIKE ? OR remark LIKE ?", "Telegram 购买 %", "网页购买 %").Update("self_service", true)
 	}
 	return &Store{DB: db, Box: box}, nil
+}
+
+// IsPostgresDSN reports whether dsn names a PostgreSQL database: a
+// postgres:// or postgresql:// URL, or a "host=... dbname=..." keyword
+// string. Anything else is a SQLite file path.
+func IsPostgresDSN(dsn string) bool {
+	dsn = strings.TrimSpace(dsn)
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		return true
+	}
+	for _, k := range []string{"host=", "dbname=", "user="} {
+		if strings.HasPrefix(dsn, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewID returns a short random id (16 lowercase base32 chars).
@@ -185,4 +210,13 @@ func (s *Store) Close() error {
 		return err
 	}
 	return db.Close()
+}
+
+// Like rewrites "LIKE" in a condition to the database's case-insensitive
+// form: SQLite's LIKE already ignores ASCII case, PostgreSQL needs ILIKE.
+func (s *Store) Like(cond string) string {
+	if s.DB.Dialector.Name() == "postgres" {
+		return strings.ReplaceAll(cond, " LIKE ", " ILIKE ")
+	}
+	return cond
 }
