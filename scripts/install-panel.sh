@@ -6,6 +6,8 @@
 #
 # With no arguments an interactive menu opens. Non-interactive commands:
 #   install [--pro] [--domain NAME] [--no-caddy] [--version TAG] [--port N] [--agent-port N] [--admin-path P] [--restore FILE]
+#           [--db sqlite|local|DSN] [--redis local|URL]   database (asked on a terminal; default sqlite) and optional Redis
+#   migrate sqlite|local|DSN      move the data to another database (local = PostgreSQL installed on this server)
 #   update [--version TAG] [--force] [--pro|--community]  upgrade binaries, keep config and data (database backed up first)
 #   check-update                  compare the installed version with the latest release
 #   update-request                run an update the panel asked for (used by polaris-update.service)
@@ -51,6 +53,11 @@ RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.s
 
 FORCE=0 EDITION="" DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
 BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
+DB_CHOICE="" REDIS_CHOICE="" DB_DSN="" REDIS_URL=""
+# A PostgreSQL on this server, reached over its Unix socket as the polaris
+# system user (peer authentication: no password to keep).
+LOCAL_PG_DSN="postgresql://polaris@/polaris?host=/var/run/postgresql"
+DB_DROPIN=/etc/systemd/system/polaris.service.d/database.conf
 
 shopt -s extglob
 
@@ -142,14 +149,20 @@ preflight() {
 
 installed() { [ -x "$BIN" ] && [ -f "$ENV_FILE" ]; }
 need_installed() { installed || die "Polaris 尚未安装"; }
-env_get() { sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | tail -n1; }
+env_get() { sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | tail -n1 | sed "s/^'\\(.*\\)'$/\\1/"; }
 env_set() { # key value
+  local v="$2"
+  # Values with shell-special characters (a DSN's & or spaces) are single-
+  # quoted: systemd and the shell both read that form.
+  case "$v" in *[!A-Za-z0-9_./:@%+=,-]*) v="'$v'" ;; esac
   if grep -q "^$1=" "$ENV_FILE"; then
-    sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
+    local e="${v//\\/\\\\}"; e="${e//&/\\&}"; e="${e//|/\\|}"
+    sed -i "s|^$1=.*|$1=$e|" "$ENV_FILE"
   else
-    echo "$1=$2" >> "$ENV_FILE"
+    printf '%s=%s\n' "$1" "$v" >> "$ENV_FILE"
   fi
 }
+env_del() { sed -i "/^$1=/d" "$ENV_FILE"; }
 running() { systemctl is-active --quiet polaris; }
 
 # The installer hands the generated admin password to the first start via the
@@ -222,6 +235,181 @@ choose_edition() {
   read -r -p "  请选择 [1-2，默认 1]：" c || true
   case "$c" in 2) EDITION=pro ;; *) EDITION=community ;; esac
   ok "安装$(edition_label "$EDITION")"
+}
+
+# --- database ----------------------------------------------------------------------
+
+# choose_database picks the database (and optional Redis) for a new install:
+# --db / --redis when given, a question on a terminal, SQLite otherwise.
+choose_database() {
+  if [ -z "$DB_CHOICE" ] && [ -t 0 ]; then
+    echo
+    printf '  %s选择数据库%s（之后可以切换：polaris migrate）\n' "$C_BD" "$C_0"
+    printf '  %s1.%s SQLite              免安装，单个主控、几千用户以内足够（推荐）\n' "$C_C" "$C_0"
+    printf '  %s2.%s PostgreSQL（本机）  自动安装到这台服务器；用户、节点很多或流量记录量大时选它\n' "$C_C" "$C_0"
+    printf '  %s3.%s PostgreSQL（已有）  云数据库或另一台服务器，准备运行多个主控实例时选它\n' "$C_C" "$C_0"
+    local c
+    read -r -p "  请选择 [1-3，默认 1]：" c || true
+    case "$c" in
+      2) DB_CHOICE=local ;;
+      3) while [ -z "$DB_CHOICE" ]; do
+           read -r -p "  连接地址（postgres://用户:密码@主机:5432/库名）：" DB_CHOICE || true
+         done ;;
+      *) DB_CHOICE=sqlite ;;
+    esac
+  fi
+  [ -n "$DB_CHOICE" ] || DB_CHOICE=sqlite
+  case "$DB_CHOICE" in
+    sqlite | local) ;;
+    postgres://* | postgresql://* | host=* | dbname=* | user=*) DB_DSN="$DB_CHOICE" ;;
+    *) die "数据库参数不正确：$DB_CHOICE（可选 sqlite / local / postgres://…）" ;;
+  esac
+  case "$DB_CHOICE" in *"'"*) die "数据库地址不能包含单引号" ;; esac
+
+  # Redis only helps several panel instances share state.
+  if [ -z "$REDIS_CHOICE" ] && [ "$DB_CHOICE" != sqlite ] && [ -t 0 ]; then
+    echo
+    printf '  %sRedis%s（可选：多个主控实例共享在线 IP、限流计数和告警去重）\n' "$C_BD" "$C_0"
+    printf '  %s1.%s 不使用       只运行一个主控时不需要（推荐）\n' "$C_C" "$C_0"
+    printf '  %s2.%s 本机安装     自动安装到这台服务器\n' "$C_C" "$C_0"
+    printf '  %s3.%s 已有 Redis   输入连接地址\n' "$C_C" "$C_0"
+    local c
+    read -r -p "  请选择 [1-3，默认 1]：" c || true
+    case "$c" in
+      2) REDIS_CHOICE=local ;;
+      3) while [ -z "$REDIS_CHOICE" ]; do
+           read -r -p "  连接地址（redis://:密码@主机:6379/0）：" REDIS_CHOICE || true
+         done ;;
+      *) REDIS_CHOICE=none ;;
+    esac
+  fi
+  case "${REDIS_CHOICE:-none}" in
+    none | local) ;;
+    redis://* | rediss://*) REDIS_URL="$REDIS_CHOICE" ;;
+    *) die "Redis 参数不正确：$REDIS_CHOICE（可选 local / redis://…）" ;;
+  esac
+  case "$REDIS_CHOICE" in *"'"*) die "Redis 地址不能包含单引号" ;; esac
+}
+
+db_label() { # DSN -> what the user sees
+  case "$1" in
+    "") echo "SQLite" ;;
+    "$LOCAL_PG_DSN") echo "PostgreSQL（本机）" ;;
+    *) echo "PostgreSQL（$(printf '%s' "$1" | sed -E 's#^[a-z]+://([^@/]*@)?##; s#[/?].*##; s#^.*host=([^ ]*).*#\1#')）" ;;
+  esac
+}
+
+pkg_install() { # packages...
+  if command -v apt-get >/dev/null; then
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >/dev/null 2>&1 \
+      || { apt-get update -qq >/dev/null 2>&1; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" >/dev/null; }
+  elif command -v dnf >/dev/null; then dnf install -y -q "$@" >/dev/null
+  elif command -v yum >/dev/null; then yum install -y -q "$@" >/dev/null
+  else return 1; fi
+}
+
+pg_su() { runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 "$@"; }
+
+# setup_local_pg installs PostgreSQL on this server if needed and creates the
+# polaris role and database (owned by it, peer authentication).
+setup_local_pg() {
+  if ! command -v pg_isready >/dev/null && ! ls /usr/lib/postgresql/*/bin/pg_isready >/dev/null 2>&1; then
+    step "安装 PostgreSQL"
+    if command -v apt-get >/dev/null; then pkg_install postgresql || die "PostgreSQL 安装失败"
+    else
+      pkg_install postgresql-server postgresql || die "PostgreSQL 安装失败：请手动安装后用连接地址安装（--db postgres://…）"
+      [ -f /var/lib/pgsql/data/PG_VERSION ] || postgresql-setup --initdb >/dev/null 2>&1 || true
+    fi
+  else
+    step "使用本机 PostgreSQL"
+  fi
+  systemctl enable --now postgresql >/dev/null 2>&1 || true
+  local i
+  for i in $(seq 1 20); do
+    runuser -u postgres -- psql -X -tAc 'SELECT 1' >/dev/null 2>&1 && break
+    [ "$i" = 20 ] && die "PostgreSQL 未能启动（systemctl status postgresql 查看）"
+    sleep 1
+  done
+  id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
+  [ "$(pg_su -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'polaris'")" = 1 ] || pg_su -c "CREATE ROLE polaris LOGIN"
+  [ "$(pg_su -tAc "SELECT 1 FROM pg_database WHERE datname = 'polaris'")" = 1 ] || runuser -u postgres -- createdb -O polaris polaris
+  DB_DSN="$LOCAL_PG_DSN"
+  ok "数据库 polaris（本机，Unix socket 免密码连接）"
+}
+
+# check_pg_target: the database answers and, for a new install, holds no
+# Polaris data (it would be encrypted with another install's key).
+check_pg_target() { # dsn fresh(0/1)
+  command -v psql >/dev/null || { dim "  未安装 psql，跳过连接检查（启动时检查）"; return 0; }
+  local q=(psql -X -tA "$1")
+  [ "$1" = "$LOCAL_PG_DSN" ] && q=(runuser -u polaris -- psql -X -tA "$1")
+  "${q[@]}" -c 'SELECT 1' >/dev/null 2>&1 || die "无法连接数据库：$(db_label "$1")，请检查地址、账号和网络"
+  if [ "$2" = 1 ] && [ "$("${q[@]}" -c "SELECT to_regclass('admins') IS NOT NULL" 2>/dev/null)" = t ]; then
+    die "数据库里已有 Polaris 数据（可能来自之前的安装，用的是另一把密钥）。请换一个空数据库，或先清空它"
+  fi
+}
+
+setup_local_redis() {
+  if ! command -v redis-server >/dev/null; then
+    step "安装 Redis"
+    if command -v apt-get >/dev/null; then pkg_install redis-server || die "Redis 安装失败"
+    else pkg_install redis || die "Redis 安装失败"; fi
+  fi
+  systemctl enable --now redis-server >/dev/null 2>&1 || systemctl enable --now redis >/dev/null 2>&1 || true
+  REDIS_URL="redis://127.0.0.1:6379/0"
+  ok "Redis（本机 127.0.0.1:6379）"
+}
+
+# db_dropin starts the panel after a database or Redis on this server.
+db_dropin() {
+  if [ "$(env_get POLARIS_DB_DSN)" = "$LOCAL_PG_DSN" ] || [ "$(env_get POLARIS_REDIS_URL)" = "redis://127.0.0.1:6379/0" ]; then
+    mkdir -p "${DB_DROPIN%/*}"
+    printf '[Unit]\nAfter=postgresql.service redis-server.service redis.service\n' > "$DB_DROPIN"
+  else
+    rm -f "$DB_DROPIN"
+  fi
+  systemctl daemon-reload
+}
+
+# do_migrate moves the data to another database: sqlite, local (PostgreSQL
+# on this server) or a PostgreSQL DSN. The old database is left untouched.
+do_migrate() {
+  need_installed
+  grep -qaF 'polaris migrate' "$BIN" || die "当前版本不支持迁移，请先执行 polaris update 升级"
+  local cur target="$ARG"
+  cur="$(env_get POLARIS_DB_DSN)"
+  case "$target" in
+    sqlite) target="" ;;
+    local) ;;
+    postgres://* | postgresql://* | host=* | dbname=* | user=*) ;;
+    *) die "用法：polaris migrate sqlite|local|postgres://…" ;;
+  esac
+  case "$target" in *"'"*) die "数据库地址不能包含单引号" ;; esac
+  banner "迁移数据库"
+  kv 当前 "$(db_label "$cur")"
+  if [ "$target" = local ]; then setup_local_pg; target="$DB_DSN"; fi
+  kv 目标 "$(db_label "$target")"
+  [ "$cur" != "$target" ] || die "目标与当前数据库相同"
+  local to="$target"
+  if [ -z "$to" ]; then
+    to="$DATA/polaris.db"
+    [ ! -e "$to" ] || die "$to 已存在：请先移走它再迁移回 SQLite"
+  else
+    check_pg_target "$to" 1
+  fi
+  [ "$FORCE" = 1 ] || confirm "迁移期间面板会停止（通常不到一分钟），继续？" || die "已取消（非交互运行请加 --force）"
+  step "停止面板并复制数据"
+  systemctl stop polaris 2>/dev/null || true
+  if ! polaris_cmd migrate -to "$to"; then
+    systemctl start polaris 2>/dev/null || true
+    die "迁移失败，面板已用原数据库重新启动，数据未改动"
+  fi
+  step "切换到新数据库并启动"
+  if [ -z "$target" ]; then env_del POLARIS_DB_DSN; else env_set POLARIS_DB_DSN "$target"; fi
+  db_dropin
+  systemctl start polaris && wait_active || die "面板启动失败（polaris log 查看）；改回原数据库：编辑 $ENV_FILE 的 POLARIS_DB_DSN"
+  ok "已切换到 $(db_label "$target")"
+  dim "  原数据库保持原样，确认一切正常后可以自行删除"
 }
 
 # do_switch moves an installed panel to the other edition at its current
@@ -733,8 +921,9 @@ show_info() {
   section "文件"
   kv 配置文件 "$ENV_FILE"
   db="$(ls "$DATA"/*.db 2>/dev/null | head -n1 || true)"
-  if [ -n "$db" ]; then size="$(human_bytes "$(stat -c %s "$db")")"; kv 数据库 "$db（$size）"
-  elif env_get POLARIS_DB_DSN | grep -q '^postgres'; then kv 数据库 "PostgreSQL"; fi
+  if [ -n "$(env_get POLARIS_DB_DSN)" ]; then kv 数据库 "$(db_label "$(env_get POLARIS_DB_DSN)")"
+  elif [ -n "$db" ]; then size="$(human_bytes "$(stat -c %s "$db")")"; kv 数据库 "$db（$size）"; fi
+  [ -z "$(env_get POLARIS_REDIS_URL)" ] || kv Redis "$(env_get POLARIS_REDIS_URL | sed -E 's#//[^@]*@#//#')"
   backups="$(find "$DATA" /root -maxdepth 1 \( -name 'backup-*' -o -name 'polaris-backup-*' \) 2>/dev/null | wc -l || true)"
   kv 数据目录 "$DATA · 备份 ${backups} 份"
   kv 磁盘 "$(disk_line "$DATA")"
@@ -761,6 +950,7 @@ do_install() {
   port_busy "$AGENT_PORT" && die "$(port_msg "$AGENT_PORT")：请换一个节点接入端口（--agent-port）"
 
   choose_edition
+  choose_database
   local use_caddy=0
   [ -n "$DOMAIN" ] && [ "$CADDY" = 1 ] && use_caddy=1
   SECONDS=0 STEP_N=0 STEP_TOTAL=$((3 + 2 * use_caddy))
@@ -771,6 +961,7 @@ do_install() {
   kv 面板端口 "$PORT"
   kv 节点接入 "$AGENT_PORT"
   kv 版本 "${VERSION:-最新} $(edition_label "${EDITION:-community}")"
+  kv 数据库 "$(case "$DB_CHOICE" in local) echo "PostgreSQL（本机，自动安装）" ;; sqlite) echo SQLite ;; *) db_label "$DB_DSN" ;; esac)$([ -n "$REDIS_URL$( [ "$REDIS_CHOICE" = local ] && echo 1)" ] && echo " + Redis")"
   echo
   download_release
 
@@ -797,6 +988,12 @@ do_install() {
   id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
   install -d -m 0750 -o root -g polaris "$ETC"
   install_files
+  case "$DB_CHOICE" in
+    local) setup_local_pg; check_pg_target "$DB_DSN" 1 ;;
+    sqlite) ;;
+    *) check_pg_target "$DB_DSN" 1 ;;
+  esac
+  [ "$REDIS_CHOICE" = local ] && setup_local_redis
   cat > "$ENV_FILE" <<EOF
 # Generated by the polaris installer on $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # 务必备份 POLARIS_SECRET_KEY：丢失后已加密的数据无法解密
@@ -810,8 +1007,11 @@ POLARIS_DATA_DIR=$DATA
 POLARIS_INITIAL_ADMIN_USERNAME=admin
 POLARIS_INITIAL_ADMIN_PASSWORD=$pass
 EOF
+  [ -z "$DB_DSN" ] || env_set POLARIS_DB_DSN "$DB_DSN"
+  [ -z "$REDIS_URL" ] || env_set POLARIS_REDIS_URL "$REDIS_URL"
   chmod 0640 "$ENV_FILE"; chown root:polaris "$ENV_FILE"
   install_unit
+  db_dropin
 
   if [ "$use_caddy" = 1 ]; then
     install_caddy
@@ -891,12 +1091,18 @@ do_update() {
   fi
   ok "试运行通过：$("$TMP/polaris" --version 2>/dev/null)"
   step "备份数据库并替换程序（配置与数据保持不变）"
-  if ls "$DATA"/*.db >/dev/null 2>&1; then
+  if [ -n "$(env_get POLARIS_DB_DSN)" ]; then
+    : # PostgreSQL: a logical backup with the current build, below
+  elif ls "$DATA"/*.db >/dev/null 2>&1; then
     backup="$DATA/backup-$(date +%Y%m%d%H%M%S)"
   fi
   systemctl stop polaris 2>/dev/null || true
   if [ -n "$backup" ]; then
     mkdir -p "$backup" && cp -a "$DATA"/*.db* "$backup"/ && ok "数据库已备份到 $backup"
+  elif [ -n "$(env_get POLARIS_DB_DSN)" ]; then
+    backup="$DATA/backup-$(date +%Y%m%d%H%M%S).polaris"
+    if polaris_cmd backup "$backup" >/dev/null 2>&1; then ok "数据库已备份到 $backup"
+    else warn "PostgreSQL 数据库备份失败，继续升级（建议先用 polaris backup 手动备份）"; fi
   fi
   local prev=""
   if [ -x "$BIN" ]; then prev="$BIN.prev"; cp -a "$BIN" "$prev"; fi
@@ -943,11 +1149,18 @@ do_uninstall() {
   step "停止并移除 polaris 服务"
   systemctl disable --now polaris 2>/dev/null || true
   systemctl disable --now polaris-update.path 2>/dev/null || true
-  rm -f "$UNIT" "$BIN" "$UPD_SVC" "$UPD_PATH"
+  rm -f "$UNIT" "$BIN" "$UPD_SVC" "$UPD_PATH" "$DB_DROPIN"
   systemctl daemon-reload
   if [ "$PURGE" = 1 ]; then
     warn "删除配置与数据：$ETC $DATA"
+    if [ "$(env_get POLARIS_DB_DSN)" = "$LOCAL_PG_DSN" ] && command -v psql >/dev/null; then
+      runuser -u postgres -- dropdb --if-exists polaris 2>/dev/null && runuser -u postgres -- dropuser --if-exists polaris 2>/dev/null \
+        && warn "已删除本机 PostgreSQL 数据库 polaris（PostgreSQL 本身保留）"
+    elif [ -n "$(env_get POLARIS_DB_DSN)" ]; then
+      warn "外部数据库 $(db_label "$(env_get POLARIS_DB_DSN)") 中的数据未删除"
+    fi
     rm -rf "$ETC" "$DATA"
+    rm -f "$DB_DROPIN"
     id polaris >/dev/null 2>&1 && userdel polaris 2>/dev/null || true
     rm -f "$CTL" "$CTL_ALIAS"
   else
@@ -1585,24 +1798,26 @@ while [ $# -gt 0 ]; do
     join) ACTION=agent; AGENT_SUB="join"; AGENT_ARG="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
     --force) FORCE=1; shift ;;
     -n) NODE_NAME="$2"; shift 2 ;;
-    set-path|set-port|set-domain|set-url|set-sub-domain|restore) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
+    set-path|set-port|set-domain|set-url|set-sub-domain|restore|migrate) ACTION="$1"; [ $# -ge 2 ] || die "$1 需要一个参数"; ARG="$2"; shift 2 ;;
     switch) ACTION=switch; shift; if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then ARG="$1"; shift; fi ;;
     --passphrase) BK_PASS="$2"; shift 2 ;;
     --restore) RESTORE_FILE="$2"; shift 2 ;;
+    --db) DB_CHOICE="$2"; shift 2 ;;
+    --redis) REDIS_CHOICE="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --no-caddy) CADDY=0; shift ;;
     --pro) EDITION=pro; shift ;;
     --community) EDITION=community; shift ;;
     --version) if [ $# -ge 2 ] && [ "${2#-}" = "$2" ]; then VERSION="$2"; shift 2; else ACTION=version; shift; fi ;;
     version|-v) ACTION=version; shift ;;
-    help) sed -n '2,32p' "$CTL" 2>/dev/null || sed -n '2,32p' "$0"; exit 0 ;;
+    help) sed -n '2,35p' "$CTL" 2>/dev/null || sed -n '2,35p' "$0"; exit 0 ;;
     --port) PORT="$2"; shift 2 ;;
     --agent-port) AGENT_PORT="$2"; shift 2 ;;
     --admin-path) ADMIN_PATH="$2"; shift 2 ;;
     --mirror) MIRROR="$2"; shift 2 ;;
     --purge) PURGE=1; shift ;;
     -u) ADMIN_USER="$2"; shift 2 ;;
-    -h|--help) sed -n '2,32p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
+    -h|--help) sed -n '2,35p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
     *) die "未知参数：$1（--help 查看用法）" ;;
   esac
 done
@@ -1634,6 +1849,7 @@ case "$ACTION" in
   agent) agent_cli "$AGENT_SUB" "$AGENT_ARG" ;;
   self-update) banner "更新管理脚本"; update_self ;;
   install) do_install ;;
+  migrate) do_migrate ;;
   update) do_update ;;
   update-request) do_update_request ;;
   uninstall) do_uninstall ;;
