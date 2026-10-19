@@ -471,7 +471,7 @@ func (b *tgBot) orderDelivered(o *store.Order, u *store.User, created bool) {
 	if created {
 		text += "\n\n已为你创建账号 <b>" + esc(u.Username) + "</b> 并绑定到这个 Telegram。"
 	}
-	b.send(chat, text+"\n\n"+b.userCard(u), userButtons()...)
+	b.send(chat, text+"\n\n"+b.userCard(u), b.userButtons(u)...)
 	if created {
 		b.sendSub(chat, u)
 	}

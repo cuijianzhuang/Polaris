@@ -225,5 +225,7 @@ const m: Record<string, string> = {
   "BEP20、Polygon、Arbitrum 共用一个 0x 地址。请用自己掌握私钥的钱包地址，不要用交易所充值地址": "BEP20, Polygon and Arbitrum share one 0x address. Use a wallet whose private key you hold, not an exchange deposit address",
   "自定义 RPC 节点（可选）": "Custom RPC endpoints (optional)",
   "默认使用公共 RPC；公共节点限流时可填自己的节点（如 Alchemy、QuickNode、Ankr）。": "Public RPC endpoints are used by default; if they rate-limit you, enter your own (e.g. Alchemy, QuickNode, Ankr).",
+  "允许购买时自动创建的账号自己修改用户名（机器人 /rename 或用户中心，7 天一次；订阅链接不变）": "Let accounts created at purchase rename themselves (bot /rename or the user center, once every 7 days; the subscription link stays the same)",
+  "自助改名": "Self-service rename",
 }
 export default m

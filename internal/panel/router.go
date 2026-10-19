@@ -97,6 +97,7 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/poll", s.portalGate(decoy, s.portalLoginPoll))
 		r.POST(portalPath+"/logout", s.portalGate(decoy, s.portalLogout))
 		r.POST(portalPath+"/reset", s.portalGate(decoy, s.portalReset))
+		r.POST(portalPath+"/rename", s.portalGate(decoy, s.portalRename))
 		r.GET(shopWebPath, s.portalGate(decoy, s.webShopPage))
 		r.POST(shopWebPath+"/order", s.portalGate(decoy, s.webShopBuy))
 		r.POST(shopWebPath+"/redeem", s.portalGate(decoy, s.webShopRedeem))

@@ -49,7 +49,12 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 		if id.user == nil {
 			return b.view("bindhelp", "", id)
 		}
-		return b.userCard(id.user), userButtons()
+		return b.userCard(id.user), b.userButtons(id.user)
+	case "rename":
+		if id.user == nil {
+			return b.view("bindhelp", "", id)
+		}
+		return b.renameView(id.user), [][]button{backRow("v:me")}
 	case "nodes":
 		if id.user == nil {
 			return b.view("bindhelp", "", id)
@@ -147,7 +152,7 @@ func (b *tgBot) homeButtons(id tgIdentity) [][]button {
 func (b *tgBot) helpText(id tgIdentity) string {
 	var sb strings.Builder
 	sb.WriteString("❓ <b>帮助</b>\n" + tgRule + "\n" + b.roleLine(id) + "\n\n<b>账号</b>\n")
-	sb.WriteString("/menu 主菜单\n/me 流量与到期\n/sub 订阅链接与二维码\n/nodes 可用节点\n/bind 订阅链接 — 绑定\n/unbind 解除绑定\n/whoami 查看 Chat ID\n")
+	sb.WriteString("/menu 主菜单\n/me 流量与到期\n/sub 订阅链接与二维码\n/nodes 可用节点\n/rename 新用户名 — 修改用户名\n/bind 订阅链接 — 绑定\n/unbind 解除绑定\n/whoami 查看 Chat ID\n")
 	if id.admin != nil {
 		sb.WriteString("\n<b>管理员</b>\n/status 概览\n/nodes 节点管理\n/node 名称 — 节点详情\n/login 登录网页面板\n/notify on|off 告警\n")
 	}
@@ -200,11 +205,21 @@ func (b *tgBot) userCard(u *store.User) string {
 	return sb.String()
 }
 
-func userButtons() [][]button {
-	return [][]button{
-		{{Text: "🔗 订阅链接", Data: "me:sub"}, {Text: "🌐 可用节点", Data: "v:nodes"}},
-		backRow("v:me"),
+func (b *tgBot) userButtons(u *store.User) [][]button {
+	rows := [][]button{{{Text: "🔗 订阅链接", Data: "me:sub"}, {Text: "🌐 可用节点", Data: "v:nodes"}}}
+	if u != nil && u.SelfService && b.s.selfRenameOn() {
+		rows = append(rows, []button{{Text: "✏️ 修改用户名", Data: "v:rename"}})
 	}
+	return append(rows, backRow("v:me"))
+}
+
+// renameView explains /rename.
+func (b *tgBot) renameView(u *store.User) string {
+	text := "✏️ <b>修改用户名</b>\n" + tgRule + "\n当前用户名：<code>" + esc(u.Username) + "</code>\n\n"
+	if why := b.s.canRename(u, time.Now()); why != "" {
+		return text + esc(why)
+	}
+	return text + "发送 <code>/rename 新用户名</code> 修改，例如：\n<code>/rename alice2026</code>\n\n3–32 位字母、数字或 _ . -，以字母或数字开头；7 天内只能修改一次。订阅链接和节点不受影响，无需重新导入。"
 }
 
 func (b *tgBot) userNodes(chat int64, u *store.User) {

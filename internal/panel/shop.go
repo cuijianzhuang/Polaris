@@ -463,6 +463,7 @@ func shopNewUser(tx *gorm.DB, o *store.Order, prefix string) (*store.User, error
 	if o.TelegramID == 0 && o.WebKey != "" {
 		name := prefix + "w" + strings.ToLower(pki.Token(6))
 		u := newUser(&userReq{Username: name, Remark: "网页购买 " + o.ID})
+		u.SelfService = true
 		if err := tx.Create(&u).Error; err != nil {
 			return nil, err
 		}
@@ -478,7 +479,7 @@ func shopNewUser(tx *gorm.DB, o *store.Order, prefix string) (*store.User, error
 		name += "_" + strings.ToLower(pki.Token(4))
 	}
 	u := newUser(&userReq{Username: name, Remark: "Telegram 购买 " + o.TGName})
-	u.TelegramID = o.TelegramID
+	u.TelegramID, u.SelfService = o.TelegramID, true
 	if err := tx.Model(&store.User{}).Where("telegram_id = ?", o.TelegramID).Update("telegram_id", 0).Error; err != nil {
 		return nil, err
 	}
