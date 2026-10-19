@@ -80,6 +80,12 @@ func TestWebShopCommunity(t *testing.T) {
 	if len(link) != 2 {
 		t.Fatal("no saved order link")
 	}
+	if _, shop := stranger.req("GET", shopWebPath, nil, false); !strings.Contains(page, "凭据：<code>"+link[1]) || !strings.Contains(shop, "查询订单") {
+		t.Fatal("order id and credential not shown for lookup")
+	}
+	if code, _ := stranger.req("GET", res.URL+"?k="+strings.Repeat("0", 32), nil, false); code != 404 {
+		t.Fatal("wrong credential opened the order")
+	}
 	if code, body := stranger.req("GET", res.URL+"?k="+link[1], nil, false); code != 200 || !strings.Contains(body, u.SubToken) {
 		t.Fatal("saved link did not open the order")
 	}

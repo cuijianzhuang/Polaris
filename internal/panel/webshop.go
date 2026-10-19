@@ -344,7 +344,7 @@ func (s *Server) webShopOrderPage(c *gin.Context) {
 	c.Header("Referrer-Policy", "no-referrer")
 	o, viewer, ok := s.webOrder(c, c.Param("id"))
 	if !ok {
-		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>订单不存在</title><p style="font:16px sans-serif;text-align:center;margin-top:30vh">订单不存在，或这个浏览器没有它的凭据。<br><a href="`+shopWebPath+`">返回商店</a></p>`))
+		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>订单不存在</title><p style="font:16px sans-serif;text-align:center;margin-top:30vh">订单不存在，或订单号、凭据不正确。<br><a href="`+shopWebPath+`#lookup">重新查询</a> · <a href="`+shopWebPath+`">返回商店</a></p>`))
 		return
 	}
 	data := map[string]any{"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")), "O": o, "Amount": webAmount(o),
@@ -368,6 +368,7 @@ func (s *Server) webShopOrderPage(c *gin.Context) {
 	}
 	if k := s.shopWebKey(c, false); k != "" && o.WebKey != "" && viewer == nil {
 		data["SaveLink"] = s.panelBase() + shopWebPath + "/order/" + o.ID + "?k=" + k
+		data["Key"] = k
 	}
 	// The account the order opened, for a buyer who is not signed in: the
 	// order page is where they get their subscription link.
@@ -444,7 +445,7 @@ var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/png" href="/favicon.ico?v=7622f7a54f03"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
 <title>{{.Title}} · 购买套餐</title>` + webShopStyle + `</head><body><main>
-<header><h1>购买套餐</h1><a href="/u">用户中心 →</a></header>
+<header><h1>购买套餐</h1><span><a href="#lookup">查询订单</a> · <a href="/u">用户中心 →</a></span></header>
 {{if not .Open}}<div class="card"><p class="mute">商店暂未开放。</p></div>{{else}}
 {{if .User}}<div class="card"><p class="mute">当前账号</p><div>{{.UserLine}}</div><p class="mute">购买同一套餐为续费（顺延到期时间）；换套餐会从今天开始计时并清零已用流量。</p></div>
 {{else}}<div class="card"><p class="mute">已有账号？{{if .Bot}}<a href="/u">登录用户中心</a>后可续费或加购流量包。{{else}}续费请联系管理员或使用 Telegram 机器人。{{end}}{{if .AutoCreate}}<br>没有账号也可以直接购买，付款后自动创建账号并显示订阅链接。{{end}}</p></div>{{end}}
@@ -457,6 +458,8 @@ var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 <div class="card"><h2>兑换码</h2><div class="row"><input id="code" placeholder="输入兑换码" autocomplete="off" maxlength="32"><button class="btn" id="redeem" type="button">兑换</button></div></div>
 <p class="err" id="err" hidden></p>
 {{if .Orders}}<div class="card"><h2>我的订单</h2><table>{{range .Orders}}<tr><td><a href="` + shopWebPath + `/order/{{.ID}}">{{.Name}}</a><div class="mute mono">{{.ID}}</div></td><td>{{.Amount}}</td><td>{{.Status}}</td><td class="mute">{{.When}}</td></tr>{{end}}</table></div>{{end}}
+<div class="card" id="lookup"><h2>查询订单</h2><p class="mute">换了浏览器或设备时，用下单时保存的订单号和订单凭据查询。请勿把凭据交给他人。</p>
+<input id="lid" placeholder="订单号" autocomplete="off" maxlength="32"><input id="lkey" placeholder="订单凭据（32 位）" autocomplete="off" maxlength="32"><div><button class="btn alt" id="lgo" type="button">查询订单</button></div><p class="err" id="lerr" hidden></p></div>
 {{if .Terms}}<div class="card"><h2>购买条款</h2><pre class="mute">{{.Terms}}</pre>{{if .Support}}<p class="mute">售后：{{.Support}}</p>{{end}}<p class="mute">付款即表示同意以上条款。</p></div>{{end}}
 {{end}}
 </main>
@@ -468,6 +471,9 @@ function post(p,b){return fetch('` + shopWebPath + `/'+p,{method:'POST',headers:
 document.querySelectorAll('.buy').forEach(function(b){b.addEventListener('click',function(){
 var card=b.closest('[data-id]');b.disabled=true;show('');
 post('order',{kind:card.dataset.kind,id:card.dataset.id,method:b.dataset.method,type:b.dataset.type||''}).then(function(j){location.href=j.pay||j.url}).catch(function(e){b.disabled=false;show(e.message)})})});
+var lg=document.getElementById('lgo');if(lg)lg.addEventListener('click',function(){var id=document.getElementById('lid').value.trim(),k=document.getElementById('lkey').value.trim().toLowerCase(),le=document.getElementById('lerr');
+if(!/^[a-z0-9]{8,32}$/.test(id)||!/^[0-9a-f]{32}$/.test(k)){le.textContent='请填写正确的订单号和 32 位订单凭据';le.hidden=false;return}
+location.href='` + shopWebPath + `/order/'+encodeURIComponent(id)+'?k='+k});
 var r=document.getElementById('redeem');if(r)r.addEventListener('click',function(){var c=document.getElementById('code').value.trim();if(!c)return;r.disabled=true;show('');
 post('redeem',{code:c}).then(function(j){location.href=j.url}).catch(function(e){r.disabled=false;show(e.message)})});
 })();
@@ -488,7 +494,8 @@ var webShopOrderTpl = template.Must(template.New("order").Parse(`<!doctype html>
 {{if .Account}}<div class="card"><h2>你的账号</h2><div>用户名：<b>{{.Account}}</b></div><div>订阅链接：</div><code>{{.SubURL}}</code>
 <div class="row"><a class="btn" href="{{.SubURL}}" target="_blank" rel="noopener">打开订阅页</a>{{if .BindURL}}<a class="btn alt" href="{{.BindURL}}" target="_blank" rel="noopener">绑定 Telegram</a>{{end}}</div>
 <p class="mute">把订阅链接导入客户端即可使用。{{if .BindURL}}绑定 Telegram 后可以登录用户中心续费、加购流量包。{{end}}请妥善保管，不要分享给他人。</p></div>{{end}}
-{{if .SaveLink}}<div class="card"><h2>订单凭据</h2><p class="mute">保存下面的链接，换浏览器或设备也能查看这个订单{{if .Account}}和账号{{end}}。请勿分享。</p><code>{{.SaveLink}}</code></div>{{end}}
+{{if .SaveLink}}<div class="card"><h2>订单凭据</h2><p class="mute">保存订单号和凭据（或直接保存下面的链接），换浏览器或设备时可在商店的「查询订单」找回这个订单{{if .Account}}和账号{{end}}。请勿分享。</p>
+<div>订单号：<code>{{.O.ID}}</code></div><div>凭据：<code>{{.Key}}</code></div><code class="mute">{{.SaveLink}}</code></div>{{end}}
 {{if .Support}}<p class="mute">售后：{{.Support}}</p>{{end}}
 </main>
 {{if .Pending}}<script>
