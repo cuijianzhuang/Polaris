@@ -283,10 +283,10 @@ function Packs() {
   )
 }
 
-function PaySettings({ status }: { status?: ShopStatus }) {
+function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => void }) {
   const settings = useLoad(() => get<Record<string, any>>('/settings'))
-  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_usdt_evm_address', 'shop_usdt_chains', 'shop_usdt_rpc_bsc', 'shop_usdt_rpc_polygon', 'shop_usdt_rpc_arbitrum', 'shop_terms', 'shop_support'] as const
-  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_types: 'alipay,wxpay', shop_usdt_chains: 'tron' }
+  const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_enabled', 'shop_usdt_enabled', 'shop_code_enabled', 'shop_epay_disabled_types', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_usdt_evm_address', 'shop_usdt_chains', 'shop_usdt_rpc_bsc', 'shop_usdt_rpc_polygon', 'shop_usdt_rpc_arbitrum', 'shop_terms', 'shop_support'] as const
+  const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_enabled: 'true', shop_usdt_enabled: 'true', shop_code_enabled: 'true', shop_epay_disabled_types: '[]', shop_epay_types: 'alipay,wxpay', shop_usdt_chains: 'tron' }
   const [f, setF] = useState<Record<string, string>>({})
   const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
   const payOK = useFeature('shop_payments')
@@ -300,13 +300,21 @@ function PaySettings({ status }: { status?: ShopStatus }) {
   const chains = (f.shop_usdt_chains ?? '').split(',').filter(Boolean)
   const setChain = (id: string, on: boolean) => set('shop_usdt_chains', usdtNets.filter((n) => (n.id === id ? on : chains.includes(n.id))).map((n) => n.id).join(','))
   const evmOn = usdtNets.some((n) => n.evm && chains.includes(n.id))
+  let disabledTypes: string[] = []
+  try {
+    const parsed = JSON.parse(f.shop_epay_disabled_types ?? '[]')
+    if (Array.isArray(parsed)) disabledTypes = parsed.filter((v): v is string => typeof v === 'string')
+  } catch { /* Invalid saved data stays visible for correction. */ }
+  const epayTypes = [...new Set((f.shop_epay_types ?? 'alipay,wxpay').split(',').map((v) => v.trim()).filter((v) => v && v.length <= 16))]
+  const epayLabels: Record<string, string> = { alipay: t('支付宝'), wxpay: t('微信支付'), qqpay: t('QQ 钱包'), usdt: 'USDT', bank: t('网银') }
+  const toggleType = (type: string, enabled: boolean) => set('shop_epay_disabled_types', JSON.stringify(enabled ? disabledTypes.filter((v) => v !== type) : [...new Set([...disabledTypes, type])]))
   if (!settings.data) return null
   return (
     <div className="grid g2">
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2>{t('商店')}</h2>
         {!status?.botRunning && <div className="note warn">{t('Telegram 机器人未运行。请先在「系统 → Telegram 机器人」里启用。')}</div>}
-        <div className="toggle"><span>{t('在机器人里开放购买（菜单显示「购买套餐」和「兑换码」）')}</span><Switch label={t('开放购买')} on={sw('shop_enabled')} onChange={(v) => set('shop_enabled', String(v))} /></div>
+        <div className="toggle"><span>{t('在机器人里开放购买')}</span><Switch label={t('开放购买')} on={sw('shop_enabled')} onChange={(v) => set('shop_enabled', String(v))} /></div>
         <div className="toggle"><span>{t('网页商店：在用户中心 /u/shop 购买套餐和流量包（登录用户中心可续费；未登录可直接购买新账号）')}</span><Switch label={t('网页商店')} on={sw('shop_web_enabled')} onChange={(v) => set('shop_web_enabled', String(v))} /></div>
         {sw('shop_web_enabled') && (status?.portal === false
           ? <div className="note warn">{t('网页商店需要先在「订阅设置」里开启用户中心。')}</div>
@@ -321,6 +329,7 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         </Field>
         <Field label={t('售后联系方式')} htmlFor="s-support" hint={t('用户在机器人里用 /paysupport 查看，例如 @your_support')}><input id="s-support" className="input" value={f.shop_support ?? ''} onChange={(e) => set('shop_support', e.target.value)} /></Field>
         <div className="sub">{t('在「用户 → 套餐」里给套餐勾选「在机器人售卖」并填写各付款方式的价格。')}</div>
+        <div className="sub">{t('各支付开关同时作用于机器人和网页商店。关闭后不再提供新的付款入口，保留收款配置，已有订单到账继续处理。')}</div>
       </section>
       {!payOK && <div className="note">{t('在线收款（Telegram Stars、易支付、USDT）是专业版功能。社区版可以用兑换码售卖：在「兑换码」里生成，放到发卡平台出售，用户在机器人里用 /redeem 兑换。')}</div>}
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -328,18 +337,22 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         <div className="toggle"><span>{t('接受 Telegram Stars 付款（电报内置，无需商户号；收入在 Telegram 账户中，经 Fragment 提现）')}</span><Switch label="Stars" on={sw('shop_stars')} onChange={(v) => set('shop_stars', String(v))} /></div>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('易支付 / EPay')}<ProTag on={payOK} /></h2><span className={'st ' + (status?.epay ? 'ok' : 'off')}>{status?.epay ? t('已配置') : t('未配置')}</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('易支付 / EPay')}<ProTag on={payOK} /></h2><span className={'st ' + (status?.epay ? 'ok' : 'off')}>{status?.epay ? t('已启用') : t('未启用')}</span></div>
+        <div className="toggle"><span>{t('启用易支付')}</span><Switch label={t('启用易支付')} on={sw('shop_epay_enabled')} onChange={(v) => set('shop_epay_enabled', String(v))} /></div>
         <Field label={t('接口地址')} htmlFor="s-epay-url" hint={t('易支付网关地址，例如 https://pay.example.com')}><input id="s-epay-url" className="input mono" value={f.shop_epay_url ?? ''} onChange={(e) => set('shop_epay_url', e.target.value)} placeholder="https://pay.example.com" /></Field>
         <div className="form-grid">
           <Field label={t('商户 ID')} htmlFor="s-epay-pid"><input id="s-epay-pid" className="input mono" value={f.shop_epay_pid ?? ''} onChange={(e) => set('shop_epay_pid', e.target.value)} /></Field>
           <Field label={t('商户密钥')} htmlFor="s-epay-key" hint={settings.data.shop_epay_key_set ? t('已保存（留空不修改）') : t('加密存储')}><input id="s-epay-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_epay_key} onChange={(e) => setSecrets({ ...secrets, shop_epay_key: e.target.value })} /></Field>
         </div>
         <Field label={t('支付方式')} htmlFor="s-epay-types" hint={t('逗号分隔：alipay 支付宝、wxpay 微信、qqpay QQ 钱包')}><input id="s-epay-types" className="input mono" value={f.shop_epay_types ?? ''} onChange={(e) => set('shop_epay_types', e.target.value)} /></Field>
+        <div className="sub">{t('下列渠道与易支付总开关共同生效。关闭子渠道会保留其配置。')}</div>
+        {epayTypes.map((type) => <div className="toggle" key={type}><span>{epayLabels[type] ?? type}</span><Switch label={`${t('易支付渠道')} ${epayLabels[type] ?? type}`} on={!disabledTypes.includes(type)} onChange={(v) => toggleType(type, v)} /></div>)}
         <Field label={t('异步通知地址')} hint={status?.publicUrl ? t('网关会自动使用这个地址，一般无需在商户后台另外填写') : t('未设置面板公网地址（POLARIS_PUBLIC_URL）：请确认这个地址能从公网访问')}><CopyBox text={status?.notifyUrl ?? ''} /></Field>
         <Field label={t('同步跳转地址')} hint={t('付款后买家先回到这个面板地址，再自动打开机器人。请在易支付商户后台把面板域名加入授权域名，否则会提示「支付返回域名未通过审核」')}><CopyBox text={status?.returnUrl ?? ''} /></Field>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT<ProTag on={payOK} /></h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已配置') : t('未配置')}</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>USDT<ProTag on={payOK} /></h2><span className={'st ' + (status?.usdt ? 'ok' : 'off')}>{status?.usdt ? t('已启用') : t('未启用')}</span></div>
+        <div className="toggle"><span>{t('启用 USDT 收款')}</span><Switch label={t('启用 USDT 收款')} on={sw('shop_usdt_enabled')} onChange={(v) => set('shop_usdt_enabled', String(v))} /></div>
         <div className="sub">{t('选择接受的网络，买家下单时自选网络，付款页显示收款地址和二维码。每笔订单金额带不同的小数尾数，按金额自动对账。')}</div>
         {usdtNets.map((n) => (
           <div className="toggle" key={n.id}><span>{n.name}</span><Switch label={n.short} on={chains.includes(n.id)} onChange={(v) => setChain(n.id, v)} /></div>
@@ -360,10 +373,16 @@ function PaySettings({ status }: { status?: ShopStatus }) {
         </>}
         <div className="sub">{t('面板每 30 秒查询一次链上到账，确认后自动开通。')}</div>
       </section>
+      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h2>{t('兑换码')}</h2>
+        <div className="toggle"><span>{t('启用兑换码兑换')}</span><Switch label={t('启用兑换码兑换')} on={sw('shop_code_enabled')} onChange={(v) => set('shop_code_enabled', String(v))} /></div>
+        <div className="sub">{t('关闭后隐藏机器人和网页的兑换入口，未使用的兑换码保留，重新开启后可继续兑换。')}</div>
+      </section>
       <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
         await put('/settings', { ...f, ...secrets })
         setSecrets({ shop_epay_key: '', shop_usdt_apikey: '' })
         settings.reload()
+        onSaved()
       }, t('已保存'))}>{t('保存')}</button></div>
     </div>
   )
@@ -391,7 +410,7 @@ export default function Shop() {
       {tab === 'orders' && <Orders />}
       {tab === 'packs' && <Packs />}
       {tab === 'codes' && <Codes />}
-      {tab === 'pay' && <PaySettings status={s} />}
+      {tab === 'pay' && <PaySettings status={s} onSaved={st.reload} />}
       {plans && <PlansModal onClose={() => setPlans(false)} onChanged={() => st.reload()} />}
     </>
   )

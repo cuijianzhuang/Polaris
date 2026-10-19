@@ -77,7 +77,7 @@ func (s *Server) usdtRPC(n usdtNet) string {
 // usdtNetsOn lists the networks that take orders: switched on and with an
 // address. Before the network switch existed, TRON was the only one.
 func (s *Server) usdtNetsOn() []usdtNet {
-	if !s.payments() {
+	if !s.payments() || s.st.GetSetting("shop_usdt_enabled", "true") != "true" {
 		return nil
 	}
 	enabled := strings.Split(s.st.GetSetting("shop_usdt_chains", "tron"), ",")

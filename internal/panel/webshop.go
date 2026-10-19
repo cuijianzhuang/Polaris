@@ -187,6 +187,7 @@ func (s *Server) webShopPage(c *gin.Context) {
 	}
 	data["Items"], data["Packs"], data["Types"], data["Orders"] = items, packs, types, orders
 	data["USDT"], data["Pay"], data["Nets"] = s.usdtOn(), s.epayOn() || s.usdtOn(), s.usdtNetsOn()
+	data["Code"] = s.codesOn()
 	data["AutoCreate"], data["Bot"] = s.shopAutoCreate(), s.tgWebLoginEnabled()
 	data["Terms"], data["Support"] = s.shopTerms(), strings.TrimSpace(s.st.GetSetting("shop_support", ""))
 	s.renderWebShop(c, webShopTpl, data)
@@ -298,10 +299,11 @@ func (s *Server) webShopBuy(c *gin.Context) {
 // payLink is where a web shop buyer pays EPay order o with type typ ("" when
 // online payments are off).
 func (s *Server) payLink(o *store.Order, typ string) string {
-	if !s.epayOn() {
+	selected, err := s.paymentType(payEPay, typ)
+	if err != nil {
 		return ""
 	}
-	return s.epayLink(o, typ)
+	return s.epayLink(o, selected)
 }
 
 // webShopRedeem is POST /u/shop/redeem {code}.
@@ -371,7 +373,7 @@ func (s *Server) webShopOrderPage(c *gin.Context) {
 			}
 			data["Links"] = links
 		case payUSDT:
-			if n, addr := s.usdtPayTo(o); addr != "" {
+			if n, addr := s.usdtPayTo(o); addr != "" && s.usdtOn() {
 				data["USDTAddress"], data["USDTNet"], data["USDTQR"] = addr, n.Name, qrDataURL(addr)
 			}
 		}
@@ -460,13 +462,13 @@ var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 {{if not .Open}}<div class="card"><p class="mute">商店暂未开放。</p></div>{{else}}
 {{if .User}}<div class="card"><p class="mute">当前账号</p><div>{{.UserLine}}</div><p class="mute">购买同一套餐为续费（顺延到期时间）；换套餐会从今天开始计时并清零已用流量。</p></div>
 {{else}}<div class="card"><p class="mute">已有账号？{{if .Bot}}<a href="/u">登录用户中心</a>后可续费或加购流量包。{{else}}续费请联系管理员或使用 Telegram 机器人。{{end}}{{if .AutoCreate}}<br>没有账号也可以直接购买，付款后自动创建账号并显示订阅链接。{{end}}</p></div>{{end}}
-{{if not .Pay}}<div class="note">暂未开放在线付款，可以使用兑换码开通。</div>{{end}}
+{{if not .Pay}}<div class="note">暂未开放在线付款。{{if .Code}}可以使用兑换码开通。{{else}}请联系管理员。{{end}}</div>{{end}}
 {{range .Items}}<div class="card" data-kind="{{.Kind}}" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}</p>{{if .Note}}<p class="mute">{{.Note}}</p>{{end}}
 {{if or .CNY .USDT}}<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div>{{end}}
 </div>{{else}}<div class="card"><p class="mute">暂时没有在售的套餐。</p></div>{{end}}
 {{if .Packs}}<h2>流量包</h2>{{range .Packs}}<div class="card" data-kind="pack" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}，下次流量重置或开始新周期时失效。</p>
 <div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div></div>{{end}}{{end}}
-<div class="card"><h2>兑换码</h2><div class="row"><input id="code" placeholder="输入兑换码" autocomplete="off" maxlength="32"><button class="btn" id="redeem" type="button">兑换</button></div></div>
+{{if .Code}}<div class="card"><h2>兑换码</h2><div class="row"><input id="code" placeholder="输入兑换码" autocomplete="off" maxlength="32"><button class="btn" id="redeem" type="button">兑换</button></div></div>{{end}}
 <p class="err" id="err" hidden></p>
 {{if .Orders}}<div class="card"><h2>我的订单</h2><table>{{range .Orders}}<tr><td><a href="` + shopWebPath + `/order/{{.ID}}">{{.Name}}</a><div class="mute mono">{{.ID}}</div></td><td>{{.Amount}}</td><td>{{.Status}}</td><td class="mute">{{.When}}</td></tr>{{end}}</table></div>{{end}}
 <div class="card" id="lookup"><h2>查询订单</h2><p class="mute">换了浏览器或设备时，用下单时保存的订单号和订单凭据查询。请勿把凭据交给他人。</p>
