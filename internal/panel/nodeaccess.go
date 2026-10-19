@@ -100,15 +100,14 @@ func (s *Server) nodeUsersAPI(c *gin.Context) {
 		for _, t := range ts {
 			rows[t.UserID].Up, rows[t.UserID].Down = t.Up, t.Down
 		}
-		s.onlineMu.Lock()
+		snap := s.shared.onlineIPs(ids)
 		for _, id := range ids {
-			for ip, seen := range s.onlineIPs[id][nodeID] {
+			for ip, seen := range snap[id][nodeID] {
 				if time.Since(seen) < 3*time.Minute {
 					rows[id].OnlineIP = append(rows[id].OnlineIP, ip)
 				}
 			}
 		}
-		s.onlineMu.Unlock()
 	}
 	out := make([]*nodeUserRow, 0, len(rows))
 	for _, r := range rows {

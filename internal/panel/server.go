@@ -70,11 +70,12 @@ type Server struct {
 	pubMu   sync.Mutex
 	shopMu  sync.Mutex // serializes pending checkout reuse and USDT amount allocation
 
-	onlineMu  sync.Mutex
-	onlineIPs map[string]map[string]map[string]time.Time // user -> node -> ip
-	alerts    map[string]time.Time
+	// shared holds online IPs, rate limits and alert de-duplication:
+	// in memory, or in Redis when redis_url is set (several instances).
+	shared sharedState
 
-	subLimit     *ipLimiter
+	subLimit     *sharedLimiter
+	shopLimit    *sharedLimiter
 	callbacks    callbackStore
 	nodeUserSets nodeUsersCache
 	schemes      schemeCache
@@ -116,8 +117,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		cfg: cfg, st: st, ca: ca, log: log, hub: newHub(),
 		jwtKey: []byte("jwt:" + cfg.SecretKey), rt: newRealtime(),
 		dirty: map[string]string{}, kick: make(chan struct{}, 1),
-		onlineIPs: map[string]map[string]map[string]time.Time{}, alerts: map[string]time.Time{},
-		subLimit: newIPLimiter(cfg.SubRateLimit), webFS: web, bg: context.Background(),
+		webFS: web, bg: context.Background(),
 	}
 	s.rt.snap = func() any { return s.nodeViews() }
 	s.tg = newTGBot(s)
@@ -129,9 +129,16 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
 	s.traffic = &trafficInbox{db: st.DB}
+	s.shared = newMemState()
 	if cfg.RedisURL != "" {
-		s.log.Info("redis_url is no longer used: unsettled traffic is kept in the database")
+		rs, err := newRedisState(cfg.RedisURL, log)
+		if err != nil {
+			return nil, err
+		}
+		s.shared = rs
 	}
+	s.subLimit = &sharedLimiter{s: s.shared, name: "sub", perMinute: cfg.SubRateLimit}
+	s.shopLimit = &sharedLimiter{s: s.shared, name: "shop", perMinute: 10}
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}

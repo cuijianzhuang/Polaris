@@ -16,12 +16,13 @@ func TestWithOnline(t *testing.T) {
 	s.st.DB.Create(&store.Node{ID: "n2", Name: "sg-1"})
 	s.st.DB.Create(&store.UserDevice{ID: "d1", UserID: "u1", HWID: "h", Model: "iPhone", OS: "iOS", IP: "1.1.1.1", LastSeen: time.Now()})
 	now := time.Now()
-	s.onlineMu.Lock()
-	s.onlineIPs["u1"] = map[string]map[string]time.Time{
+	m := memOnly(s) // seeds per-IP times directly
+	m.mu.Lock()
+	m.ips["u1"] = map[string]map[string]time.Time{
 		"n1": {"1.1.1.1": now, "2.2.2.2": now.Add(-onlineIPWindow - time.Second)}, // second one is stale
 		"n2": {"1.1.1.1": now.Add(-time.Second)},
 	}
-	s.onlineMu.Unlock()
+	m.mu.Unlock()
 
 	us := []store.User{
 		{ID: "u1", OnlineIPs: store.NewJSON([]string{"9.9.9.9"})}, // stored list from long ago

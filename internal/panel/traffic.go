@@ -483,35 +483,10 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		if !allowed[u.UserId] {
 			continue // not a user of this node
 		}
-		s.onlineMu.Lock()
-		cur := s.onlineIPs[u.UserId]
-		if cur == nil {
-			cur = map[string]map[string]time.Time{}
-			s.onlineIPs[u.UserId] = cur
-		}
-		ips := map[string]time.Time{}
-		for _, ip := range u.Ips {
-			ips[ip] = time.Now()
-		}
-		cur[nodeID] = ips
-		all := map[string]bool{}
-		for n, perNode := range cur {
-			for ip, seen := range perNode {
-				if time.Since(seen) >= onlineIPWindow {
-					delete(perNode, ip) // the node stopped reporting it
-					continue
-				}
-				all[ip] = true
-			}
-			if len(perNode) == 0 {
-				delete(cur, n)
-			}
-		}
-		s.onlineMu.Unlock()
-		list := make([]string, 0, len(all))
+		list := s.shared.setNodeIPs(u.UserId, nodeID, u.Ips, time.Now())
+		sort.Strings(list)
 		counted := 0
-		for ip := range all {
-			list = append(list, ip)
+		for _, ip := range list {
 			if !trusted.contains(ip) {
 				counted++
 			}
@@ -535,14 +510,10 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	}
 }
 
+// alertOnce reports whether an alert for key may fire now (once per every,
+// across panel instances when Redis is configured).
 func (s *Server) alertOnce(key string, every time.Duration) bool {
-	s.onlineMu.Lock()
-	defer s.onlineMu.Unlock()
-	if t, ok := s.alerts[key]; ok && time.Since(t) < every {
-		return false
-	}
-	s.alerts[key] = time.Now()
-	return true
+	return s.shared.once(key, every)
 }
 
 // onlineIPWindow is how long a reported source IP counts as online. Agents

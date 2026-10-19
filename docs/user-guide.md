@@ -888,6 +888,7 @@ polaris log
 | `POLARIS_AGENT_HOSTS` | Agent 使用的主控域名或 IP，写入服务端证书 |
 | `POLARIS_DATA_DIR` | 数据目录，程序默认 `./data`；一键安装通常为 `/var/lib/polaris`，Docker 为 `/data` |
 | `POLARIS_DB_DSN` | 设置 PostgreSQL DSN；未设置时使用数据目录中的 SQLite。从 SQLite 迁移见 `polaris migrate` |
+| `POLARIS_REDIS_URL` | 可选。多个主控实例共享在线 IP（IP 数限制、在线设备）、订阅 / 网页商店限流和告警去重；单实例无需配置。Redis 不可用时自动退回各实例本机内存。流量计费不使用 Redis |
 | `POLARIS_INITIAL_ADMIN_USERNAME` | 首次创建管理员的用户名 |
 | `POLARIS_INITIAL_ADMIN_PASSWORD` | 首次创建管理员的密码；留空时生成并记录到启动日志 |
 | `POLARIS_DECOY` | 非后台路径的处理，默认返回 404，也可反代到指定站点 |
