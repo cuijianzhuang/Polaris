@@ -13,7 +13,9 @@ import (
 
 // Bot shop: /buy (or 🛒 in the menu) lists the plans on sale; a plan offers
 // the configured ways to pay. Callbacks: s:p:<plan> plan card,
-// s:m:<plan>:<method>[:<type>] new order, s:q:<order> payment check.
+// s:m:<plan>:<method>[:<type>] new order, s:q:<order> payment check,
+// s:r:<order>[:<type>] pay an open order again, s:c / s:x:<order> cancel
+// (ask, then do). v:unpaid lists the open orders.
 
 type tgPreCheckout struct {
 	ID          string `json:"id"`
@@ -108,6 +110,9 @@ func (b *tgBot) shopView(id tgIdentity) (string, [][]button) {
 	if len(b.s.salePacks(id.user)) > 0 {
 		rows = append(rows, []button{{Text: "📦 加购流量包", Data: "v:packs"}})
 	}
+	if n := b.s.unpaidCount(id.chat); n > 0 {
+		rows = append(rows, []button{{Text: fmt.Sprintf("⏳ 未付款订单（%d）", n), Data: "v:unpaid"}})
+	}
 	rows = append(rows, []button{{Text: "🎟 兑换码", Data: "v:redeem"}, {Text: "📋 我的订单", Data: "v:orders"}})
 	if b.s.shopTerms() != "" {
 		rows = append(rows, []button{{Text: "📄 购买条款", Data: "v:terms"}, {Text: "💬 售后", Data: "v:paysupport"}})
@@ -134,6 +139,19 @@ func (b *tgBot) supportView() string {
 	return "💬 <b>支付与售后</b>\n" + tgRule + "\n" + esc(sup) + "\n\n联系时请提供订单号（在「我的订单」里查看）。不要发送密码等敏感信息。"
 }
 
+// orderAmount is how an order's price reads in the bot.
+func orderAmount(o *store.Order) string {
+	switch o.Method {
+	case payCode:
+		return "兑换码"
+	case payStars:
+		return o.Amount + " ⭐"
+	case payEPay:
+		return "¥" + o.Amount
+	}
+	return o.Amount + " " + o.Currency
+}
+
 // ordersView lists the chat's recent orders.
 func (b *tgBot) ordersView(chat int64) (string, [][]button) {
 	var os []store.Order
@@ -143,27 +161,54 @@ func (b *tgBot) ordersView(chat int64) (string, [][]button) {
 	if len(os) == 0 {
 		sb.WriteString("还没有订单。")
 	}
-	var rows [][]button
 	for _, o := range os {
-		amount := o.Amount + " " + o.Currency
-		switch o.Method {
-		case payCode:
-			amount = "兑换码"
-		case payStars:
-			amount = o.Amount + " ⭐"
-		case payEPay:
-			amount = "¥" + o.Amount
-		}
-		fmt.Fprintf(&sb, "\n<code>%s</code> %s\n%s · %s · %s\n", o.ID, orderStatusText[o.Status], esc(o.PlanName), esc(amount), o.CreatedAt.Format("01-02 15:04"))
-		if o.Status == "pending" && o.Method != payStars {
-			rows = append(rows, []button{{Text: "🔄 查询 " + o.ID, Data: "s:q:" + o.ID}})
-		}
+		fmt.Fprintf(&sb, "\n<code>%s</code> %s\n%s · %s · %s\n", o.ID, orderStatusText[o.Status], esc(o.PlanName), esc(orderAmount(&o)), o.CreatedAt.Format("01-02 15:04"))
+	}
+	var rows [][]button
+	if n := b.s.unpaidCount(chat); n > 0 {
+		rows = append(rows, []button{{Text: fmt.Sprintf("⏳ 未付款订单（%d）", n), Data: "v:unpaid"}})
 	}
 	rows = append(rows, []button{{Text: "« 返回", Data: "v:shop"}, btnHome})
 	return sb.String(), rows
 }
 
-var orderStatusText = map[string]string{"pending": "⏳ 待支付", "paid": "✅ 已支付", "expired": "⌛ 已过期", "failed": "❗ 开通失败", "refunded": "↩️ 已退款"}
+// unpaidCount is how many of the chat's orders still wait for payment.
+func (s *Server) unpaidCount(chat int64) int64 {
+	if chat == 0 {
+		return 0
+	}
+	var n int64
+	s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", chat, "pending", time.Now()).Count(&n)
+	return n
+}
+
+// unpaidView lists the chat's open orders with buttons to pay or cancel.
+func (b *tgBot) unpaidView(chat int64) (string, [][]button) {
+	var os []store.Order
+	b.s.st.DB.Where("telegram_id = ? AND status = ? AND expires_at > ?", chat, "pending", time.Now()).Order("created_at desc").Find(&os)
+	var sb strings.Builder
+	sb.WriteString("⏳ <b>未付款订单</b>\n" + tgRule + "\n")
+	if len(os) == 0 {
+		sb.WriteString("没有待支付的订单。")
+	}
+	var rows [][]button
+	for i, o := range os {
+		n := strconv.Itoa(i + 1)
+		mins := int(time.Until(o.ExpiresAt).Round(time.Minute).Minutes())
+		fmt.Fprintf(&sb, "\n%s. <b>%s</b> · %s · %s\n<code>%s</code> · 剩 %d 分钟\n", n, esc(o.PlanName), esc(orderAmount(&o)), esc(payMethodName[o.Method]), o.ID, mins)
+		row := []button{{Text: "💳 继续支付 " + n, Data: "s:r:" + o.ID}}
+		if o.Method != payStars {
+			row = append(row, button{Text: "🔄 查询 " + n, Data: "s:q:" + o.ID})
+		}
+		rows = append(rows, append(row, button{Text: "❌ 取消 " + n, Data: "s:c:" + o.ID}))
+	}
+	rows = append(rows, []button{{Text: "📋 我的订单", Data: "v:orders"}, {Text: "« 商店", Data: "v:shop"}})
+	return sb.String(), rows
+}
+
+var payMethodName = map[string]string{payStars: "Stars", payEPay: "在线支付", payUSDT: "USDT", payCode: "兑换码", payManual: "手动"}
+
+var orderStatusText = map[string]string{"pending": "⏳ 待支付", "paid": "✅ 已支付", "expired": "⌛ 已过期", "failed": "❗ 开通失败", "refunded": "↩️ 已退款", "cancelled": "🚫 已取消"}
 
 func redeemHelp() string {
 	return "🎟 <b>兑换码</b>\n" + tgRule + "\n发送：\n<code>/redeem 兑换码</code>\n\n兑换后立即开通对应套餐（没有账号会自动创建），或给账号加上流量包。"
@@ -293,12 +338,82 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			answer("已付款但开通失败，请联系管理员")
 		case "expired":
 			answer("订单已过期；如已付款，到账后仍会自动开通")
+		case "cancelled":
+			answer("订单已取消；如已付款，到账后仍会自动开通")
+		case "refunded":
+			answer("订单已退款")
 		default:
 			answer("还没有收到付款，请稍后再查")
 		}
+	case "r": // s:r:<order>[:<type>] pay an open order again
+		b.resumeOrder(ctx, parts, chat, msg, answer)
+	case "c": // s:c:<order> ask before cancelling
+		var o store.Order
+		if b.s.st.DB.First(&o, "id = ? AND telegram_id = ?", parts[2], chat).Error != nil {
+			answer("订单不存在")
+			return
+		}
+		if o.Status != "pending" {
+			answer("订单" + orderStatusName[o.Status] + "，无法取消")
+			return
+		}
+		b.edit(chat, msg, fmt.Sprintf("❌ <b>取消订单</b>\n%s\n<code>%s</code>\n%s · %s\n\n确定取消吗？取消后请不要再付款。", tgRule, o.ID, esc(o.PlanName), esc(orderAmount(&o))),
+			[]button{{Text: "✅ 确定取消", Data: "s:x:" + o.ID}, {Text: "« 不取消", Data: "v:unpaid"}})
+		answer("")
+	case "x": // s:x:<order> cancel
+		if _, err := b.s.cancelOrder(chat, parts[2]); err != nil {
+			answer(err.Error())
+			return
+		}
+		answer("订单已取消")
+		text, rows := b.unpaidView(chat)
+		b.edit(chat, msg, text, rows...)
 	default:
 		answer("")
 	}
+}
+
+// resumeOrder sends the payment of an open order again. An EPay order
+// first asks which way to pay when the shop offers several.
+func (b *tgBot) resumeOrder(ctx context.Context, parts []string, chat, msg int64, answer func(string)) {
+	var o store.Order
+	if b.s.st.DB.First(&o, "id = ? AND telegram_id = ?", parts[2], chat).Error != nil {
+		answer("订单不存在")
+		return
+	}
+	switch {
+	case o.Status != "pending":
+		answer("订单" + orderStatusName[o.Status] + "，请重新下单")
+		return
+	case !time.Now().Before(o.ExpiresAt):
+		answer("订单已过期，请重新下单")
+		return
+	case !b.s.shopOn():
+		answer(errShopClosed.Error())
+		return
+	}
+	typ := ""
+	if len(parts) > 3 {
+		typ = parts[3]
+	}
+	if o.Method == payEPay && typ == "" {
+		types := b.s.epayTypes()
+		if len(types) > 1 {
+			var row []button
+			for _, t := range types {
+				row = append(row, button{Text: orDefault(epayTypeName[t], t), Data: "s:r:" + o.ID + ":" + t})
+			}
+			b.edit(chat, msg, fmt.Sprintf("💳 <b>继续支付</b>\n%s\n<code>%s</code>\n%s · ¥%s\n\n选择付款方式：", tgRule, o.ID, esc(o.PlanName), o.Amount),
+				row, []button{{Text: "« 返回", Data: "v:unpaid"}})
+			answer("")
+			return
+		}
+		if len(types) == 1 {
+			typ = types[0]
+		}
+	}
+	answer("")
+	b.sendPayment(ctx, chat, &o, typ)
 }
 
 // onPreCheckout approves a Stars payment that matches its open order.
@@ -399,11 +514,11 @@ func (b *tgBot) sendPayment(ctx context.Context, chat int64, o *store.Order, typ
 		b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n商品：%s\n金额：¥%s（%s）\n\n请在 %d 分钟内完成支付，付款后自动开通。",
 			o.ID, tgRule, esc(o.PlanName), o.Amount, esc(orDefault(epayTypeName[typ], typ)), mins),
 			[]button{{Text: "💳 去支付 ¥" + o.Amount, URL: b.s.epayLink(o, typ)}},
-			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}})
+			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}, {Text: "❌ 取消订单", Data: "s:c:" + o.ID}})
 	case payUSDT:
 		b.send(chat, fmt.Sprintf("🧾 <b>订单 %s</b>\n%s\n商品：%s\n网络：<b>TRON (TRC20)</b>\n地址：<code>%s</code>\n金额：<code>%s</code> USDT\n\n⚠️ 请<b>精确转账上面的金额</b>（含小数），金额不符无法自动到账。\n请在 %d 分钟内完成转账，到账确认后自动开通。",
 			o.ID, tgRule, esc(o.PlanName), esc(b.s.st.GetSetting("shop_usdt_address", "")), o.Amount, mins),
-			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}})
+			[]button{{Text: "🔄 我已付款", Data: "s:q:" + o.ID}, {Text: "❌ 取消订单", Data: "s:c:" + o.ID}})
 	}
 }
 

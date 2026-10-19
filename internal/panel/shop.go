@@ -40,6 +40,11 @@ const (
 	maxPendingOrders = 5
 )
 
+// unpaidStatuses are the order states a payment can still settle: a
+// transfer may arrive after the order expired or was cancelled, and the
+// money is delivered all the same.
+var unpaidStatuses = []string{"pending", "expired", "cancelled"}
+
 var errShopClosed = errors.New("商店未开启")
 
 func (s *Server) shopOn() bool { return s.st.GetSetting("shop_enabled", "false") == "true" }
@@ -141,7 +146,7 @@ func (s *Server) newOrder(tgID int64, tgName, userID, planID, method string) (*s
 // amount alone.
 func (s *Server) uniqueUSDTAmount(price float64, now time.Time) (string, error) {
 	var used []string
-	s.st.DB.Model(&store.Order{}).Where("method = ? AND status IN ? AND created_at > ?", payUSDT, []string{"pending", "expired"}, now.Add(-usdtLookback)).
+	s.st.DB.Model(&store.Order{}).Where("method = ? AND status IN ? AND created_at > ?", payUSDT, unpaidStatuses, now.Add(-usdtLookback)).
 		Pluck("amount", &used)
 	base := int64(math.Round(price * 1e4))
 	for range 50 {
@@ -177,7 +182,7 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 				return err
 			}
 		}
-		res := tx.Model(&store.Order{}).Where("id = ? AND status IN ?", id, []string{"pending", "expired"}).
+		res := tx.Model(&store.Order{}).Where("id = ? AND status IN ?", id, unpaidStatuses).
 			Updates(map[string]any{"status": "paid", "pay_ref": payRef, "paid_at": now})
 		if res.Error != nil {
 			return res.Error
@@ -241,7 +246,7 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 		if errors.As(err, &input) && o.ID != "" && pre == nil {
 			// Paid for something that cannot be delivered: keep the payment
 			// on record for the admin to settle.
-			s.st.DB.Model(&store.Order{}).Where("id = ? AND status IN ?", id, []string{"pending", "expired"}).
+			s.st.DB.Model(&store.Order{}).Where("id = ? AND status IN ?", id, unpaidStatuses).
 				Updates(map[string]any{"status": "failed", "pay_ref": payRef, "paid_at": now, "detail": truncate(err.Error(), 255)})
 			s.notify(Event{Kind: "order.failed", Text: fmt.Sprintf("❗ 订单 %s 已付款但无法开通：%s", id, err.Error()), Data: map[string]any{"order": id}})
 		}
@@ -370,6 +375,30 @@ func (s *Server) expireOrders() {
 	s.st.DB.Model(&store.Order{}).Where("status = ? AND expires_at < ?", "pending", time.Now()).Update("status", "expired")
 }
 
+// cancelOrder cancels an unpaid order. tgID limits it to that buyer's
+// orders (0 = any, for the admin). Stars invoices of a cancelled order are
+// refused at checkout; an EPay or USDT payment made anyway still delivers.
+func (s *Server) cancelOrder(tgID int64, id string) (*store.Order, error) {
+	q := s.st.DB.Model(&store.Order{}).Where("id = ? AND status = ?", id, "pending")
+	if tgID != 0 {
+		q = q.Where("telegram_id = ?", tgID)
+	}
+	res := q.Update("status", "cancelled")
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	var o store.Order
+	if err := s.st.DB.First(&o, "id = ?", id).Error; err != nil || (tgID != 0 && o.TelegramID != tgID) {
+		return nil, errors.New("订单不存在")
+	}
+	if res.RowsAffected == 0 && o.Status != "cancelled" {
+		return &o, errors.New("订单" + orderStatusName[o.Status] + "，无法取消")
+	}
+	return &o, nil
+}
+
+var orderStatusName = map[string]string{"pending": "待支付", "paid": "已支付", "expired": "已过期", "failed": "已付款但开通失败", "refunded": "已退款", "cancelled": "已取消"}
+
 // --- admin API ---
 
 // listOrders is GET /orders?status=&method=&q=&limit=&offset=.
@@ -464,6 +493,21 @@ func (s *Server) fulfilOrder(c *gin.Context) {
 	}
 	s.auditCtx(c, "order.fulfil", o.ID, "manual")
 	c.JSON(http.StatusOK, gin.H{"order": o, "user": u, "fresh": fresh})
+}
+
+// adminCancelOrder is POST /orders/:id/cancel.
+func (s *Server) adminCancelOrder(c *gin.Context) {
+	o, err := s.cancelOrder(0, c.Param("id"))
+	if err != nil {
+		if o == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		} else {
+			badRequest(c, err)
+		}
+		return
+	}
+	s.auditCtx(c, "order.cancel", o.ID, "")
+	c.JSON(http.StatusOK, o)
 }
 
 // refundOrder is POST /orders/:id/refund: returns the Stars of a paid

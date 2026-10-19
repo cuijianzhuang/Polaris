@@ -941,7 +941,7 @@ type Order struct {
 	Method     string     `gorm:"size:16;index" json:"method"` // stars / epay / usdt / code / manual
 	Amount     string     `gorm:"size:32" json:"amount"`       // decimal text in Currency
 	Currency   string     `gorm:"size:8" json:"currency"`      // XTR / CNY / USDT
-	Status     string     `gorm:"size:16;index" json:"status"` // pending / paid / expired / failed
+	Status     string     `gorm:"size:16;index" json:"status"` // pending / paid / expired / cancelled / failed / refunded
 	PayRef     *string    `gorm:"size:128;uniqueIndex" json:"payRef"`
 	Detail     string     `gorm:"size:255" json:"detail"`
 	CreatedAt  time.Time  `gorm:"index" json:"createdAt"`
