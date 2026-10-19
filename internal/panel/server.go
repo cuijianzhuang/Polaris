@@ -46,7 +46,7 @@ type Server struct {
 	ca          *pki.CA
 	log         *slog.Logger
 	hub         *Hub
-	traffic     TrafficBuffer
+	traffic     *trafficInbox
 	tgLogins    tgLoginCodes // one-time Telegram sign-in codes
 	tgWeb       tgWebLogins  // login-page Telegram sign-in requests
 	portalWeb   tgWebLogins  // user center Telegram sign-in requests
@@ -128,14 +128,9 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.tgEvents = tgEvents
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
+	s.traffic = &trafficInbox{db: st.DB}
 	if cfg.RedisURL != "" {
-		rb, err := newRedisBuffer(cfg.RedisURL)
-		if err != nil {
-			return nil, err
-		}
-		s.traffic = rb
-	} else {
-		s.traffic = newMemBuffer()
+		s.log.Info("redis_url is no longer used: unsettled traffic is kept in the database")
 	}
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
@@ -318,6 +313,7 @@ func (s *Server) cleanup() {
 	s.pruneIdempotency()
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -7)).Delete(&store.WebhookDelivery{})
 	s.st.DB.Where("hour < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.TrafficHourly{})
+	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.TrafficBatchSeen{})
 	s.st.DB.Where("at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.NodeMetric{})
 	s.st.DB.Where("expires_at < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.AdminSession{}) // kept a while: new-address alerts compare against them
 	s.st.DB.Where("(until IS NULL OR until < ?) AND updated_at < ?", time.Now(), time.Now().AddDate(0, 0, -30)).Delete(&store.LoginBan{})

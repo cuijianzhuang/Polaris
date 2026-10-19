@@ -732,6 +732,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
+		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{},
 	}
 }
 
@@ -824,6 +825,34 @@ type TrafficDaily struct {
 	Day    string `gorm:"primaryKey;size:10;index"` // YYYY-MM-DD
 	Up     int64
 	Down   int64
+}
+
+// TrafficInbox holds traffic the panel has acknowledged to an agent but
+// not yet settled into users and statistics. It is written in the same
+// transaction as the batch markers below, so an acknowledged batch is never
+// lost or counted twice. UserID may also be a tag counter ("inbound>>>tag").
+type TrafficInbox struct {
+	NodeID string `gorm:"primaryKey;size:32"`
+	UserID string `gorm:"primaryKey;size:200"`
+	Up     int64  `gorm:"not null;default:0"`
+	Down   int64  `gorm:"not null;default:0"`
+}
+
+// TrafficCursor is the highest batch sequence number accepted from an
+// agent's traffic queue (Epoch names the queue).
+type TrafficCursor struct {
+	NodeID    string `gorm:"primaryKey;size:32"`
+	Epoch     string `gorm:"primaryKey;size:64"`
+	LastSeq   int64  `gorm:"not null;default:0"`
+	UpdatedAt time.Time
+}
+
+// TrafficBatchSeen remembers batch IDs from agents that send no sequence
+// numbers, for 30 days.
+type TrafficBatchSeen struct {
+	NodeID    string    `gorm:"primaryKey;size:32"`
+	BatchID   string    `gorm:"primaryKey;size:64"`
+	CreatedAt time.Time `gorm:"index"`
 }
 
 // TagTrafficDaily is an inbound's or outbound's traffic per day (raw bytes).

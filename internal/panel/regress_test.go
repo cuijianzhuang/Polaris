@@ -36,20 +36,6 @@ func TestMonthlyBoundaryClampsToMonthEnd(t *testing.T) {
 	}
 }
 
-func TestMemBufferForgetAllowsRetry(t *testing.T) {
-	b := newMemBuffer()
-	if b.Seen("n/1") {
-		t.Fatal("first sight reported as seen")
-	}
-	b.Forget("n/1")
-	if b.Seen("n/1") {
-		t.Fatal("a forgotten batch must be processed on retry")
-	}
-	if !b.Seen("n/1") {
-		t.Fatal("duplicate not detected")
-	}
-}
-
 // A user who left node A must not keep A's old IPs in the ip_limit count.
 func TestOnlineIPsIgnoreStaleNodes(t *testing.T) {
 	s := newTestServer(t)

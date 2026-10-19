@@ -93,6 +93,11 @@ type Agent struct {
 
 	queueMu sync.Mutex
 	queue   []*polarisv1.TrafficBatch
+	// epoch and nextSeq number the batches so the panel can drop repeats
+	// for good (see TrafficBatch.seq). Saved with the queue.
+	epoch   string
+	nextSeq uint64
+	flushMu sync.Mutex // one upload at a time; queueMu is not held over the network
 
 	sendMu  sync.Mutex
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
@@ -447,19 +452,41 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 
 func (a *Agent) queuePath() string { return filepath.Join(a.idDir(), "traffic-queue.json") }
 
+// trafficQueue is the on-disk form of the traffic queue. Older agents
+// wrote a bare array of batches.
+type trafficQueue struct {
+	Epoch   string                    `json:"epoch"`
+	NextSeq uint64                    `json:"nextSeq"`
+	Batches []*polarisv1.TrafficBatch `json:"batches"`
+}
+
 func (a *Agent) loadQueue() {
-	b, err := os.ReadFile(a.queuePath())
-	if err != nil {
-		return
+	a.queueMu.Lock()
+	defer a.queueMu.Unlock()
+	a.queue, a.epoch, a.nextSeq = nil, "", 0
+	if b, err := os.ReadFile(a.queuePath()); err == nil {
+		var q trafficQueue
+		if json.Unmarshal(b, &q) == nil && q.Epoch != "" {
+			a.queue, a.epoch, a.nextSeq = q.Batches, q.Epoch, q.NextSeq
+		} else {
+			var old []*polarisv1.TrafficBatch
+			if json.Unmarshal(b, &old) == nil {
+				a.queue = old // no seq: the panel deduplicates these by batch ID
+			}
+		}
 	}
-	var q []*polarisv1.TrafficBatch
-	if json.Unmarshal(b, &q) == nil {
-		a.queue = q
+	if a.epoch == "" {
+		a.epoch, a.nextSeq = store.NewID(), 1
+		a.saveQueue()
+	}
+	if a.nextSeq == 0 {
+		a.nextSeq = 1
 	}
 }
 
+// saveQueue writes the queue; call with queueMu held.
 func (a *Agent) saveQueue() {
-	b, _ := json.Marshal(a.queue)
+	b, _ := json.Marshal(trafficQueue{Epoch: a.epoch, NextSeq: a.nextSeq, Batches: a.queue})
 	_ = core.AtomicWrite(a.queuePath(), b, 0o600)
 }
 
@@ -520,6 +547,11 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 		b.Users = append(b.Users, &polarisv1.UserTraffic{UserId: d.UserID, Up: d.Up, Down: d.Down})
 	}
 	a.queueMu.Lock()
+	if a.epoch == "" { // loadQueue not run (tests); start an epoch now
+		a.epoch, a.nextSeq = store.NewID(), 1
+	}
+	b.Epoch, b.Seq = a.epoch, a.nextSeq
+	a.nextSeq++
 	a.queue = append(a.queue, b)
 	if len(a.queue) > 50000 { // ~5 days at 10s; drop oldest beyond that
 		a.queue = a.queue[len(a.queue)-50000:]
@@ -544,15 +576,24 @@ func (a *Agent) warnCollect(coreType string, err error) {
 	a.log.Warn("collect traffic failed; user traffic from this core is not counted", "core", coreType, "err", err)
 }
 
+// flushTraffic uploads queued batches until the queue is empty or the
+// panel stops accepting. The queue lock is not held during the call, so
+// collection and core reloads never wait on a slow panel.
 func (a *Agent) flushTraffic(ctx context.Context) {
-	a.queueMu.Lock()
-	defer a.queueMu.Unlock()
-	for len(a.queue) > 0 {
+	a.flushMu.Lock()
+	defer a.flushMu.Unlock()
+	for {
+		a.queueMu.Lock()
 		n := len(a.queue)
 		if n > 200 {
 			n = 200
 		}
-		resp, err := a.client.ReportTraffic(ctx, connect.NewRequest(&polarisv1.ReportTrafficRequest{Batches: a.queue[:n]}))
+		chunk := append([]*polarisv1.TrafficBatch(nil), a.queue[:n]...)
+		a.queueMu.Unlock()
+		if n == 0 {
+			return
+		}
+		resp, err := a.client.ReportTraffic(ctx, connect.NewRequest(&polarisv1.ReportTrafficRequest{Batches: chunk}))
 		if err != nil {
 			return
 		}
@@ -560,17 +601,22 @@ func (a *Agent) flushTraffic(ctx context.Context) {
 		for _, id := range resp.Msg.AcceptedBatchIds {
 			ok[id] = true
 		}
-		var rest []*polarisv1.TrafficBatch
+		a.queueMu.Lock()
+		rest := a.queue[:0:0]
 		for _, b := range a.queue {
 			if !ok[b.BatchId] {
 				rest = append(rest, b)
 			}
 		}
-		if len(rest) == len(a.queue) {
+		removed := len(rest) != len(a.queue)
+		if removed {
+			a.queue = rest
+			a.saveQueue()
+		}
+		a.queueMu.Unlock()
+		if !removed {
 			return
 		}
-		a.queue = rest
-		a.saveQueue()
 	}
 }
 

@@ -1,16 +1,15 @@
 package panel
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -20,165 +19,171 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
-// TrafficBuffer accumulates reported traffic between settlements.
-type TrafficBuffer interface {
-	Add(nodeID string, ds []model.TrafficDelta) error
-	// Drain returns and clears node -> user -> [up, down].
-	Drain() (map[string]map[string][2]int64, error)
-	// Seen records a batch id and reports whether it was already processed.
-	Seen(batchID string) bool
-	// Forget drops a recorded batch id (its Add failed; the retry must count).
-	Forget(batchID string)
+// trafficInbox keeps acknowledged, unsettled traffic in the database
+// (store.TrafficInbox), so it survives restarts and is shared by every
+// panel instance on the same database.
+type trafficInbox struct{ db *gorm.DB }
+
+// Add adds traffic to the inbox in its own transaction.
+func (b *trafficInbox) Add(nodeID string, ds []model.TrafficDelta) error {
+	return b.db.Transaction(func(tx *gorm.DB) error { return addInbox(tx, nodeID, ds) })
 }
 
-type memBuffer struct {
-	mu    sync.Mutex
-	data  map[string]map[string][2]int64
-	seen  map[string]time.Time
-	clean time.Time
-}
-
-func newMemBuffer() *memBuffer {
-	return &memBuffer{data: map[string]map[string][2]int64{}, seen: map[string]time.Time{}}
-}
-
-func (b *memBuffer) Add(nodeID string, ds []model.TrafficDelta) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	m := b.data[nodeID]
-	if m == nil {
-		m = map[string][2]int64{}
-		b.data[nodeID] = m
-	}
-	for _, d := range ds {
-		v := m[d.UserID]
-		v[0] += d.Up
-		v[1] += d.Down
-		m[d.UserID] = v
+// addInbox adds traffic to the inbox inside tx.
+func addInbox(tx *gorm.DB, nodeID string, ds []model.TrafficDelta) error {
+	for _, d := range model.MergeDeltas(ds) {
+		if d.Up == 0 && d.Down == 0 {
+			continue
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns: []clause.Column{{Name: "node_id"}, {Name: "user_id"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"up": gorm.Expr("traffic_inboxes.up + ?", d.Up), "down": gorm.Expr("traffic_inboxes.down + ?", d.Down),
+			}),
+		}).Create(&store.TrafficInbox{NodeID: nodeID, UserID: d.UserID, Up: d.Up, Down: d.Down}).Error; err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (b *memBuffer) Drain() (map[string]map[string][2]int64, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	out := b.data
-	b.data = map[string]map[string][2]int64{}
-	return out, nil
-}
-
-func (b *memBuffer) Seen(id string) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	now := time.Now()
-	if now.Sub(b.clean) > 10*time.Minute {
-		for k, t := range b.seen {
-			if now.Sub(t) > time.Hour {
-				delete(b.seen, k)
-			}
-		}
-		b.clean = now
-	}
-	if _, ok := b.seen[id]; ok {
-		return true
-	}
-	b.seen[id] = now
-	return false
-}
-
-func (b *memBuffer) Forget(id string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.seen, id)
-}
-
-// redisBuffer uses HINCRBY so several panel replicas can share counters.
-type redisBuffer struct{ c *redis.Client }
-
-func newRedisBuffer(url string) (*redisBuffer, error) {
-	opt, err := redis.ParseURL(url)
-	if err != nil {
-		return nil, err
-	}
-	c := redis.NewClient(opt)
-	if err := c.Ping(context.Background()).Err(); err != nil {
-		return nil, fmt.Errorf("redis: %w", err)
-	}
-	return &redisBuffer{c: c}, nil
-}
-
-func (b *redisBuffer) Add(nodeID string, ds []model.TrafficDelta) error {
-	ctx := context.Background()
-	p := b.c.TxPipeline()
-	key := "polaris:traffic:" + nodeID
-	p.SAdd(ctx, "polaris:traffic:nodes", nodeID)
-	for _, d := range ds {
-		if d.Up != 0 {
-			p.HIncrBy(ctx, key, d.UserID+":up", d.Up)
-		}
-		if d.Down != 0 {
-			p.HIncrBy(ctx, key, d.UserID+":down", d.Down)
-		}
-	}
-	_, err := p.Exec(ctx)
-	return err
-}
-
-func (b *redisBuffer) Drain() (map[string]map[string][2]int64, error) {
-	ctx := context.Background()
-	nodes, err := b.c.SMembers(ctx, "polaris:traffic:nodes").Result()
-	if err != nil {
+// Drain reads node -> user -> [up, down] without removing anything; the
+// settlement takes exactly these amounts out with takeInbox.
+func (b *trafficInbox) Drain() (map[string]map[string][2]int64, error) {
+	var rows []store.TrafficInbox
+	if err := b.db.Where("up > 0 OR down > 0").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	out := map[string]map[string][2]int64{}
-	for _, n := range nodes {
-		key := "polaris:traffic:" + n
-		snap := key + ":drain:" + strconv.FormatInt(time.Now().UnixNano(), 10)
-		if err := b.c.Rename(ctx, key, snap).Err(); err != nil {
-			continue // key vanished: nothing to drain
+	for _, r := range rows {
+		m := out[r.NodeID]
+		if m == nil {
+			m = map[string][2]int64{}
+			out[r.NodeID] = m
 		}
-		vals, err := b.c.HGetAll(ctx, snap).Result()
-		if err != nil {
-			// Keep what was already drained; this node's snapshot is merged
-			// back so the next settlement picks it up.
-			_ = b.c.Eval(ctx, mergeBackLua, []string{snap, key}).Err()
-			continue
-		}
-		b.c.Del(ctx, snap)
-		m := map[string][2]int64{}
-		for k, v := range vals {
-			i := strings.LastIndex(k, ":")
-			if i < 0 {
-				continue
-			}
-			n, _ := strconv.ParseInt(v, 10, 64)
-			cur := m[k[:i]]
-			if k[i+1:] == "up" {
-				cur[0] += n
-			} else {
-				cur[1] += n
-			}
-			m[k[:i]] = cur
-		}
-		out[n] = m
+		m[r.UserID] = [2]int64{r.Up, r.Down}
 	}
 	return out, nil
 }
 
-func (b *redisBuffer) Seen(id string) bool {
-	ok, err := b.c.SetNX(context.Background(), "polaris:batch:"+id, 1, time.Hour).Result()
-	return err == nil && !ok
+// errInboxTaken means another settlement already took part of a snapshot.
+var errInboxTaken = errors.New("traffic inbox changed by another settlement")
+
+// takeInbox subtracts a Drain snapshot inside the settlement transaction.
+// Traffic added since the snapshot stays. If a row no longer holds its
+// snapshot amount, another panel instance settled it first: the whole
+// transaction must roll back.
+func takeInbox(tx *gorm.DB, data map[string]map[string][2]int64) error {
+	for nodeID, users := range data {
+		for uid, v := range users {
+			r := tx.Model(&store.TrafficInbox{}).
+				Where("node_id = ? AND user_id = ? AND up >= ? AND down >= ?", nodeID, uid, v[0], v[1]).
+				Updates(map[string]any{"up": gorm.Expr("up - ?", v[0]), "down": gorm.Expr("down - ?", v[1])})
+			if r.Error != nil {
+				return r.Error
+			}
+			if r.RowsAffected == 0 {
+				return errInboxTaken
+			}
+		}
+	}
+	return tx.Where("up = 0 AND down = 0").Delete(&store.TrafficInbox{}).Error
 }
 
-func (b *redisBuffer) Forget(id string) {
-	b.c.Del(context.Background(), "polaris:batch:"+id)
+// ingestTraffic records an agent's batches and their traffic in one
+// transaction and returns the accepted batch IDs (including repeats).
+// Batches with a sequence number are deduplicated by the per-queue cursor,
+// older agents' batches by ID.
+func (s *Server) ingestTraffic(nodeID string, batches []*polarisv1.TrafficBatch, allowed map[string]bool) (accepted []string, dup int, err error) {
+	var legacy []*polarisv1.TrafficBatch
+	byEpoch := map[string][]*polarisv1.TrafficBatch{}
+	for _, b := range batches {
+		switch {
+		case b.BatchId == "":
+		case b.Seq > 0 && b.Epoch != "":
+			byEpoch[b.Epoch] = append(byEpoch[b.Epoch], b)
+		default:
+			legacy = append(legacy, b)
+		}
+	}
+	deltas := func(b *polarisv1.TrafficBatch) []model.TrafficDelta {
+		ds := make([]model.TrafficDelta, 0, len(b.Users))
+		for _, u := range b.Users {
+			if !allowed[u.UserId] && !isTagCounter(u.UserId) {
+				continue // not a user of this node
+			}
+			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: max(u.Up, 0), Down: max(u.Down, 0)})
+		}
+		return ds
+	}
+	now := time.Now()
+	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+		dup = 0
+		var all []model.TrafficDelta
+		for epoch, bs := range byEpoch {
+			sort.Slice(bs, func(i, j int) bool { return bs[i].Seq < bs[j].Seq })
+			var cur store.TrafficCursor
+			found := true
+			if err := tx.Where("node_id = ? AND epoch = ?", nodeID, epoch).Take(&cur).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+				found = false
+			} else if err != nil {
+				return err
+			}
+			last := cur.LastSeq
+			for _, b := range bs {
+				seq := int64(b.Seq)
+				if seq <= last {
+					dup++
+					continue
+				}
+				last = seq
+				all = append(all, deltas(b)...)
+			}
+			if last == cur.LastSeq && found {
+				continue
+			}
+			// Conditional writes: a concurrent request for the same queue
+			// that got here first makes this one fail and retry.
+			if !found {
+				r := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.TrafficCursor{NodeID: nodeID, Epoch: epoch, LastSeq: last, UpdatedAt: now})
+				if r.Error != nil {
+					return r.Error
+				}
+				if r.RowsAffected == 0 {
+					return errors.New("traffic cursor created concurrently")
+				}
+				continue
+			}
+			r := tx.Model(&store.TrafficCursor{}).Where("node_id = ? AND epoch = ? AND last_seq = ?", nodeID, epoch, cur.LastSeq).
+				Updates(map[string]any{"last_seq": last, "updated_at": now})
+			if r.Error != nil {
+				return r.Error
+			}
+			if r.RowsAffected == 0 {
+				return errors.New("traffic cursor moved concurrently")
+			}
+		}
+		for _, b := range legacy {
+			r := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.TrafficBatchSeen{NodeID: nodeID, BatchID: b.BatchId, CreatedAt: now})
+			if r.Error != nil {
+				return r.Error
+			}
+			if r.RowsAffected == 0 {
+				dup++
+				continue
+			}
+			all = append(all, deltas(b)...)
+		}
+		return addInbox(tx, nodeID, all)
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, b := range batches {
+		accepted = append(accepted, b.BatchId)
+	}
+	return accepted, dup, nil
 }
-
-// mergeBackLua adds a drain snapshot back into the live counters and deletes it.
-const mergeBackLua = `local v = redis.call('HGETALL', KEYS[1])
-for i = 1, #v, 2 do redis.call('HINCRBY', KEYS[2], v[i], v[i+1]) end
-redis.call('DEL', KEYS[1])
-return 1`
 
 // settleTraffic moves buffered traffic into users and traffic_hourly, applying
 // each node's traffic multiplier, and marks active users online.
@@ -218,6 +223,9 @@ func (s *Server) settleTraffic() error {
 	}
 	var quotaNodes []string // nodes where a user hit a cap or ran out of a pack
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := takeInbox(tx, data); err != nil {
+			return err
+		}
 		for nodeID, users := range data {
 			rate := rates[nodeID]
 			if rate <= 0 {
@@ -319,16 +327,11 @@ func (s *Server) settleTraffic() error {
 		}
 		return nil
 	})
+	if errors.Is(err, errInboxTaken) {
+		return nil // another instance settled it; the rest waits for the next round
+	}
 	if err != nil {
-		// Put the traffic back so the next settlement counts it.
-		for nodeID, users := range data {
-			ds := make([]model.TrafficDelta, 0, len(users))
-			for uid, v := range users {
-				ds = append(ds, model.TrafficDelta{UserID: uid, Up: v[0], Down: v[1]})
-			}
-			_ = s.traffic.Add(nodeID, ds)
-		}
-		return err
+		return err // the traffic stays in the inbox for the next settlement
 	}
 	if len(quotaNodes) > 0 {
 		s.MarkDirty("node quota reached", quotaNodes...)
