@@ -186,7 +186,7 @@ func (s *Server) webShopPage(c *gin.Context) {
 		data["UserLine"] = s.userLine(u)
 	}
 	data["Items"], data["Packs"], data["Types"], data["Orders"] = items, packs, types, orders
-	data["USDT"], data["Pay"] = s.usdtOn(), s.epayOn() || s.usdtOn()
+	data["USDT"], data["Pay"], data["Nets"] = s.usdtOn(), s.epayOn() || s.usdtOn(), s.usdtNetsOn()
 	data["Code"] = s.codesOn()
 	data["AutoCreate"], data["Bot"] = s.shopAutoCreate(), s.tgWebLoginEnabled()
 	data["Terms"], data["Support"] = s.shopTerms(), strings.TrimSpace(s.st.GetSetting("shop_support", ""))
@@ -259,9 +259,17 @@ func (s *Server) webShopBuy(c *gin.Context) {
 			return
 		}
 	case payUSDT:
+		if _, ok := s.usdtNetFor(req.Type); !ok {
+			badRequest(c, errors.New("这个 USDT 网络暂不可用"))
+			return
+		}
 	default:
 		badRequest(c, errors.New("请选择付款方式"))
 		return
+	}
+	chain := ""
+	if req.Method == payUSDT {
+		chain = req.Type
 	}
 	var o *store.Order
 	var err error
@@ -271,9 +279,9 @@ func (s *Server) webShopBuy(c *gin.Context) {
 			badRequest(c, errors.New("请先登录用户中心再购买流量包"))
 			return
 		}
-		o, err = s.newPackOrderFor(b, u, req.ID, req.Method)
+		o, err = s.newPackOrderFor(b, u, req.ID, req.Method, chain)
 	default:
-		o, err = s.newOrderFor(b, req.ID, req.Method)
+		o, err = s.newOrderFor(b, req.ID, req.Method, chain)
 	}
 	if err != nil {
 		badRequest(c, err)
@@ -365,8 +373,8 @@ func (s *Server) webShopOrderPage(c *gin.Context) {
 			}
 			data["Links"] = links
 		case payUSDT:
-			if s.usdtOn() {
-				data["USDTAddress"] = s.st.GetSetting("shop_usdt_address", "")
+			if n, addr := s.usdtPayTo(o); addr != "" && s.usdtOn() {
+				data["USDTAddress"], data["USDTNet"], data["USDTQR"] = addr, n.Name, qrDataURL(addr)
 			}
 		}
 	}
@@ -443,6 +451,7 @@ pre{white-space:pre-wrap;margin:0;font:inherit}
 .err{color:var(--bad);font-size:13px;margin:0}.ok{color:var(--ok)}
 table{width:100%;border-collapse:collapse;font-size:13px}td{padding:6px 4px;border-top:1px solid var(--line)}
 [hidden]{display:none!important}
+.qr{display:block;margin:8px auto;background:#fff;padding:6px;border-radius:8px;max-width:60vw;height:auto}
 </style>`
 
 var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
@@ -455,10 +464,10 @@ var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 {{else}}<div class="card"><p class="mute">已有账号？{{if .Bot}}<a href="/u">登录用户中心</a>后可续费或加购流量包。{{else}}续费请联系管理员或使用 Telegram 机器人。{{end}}{{if .AutoCreate}}<br>没有账号也可以直接购买，付款后自动创建账号并显示订阅链接。{{end}}</p></div>{{end}}
 {{if not .Pay}}<div class="note">暂未开放在线付款。{{if .Code}}可以使用兑换码开通。{{else}}请联系管理员。{{end}}</div>{{end}}
 {{range .Items}}<div class="card" data-kind="{{.Kind}}" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}</p>{{if .Note}}<p class="mute">{{.Note}}</p>{{end}}
-{{if or .CNY .USDT}}<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}<button class="btn alt buy" type="button" data-method="usdt">USDT {{.USDT}}</button>{{end}}</div>{{end}}
+{{if or .CNY .USDT}}<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div>{{end}}
 </div>{{else}}<div class="card"><p class="mute">暂时没有在售的套餐。</p></div>{{end}}
 {{if .Packs}}<h2>流量包</h2>{{range .Packs}}<div class="card" data-kind="pack" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}，下次流量重置或开始新周期时失效。</p>
-<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}<button class="btn alt buy" type="button" data-method="usdt">USDT {{.USDT}}</button>{{end}}</div></div>{{end}}{{end}}
+<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div></div>{{end}}{{end}}
 {{if .Code}}<div class="card"><h2>兑换码</h2><div class="row"><input id="code" placeholder="输入兑换码" autocomplete="off" maxlength="32"><button class="btn" id="redeem" type="button">兑换</button></div></div>{{end}}
 <p class="err" id="err" hidden></p>
 {{if .Orders}}<div class="card"><h2>我的订单</h2><table>{{range .Orders}}<tr><td><a href="` + shopWebPath + `/order/{{.ID}}">{{.Name}}</a><div class="mute mono">{{.ID}}</div></td><td>{{.Amount}}</td><td>{{.Status}}</td><td class="mute">{{.When}}</td></tr>{{end}}</table></div>{{end}}
@@ -492,7 +501,7 @@ var webShopOrderTpl = template.Must(template.New("order").Parse(`<!doctype html>
 {{if .O.Detail}}<p class="mute">{{.O.Detail}}</p>{{end}}</div>
 {{if .Pending}}<div class="card">
 {{if .Links}}<p class="mute">选择方式完成付款，到账后自动开通；请在 {{.Expires}} 前完成。</p><div class="row">{{range .Links}}<a class="btn" href="{{.URL}}">{{.Name}} 付款</a>{{end}}</div>
-{{else if .USDTAddress}}<p>网络：<b>TRON (TRC20)</b></p><p>地址：<code>{{.USDTAddress}}</code></p><p>金额：<code>{{.O.Amount}}</code> USDT</p><p class="note">请精确转账上面的金额（含小数），金额不符无法自动到账。请在 {{.Expires}} 前完成，到账确认后自动开通。</p>
+{{else if .USDTAddress}}<p>网络：<b>{{.USDTNet}}</b></p><p class="note">只能用 <b>{{.USDTNet}}</b> 网络转 USDT，转错网络无法到账。</p>{{if .USDTQR}}<img class="qr" src="{{.USDTQR}}" alt="收款地址二维码" width="200" height="200">{{end}}<p>地址：<code>{{.USDTAddress}}</code></p><p>金额：<code>{{.O.Amount}}</code> USDT</p><p class="note">请精确转账上面的金额（含小数），金额不符无法自动到账。请在 {{.Expires}} 前完成，到账确认后自动开通。</p>
 {{else}}<p class="note">在线付款暂不可用，请取消订单或联系售后。</p>{{end}}
 <div><button class="btn alt" id="cancel" type="button">取消订单</button></div><p class="err" id="err" hidden></p></div>{{end}}
 {{if .Account}}<div class="card"><h2>你的账号</h2><div>用户名：<b>{{.Account}}</b></div><div>订阅链接：</div><code>{{.SubURL}}</code>

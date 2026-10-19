@@ -218,5 +218,12 @@ const m: Record<string, string> = {
   "网页商店": "Web shop",
   "网页商店需要先在「订阅设置」里开启用户中心。": "The web shop needs the user center, turned on under Subscription settings.",
   "网页商店地址": "Web shop address",
+  "选择接受的网络，买家下单时自选网络，付款页显示收款地址和二维码。每笔订单金额带不同的小数尾数，按金额自动对账。": "Pick the networks you accept. Buyers choose one when ordering and see the address and a QR code. Each order gets its own decimal tail, so payments match by amount.",
+  "TRON 收款地址": "TRON address",
+  "TRON 网络地址（T 开头）": "TRON address (starts with T)",
+  "EVM 收款地址": "EVM address",
+  "BEP20、Polygon、Arbitrum 共用一个 0x 地址。请用自己掌握私钥的钱包地址，不要用交易所充值地址": "BEP20, Polygon and Arbitrum share one 0x address. Use a wallet whose private key you hold, not an exchange deposit address",
+  "自定义 RPC 节点（可选）": "Custom RPC endpoints (optional)",
+  "默认使用公共 RPC；公共节点限流时可填自己的节点（如 Alchemy、QuickNode、Ankr）。": "Public RPC endpoints are used by default; if they rate-limit you, enter your own (e.g. Alchemy, QuickNode, Ankr).",
 }
 export default m

@@ -949,6 +949,7 @@ type Order struct {
 	PaidAt     *time.Time `json:"paidAt"`
 	StarsURL   string     `gorm:"type:text" json:"-"`     // cached native checkout link; never expose in admin responses
 	StarsBotID int64      `json:"-"`                      // links belong to the bot that created them
+	Chain      string     `gorm:"size:16" json:"chain"`   // USDT network (tron, bsc, polygon, arbitrum; "" = tron)
 	WebKey     string     `gorm:"size:64;index" json:"-"` // web shop: hash of the buyer's browser key
 	Web        bool       `gorm:"-" json:"web"`           // bought in the web shop (set by listOrders)
 }
