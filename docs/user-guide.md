@@ -96,6 +96,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/s
 polaris set-domain panel.example.com
 ```
 
+在终端里运行时，脚本会先让你选择版本和数据库：
+
+| 数据库 | 适合 |
+|---|---|
+| SQLite（默认） | 单个主控、几千用户以内。免安装，数据就是 `/var/lib/polaris/polaris.db` 一个文件 |
+| PostgreSQL（本机） | 用户、节点很多或流量记录量大。脚本自动安装 PostgreSQL 并建库，主控通过本机 socket 免密码连接 |
+| PostgreSQL（已有） | 云数据库或另一台服务器，准备运行多个主控实例时选它。输入 `postgres://用户:密码@主机:5432/库名` |
+
+选择 PostgreSQL 时还会询问是否使用 Redis（可选，只在运行多个主控实例时需要）。无人值守安装用参数指定：`--db sqlite|local|postgres://…`、`--redis local|redis://…`，不指定时使用 SQLite。之后随时可以用 `polaris migrate` 切换，见[从 SQLite 切换到 PostgreSQL](#db-migrate)。
+
 脚本会生成密钥和后台路径，配置 systemd 服务，并在使用域名时安装 Caddy。安装完成后：
 
 1. 保存输出的后台地址、管理员账号和初始密码。
@@ -745,21 +755,23 @@ polaris restore /path/to/polaris-backup.tar.gz.enc
 
 数据库支持 SQLite / PostgreSQL 间的备份恢复；外部 PostgreSQL 连接、DNS、云安全组和反向代理仍需在目标环境单独配置。
 
+<a id="db-migrate"></a>
+
 ### 从 SQLite 切换到 PostgreSQL
 
-主控数据量大，或准备运行多个主控实例时，可以把数据库换成 PostgreSQL（12 及以上）。数据目录里的 CA 证书等文件不变，`secret_key` 也必须保持不变。
+主控数据量大，或准备运行多个主控实例时，可以把数据库换成 PostgreSQL（12 及以上）。数据目录里的 CA 证书等文件不变，`secret_key` 也保持不变。
 
-1. 在 PostgreSQL 里创建一个空数据库和账号，例如 `CREATE DATABASE polaris;`。
-2. 停止主控：`systemctl stop polaris`。
-3. 复制数据（会读取当前配置的 SQLite 数据库）：
+一键安装的主控执行一条命令即可（面板会停止约一分钟）：
 
-   ```bash
-   polaris migrate -to 'postgres://polaris:密码@127.0.0.1:5432/polaris?sslmode=disable'
-   ```
+```bash
+polaris migrate local                                   # 在本机安装 PostgreSQL 并迁移过去
+polaris migrate 'postgres://用户:密码@主机:5432/polaris'  # 迁移到已有的空数据库
+polaris migrate sqlite                                  # 换回 SQLite
+```
 
-   命令在一个事务里复制全部数据，并逐表核对行数；任何一步失败，目标库都保持原样。目标库已有数据时会拒绝写入，确认覆盖请加 `-replace`。SQLite 不限制文本长度，超出 PostgreSQL 列长度的内容（例如超长备注）会被截断，命令结束时会列出受影响的列。
-4. 在环境配置里设置 `POLARIS_DB_DSN` 为同一个地址，然后启动主控：`systemctl start polaris`。
-5. 确认运行正常后，原来的 `polaris.db` 可以保留一段时间作为回退。要换回 SQLite，把 `-to` 换成 SQLite 文件路径，反向执行即可。
+命令会停止面板，在一个事务里复制全部数据并逐表核对行数，然后改好配置并重新启动。任何一步失败，面板都会用原数据库重新启动，数据不变。原数据库不会被删除，确认正常后可以自行清理。SQLite 不限制文本长度，超出 PostgreSQL 列长度的内容（例如超长备注）会被截断，命令结束时会列出受影响的列。
+
+Docker 或手动部署时，先停止主控，再用面板程序执行 `migrate -to DSN`（Docker 容器里是 `polaris migrate -to DSN`，手动部署是 `polaris-server migrate -to DSN`，需加载与服务相同的环境配置；目标库已有数据时加 `-replace` 才会覆盖），然后把 `POLARIS_DB_DSN` 改成同一个地址并启动。
 
 PostgreSQL 地址可以写成 `postgres://` / `postgresql://` URL，也可以写成 `host=… user=… dbname=…` 形式。每个主控实例最多使用 20 个数据库连接。
 
@@ -906,7 +918,7 @@ polaris log
 | `polaris check-update` / `polaris update` | 检查 / 升级主控 |
 | `polaris switch community` / `polaris switch pro` | 切换版本类型，保留数据与配置 |
 | `polaris backup` / `polaris restore FILE` | 创建 / 恢复备份；恢复会替换目标数据 |
-| `polaris migrate -to DSN [-replace]` | 把全部数据复制到另一个数据库（如 SQLite → PostgreSQL），先停止主控 |
+| `polaris migrate sqlite\|local\|DSN` | 切换数据库并迁移全部数据（`local` 为本机自动安装的 PostgreSQL） |
 | `polaris reset-password` / `polaris reset-2fa` | 重置管理员密码 / 关闭两步验证 |
 | `polaris help` | 查看当前安装版本支持的全部命令 |
 
