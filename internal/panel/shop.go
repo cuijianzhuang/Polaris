@@ -642,8 +642,10 @@ func (s *Server) listOrders(c *gin.Context) {
 		sums[i].Total += v
 		sums[i].Count++
 	}
+	cut := time.Now().Add(-orderDeleteGrace)
 	for i := range os {
 		os[i].Web = os[i].WebKey != ""
+		os[i].Deletable = slices.Contains(deletableOrders, os[i].Status) && os[i].PayRef == nil && os[i].ExpiresAt.Before(cut)
 	}
 	c.JSON(http.StatusOK, gin.H{"items": os, "total": total, "usernames": names, "revenue": sums, "status": s.shopStatus()})
 }
@@ -703,6 +705,48 @@ func (s *Server) adminCancelOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, o)
 }
 
+// deletableOrders are the statuses whose records the admin may delete: no
+// money came in for them.
+var deletableOrders = []string{"expired", "cancelled"}
+
+const orderDeleteGrace = 24 * time.Hour
+
+// deleteOrders is DELETE /orders {ids} or ?status=expired|cancelled&days=N
+// (older than N days). Paid, refunded, failed and open orders stay: they are
+// the payment record.
+func (s *Server) deleteOrders(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	// A day's grace: an EPay callback or a USDT transfer for an order that
+	// just closed still pays it, and needs the order to be there.
+	q := s.st.DB.Where("status IN ? AND pay_ref IS NULL AND expires_at < ?", deletableOrders, time.Now().Add(-orderDeleteGrace))
+	switch st := c.Query("status"); {
+	case len(req.IDs) > 0:
+		if len(req.IDs) > 5000 {
+			badRequest(c, errors.New("一次最多删除 5000 笔订单"))
+			return
+		}
+		q = q.Where("id IN ?", req.IDs)
+	case slices.Contains(deletableOrders, st):
+		q = q.Where("status = ?", st)
+		if days := atoiDefault(c.Query("days"), 0); days > 0 {
+			q = q.Where("created_at < ?", time.Now().AddDate(0, 0, -days))
+		}
+	default:
+		badRequest(c, errors.New("只能删除已过期或已取消的订单"))
+		return
+	}
+	res := q.Delete(&store.Order{})
+	if res.Error != nil {
+		dbError(c, res.Error)
+		return
+	}
+	s.auditCtx(c, "order.delete", c.Query("status"), fmt.Sprintf("%d orders", res.RowsAffected))
+	c.JSON(http.StatusOK, gin.H{"deleted": res.RowsAffected})
+}
+
 // refundOrder is POST /orders/:id/refund: returns the Stars of a paid
 // Telegram Stars order. The plan it started is left as it is; adjust the
 // user if the refund should take it back.
@@ -732,25 +776,68 @@ func (s *Server) refundOrder(c *gin.Context) {
 	c.JSON(http.StatusOK, o)
 }
 
-// listCodes is GET /redeem-codes?batch=&used=.
-func (s *Server) listCodes(c *gin.Context) {
+// codesQuery filters redeem codes by batch, state (no = usable, yes = used,
+// expired = unused past its date) and code text.
+func (s *Server) codesQuery(batch, state, text string) *gorm.DB {
 	q := s.st.DB.Model(&store.RedeemCode{})
-	if v := c.Query("batch"); v != "" {
-		q = q.Where("batch = ?", v)
+	if batch != "" {
+		q = q.Where("batch = ?", batch)
 	}
-	switch c.Query("used") {
+	now := time.Now()
+	switch state {
 	case "yes":
 		q = q.Where("used_at IS NOT NULL")
 	case "no":
-		q = q.Where("used_at IS NULL")
+		q = q.Where("used_at IS NULL AND (expires_at IS NULL OR expires_at >= ?)", now)
+	case "expired":
+		q = q.Where("used_at IS NULL AND expires_at < ?", now)
 	}
+	if v := strings.ToUpper(strings.TrimSpace(text)); v != "" {
+		q = q.Where("code LIKE ?", "%"+v+"%")
+	}
+	return q
+}
+
+// listCodes is GET /redeem-codes?batch=&used=&q=&limit=&offset=. Used codes
+// come with who used them and the order they made.
+func (s *Server) listCodes(c *gin.Context) {
+	q := s.codesQuery(c.Query("batch"), c.Query("used"), c.Query("q"))
 	var total int64
 	q.Count(&total)
 	var cs []store.RedeemCode
-	q.Order("created_at desc, code").Limit(min(max(atoiDefault(c.Query("limit"), 200), 1), 2000)).Find(&cs)
+	q.Order("created_at desc, code").Limit(min(max(atoiDefault(c.Query("limit"), 200), 1), 2000)).Offset(max(atoiDefault(c.Query("offset"), 0), 0)).Find(&cs)
 	var batches []string
 	s.st.DB.Model(&store.RedeemCode{}).Distinct().Where("batch <> ''").Order("batch").Pluck("batch", &batches)
-	c.JSON(http.StatusOK, gin.H{"items": cs, "total": total, "batches": nonNilStrs(batches)})
+	names, orders := map[string]string{}, map[string]string{}
+	var userIDs, used []string
+	for _, rc := range cs {
+		if rc.UsedAt != nil {
+			used = append(used, rc.Code)
+			if rc.UsedBy != "" {
+				userIDs = append(userIDs, rc.UsedBy)
+			}
+		}
+	}
+	if len(userIDs) > 0 {
+		var us []store.User
+		s.st.DB.Select("id, username").Where("id IN ?", userIDs).Find(&us)
+		for _, u := range us {
+			names[u.ID] = u.Username
+		}
+	}
+	if len(used) > 0 {
+		var os []store.Order
+		s.st.DB.Select("id, amount").Where("method = ? AND amount IN ?", payCode, used).Find(&os)
+		for _, o := range os {
+			orders[o.Amount] = o.ID
+		}
+	}
+	var counts struct{ Unused, Used, Expired int64 }
+	s.codesQuery(c.Query("batch"), "no", "").Count(&counts.Unused)
+	s.codesQuery(c.Query("batch"), "yes", "").Count(&counts.Used)
+	s.codesQuery(c.Query("batch"), "expired", "").Count(&counts.Expired)
+	c.JSON(http.StatusOK, gin.H{"items": cs, "total": total, "batches": nonNilStrs(batches), "usernames": names, "orders": orders,
+		"counts": gin.H{"unused": counts.Unused, "used": counts.Used, "expired": counts.Expired}})
 }
 
 // createCodes is POST /redeem-codes {planId, count, batch, expireDays}.
@@ -817,24 +904,40 @@ func (s *Server) createCodes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"codes": codes})
 }
 
-// deleteCodes is DELETE /redeem-codes {codes} or ?batch=: only unused codes go.
+// deleteCodes is DELETE /redeem-codes {codes, used} or ?batch=&state=.
+// Unused codes go unless used is set; ?state=used|expired clears the used
+// or expired codes (of the batch, if given). A used code's order stays.
 func (s *Server) deleteCodes(c *gin.Context) {
 	var req struct {
 		Codes []string `json:"codes"`
+		Used  bool     `json:"used"` // also delete the records of used codes
 	}
 	_ = c.ShouldBindJSON(&req)
-	q := s.st.DB.Where("used_at IS NULL")
-	switch {
+	var q *gorm.DB
+	switch state := c.Query("state"); {
 	case len(req.Codes) > 0:
-		q = q.Where("code IN ?", req.Codes)
-	case c.Query("batch") != "":
-		q = q.Where("batch = ?", c.Query("batch"))
+		if len(req.Codes) > 5000 {
+			badRequest(c, errors.New("一次最多删除 5000 个兑换码"))
+			return
+		}
+		q = s.st.DB.Where("code IN ?", req.Codes)
+		if !req.Used {
+			q = q.Where("used_at IS NULL")
+		}
+	case state == "used" || state == "expired":
+		q = s.codesQuery(c.Query("batch"), map[string]string{"used": "yes", "expired": "expired"}[state], "")
+	case state == "" && c.Query("batch") != "":
+		q = s.st.DB.Where("used_at IS NULL AND batch = ?", c.Query("batch"))
 	default:
 		badRequest(c, errors.New("请指定兑换码或批次"))
 		return
 	}
 	res := q.Delete(&store.RedeemCode{})
-	s.auditCtx(c, "redeem.delete", c.Query("batch"), fmt.Sprintf("%d codes", res.RowsAffected))
+	if res.Error != nil {
+		dbError(c, res.Error)
+		return
+	}
+	s.auditCtx(c, "redeem.delete", c.Query("batch"), fmt.Sprintf("%d codes %s", res.RowsAffected, c.Query("state")))
 	c.JSON(http.StatusOK, gin.H{"deleted": res.RowsAffected})
 }
 

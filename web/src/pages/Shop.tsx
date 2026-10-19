@@ -14,7 +14,7 @@ import { t } from '../i18n'
 
 type Order = {
   id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
-  status: string; payRef?: string | null; detail: string; createdAt: string; paidAt?: string | null; web?: boolean; chain?: string
+  status: string; payRef?: string | null; detail: string; createdAt: string; expiresAt?: string; paidAt?: string | null; web?: boolean; chain?: string; deletable?: boolean
 }
 type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; returnUrl?: string; publicUrl: boolean; payments?: boolean; webShop?: boolean; webShopUrl?: string; portal?: boolean }
 type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
@@ -38,14 +38,44 @@ function money(o: Order) {
   return `${o.amount} ${o.currency}`
 }
 
+function downloadText(name: string, text: string) {
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+
+const copyText = (s: string) => navigator.clipboard?.writeText(s)
+
 function Orders() {
   const [status, setStatus] = useState('')
+  const [method, setMethod] = useState('')
   const [q, setQ] = useState('')
+  const [limit, setLimit] = useState(100)
+  const [checked, setChecked] = useState<string[]>([])
+  const [open, setOpen] = useState<Order | null>(null)
   const list = useLoad(() => get<{ items: Order[]; total: number; usernames: Record<string, string>; revenue: { currency: string; total: number; count: number }[]; status: ShopStatus }>(
-    `/orders?limit=200&status=${status}&q=${encodeURIComponent(q)}`), [status, q])
+    `/orders?limit=${limit}&status=${status}&method=${method}&q=${encodeURIComponent(q)}`), [status, method, q, limit])
+  useEffect(() => { setChecked([]); setLimit(100) }, [status, method, q])
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const d = list.data
+  const items = d?.items ?? []
+  const deletable = items.filter((o) => o.deletable)
+  const buyer = (o: Order) => o.userId ? d?.usernames?.[o.userId] ?? o.userId : ''
+  const removeOrders = async (ids: string[]) => {
+    if (await confirm(t('删除选中的 {n} 笔订单记录？只能删除已过期或已取消、且过期超过 24 小时的订单，删除后不可恢复。', { n: ids.length }), { danger: true, ok: t('删除') }))
+      run(async () => { const r = await del<{ deleted: number }>('/orders', { ids }); setChecked([]); setOpen(null); list.reload(); return r }, t('已删除'))
+  }
+  const clean = async () => {
+    if (!await confirm(t('删除所有已过期、已取消且过期超过 24 小时的订单记录？已支付、已退款和开通失败的订单不受影响。'), { danger: true, ok: t('清理') })) return
+    run(async () => {
+      await del('/orders?status=expired')
+      await del('/orders?status=cancelled')
+      list.reload()
+    }, t('已清理'))
+  }
   return (
     <>
       {(d?.revenue ?? []).length > 0 && (
@@ -64,98 +94,182 @@ function Orders() {
         <div className="chips">
           {['', 'paid', 'pending', 'expired', 'cancelled', 'failed', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
         </div>
+        <select className="input" style={{ width: 'auto', minHeight: 34 }} value={method} onChange={(e) => setMethod(e.target.value)} aria-label={t('付款方式')}>
+          <option value="">{t('全部付款方式')}</option>
+          {Object.entries(methodLabel).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+        <span className="spacer" />
+        {checked.length > 0
+          ? <><span className="small mute">{t('已选 {n}', { n: checked.length })}</span><button className="btn sm danger" type="button" disabled={busy} onClick={() => removeOrders(checked)}>{t('删除所选')}</button></>
+          : <button className="btn sm" type="button" disabled={busy} onClick={clean} title={t('删除已过期、已取消且过期超过 24 小时的订单')}>{t('清理无效订单')}</button>}
       </div>
       <div className="card flush scroll">
-        {d && (d.items ?? []).length === 0 ? <Empty>{t('还没有订单')}</Empty> : (
+        {d && items.length === 0 ? <Empty>{t('没有订单')}</Empty> : (
           <table className="rtable">
-            <thead><tr><th>{t('时间')}</th><th>{t('买家')}</th><th>{t('套餐')}</th><th>{t('付款')}</th><th>{t('金额')}</th><th>{t('状态')}</th><th></th></tr></thead>
+            <thead><tr>
+              <th style={{ width: 32 }}><input type="checkbox" aria-label={t('全选可删除的订单')} disabled={deletable.length === 0} checked={deletable.length > 0 && checked.length === deletable.length} onChange={(e) => setChecked(e.target.checked ? deletable.map((o) => o.id) : [])} /></th>
+              <th>{t('时间')}</th><th>{t('买家')}</th><th>{t('套餐')}</th><th>{t('付款')}</th><th>{t('金额')}</th><th>{t('状态')}</th><th></th>
+            </tr></thead>
             <tbody>
-              {(d?.items ?? []).map((o) => (
-                <tr key={o.id}>
+              {items.map((o) => (
+                <tr key={o.id} className="clickable" onClick={() => setOpen(o)}>
+                  <td className="rt-check" onClick={(e) => e.stopPropagation()}>{o.deletable && <input type="checkbox" aria-label={t('选择 {name}', { name: o.id })} checked={checked.includes(o.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, o.id] : x.filter((y) => y !== o.id))} />}</td>
                   <td data-label={t('时间')} className="small">{datetime(o.paidAt || o.createdAt)}<div className="mono small mute">{o.id}</div></td>
-                  <td data-label={t('买家')}>{o.userId ? <b>{d?.usernames?.[o.userId] ?? o.userId}</b> : <span className="mute">—</span>}<div className="small mute">{o.web && <span className="tag" style={{ marginRight: 4 }}>{t('网页')}</span>}{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
-                  <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}{o.detail && <div className="small mute">{o.detail}</div>}</td>
+                  <td data-label={t('买家')}>{o.userId ? <b>{buyer(o)}</b> : <span className="mute">—</span>}<div className="small mute">{o.web && <span className="tag" style={{ marginRight: 4 }}>{t('网页')}</span>}{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
+                  <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}</td>
                   <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}{o.method === 'usdt' && <div className="mute">{usdtNets.find((n) => n.id === (o.chain || 'tron'))?.short}</div>}</td>
                   <td data-label={t('金额')} className="mono">{money(o)}</td>
                   <td data-label={t('状态')}><span className={'st ' + (statusLabel[o.status]?.[1] ?? '')}>{statusLabel[o.status]?.[0] ?? o.status}</span></td>
-                  <td className="rt-actions">
-                    {(o.status === 'pending' || o.status === 'expired' || o.status === 'cancelled') && o.method !== 'code' && (
-                      <button className="btn sm" type="button" disabled={busy} onClick={async () => {
-                        if (await confirm(t('确认已经收到这笔付款（{amount}），手动开通套餐 {plan}？', { amount: `${o.amount} ${o.currency}`, plan: o.planName }), { ok: t('手动开通') }))
-                          run(async () => { await post(`/orders/${o.id}/fulfil`); list.reload() }, t('已开通'))
-                      }}>{t('手动开通')}</button>
-                    )}
-                    {o.status === 'pending' && (
-                      <button className="btn sm" type="button" disabled={busy} onClick={async () => {
-                        if (await confirm(t('取消订单 {id}？买家将不能再用 Stars 付款；易支付 / USDT 如果仍然付款，到账后照常开通。', { id: o.id }), { danger: true, ok: t('取消订单') }))
-                          run(async () => { await post(`/orders/${o.id}/cancel`); list.reload() }, t('订单已取消'))
-                      }}>{t('取消订单')}</button>
-                    )}
-                    {o.status === 'paid' && o.method === 'stars' && (
-                      <button className="btn sm" type="button" disabled={busy} onClick={async () => {
-                        if (await confirm(t('把 {amount} ⭐ 退还给买家？套餐不会自动收回，如需收回请到用户页调整。', { amount: o.amount }), { danger: true, ok: t('退款') }))
-                          run(async () => { await post(`/orders/${o.id}/refund`); list.reload() }, t('已退款'))
-                      }}>{t('退款')}</button>
-                    )}
-                  </td>
+                  <td className="rt-actions"><button className="btn sm" type="button" onClick={(e) => { e.stopPropagation(); setOpen(o) }}>{t('详情')}</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+      {d && <div className="row" style={{ justifyContent: 'center' }}>
+        <span className="small mute">{t('共 {n} 笔，显示 {m} 笔', { n: d.total, m: items.length })}</span>
+        {items.length < d.total && <button className="btn sm" type="button" disabled={list.loading} onClick={() => setLimit((n) => Math.min(n + 200, 500))}>{items.length >= 500 ? t('请用搜索或筛选缩小范围') : t('加载更多')}</button>}
+      </div>}
+      {open && (
+        <Modal title={t('订单 {id}', { id: open.id })} onClose={() => setOpen(null)} footer={<>
+          {(open.status === 'pending' || open.status === 'expired' || open.status === 'cancelled') && open.method !== 'code' && (
+            <button className="btn" type="button" disabled={busy} onClick={async () => {
+              if (await confirm(t('确认已经收到这笔付款（{amount}），手动开通套餐 {plan}？', { amount: `${open.amount} ${open.currency}`, plan: open.planName }), { ok: t('手动开通') }))
+                run(async () => { await post(`/orders/${open.id}/fulfil`); setOpen(null); list.reload() }, t('已开通'))
+            }}>{t('手动开通')}</button>
+          )}
+          {open.status === 'pending' && (
+            <button className="btn" type="button" disabled={busy} onClick={async () => {
+              if (await confirm(t('取消订单 {id}？买家将不能再用 Stars 付款；易支付 / USDT 如果仍然付款，到账后照常开通。', { id: open.id }), { danger: true, ok: t('取消订单') }))
+                run(async () => { await post(`/orders/${open.id}/cancel`); setOpen(null); list.reload() }, t('订单已取消'))
+            }}>{t('取消订单')}</button>
+          )}
+          {open.status === 'paid' && open.method === 'stars' && (
+            <button className="btn danger" type="button" disabled={busy} onClick={async () => {
+              if (await confirm(t('把 {amount} ⭐ 退还给买家？套餐不会自动收回，如需收回请到用户页调整。', { amount: open.amount }), { danger: true, ok: t('退款') }))
+                run(async () => { await post(`/orders/${open.id}/refund`); setOpen(null); list.reload() }, t('已退款'))
+            }}>{t('退款')}</button>
+          )}
+          {open.deletable && <button className="btn danger" type="button" disabled={busy} onClick={() => removeOrders([open.id])}>{t('删除记录')}</button>}
+          <button className="btn pri" type="button" onClick={() => setOpen(null)}>{t('关闭')}</button>
+        </>}>
+          <dl className="kv" style={{ marginTop: 0 }}>
+            <dt>{t('状态')}</dt><dd><span className={'st ' + (statusLabel[open.status]?.[1] ?? '')}>{statusLabel[open.status]?.[0] ?? open.status}</span></dd>
+            <dt>{t('商品')}</dt><dd>{open.kind === 'pack' ? t('流量包') : t('套餐')} · {open.planName}</dd>
+            {open.detail && <><dt>{t('开通结果')}</dt><dd>{open.detail}</dd></>}
+            <dt>{t('金额')}</dt><dd className="mono">{money(open)} · {methodLabel[open.method] ?? open.method}{open.method === 'usdt' ? ' · ' + (usdtNets.find((n) => n.id === (open.chain || 'tron'))?.name ?? '') : ''}</dd>
+            <dt>{t('账号')}</dt><dd>{open.userId ? buyer(open) : '—'}</dd>
+            <dt>{t('买家')}</dt><dd>{open.web ? t('网页商店') : ''}{open.tgName ? ' ' + open.tgName : ''}{open.telegramId ? ` (TG ${open.telegramId})` : ''}{!open.web && !open.tgName && !open.telegramId ? '—' : ''}</dd>
+            <dt>{t('下单时间')}</dt><dd>{datetime(open.createdAt)}</dd>
+            {open.status === 'pending' && open.expiresAt && <><dt>{t('有效至')}</dt><dd>{datetime(open.expiresAt)}</dd></>}
+            {open.paidAt && <><dt>{t('付款时间')}</dt><dd>{datetime(open.paidAt)}</dd></>}
+            {open.payRef && <><dt>{t('交易凭证')}</dt><dd className="mono small" style={{ overflowWrap: 'anywhere' }}>{open.payRef} <button className="link" type="button" onClick={() => copyText(open.payRef!)}>{t('复制')}</button></dd></>}
+            <dt>{t('订单号')}</dt><dd className="mono">{open.id} <button className="link" type="button" onClick={() => copyText(open.id)}>{t('复制')}</button></dd>
+          </dl>
+          {(open.status === 'expired' || open.status === 'cancelled') && !open.deletable && <div className="sub">{t('订单过期 24 小时后才能删除：这段时间内迟到的易支付回调或 USDT 转账仍会开通。')}</div>}
+        </Modal>
+      )}
     </>
   )
 }
 
+const codeState = (c: Code) => c.usedAt ? 'used' : c.expiresAt && new Date(c.expiresAt) < new Date() ? 'expired' : 'unused'
+
 function Codes() {
   const [batch, setBatch] = useState('')
   const [used, setUsed] = useState('')
-  const list = useLoad(() => get<{ items: Code[]; total: number; batches: string[] }>(`/redeem-codes?batch=${encodeURIComponent(batch)}&used=${used}`), [batch, used])
+  const [q, setQ] = useState('')
+  const [checked, setChecked] = useState<string[]>([])
+  const list = useLoad(() => get<{ items: Code[]; total: number; batches: string[]; usernames: Record<string, string>; orders: Record<string, string>; counts: { unused: number; used: number; expired: number } }>(
+    `/redeem-codes?limit=2000&batch=${encodeURIComponent(batch)}&used=${used}&q=${encodeURIComponent(q)}`), [batch, used, q])
+  useEffect(() => setChecked([]), [batch, used, q])
   const plans = useLoad(() => get<Group[]>('/plans'))
   const packs = useLoad(() => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs'))
   const [gen, setGen] = useState<{ kind: 'plan' | 'pack'; planId: string; packId: string; count: string; batch: string; expireDays: string } | null>(null)
   const [made, setMade] = useState<string[] | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
+  const items = list.data?.items ?? []
+  const counts = list.data?.counts
   const pname = (c: Code) => c.packId
     ? <><span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>{packs.data?.items?.find((p) => p.id === c.packId)?.name ?? t('已删除')}</>
     : plans.data?.find((p) => p.id === c.planId)?.name ?? t('已删除套餐')
+  const remove = async (codes: string[]) => {
+    const usedN = items.filter((c) => codes.includes(c.code) && c.usedAt).length
+    const msg = usedN
+      ? t('删除选中的 {n} 个兑换码？其中 {m} 个已使用，只删除兑换码记录，对应订单和已开通的套餐不受影响。', { n: codes.length, m: usedN })
+      : t('删除选中的 {n} 个兑换码？删除后无法再兑换。', { n: codes.length })
+    if (await confirm(msg, { danger: true, ok: t('删除') }))
+      run(async () => { await del('/redeem-codes', { codes, used: true }); setChecked([]); list.reload() }, t('已删除'))
+  }
+  const sel = items.filter((c) => checked.includes(c.code))
+  const exportCodes = (cs: Code[]) => downloadText(`redeem-codes${batch ? '-' + batch : ''}.txt`, cs.map((c) => c.code).join('\n') + '\n')
+  const usable = items.filter((c) => codeState(c) === 'unused')
   return (
     <>
       <div className="row">
         <button className="btn pri" type="button" onClick={() => setGen({ kind: 'plan', planId: plans.data?.[0]?.id ?? '', packId: packs.data?.items?.[0]?.id ?? '', count: '10', batch: '', expireDays: '' })}>{t('+ 生成兑换码')}</button>
-        <select className="input" style={{ width: 'auto' }} value={batch} onChange={(e) => setBatch(e.target.value)} aria-label={t('批次')}>
+        <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索兑换码')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索兑换码')} />
+        <select className="input" style={{ width: 'auto', minHeight: 34 }} value={batch} onChange={(e) => setBatch(e.target.value)} aria-label={t('批次')}>
           <option value="">{t('全部批次')}</option>
           {(list.data?.batches ?? []).map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
         <div className="chips">
-          {[['', t('全部')], ['no', t('未使用')], ['yes', t('已使用')]].map(([k, l]) => <button key={k} type="button" className={'chip' + (used === k ? ' on' : '')} onClick={() => setUsed(k)}>{l}</button>)}
+          {([['', t('全部'), undefined], ['no', t('可用'), counts?.unused], ['yes', t('已使用'), counts?.used], ['expired', t('已过期'), counts?.expired]] as const).map(([k, l, n]) =>
+            <button key={k} type="button" className={'chip' + (used === k ? ' on' : '')} onClick={() => setUsed(k)}>{l}{n != null && <span className="chip-n">{n}</span>}</button>)}
         </div>
         <span className="spacer" />
-        {batch && <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
-          if (await confirm(t('删除批次 {batch} 中所有未使用的兑换码？', { batch }), { danger: true })) run(async () => { await del('/redeem-codes?batch=' + encodeURIComponent(batch)); setBatch(''); list.reload() }, t('已删除'))
-        }}>{t('删除本批未使用的码')}</button>}
+        {checked.length > 0 ? <>
+          <span className="small mute">{t('已选 {n}', { n: checked.length })}</span>
+          <button className="btn sm" type="button" onClick={() => run(async () => { await copyText(sel.map((c) => c.code).join('\n')) }, t('已复制'))}>{t('复制')}</button>
+          <button className="btn sm" type="button" onClick={() => exportCodes(sel)}>{t('导出')}</button>
+          <button className="btn sm danger" type="button" disabled={busy} onClick={() => remove(checked)}>{t('删除')}</button>
+        </> : <>
+          {usable.length > 0 && <button className="btn sm" type="button" onClick={() => exportCodes(usable)} title={t('导出当前列表中可用的兑换码（TXT，每行一个）')}>{t('导出可用码')}</button>}
+          {used === 'yes' && (counts?.used ?? 0) > 0 && <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
+            if (await confirm(t('删除{scope}所有已使用的兑换码记录？订单和已开通的套餐不受影响。', { scope: batch ? t('批次 {batch} 中', { batch }) : '' }), { danger: true })) run(async () => { await del('/redeem-codes?state=used&batch=' + encodeURIComponent(batch)); list.reload() }, t('已清理'))
+          }}>{t('清理已使用')}</button>}
+          {used === 'expired' && (counts?.expired ?? 0) > 0 && <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
+            if (await confirm(t('删除{scope}所有已过期未使用的兑换码？', { scope: batch ? t('批次 {batch} 中', { batch }) : '' }), { danger: true })) run(async () => { await del('/redeem-codes?state=expired&batch=' + encodeURIComponent(batch)); list.reload() }, t('已清理'))
+          }}>{t('清理已过期')}</button>}
+          {batch && used !== 'yes' && used !== 'expired' && <button className="btn sm danger" type="button" disabled={busy} onClick={async () => {
+            if (await confirm(t('删除批次 {batch} 中所有未使用的兑换码？', { batch }), { danger: true })) run(async () => { await del('/redeem-codes?batch=' + encodeURIComponent(batch)); setBatch(''); list.reload() }, t('已删除'))
+          }}>{t('删除本批未使用的码')}</button>}
+        </>}
       </div>
       <div className="card flush scroll">
-        {list.data && (list.data.items ?? []).length === 0 ? <Empty>{t('还没有兑换码')}</Empty> : (
+        {list.data && items.length === 0 ? <Empty>{q || batch || used ? t('没有匹配的兑换码') : t('还没有兑换码')}</Empty> : (
           <table className="rtable">
-            <thead><tr><th>{t('兑换码')}</th><th>{t('套餐')}</th><th>{t('批次')}</th><th>{t('有效期')}</th><th>{t('状态')}</th><th></th></tr></thead>
+            <thead><tr>
+              <th style={{ width: 32 }}><input type="checkbox" aria-label={t('全选')} disabled={items.length === 0} checked={items.length > 0 && checked.length === items.length} onChange={(e) => setChecked(e.target.checked ? items.map((c) => c.code) : [])} /></th>
+              <th>{t('兑换码')}</th><th>{t('内容')}</th><th>{t('批次')}</th><th>{t('有效期')}</th><th>{t('状态')}</th><th>{t('使用者')}</th><th></th>
+            </tr></thead>
             <tbody>
-              {(list.data?.items ?? []).map((c) => (
-                <tr key={c.code}>
-                  <td className="mono" data-label={t('兑换码')}>{c.code}</td>
-                  <td data-label={t('套餐')}>{pname(c)}</td>
-                  <td data-label={t('批次')}>{c.batch || <span className="mute">—</span>}</td>
-                  <td data-label={t('有效期')} className="small">{c.expiresAt ? datetime(c.expiresAt) : t('长期')}</td>
-                  <td data-label={t('状态')}>{c.usedAt ? <span className="st off">{t('已使用 {time}', { time: datetime(c.usedAt) })}</span> : <span className="st ok">{t('未使用')}</span>}</td>
-                  <td className="rt-actions">{!c.usedAt && <button className="link" type="button" style={{ color: 'var(--bad)' }} onClick={() => run(async () => { await del('/redeem-codes', { codes: [c.code] }); list.reload() })}>{t('删除')}</button>}</td>
-                </tr>
-              ))}
+              {items.map((c) => {
+                const st = codeState(c)
+                const order = list.data?.orders?.[c.code]
+                return (
+                  <tr key={c.code}>
+                    <td className="rt-check"><input type="checkbox" aria-label={t('选择 {name}', { name: c.code })} checked={checked.includes(c.code)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, c.code] : x.filter((y) => y !== c.code))} /></td>
+                    <td className="mono" data-label={t('兑换码')}>{c.code}</td>
+                    <td data-label={t('内容')}>{pname(c)}</td>
+                    <td data-label={t('批次')}>{c.batch || <span className="mute">—</span>}</td>
+                    <td data-label={t('有效期')} className="small">{c.expiresAt ? datetime(c.expiresAt) : t('长期')}</td>
+                    <td data-label={t('状态')}>{st === 'used' ? <span className="st off">{t('已使用')}</span> : st === 'expired' ? <span className="st warn">{t('已过期')}</span> : <span className="st ok">{t('可用')}</span>}</td>
+                    <td data-label={t('使用者')} className="small">{c.usedAt ? <>{c.usedBy ? <b>{list.data?.usernames?.[c.usedBy] ?? t('已删除用户')}</b> : '—'}<div className="mute">{datetime(c.usedAt)}{order && <> · <span className="mono">{order}</span></>}</div></> : <span className="mute">—</span>}</td>
+                    <td className="rt-actions">
+                      {st === 'unused' && <button className="link" type="button" onClick={() => run(async () => { await copyText(c.code) }, t('已复制'))}>{t('复制')}</button>}
+                      <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 10 }} disabled={busy} onClick={() => remove([c.code])}>{t('删除')}</button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
       </div>
+      {list.data && list.data.total > items.length && <div className="small mute" style={{ textAlign: 'center' }}>{t('共 {n} 个，显示前 {m} 个；请用搜索或批次筛选', { n: list.data.total, m: items.length })}</div>}
       {gen && (
         <Modal title={t('生成兑换码')} onClose={() => setGen(null)} footer={<>
           <button className="btn" type="button" onClick={() => setGen(null)}>{t('取消')}</button>
