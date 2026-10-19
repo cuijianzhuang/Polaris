@@ -26,5 +26,9 @@ func newTestServer(t *testing.T) *Server {
 			db.Close()
 		}
 	})
+	if os.Getenv("POLARIS_TEST_ALL_REDIS") != "" {
+		// Run the whole suite with Redis shared state (POLARIS_TEST_REDIS_URL).
+		useTestRedis(t, s)
+	}
 	return s
 }

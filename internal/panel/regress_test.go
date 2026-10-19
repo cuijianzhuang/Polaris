@@ -49,9 +49,10 @@ func TestOnlineIPsIgnoreStaleNodes(t *testing.T) {
 	s.nodeUserSets.mu.Lock()
 	s.nodeUserSets.m = map[string]nodeUsersEntry{a.ID: {0, 0, map[string]bool{u.ID: true}}, b.ID: {0, 0, map[string]bool{u.ID: true}}}
 	s.nodeUserSets.mu.Unlock()
-	s.onlineMu.Lock()
-	s.onlineIPs[u.ID] = map[string]map[string]time.Time{a.ID: {"1.1.1.1": time.Now().Add(-10 * time.Minute)}}
-	s.onlineMu.Unlock()
+	m := memOnly(s) // seeds per-IP times directly
+	m.mu.Lock()
+	m.ips[u.ID] = map[string]map[string]time.Time{a.ID: {"1.1.1.1": time.Now().Add(-10 * time.Minute)}}
+	m.mu.Unlock()
 	s.handleOnlineIPs(b.ID, &polarisv1.OnlineIPs{Users: []*polarisv1.UserIPs{{UserId: u.ID, Ips: []string{"2.2.2.2"}}}})
 	var got store.User
 	s.st.DB.First(&got, "id = ?", u.ID)
