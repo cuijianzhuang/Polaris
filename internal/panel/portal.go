@@ -42,6 +42,15 @@ func subFingerprint(tok string) string {
 }
 
 func (s *Server) issuePortalToken(u *store.User) (string, error) {
+	return s.issuePortalTokenVia(u, false)
+}
+
+// issuePortalMailToken signs a session for an e-mail sign-in.
+func (s *Server) issuePortalMailToken(u *store.User) (string, error) {
+	return s.issuePortalTokenVia(u, true)
+}
+
+func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool) (string, error) {
 	c := claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "u:" + u.ID,
@@ -53,11 +62,14 @@ func (s *Server) issuePortalToken(u *store.User) (string, error) {
 		Chat:     u.TelegramID,
 		SubFP:    subFingerprint(u.SubToken),
 	}
+	if viaMail {
+		c.Chat, c.MailFP = 0, mailFP(u.Email)
+	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
 }
 
-// portalUser returns the signed-in user, or nil.
-func (s *Server) portalUser(c *gin.Context) *store.User {
+// portalClaims are the session's claims, or nil.
+func (s *Server) portalClaims(c *gin.Context) *claims {
 	ck, err := c.Cookie(portalCookie)
 	if err != nil || ck == "" {
 		return nil
@@ -66,11 +78,42 @@ func (s *Server) portalUser(c *gin.Context) *store.User {
 	if err != nil || cl.User == "" {
 		return nil
 	}
+	return cl
+}
+
+// portalViaMail reports whether the session came from an e-mail sign-in.
+func (s *Server) portalViaMail(c *gin.Context) bool {
+	cl := s.portalClaims(c)
+	return cl != nil && cl.Chat == 0 && cl.MailFP != ""
+}
+
+// portalActor names the signed-in user in the audit log.
+func portalActor(u *store.User, viaMail bool) string {
+	if viaMail {
+		return "mail:" + u.Username
+	}
+	return "tg:" + u.Username
+}
+
+// portalUser returns the signed-in user, or nil. A Telegram session needs
+// the same bound chat, an e-mail one the same address; both end when the
+// subscription link is reset.
+func (s *Server) portalUser(c *gin.Context) *store.User {
+	cl := s.portalClaims(c)
+	if cl == nil {
+		return nil
+	}
 	var u store.User
 	if s.st.DB.First(&u, "id = ? AND is_service = ?", cl.User, false).Error != nil {
 		return nil
 	}
-	if u.TelegramID == 0 || u.TelegramID != cl.Chat || subFingerprint(u.SubToken) != cl.SubFP {
+	if subFingerprint(u.SubToken) != cl.SubFP {
+		return nil
+	}
+	switch {
+	case cl.Chat != 0 && u.TelegramID == cl.Chat:
+	case cl.Chat == 0 && cl.MailFP != "" && u.Email != "" && mailFP(u.Email) == cl.MailFP:
+	default:
 		return nil
 	}
 	return &u
@@ -104,9 +147,11 @@ func (s *Server) portalPage(c *gin.Context) {
 	if u == nil {
 		var buf strings.Builder
 		_ = portalLoginTpl.Execute(&buf, map[string]any{
-			"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")),
-			"Bot":   s.tgWebLoginEnabled(),
-			"Shop":  s.webShopOn(),
+			"Title":    s.subTitle(s.st.GetSetting("site_title", "Polaris")),
+			"Bot":      s.tgWebLoginEnabled(),
+			"Mail":     s.mailLoginOn(),
+			"Register": s.mailRegisterOn(),
+			"Shop":     s.webShopOn(),
 		})
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(buf.String()))
 		return
@@ -123,8 +168,14 @@ func (s *Server) portalPage(c *gin.Context) {
 	}
 	info.Title = s.subTitle(info.Title)
 	s.pageExtras(&info, u, nodes)
-	info.BotURL = "" // already bound: that is how they signed in
+	if u.TelegramID != 0 {
+		info.BotURL = "" // already bound
+	}
 	info.Portal = true
+	info.LoginVia, info.MailBind, info.Email = "Telegram", s.mailLoginOn(), u.Email
+	if s.portalViaMail(c) {
+		info.LoginVia = "邮箱"
+	}
 	info.Rename = u.SelfService && s.selfRenameOn()
 	if s.webShopOn() {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
@@ -204,8 +255,9 @@ func (s *Server) portalReset(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.audit("tg:"+u.Username, "user.reset_token", u.Username, "user center", clientIP(c.Request))
-	tok, err := s.issuePortalToken(u)
+	viaMail := s.portalViaMail(c)
+	s.audit(portalActor(u, viaMail), "user.reset_token", u.Username, "user center", clientIP(c.Request))
+	tok, err := s.issuePortalTokenVia(u, viaMail)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -277,12 +329,26 @@ h1{font-size:20px;margin:0}.mute{color:var(--mute);font-size:13px;margin:0}
 .btn:disabled{opacity:.6;cursor:default}
 .num{font:600 44px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;color:var(--pri)}
 .err{color:var(--bad);font-size:13px;margin:0}
+.mail{display:flex;flex-direction:column;gap:10px}
+input{width:100%;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;padding:0 12px}
 [hidden]{display:none!important}
 </style></head><body><main><div class="card">
 <h1>{{.Title}}</h1>
 <p class="mute">用户中心：查看流量、到期时间和订阅链接</p>
+{{if .Mail}}
+<div id="m1" class="mail">
+<input id="memail" type="email" placeholder="邮箱地址" autocomplete="email" maxlength="254">
+<div id="m2" hidden><input id="mcode" inputmode="numeric" placeholder="6 位验证码" autocomplete="one-time-code" maxlength="6"></div>
+<button class="btn" id="msend" type="button">发送验证码</button>
+<button class="btn" id="mgo" type="button" hidden>登录</button>
+<p class="mute" id="mnote" hidden></p>
+<p class="err" id="merr" hidden></p>
+{{if .Register}}<p class="mute">还没有账号？用邮箱验证后自动注册。</p>{{end}}
+</div>
+{{end}}
+{{if and .Mail .Bot}}<p class="mute">或</p>{{end}}
 {{if .Bot}}
-<div id="s1"><button class="btn" id="go" type="button">使用 Telegram 登录</button></div>
+<div id="s1"><button class="btn{{if .Mail}} alt{{end}}" id="go" type="button">使用 Telegram 登录</button></div>
 <div id="s2" hidden>
 <p class="mute">在 Telegram 中点击下面这个数字</p>
 <div class="num" id="num"></div>
@@ -291,11 +357,26 @@ h1{font-size:20px;margin:0}.mute{color:var(--mute);font-size:13px;margin:0}
 </div>
 <p class="err" id="err" hidden></p>
 <p class="mute">还没绑定 Telegram？打开订阅链接，点「Telegram 机器人绑定」。</p>
-{{else}}
-<p class="err">管理员尚未启用 Telegram 机器人，暂时无法登录。</p>
+{{else if not .Mail}}
+<p class="err">管理员尚未启用 Telegram 机器人或邮箱登录，暂时无法登录。</p>
 {{end}}
 {{if .Shop}}<a class="btn alt" href="/u/shop">🛒 购买套餐</a>{{end}}
 </div></main>
+{{if .Mail}}<script>
+(function(){
+var em=document.getElementById('memail'),code=document.getElementById('mcode'),send=document.getElementById('msend'),go=document.getElementById('mgo'),
+note=document.getElementById('mnote'),err=document.getElementById('merr'),timer=0;
+function show(el,m){el.textContent=m;el.hidden=!m}
+function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
+function wait(n){clearInterval(timer);send.disabled=true;send.textContent='重新发送（'+n+'）';timer=setInterval(function(){n--;if(n<=0){clearInterval(timer);send.disabled=false;send.textContent='重新发送';return}send.textContent='重新发送（'+n+'）'},1000)}
+send.addEventListener('click',function(){var m=em.value.trim();show(err,'');if(!m){show(err,'请填写邮箱地址');return}send.disabled=true;
+post('email/code',{email:m,purpose:'login'}).then(function(j){document.getElementById('m2').hidden=false;go.hidden=false;send.className='btn alt';
+show(note,'如果这个邮箱可以登录，验证码已经发出（'+Math.round(j.ttl/60)+' 分钟内有效）。没收到请看看垃圾邮件。');code.focus();wait(j.cooldown||60)}).catch(function(e){send.disabled=false;show(err,e.message)})});
+function login(){var c=code.value.trim();if(!/^\d{6}$/.test(c)){show(err,'请输入 6 位验证码');return}go.disabled=true;show(err,'');
+post('email/verify',{email:em.value.trim(),code:c,purpose:'login'}).then(function(){location.replace('/u')}).catch(function(e){go.disabled=false;show(err,e.message)})}
+go.addEventListener('click',login);code.addEventListener('keydown',function(e){if(e.key==='Enter')login()});
+})();
+</script>{{end}}
 {{if .Bot}}<script>
 (function(){
 var go=document.getElementById('go'),err=document.getElementById('err'),req=null,timer=0;

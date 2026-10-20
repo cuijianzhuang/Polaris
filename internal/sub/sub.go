@@ -72,6 +72,11 @@ type Info struct {
 	Portal bool
 	// Rename offers the signed-in user a username change (Portal pages only).
 	Rename bool
+	// LoginVia says how the user signed in ("Telegram", "邮箱"); MailBind
+	// offers binding or changing Email (Portal pages only).
+	LoginVia string
+	MailBind bool
+	Email    string
 	// Extras are links plugins add to the user center (Portal pages only).
 	Extras []ExtraLink
 	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").
