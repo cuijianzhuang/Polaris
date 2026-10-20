@@ -6,6 +6,7 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import LimitedUsers from '../components/LimitedUsers'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
+import NodeProvider from '../components/NodeProvider'
 import { ProTag, useFeature } from '../components/License'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed, coreInstalling } from '../format'
@@ -468,6 +469,7 @@ export default function Nodes() {
               </section>
               <section className="card"><TrafficChart query={'node=' + sel.id} title={t('节点用户流量')} /></section>
               <section className="card"><NodeMetrics nodeId={sel.id} /></section>
+              {!scoped && <NodeProvider nodeId={sel.id} onSynced={refresh} />}
               <LimitedUsers nodeId={sel.id} />
               <h2>{t('内核')}</h2>
               <div className="grid g2">
