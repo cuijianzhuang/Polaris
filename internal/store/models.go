@@ -733,7 +733,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{},
 	}
 }
 
@@ -831,6 +831,7 @@ type TrafficDaily struct {
 // ClusterMember is one running panel instance, refreshed every few seconds;
 // the admin UI lists them when several instances share a database.
 type ClusterMember struct {
+	MemberID   string    `gorm:"size:32;index"`
 	InstanceID string    `gorm:"primaryKey;size:64"`
 	Host       string    `gorm:"size:255"`
 	Version    string    `gorm:"size:64"`
@@ -1024,7 +1025,7 @@ type Order struct {
 	Method       string     `gorm:"size:16;index" json:"method"` // stars / epay / usdt / code / manual
 	Amount       string     `gorm:"size:32" json:"amount"`       // decimal text in Currency
 	Currency     string     `gorm:"size:8" json:"currency"`      // XTR / CNY / USDT
-	Status       string     `gorm:"size:16;index" json:"status"` // pending / paid / expired / cancelled / failed / refunded
+	Status       string     `gorm:"size:16;index" json:"status"` // pending / processing / paid / expired / cancelled / failed / refund_pending / refunded
 	PayRef       *string    `gorm:"size:128;uniqueIndex" json:"payRef"`
 	Detail       string     `gorm:"size:255" json:"detail"`
 	CreatedAt    time.Time  `gorm:"index" json:"createdAt"`

@@ -201,6 +201,9 @@ func exportAll(db *gorm.DB) (files map[string][]byte, counts map[string]int, err
 func exportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
 	files, counts := map[string][]byte{}, map[string]int{}
 	for _, m := range store.AllModels() {
+		if runtimeControlModel(m) {
+			continue
+		}
 		sch, err := tableSchema(db, m)
 		if err != nil {
 			return nil, nil, err
@@ -221,6 +224,9 @@ func exportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
 // the archive lacks end up empty.
 func importAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string) error {
 	for _, m := range store.AllModels() {
+		if runtimeControlModel(m) {
+			continue
+		}
 		sch, err := tableSchema(tx, m)
 		if err != nil {
 			return err
@@ -696,7 +702,21 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupArchive, box *se
 		return err
 	}
 	reseal := resealer(src, box)
-	if err := st.DB.Transaction(func(tx *gorm.DB) error { return importAll(tx, arc.Tables, reseal) }); err != nil {
+	memberID, err := loadMemberID(dataDir)
+	if err != nil {
+		return err
+	}
+	if err := st.DB.Transaction(func(tx *gorm.DB) error {
+		if e := importAll(tx, arc.Tables, reseal); e != nil {
+			return e
+		}
+		if tx.Dialector.Name() == "postgres" {
+			now := time.Now()
+			_, e := saveClusterOperation(tx, store.ClusterOperation{ID: store.NewID(), Kind: "restore", CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}, memberID, "", false)
+			return e
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	if arc.CACert != nil {
@@ -708,4 +728,12 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupArchive, box *se
 		}
 	}
 	return nil
+}
+
+func runtimeControlModel(m any) bool {
+	switch m.(type) {
+	case *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus:
+		return true
+	}
+	return false
 }

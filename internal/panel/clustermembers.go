@@ -27,7 +27,7 @@ const (
 // subscribeClusterOps handles the bus topics of the other instances.
 func (s *Server) subscribeClusterOps() {
 	s.bus.subscribe(topicRestoreDone, func(from string, _ []byte) {
-		if from == s.procID {
+		if from == s.procID || s.hasClusterDelivery("restore", "") {
 			return
 		}
 		s.log.Warn("another instance restored a backup; restarting to load it", "from", from)
@@ -44,6 +44,9 @@ func (s *Server) subscribeClusterOps() {
 		if len(target) >= 2 && target[0] == '"' {
 			target = target[1 : len(target)-1]
 		}
+		if s.hasClusterDelivery("update", target) {
+			return
+		}
 		if err := s.writeUpdateRequest(target); err != nil {
 			s.log.Warn("panel update requested by another instance", "target", target, "err", err)
 			return
@@ -59,9 +62,10 @@ func (s *Server) memberTouch() {
 		return
 	}
 	s.memberAt = time.Now()
+	s.st.DB.Where("member_id = ? AND instance_id <> ?", s.memberID, s.procID).Delete(&store.ClusterMember{})
 	host, _ := os.Hostname()
 	s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.ClusterMember{
-		InstanceID: s.procID, Host: host, Version: Version, Edition: Edition(), StartedAt: s.startedAt, SeenAt: time.Now(),
+		InstanceID: s.procID, MemberID: s.memberID, Host: host, Version: Version, Edition: Edition(), StartedAt: s.startedAt, SeenAt: time.Now(),
 	})
 	if s.isLeader() {
 		s.st.DB.Where("seen_at < ?", time.Now().Add(-memberForget)).Delete(&store.ClusterMember{})
@@ -155,10 +159,20 @@ func (s *Server) writeUpdateRequest(target string) error {
 	if target == "" {
 		target = "latest"
 	}
-	return core.AtomicWrite(s.updateRequestPath(), []byte(target+"\n"), 0o644)
+	return core.AtomicWriteDurable(s.updateRequestPath(), []byte(target+"\n"), 0o644)
 }
 
 // getCluster is GET /cluster.
 func (s *Server) getCluster(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"members": s.clusterMembers(), "shared": s.bus != nil})
+	var ops []store.ClusterOperation
+	s.st.DB.Order("created_at desc").Limit(20).Find(&ops)
+	var deliveries []store.ClusterDelivery
+	var ids []string
+	for _, op := range ops {
+		ids = append(ids, op.ID)
+	}
+	if len(ids) > 0 {
+		s.st.DB.Where("operation_id IN ?", ids).Find(&deliveries)
+	}
+	c.JSON(http.StatusOK, gin.H{"members": s.clusterMembers(), "shared": s.bus != nil, "operations": ops, "deliveries": deliveries})
 }
