@@ -90,23 +90,24 @@ type Server struct {
 	shareAt   map[string]time.Time // last heartbeat state shared per node
 	rtShare   atomic.Bool          // node list changed here: tell the other instances
 
-	subLimit     *sharedLimiter
-	shopLimit    *sharedLimiter
-	callbacks    callbackStore
-	nodeUserSets nodeUsersCache
-	schemes      schemeCache
-	ghAuth       githubAuth
-	webFS        http.FileSystem
-	bg           context.Context
-	sinks        []chan Event
-	health       healthState
-	tg           *tgBot
-	tgEvents     chan Event
-	hookEvents   chan Event
-	mailEvents   chan Event
-	seenBase     atomic.Value // string: public base URL the admin UI is reached at
-	auditChanges atomic.Bool  // record row changes made by admins (audit_changes)
-	changes      changeLog
+	subLimit      *sharedLimiter
+	shopLimit     *sharedLimiter
+	mailCodeLimit *sharedLimiter
+	callbacks     callbackStore
+	nodeUserSets  nodeUsersCache
+	schemes       schemeCache
+	ghAuth        githubAuth
+	webFS         http.FileSystem
+	bg            context.Context
+	sinks         []chan Event
+	health        healthState
+	tg            *tgBot
+	tgEvents      chan Event
+	hookEvents    chan Event
+	mailEvents    chan Event
+	seenBase      atomic.Value // string: public base URL the admin UI is reached at
+	auditChanges  atomic.Bool  // record row changes made by admins (audit_changes)
+	changes       changeLog
 }
 
 // New opens the database, loads or creates the CA and seeds defaults.
@@ -190,6 +191,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	}
 	s.subLimit = &sharedLimiter{s: s.shared, name: "sub", perMinute: cfg.SubRateLimit}
 	s.shopLimit = &sharedLimiter{s: s.shared, name: "shop", perMinute: 10}
+	s.mailCodeLimit = &sharedLimiter{s: s.shared, name: "mailcode", perMinute: 5}
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}

@@ -30,6 +30,9 @@ type claims struct {
 	User  string `json:"u,omitempty"`
 	Chat  int64  `json:"ch,omitempty"`
 	SubFP string `json:"sfp,omitempty"`
+	// MailFP: a session from an e-mail sign-in (Chat is 0), valid while
+	// the user keeps that address.
+	MailFP string `json:"mfp,omitempty"`
 }
 
 // issueToken signs a session for an admin who just signed in (via:
