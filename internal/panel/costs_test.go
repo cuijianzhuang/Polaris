@@ -88,3 +88,41 @@ func TestCosts(t *testing.T) {
 		t.Fatalf("monthly after rates %v", m)
 	}
 }
+
+func TestCostsUseNodeBillingModeAndCalendarWindow(t *testing.T) {
+	s, _, api := newAdminClient(t)
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	old := now.AddDate(0, 0, -30).Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	future := now.AddDate(0, 0, 1).Format("2006-01-02")
+	for _, mode := range []string{"sum", "up", "down", "max"} {
+		if e := s.st.DB.Create(&store.Node{ID: mode, Name: mode, NetMode: mode}).Error; e != nil {
+			t.Fatal(e)
+		}
+		if e := s.st.DB.Create(&store.NodeCost{NodeID: mode, Amount: 60, Currency: "CNY", Cycle: "month"}).Error; e != nil {
+			t.Fatal(e)
+		}
+		for _, row := range []store.NodeTrafficDaily{{NodeID: mode, Day: today, Rx: 5 * gib, Tx: 70 * gib, AccountingVersion: 1}, {NodeID: mode, Day: yesterday, Rx: 100 * gib, Tx: 10 * gib}, {NodeID: mode, Day: old, Rx: 1000 * gib, Tx: 1000 * gib}, {NodeID: mode, Day: future, Rx: 1000 * gib, Tx: 1000 * gib}} {
+			if e := s.st.DB.Create(&row).Error; e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
+	code, out := api.do("GET", "/costs", nil)
+	if code != 200 {
+		t.Fatal(code, out)
+	}
+	expected := map[string]int64{"sum": 185 * gib, "up": 80 * gib, "down": 105 * gib, "max": 105 * gib}
+	for _, row := range out["items"].([]any) {
+		m := row.(map[string]any)
+		id := m["nodeId"].(string)
+		if m["traffic30"] != float64(expected[id]) || m["trafficRx30"] != float64(105*gib) || m["trafficTx30"] != float64(80*gib) || m["trafficMode"] != id || m["trafficDays"] != float64(2) || m["trafficLegacyDays"] != float64(1) {
+			t.Fatal("wrong billing aggregation", m)
+		}
+		want := 60 / (float64(expected[id]) / gib)
+		if diff := m["perGb"].(float64) - want; diff > 1e-9 || diff < -1e-9 {
+			t.Fatal("cost per GB uses wrong bytes", m)
+		}
+	}
+}

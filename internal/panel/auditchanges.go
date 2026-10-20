@@ -31,7 +31,7 @@ import (
 // changeTables lists the recorded tables (by model) and the Go fields of
 // each that are bookkeeping, not configuration.
 var changeTables = map[string][]string{
-	"nodes":             {"AgentVersion", "Arch", "Status", "LastSeen", "DesiredRev", "AppliedRev", "LastError", "System", "TokenHash", "TokenExpires", "CertSerial", "PublicIPv4", "PublicIPv6", "IPChangedAt", "NetRx", "NetTx", "NetCycleStart", "NetWarned", "NetLastRx", "NetLastTx"},
+	"nodes":             {"AgentVersion", "Arch", "Status", "LastSeen", "DesiredRev", "AppliedRev", "LastError", "System", "TokenHash", "TokenExpires", "CertSerial", "PublicIPv4", "PublicIPv6", "IPChangedAt", "NetRx", "NetTx", "NetCycleStart", "NetWarned", "NetLastRx", "NetLastTx", "NetBaseline", "NetEpoch", "NetSampleUptime", "NetObservedAt"},
 	"users":             {"UsedUp", "UsedDown", "LastSubAt", "LastSubUA", "LastResetAt", "OnlineAt", "BannedUntil", "OnlineIPs", "WarnedUsage", "WarnedExpire", "RenewCount"},
 	"inbounds":          {},
 	"cores":             {"Status", "PID", "StartedAt", "Error", "InstalledVersions", "RunningVersion", "PrevVersion", "NoUserTraffic"},

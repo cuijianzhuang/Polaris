@@ -77,19 +77,24 @@ func addCycle(t time.Time, cycle string) time.Time {
 
 type costItem struct {
 	store.NodeCost
-	Name      string  `json:"name"`
-	Flag      string  `json:"flag"`
-	Monthly   float64 `json:"monthly"` // in base currency
-	Converted bool    `json:"converted"`
-	DaysLeft  *int    `json:"daysLeft"`
-	Traffic30 int64   `json:"traffic30"` // server NIC bytes, last 30 days
-	PerGB     float64 `json:"perGb"`     // monthly cost / 30-day traffic, base currency
+	Name              string  `json:"name"`
+	Flag              string  `json:"flag"`
+	Monthly           float64 `json:"monthly"` // in base currency
+	Converted         bool    `json:"converted"`
+	DaysLeft          *int    `json:"daysLeft"`
+	Traffic30         int64   `json:"traffic30"` // server NIC bytes, last 30 days
+	TrafficRx30       int64   `json:"trafficRx30"`
+	TrafficTx30       int64   `json:"trafficTx30"`
+	TrafficMode       string  `json:"trafficMode"`
+	TrafficLegacyDays int     `json:"trafficLegacyDays"`
+	TrafficDays       int     `json:"trafficDays"`
+	PerGB             float64 `json:"perGb"` // monthly cost / 30-day traffic, base currency
 }
 
 func (s *Server) listCosts(c *gin.Context) {
 	cs := s.costSettings()
 	var nodes []store.Node
-	s.st.DB.Select("id", "name", "flag", "sort_order").Order("sort_order, name").Find(&nodes)
+	s.st.DB.Select("id", "name", "flag", "sort_order", "net_mode").Order("sort_order, name").Find(&nodes)
 	var costs []store.NodeCost
 	s.st.DB.Find(&costs)
 	byNode := map[string]store.NodeCost{}
@@ -97,17 +102,23 @@ func (s *Server) listCosts(c *gin.Context) {
 		byNode[nc.NodeID] = nc
 	}
 	type sum struct {
-		NodeID string
-		Total  int64
+		NodeID     string
+		Rx         int64
+		Tx         int64
+		Days       int
+		LegacyDays int
 	}
 	var sums []sum
-	s.st.DB.Model(&store.NodeTrafficDaily{}).Select("node_id, SUM(rx + tx) AS total").
-		Where("day >= ?", time.Now().AddDate(0, 0, -29).Format("2006-01-02")).Group("node_id").Scan(&sums)
-	traffic := map[string]int64{}
-	for _, x := range sums {
-		traffic[x.NodeID] = x.Total
-	}
 	now := time.Now()
+	if e := s.st.DB.Model(&store.NodeTrafficDaily{}).Select("node_id, SUM(rx) AS rx, SUM(tx) AS tx, COUNT(*) AS days, SUM(CASE WHEN accounting_version = 1 THEN 0 ELSE 1 END) AS legacy_days").
+		Where("day >= ? AND day <= ?", now.AddDate(0, 0, -29).Format("2006-01-02"), now.Format("2006-01-02")).Group("node_id").Scan(&sums).Error; e != nil {
+		serverError(c, e)
+		return
+	}
+	traffic := map[string]sum{}
+	for _, x := range sums {
+		traffic[x.NodeID] = x
+	}
 	items := []costItem{}
 	var monthly float64
 	due := 0
@@ -117,7 +128,9 @@ func (s *Server) listCosts(c *gin.Context) {
 		if !ok {
 			nc = store.NodeCost{NodeID: n.ID, Currency: cs.Base, Cycle: "month"}
 		}
-		it := costItem{NodeCost: nc, Name: n.Name, Flag: n.Flag, Traffic30: traffic[n.ID]}
+		tr := traffic[n.ID]
+		mode := orDefault(n.NetMode, "sum")
+		it := costItem{NodeCost: nc, Name: n.Name, Flag: n.Flag, Traffic30: nodeNetBytes(mode, tr.Rx, tr.Tx), TrafficRx30: tr.Rx, TrafficTx30: tr.Tx, TrafficMode: mode, TrafficDays: tr.Days, TrafficLegacyDays: tr.LegacyDays}
 		if m := cycleMonths[nc.Cycle]; m > 0 && nc.Amount > 0 {
 			v, conv := cs.toBase(nc.Amount/m, nc.Currency)
 			it.Monthly, it.Converted = round2(v), conv
@@ -135,7 +148,7 @@ func (s *Server) listCosts(c *gin.Context) {
 			}
 		}
 		if it.Monthly > 0 && it.Traffic30 > 0 {
-			it.PerGB = round2(it.Monthly / (float64(it.Traffic30) / (1 << 30)))
+			it.PerGB = it.Monthly / (float64(it.Traffic30) / (1 << 30))
 		}
 		items = append(items, it)
 	}

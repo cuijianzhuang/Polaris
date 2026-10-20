@@ -258,8 +258,8 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		"system": store.NewJSON(sys),
 	}
 	if hb.System != nil {
-		for k, v := range s.accountNodeNet(&n, hb.System.RxBytes, hb.System.TxBytes, now) {
-			upd[k] = v
+		if err := s.accountNodeNet(nodeID, hb.System, now); err != nil {
+			s.log.Error("account node network traffic", "node", nodeID, "err", err)
 		}
 	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Updates(upd)
