@@ -341,7 +341,8 @@ setup_local_pg() {
   local enc
   enc="$(pg_su -tAc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = 'polaris'")"
   if [ -n "$enc" ] && [ "$enc" != UTF8 ]; then
-    if [ "$(pg_su -d polaris -tAc "SELECT to_regclass('public.admins') IS NOT NULL")" = t ]; then
+    if [ "$(pg_su -d polaris -tAc "SELECT to_regclass('public.admins') IS NOT NULL")" = t ] &&
+      [ "$(pg_su -d polaris -tAc "SELECT EXISTS (SELECT 1 FROM public.admins)")" = t ]; then
       die "本机数据库 polaris 的编码是 $enc（需要 UTF8）且已有数据：请先备份并删除它（sudo -u postgres dropdb polaris）后重试"
     fi
     pg_su -c "DROP DATABASE polaris"
@@ -376,7 +377,10 @@ check_pg_target() { # dsn fresh(0/1)
   local enc
   enc="$("${q[@]}" -c "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()" 2>/dev/null)"
   [ -z "$enc" ] || [ "$enc" = UTF8 ] || die "数据库编码是 $enc，需要 UTF8：请用 CREATE DATABASE … ENCODING 'UTF8' TEMPLATE template0 重新建库"
-  if [ "$2" = 1 ] && [ "$("${q[@]}" -c "SELECT to_regclass('admins') IS NOT NULL" 2>/dev/null)" = t ]; then
+  # Empty tables (left by a migration that failed after creating them) are
+  # fine; an admin account means real data.
+  if [ "$2" = 1 ] && [ "$("${q[@]}" -c "SELECT to_regclass('admins') IS NOT NULL" 2>/dev/null)" = t ] &&
+    [ "$("${q[@]}" -c "SELECT EXISTS (SELECT 1 FROM admins)" 2>/dev/null)" = t ]; then
     die "数据库里已有 Polaris 数据（可能来自之前的安装，用的是另一把密钥）。请换一个空数据库，或先清空它"
   fi
 }
