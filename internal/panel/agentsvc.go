@@ -224,6 +224,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		return
 	}
 	now := time.Now()
+	s.observeTrafficQueue(nodeID,n.Name,hb.TrafficQueue)
 	s.presenceTouch(nodeID)
 	status := "online"
 	if hb.AppliedRev < n.DesiredRev {

@@ -76,6 +76,8 @@ type Server struct {
 	// in memory, or in Redis when redis_url is set (several instances).
 	shared sharedState
 
+	memberID  string // stable local installation identity across restarts
+	opsMu     sync.Mutex
 	procID    string // this process, for the leader lease
 	restored  bool   // a staged backup was applied at this start
 	startedAt time.Time
@@ -143,6 +145,10 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
 	s.procID = store.NewID()
+	s.memberID, err = loadMemberID(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
 	s.restored, s.startedAt = restored, time.Now()
 	s.eph = &ephStore{db: st.DB, box: box}
 	s.ghAuth = githubAuth{eph: s.eph}
@@ -168,6 +174,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		})
 		st.OnSettingChange = func(key string) { _ = s.bus.publish("setting", key) }
 		s.subscribeClusterOps()
+		s.bus.subscribe("cluster-ops", func(_ string, _ []byte) { s.processClusterOperations() })
 	}
 	s.traffic = &trafficInbox{db: st.DB}
 	s.shared = newMemState()
@@ -184,6 +191,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		return nil, fmt.Errorf("seed: %w", err)
 	}
 	s.initLicense()
+	s.memberTouch()
 	return s, nil
 }
 
@@ -254,11 +262,15 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	s.memberTouch()
 	go s.runLease(ctx)
+	go s.runClusterOperations(ctx)
 	if s.bus != nil {
 		go s.bus.run(ctx)
 		go s.shareNodeChanges(ctx)
 		if s.restored {
 			// The others still hold the old CA, settings and caches.
+			// The restore transaction already persisted the operation. These
+			// notifications only wake new peers and reach legacy peers.
+			_ = s.bus.publish("cluster-ops", "")
 			if err := s.bus.publish(topicRestoreDone, s.procID); err != nil {
 				s.log.Warn("tell other instances about the restore", "err", err)
 			}
@@ -361,7 +373,9 @@ func (s *Server) startJobs() func() {
 		_, _ = c.AddFunc(spec, func() { run(name, fn) })
 	}
 	add("*/10 * * * * *", "settle", func() { // keeps usage, quotas and the dashboard near real time
-		if err := s.settleTraffic(); err != nil {
+		err := s.settleTraffic()
+		s.recordOperationalResult("traffic-settlement", "流量结算失败，待结算记录将保留重试", err)
+		if err != nil {
 			s.log.Error("settle traffic", "err", err)
 		}
 		s.enforceLimits()
@@ -369,6 +383,9 @@ func (s *Server) startJobs() func() {
 	add("*/15 * * * * *", "offline", s.markOfflineNodes)
 	add("*/30 * * * * *", "webhooks", s.retryWebhooks)
 	add("20 * * * * *", "orders", s.expireOrders)
+	add("*/10 * * * * *", "payment-recovery", s.retryPayments)
+	add("*/15 * * * * *", "refund-recovery", s.retryRefunds)
+	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
 	add("*/30 * * * * *", "usdt", s.pollUSDT)
 	add("5 * * * * *", "plugins", s.checkPlugins)

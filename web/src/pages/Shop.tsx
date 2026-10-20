@@ -27,7 +27,7 @@ const usdtNets = [
 ]
 const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
 const statusLabel: Record<string, [string, string]> = {
-  pending: [t('待支付'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'], cancelled: [t('已取消'), 'off'],
+  pending: [t('待支付'), 'warn'], processing: [t('已收款待交付'), 'warn'], refund_pending: [t('退款处理中'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'], cancelled: [t('已取消'), 'off'],
 }
 
 function money(o: Order) {
@@ -47,6 +47,7 @@ function downloadText(name: string, text: string) {
 
 const copyText = (s: string) => navigator.clipboard?.writeText(s)
 
+type Recovery = {status: string; attempts: number; lastError: string; nextAt: string}
 function Orders() {
   const [status, setStatus] = useState('')
   const [method, setMethod] = useState('')
@@ -54,7 +55,7 @@ function Orders() {
   const [limit, setLimit] = useState(100)
   const [checked, setChecked] = useState<string[]>([])
   const [open, setOpen] = useState<Order | null>(null)
-  const list = useLoad(() => get<{ items: Order[]; total: number; usernames: Record<string, string>; revenue: { currency: string; total: number; count: number }[]; status: ShopStatus }>(
+  const list = useLoad(() => get<{ items: Order[]; total: number; usernames: Record<string, string>; revenue: { currency: string; total: number; count: number }[]; status: ShopStatus; paymentRecovery: Record<string, Recovery>; refundRecovery: Record<string, Recovery> }>(
     `/orders?limit=${limit}&status=${status}&method=${method}&q=${encodeURIComponent(q)}`), [status, method, q, limit])
   useEffect(() => { setChecked([]); setLimit(100) }, [status, method, q])
   const { busy, run } = useAction()
@@ -91,7 +92,7 @@ function Orders() {
       <div className="row">
         <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索订单号 / 用户 / 套餐')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索订单')} />
         <div className="chips">
-          {['', 'paid', 'pending', 'expired', 'cancelled', 'failed', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
+          {['', 'paid', 'processing', 'pending', 'expired', 'cancelled', 'failed', 'refund_pending', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
         </div>
         <select className="input" style={{ width: 'auto', minHeight: 34 }} value={method} onChange={(e) => setMethod(e.target.value)} aria-label={t('付款方式')}>
           <option value="">{t('全部付款方式')}</option>
@@ -147,9 +148,10 @@ function Orders() {
           {open.status === 'paid' && open.method === 'stars' && (
             <button className="btn danger" type="button" disabled={busy} onClick={async () => {
               if (await confirm(t('把 {amount} ⭐ 退还给买家？套餐不会自动收回，如需收回请到用户页调整。', { amount: open.amount }), { danger: true, ok: t('退款') }))
-                run(async () => { await post(`/orders/${open.id}/refund`); setOpen(null); list.reload() }, t('已退款'))
+                run(async () => { await post(`/orders/${open.id}/refund`); setOpen(null); list.reload() }, t('退款申请已提交'))
             }}>{t('退款')}</button>
           )}
+          {open.status === 'failed' && d?.paymentRecovery?.[open.id]?.status === 'review' && <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post(`/orders/${open.id}/retry`); setOpen(null); list.reload() }, t('已提交处理'))}>{t('重试交付')}</button>}
           {open.deletable && <button className="btn danger" type="button" disabled={busy} onClick={() => removeOrders([open.id])}>{t('删除记录')}</button>}
           <button className="btn pri" type="button" onClick={() => setOpen(null)}>{t('关闭')}</button>
         </>}>
@@ -157,6 +159,8 @@ function Orders() {
             <dt>{t('状态')}</dt><dd><span className={'st ' + (statusLabel[open.status]?.[1] ?? '')}>{statusLabel[open.status]?.[0] ?? open.status}</span></dd>
             <dt>{t('商品')}</dt><dd>{open.kind === 'pack' ? t('流量包') : t('套餐')} · {open.planName}</dd>
             {open.detail && <><dt>{t('开通结果')}</dt><dd>{open.detail}</dd></>}
+            {d?.paymentRecovery?.[open.id]?.lastError && <><dt>{t('交付处理')}</dt><dd>{d.paymentRecovery[open.id].lastError}</dd></>}
+            {d?.refundRecovery?.[open.id]?.lastError && <><dt>{t('退款处理')}</dt><dd>{d.refundRecovery[open.id].lastError}</dd></>}
             <dt>{t('金额')}</dt><dd className="mono">{money(open)} · {methodLabel[open.method] ?? open.method}{open.method === 'usdt' ? ' · ' + (usdtNets.find((n) => n.id === (open.chain || 'tron'))?.name ?? '') : ''}</dd>
             <dt>{t('账号')}</dt><dd>{open.userId ? buyer(open) : '—'}</dd>
             <dt>{t('买家')}</dt><dd>{open.web ? t('网页商店') : ''}{open.tgName ? ' ' + open.tgName : ''}{open.telegramId ? ` (TG ${open.telegramId})` : ''}{!open.web && !open.tgName && !open.telegramId ? '—' : ''}</dd>
