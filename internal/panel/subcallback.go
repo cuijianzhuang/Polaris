@@ -3,7 +3,6 @@ package panel
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,45 +20,32 @@ const (
 )
 
 type subCallback struct {
-	path    string // "/sub/<token>" or "/sub/p/<token>"
-	expires time.Time
-	uses    int
+	Path string `json:"p"` // "/sub/<token>" or "/sub/p/<token>"
+	Uses int    `json:"u"`
 }
 
-type callbackStore struct {
-	mu sync.Mutex
-	m  map[string]*subCallback
-}
+// callbackStore keeps callback links in the shared store: the converter may
+// reach any panel instance.
+type callbackStore struct{ eph *ephStore }
 
 func (cs *callbackStore) issue(path string) string {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	if cs.m == nil {
-		cs.m = map[string]*subCallback{}
-	}
-	now := time.Now()
-	for k, v := range cs.m { // lazy cleanup
-		if now.After(v.expires) {
-			delete(cs.m, k)
-		}
-	}
 	id := pki.Token(24)
-	cs.m[id] = &subCallback{path: path, expires: now.Add(callbackTTL)}
+	_ = cs.eph.put("subcb:"+id, subCallback{Path: path}, callbackTTL)
 	return id
 }
 
 func (cs *callbackStore) take(id string) (string, bool) {
-	cs.mu.Lock()
-	defer cs.mu.Unlock()
-	v, ok := cs.m[id]
-	if !ok || time.Now().After(v.expires) {
-		delete(cs.m, id)
+	var v subCallback
+	if id == "" {
 		return "", false
 	}
-	if v.uses++; v.uses >= callbackUses {
-		delete(cs.m, id)
-	}
-	return v.path, true
+	ok := cs.eph.update("subcb:"+id, &v, func() ephAction {
+		if v.Uses++; v.Uses >= callbackUses {
+			return ephDelete
+		}
+		return ephSave
+	})
+	return v.Path, ok
 }
 
 // callbackURL is what the external converter receives.

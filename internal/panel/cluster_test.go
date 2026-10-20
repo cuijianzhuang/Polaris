@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -252,3 +253,117 @@ func TestResendSpecOnLaggingHeartbeat(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// One-time codes issued on one instance are redeemed on another, once.
+func TestClusterOneTimeCodes(t *testing.T) {
+	onEngines(t, func(t *testing.T, pgDSN string) {
+		ss := clusterServers(t, pgDSN, 2)
+		a, b := ss[0], ss[1]
+
+		code := a.newTGLoginCode("adm1")
+		var wg sync.WaitGroup
+		var wins atomic.Int32
+		for i := 0; i < 6; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if id, ok := b.takeTGLoginCode(code); ok && id == "adm1" {
+					wins.Add(1)
+				}
+			}()
+		}
+		wg.Wait()
+		if wins.Load() != 1 {
+			t.Fatalf("login code redeemed %d times", wins.Load())
+		}
+
+		st := a.ghAuth.put(oauthState{Mode: "login", Provider: "p1", Verifier: "v"})
+		if got, ok := b.ghAuth.take(st); !ok || got.Provider != "p1" || got.Verifier != "v" {
+			t.Fatalf("oauth state: %+v %v", got, ok)
+		}
+		if _, ok := b.ghAuth.take(st); ok {
+			t.Fatal("oauth state reused")
+		}
+		tk := a.ghAuth.ticket("adm1")
+		if id, ok := b.ghAuth.takeTicket(tk); !ok || id != "adm1" {
+			t.Fatal("ticket")
+		}
+
+		cb := a.callbacks.issue("/sub/tok")
+		for i := 0; i < callbackUses; i++ {
+			if p, ok := b.callbacks.take(cb); !ok || p != "/sub/tok" {
+				t.Fatalf("callback use %d: %q %v", i, p, ok)
+			}
+		}
+		if _, ok := b.callbacks.take(cb); ok {
+			t.Fatal("callback used beyond its limit")
+		}
+
+		a.tg.putBindCode("abc123", bindCode{Role: "owner", Expires: time.Now().Add(time.Minute)})
+		var bc bindCode
+		if !b.eph.take("tgbind:ABC123", &bc) || bc.Role != "owner" {
+			t.Fatal("bind code")
+		}
+
+		// Telegram sign-in from a page: started on A, claimed and approved
+		// by the bot on B (the leader), polled again on A.
+		id := "req1"
+		if err := a.eph.put(a.tgWeb.key(id), &tgWebLogin{Secret: "s", Code: 42}, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		var claimed tgWebLogin
+		b.tgWeb.eph.update(b.tgWeb.key(id), &claimed, func() ephAction { claimed.Chat = 7; return ephSave })
+		if res, _ := b.tg.loginPick(&b.tgWeb, 7, id, "42", "adm1"); res != "ok" {
+			t.Fatalf("pick: %s", res)
+		}
+		var req tgWebLogin
+		if !a.eph.get(a.tgWeb.key(id), &req) || req.Subject != "adm1" {
+			t.Fatalf("approval not visible on A: %+v", req)
+		}
+	})
+}
+
+// Settings changed on one instance are seen at once on another; node list
+// changes refresh the other instance's admin pages; install progress of a
+// node connected elsewhere is visible.
+func TestClusterSharedState(t *testing.T) {
+	ss := clusterServers(t, pgOnly(t), 2)
+	a, b := ss[0], ss[1]
+	startBus(t, a)
+	startBus(t, b)
+
+	if b.st.GetSetting("site_name", "old") != "old" { // cached on B
+		t.Fatal("unexpected setting")
+	}
+	if err := a.st.SetSetting("site_name", "new"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for b.st.GetSetting("site_name", "old") != "new" {
+		if time.Now().After(deadline) {
+			t.Fatal("B kept the stale setting")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go a.shareNodeChanges(ctx)
+	b.rt.dirty.Store(false)
+	a.broadcastNodes()
+	deadline = time.Now().Add(5 * time.Second)
+	for !b.rt.dirty.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("B's admin pages were not told to refresh")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	a.st.DB.Create(&store.Node{ID: "n1", Name: "hk"})
+	a.hub.register("n1")
+	a.presenceUp("n1")
+	a.handleProgress("n1", &polarisv1.Progress{Active: true, Stage: "下载 xray", Done: 5, Total: 10})
+	if p := b.nodeProgressFor("n1"); p == nil || p.Stage != "下载 xray" || p.Done != 5 {
+		t.Fatalf("progress on B: %+v", p)
+	}
+}

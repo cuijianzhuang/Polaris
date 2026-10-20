@@ -732,7 +732,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{},
+		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{},
 	}
 }
 
@@ -841,6 +841,14 @@ type AgentPresence struct {
 	NodeID     string    `gorm:"primaryKey;size:32"`
 	InstanceID string    `gorm:"size:32"`
 	SeenAt     time.Time `gorm:"index"`
+}
+
+// EphemeralKV holds short-lived sealed values (sign-in codes, OAuth states)
+// shared by every panel instance on the database.
+type EphemeralKV struct {
+	Name      string    `gorm:"primaryKey;size:160"`
+	Value     string    `gorm:"type:text"`
+	ExpiresAt time.Time `gorm:"index"`
 }
 
 // BusPayload carries a cluster message too large for a NOTIFY payload.

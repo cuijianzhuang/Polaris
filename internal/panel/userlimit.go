@@ -23,8 +23,11 @@ type limitedRow struct {
 // the node and their current speed, busiest first (from the last heartbeat).
 func (s *Server) nodeLimited(c *gin.Context) {
 	s.hbMu.Lock()
-	ls := s.limited[c.Param("id")]
+	ls, ok := s.limited[c.Param("id")]
 	s.hbMu.Unlock()
+	if !ok {
+		s.remoteHeartbeatState(c.Param("id"), "limited", &ls) // the node is connected to another instance
+	}
 	rows := []limitedRow{}
 	ids := make([]string, 0, len(ls))
 	for _, l := range ls {

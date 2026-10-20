@@ -3,7 +3,6 @@ package panel
 import (
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,39 +21,23 @@ const (
 	tgSessionTTL = 12 * time.Hour
 )
 
-type tgLoginCodes struct {
-	mu sync.Mutex
-	m  map[string]tgLoginCode
-}
-
+// tgLoginCode is a one-time /login code, kept in the shared store so the
+// link works on any panel instance.
 type tgLoginCode struct {
-	AdminID string
-	Expires time.Time
+	AdminID string `json:"a"`
 }
 
 func (s *Server) newTGLoginCode(adminID string) string {
-	s.tgLogins.mu.Lock()
-	defer s.tgLogins.mu.Unlock()
-	if s.tgLogins.m == nil {
-		s.tgLogins.m = map[string]tgLoginCode{}
-	}
-	now := time.Now()
-	for k, v := range s.tgLogins.m {
-		if now.After(v.Expires) {
-			delete(s.tgLogins.m, k)
-		}
-	}
 	code := pki.Token(32)
-	s.tgLogins.m[code] = tgLoginCode{AdminID: adminID, Expires: now.Add(tgLoginTTL)}
+	if err := s.eph.put("tglogin:"+code, tgLoginCode{AdminID: adminID}, tgLoginTTL); err != nil {
+		s.log.Error("store telegram login code", "err", err)
+	}
 	return code
 }
 
 func (s *Server) takeTGLoginCode(code string) (string, bool) {
-	s.tgLogins.mu.Lock()
-	defer s.tgLogins.mu.Unlock()
-	v, ok := s.tgLogins.m[code]
-	delete(s.tgLogins.m, code) // single use, even when expired
-	if !ok || time.Now().After(v.Expires) {
+	var v tgLoginCode
+	if code == "" || !s.eph.take("tglogin:"+code, &v) { // single use
 		return "", false
 	}
 	return v.AdminID, true

@@ -3,13 +3,14 @@ package panel
 import (
 	"context"
 	"encoding/json"
-	"github.com/cuijianzhuang/polaris/internal/store"
 	"net"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/cuijianzhuang/polaris/internal/store"
 
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -74,7 +75,10 @@ func (r *realtime) run(ctx context.Context) {
 	}
 }
 
-func (s *Server) broadcastNodes() { s.rt.dirty.Store(true) }
+func (s *Server) broadcastNodes() {
+	s.rt.dirty.Store(true)
+	s.rtShare.Store(true) // other instances refresh their browsers too
+}
 
 // sessionCheck reports, when called later, whether the request's session is
 // still valid: a password change, a deleted admin or a removed Telegram admin

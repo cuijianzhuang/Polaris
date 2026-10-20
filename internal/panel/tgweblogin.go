@@ -6,7 +6,6 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,26 +27,30 @@ const (
 	tgWebLoginChoices = 4
 )
 
+// tgWebLogins keeps sign-in requests in the shared store: the page polls
+// whichever panel instance it reaches, while the leader's bot approves.
 type tgWebLogins struct {
-	mu sync.Mutex
-	m  map[string]*tgWebLogin
+	eph  *ephStore
+	name string // key prefix
 }
 
+func (w *tgWebLogins) key(id string) string { return w.name + ":" + id }
+
 type tgWebLogin struct {
-	Secret  string
-	Code    int
-	IP      string
-	UA      string
-	Expires time.Time
-	Chat    int64  // chat that opened it; 0 = not yet
-	Subject string // who signed in (Telegram admin or user id), set once approved
-	Denied  bool
+	Secret  string `json:"s"`
+	Code    int    `json:"c"`
+	IP      string `json:"ip"`
+	UA      string `json:"ua"`
+	Chat    int64  `json:"ch,omitempty"` // chat that opened it; 0 = not yet
+	Subject string `json:"su,omitempty"` // who signed in (Telegram admin or user id), set once approved
+	Denied  bool   `json:"d,omitempty"`
 }
 
 func (s *Server) tgWebLoginEnabled() bool {
 	s.tg.mu.Lock()
 	defer s.tg.mu.Unlock()
-	return s.tg.running && s.tg.me != ""
+	// Another instance (the leader) may be the one polling the bot.
+	return s.tg.me != "" && (s.tg.running || !s.isLeader())
 }
 
 // tgWebLoginStart: POST /auth/tg/start (public).
@@ -62,25 +65,16 @@ func (s *Server) tgWebLoginStart(c *gin.Context) {
 // startWebLogin opens a sign-in request in w; the bot is reached with
 // /start <prefix><id>. Shared by the admin login page and the user center.
 func (s *Server) startWebLogin(c *gin.Context, w *tgWebLogins, prefix string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.m == nil {
-		w.m = map[string]*tgWebLogin{}
-	}
-	now := time.Now()
-	for k, v := range w.m {
-		if now.After(v.Expires) {
-			delete(w.m, k)
-		}
-	}
-	if len(w.m) >= tgWebLoginMax {
+	if w.eph.count(w.name+":") >= tgWebLoginMax {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录请求过多，请稍后再试"})
 		return
 	}
 	id := pki.Token(12)
-	req := &tgWebLogin{Secret: pki.Token(24), Code: 10 + rand.IntN(90), IP: clientIP(c.Request),
-		UA: c.Request.UserAgent(), Expires: now.Add(tgWebLoginTTL)}
-	w.m[id] = req
+	req := &tgWebLogin{Secret: pki.Token(24), Code: 10 + rand.IntN(90), IP: clientIP(c.Request), UA: c.Request.UserAgent()}
+	if err := w.eph.put(w.key(id), req, tgWebLoginTTL); err != nil {
+		serverError(c, err)
+		return
+	}
 	s.tg.mu.Lock()
 	bot := s.tg.me
 	s.tg.mu.Unlock()
@@ -125,34 +119,35 @@ func (s *Server) pollWebLogin(c *gin.Context, w *tgWebLogins) (subject string, c
 		badRequest(c, err)
 		return "", 0, false
 	}
-	w.mu.Lock()
-	req, found := w.m[r.ID]
-	if !found || subtle.ConstantTimeCompare([]byte(req.Secret), []byte(r.Secret)) != 1 {
-		w.mu.Unlock()
+	var req tgWebLogin
+	status := ""
+	found := w.eph.update(w.key(r.ID), &req, func() ephAction {
+		switch {
+		case subtle.ConstantTimeCompare([]byte(req.Secret), []byte(r.Secret)) != 1:
+			status = "expired"
+			return ephKeep
+		case req.Denied:
+			status = "denied"
+			return ephDelete
+		case req.Subject != "":
+			return ephDelete // single use
+		default:
+			status = "pending"
+			return ephKeep
+		}
+	})
+	switch {
+	case !found || status == "expired":
 		c.JSON(http.StatusOK, gin.H{"status": "expired"})
 		return "", 0, false
-	}
-	switch {
-	case req.Denied:
-		delete(w.m, r.ID)
-		w.mu.Unlock()
+	case status == "denied":
 		c.JSON(http.StatusOK, gin.H{"status": "denied"})
 		return "", 0, false
-	case req.Subject != "":
-		delete(w.m, r.ID) // single use
-	case time.Now().After(req.Expires):
-		delete(w.m, r.ID)
-		w.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"status": "expired"})
-		return "", 0, false
-	default:
-		w.mu.Unlock()
+	case status == "pending":
 		c.JSON(http.StatusOK, gin.H{"status": "pending", "opened": req.Chat != 0})
 		return "", 0, false
 	}
-	subject, chat = req.Subject, req.Chat
-	w.mu.Unlock()
-	return subject, chat, true
+	return req.Subject, req.Chat, true
 }
 
 // webLoginPrompt answers /start weblogin_<id> with the number choices.
@@ -172,19 +167,20 @@ func (b *tgBot) webLoginPrompt(chat int64, reqID string, id tgIdentity) {
 // (callback <cb>:<id>:<n|x>). A request belongs to the first chat that opens
 // it, so a forwarded link cannot be answered by someone else.
 func (b *tgBot) loginPrompt(w *tgWebLogins, chat int64, reqID, cb, title, extra, stale string) {
-	w.mu.Lock()
-	req, ok := w.m[reqID]
-	if ok && (time.Now().After(req.Expires) || req.Denied || req.Subject != "" || (req.Chat != 0 && req.Chat != chat)) {
-		ok = false
-	}
-	if !ok {
-		w.mu.Unlock()
+	var req tgWebLogin
+	claimed := false
+	w.eph.update(w.key(reqID), &req, func() ephAction {
+		if req.Denied || req.Subject != "" || (req.Chat != 0 && req.Chat != chat) {
+			return ephKeep
+		}
+		req.Chat, claimed = chat, true
+		return ephSave
+	})
+	if !claimed {
 		b.send(chat, stale, backRow(""))
 		return
 	}
-	req.Chat = chat
 	code, ip, ua := req.Code, req.IP, req.UA
-	w.mu.Unlock()
 
 	choices := []int{code}
 	for len(choices) < tgWebLoginChoices {
@@ -211,23 +207,24 @@ func (b *tgBot) loginPrompt(w *tgWebLogins, chat int64, reqID, cb, title, extra,
 // when it matches. The result is "ok", "denied" (rejected or wrong number:
 // "wrong") or "stale".
 func (b *tgBot) loginPick(w *tgWebLogins, chat int64, reqID, pick, subject string) (result, ip string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	req, ok := w.m[reqID]
-	if !ok || req.Chat != chat || req.Denied || req.Subject != "" || time.Now().After(req.Expires) || subject == "" {
-		return "stale", ""
-	}
-	switch {
-	case pick == fmt.Sprint(req.Code):
-		req.Subject = subject
-		return "ok", req.IP
-	case pick == "x":
-		req.Denied = true
-		return "denied", req.IP
-	default:
-		req.Denied = true
-		return "wrong", req.IP
-	}
+	var req tgWebLogin
+	result = "stale"
+	w.eph.update(w.key(reqID), &req, func() ephAction {
+		if req.Chat != chat || req.Denied || req.Subject != "" || subject == "" {
+			return ephKeep
+		}
+		ip = req.IP
+		switch {
+		case pick == fmt.Sprint(req.Code):
+			req.Subject, result = subject, "ok"
+		case pick == "x":
+			req.Denied, result = true, "denied"
+		default:
+			req.Denied, result = true, "wrong"
+		}
+		return ephSave
+	})
+	return result, ip
 }
 
 // webLoginAnswer handles the wl:<id>:<n|x> callback.

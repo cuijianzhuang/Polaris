@@ -239,6 +239,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		s.limited = map[string][]*polarisv1.LimitedUser{}
 	}
 	s.limited[nodeID] = hb.Limited
+	s.shareHeartbeatState(nodeID, "limited", hb.Limited, false)
 	s.hbMu.Unlock()
 	if n.Status == "offline" || n.Status == "pending" {
 		if n.Status == "offline" && n.LastSeen != nil {
@@ -350,30 +351,44 @@ func (s *Server) handleProgress(nodeID string, p *polarisv1.Progress) {
 	if s.progress == nil {
 		s.progress = map[string]*nodeProgress{}
 	}
-	s.progress[nodeID] = &nodeProgress{Active: p.Active, Stage: truncate(p.Stage, 200), Done: p.Done, Total: p.Total,
+	np := &nodeProgress{Active: p.Active, Stage: truncate(p.Stage, 200), Done: p.Done, Total: p.Total,
 		Rev: p.Rev, StartedAt: p.StartedAt, Error: truncate(p.Error, 500), At: time.Now()}
+	s.progress[nodeID] = np
 	s.hbMu.Unlock()
+	s.shareHeartbeatState(nodeID, "progress", np, !np.Active || np.Error != "")
 	s.broadcastNodes()
 }
 
-// nodeProgressFor returns the activity to show for a node, if any.
+// nodeProgressFor returns the activity to show for a node, if any (shared
+// by another instance when the node is connected there).
 func (s *Server) nodeProgressFor(nodeID string) *nodeProgress {
 	s.hbMu.Lock()
-	defer s.hbMu.Unlock()
-	p := s.progress[nodeID]
+	var p *nodeProgress
+	if cur := s.progress[nodeID]; cur != nil {
+		c := *cur
+		p = &c
+	}
+	s.hbMu.Unlock()
 	if p == nil {
-		return nil
+		var shared nodeProgress
+		if s.hub.remote == nil || !s.hub.Online(nodeID) || !s.remoteHeartbeatState(nodeID, "progress", &shared) {
+			return nil
+		}
+		p = &shared
 	}
 	linger := progressLinger
 	if p.Error != "" {
 		linger = 10 * time.Minute // a failure stays until someone has seen it
 	}
 	if !p.Active && time.Since(p.At) > linger {
-		delete(s.progress, nodeID)
+		s.hbMu.Lock()
+		if cur := s.progress[nodeID]; cur != nil && cur.At.Equal(p.At) {
+			delete(s.progress, nodeID)
+		}
+		s.hbMu.Unlock()
 		return nil
 	}
-	c := *p
-	return &c
+	return p
 }
 
 // resendSpec repeats SpecChanged when a heartbeat shows the agent behind,
