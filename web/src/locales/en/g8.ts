@@ -1,5 +1,21 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+  '已收款待交付': 'Paid, awaiting delivery',
+  '退款处理中': 'Refund in progress',
+  '退款申请已提交': 'Refund request submitted',
+  '已提交处理': 'Submitted for processing',
+  '重试交付': 'Retry delivery',
+  '交付处理': 'Delivery processing',
+  '退款处理': 'Refund processing',
+  '恢复后重启': 'Restart after restore',
+  '已受理 {n}/{m}': 'Accepted {n}/{m}',
+  '受理表示请求已交给本机处理，实际升级结果以版本和升级通知为准。': 'Accepted means the request was handed to the local handler. Check versions and update notifications for the actual result.',
+  '运行状态': 'Operational health',
+  '付款交付、退款、流量队列、USDT 核验与备份状态': 'Payment delivery, refunds, traffic queues, USDT verification and backups',
+  '运行状态暂不可用': 'Operational health is temporarily unavailable',
+  '未检测到运行告警': 'No operational alerts detected',
+  '最近成功备份': 'Last successful backup',
+
   '支付宝': 'Alipay',
   '微信支付': 'WeChat Pay',
   'QQ 钱包': 'QQ Wallet',

@@ -88,6 +88,7 @@ type tgMessage struct {
 	} `json:"chat"`
 	Text              string     `json:"text"`
 	SuccessfulPayment *tgPayment `json:"successful_payment"`
+	RefundedPayment   *tgPayment `json:"refunded_payment"`
 }
 
 type tgUser struct {
@@ -110,6 +111,10 @@ func (b *tgBot) creds() (string, string) {
 
 func (b *tgBot) call(ctx context.Context, method string, params any, out any) error {
 	token, base := b.creds()
+	return b.callAs(ctx, token, base, method, params, out)
+}
+
+func (b *tgBot) callAs(ctx context.Context, token, base, method string, params, out any) error {
 	if token == "" {
 		return errors.New("bot token not configured")
 	}
@@ -335,8 +340,18 @@ func (b *tgBot) poll(ctx context.Context, token, base string) {
 		}
 		b.setRunning(true, "")
 		for _, u := range ups {
+			if !b.s.isLeader() {
+				return
+			}
+			handled, e := b.paymentUpdate(u)
+			if e != nil {
+				b.s.log.Warn("Telegram payment update not committed; will retry")
+				return
+			}
+			if !handled {
+				b.handle(u)
+			}
 			offset = u.UpdateID + 1
-			b.handle(u)
 		}
 	}
 }
@@ -407,6 +422,9 @@ func (id tgIdentity) canNode(nodeID string) bool {
 // --- dispatch ---
 
 func (b *tgBot) handle(u tgUpdate) {
+	if handled, _ := b.paymentUpdate(u); handled {
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			b.s.log.Error("telegram handler panic", "panic", r)
@@ -427,10 +445,7 @@ func (b *tgBot) handle(u tgUpdate) {
 		b.onPreCheckout(u.PreCheckout)
 		return
 	}
-	if u.Message != nil && u.Message.SuccessfulPayment != nil && u.Message.Chat.Type == "private" {
-		b.onStarsPaid(u.Message.Chat.ID, u.Message.SuccessfulPayment)
-		return
-	}
+
 	if u.Message == nil || u.Message.Text == "" {
 		return
 	}
