@@ -732,7 +732,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{},
+		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{},
 	}
 }
 
@@ -825,6 +825,21 @@ type TrafficDaily struct {
 	Day    string `gorm:"primaryKey;size:10;index"` // YYYY-MM-DD
 	Up     int64
 	Down   int64
+}
+
+// ClusterLease is a lease held by one panel instance (the leader runs the
+// scheduled jobs when several instances share a database).
+type ClusterLease struct {
+	Name      string    `gorm:"primaryKey;size:32"`
+	Holder    string    `gorm:"size:64"`
+	ExpiresAt time.Time `gorm:"not null"`
+}
+
+// ClusterSecret holds values every instance must share, such as the internal
+// CA (its key sealed with the secret key).
+type ClusterSecret struct {
+	Name  string `gorm:"primaryKey;size:32"`
+	Value string `gorm:"type:text"`
 }
 
 // TrafficInbox holds traffic the panel has acknowledged to an agent but
