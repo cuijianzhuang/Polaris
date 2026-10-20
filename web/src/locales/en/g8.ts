@@ -298,5 +298,13 @@ const m: Record<string, string> = {
   "运行多个主控实例时，请把备份存到 S3：存在本机时，每台只能看到自己机器上的备份。": "When running several panel instances, store backups in S3: with local storage each instance only sees the backups on its own server.",
   "备份存储不可用：{err}": "Backup storage unavailable: {err}",
   "S3 已用作备份存储，不再重复推送到 S3。": "S3 is the backup storage, so backups are not pushed to S3 again.",
+  "集群": "Cluster",
+  "{n} 个主控实例运行中": "{n} panel instances running",
+  "各实例版本不一致，请等待升级完成或检查升级失败的实例。": "Instances run different versions: wait for the update to finish or check the instance whose update failed.",
+  "主机": "Host",
+  "启动时间": "Started",
+  "最后在线": "Last seen",
+  "主实例": "Leader",
+  "主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 1 天的实例自动移除。": "The leader runs scheduled jobs and the Telegram bot; if it stops, another instance takes over within 15 seconds. \"Update panel\" updates every running instance, and restoring a backup restarts them all. Instances offline for a day are removed from the list.",
 }
 export default m

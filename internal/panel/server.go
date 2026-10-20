@@ -76,14 +76,17 @@ type Server struct {
 	// in memory, or in Redis when redis_url is set (several instances).
 	shared sharedState
 
-	procID  string      // this process, for the leader lease
-	leader  atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
-	bus     *clusterBus // messages between instances (PostgreSQL only)
-	presMu  sync.Mutex
-	presAt  map[string]time.Time // last presence refresh per node
-	specAt  map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
-	shareAt map[string]time.Time // last heartbeat state shared per node
-	rtShare atomic.Bool          // node list changed here: tell the other instances
+	procID    string // this process, for the leader lease
+	restored  bool   // a staged backup was applied at this start
+	startedAt time.Time
+	memberAt  time.Time   // last cluster_members refresh
+	leader    atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
+	bus       *clusterBus // messages between instances (PostgreSQL only)
+	presMu    sync.Mutex
+	presAt    map[string]time.Time // last presence refresh per node
+	specAt    map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
+	shareAt   map[string]time.Time // last heartbeat state shared per node
+	rtShare   atomic.Bool          // node list changed here: tell the other instances
 
 	subLimit     *sharedLimiter
 	shopLimit    *sharedLimiter
@@ -119,7 +122,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
+	restored := applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
 	ca, err := loadOrCreateCA(st, cfg.DataDir, box)
 	if err != nil {
 		return nil, err
@@ -140,6 +143,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
 	s.procID = store.NewID()
+	s.restored, s.startedAt = restored, time.Now()
 	s.eph = &ephStore{db: st.DB, box: box}
 	s.ghAuth = githubAuth{eph: s.eph}
 	s.callbacks = callbackStore{eph: s.eph}
@@ -163,6 +167,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 			}
 		})
 		st.OnSettingChange = func(key string) { _ = s.bus.publish("setting", key) }
+		s.subscribeClusterOps()
 	}
 	s.traffic = &trafficInbox{db: st.DB}
 	s.shared = newMemState()
@@ -247,10 +252,17 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.isLeader() {
 		s.onLeader()
 	}
+	s.memberTouch()
 	go s.runLease(ctx)
 	if s.bus != nil {
 		go s.bus.run(ctx)
 		go s.shareNodeChanges(ctx)
+		if s.restored {
+			// The others still hold the old CA, settings and caches.
+			if err := s.bus.publish(topicRestoreDone, s.procID); err != nil {
+				s.log.Warn("tell other instances about the restore", "err", err)
+			}
+		}
 	}
 	go s.runReconciler(ctx)
 	go s.runAgentSync(ctx)
@@ -329,18 +341,24 @@ func (s *Server) agentServer() (*http.Server, error) {
 // startJobs schedules periodic tasks.
 func (s *Server) startJobs() func() {
 	c := cron.New(cron.WithSeconds())
+	run := func(name string, fn func()) {
+		defer func() {
+			if r := recover(); r != nil {
+				s.log.Error("job panicked", "job", name, "panic", r)
+			}
+		}()
+		fn()
+	}
 	add := func(spec, name string, fn func()) {
 		_, _ = c.AddFunc(spec, func() {
-			if !s.isLeader() {
-				return // another instance runs the scheduled jobs
+			if s.isLeader() { // otherwise another instance runs the scheduled jobs
+				run(name, fn)
 			}
-			defer func() {
-				if r := recover(); r != nil {
-					s.log.Error("job panicked", "job", name, "panic", r)
-				}
-			}()
-			fn()
 		})
+	}
+	// addLocal runs on every instance: work on this machine's own files.
+	addLocal := func(spec, name string, fn func()) {
+		_, _ = c.AddFunc(spec, func() { run(name, fn) })
 	}
 	add("*/10 * * * * *", "settle", func() { // keeps usage, quotas and the dashboard near real time
 		if err := s.settleTraffic(); err != nil {
@@ -366,7 +384,7 @@ func (s *Server) startJobs() func() {
 	add("0 2 * * * *", "backup", s.scheduledBackup)
 	add("0 1 * * * *", "daily-report", s.dailyReport)
 	add("0 0 * * * *", "auto-update", s.autoUpdateTick)
-	add("*/20 * * * * *", "update-result", s.checkUpdateResult)
+	addLocal("*/20 * * * * *", "update-result", s.checkUpdateResult) // each machine updates itself
 	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
 	add("30 */2 * * * *", "inbound-probe", s.probeInbounds)
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)

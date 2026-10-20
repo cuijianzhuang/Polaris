@@ -37,6 +37,11 @@ const panelRepo = "cuijianzhuang/polaris"
 // updaterUnit is where the root path unit lives (a variable for tests).
 var updaterUnit = "/etc/systemd/system/polaris-update.path"
 
+var (
+	errDevUpdate     = errors.New("开发版本不能在线升级")
+	errUpdatePending = errors.New("升级已在进行中，请稍候")
+)
+
 var errUpdaterMissing = errors.New("这台服务器还没有安装在线升级 / 配置组件：在服务器上执行 polaris update --force 安装（只需一次）；Docker 部署请更新镜像")
 
 func (s *Server) updateRequestPath() string { return filepath.Join(s.cfg.DataDir, "update-request") }
@@ -77,23 +82,30 @@ func newerThanRunning(v string) bool {
 // requestPanelUpdate asks the root updater to install target ("" = latest).
 // thenAgents also upgrades every node's agent once the new panel is up.
 func (s *Server) requestPanelUpdate(target, who string, thenAgents bool) error {
+	if target == "" {
+		target = "latest"
+	}
+	// Checked before the setting changes; writeUpdateRequest checks again.
 	if Version == "dev" {
-		return errors.New("开发版本不能在线升级")
+		return errDevUpdate
 	}
 	if !s.updaterInstalled() {
 		return errUpdaterMissing
 	}
 	if _, err := os.Stat(s.updateRequestPath()); err == nil {
-		return errors.New("升级已在进行中，请稍候")
-	}
-	if target == "" {
-		target = "latest"
+		return errUpdatePending
 	}
 	s.st.SetSetting("update_then_agents", strconv.FormatBool(thenAgents))
-	if err := core.AtomicWrite(s.updateRequestPath(), []byte(target+"\n"), 0o644); err != nil {
+	if err := s.writeUpdateRequest(target); err != nil {
 		return fmt.Errorf("写入升级请求失败：%w", err)
 	}
 	s.audit(who, "panel.update_request", target, map[bool]string{true: "panel + agents", false: "panel"}[thenAgents], "")
+	if s.bus != nil {
+		// Every instance updates its own machine.
+		if err := s.bus.publish(topicUpdate, target); err != nil {
+			s.log.Warn("ask other instances to update", "err", err)
+		}
+	}
 	return nil
 }
 
@@ -215,13 +227,13 @@ func (s *Server) checkUpdateResult() {
 	case !r.OK:
 		s.st.SetSetting("auto_update_failed", strings.TrimPrefix(r.To, "v"))
 		s.audit("system", "panel.update_failed", r.From, r.Log, "")
-		s.notify(Event{Kind: "panel_update", Text: "❌ 面板升级失败（仍为 " + orDefault(r.From, Version) + "）\n" + truncate(r.Log, 800)})
+		s.notify(Event{Kind: "panel_update", Text: s.hostTag() + "❌ 面板升级失败（仍为 " + orDefault(r.From, Version) + "）\n" + truncate(r.Log, 800)})
 		return
 	case r.From == r.To:
-		s.notify(Event{Kind: "panel_update", Text: "✅ 面板已是最新版本 " + r.To})
+		s.notify(Event{Kind: "panel_update", Text: s.hostTag() + "✅ 面板已是最新版本 " + r.To})
 	default:
 		s.audit("system", "panel.updated", r.From+" → "+r.To, "", "")
-		s.notify(Event{Kind: "panel_update", Text: "✅ 面板已升级：" + r.From + " → " + r.To})
+		s.notify(Event{Kind: "panel_update", Text: s.hostTag() + "✅ 面板已升级：" + r.From + " → " + r.To})
 	}
 	if s.st.GetSetting("update_then_agents", "false") == "true" {
 		s.st.SetSetting("update_then_agents", "false")
