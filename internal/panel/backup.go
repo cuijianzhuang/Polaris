@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"encoding/gob"
 	"errors"
 	"io"
@@ -9,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -79,19 +79,33 @@ func backupName(kind string, encrypted bool) string {
 	return n
 }
 
-// createBackup writes a new archive into <data>/backups and prunes old ones.
-func (s *Server) createBackup(kind string) (string, error) {
-	dir := filepath.Join(s.cfg.DataDir, backupDir)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
+// createBackup writes a new archive, moves it into the backup store and
+// prunes old ones. local is a copy on this machine for pushing elsewhere;
+// call done once finished with it.
+func (s *Server) createBackup(kind string) (name, local string, done func(), err error) {
+	bs, err := backupStoreFor(s.st, s.cfg.DataDir)
+	if err != nil {
+		return "", "", nil, err
 	}
 	pass := s.backupPassphrase()
-	name := backupName(kind, pass != "")
-	if err := s.writeBackup(filepath.Join(dir, name), pass); err != nil {
-		return "", err
+	name = backupName(kind, pass != "")
+	tmp := filepath.Join(s.cfg.DataDir, ".tmp-"+name)
+	if err := s.writeBackup(tmp, pass); err != nil {
+		return "", "", nil, err
 	}
-	s.pruneBackups()
-	return name, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	if err := bs.put(ctx, name, tmp); err != nil {
+		os.Remove(tmp)
+		return "", "", nil, err
+	}
+	if l, ok := bs.(*localStore); ok {
+		local, done = filepath.Join(l.dir, name), func() {}
+	} else {
+		local, done = tmp, func() { os.Remove(tmp) }
+	}
+	s.pruneBackups(ctx, bs)
+	return name, local, done, nil
 }
 
 type backupFile struct {
@@ -101,32 +115,24 @@ type backupFile struct {
 	Encrypted bool      `json:"encrypted"`
 }
 
-func (s *Server) listBackupFiles() []backupFile {
-	ents, _ := os.ReadDir(filepath.Join(s.cfg.DataDir, backupDir))
-	out := []backupFile{}
-	for _, e := range ents {
-		if !backupNameRe.MatchString(e.Name()) {
-			continue
-		}
-		if fi, err := e.Info(); err == nil {
-			out = append(out, backupFile{Name: e.Name(), Size: fi.Size(), Created: fi.ModTime(), Encrypted: strings.HasSuffix(e.Name(), ".enc")})
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
-	return out
-}
-
 // pruneBackups keeps the newest backup_keep archives; snapshots taken
 // before a restore are never deleted automatically.
-func (s *Server) pruneBackups() {
+func (s *Server) pruneBackups(ctx context.Context, bs backupStore) {
 	keep := max(atoiDefault(s.st.GetSetting("backup_keep", "7"), 7), 1)
+	files, err := bs.list(ctx)
+	if err != nil {
+		s.log.Warn("prune backups", "err", err)
+		return
+	}
 	i := 0
-	for _, f := range s.listBackupFiles() {
+	for _, f := range files {
 		if strings.Contains(f.Name, "-prerestore") {
 			continue
 		}
 		if i >= keep {
-			_ = os.Remove(filepath.Join(s.cfg.DataDir, backupDir, f.Name))
+			if err := bs.remove(ctx, f.Name); err != nil && !errors.Is(err, errBackupNotFound) {
+				s.log.Warn("prune backups", "name", f.Name, "err", err)
+			}
 		}
 		i++
 	}
@@ -146,17 +152,24 @@ func (s *Server) scheduledBackup() {
 	if sched == "weekly" && now.Weekday() != time.Monday {
 		return
 	}
-	if fs := s.listBackupFiles(); len(fs) > 0 && now.Sub(fs[0].Created) < 20*time.Hour && strings.Contains(fs[0].Name, "-auto") {
-		return
+	if bs, err := backupStoreFor(s.st, s.cfg.DataDir); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		fs, err := bs.list(ctx)
+		cancel()
+		// Another instance may have run it already (shared S3 store).
+		if err == nil && len(fs) > 0 && now.Sub(fs[0].Created) < 20*time.Hour && strings.Contains(fs[0].Name, "-auto") {
+			return
+		}
 	}
-	name, err := s.createBackup("auto")
+	name, local, done, err := s.createBackup("auto")
 	if err != nil {
 		s.log.Error("scheduled backup", "err", err)
 		s.notify(Event{Kind: "backup_failed", Text: "⚠️ 自动备份失败：" + err.Error()})
 		return
 	}
 	s.audit("system", "backup.create", name, "scheduled", "")
-	s.pushBackup(filepath.Join(s.cfg.DataDir, backupDir, name), true)
+	s.pushBackup(local, true)
+	done()
 }
 
 // --- restore ---
@@ -208,20 +221,49 @@ func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog
 		log.Error("staged restore unreadable", "err", err)
 		return
 	}
-	snap := filepath.Join(cfg.DataDir, backupDir, backupName("prerestore", false))
-	if err := os.MkdirAll(filepath.Dir(snap), 0o700); err == nil {
-		if out, err := os.OpenFile(snap, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); err == nil {
-			if err := writeArchive(out, st, cfg.DataDir, cfg.SecretKey, ""); err != nil {
-				log.Error("snapshot before restore", "err", err)
-			}
-			out.Close()
-		}
-	}
+	snap := snapshotBeforeRestore(st, cfg, log)
 	if err := restoreArchive(st, cfg.DataDir, &arc, box); err != nil {
 		log.Error("restore failed; current data kept", "err", err)
 		return
 	}
 	log.Warn("restored backup", "from_format", arc.Manifest.Format, "created", arc.Manifest.Created, "snapshot", snap)
+}
+
+// snapshotBeforeRestore saves the current data as a "-prerestore" archive in
+// the backup store (the local directory when the store is unusable) and
+// returns where it went.
+func snapshotBeforeRestore(st *store.Store, cfg *Config, log *slog.Logger) string {
+	name := backupName("prerestore", false)
+	tmp := filepath.Join(cfg.DataDir, ".tmp-"+name)
+	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		log.Error("snapshot before restore", "err", err)
+		return ""
+	}
+	defer os.Remove(tmp) // gone already once moved into the local store
+	err = writeArchive(out, st, cfg.DataDir, cfg.SecretKey, "")
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		log.Error("snapshot before restore", "err", err)
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	bs, err := backupStoreFor(st, cfg.DataDir)
+	if err == nil {
+		if err = bs.put(ctx, name, tmp); err == nil {
+			return bs.where() + "/" + name
+		}
+	}
+	log.Error("snapshot before restore: backup store failed, keeping it locally", "err", err)
+	l := &localStore{dir: filepath.Join(cfg.DataDir, backupDir)}
+	if err := l.put(ctx, name, tmp); err != nil {
+		log.Error("snapshot before restore", "err", err)
+		return ""
+	}
+	return filepath.Join(l.dir, name)
 }
 
 // --- API ---
@@ -234,54 +276,102 @@ func (s *Server) backupInfo(c *gin.Context) {
 			size = fi.Size()
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"supported": true, "db": s.st.DB.Dialector.Name(), "dbSize": size, "files": s.listBackupFiles(),
-		"dir": filepath.Join(s.cfg.DataDir, backupDir), "encrypted": s.backupPassphrase() != "", "targets": s.pushTargets()})
+	files, where, storeErr := []backupFile{}, "", ""
+	bs, err := backupStoreFor(s.st, s.cfg.DataDir)
+	if err == nil {
+		where = bs.where()
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		var fs []backupFile
+		if fs, err = bs.list(ctx); err == nil {
+			files = fs
+		}
+		cancel()
+	}
+	if err != nil {
+		storeErr = err.Error()
+	}
+	c.JSON(http.StatusOK, gin.H{"supported": true, "db": s.st.DB.Dialector.Name(), "dbSize": size, "files": files,
+		"dir": where, "store": s.st.GetSetting("backup_store", "local"), "storeError": storeErr,
+		"encrypted": s.backupPassphrase() != "", "targets": s.pushTargets()})
 }
 
 // backupCreate: POST /backup[?push=1].
 func (s *Server) backupCreate(c *gin.Context) {
-	name, err := s.createBackup("")
+	name, local, done, err := s.createBackup("")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	defer done()
 	s.auditCtx(c, "backup.create", name, "")
 	out := gin.H{"name": name}
 	if c.Query("push") == "1" || c.Query("telegram") == "1" {
-		out["push"] = s.pushBackup(filepath.Join(s.cfg.DataDir, backupDir, name), false)
+		out["push"] = s.pushBackup(local, false)
 	}
 	c.JSON(http.StatusOK, out)
 }
 
-func (s *Server) backupPath(c *gin.Context) (string, bool) {
-	name := c.Param("name")
-	if !backupNameRe.MatchString(name) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-		return "", false
+// openBackup opens the archive named in the URL.
+func (s *Server) openBackup(c *gin.Context) (io.ReadCloser, int64, bool) {
+	bs, ok := s.backupNamed(c)
+	if !ok {
+		return nil, 0, false
 	}
-	p := filepath.Join(s.cfg.DataDir, backupDir, name)
-	if _, err := os.Stat(p); err != nil {
+	rc, n, err := bs.open(c.Request.Context(), c.Param("name"))
+	if errors.Is(err, errBackupNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-		return "", false
+		return nil, 0, false
 	}
-	return p, true
+	if err != nil {
+		badRequest(c, err)
+		return nil, 0, false
+	}
+	return rc, n, true
+}
+
+// backupNamed checks the name in the URL and returns the store.
+func (s *Server) backupNamed(c *gin.Context) (backupStore, bool) {
+	if !backupNameRe.MatchString(c.Param("name")) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return nil, false
+	}
+	bs, err := backupStoreFor(s.st, s.cfg.DataDir)
+	if err != nil {
+		badRequest(c, err)
+		return nil, false
+	}
+	return bs, true
 }
 
 // backupDownload: GET /backup/files/:name.
 func (s *Server) backupDownload(c *gin.Context) {
-	if p, ok := s.backupPath(c); ok {
-		s.auditCtx(c, "backup.download", c.Param("name"), "")
-		c.FileAttachment(p, c.Param("name"))
+	rc, n, ok := s.openBackup(c)
+	if !ok {
+		return
 	}
+	defer rc.Close()
+	s.auditCtx(c, "backup.download", c.Param("name"), "")
+	c.DataFromReader(http.StatusOK, n, "application/octet-stream", rc,
+		map[string]string{"Content-Disposition": `attachment; filename="` + c.Param("name") + `"`})
 }
 
 // backupDelete: DELETE /backup/files/:name.
 func (s *Server) backupDelete(c *gin.Context) {
-	if p, ok := s.backupPath(c); ok {
-		_ = os.Remove(p)
-		s.auditCtx(c, "backup.delete", c.Param("name"), "")
-		c.Status(http.StatusNoContent)
+	bs, ok := s.backupNamed(c)
+	if !ok {
+		return
 	}
+	err := bs.remove(c.Request.Context(), c.Param("name"))
+	if errors.Is(err, errBackupNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	s.auditCtx(c, "backup.delete", c.Param("name"), "")
+	c.Status(http.StatusNoContent)
 }
 
 // backupRestore: POST /backup/restore (multipart "file", "passphrase") or
@@ -291,10 +381,11 @@ func (s *Server) backupRestore(c *gin.Context) {
 	src := ""
 	pass := c.PostForm("passphrase")
 	if c.Param("name") != "" {
-		p, ok := s.backupPath(c)
+		rc, _, ok := s.openBackup(c)
 		if !ok {
 			return
 		}
+		defer rc.Close()
 		var body struct {
 			Passphrase string `json:"passphrase"`
 		}
@@ -302,16 +393,10 @@ func (s *Server) backupRestore(c *gin.Context) {
 		if body.Passphrase != "" {
 			pass = body.Passphrase
 		}
-		if pass == "" && strings.HasSuffix(p, ".enc") {
+		if pass == "" && strings.HasSuffix(c.Param("name"), ".enc") {
 			pass = s.backupPassphrase() // made here with the current passphrase
 		}
-		f, err := os.Open(p)
-		if err != nil {
-			serverError(c, err)
-			return
-		}
-		defer f.Close()
-		r, src = f, c.Param("name")
+		r, src = rc, c.Param("name")
 	} else {
 		fh, err := c.FormFile("file")
 		if err != nil {
