@@ -45,19 +45,23 @@ type Node struct {
 	// Server traffic: what the host's NICs moved this billing cycle, against
 	// the provider's monthly allowance. NetMode decides what counts: "sum"
 	// (up + down, default), "up", "down" or "max".
-	NetLimit      int64      `json:"netLimit"` // bytes per cycle, 0 = unlimited
-	NetMode       string     `gorm:"size:8" json:"netMode"`
-	NetResetDay   int        `json:"netResetDay"` // day of month the cycle restarts, 0 = never
-	NetWarnPct    int        `json:"netWarnPct"`  // alert at this share of the limit, 0 = 80
-	NetOffset     int64      `json:"netOffset"`   // added to the counted total (calibration)
-	NetRx         int64      `json:"netRx"`       // received this cycle
-	NetTx         int64      `json:"netTx"`       // sent this cycle
-	NetCycleStart *time.Time `json:"netCycleStart"`
-	NetWarned     int        `json:"netWarned"` // 1 = threshold alert sent, 2 = over-limit alert sent
-	NetLastRx     uint64     `json:"-"`         // last reported NIC counters
-	NetLastTx     uint64     `json:"-"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	NetLimit        int64      `json:"netLimit"` // bytes per cycle, 0 = unlimited
+	NetMode         string     `gorm:"size:8" json:"netMode"`
+	NetResetDay     int        `json:"netResetDay"` // day of month the cycle restarts, 0 = never
+	NetWarnPct      int        `json:"netWarnPct"`  // alert at this share of the limit, 0 = 80
+	NetOffset       int64      `json:"netOffset"`   // added to the counted total (calibration)
+	NetRx           int64      `json:"netRx"`       // received this cycle
+	NetTx           int64      `json:"netTx"`       // sent this cycle
+	NetCycleStart   *time.Time `json:"netCycleStart"`
+	NetWarned       int        `json:"netWarned"` // 1 = threshold alert sent, 2 = over-limit alert sent
+	NetLastRx       uint64     `json:"-"`         // last reported NIC counters
+	NetLastTx       uint64     `json:"-"`
+	NetBaseline     bool       `json:"-"`
+	NetEpoch        string     `gorm:"size:64" json:"-"`
+	NetSampleUptime uint64     `json:"-"`
+	NetObservedAt   *time.Time `json:"-"`
+	CreatedAt       time.Time  `json:"createdAt"`
+	UpdatedAt       time.Time  `json:"updatedAt"`
 }
 
 // SystemInfo is the latest heartbeat snapshot of a node.
@@ -228,10 +232,11 @@ type Group struct {
 
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).
 type NodeTrafficDaily struct {
-	NodeID string `gorm:"primaryKey;size:32" json:"nodeId"`
-	Day    string `gorm:"primaryKey;size:10" json:"day"`
-	Rx     int64  `json:"rx"`
-	Tx     int64  `json:"tx"`
+	NodeID            string `gorm:"primaryKey;size:32" json:"nodeId"`
+	Day               string `gorm:"primaryKey;size:10" json:"day"`
+	Rx                int64  `json:"rx"`
+	Tx                int64  `json:"tx"`
+	AccountingVersion int    `json:"accountingVersion"` // 0 = legacy/unverified collection; 1 = identified samples
 }
 
 // NodeCost is what a node's server costs and when it renews. Cycle: month,

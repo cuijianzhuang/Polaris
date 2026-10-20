@@ -97,6 +97,12 @@ message SystemStats {
   // and container bridges) since boot; the panel accumulates the deltas.
   uint64 rx_bytes = 7;
   uint64 tx_bytes = 8;
+  // Hash of boot ID and the sampled interface identities. A change requires
+  // a fresh baseline, never replay of the interfaces' lifetime counters.
+  string net_epoch = 9;
+  uint64 net_sample_uptime_millis = 10;
+  // Distinguishes an observed zero counter from an unavailable sample.
+  bool net_counters_valid = 11;
 }
 
 message CoreState {

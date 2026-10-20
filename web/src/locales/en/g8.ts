@@ -1,5 +1,9 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+ "含旧版采集记录，需核对": "Includes legacy samples; verify against provider records",
+  "有数据 {n}/30 天": "Data on {n}/30 days",
+  "近 30 天包含今天，按节点的计费方式统计服务器网卡流量；包含服务器其他程序的网络用量，与用户套餐流量不同。每 GB 成本 = 折合每月成本 ÷ 对应流量。": "The last 30 calendar days include today. Server NIC traffic follows each node's billing mode and includes other applications, so it differs from users' plan traffic. Cost per GB = monthly cost ÷ that traffic.",
+
   '已收款待交付': 'Paid, awaiting delivery',
   '退款处理中': 'Refund in progress',
   '退款申请已提交': 'Refund request submitted',

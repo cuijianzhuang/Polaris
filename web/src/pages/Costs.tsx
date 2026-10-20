@@ -6,13 +6,21 @@ import { t } from '../i18n'
 
 interface CostItem {
   nodeId: string; name: string; flag: string; provider: string; amount: number; currency: string; cycle: string
-  expireAt?: string; autoRenew: boolean; note: string; monthly: number; converted: boolean; daysLeft?: number; traffic30: number; perGb: number
+  expireAt?: string; autoRenew: boolean; note: string; monthly: number; converted: boolean; daysLeft?: number; traffic30: number; trafficRx30: number; trafficTx30: number; trafficMode: string; trafficDays: number; trafficLegacyDays: number; perGb: number
 }
 interface CostSettings { base: string; rates: Record<string, number>; remindDays: number }
 interface CostData { settings: CostSettings; items: CostItem[]; total: { monthly: number; yearly: number; dueSoon: number; unconverted: string[] } }
 
 const cycles = (): [string, string][] => [['month', t('月付')], ['quarter', t('季付')], ['halfyear', t('半年付')], ['year', t('年付')], ['once', t('一次性')]]
+const trafficModeLabel = (mode: string) => ({ up: t('只算上行（出站）'), down: t('只算下行（入站）'), max: t('上下行取较大值'), sum: t('上下行合计') }[mode] ?? t('上下行合计'))
+const moneyRate = (v: number, cur: string) => `${v.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${cur}`
 const money = (v: number, cur: string) => `${v.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${cur}`
+
+const commonCurrencies = ['CNY', 'USD', 'EUR', 'GBP', 'HKD', 'JPY', 'SGD', 'TWD', 'KRW', 'RUB', 'AUD', 'CAD', 'CHF', 'USDT']
+function CurrencySelect({ id, value, currencies, onChange }: {id: string; value: string; currencies: string[]; onChange: (value: string) => void}) {
+  const options = [...new Set([...commonCurrencies, ...currencies, value].filter(Boolean))]
+  return <select id={id} className="input mono" value={value} onChange={(e) => onChange(e.target.value)}>{options.map((cur) => <option key={cur} value={cur}>{cur}</option>)}</select>
+}
 
 function CostDrawer({ it, base, currencies, onClose, onSaved }: { it: CostItem; base: string; currencies: string[]; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ provider: it.provider, amount: it.amount || '', currency: it.currency || base, cycle: it.cycle || 'month',
@@ -33,8 +41,7 @@ function CostDrawer({ it, base, currencies, onClose, onSaved }: { it: CostItem; 
         </Field>
         <Field label={t('价格（每周期）')} htmlFor="c-amt"><input id="c-amt" className="input mono" type="number" min="0" step="0.01" value={f.amount} onChange={(e) => set('amount', e.target.value)} /></Field>
         <Field label={t('币种')} htmlFor="c-cur">
-          <input id="c-cur" className="input mono" list="c-curs" value={f.currency} onChange={(e) => set('currency', e.target.value.toUpperCase())} />
-          <datalist id="c-curs">{currencies.map((c) => <option key={c} value={c} />)}</datalist>
+          <CurrencySelect id="c-cur" value={f.currency} currencies={[...currencies, base]} onChange={(v) => set('currency', v)} />
         </Field>
         <Field label={t('到期日')} htmlFor="c-exp"><input id="c-exp" className="input mono" type="date" value={f.expireAt} onChange={(e) => set('expireAt', e.target.value)} /></Field>
         <Field label={t('自动续费')} hint={t('开启后到期日过了自动顺延一个周期，不再提醒')}>
@@ -112,8 +119,8 @@ export default function Costs() {
                       {it.autoRenew ? <span className="tag ok" style={{ marginLeft: 6 }}>{t('自动续费')}</span>
                         : it.daysLeft !== undefined && <span className={'tag ' + (it.daysLeft < 0 ? 'bad' : it.daysLeft <= d!.settings.remindDays ? 'warn' : '')} style={{ marginLeft: 6 }}>{it.daysLeft < 0 ? t('已过期 {n} 天', { n: -it.daysLeft }) : t('还剩 {n} 天', { n: it.daysLeft })}</span>}
                     </> : <span className="mute">—</span>}</td>
-                    <td className="mono">{it.traffic30 ? bytes(it.traffic30) : '—'}</td>
-                    <td className="mono">{it.perGb ? money(it.perGb, base) : '—'}</td>
+                    <td><div className="mono">{it.trafficDays > 0 ? bytes(it.traffic30) : '—'}</div><div className="small mute">{trafficModeLabel(it.trafficMode)}</div>{it.trafficDays > 0 && <><div className="mono small mute">↓ {bytes(it.trafficRx30)} · ↑ {bytes(it.trafficTx30)}</div><div className="small mute">{t('有数据 {n}/30 天', { n: it.trafficDays })}</div>{it.trafficLegacyDays > 0 && <div className="small" style={{ color: 'var(--warn)' }}>{t('含旧版采集记录，需核对')}</div>}</>}</td>
+                    <td className="mono">{it.monthly > 0 && it.traffic30 > 0 ? moneyRate(it.perGb, base) : '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {it.expireAt && it.cycle !== 'once' && !it.autoRenew && <button className="link" type="button" disabled={busy} onClick={() => run(async () => { await post(`/nodes/${it.nodeId}/renew`); data.reload() }, t('已续费，到期日顺延一个周期'))}>{t('已续费')}</button>}
                       <button className="link" type="button" style={{ marginLeft: 12 }} onClick={() => setEdit(it)}>{t('编辑')}</button>
@@ -125,7 +132,7 @@ export default function Costs() {
           </div>
         )}
       </section>
-      <div className="note">{t('每 GB 成本 = 折合每月成本 ÷ 近 30 天服务器网卡流量（需要节点 Agent 已升级到会上报网卡流量的版本）。')}</div>
+      <div className="note">{t('近 30 天包含今天，按节点的计费方式统计服务器网卡流量；包含服务器其他程序的网络用量，与用户套餐流量不同。每 GB 成本 = 折合每月成本 ÷ 对应流量。')}</div>
       {edit && d && <CostDrawer it={edit} base={base} currencies={Object.keys(d.settings.rates)} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); data.reload() }} />}
       {settings && d && <SettingsModal s={d.settings} onClose={() => setSettings(false)} onSaved={() => { setSettings(false); data.reload() }} />}
     </>

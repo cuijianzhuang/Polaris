@@ -1,6 +1,7 @@
 package panel
 
 import (
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"testing"
 	"time"
 
@@ -43,9 +44,8 @@ func TestNodeTraffic(t *testing.T) {
 		return n
 	}
 	beat := func(rx, tx uint64) {
-		n := load()
-		if upd := s.accountNodeNet(&n, rx, tx, time.Now()); upd != nil {
-			s.st.DB.Model(&store.Node{}).Where("id = ?", "n1").Updates(upd)
+		if e := s.accountNodeNet("n1", &polarisv1.SystemStats{RxBytes: rx, TxBytes: tx}, time.Now()); e != nil {
+			t.Fatal(e)
 		}
 	}
 	// 10 GB limit, both directions count, warn at 80%.
@@ -75,8 +75,12 @@ func TestNodeTraffic(t *testing.T) {
 		t.Fatalf("threshold alert repeated: %q", e.Text)
 	default:
 	}
-	// Reboot: counters restart from zero; the new values are all new traffic.
-	beat(1*gib, gib/2) // +1 +0.5 = 10 GB → over the limit
+	// A decrease only establishes a baseline: it might be a replaced NIC.
+	beat(1*gib, gib/2)
+	if netUsedPtr := load(); netUsed(&netUsedPtr) != gib*8+gib/2 {
+		t.Fatal("counter reset charged lifetime bytes")
+	}
+	beat(2*gib, 1*gib) // +1 +0.5 = 10 GB → over the limit
 	if e := <-events; load().NetWarned != 2 || e.Text == "" {
 		t.Fatalf("over-limit alert missing, warned=%d", load().NetWarned)
 	}
@@ -101,7 +105,7 @@ func TestNodeTraffic(t *testing.T) {
 	}
 	// Only-upload billing.
 	c.do("PUT", "/nodes/n1/net", map[string]any{"mode": "up"})
-	beat(2*gib, 2*gib) // +1 rx, +1.5 tx
+	beat(3*gib, 5*gib/2) // +1 rx, +1.5 tx
 	if n := load(); netUsed(&n) != n.NetTx {
 		t.Fatalf("up mode counts tx only: used %d tx %d", netUsed(&n), n.NetTx)
 	}

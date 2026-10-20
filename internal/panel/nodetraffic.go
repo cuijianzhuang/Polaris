@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -20,60 +21,96 @@ import (
 // a per-day table, warns once at the threshold and once over the limit, and
 // starts a new cycle on the reset day.
 
-// netDelta is how much a counter moved since the last report. A counter
-// below the last value means the host rebooted and counts from zero again.
+// A counter decrease is not sufficient evidence of a host reboot: interfaces
+// can be replaced or removed. The next sample establishes a new baseline.
 func netDelta(last, cur uint64) int64 {
-	switch {
-	case last == 0: // first report: only a baseline
+	if cur < last || cur-last > math.MaxInt64 {
 		return 0
-	case cur >= last:
-		return int64(cur - last)
-	default:
-		return int64(cur)
 	}
+	return int64(cur - last)
 }
 
-// netUsed is the cycle total as the provider bills it.
-func netUsed(n *store.Node) int64 {
-	var v int64
-	switch n.NetMode {
+func nodeNetBytes(mode string, rx, tx int64) int64 {
+	switch mode {
 	case "up":
-		v = n.NetTx
+		return tx
 	case "down":
-		v = n.NetRx
+		return rx
 	case "max":
-		v = max(n.NetRx, n.NetTx)
+		return max(rx, tx)
 	default:
-		v = n.NetRx + n.NetTx
+		return rx + tx
 	}
-	return v + n.NetOffset
 }
+func netUsed(n *store.Node) int64 { return nodeNetBytes(n.NetMode, n.NetRx, n.NetTx) + n.NetOffset }
 
-// accountNodeNet folds a heartbeat's NIC counters into the node and returns
-// the column updates for the heartbeat's write.
-func (s *Server) accountNodeNet(n *store.Node, rx, tx uint64, now time.Time) map[string]any {
-	if rx == 0 && tx == 0 {
-		return nil // an agent that doesn't report counters
+// The baseline, billing-cycle counters and daily ledger commit together. Lock
+// before reading so duplicate heartbeats on different instances count once.
+func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now time.Time) error {
+	if sample == nil {
+		return nil
 	}
-	drx, dtx := netDelta(n.NetLastRx, rx), netDelta(n.NetLastTx, tx)
-	upd := map[string]any{"net_last_rx": rx, "net_last_tx": tx}
-	if drx == 0 && dtx == 0 {
-		return upd
+	rx, tx := sample.RxBytes, sample.TxBytes
+	modern := sample.NetCountersValid
+	if !modern && rx == 0 && tx == 0 {
+		return nil
 	}
-	upd["net_rx"] = gorm.Expr("net_rx + ?", drx)
-	upd["net_tx"] = gorm.Expr("net_tx + ?", dtx)
-	s.st.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "node_id"}, {Name: "day"}},
-		DoUpdates: clause.Assignments(map[string]any{"rx": gorm.Expr("node_traffic_dailies.rx + ?", drx), "tx": gorm.Expr("node_traffic_dailies.tx + ?", dtx)}),
-	}).Create(&store.NodeTrafficDaily{NodeID: n.ID, Day: now.Format("2006-01-02"), Rx: drx, Tx: dtx})
-	n.NetRx += drx
-	n.NetTx += dtx
-	if lvl := netAlertLevel(n); lvl > n.NetWarned {
-		upd["net_warned"] = lvl
-		n.NetWarned = lvl
-		s.notify(Event{Kind: "node_traffic", NodeID: n.ID, Text: netAlertText(n, lvl, now)})
+	if modern && (sample.NetEpoch == "" || len(sample.NetEpoch) > 64 || sample.NetSampleUptimeMillis == 0) {
+		return errors.New("invalid network sample identity")
 	}
-	return upd
+	if rx > math.MaxInt64 || tx > math.MaxInt64 {
+		return errors.New("network counters exceed storage range")
+	}
+	epoch := ""
+	if modern {
+		epoch = sample.NetEpoch
+	}
+	var alert *Event
+	err := s.st.DB.Transaction(func(db *gorm.DB) error {
+		r := db.Exec("UPDATE nodes SET net_last_rx=net_last_rx WHERE id = ?", id)
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		var n store.Node
+		if e := db.First(&n, "id = ?", id).Error; e != nil {
+			return e
+		}
+		if modern && n.NetBaseline && n.NetEpoch == epoch && sample.NetSampleUptimeMillis <= n.NetSampleUptime {
+			return nil
+		}
+		baseline := n.NetBaseline || n.NetLastRx > 0 || n.NetLastTx > 0
+		rebase := !baseline || n.NetEpoch != epoch || rx < n.NetLastRx || tx < n.NetLastTx
+		var drx, dtx int64
+		if !rebase {
+			drx, dtx = netDelta(n.NetLastRx, rx), netDelta(n.NetLastTx, tx)
+		}
+		if n.NetRx > math.MaxInt64-drx || n.NetTx > math.MaxInt64-dtx {
+			return errors.New("network totals overflow")
+		}
+		updates := map[string]any{"net_last_rx": rx, "net_last_tx": tx, "net_baseline": true, "net_epoch": epoch, "net_sample_uptime": sample.NetSampleUptimeMillis, "net_observed_at": now, "net_rx": gorm.Expr("net_rx + ?", drx), "net_tx": gorm.Expr("net_tx + ?", dtx)}
+		row := store.NodeTrafficDaily{NodeID: id, Day: now.Format("2006-01-02"), Rx: drx, Tx: dtx}
+		if modern {
+			row.AccountingVersion = 1
+		}
+		if e := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "node_id"}, {Name: "day"}}, DoUpdates: clause.Assignments(map[string]any{"rx": gorm.Expr("node_traffic_dailies.rx + ?", drx), "tx": gorm.Expr("node_traffic_dailies.tx + ?", dtx), "accounting_version": gorm.Expr("CASE WHEN node_traffic_dailies.accounting_version = 1 AND excluded.accounting_version = 1 THEN 1 ELSE 0 END")})}).Create(&row).Error; e != nil {
+			return e
+		}
+		n.NetRx += drx
+		n.NetTx += dtx
+		if lvl := netAlertLevel(&n); lvl > n.NetWarned {
+			updates["net_warned"] = lvl
+			n.NetWarned = lvl
+			alert = &Event{Kind: "node_traffic", NodeID: id, Text: netAlertText(&n, lvl, now)}
+		}
+		return db.Model(&store.Node{}).Where("id = ?", id).Updates(updates).Error
+	})
+	if err == nil && alert != nil {
+		s.notify(*alert)
+	}
+	return err
 }
 
 // netAlertLevel is 2 over the limit, 1 past the warning threshold, else 0.
