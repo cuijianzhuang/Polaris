@@ -44,6 +44,45 @@ func nodeNetBytes(mode string, rx, tx int64) int64 {
 }
 func netUsed(n *store.Node) int64 { return nodeNetBytes(n.NetMode, n.NetRx, n.NetTx) + n.NetOffset }
 
+// All writers of cycle totals and offsets must read under this same lock.
+// In particular, a calibration must not use a snapshot from before a heartbeat.
+func (s *Server) withNodeNet(id string, fn func(*gorm.DB, *store.Node) error) error {
+	return s.st.DB.Transaction(func(db *gorm.DB) error {
+		r := db.Exec("UPDATE nodes SET net_last_rx=net_last_rx WHERE id = ?", id)
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		var n store.Node
+		if err := db.First(&n, "id = ?", id).Error; err != nil {
+			return err
+		}
+		return fn(db, &n)
+	})
+}
+
+// Roll over before adding the first sample in a new cycle. Preserve the NIC
+// baseline and daily history. The heartbeat interval belongs to its receipt day;
+// there is no trustworthy way to split unobserved bytes at midnight.
+func advanceNodeNetCycle(db *gorm.DB, n *store.Node, now time.Time) error {
+	if n.NetResetDay <= 0 {
+		return nil
+	}
+	start := cycleStart(n.NetResetDay, now)
+	if n.NetCycleStart != nil && !n.NetCycleStart.Before(start) {
+		return nil
+	}
+	updates := map[string]any{"net_cycle_start": start}
+	if n.NetCycleStart != nil {
+		n.NetRx, n.NetTx, n.NetOffset, n.NetWarned = 0, 0, 0, 0
+		updates["net_rx"], updates["net_tx"], updates["net_offset"], updates["net_warned"] = 0, 0, 0, 0
+	}
+	n.NetCycleStart = &start
+	return db.Model(&store.Node{}).Where("id = ?", n.ID).Updates(updates).Error
+}
+
 // The baseline, billing-cycle counters and daily ledger commit together. Lock
 // before reading so duplicate heartbeats on different instances count once.
 func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now time.Time) error {
@@ -66,16 +105,8 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 		epoch = sample.NetEpoch
 	}
 	var alert *Event
-	err := s.st.DB.Transaction(func(db *gorm.DB) error {
-		r := db.Exec("UPDATE nodes SET net_last_rx=net_last_rx WHERE id = ?", id)
-		if r.Error != nil {
-			return r.Error
-		}
-		if r.RowsAffected != 1 {
-			return gorm.ErrRecordNotFound
-		}
-		var n store.Node
-		if e := db.First(&n, "id = ?", id).Error; e != nil {
+	err := s.withNodeNet(id, func(db *gorm.DB, n *store.Node) error {
+		if e := advanceNodeNetCycle(db, n, now); e != nil {
 			return e
 		}
 		if modern && n.NetBaseline && n.NetEpoch == epoch && sample.NetSampleUptimeMillis <= n.NetSampleUptime {
@@ -100,10 +131,10 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 		}
 		n.NetRx += drx
 		n.NetTx += dtx
-		if lvl := netAlertLevel(&n); lvl > n.NetWarned {
+		if lvl := netAlertLevel(n); lvl > n.NetWarned {
 			updates["net_warned"] = lvl
 			n.NetWarned = lvl
-			alert = &Event{Kind: "node_traffic", NodeID: id, Text: netAlertText(&n, lvl, now)}
+			alert = &Event{Kind: "node_traffic", NodeID: id, Text: netAlertText(n, lvl, now)}
 		}
 		return db.Model(&store.Node{}).Where("id = ?", id).Updates(updates).Error
 	})
@@ -181,22 +212,21 @@ func nextNetReset(day int, now time.Time) time.Time {
 // resetNodeCycles starts a new cycle on nodes whose reset day has come
 // (hourly job).
 func (s *Server) resetNodeCycles() {
-	now := time.Now()
+	s.resetNodeCyclesAt(time.Now())
+}
+
+func (s *Server) resetNodeCyclesAt(now time.Time) {
 	var ns []store.Node
-	s.st.DB.Where("net_reset_day > 0").Find(&ns)
+	if err := s.st.DB.Select("id").Where("net_reset_day > 0").Find(&ns).Error; err != nil {
+		s.log.Error("list node traffic cycles", "err", err)
+		return
+	}
 	for _, n := range ns {
-		start := cycleStart(n.NetResetDay, now)
-		if n.NetCycleStart == nil {
-			// Just configured: the current cycle runs from its start; keep what was counted.
-			s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Update("net_cycle_start", start)
-			continue
+		if err := s.withNodeNet(n.ID, func(db *gorm.DB, n *store.Node) error {
+			return advanceNodeNetCycle(db, n, now)
+		}); err != nil {
+			s.log.Error("reset node traffic cycle", "node", n.ID, "err", err)
 		}
-		if !n.NetCycleStart.Before(start) {
-			continue
-		}
-		s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
-			"net_rx": 0, "net_tx": 0, "net_offset": 0, "net_warned": 0, "net_cycle_start": start})
-		s.log.Info("node traffic cycle reset", "node", n.Name)
 	}
 }
 
@@ -212,89 +242,98 @@ const gib = 1 << 30
 
 // putNodeNet updates a node's traffic allowance settings.
 func (s *Server) putNodeNet(c *gin.Context) {
-	var n store.Node
-	if err := s.st.DB.First(&n, "id = ?", c.Param("id")).Error; err != nil {
-		dbError(c, err)
-		return
-	}
 	var req netReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
 	}
-	upd := map[string]any{}
-	if req.LimitGB != nil {
-		if *req.LimitGB < 0 {
-			badRequest(c, errors.New("限额不能为负数"))
-			return
-		}
-		n.NetLimit = int64(*req.LimitGB * gib)
-		upd["net_limit"] = n.NetLimit
+	n, err := s.updateNodeNet(c.Param("id"), req, time.Now())
+	if err != nil {
+		dbError(c, err)
+		return
+	}
+	s.auditCtx(c, "node.traffic", n.Name, fmt.Sprintf("limit %s, mode %s, reset day %d", humanBytes(n.NetLimit), n.NetMode, n.NetResetDay))
+	c.JSON(http.StatusOK, n)
+}
+
+func (s *Server) updateNodeNet(id string, req netReq, now time.Time) (store.Node, error) {
+	var out store.Node
+	validGB := func(v float64) bool {
+		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v*gib < float64(math.MaxInt64)
+	}
+	if req.LimitGB != nil && !validGB(*req.LimitGB) {
+		return out, commandInputError{"限额应为有效的非负数，且不能超出存储范围"}
+	}
+	if req.UsedGB != nil && !validGB(*req.UsedGB) {
+		return out, commandInputError{"已用流量应为有效的非负数，且不能超出存储范围"}
 	}
 	if req.Mode != nil {
 		switch *req.Mode {
 		case "", "sum", "up", "down", "max":
 		default:
-			badRequest(c, errors.New("计费方式应为 sum、up、down 或 max"))
-			return
+			return out, commandInputError{"计费方式应为 sum、up、down 或 max"}
 		}
-		n.NetMode = *req.Mode
-		upd["net_mode"] = n.NetMode
 	}
-	if req.ResetDay != nil {
-		if *req.ResetDay < 0 || *req.ResetDay > 31 {
-			badRequest(c, errors.New("重置日应在 0–31 之间"))
-			return
+	if req.ResetDay != nil && (*req.ResetDay < 0 || *req.ResetDay > 31) {
+		return out, commandInputError{"重置日应在 0–31 之间"}
+	}
+	if req.WarnPct != nil && (*req.WarnPct < 0 || *req.WarnPct > 100) {
+		return out, commandInputError{"提醒阈值应在 0–100 之间"}
+	}
+	err := s.withNodeNet(id, func(db *gorm.DB, n *store.Node) error {
+		if err := advanceNodeNetCycle(db, n, now); err != nil {
+			return err
 		}
-		if *req.ResetDay != n.NetResetDay {
+		upd := map[string]any{}
+		if req.LimitGB != nil {
+			n.NetLimit = int64(*req.LimitGB * gib)
+			upd["net_limit"] = n.NetLimit
+		}
+		if req.Mode != nil {
+			n.NetMode = *req.Mode
+			upd["net_mode"] = n.NetMode
+		}
+		if req.ResetDay != nil && *req.ResetDay != n.NetResetDay {
 			n.NetResetDay = *req.ResetDay
 			upd["net_reset_day"] = n.NetResetDay
 			if n.NetResetDay > 0 {
-				start := cycleStart(n.NetResetDay, time.Now())
+				start := cycleStart(n.NetResetDay, now)
+				n.NetCycleStart = &start
 				upd["net_cycle_start"] = start
 			}
 		}
-	}
-	if req.WarnPct != nil {
-		if *req.WarnPct < 0 || *req.WarnPct > 100 {
-			badRequest(c, errors.New("提醒阈值应在 0–100 之间"))
-			return
+		if req.WarnPct != nil {
+			n.NetWarnPct = *req.WarnPct
+			upd["net_warn_pct"] = n.NetWarnPct
 		}
-		n.NetWarnPct = *req.WarnPct
-		upd["net_warn_pct"] = n.NetWarnPct
-	}
-	if req.UsedGB != nil {
-		if *req.UsedGB < 0 {
-			badRequest(c, errors.New("已用流量不能为负数"))
-			return
+		if req.UsedGB != nil {
+			n.NetOffset = int64(*req.UsedGB*gib) - nodeNetBytes(n.NetMode, n.NetRx, n.NetTx)
+			upd["net_offset"] = n.NetOffset
 		}
-		n.NetOffset = 0
-		n.NetOffset = int64(*req.UsedGB*gib) - netUsed(&n)
-		upd["net_offset"] = n.NetOffset
-	}
-	// Re-arm alerts for the new limit / threshold / total.
-	n.NetWarned = netAlertLevel(&n)
-	upd["net_warned"] = n.NetWarned
-	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(upd).Error; err != nil {
-		dbError(c, err)
-		return
-	}
-	s.auditCtx(c, "node.traffic", n.Name, fmt.Sprintf("limit %s, mode %s, reset day %d", humanBytes(n.NetLimit), n.NetMode, n.NetResetDay))
-	s.st.DB.First(&n, "id = ?", n.ID)
-	c.JSON(http.StatusOK, n)
+		n.NetWarned = netAlertLevel(n)
+		upd["net_warned"] = n.NetWarned
+		if err := db.Model(&store.Node{}).Where("id = ?", id).Updates(upd).Error; err != nil {
+			return err
+		}
+		out = *n
+		return nil
+	})
+	return out, err
 }
 
 // resetNodeNet zeroes the node's cycle by hand.
 func (s *Server) resetNodeNet(c *gin.Context) {
-	var n store.Node
-	if err := s.st.DB.First(&n, "id = ?", c.Param("id")).Error; err != nil {
+	var name string
+	err := s.withNodeNet(c.Param("id"), func(db *gorm.DB, n *store.Node) error {
+		name = n.Name
+		return db.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
+			"net_rx": 0, "net_tx": 0, "net_offset": 0, "net_warned": 0, "net_cycle_start": time.Now()}).Error
+	})
+	if err != nil {
 		dbError(c, err)
 		return
 	}
-	now := time.Now()
-	s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
-		"net_rx": 0, "net_tx": 0, "net_offset": 0, "net_warned": 0, "net_cycle_start": now})
-	s.auditCtx(c, "node.traffic.reset", n.Name, "")
+	s.auditCtx(c, "node.traffic.reset", name, "")
 	c.Status(http.StatusNoContent)
 }
 

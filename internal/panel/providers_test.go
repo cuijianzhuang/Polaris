@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,7 +13,42 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/provider"
 	"github.com/cuijianzhuang/polaris/internal/store"
+	"gorm.io/gorm"
 )
+
+func TestNodeProviderCalibrationFailureRecorded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"error":0,"plan_monthly_data":100,"data_counter":90}`))
+	}))
+	defer srv.Close()
+	old := provider.BWHBase
+	provider.BWHBase = srv.URL
+	defer func() { provider.BWHBase = old }()
+	s := newTestServer(t)
+	s.st.DB.Create(&store.Node{ID: "net", Name: "net"})
+	p := store.NodeProvider{NodeID: "net", Kind: providerBandwagon, VEID: "1", APIKey: s.st.Box.Seal("fixture"), Sync: true}
+	s.st.DB.Create(&p)
+	s.st.DB.Callback().Update().Before("gorm:update").Register("test:calibration-fail", func(tx *gorm.DB) {
+		if tx.Statement.Table == "nodes" {
+			tx.AddError(errors.New("calibration write failed"))
+		}
+	})
+	if _, err := s.syncProvider(context.Background(), &p, false); err == nil {
+		t.Fatal("sync acknowledged a failed calibration")
+	}
+	s.st.DB.Callback().Update().Remove("test:calibration-fail")
+	s.st.DB.First(&p, "node_id = ?", "net")
+	if !strings.Contains(p.LastError, "calibration write failed") {
+		t.Fatalf("sync failure hidden from provider view: %+v", providerViewOf(&p))
+	}
+	if _, err := s.syncProvider(context.Background(), &p, false); err != nil {
+		t.Fatal(err)
+	}
+	s.st.DB.First(&p, "node_id = ?", "net")
+	if p.LastError != "" {
+		t.Fatalf("successful retry did not clear error: %s", p.LastError)
+	}
+}
 
 // A node linked to BandwagonHost follows the provider's traffic figures.
 func TestNodeProviderBandwagon(t *testing.T) {
