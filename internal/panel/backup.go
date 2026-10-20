@@ -83,6 +83,7 @@ func backupName(kind string, encrypted bool) string {
 // prunes old ones. local is a copy on this machine for pushing elsewhere;
 // call done once finished with it.
 func (s *Server) createBackup(kind string) (name, local string, done func(), err error) {
+	defer func() { s.recordOperationalResult("backup", "备份保存失败，请检查存储配置", err) }()
 	bs, err := backupStoreFor(s.st, s.cfg.DataDir)
 	if err != nil {
 		return "", "", nil, err

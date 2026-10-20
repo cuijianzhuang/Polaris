@@ -221,3 +221,24 @@ func TestTrafficQueueAckWriteFailureKeepsSequence(t *testing.T) {
 		t.Fatal("ack rollback reused a sequence", b.queue)
 	}
 }
+
+func TestTrafficQueueHealthSnapshot(t *testing.T) {
+	a := newQueueAgent(t, t.TempDir())
+	collectOnce(a)
+	a.queueMu.Lock()
+	a.queueDirty = true
+	a.queueDropped = 2
+	a.queueMu.Unlock()
+	st := a.trafficQueueStatus()
+	if st.PendingBatches != 1 || st.OldestUnackedAt <= 0 || !st.PersistenceFailed || st.DroppedBatches != 2 {
+		t.Fatal("queue health missing", st)
+	}
+	a.queueMu.Lock()
+	a.queue = nil
+	a.queueDirty = false
+	a.queueMu.Unlock()
+	st = a.trafficQueueStatus()
+	if st.PendingBatches != 0 || st.OldestUnackedAt != 0 || st.PersistenceFailed {
+		t.Fatal("stale queue health", st)
+	}
+}

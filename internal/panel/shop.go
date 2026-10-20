@@ -1,7 +1,6 @@
 package panel
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
@@ -44,7 +44,7 @@ const (
 // unpaidStatuses are the order states a payment can still settle: a
 // transfer may arrive after the order expired or was cancelled, and the
 // money is delivered all the same.
-var unpaidStatuses = []string{"pending", "expired", "cancelled"}
+var unpaidStatuses = []string{"pending", "expired", "cancelled", "processing"}
 
 const (
 	epayNotifyPath = "/pay/epay/notify"
@@ -342,14 +342,30 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			return nil // already paid
 		}
 		fresh = true
+		// Cross-instance first-account creation is serialized by buyer; account
+		// changes then use the same row lock as admin/API user commands.
+		key := "web:" + o.WebKey
+		if o.TelegramID != 0 {
+			key = "tg:" + strconv.FormatInt(o.TelegramID, 10)
+		} else if o.UserID != "" {
+			key = "user:" + o.UserID
+		}
+		if e := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "key"}}, DoUpdates: clause.AssignmentColumns([]string{"updated_at"})}).Create(&store.ShopBuyerLock{Key: key, UpdatedAt: now}).Error; e != nil {
+			return e
+		}
 		if o.Kind == kindPack {
 			var pk store.TrafficPack
 			if err := orderPack(tx, o, &pk); err != nil {
-				return commandInputError{"流量包 " + o.PlanName + " 已删除，请联系管理员处理"}
+				if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errOrderTerms) {
+					return commandInputError{"流量包不可用或订单权益无效，请联系管理员处理"}
+				}
+				return err
 			}
-			if (o.UserID == "" || tx.First(u, "id = ? AND is_service = ?", o.UserID, false).Error != nil) &&
-				tx.First(u, "telegram_id = ? AND is_service = ?", o.TelegramID, false).Error != nil {
-				return commandInputError{"没有找到要加流量的账号"}
+			if e := lockOrderUser(tx, o, u); e != nil {
+				if errors.Is(e, gorm.ErrRecordNotFound) {
+					return commandInputError{"没有找到要加流量的账号"}
+				}
+				return e
 			}
 			var err error
 			if detail, err = s.applyPack(tx, u, &pk, now); err != nil {
@@ -363,18 +379,21 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			return tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error
 		}
 		if err := orderPlan(tx, o, &p); err != nil {
-			return commandInputError{"套餐 " + o.PlanName + " 已删除，请联系管理员处理"}
+			if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errOrderTerms) {
+				return commandInputError{"套餐不可用或订单权益无效，请联系管理员处理"}
+			}
+			return err
 		}
-		switch {
-		case o.UserID != "" && tx.First(u, "id = ? AND is_service = ?", o.UserID, false).Error == nil:
-		case o.TelegramID != 0 && tx.First(u, "telegram_id = ? AND is_service = ?", o.TelegramID, false).Error == nil:
-		default:
+		if e := lockOrderUser(tx, o, u); e != nil {
+			if !errors.Is(e, gorm.ErrRecordNotFound) {
+				return e
+			}
 			if !autoCreate {
 				return commandInputError{"没有可开通的账号"}
 			}
-			nu, err := shopNewUser(tx, o, prefix)
-			if err != nil {
-				return err
+			nu, e := shopNewUser(tx, o, prefix)
+			if e != nil {
+				return e
 			}
 			u, created = nu, true
 		}
@@ -563,7 +582,7 @@ func (s *Server) cancelOrder(tgID int64, id string) (*store.Order, error) {
 	return &o, nil
 }
 
-var orderStatusName = map[string]string{"pending": "待支付", "paid": "已支付", "expired": "已过期", "failed": "已付款但开通失败", "refunded": "已退款", "cancelled": "已取消"}
+var orderStatusName = map[string]string{"pending": "待支付", "processing": "已收款待交付", "refund_pending": "退款处理中", "paid": "已支付", "expired": "已过期", "failed": "已付款但开通失败", "refunded": "已退款", "cancelled": "已取消"}
 
 // --- admin API ---
 
@@ -618,12 +637,40 @@ func (s *Server) listOrders(c *gin.Context) {
 		sums[i].Total += v
 		sums[i].Count++
 	}
+	orderIDs := make([]string, 0, len(os))
+	for _, o := range os {
+		orderIDs = append(orderIDs, o.ID)
+	}
+	receipts := map[string]store.PaymentReceipt{}
+	refunds := map[string]store.RefundJob{}
+	if len(orderIDs) > 0 {
+		var ps []store.PaymentReceipt
+		var rs []store.RefundJob
+		if e := s.st.DB.Where("order_id IN ?", orderIDs).Find(&ps).Error; e != nil {
+			serverError(c, e)
+			return
+		}
+		if e := s.st.DB.Where("order_id IN ?", orderIDs).Find(&rs).Error; e != nil {
+			serverError(c, e)
+			return
+		}
+		for _, p := range ps {
+			old, ok := receipts[p.OrderID]
+			if !ok || old.Status == "done" {
+				receipts[p.OrderID] = p
+			}
+		}
+		for _, r := range rs {
+			refunds[r.OrderID] = r
+		}
+	}
 	cut := time.Now().Add(-orderDeleteGrace)
 	for i := range os {
 		os[i].Web = os[i].WebKey != ""
-		os[i].Deletable = slices.Contains(deletableOrders, os[i].Status) && os[i].PayRef == nil && os[i].ExpiresAt.Before(cut)
+		_, hasReceipt := receipts[os[i].ID]
+		os[i].Deletable = slices.Contains(deletableOrders, os[i].Status) && os[i].PayRef == nil && os[i].ExpiresAt.Before(cut) && !hasReceipt
 	}
-	c.JSON(http.StatusOK, gin.H{"items": os, "total": total, "usernames": names, "revenue": sums, "status": s.shopStatus()})
+	c.JSON(http.StatusOK, gin.H{"items": os, "total": total, "usernames": names, "revenue": sums, "status": s.shopStatus(), "paymentRecovery": receipts, "refundRecovery": refunds})
 }
 
 // ordersToday counts today's paid orders (panel local time) and sums them
@@ -697,7 +744,7 @@ func (s *Server) deleteOrders(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	// A day's grace: an EPay callback or a USDT transfer for an order that
 	// just closed still pays it, and needs the order to be there.
-	q := s.st.DB.Where("status IN ? AND pay_ref IS NULL AND expires_at < ?", deletableOrders, time.Now().Add(-orderDeleteGrace))
+	q := s.st.DB.Where("status IN ? AND pay_ref IS NULL AND expires_at < ? AND id NOT IN (?)", deletableOrders, time.Now().Add(-orderDeleteGrace), s.st.DB.Model(&store.PaymentReceipt{}).Select("order_id"))
 	switch st := c.Query("status"); {
 	case len(req.IDs) > 0:
 		if len(req.IDs) > 5000 {
@@ -727,28 +774,16 @@ func (s *Server) deleteOrders(c *gin.Context) {
 // Telegram Stars order. The plan it started is left as it is; adjust the
 // user if the refund should take it back.
 func (s *Server) refundOrder(c *gin.Context) {
+	if err := s.requestRefund(c.Param("id"), c.GetString("admin")); err != nil {
+		badRequest(c, err)
+		return
+	}
+	s.processRefund(c.Param("id"))
 	var o store.Order
 	if err := s.st.DB.First(&o, "id = ?", c.Param("id")).Error; err != nil {
-		dbError(c, err)
+		serverError(c, err)
 		return
 	}
-	if o.Method != payStars || o.Status != "paid" || o.PayRef == nil || !strings.HasPrefix(*o.PayRef, "stars:") {
-		badRequest(c, errors.New("只能退款已支付的 Telegram Stars 订单"))
-		return
-	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
-	defer cancel()
-	if err := s.tg.call(ctx, "refundStarPayment", map[string]any{"user_id": o.TelegramID,
-		"telegram_payment_charge_id": strings.TrimPrefix(*o.PayRef, "stars:")}, nil); err != nil {
-		badRequest(c, fmt.Errorf("Telegram 退款失败：%v", err))
-		return
-	}
-	s.st.DB.Model(&store.Order{}).Where("id = ?", o.ID).Update("status", "refunded")
-	s.auditCtx(c, "order.refund", o.ID, o.Amount+" XTR")
-	if s.tg.isRunning() {
-		s.tg.send(o.TelegramID, fmt.Sprintf("↩️ 订单 <code>%s</code> 已退款 %s ⭐", o.ID, o.Amount))
-	}
-	o.Status = "refunded"
 	c.JSON(http.StatusOK, o)
 }
 

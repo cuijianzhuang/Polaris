@@ -95,11 +95,12 @@ type Agent struct {
 	queue   []*polarisv1.TrafficBatch
 	// epoch and nextSeq number the batches so the panel can drop repeats
 	// for good (see TrafficBatch.seq). Saved with the queue.
-	epoch       string
-	nextSeq     uint64
-	queueDirty  bool // memory differs from the durable queue; never upload until persisted
-	queueWarnAt time.Time
-	flushMu     sync.Mutex // one upload at a time; queueMu is not held over the network
+	epoch        string
+	nextSeq      uint64
+	queueDropped uint64 // discarded batches during this process lifetime
+	queueDirty   bool   // memory differs from the durable queue; never upload until persisted
+	queueWarnAt  time.Time
+	flushMu      sync.Mutex // one upload at a time; queueMu is not held over the network
 
 	sendMu  sync.Mutex
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
@@ -304,7 +305,7 @@ func (a *Agent) send(m *polarisv1.AgentMessage) error {
 func (a *Agent) appliedRev() int64 { return a.rev.Load() }
 
 func (a *Agent) sendHeartbeat() error {
-	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample(), Arch: runtime.GOARCH}
+	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample(), Arch: runtime.GOARCH, TrafficQueue: a.trafficQueueStatus()}
 	if a.ips != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Get(ctx)
@@ -596,6 +597,7 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 	a.nextSeq++
 	a.queue = append(a.queue, b)
 	if len(a.queue) > 50000 { // ~5 days at 10s; drop oldest beyond that
+		a.queueDropped += uint64(len(a.queue) - 50000)
 		if a.log != nil {
 			a.log.Error("traffic queue capacity exceeded; dropping oldest unconfirmed batches", "dropped", len(a.queue)-50000)
 		}
@@ -841,4 +843,14 @@ func (a *Agent) serveAuth(ctx context.Context) {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		a.log.Error("auth callback server", "err", err)
 	}
+}
+
+func (a *Agent) trafficQueueStatus() *polarisv1.TrafficQueueStatus {
+	a.queueMu.Lock()
+	defer a.queueMu.Unlock()
+	st := &polarisv1.TrafficQueueStatus{PendingBatches: uint32(len(a.queue)), PersistenceFailed: a.queueDirty, DroppedBatches: a.queueDropped}
+	if len(a.queue) > 0 {
+		st.OldestUnackedAt = a.queue[0].CollectedAt
+	}
+	return st
 }

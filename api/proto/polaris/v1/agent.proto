@@ -74,6 +74,8 @@ message Heartbeat {
   // Users under a per-user speed limit on this node, with their current
   // speed. Empty from older agents.
   repeated LimitedUser limited = 8;
+  // Absent from older agents; counters are scoped to this agent process.
+  TrafficQueueStatus traffic_queue = 9;
 }
 
 message LimitedUser {
@@ -190,4 +192,11 @@ message UserTraffic {
 
 message ReportTrafficResponse {
   repeated string accepted_batch_ids = 1;
+}
+
+message TrafficQueueStatus {
+  uint32 pending_batches = 1;
+  int64 oldest_unacked_at = 2;
+  bool persistence_failed = 3;
+  uint64 dropped_batches = 4;
 }

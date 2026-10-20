@@ -96,16 +96,16 @@ func (s *Server) requestPanelUpdate(target, who string, thenAgents bool) error {
 		return errUpdatePending
 	}
 	s.st.SetSetting("update_then_agents", strconv.FormatBool(thenAgents))
-	if err := s.writeUpdateRequest(target); err != nil {
+	if s.bus != nil {
+		if _, err := s.queueClusterOperation("update", target, true); err != nil {
+			return fmt.Errorf("保存集群升级请求失败：%w", err)
+		}
+		s.processClusterOperations()
+	} else if err := s.writeUpdateRequest(target); err != nil {
 		return fmt.Errorf("写入升级请求失败：%w", err)
 	}
 	s.audit(who, "panel.update_request", target, map[bool]string{true: "panel + agents", false: "panel"}[thenAgents], "")
-	if s.bus != nil {
-		// Every instance updates its own machine.
-		if err := s.bus.publish(topicUpdate, target); err != nil {
-			s.log.Warn("ask other instances to update", "err", err)
-		}
-	}
+
 	return nil
 }
 
