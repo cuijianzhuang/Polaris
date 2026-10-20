@@ -31,11 +31,11 @@ function DefaultVersion({ label, type, value, onChange }: { label: string; type:
   )
 }
 
-type BackupInfo = { supported: boolean; db: string; dbSize: number; dir: string; encrypted: boolean; targets: string[] | null
+type BackupInfo = { supported: boolean; db: string; dbSize: number; dir: string; store?: string; storeError?: string; encrypted: boolean; targets: string[] | null
   files: { name: string; size: number; created: string; encrypted: boolean }[] }
 
 const backupKeys = ['backup_schedule', 'backup_hour', 'backup_keep', 'backup_tg', 'backup_webdav_url', 'backup_webdav_user',
-  'backup_s3_endpoint', 'backup_s3_region', 'backup_s3_bucket', 'backup_s3_prefix', 'backup_s3_access_key'] as const
+  'backup_s3_endpoint', 'backup_s3_region', 'backup_s3_bucket', 'backup_s3_prefix', 'backup_s3_access_key', 'backup_store', 'backup_s3_path_style'] as const
 const secretKeys = ['backup_passphrase', 'backup_webdav_pass', 'backup_s3_secret_key'] as const
 const targetLabel: Record<string, string> = { telegram: 'Telegram', webdav: 'WebDAV', s3: 'S3' }
 
@@ -83,6 +83,28 @@ function Backups() {
   }, t('备份设置已保存'))
   const isSet = (k: string) => !!s.data?.[k + '_set']
   const d = info.data
+  const inS3 = f.backup_store === 's3'
+  const testS3 = () => run(async () => {
+    const r = await post<{ ok: boolean; error?: string }>('/backup/store/test', {
+      endpoint: f.backup_s3_endpoint, region: f.backup_s3_region, bucket: f.backup_s3_bucket, prefix: f.backup_s3_prefix,
+      accessKey: f.backup_s3_access_key, secretKey: sec.backup_s3_secret_key ?? '', pathStyle: f.backup_s3_path_style !== 'false',
+    })
+    if (!r.ok) throw new Error(t('连接失败：{err}', { err: r.error ?? '' }))
+  }, t('S3 连接正常：写入、读取、列出、删除都成功'))
+  const s3Fields = (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div className="form-grid">
+        <Field label={t('S3 端点')} hint={t('AWS 留空；Cloudflare R2：https://<账户 ID>.r2.cloudflarestorage.com；MinIO / B2 填其地址')}><input className="input mono" value={f.backup_s3_endpoint || ''} placeholder="https://s3.amazonaws.com" onChange={(e) => set('backup_s3_endpoint', e.target.value.trim())} /></Field>
+        <Field label={t('区域')} hint={t('R2 填 auto')}><input className="input mono" value={f.backup_s3_region || ''} placeholder="us-east-1" onChange={(e) => set('backup_s3_region', e.target.value.trim())} /></Field>
+        <Field label={t('存储桶')}><input className="input mono" value={f.backup_s3_bucket || ''} onChange={(e) => set('backup_s3_bucket', e.target.value.trim())} /></Field>
+        <Field label={t('路径前缀')} hint={t('如 polaris/')}><input className="input mono" value={f.backup_s3_prefix || ''} onChange={(e) => set('backup_s3_prefix', e.target.value.trim())} /></Field>
+        <Field label="Access Key ID"><input className="input mono" value={f.backup_s3_access_key || ''} onChange={(e) => set('backup_s3_access_key', e.target.value.trim())} /></Field>
+        <Field label="Secret Access Key" hint={isSet('backup_s3_secret_key') ? t('已保存（留空不修改）') : undefined}><input className="input mono" type="password" autoComplete="off" value={sec.backup_s3_secret_key ?? ''} onChange={(e) => setSec({ ...sec, backup_s3_secret_key: e.target.value })} /></Field>
+      </div>
+      <div className="toggle"><span>{t('路径风格地址（端点/存储桶/文件，MinIO 等需要；关闭则用「存储桶.端点」）')}</span><Switch label={t('路径风格地址')} on={f.backup_s3_path_style !== 'false'} onChange={(v) => set('backup_s3_path_style', String(v))} /></div>
+      <div className="row"><button className="btn sm" type="button" disabled={busy} onClick={testS3}>{t('测试连接')}</button></div>
+    </div>
+  )
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -102,6 +124,16 @@ function Backups() {
           <input className="input mono" type="password" autoComplete="new-password" value={sec.backup_passphrase ?? ''} placeholder={isSet('backup_passphrase') ? '••••••••' : t('不加密')} onChange={(e) => setSec({ ...sec, backup_passphrase: e.target.value })} />
         </Field>
       </div>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <Field label={t('备份存储位置')} hint={inS3 ? t('备份直接存到 S3 对象存储，每个主控实例都能列出、下载和恢复') : t('备份保存在本机数据目录')}>
+          <select className="input" value={inS3 ? 's3' : 'local'} onChange={(e) => set('backup_store', e.target.value)}>
+            <option value="local">{t('本机')}</option><option value="s3">{t('S3 对象存储')}</option>
+          </select>
+        </Field>
+        {!inS3 && d?.db === 'postgres' && <div className="note warn">{t('运行多个主控实例时，请把备份存到 S3：存在本机时，每台只能看到自己机器上的备份。')}</div>}
+        {d?.storeError && <div className="note warn">{t('备份存储不可用：{err}', { err: d.storeError })}</div>}
+        {inS3 && s3Fields}
+      </div>
       <details className="more" open={!!(d?.targets?.length)}>
         <summary>{t('推送到其他位置')}<ProTag on={pushOK} />{d?.targets?.length ? `（${d.targets.map((x) => targetLabel[x] ?? x).join(t('、'))}）` : ''}</summary>
         <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
@@ -113,14 +145,7 @@ function Backups() {
             <Field label={t('WebDAV 用户名')}><input className="input mono" value={f.backup_webdav_user || ''} onChange={(e) => set('backup_webdav_user', e.target.value.trim())} /></Field>
             <Field label={t('WebDAV 密码')} hint={isSet('backup_webdav_pass') ? t('已保存（留空不修改）') : t('应用密码')}><input className="input mono" type="password" autoComplete="off" value={sec.backup_webdav_pass ?? ''} onChange={(e) => setSec({ ...sec, backup_webdav_pass: e.target.value })} /></Field>
           </div>
-          <div className="form-grid">
-            <Field label={t('S3 端点')} hint={t('AWS 留空；Cloudflare R2：https://<账户 ID>.r2.cloudflarestorage.com；MinIO / B2 填其地址')}><input className="input mono" value={f.backup_s3_endpoint || ''} placeholder="https://s3.amazonaws.com" onChange={(e) => set('backup_s3_endpoint', e.target.value.trim())} /></Field>
-            <Field label={t('区域')} hint={t('R2 填 auto')}><input className="input mono" value={f.backup_s3_region || ''} placeholder="us-east-1" onChange={(e) => set('backup_s3_region', e.target.value.trim())} /></Field>
-            <Field label={t('存储桶')}><input className="input mono" value={f.backup_s3_bucket || ''} onChange={(e) => set('backup_s3_bucket', e.target.value.trim())} /></Field>
-            <Field label={t('路径前缀')} hint={t('如 polaris/')}><input className="input mono" value={f.backup_s3_prefix || ''} onChange={(e) => set('backup_s3_prefix', e.target.value.trim())} /></Field>
-            <Field label="Access Key ID"><input className="input mono" value={f.backup_s3_access_key || ''} onChange={(e) => set('backup_s3_access_key', e.target.value.trim())} /></Field>
-            <Field label="Secret Access Key" hint={isSet('backup_s3_secret_key') ? t('已保存（留空不修改）') : undefined}><input className="input mono" type="password" autoComplete="off" value={sec.backup_s3_secret_key ?? ''} onChange={(e) => setSec({ ...sec, backup_s3_secret_key: e.target.value })} /></Field>
-          </div>
+          {inS3 ? <div className="hint">{t('S3 已用作备份存储，不再重复推送到 S3。')}</div> : s3Fields}
         </div>
       </details>
       <div className="row">

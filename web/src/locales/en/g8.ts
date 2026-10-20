@@ -285,5 +285,18 @@ const m: Record<string, string> = {
   "高级月付": "Premium monthly",
   "¥{n}/月": "¥{n}/mo",
   "¥{n}/年": "¥{n}/yr",
+  "连接失败：{err}": "Connection failed: {err}",
+  "S3 连接正常：写入、读取、列出、删除都成功": "S3 works: write, read, list and delete all succeeded",
+  "路径风格地址（端点/存储桶/文件，MinIO 等需要；关闭则用「存储桶.端点」）": "Path-style URLs (endpoint/bucket/file, needed by MinIO and others; off uses bucket.endpoint)",
+  "路径风格地址": "Path-style URLs",
+  "测试连接": "Test connection",
+  "备份存储位置": "Backup storage",
+  "备份直接存到 S3 对象存储，每个主控实例都能列出、下载和恢复": "Backups are stored in S3 object storage; every panel instance can list, download and restore them",
+  "备份保存在本机数据目录": "Backups are kept in this server's data directory",
+  "本机": "This server",
+  "S3 对象存储": "S3 object storage",
+  "运行多个主控实例时，请把备份存到 S3：存在本机时，每台只能看到自己机器上的备份。": "When running several panel instances, store backups in S3: with local storage each instance only sees the backups on its own server.",
+  "备份存储不可用：{err}": "Backup storage unavailable: {err}",
+  "S3 已用作备份存储，不再重复推送到 S3。": "S3 is the backup storage, so backups are not pushed to S3 again.",
 }
 export default m

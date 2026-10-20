@@ -14,7 +14,8 @@ func (s *Server) pushTargets() []string {
 	if s.st.GetSetting("backup_webdav_url", "") != "" {
 		out = append(out, "webdav")
 	}
-	if s.st.GetSetting("backup_s3_bucket", "") != "" && s.st.GetSetting("backup_s3_access_key", "") != "" {
+	// Skipped when the bucket is already the backup store.
+	if s.st.GetSetting("backup_store", "local") != "s3" && s.st.GetSetting("backup_s3_bucket", "") != "" && s.st.GetSetting("backup_s3_access_key", "") != "" {
 		out = append(out, "s3")
 	}
 	return out
