@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,68 +29,43 @@ var (
 const oauthTTL = 10 * time.Minute
 
 type oauthState struct {
-	mode     string // login / bind
-	adminID  string // bind: the signed-in admin
-	provider string // SSO provider id ("" = GitHub)
-	verifier string // SSO: PKCE code verifier
-	expires  time.Time
+	Mode     string `json:"m"`           // login / bind
+	AdminID  string `json:"a,omitempty"` // bind: the signed-in admin
+	Provider string `json:"p,omitempty"` // SSO provider id ("" = GitHub)
+	Verifier string `json:"v,omitempty"` // SSO: PKCE code verifier
 }
 
 type oauthTicket struct {
-	adminID string
-	expires time.Time
+	AdminID string `json:"a"`
 }
 
-type githubAuth struct {
-	mu      sync.Mutex
-	states  map[string]oauthState
-	tickets map[string]oauthTicket // GitHub verified, TOTP still required
-}
+// githubAuth keeps OAuth states and TOTP tickets in the shared store: the
+// provider may send the browser back to another panel instance.
+type githubAuth struct{ eph *ephStore }
 
 func (g *githubAuth) put(st oauthState) string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.states == nil {
-		g.states = map[string]oauthState{}
-	}
-	now := time.Now()
-	for k, v := range g.states {
-		if now.After(v.expires) {
-			delete(g.states, k)
-		}
-	}
 	key := pki.Token(24)
-	st.expires = now.Add(oauthTTL)
-	g.states[key] = st
+	_ = g.eph.put("oauth:"+key, st, oauthTTL)
 	return key
 }
 
 // take consumes a state (single use).
 func (g *githubAuth) take(key string) (oauthState, bool) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st, ok := g.states[key]
-	delete(g.states, key)
-	return st, ok && time.Now().Before(st.expires)
+	var st oauthState
+	ok := key != "" && g.eph.take("oauth:"+key, &st)
+	return st, ok
 }
 
 func (g *githubAuth) ticket(adminID string) string {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.tickets == nil {
-		g.tickets = map[string]oauthTicket{}
-	}
 	key := pki.Token(24)
-	g.tickets[key] = oauthTicket{adminID: adminID, expires: time.Now().Add(5 * time.Minute)}
+	_ = g.eph.put("ticket:"+key, oauthTicket{AdminID: adminID}, 5*time.Minute)
 	return key
 }
 
 func (g *githubAuth) takeTicket(key string) (string, bool) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	t, ok := g.tickets[key]
-	delete(g.tickets, key)
-	return t.adminID, ok && time.Now().Before(t.expires)
+	var t oauthTicket
+	ok := key != "" && g.eph.take("ticket:"+key, &t)
+	return t.AdminID, ok
 }
 
 func (s *Server) githubCreds() (string, string) {
@@ -125,7 +99,7 @@ func (s *Server) githubAuthURL(c *gin.Context, mode, adminID string) {
 		badRequest(c, errors.New("尚未配置 GitHub 登录：请在「设置」填写 GitHub OAuth App 的 Client ID 与 Secret"))
 		return
 	}
-	state := s.ghAuth.put(oauthState{mode: mode, adminID: adminID})
+	state := s.ghAuth.put(oauthState{Mode: mode, AdminID: adminID})
 	q := url.Values{"client_id": {id}, "redirect_uri": {s.githubCallbackURL(c.Request)}, "state": {state}, "scope": {"read:user"}, "allow_signup": {"false"}}
 	c.JSON(http.StatusOK, gin.H{"url": ghOAuthWeb + "/login/oauth/authorize?" + q.Encode()})
 }
@@ -181,7 +155,7 @@ func (s *Server) githubCallback(c *gin.Context) {
 	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(c.Request, page, fragment)) }
 	fail := func(msg string) { back("gh_error=" + url.QueryEscape(msg)) }
 	st, ok := s.ghAuth.take(c.Query("state"))
-	if ok && st.mode == "bind" {
+	if ok && st.Mode == "bind" {
 		page = "settings" // the bind result is shown where binding started
 	}
 	if !ok {
@@ -197,15 +171,15 @@ func (s *Server) githubCallback(c *gin.Context) {
 		fail(err.Error())
 		return
 	}
-	switch st.mode {
+	switch st.Mode {
 	case "bind":
 		var other store.Admin
-		if s.st.DB.Where("git_hub_id = ? AND id <> ?", gu.ID, st.adminID).First(&other).Error == nil {
+		if s.st.DB.Where("git_hub_id = ? AND id <> ?", gu.ID, st.AdminID).First(&other).Error == nil {
 			fail("该 GitHub 账号已绑定管理员 " + other.Username)
 			return
 		}
 		var a store.Admin
-		if s.st.DB.First(&a, "id = ?", st.adminID).Error != nil {
+		if s.st.DB.First(&a, "id = ?", st.AdminID).Error != nil {
 			fail("管理员不存在")
 			return
 		}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,9 +49,9 @@ type Server struct {
 	log         *slog.Logger
 	hub         *Hub
 	traffic     *trafficInbox
-	tgLogins    tgLoginCodes // one-time Telegram sign-in codes
-	tgWeb       tgWebLogins  // login-page Telegram sign-in requests
-	portalWeb   tgWebLogins  // user center Telegram sign-in requests
+	eph         *ephStore   // short-lived values shared by every instance (sign-in codes, OAuth states)
+	tgWeb       tgWebLogins // login-page Telegram sign-in requests
+	portalWeb   tgWebLogins // user center Telegram sign-in requests
 	hbMu        sync.Mutex
 	restartHook func()                              // tests: replaces the re-exec after a restore
 	hbCores     map[string]hbCoreState              // last core state written per node
@@ -75,12 +76,14 @@ type Server struct {
 	// in memory, or in Redis when redis_url is set (several instances).
 	shared sharedState
 
-	procID string      // this process, for the leader lease
-	leader atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
-	bus    *clusterBus // messages between instances (PostgreSQL only)
-	presMu sync.Mutex
-	presAt map[string]time.Time // last presence refresh per node
-	specAt map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
+	procID  string      // this process, for the leader lease
+	leader  atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
+	bus     *clusterBus // messages between instances (PostgreSQL only)
+	presMu  sync.Mutex
+	presAt  map[string]time.Time // last presence refresh per node
+	specAt  map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
+	shareAt map[string]time.Time // last heartbeat state shared per node
+	rtShare atomic.Bool          // node list changed here: tell the other instances
 
 	subLimit     *sharedLimiter
 	shopLimit    *sharedLimiter
@@ -137,12 +140,29 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
 	s.procID = store.NewID()
+	s.eph = &ephStore{db: st.DB, box: box}
+	s.ghAuth = githubAuth{eph: s.eph}
+	s.callbacks = callbackStore{eph: s.eph}
+	s.tgWeb = tgWebLogins{eph: s.eph, name: "tgweb"}
+	s.portalWeb = tgWebLogins{eph: s.eph, name: "portalweb"}
 	s.leader.Store(s.tryLease()) // SQLite: always; PostgreSQL: if no live leader holds the lease
-	s.presAt, s.specAt = map[string]time.Time{}, map[string]time.Time{}
+	s.presAt, s.specAt, s.shareAt = map[string]time.Time{}, map[string]time.Time{}, map[string]time.Time{}
 	if st.DB.Dialector.Name() == "postgres" {
 		// Other instances may share this database: reach their agents.
 		s.bus = newClusterBus(cfg.DB.DSN, st.DB, s.procID, log)
 		s.hub.remote = newClusterHub(s, s.bus)
+		s.bus.subscribe("setting", func(from string, data []byte) {
+			var key string
+			if from != s.procID && json.Unmarshal(data, &key) == nil {
+				st.ForgetSetting(key)
+			}
+		})
+		s.bus.subscribe("nodes", func(from string, _ []byte) {
+			if from != s.procID {
+				s.rt.dirty.Store(true)
+			}
+		})
+		st.OnSettingChange = func(key string) { _ = s.bus.publish("setting", key) }
 	}
 	s.traffic = &trafficInbox{db: st.DB}
 	s.shared = newMemState()
@@ -230,6 +250,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLease(ctx)
 	if s.bus != nil {
 		go s.bus.run(ctx)
+		go s.shareNodeChanges(ctx)
 	}
 	go s.runReconciler(ctx)
 	go s.runAgentSync(ctx)
@@ -330,6 +351,7 @@ func (s *Server) startJobs() func() {
 	add("*/15 * * * * *", "offline", s.markOfflineNodes)
 	add("*/30 * * * * *", "webhooks", s.retryWebhooks)
 	add("20 * * * * *", "orders", s.expireOrders)
+	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
 	add("*/30 * * * * *", "usdt", s.pollUSDT)
 	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)

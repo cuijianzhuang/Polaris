@@ -30,6 +30,9 @@ type Store struct {
 	// middleware); SetSetting is the only writer, so reads come from memory.
 	setMu    sync.Mutex
 	settings map[string]cachedSetting
+	// OnSettingChange, when set, is called after SetSetting stores a value
+	// (other panel instances drop their cached copy).
+	OnSettingChange func(key string)
 }
 
 type cachedSetting struct {
@@ -200,7 +203,17 @@ func (s *Store) SetSetting(key, value string) error {
 		delete(s.settings, key)
 	}
 	s.setMu.Unlock()
+	if err == nil && s.OnSettingChange != nil {
+		s.OnSettingChange(key)
+	}
 	return err
+}
+
+// ForgetSetting drops a cached setting so the next read goes to the database.
+func (s *Store) ForgetSetting(key string) {
+	s.setMu.Lock()
+	delete(s.settings, key)
+	s.setMu.Unlock()
 }
 
 // Close closes the underlying database connections.

@@ -212,7 +212,7 @@ func (s *Server) ssoAuthURL(c *gin.Context, mode, adminID string) {
 		return
 	}
 	verifier, challenge := pkcePair()
-	state := s.ghAuth.put(oauthState{mode: mode, adminID: adminID, provider: p.ID, verifier: verifier})
+	state := s.ghAuth.put(oauthState{Mode: mode, AdminID: adminID, Provider: p.ID, Verifier: verifier})
 	q := url.Values{"client_id": {p.ClientID}, "redirect_uri": {s.ssoCallbackURL(c.Request)}, "response_type": {"code"},
 		"state": {state}, "code_challenge": {challenge}, "code_challenge_method": {"S256"}}
 	if p.Scopes != "" {
@@ -292,10 +292,10 @@ func (s *Server) ssoCallback(c *gin.Context) {
 	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(c.Request, page, fragment)) }
 	fail := func(msg string) { back("gh_error=" + url.QueryEscape(msg)) }
 	st, ok := s.ghAuth.take(c.Query("state"))
-	if ok && st.mode == "bind" {
+	if ok && st.Mode == "bind" {
 		page = "settings"
 	}
-	if !ok || st.provider == "" {
+	if !ok || st.Provider == "" {
 		fail("登录请求已过期，请重试")
 		return
 	}
@@ -304,25 +304,25 @@ func (s *Server) ssoCallback(c *gin.Context) {
 		return
 	}
 	var p store.SSOProvider
-	if s.st.DB.First(&p, "id = ?", st.provider).Error != nil {
+	if s.st.DB.First(&p, "id = ?", st.Provider).Error != nil {
 		fail("登录方式已被删除")
 		return
 	}
-	subject, login, err := s.ssoIdentity(c.Request.Context(), &p, c.Query("code"), st.verifier, s.ssoCallbackURL(c.Request))
+	subject, login, err := s.ssoIdentity(c.Request.Context(), &p, c.Query("code"), st.Verifier, s.ssoCallbackURL(c.Request))
 	if err != nil {
 		fail(err.Error())
 		return
 	}
 	ip := clientIP(c.Request)
-	switch st.mode {
+	switch st.Mode {
 	case "bind":
 		var other store.SSOBinding
-		if s.st.DB.First(&other, "provider_id = ? AND subject = ? AND admin_id <> ?", p.ID, subject, st.adminID).Error == nil {
+		if s.st.DB.First(&other, "provider_id = ? AND subject = ? AND admin_id <> ?", p.ID, subject, st.AdminID).Error == nil {
 			fail("该 " + p.Name + " 账号已绑定其他管理员")
 			return
 		}
-		s.st.DB.Where("provider_id = ? AND admin_id = ?", p.ID, st.adminID).Delete(&store.SSOBinding{})
-		s.st.DB.Create(&store.SSOBinding{ProviderID: p.ID, Subject: subject, AdminID: st.adminID, Login: login, CreatedAt: time.Now()})
+		s.st.DB.Where("provider_id = ? AND admin_id = ?", p.ID, st.AdminID).Delete(&store.SSOBinding{})
+		s.st.DB.Create(&store.SSOBinding{ProviderID: p.ID, Subject: subject, AdminID: st.AdminID, Login: login, CreatedAt: time.Now()})
 		s.audit("system", "admin.sso_bind", p.Name, login, ip)
 		back("sso_bound=" + url.QueryEscape(p.Name+" · "+login))
 	default:

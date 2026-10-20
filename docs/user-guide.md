@@ -775,6 +775,32 @@ Docker 或手动部署时，先停止主控，再用面板程序执行 `migrate 
 
 PostgreSQL 地址可以写成 `postgres://` / `postgresql://` URL，也可以写成 `host=… user=… dbname=…` 形式。每个主控实例最多使用 20 个数据库连接。
 
+<a id="multi-instance"></a>
+
+### 多个主控实例（高可用）
+
+几台服务器上的主控连同一个 PostgreSQL，前面放负载均衡，任意一台宕机，后台、订阅和节点都不受影响。
+
+**要求**
+- 数据库必须是 PostgreSQL（SQLite 只能单实例）。Redis 可选，配置后在线 IP、限流计数、告警去重也会在实例间共享。
+- 每台的 `POLARIS_SECRET_KEY`、`POLARIS_DB_DSN`、`POLARIS_PUBLIC_URL` 必须相同；`POLARIS_AGENT_HOSTS` 写负载均衡对外的域名或 IP。
+- 内部 CA 证书存在数据库里，新加的实例不用复制数据目录。
+
+**新增一台**：在新服务器上一键安装时选「PostgreSQL（已有）」并填同一个数据库地址，装好后把 `/etc/polaris/polaris.env` 里的 `POLARIS_SECRET_KEY`、`POLARIS_PUBLIC_URL`、`POLARIS_AGENT_HOSTS` 改成和第一台一样，再 `polaris restart`。
+
+**负载均衡**
+| 端口 | 方式 | 说明 |
+|---|---|---|
+| 后台 / 订阅（443 或面板端口） | HTTP(S) 七层，任意分发 | 不需要会话保持；后台实时推送用 WebSocket，代理需支持 |
+| 节点接入（默认 9443） | **TCP 四层透传** | 节点使用双向 TLS 和长连接，不能在负载均衡上解开 TLS |
+
+**各实例如何分工**
+- 实例之间自动选出一台「主实例」，它负责全部定时任务（流量结算、到期处理、提醒、备份、证书续期、DDNS 等）和 Telegram 机器人收消息；主实例停止或宕机后，其他实例 15 秒内接管。每台都能发 Telegram 通知。
+- 节点连在哪台都可以。在任何一台后台改配置、重启内核、看日志，都会转发给节点所连的那台执行；节点在线状态、安装进度、限速状态在每台后台都能看到。
+- 登录码（Telegram 登录、GitHub / SSO 登录、订阅转换回调）在任何一台生成，都能在另一台使用，且只能用一次。设置修改会立刻同步到所有实例。
+
+**仍按实例分开的**：节点 agent 安装包缓存、Geo 文件、备份文件仍保存在各自的数据目录。定时备份只在主实例上生成，建议开启备份推送（S3 / WebDAV / Telegram）。
+
 <a id="license"></a>
 
 ## 14. 专业版与许可证

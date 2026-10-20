@@ -43,9 +43,9 @@ type tgBot struct {
 	base    string
 	me      string // bot username
 	selfID  int64  // stable bot identity, even when the username changes
+	meToken string // token me was learnt with (instances that do not poll)
 	lastErr string
 	running bool
-	codes   map[string]bindCode // one-time admin bind codes
 }
 
 type bindCode struct {
@@ -56,7 +56,13 @@ type bindCode struct {
 }
 
 func newTGBot(s *Server) *tgBot {
-	return &tgBot{s: s, http: &http.Client{Timeout: 70 * time.Second}, codes: map[string]bindCode{}}
+	return &tgBot{s: s, http: &http.Client{Timeout: 70 * time.Second}}
+}
+
+// putBindCode stores a one-time admin bind code in the shared store: the
+// admin UI of any instance issues it, the leader's bot redeems it.
+func (b *tgBot) putBindCode(code string, c bindCode) {
+	_ = b.s.eph.put("tgbind:"+strings.ToUpper(code), c, time.Until(c.Expires))
 }
 
 // --- Bot API ---
@@ -252,13 +258,31 @@ func (b *tgBot) run(ctx context.Context) {
 		b.mu.Unlock()
 		if !b.s.isLeader() {
 			// Only one instance may poll a bot (Telegram answers the others
-			// with a conflict); the leader does.
+			// with a conflict); the leader does. This one still needs the
+			// bot's name for sign-in links.
 			b.setRunning(false, "")
+			b.learnName(ctx, token)
 			sleep(ctx, 5*time.Second)
 			continue
 		}
 		b.poll(ctx, token, base)
 		sleep(ctx, 3*time.Second)
+	}
+}
+
+// learnName fills in the bot's username on an instance that does not poll.
+func (b *tgBot) learnName(ctx context.Context, token string) {
+	b.mu.Lock()
+	known := b.me != "" && b.meToken == token
+	b.mu.Unlock()
+	if known {
+		return
+	}
+	var me tgUser
+	if b.call(ctx, "getMe", map[string]any{}, &me) == nil {
+		b.mu.Lock()
+		b.me, b.selfID, b.meToken = me.Username, me.ID, token
+		b.mu.Unlock()
 	}
 }
 
@@ -548,17 +572,8 @@ func (b *tgBot) bind(chat int64, from tgUser, arg string, id tgIdentity) {
 		b.send(chat, "用法：<code>/bind 订阅链接</code>（管理员使用后台生成的绑定码）")
 		return
 	}
-	b.mu.Lock()
-	code, isCode := b.codes[strings.ToUpper(arg)]
-	if isCode {
-		delete(b.codes, strings.ToUpper(arg))
-	}
-	b.mu.Unlock()
-	if isCode {
-		if time.Now().After(code.Expires) {
-			b.send(chat, "绑定码已过期，请在后台重新生成")
-			return
-		}
+	var code bindCode
+	if isCode := b.s.eph.take("tgbind:"+strings.ToUpper(arg), &code); isCode {
 		name := orDefault(code.Name, orDefault(from.Username, from.FirstName))
 		a := store.TGAdmin{ID: store.NewID(), ChatID: chat, Name: name, Role: code.Role, NodeIDs: store.NewJSON(nonNilStrs(code.NodeIDs)), Notify: true}
 		if id.admin != nil {
@@ -950,8 +965,8 @@ func (s *Server) tgBindCode(c *gin.Context) {
 		return
 	}
 	code := strings.ToUpper(pki.Password(10))
+	s.tg.putBindCode(code, bindCode{Role: req.Role, Name: req.Name, NodeIDs: req.NodeIDs, Expires: time.Now().Add(10 * time.Minute)})
 	s.tg.mu.Lock()
-	s.tg.codes[code] = bindCode{Role: req.Role, Name: req.Name, NodeIDs: req.NodeIDs, Expires: time.Now().Add(10 * time.Minute)}
 	me := s.tg.me
 	s.tg.mu.Unlock()
 	s.auditCtx(c, "tg.bind_code", req.Role, req.Name)

@@ -139,7 +139,7 @@ func TestTelegramIgnoresGroupChats(t *testing.T) {
 		return map[string]any{"message": map[string]any{"message_id": 1, "from": map[string]any{"id": from},
 			"chat": map[string]any{"id": chat, "type": "supergroup"}, "text": text}}
 	}
-	s.tg.codes["OWNERCODE1"] = bindCode{Role: "owner", Expires: time.Now().Add(time.Minute)}
+	s.tg.putBindCode("OWNERCODE1", bindCode{Role: "owner", Expires: time.Now().Add(time.Minute)})
 	fake.push(group(-1001, 100, "/bind OWNERCODE1"))
 	fake.push(group(-1001, 555, "/users alice"))
 	waitUntil(t, "refusal", func() bool { return strings.Count(fake.textsTo(-1001), "请私聊") == 2 })

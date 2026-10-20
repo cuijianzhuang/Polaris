@@ -264,3 +264,47 @@ func (s *Server) presenceDown(nodeID string) {
 	s.presMu.Unlock()
 	s.st.DB.Where("node_id = ? AND instance_id = ?", nodeID, s.procID).Delete(&store.AgentPresence{})
 }
+
+// shareNodeChanges tells the other instances, at most every 2 seconds, that
+// the node list changed here (their admin pages refresh from the database).
+func (s *Server) shareNodeChanges(ctx context.Context) {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if s.rtShare.Swap(false) {
+				_ = s.bus.publish("nodes", nil)
+			}
+		}
+	}
+}
+
+// shareHeartbeatState stores what only the instance holding a node's stream
+// knows (install progress, users under a speed limit) for the others, at most
+// every 5 seconds per node unless force (a progress step finished or failed).
+func (s *Server) shareHeartbeatState(nodeID, kind string, v any, force bool) {
+	if s.hub.remote == nil {
+		return
+	}
+	k := kind + ":" + nodeID
+	s.presMu.Lock()
+	due := force || time.Since(s.shareAt[k]) >= 5*time.Second
+	if due {
+		s.shareAt[k] = time.Now()
+	}
+	s.presMu.Unlock()
+	if due {
+		_ = s.eph.put("hb:"+k, v, 15*time.Minute)
+	}
+}
+
+// remoteHeartbeatState reads what another instance shared for a node.
+func (s *Server) remoteHeartbeatState(nodeID, kind string, v any) bool {
+	if s.hub.remote == nil || s.hub.Local(nodeID) {
+		return false
+	}
+	return s.eph.get("hb:"+kind+":"+nodeID, v)
+}

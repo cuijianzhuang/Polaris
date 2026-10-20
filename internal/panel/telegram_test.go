@@ -128,8 +128,8 @@ func TestTelegramBot(t *testing.T) {
 	go s.tg.runNotifications(ctx, s.tgEvents)
 	waitUntil(t, "bot running", s.tg.isRunning)
 
-	s.tg.codes["OWNERCODE1"] = bindCode{Role: "owner", Name: "boss", Expires: time.Now().Add(time.Minute)}
-	s.tg.codes["OPERCODE01"] = bindCode{Role: "operator", NodeIDs: []string{"n2"}, Expires: time.Now().Add(time.Minute)}
+	s.tg.putBindCode("OWNERCODE1", bindCode{Role: "owner", Name: "boss", Expires: time.Now().Add(time.Minute)})
+	s.tg.putBindCode("OPERCODE01", bindCode{Role: "operator", NodeIDs: []string{"n2"}, Expires: time.Now().Add(time.Minute)})
 	fake.push(msg(100, "/bind OWNERCODE1"))
 	fake.push(msg(300, "/bind opercode01"))
 	fake.push(msg(200, "/bind https://panel.example.com/sub/alice-subscription-token"))
