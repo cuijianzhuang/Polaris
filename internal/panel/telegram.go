@@ -248,8 +248,15 @@ func (b *tgBot) run(ctx context.Context) {
 			continue
 		}
 		b.mu.Lock()
-		b.token, b.base = token, base
+		b.token, b.base = token, base // notifications go out from every instance
 		b.mu.Unlock()
+		if !b.s.isLeader() {
+			// Only one instance may poll a bot (Telegram answers the others
+			// with a conflict); the leader does.
+			b.setRunning(false, "")
+			sleep(ctx, 5*time.Second)
+			continue
+		}
 		b.poll(ctx, token, base)
 		sleep(ctx, 3*time.Second)
 	}
@@ -283,7 +290,7 @@ func (b *tgBot) poll(ctx context.Context, token, base string) {
 	b.registerCommands(ctx)
 	var offset int64
 	for ctx.Err() == nil {
-		if b.s.st.GetSetting("tg_enabled", "false") != "true" || b.s.st.Box.MustOpen(b.s.st.GetSetting("tg_token", "")) != token ||
+		if !b.s.isLeader() || b.s.st.GetSetting("tg_enabled", "false") != "true" || b.s.st.Box.MustOpen(b.s.st.GetSetting("tg_token", "")) != token ||
 			strings.TrimRight(orDefault(b.s.st.GetSetting("tg_api_base", ""), "https://api.telegram.org"), "/") != base {
 			return
 		}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 	"golang.org/x/net/http2"
+	"gorm.io/gorm/clause"
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/api/gen/polaris/v1/polarisv1connect"
@@ -74,6 +75,9 @@ type Server struct {
 	// in memory, or in Redis when redis_url is set (several instances).
 	shared sharedState
 
+	procID string      // this process, for the leader lease
+	leader atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
+
 	subLimit     *sharedLimiter
 	shopLimit    *sharedLimiter
 	callbacks    callbackStore
@@ -109,7 +113,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		return nil, err
 	}
 	applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
-	ca, err := loadOrCreateCA(cfg.DataDir, box)
+	ca, err := loadOrCreateCA(st, cfg.DataDir, box)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +132,8 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.tgEvents = tgEvents
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
+	s.procID = store.NewID()
+	s.leader.Store(s.tryLease()) // SQLite: always; PostgreSQL: if no live leader holds the lease
 	s.traffic = &trafficInbox{db: st.DB}
 	s.shared = newMemState()
 	if cfg.RedisURL != "" {
@@ -151,26 +157,55 @@ func (s *Server) ctxBG() context.Context { return s.bg }
 // Store exposes the repository (used by tests and the CLI).
 func (s *Server) Store() *store.Store { return s.st }
 
-func loadOrCreateCA(dir string, box *secret.Box) (*pki.CA, error) {
+// loadOrCreateCA returns the internal CA. It lives in the database so every
+// panel instance on it shares one CA; older installs had it only in the
+// data directory, which is imported once. The files are kept in step (the
+// backup format carries them).
+func loadOrCreateCA(st *store.Store, dir string, box *secret.Box) (*pki.CA, error) {
 	certPath, keyPath := filepath.Join(dir, "ca.crt"), filepath.Join(dir, "ca.key")
-	certPEM, err1 := os.ReadFile(certPath)
-	keySealed, err2 := os.ReadFile(keyPath)
-	if err1 == nil && err2 == nil {
-		keyPEM, err := box.Open(string(keySealed))
-		if err != nil {
-			return nil, fmt.Errorf("decrypt CA key (wrong secret_key?): %w", err)
+	fromDB := func() (cert, key string) {
+		var rows []store.ClusterSecret
+		st.DB.Where("name IN ?", []string{"ca.crt", "ca.key"}).Find(&rows)
+		for _, r := range rows {
+			if r.Name == "ca.crt" {
+				cert = r.Value
+			} else {
+				key = r.Value
+			}
 		}
-		return pki.LoadCA(certPEM, []byte(keyPEM))
+		return
 	}
-	ca, err := pki.NewCA("Polaris Internal CA")
+	cert, key := fromDB()
+	if cert == "" || key == "" {
+		certPEM, err1 := os.ReadFile(certPath)
+		keySealed, err2 := os.ReadFile(keyPath)
+		if err1 != nil || err2 != nil {
+			ca, err := pki.NewCA("Polaris Internal CA")
+			if err != nil {
+				return nil, err
+			}
+			certPEM, keySealed = ca.CertPEM, []byte(box.Seal(string(ca.KeyPEM)))
+		}
+		// Another instance starting at the same moment may win; its CA is
+		// read back below.
+		for _, r := range []store.ClusterSecret{{Name: "ca.crt", Value: string(certPEM)}, {Name: "ca.key", Value: string(keySealed)}} {
+			if err := st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&r).Error; err != nil {
+				return nil, fmt.Errorf("store CA: %w", err)
+			}
+		}
+		cert, key = fromDB()
+	}
+	keyPEM, err := box.Open(key)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt CA key (wrong secret_key?): %w", err)
+	}
+	ca, err := pki.LoadCA([]byte(cert), []byte(keyPEM))
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(certPath, ca.CertPEM, 0o644); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(keyPath, []byte(box.Seal(string(ca.KeyPEM))), 0o600); err != nil {
-		return nil, err
+	if b, err := os.ReadFile(certPath); err != nil || string(b) != cert {
+		_ = os.WriteFile(certPath, []byte(cert), 0o644)
+		_ = os.WriteFile(keyPath, []byte(key), 0o600)
 	}
 	return ca, nil
 }
@@ -178,13 +213,16 @@ func loadOrCreateCA(dir string, box *secret.Box) (*pki.CA, error) {
 // Run serves HTTP and the agent endpoint until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
 	s.bg = ctx
+	s.updateLease() // decided before the jobs start
+	if s.isLeader() {
+		s.onLeader()
+	}
+	go s.runLease(ctx)
 	go s.runReconciler(ctx)
 	go s.runAgentSync(ctx)
 	go s.rt.run(ctx)
 	go s.tg.run(ctx)
 	go s.tg.runNotifications(ctx, s.tgEvents)
-	// A delivery cut off by a restart is sent again.
-	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ?", "sending").Update("status", "pending")
 	go s.runWebhooks(ctx, s.hookEvents)
 	licenseCtx, stopLicense := context.WithCancel(ctx)
 	defer stopLicense()
@@ -259,6 +297,9 @@ func (s *Server) startJobs() func() {
 	c := cron.New(cron.WithSeconds())
 	add := func(spec, name string, fn func()) {
 		_, _ = c.AddFunc(spec, func() {
+			if !s.isLeader() {
+				return // another instance runs the scheduled jobs
+			}
 			defer func() {
 				if r := recover(); r != nil {
 					s.log.Error("job panicked", "job", name, "panic", r)
@@ -296,7 +337,9 @@ func (s *Server) startJobs() func() {
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
 	add("0 3 * * * *", "node-traffic-cycles", s.resetNodeCycles)
 	add("0 13 9 * * *", "server-renewals", s.costRenewals)
-	go s.backfillDaily()
+	if s.isLeader() {
+		go s.backfillDaily()
+	}
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }

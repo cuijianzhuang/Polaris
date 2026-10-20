@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -77,13 +78,25 @@ func (s *Server) Publish(nodeID, reason string, force bool) (int64, bool, error)
 	if err := s.st.DB.First(&node, "id = ?", nodeID).Error; err != nil {
 		return 0, false, err
 	}
-	if !force && node.DesiredRev > 0 {
-		if prev, err := s.loadRevision(nodeID, node.DesiredRev); err == nil && sameSpec(prev, spec) {
-			return node.DesiredRev, false, nil
+	for attempt := 0; ; attempt++ {
+		if !force && node.DesiredRev > 0 {
+			if prev, err := s.loadRevision(nodeID, node.DesiredRev); err == nil && sameSpec(prev, spec) {
+				return node.DesiredRev, false, nil
+			}
+		}
+		rev, changed, err := s.storeRevision(&node, spec, reason)
+		if !errors.Is(err, errRevisionRace) && !store.IsDuplicate(err) || attempt == 4 {
+			return rev, changed, err
+		}
+		// Another instance stored a revision first: compare against it.
+		if err := s.st.DB.First(&node, "id = ?", nodeID).Error; err != nil {
+			return 0, false, err
 		}
 	}
-	return s.storeRevision(&node, spec, reason)
 }
+
+// errRevisionRace means another instance moved the node's revision first.
+var errRevisionRace = errors.New("node revision changed concurrently")
 
 func (s *Server) storeRevision(node *store.Node, spec *model.NodeSpec, reason string) (int64, bool, error) {
 	rev := node.DesiredRev + 1
@@ -102,8 +115,14 @@ func (s *Server) storeRevision(node *store.Node, spec *model.NodeSpec, reason st
 		if node.Status == "online" {
 			upd["status"] = "syncing"
 		}
-		if err := tx.Model(&store.Node{}).Where("id = ?", node.ID).Updates(upd).Error; err != nil {
-			return err
+		// Conditional: another panel instance publishing the same node at
+		// the same moment makes this one retry with the next number.
+		r := tx.Model(&store.Node{}).Where("id = ? AND desired_rev = ?", node.ID, node.DesiredRev).Updates(upd)
+		if r.Error != nil {
+			return r.Error
+		}
+		if r.RowsAffected == 0 {
+			return errRevisionRace
 		}
 		// Keep the most recent 50 revisions.
 		return tx.Where("node_id = ? AND rev <= ?", node.ID, rev-50).Delete(&store.ConfigRevision{}).Error
