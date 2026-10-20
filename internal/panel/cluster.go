@@ -76,9 +76,11 @@ func (s *Server) runLease(ctx context.Context) {
 				s.st.DB.Exec("UPDATE cluster_leases SET expires_at = now() WHERE name = ? AND holder = ?", leaseName, s.procID)
 			}
 			s.leader.Store(false)
+			s.memberLeave()
 			return
 		case <-t.C:
 			s.updateLease()
+			s.memberTouch()
 		}
 	}
 }

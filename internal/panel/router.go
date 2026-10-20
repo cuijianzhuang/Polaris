@@ -303,6 +303,7 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/domains/:id", s.saveBinding)
 	p.POST("/domains/auto-bind", s.autoBindAll)
 	p.GET("/system/update", s.getPanelUpdate)
+	p.GET("/cluster", s.getCluster)
 	p.POST("/system/update", s.requireSudo, s.postPanelUpdate)
 	p.GET("/system/access", s.getAccess)
 	p.POST("/system/access", s.requireSudo, s.postAccess)

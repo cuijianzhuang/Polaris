@@ -732,7 +732,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{},
+		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{},
 	}
 }
 
@@ -825,6 +825,17 @@ type TrafficDaily struct {
 	Day    string `gorm:"primaryKey;size:10;index"` // YYYY-MM-DD
 	Up     int64
 	Down   int64
+}
+
+// ClusterMember is one running panel instance, refreshed every few seconds;
+// the admin UI lists them when several instances share a database.
+type ClusterMember struct {
+	InstanceID string    `gorm:"primaryKey;size:64"`
+	Host       string    `gorm:"size:255"`
+	Version    string    `gorm:"size:64"`
+	Edition    string    `gorm:"size:32"`
+	StartedAt  time.Time `gorm:"not null"`
+	SeenAt     time.Time `gorm:"not null;index"`
 }
 
 // ClusterLease is a lease held by one panel instance (the leader runs the

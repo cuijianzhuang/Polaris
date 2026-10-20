@@ -207,11 +207,11 @@ func (s *Server) stageRestore(r io.Reader, pass string) error {
 // applyStagedRestore applies a staged restore once the database is open:
 // first a snapshot of the current data (kept, never pruned), then the
 // archive, in one transaction. On failure the current data stays.
-func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog.Logger) {
+func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog.Logger) bool {
 	path := stagedPath(cfg.DataDir)
 	f, err := os.Open(path)
 	if err != nil {
-		return
+		return false
 	}
 	var arc backupArchive
 	err = gob.NewDecoder(f).Decode(&arc)
@@ -219,14 +219,15 @@ func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog
 	defer os.RemoveAll(filepath.Dir(path))
 	if err != nil {
 		log.Error("staged restore unreadable", "err", err)
-		return
+		return false
 	}
 	snap := snapshotBeforeRestore(st, cfg, log)
 	if err := restoreArchive(st, cfg.DataDir, &arc, box); err != nil {
 		log.Error("restore failed; current data kept", "err", err)
-		return
+		return false
 	}
 	log.Warn("restored backup", "from_format", arc.Manifest.Format, "created", arc.Manifest.Created, "snapshot", snap)
+	return true
 }
 
 // snapshotBeforeRestore saves the current data as a "-prerestore" archive in
@@ -420,12 +421,17 @@ func (s *Server) backupRestore(c *gin.Context) {
 	go func() {
 		time.Sleep(time.Second)
 		s.log.Warn("restarting to apply restored backup", "from", src)
-		if s.restartHook != nil {
-			s.restartHook()
-			return
-		}
-		s.restart()
+		s.restartNow()
 	}()
+}
+
+// restartNow restarts the panel (tests replace it with restartHook).
+func (s *Server) restartNow() {
+	if s.restartHook != nil {
+		s.restartHook()
+		return
+	}
+	s.restart()
 }
 
 // restart re-executes the panel binary so a staged restore is applied; when
