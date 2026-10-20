@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"sort"
 	"strconv"
@@ -85,9 +86,10 @@ func (s *Server) Publish(nodeID, reason string, force bool) (int64, bool, error)
 			}
 		}
 		rev, changed, err := s.storeRevision(&node, spec, reason)
-		if !errors.Is(err, errRevisionRace) && !store.IsDuplicate(err) || attempt == 4 {
+		if !errors.Is(err, errRevisionRace) && !store.IsDuplicate(err) || attempt == 20 {
 			return rev, changed, err
 		}
+		time.Sleep(time.Duration(rand.IntN(20)+1) * time.Millisecond) // let the other instance finish
 		// Another instance stored a revision first: compare against it.
 		if err := s.st.DB.First(&node, "id = ?", nodeID).Error; err != nil {
 			return 0, false, err
