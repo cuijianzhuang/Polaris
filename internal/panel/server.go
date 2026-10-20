@@ -93,6 +93,7 @@ type Server struct {
 	subLimit      *sharedLimiter
 	shopLimit     *sharedLimiter
 	mailCodeLimit *sharedLimiter
+	ticketLimit   *sharedLimiter
 	callbacks     callbackStore
 	nodeUserSets  nodeUsersCache
 	schemes       schemeCache
@@ -192,6 +193,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.subLimit = &sharedLimiter{s: s.shared, name: "sub", perMinute: cfg.SubRateLimit}
 	s.shopLimit = &sharedLimiter{s: s.shared, name: "shop", perMinute: 10}
 	s.mailCodeLimit = &sharedLimiter{s: s.shared, name: "mailcode", perMinute: 5}
+	s.ticketLimit = &sharedLimiter{s: s.shared, name: "ticket", perMinute: 6}
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}
@@ -413,6 +415,7 @@ func (s *Server) startJobs() func() {
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
 	add("0 3 * * * *", "node-traffic-cycles", s.resetNodeCycles)
 	add("0 13 9 * * *", "server-renewals", s.costRenewals)
+	add("0 41 5 * * *", "ticket-autoclose", s.autoCloseTickets)
 	if s.isLeader() {
 		go s.backfillDaily()
 	}

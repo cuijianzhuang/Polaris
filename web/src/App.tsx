@@ -26,6 +26,7 @@ import Chains from './pages/Chains'
 import Templates from './pages/Templates'
 import Users from './pages/Users'
 import Shop from './pages/Shop'
+import Tickets from './pages/Tickets'
 import Plans from './pages/Plans'
 import SubTemplates from './pages/SubTemplates'
 import Certificates from './pages/Certificates'
@@ -93,6 +94,7 @@ const nav: NavItem[] = [
     { to: '/users', label: t('用户'), icon: <Icon.Users /> },
     { to: '/plans', label: t('套餐'), icon: <Icon.Package /> },
     { to: '/shop', label: t('售卖'), icon: <Icon.Wallet /> },
+    { to: '/tickets', label: t('工单'), icon: <Icon.Mail /> },
   ] },
   { to: '/sub-templates', label: t('订阅'), icon: <Icon.Sub />, children: [
     { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub /> },
@@ -319,6 +321,7 @@ export default function App() {
                       <Route path="/templates" element={<Templates />} />
                       <Route path="/users" element={<Users />} />
                       <Route path="/shop" element={<Shop />} />
+                      <Route path="/tickets" element={<Tickets />} />
                       <Route path="/plans" element={<Plans />} />
                       <Route path="/sub-templates" element={<SubTemplates />} />
                       <Route path="/certificates" element={<Certificates />} />
