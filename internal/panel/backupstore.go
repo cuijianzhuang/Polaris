@@ -102,7 +102,32 @@ func (l *localStore) put(_ context.Context, name, path string) error {
 	if _, err := os.Lstat(dst); err == nil {
 		return fmt.Errorf("%s 已存在", name)
 	}
-	return os.Rename(path, dst)
+	if err := os.Rename(path, dst); err == nil {
+		return nil
+	}
+	// backups may be a link to another disk: copy instead.
+	if err := copyBackupFile(path, dst); err != nil {
+		os.Remove(dst)
+		return err
+	}
+	return os.Remove(path)
+}
+
+func copyBackupFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, in)
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	return err
 }
 
 func (l *localStore) list(context.Context) ([]backupFile, error) {
