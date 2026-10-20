@@ -220,7 +220,7 @@ func (b *tgBot) unpaidView(chat int64) (string, [][]button) {
 
 var payMethodName = map[string]string{payStars: "Stars", payEPay: "在线支付", payUSDT: "USDT", payCode: "兑换码", payManual: "手动"}
 
-var orderStatusText = map[string]string{"pending": "⏳ 待支付", "paid": "✅ 已支付", "expired": "⌛ 已过期", "failed": "❗ 开通失败", "refunded": "↩️ 已退款", "cancelled": "🚫 已取消"}
+var orderStatusText = map[string]string{"pending": "⏳ 待支付", "processing": "🔄 已收款待交付", "refund_pending": "↩️ 退款处理中", "paid": "✅ 已支付", "expired": "⌛ 已过期", "failed": "❗ 开通失败", "refunded": "↩️ 已退款", "cancelled": "🚫 已取消"}
 
 func redeemHelp() string {
 	return "🎟 <b>兑换码</b>\n" + tgRule + "\n发送：\n<code>/redeem 兑换码</code>\n\n兑换后立即开通对应套餐（没有账号会自动创建），或给账号加上流量包。"
@@ -365,6 +365,10 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			b.s.st.DB.First(&o, "id = ?", o.ID)
 		}
 		switch o.Status {
+		case "processing":
+			answer("已收到付款，正在重试交付，请勿重复付款")
+		case "refund_pending":
+			answer("退款处理中，正在核验结果")
 		case "paid":
 			answer("已支付，套餐已开通")
 		case "failed":

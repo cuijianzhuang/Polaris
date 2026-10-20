@@ -56,9 +56,10 @@ func (b *tgBot) onPreCheckout(q *tgPreCheckout) {
 	_ = b.call(ctx, "answerPreCheckoutQuery", map[string]any{"pre_checkout_query_id": q.ID, "ok": false, "error_message": errPayments.Error()}, nil)
 }
 
-func (b *tgBot) onStarsPaid(chat int64, p *tgPayment) {
+func (b *tgBot) onStarsPaid(chat int64, p *tgPayment) error {
 	b.s.log.Warn("stars payment in a community build", "payload", p.Payload, "charge", p.ChargeID)
 	b.send(chat, "已收到付款，但本面板未开启在线收款，请联系管理员（凭证："+esc(p.ChargeID)+"）")
+	return nil
 }
 
 func (b *tgBot) sendPayment(_ context.Context, chat, msg int64, _ *store.Order, _ string) {

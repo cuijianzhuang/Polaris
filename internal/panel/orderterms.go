@@ -10,6 +10,8 @@ import (
 
 // Account limits are bought at checkout. Node access, speed and fallback
 // routing remain the live plan's policy, as for existing subscribers.
+var errOrderTerms = errors.New("invalid order entitlement snapshot")
+
 type orderTerms struct {
 	Version int                `json:"version"`
 	Plan    *store.Group       `json:"plan,omitempty"`
@@ -28,7 +30,7 @@ func freezePack(p *store.TrafficPack) string {
 func readOrderTerms(o *store.Order) (orderTerms, error) {
 	var v orderTerms
 	if err := json.Unmarshal([]byte(o.Entitlements), &v); err != nil || v.Version != 1 {
-		return v, errors.New("invalid order entitlement snapshot")
+		return v, errOrderTerms
 	}
 	return v, nil
 }
@@ -43,7 +45,7 @@ func orderPlan(tx *gorm.DB, o *store.Order, p *store.Group) error {
 	} // historical limits cannot be reconstructed
 	v, err := readOrderTerms(o)
 	if err != nil || v.Plan == nil || v.Pack != nil || v.Plan.ID != o.PlanID || v.Plan.TrafficLimit < 0 || v.Plan.Days < 0 {
-		return errors.New("invalid order plan snapshot")
+		return errOrderTerms
 	}
 	*p = *v.Plan
 	return nil
@@ -54,7 +56,7 @@ func orderPack(tx *gorm.DB, o *store.Order, p *store.TrafficPack) error {
 	}
 	v, err := readOrderTerms(o)
 	if err != nil || v.Pack == nil || v.Plan != nil || v.Pack.ID != o.PackID || v.Pack.Traffic <= 0 {
-		return errors.New("invalid order pack snapshot")
+		return errOrderTerms
 	}
 	*p = *v.Pack
 	return nil
