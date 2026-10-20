@@ -250,6 +250,21 @@ type NodeCost struct {
 	UpdatedAt time.Time  `json:"updatedAt"`
 }
 
+// NodeProvider links a node to its hosting provider's API (BandwagonHost
+// KiwiVM): the panel reads the plan and traffic, and with Sync calibrates
+// the node's traffic cycle to the provider's figures.
+type NodeProvider struct {
+	NodeID    string     `gorm:"primaryKey;size:32" json:"nodeId"`
+	Kind      string     `gorm:"size:16" json:"kind"` // bandwagon
+	VEID      string     `gorm:"size:32" json:"veid"`
+	APIKey    string     `gorm:"type:text" json:"-"` // sealed
+	Sync      bool       `json:"sync"`
+	Info      string     `gorm:"type:text" json:"-"` // last provider.Info (JSON)
+	LastSync  *time.Time `json:"lastSync"`
+	LastError string     `gorm:"size:255" json:"lastError"`
+	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
 // GroupNode gives a group's users every inbound on a node.
 type GroupNode struct {
 	GroupID string `gorm:"primaryKey;size:32"`
@@ -733,7 +748,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{},
 	}
 }
 

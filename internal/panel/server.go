@@ -415,6 +415,7 @@ func (s *Server) startJobs() func() {
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
 	add("0 3 * * * *", "node-traffic-cycles", s.resetNodeCycles)
 	add("0 13 9 * * *", "server-renewals", s.costRenewals)
+	add("30 */15 * * * *", "providers", s.syncProviders)
 	add("0 41 5 * * *", "ticket-autoclose", s.autoCloseTickets)
 	if s.isLeader() {
 		go s.backfillDaily()
