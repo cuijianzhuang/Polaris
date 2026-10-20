@@ -224,6 +224,16 @@ const m: Record<string, string> = {
   '把当前公告通过 Telegram 推送给所有已绑定的用户？': 'Send the current announcement via Telegram to all bound users?',
   '已开始推送': 'Sending started',
   '推送公告到 Telegram': 'Send announcement to Telegram',
+  "不送试用": "No trial",
+  "允许的邮箱域名": "Allowed e-mail domains",
+  "允许邮箱注册：没有账号的邮箱验证后自动创建账号（需配置邮件）": "Allow e-mail sign-up: a verified address without an account gets a new one (needs mail set up)",
+  "新用户自动开通的套餐；不选则账号没有可用服务，需要先购买": "Plan given to new users; without one the account has no service until a plan is bought",
+  "每个 IP 每天最多注册": "Sign-ups per IP per day",
+  "试用套餐": "Trial plan",
+  "逗号分隔，如 gmail.com, qq.com；留空不限": "Comma separated, e.g. gmail.com, qq.com; empty allows any",
+  "邮箱注册": "E-mail sign-up",
+  "配置了邮件（设置 → 邮件）后，用户也可以用邮箱验证码登录用户中心，并在用户中心绑定邮箱。": "With mail set up (Settings → Mail), users can also sign in to the user center with an e-mail code and bind an address there.",
+  "防止批量注册；0 表示不限，默认 3": "Limits bulk sign-ups; 0 means unlimited, default 3",
 }
 
 export default m

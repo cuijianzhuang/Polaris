@@ -43,7 +43,7 @@ var kindTypes = map[string]string{
 
 // EventTypes lists every type a webhook can subscribe to.
 var EventTypes = []string{
-	"user.created", "user.updated", "user.deleted", "user.renewed", "user.traffic_added", "user.traffic_reset", "user.token_reset",
+	"user.created", "user.registered", "user.updated", "user.deleted", "user.renewed", "user.traffic_added", "user.traffic_reset", "user.token_reset",
 	"user.bulk", "user.expired", "user.traffic_exceeded", "user.reactivated", "user.traffic_warn", "user.expire_warn",
 	"user.ip_limit", "user.traffic_spike", "user.plan_changed", "order.paid", "order.failed",
 	"node.offline", "node.online", "node.apply_failed", "node.traffic_alert", "node.renewal_due",

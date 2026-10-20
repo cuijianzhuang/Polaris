@@ -101,7 +101,7 @@ export default function SubTemplates() {
   )
 }
 
-const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
+const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'portal_email_register', 'register_email_domains', 'register_trial_plan', 'register_ip_daily', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
 
 const routingExample = `{
   "Name": "${t('直连国内')}",
@@ -115,6 +115,8 @@ const routingExample = `{
 
 function SubSettings() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const plansQ = useLoad(() => get<{ id: string; name: string }[]>('/plans'))
+  const plans = plansQ.data ?? []
   const [f, setF] = useState<Record<string, string>>({})
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -148,6 +150,18 @@ function SubSettings() {
       <div className="toggle"><span>{t('信息页显示 Telegram 一键绑定（机器人运行时）')}</span><Switch label={t('机器人绑定')} on={on('sub_show_bot', true)} onChange={(v) => set('sub_show_bot', String(v))} /></div>
       <div className="toggle"><span>{t('节点名显示流量倍率（倍率不为 1 时加「×2」等；名称模板里可用 {rate} 指定位置）')}</span><Switch label={t('显示倍率')} on={on('sub_show_rate', true)} onChange={(v) => set('sub_show_rate', String(v))} /></div>
       <div className="toggle"><span>{t('用户中心：用户用 Telegram 登录查看流量、到期和订阅，可自助重置链接（需先绑定机器人；不设密码）')}</span><Switch label={t('用户中心')} on={on('portal_enabled')} onChange={(v) => set('portal_enabled', String(v))} /></div>
+      {on('portal_enabled') && <div className="hint">{t('配置了邮件（设置 → 邮件）后，用户也可以用邮箱验证码登录用户中心，并在用户中心绑定邮箱。')}</div>}
+      {on('portal_enabled') && <div className="toggle"><span>{t('允许邮箱注册：没有账号的邮箱验证后自动创建账号（需配置邮件）')}</span><Switch label={t('邮箱注册')} on={on('portal_email_register')} onChange={(v) => set('portal_email_register', String(v))} /></div>}
+      {on('portal_enabled') && on('portal_email_register') && <div className="form-grid">
+        <Field label={t('试用套餐')} hint={t('新用户自动开通的套餐；不选则账号没有可用服务，需要先购买')}>
+          <select className="input" value={f.register_trial_plan ?? ''} onChange={(e) => set('register_trial_plan', e.target.value)}>
+            <option value="">{t('不送试用')}</option>
+            {plans.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </Field>
+        <Field label={t('允许的邮箱域名')} hint={t('逗号分隔，如 gmail.com, qq.com；留空不限')}><input className="input mono" value={f.register_email_domains ?? ''} onChange={(e) => set('register_email_domains', e.target.value)} placeholder="gmail.com, qq.com, 163.com" /></Field>
+        <Field label={t('每个 IP 每天最多注册')} hint={t('防止批量注册；0 表示不限，默认 3')}><input className="input mono" inputMode="numeric" value={f.register_ip_daily ?? ''} onChange={(e) => set('register_ip_daily', e.target.value.replace(/[^\d]/g, ''))} placeholder="3" /></Field>
+      </div>}
       {on('portal_enabled') && s.data?.portal_url && <div className="hint">{t('用户中心地址：')}<a className="mono" href={s.data.portal_url} target="_blank" rel="noreferrer">{s.data.portal_url}</a>{t('（保存后生效；机器人发送订阅链接时也会附上）')}</div>}
       <Field label={t('公告')} hint={t('显示在订阅信息页顶部，并通过 announce 头推送给支持的客户端（Happ、Streisand 等）；开启「信息节点」时也会出现在节点列表')}>
         <textarea className="input" style={{ minHeight: 70 }} value={f.sub_announce ?? ''} onChange={(e) => set('sub_announce', e.target.value)} placeholder={t('例：本周六 02:00–04:00 维护，请提前更新订阅')} />
