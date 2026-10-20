@@ -733,7 +733,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{},
 	}
 }
 
@@ -1037,8 +1037,44 @@ type Order struct {
 	StarsBotID   int64      `json:"-"`                      // links belong to the bot that created them
 	Chain        string     `gorm:"size:16" json:"chain"`   // USDT network (tron, bsc, polygon, arbitrum; "" = tron)
 	WebKey       string     `gorm:"size:64;index" json:"-"` // web shop: hash of the buyer's browser key
-	Web          bool       `gorm:"-" json:"web"`           // bought in the web shop (set by listOrders)
-	Deletable    bool       `gorm:"-" json:"deletable"`     // the admin may delete it (set by listOrders)
+	CouponCode   string     `gorm:"size:32;index" json:"couponCode"`
+	OrigAmount   string     `gorm:"size:32" json:"originalAmount"` // price before the coupon
+	Web          bool       `gorm:"-" json:"web"`                  // bought in the web shop (set by listOrders)
+	Deletable    bool       `gorm:"-" json:"deletable"`            // the admin may delete it (set by listOrders)
+}
+
+// Coupon is a discount code for the shop: a percentage off, or a fixed
+// amount off in each currency. Used counts paid orders.
+type Coupon struct {
+	Code      string     `gorm:"primaryKey;size:32" json:"code"`
+	Name      string     `gorm:"size:64" json:"name"`
+	Percent   int        `json:"percent"` // 1–100; 0 = fixed amounts below
+	OffCNY    float64    `json:"offCny"`
+	OffUSDT   float64    `json:"offUsdt"`
+	OffStars  int        `json:"offStars"`
+	PlanIDs   string     `gorm:"type:text" json:"-"` // JSON list; empty = every plan
+	Plans     bool       `json:"plans"`              // usable for plans
+	Packs     bool       `json:"packs"`              // usable for traffic packs
+	MaxUses   int        `json:"maxUses"`            // 0 = unlimited
+	PerUser   int        `json:"perUser"`            // 0 = unlimited
+	Used      int        `json:"used"`
+	StartsAt  *time.Time `json:"startsAt"`
+	ExpiresAt *time.Time `json:"expiresAt"`
+	Enabled   bool       `json:"enabled"`
+	CreatedBy string     `gorm:"size:64" json:"createdBy"`
+	CreatedAt time.Time  `json:"createdAt"`
+	PlanList  []string   `gorm:"-" json:"planIds"`
+}
+
+// CouponUse records one paid order that used a coupon.
+type CouponUse struct {
+	ID         string    `gorm:"primaryKey;size:32" json:"id"`
+	Code       string    `gorm:"size:32;index" json:"code"`
+	OrderID    string    `gorm:"size:32;uniqueIndex" json:"orderId"`
+	UserID     string    `gorm:"size:32;index" json:"userId"`
+	TelegramID int64     `gorm:"index" json:"telegramId"`
+	WebKey     string    `gorm:"size:64;index" json:"-"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // RedeemCode is a prepaid code for a plan or a traffic pack, sold

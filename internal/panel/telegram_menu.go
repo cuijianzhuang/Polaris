@@ -77,6 +77,12 @@ func (b *tgBot) view(name, arg string, id tgIdentity) (string, [][]button) {
 			return "兑换码兑换已停用，请联系管理员。", [][]button{backRow("")}
 		}
 		return redeemHelp(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
+	case "coupon":
+		text := couponHelp()
+		if code := b.s.tgCoupon(id.chat); code != "" {
+			text += "\n\n当前优惠码：<code>" + esc(code) + "</code>"
+		}
+		return text, [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
 	case "terms":
 		return b.termsView(), [][]button{{{Text: "« 返回", Data: "v:shop"}, btnHome}}
 	case "paysupport":
