@@ -95,9 +95,11 @@ type Agent struct {
 	queue   []*polarisv1.TrafficBatch
 	// epoch and nextSeq number the batches so the panel can drop repeats
 	// for good (see TrafficBatch.seq). Saved with the queue.
-	epoch   string
-	nextSeq uint64
-	flushMu sync.Mutex // one upload at a time; queueMu is not held over the network
+	epoch       string
+	nextSeq     uint64
+	queueDirty  bool // memory differs from the durable queue; never upload until persisted
+	queueWarnAt time.Time
+	flushMu     sync.Mutex // one upload at a time; queueMu is not held over the network
 
 	sendMu  sync.Mutex
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
@@ -156,7 +158,9 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	if !cfg.DisableIPDetect {
 		a.ips = newIPDetector(cfg.IPEcho4, cfg.IPEcho6, 0)
 	}
-	a.loadQueue()
+	if err := a.loadQueue(); err != nil {
+		return nil, fmt.Errorf("load traffic queue: %w", err)
+	}
 	return a, nil
 }
 
@@ -460,34 +464,69 @@ type trafficQueue struct {
 	Batches []*polarisv1.TrafficBatch `json:"batches"`
 }
 
-func (a *Agent) loadQueue() {
+func (a *Agent) loadQueue() error {
 	a.queueMu.Lock()
 	defer a.queueMu.Unlock()
 	a.queue, a.epoch, a.nextSeq = nil, "", 0
-	if b, err := os.ReadFile(a.queuePath()); err == nil {
+	b, err := os.ReadFile(a.queuePath())
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil {
 		var q trafficQueue
-		if json.Unmarshal(b, &q) == nil && q.Epoch != "" {
+		if json.Unmarshal(b, &q) == nil && q.Epoch != "" && q.NextSeq > 0 {
 			a.queue, a.epoch, a.nextSeq = q.Batches, q.Epoch, q.NextSeq
+			for _, batch := range a.queue {
+				if batch == nil || (batch.Epoch == a.epoch && batch.Seq >= a.nextSeq) {
+					return errors.New("invalid traffic queue sequence")
+				}
+			}
 		} else {
 			var old []*polarisv1.TrafficBatch
-			if json.Unmarshal(b, &old) == nil {
-				a.queue = old // no seq: the panel deduplicates these by batch ID
+			if err := json.Unmarshal(b, &old); err != nil {
+				return fmt.Errorf("invalid traffic queue: %w", err)
 			}
+			for _, batch := range old {
+				if batch == nil || batch.Seq != 0 || batch.Epoch != "" {
+					return errors.New("invalid legacy traffic queue")
+				}
+			}
+			a.queue = old
 		}
 	}
 	if a.epoch == "" {
 		a.epoch, a.nextSeq = store.NewID(), 1
-		a.saveQueue()
+		return a.saveQueue()
 	}
-	if a.nextSeq == 0 {
-		a.nextSeq = 1
-	}
+	return nil
 }
 
-// saveQueue writes the queue; call with queueMu held.
-func (a *Agent) saveQueue() {
-	b, _ := json.Marshal(trafficQueue{Epoch: a.epoch, NextSeq: a.nextSeq, Batches: a.queue})
-	_ = core.AtomicWrite(a.queuePath(), b, 0o600)
+// saveQueue requires queueMu. Failed writes keep the batch and sequence in
+// memory, stop uploads, and are retried before the next regular collection.
+func (a *Agent) saveQueue() error {
+	a.queueDirty = true
+	b, err := json.Marshal(trafficQueue{Epoch: a.epoch, NextSeq: a.nextSeq, Batches: a.queue})
+	if err == nil {
+		err = core.AtomicWriteDurable(a.queuePath(), b, 0o600)
+	}
+	if err != nil {
+		if a.log != nil && time.Since(a.queueWarnAt) >= time.Minute {
+			a.log.Error("cannot persist traffic queue; uploads and periodic collection paused; unpersisted traffic is at risk on restart", "err", err, "batches", len(a.queue))
+			a.queueWarnAt = time.Now()
+		}
+		return err
+	}
+	if !a.queueWarnAt.IsZero() && a.log != nil {
+		a.log.Info("traffic queue persistence recovered")
+		a.queueWarnAt = time.Time{}
+	}
+	a.queueDirty = false
+	return nil
+}
+func (a *Agent) retryQueue() bool {
+	a.queueMu.Lock()
+	defer a.queueMu.Unlock()
+	return !a.queueDirty || a.saveQueue() == nil
 }
 
 // trafficLoop collects every interval and uploads; batches survive restarts
@@ -507,6 +546,9 @@ func (a *Agent) trafficLoop(ctx context.Context) {
 }
 
 func (a *Agent) collect(ctx context.Context) {
+	if !a.retryQueue() {
+		return
+	}
 	a.applyMu.Lock()
 	ms := make([]*managed, 0, len(a.cores))
 	for _, m := range a.cores {
@@ -554,9 +596,12 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 	a.nextSeq++
 	a.queue = append(a.queue, b)
 	if len(a.queue) > 50000 { // ~5 days at 10s; drop oldest beyond that
+		if a.log != nil {
+			a.log.Error("traffic queue capacity exceeded; dropping oldest unconfirmed batches", "dropped", len(a.queue)-50000)
+		}
 		a.queue = a.queue[len(a.queue)-50000:]
 	}
-	a.saveQueue()
+	_ = a.saveQueue()
 	a.queueMu.Unlock()
 }
 
@@ -584,6 +629,10 @@ func (a *Agent) flushTraffic(ctx context.Context) {
 	defer a.flushMu.Unlock()
 	for {
 		a.queueMu.Lock()
+		if a.queueDirty && a.saveQueue() != nil {
+			a.queueMu.Unlock()
+			return
+		}
 		n := len(a.queue)
 		if n > 200 {
 			n = 200
@@ -611,7 +660,10 @@ func (a *Agent) flushTraffic(ctx context.Context) {
 		removed := len(rest) != len(a.queue)
 		if removed {
 			a.queue = rest
-			a.saveQueue()
+			if a.saveQueue() != nil {
+				a.queueMu.Unlock()
+				return
+			}
 		}
 		a.queueMu.Unlock()
 		if !removed {

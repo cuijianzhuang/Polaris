@@ -732,7 +732,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{},
+		&USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{},
 	}
 }
 
@@ -1012,29 +1012,31 @@ type RuleSet struct {
 // provider echoes back (invoice payload, out_trade_no). PayRef holds the
 // provider's transaction id: unique, so one payment fulfils one order.
 type Order struct {
-	ID         string     `gorm:"primaryKey;size:32" json:"id"`
-	TelegramID int64      `gorm:"index" json:"telegramId"`
-	TGName     string     `gorm:"size:64" json:"tgName"`
-	UserID     string     `gorm:"size:32;index" json:"userId"`
-	PlanID     string     `gorm:"size:32" json:"planId"`
-	PlanName   string     `gorm:"size:64" json:"planName"`
-	Kind       string     `gorm:"size:8" json:"kind"` // "" = plan, pack = traffic pack
-	PackID     string     `gorm:"size:32" json:"packId"`
-	Method     string     `gorm:"size:16;index" json:"method"` // stars / epay / usdt / code / manual
-	Amount     string     `gorm:"size:32" json:"amount"`       // decimal text in Currency
-	Currency   string     `gorm:"size:8" json:"currency"`      // XTR / CNY / USDT
-	Status     string     `gorm:"size:16;index" json:"status"` // pending / paid / expired / cancelled / failed / refunded
-	PayRef     *string    `gorm:"size:128;uniqueIndex" json:"payRef"`
-	Detail     string     `gorm:"size:255" json:"detail"`
-	CreatedAt  time.Time  `gorm:"index" json:"createdAt"`
-	ExpiresAt  time.Time  `json:"expiresAt"`
-	PaidAt     *time.Time `json:"paidAt"`
-	StarsURL   string     `gorm:"type:text" json:"-"`     // cached native checkout link; never expose in admin responses
-	StarsBotID int64      `json:"-"`                      // links belong to the bot that created them
-	Chain      string     `gorm:"size:16" json:"chain"`   // USDT network (tron, bsc, polygon, arbitrum; "" = tron)
-	WebKey     string     `gorm:"size:64;index" json:"-"` // web shop: hash of the buyer's browser key
-	Web        bool       `gorm:"-" json:"web"`           // bought in the web shop (set by listOrders)
-	Deletable  bool       `gorm:"-" json:"deletable"`     // the admin may delete it (set by listOrders)
+	ID           string     `gorm:"primaryKey;size:32" json:"id"`
+	TelegramID   int64      `gorm:"index" json:"telegramId"`
+	TGName       string     `gorm:"size:64" json:"tgName"`
+	UserID       string     `gorm:"size:32;index" json:"userId"`
+	PlanID       string     `gorm:"size:32" json:"planId"`
+	PlanName     string     `gorm:"size:64" json:"planName"`
+	Kind         string     `gorm:"size:8" json:"kind"` // "" = plan, pack = traffic pack
+	PackID       string     `gorm:"size:32" json:"packId"`
+	Method       string     `gorm:"size:16;index" json:"method"` // stars / epay / usdt / code / manual
+	Amount       string     `gorm:"size:32" json:"amount"`       // decimal text in Currency
+	Currency     string     `gorm:"size:8" json:"currency"`      // XTR / CNY / USDT
+	Status       string     `gorm:"size:16;index" json:"status"` // pending / paid / expired / cancelled / failed / refunded
+	PayRef       *string    `gorm:"size:128;uniqueIndex" json:"payRef"`
+	Detail       string     `gorm:"size:255" json:"detail"`
+	CreatedAt    time.Time  `gorm:"index" json:"createdAt"`
+	ExpiresAt    time.Time  `json:"expiresAt"`
+	PaidAt       *time.Time `json:"paidAt"`
+	Entitlements string     `gorm:"type:text" json:"-"`     // versioned purchase-time limits; empty on legacy orders
+	PayAddress   string     `gorm:"size:128" json:"-"`      // frozen USDT receiving address
+	StarsURL     string     `gorm:"type:text" json:"-"`     // cached native checkout link; never expose in admin responses
+	StarsBotID   int64      `json:"-"`                      // links belong to the bot that created them
+	Chain        string     `gorm:"size:16" json:"chain"`   // USDT network (tron, bsc, polygon, arbitrum; "" = tron)
+	WebKey       string     `gorm:"size:64;index" json:"-"` // web shop: hash of the buyer's browser key
+	Web          bool       `gorm:"-" json:"web"`           // bought in the web shop (set by listOrders)
+	Deletable    bool       `gorm:"-" json:"deletable"`     // the admin may delete it (set by listOrders)
 }
 
 // RedeemCode is a prepaid code for a plan or a traffic pack, sold
@@ -1072,4 +1074,15 @@ type PlanNodeRate struct {
 	PlanID string  `gorm:"primaryKey;size:32"`
 	NodeID string  `gorm:"primaryKey;size:32;index"`
 	Rate   float64 `gorm:"not null"`
+}
+
+// USDTReservation prevents independent panel instances from quoting the same
+// amount at the same address while a payment may still arrive. Paid/cancelled
+// orders keep their reservation until the matching window has passed.
+type USDTReservation struct {
+	Chain   string    `gorm:"primaryKey;size:16"`
+	Address string    `gorm:"primaryKey;size:128"`
+	Amount  string    `gorm:"primaryKey;size:32"`
+	OrderID string    `gorm:"size:32;uniqueIndex"`
+	Until   time.Time `gorm:"index"`
 }
