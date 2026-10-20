@@ -77,6 +77,10 @@ type Server struct {
 
 	procID string      // this process, for the leader lease
 	leader atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
+	bus    *clusterBus // messages between instances (PostgreSQL only)
+	presMu sync.Mutex
+	presAt map[string]time.Time // last presence refresh per node
+	specAt map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
 
 	subLimit     *sharedLimiter
 	shopLimit    *sharedLimiter
@@ -134,6 +138,12 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.sinks = append(s.sinks, s.hookEvents)
 	s.procID = store.NewID()
 	s.leader.Store(s.tryLease()) // SQLite: always; PostgreSQL: if no live leader holds the lease
+	s.presAt, s.specAt = map[string]time.Time{}, map[string]time.Time{}
+	if st.DB.Dialector.Name() == "postgres" {
+		// Other instances may share this database: reach their agents.
+		s.bus = newClusterBus(cfg.DB.DSN, st.DB, s.procID, log)
+		s.hub.remote = newClusterHub(s, s.bus)
+	}
 	s.traffic = &trafficInbox{db: st.DB}
 	s.shared = newMemState()
 	if cfg.RedisURL != "" {
@@ -218,6 +228,9 @@ func (s *Server) Run(ctx context.Context) error {
 		s.onLeader()
 	}
 	go s.runLease(ctx)
+	if s.bus != nil {
+		go s.bus.run(ctx)
+	}
 	go s.runReconciler(ctx)
 	go s.runAgentSync(ctx)
 	go s.rt.run(ctx)
