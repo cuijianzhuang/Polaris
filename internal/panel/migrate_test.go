@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -32,6 +33,13 @@ func TestMigrate(t *testing.T) {
 		db.Create(&store.TrafficInbox{NodeID: "n1", UserID: "u1", Up: 5})
 		for i := 0; i < 3; i++ {
 			src.audit("root", "test", "x", "y", "")
+		}
+		// More rows than one export page (1000) in tables with serial ids
+		// and unique indexes: the copy once failed with duplicate keys here.
+		for n := 0; n < 3; n++ {
+			for r := 1; r <= 400; r++ {
+				db.Create(&store.ConfigRevision{NodeID: fmt.Sprint("node", n), Rev: int64(r), Spec: "x"})
+			}
 		}
 		if sqlDB, err := db.DB(); err == nil {
 			sqlDB.Close()
@@ -76,6 +84,11 @@ func TestMigrate(t *testing.T) {
 		var tags, inbox int64
 		dst.st.DB.Model(&store.TagTraffic{}).Count(&tags)
 		dst.st.DB.Model(&store.TrafficInbox{}).Count(&inbox)
+		var revs int64
+		dst.st.DB.Model(&store.ConfigRevision{}).Count(&revs)
+		if revs != 1200 {
+			t.Fatalf("config revisions %d", revs)
+		}
 		if tags != 2 || inbox != 1 {
 			t.Fatalf("tags %d inbox %d", tags, inbox)
 		}

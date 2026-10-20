@@ -283,7 +283,9 @@ func insertRows(tx *gorm.DB, m any, sch *schema.Schema, rows []map[string]any) (
 	}
 	for i := 0; i < len(rows); i += 100 {
 		batch := rows[i:min(i+100, len(rows))]
-		if err := tx.Model(m).Create(&batch).Error; err != nil {
+		// By table name: with Model(m), gorm on PostgreSQL follows a batch of
+		// map rows with a second INSERT of just their ids (duplicate keys).
+		if err := tx.Table(sch.Table).Create(&batch).Error; err != nil {
 			return nil, fmt.Errorf("写入 %s 失败: %w", sch.Table, err)
 		}
 	}
