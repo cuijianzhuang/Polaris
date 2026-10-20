@@ -748,7 +748,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &NodeProvider{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{},
 	}
 }
 
@@ -1056,6 +1056,32 @@ type Order struct {
 	OrigAmount   string     `gorm:"size:32" json:"originalAmount"` // price before the coupon
 	Web          bool       `gorm:"-" json:"web"`                  // bought in the web shop (set by listOrders)
 	Deletable    bool       `gorm:"-" json:"deletable"`            // the admin may delete it (set by listOrders)
+}
+
+// Ticket is a support request from a user. Status: open (waiting for an
+// admin), answered (waiting for the user), closed.
+type Ticket struct {
+	ID          string     `gorm:"primaryKey;size:32" json:"id"`
+	No          int64      `gorm:"uniqueIndex" json:"no"` // short number shown to people
+	UserID      string     `gorm:"size:32;index" json:"userId"`
+	Subject     string     `gorm:"size:120" json:"subject"`
+	Status      string     `gorm:"size:16;index" json:"status"`
+	UserUnread  bool       `json:"userUnread"`  // an admin reply the user has not opened
+	AdminUnread bool       `json:"adminUnread"` // a user message no admin has opened
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `gorm:"index" json:"updatedAt"`
+	ClosedAt    *time.Time `json:"closedAt"`
+	Username    string     `gorm:"-" json:"username,omitempty"`
+}
+
+// TicketMessage is one message in a ticket.
+type TicketMessage struct {
+	ID        string    `gorm:"primaryKey;size:32" json:"id"`
+	TicketID  string    `gorm:"size:32;index" json:"ticketId"`
+	Admin     bool      `json:"admin"`                 // written by an admin
+	Author    string    `gorm:"size:64" json:"author"` // admin name, or the username
+	Body      string    `gorm:"type:text" json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // Coupon is a discount code for the shop: a percentage off, or a fixed

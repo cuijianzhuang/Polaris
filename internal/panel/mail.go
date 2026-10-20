@@ -47,7 +47,7 @@ func (s *Server) mailOn() bool { return s.mailConfig() != nil }
 // mailSubjects names the notices users get.
 var mailSubjects = map[string]string{
 	"traffic_warn": "流量提醒", "expire_warn": "到期提醒", "user_limited": "流量已用尽", "user_expired": "账号已到期",
-	"user_active": "服务已恢复", "ip_limit": "设备超限提醒", "order_delivered": "订单已开通",
+	"user_active": "服务已恢复", "ip_limit": "设备超限提醒", "order_delivered": "订单已开通", "ticket_reply": "工单回复",
 }
 
 var tagRe = regexp.MustCompile(`<[^>]+>`)
