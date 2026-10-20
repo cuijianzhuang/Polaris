@@ -368,7 +368,7 @@ func (b *tgBot) pollTimeout() int {
 func (b *tgBot) registerCommands(ctx context.Context) {
 	cmds := []map[string]string{
 		{"command": "menu", "description": "🏠 主菜单"}, {"command": "me", "description": "📊 我的流量与到期"},
-		{"command": "buy", "description": "🛒 购买套餐"}, {"command": "redeem", "description": "🎟 兑换码 /redeem 码"},
+		{"command": "buy", "description": "🛒 购买套餐"}, {"command": "redeem", "description": "🎟 兑换码 /redeem 码"}, {"command": "coupon", "description": "🏷 优惠码 /coupon 码"},
 		{"command": "orders", "description": "📋 我的订单"}, {"command": "terms", "description": "📄 购买条款"}, {"command": "paysupport", "description": "💬 支付与售后"},
 		{"command": "sub", "description": "🔗 订阅链接与二维码"}, {"command": "nodes", "description": "🌐 节点"},
 		{"command": "rename", "description": "✏️ 修改用户名 /rename 新用户名"},
@@ -481,6 +481,8 @@ func (b *tgBot) handle(u tgUpdate) {
 		b.send(chat, text, rows...)
 	case "/redeem":
 		b.redeemCommand(chat, u.Message.From, arg, id)
+	case "/coupon":
+		b.couponCommand(chat, arg, id)
 	case "/terms":
 		b.send(chat, b.termsView(), backRow(""))
 	case "/paysupport", "/support":
@@ -647,7 +649,7 @@ func tgAdvanced(parts []string) bool {
 			return false
 		}
 		switch parts[1] {
-		case "", "me", "rename", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "terms", "paysupport", "orders", "packs", "unpaid":
+		case "", "me", "rename", "nodes", "bindhelp", "help", "pro", "home", "shop", "redeem", "coupon", "terms", "paysupport", "orders", "packs", "unpaid":
 			return false
 		}
 	}

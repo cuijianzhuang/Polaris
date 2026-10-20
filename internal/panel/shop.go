@@ -208,6 +208,7 @@ type shopBuyer struct {
 	TGID           int64
 	TGName, UserID string
 	WebKey         string
+	Coupon         string // coupon code to apply ("" = none)
 }
 
 // newOrder opens an order for a Telegram user. userID is the bound account
@@ -229,17 +230,27 @@ func (s *Server) newOrderFor(b shopBuyer, planID, method, chain string) (*store.
 	if s.st.DB.First(&p, "id = ? AND plan = ? AND sale = ?", planID, true, true).Error != nil {
 		return nil, errors.New("这个套餐已下架")
 	}
-	amount, currency, ok := s.orderPrice(&p, method)
+	var cp *store.Coupon
+	if b.Coupon != "" {
+		var err error
+		if cp, err = s.couponFor(b.Coupon, "plan", p.ID, b); err != nil {
+			return nil, err
+		}
+	}
+	amount, orig, currency, usdtBase, free, ok := s.couponPrice(cp, p.PriceStars, p.PriceCNY, p.PriceUSDT, method)
 	if !ok {
 		return nil, errors.New("这个套餐不支持该付款方式")
 	}
 	now := time.Now()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: b.UserID, WebKey: b.WebKey, PlanID: p.ID, PlanName: p.Name,
 		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL()), Entitlements: freezePlan(&p)}
+	if cp != nil {
+		o.CouponCode, o.OrigAmount = cp.Code, orig
+	}
 	if err := s.setUSDTChain(o, chain); err != nil {
 		return nil, err
 	}
-	return s.openShopOrder(o, p.PriceUSDT)
+	return s.openCouponOrder(o, usdtBase, free)
 }
 
 // openShopOrder reuses an unexpired Stars checkout for the same buyer,
@@ -342,6 +353,9 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			return nil // already paid
 		}
 		fresh = true
+		if err := recordCouponUse(tx, o, now); err != nil {
+			return err
+		}
 		// Cross-instance first-account creation is serialized by buyer; account
 		// changes then use the same row lock as admin/API user commands.
 		key := "web:" + o.WebKey
@@ -445,11 +459,11 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 	return o, u, true, nil
 }
 
-var methodName = map[string]string{payStars: "Telegram Stars", payEPay: "易支付", payUSDT: "USDT", payCode: "兑换码", payManual: "手动"}
+var methodName = map[string]string{payStars: "Telegram Stars", payEPay: "易支付", payUSDT: "USDT", payCode: "兑换码", payManual: "手动", payCoupon: "优惠券（免费）"}
 
 func orderBrief(o *store.Order) map[string]any {
 	return map[string]any{"id": o.ID, "plan_id": o.PlanID, "plan_name": o.PlanName, "method": o.Method, "amount": o.Amount,
-		"currency": o.Currency, "telegram_id": o.TelegramID, "user_id": o.UserID}
+		"currency": o.Currency, "telegram_id": o.TelegramID, "user_id": o.UserID, "coupon": o.CouponCode, "original_amount": o.OrigAmount}
 }
 
 // shopNewUser creates and binds an account for a Telegram buyer, or an

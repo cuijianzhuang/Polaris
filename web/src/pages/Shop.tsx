@@ -14,7 +14,10 @@ import { t } from '../i18n'
 type Order = {
   id: string; kind?: string; telegramId: number; tgName: string; userId: string; planName: string; method: string; amount: string; currency: string
   status: string; payRef?: string | null; detail: string; createdAt: string; expiresAt?: string; paidAt?: string | null; web?: boolean; chain?: string; deletable?: boolean
+  couponCode?: string; originalAmount?: string
 }
+type Coupon = { code: string; name: string; percent: number; offCny: number; offUsdt: number; offStars: number; planIds: string[]; plans: boolean; packs: boolean
+  maxUses: number; perUser: number; used: number; startsAt?: string | null; expiresAt?: string | null; enabled: boolean; createdAt: string }
 type ShopStatus = { enabled: boolean; stars: boolean; epay: boolean; usdt: boolean; bot: string; botRunning: boolean; notifyUrl: string; returnUrl?: string; publicUrl: boolean; payments?: boolean; webShop?: boolean; webShopUrl?: string; portal?: boolean }
 type Code = { code: string; planId: string; packId?: string; batch: string; expiresAt?: string | null; usedBy: string; usedAt?: string | null; createdAt: string }
 
@@ -25,13 +28,14 @@ const usdtNets = [
   { id: 'polygon', name: 'Polygon PoS', short: 'Polygon', evm: true },
   { id: 'arbitrum', name: 'Arbitrum One', short: 'Arbitrum', evm: true },
 ]
-const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动') }
+const methodLabel: Record<string, string> = { stars: 'Telegram Stars', epay: t('易支付'), usdt: 'USDT', code: t('兑换码'), manual: t('手动'), coupon: t('优惠券（免费）') }
 const statusLabel: Record<string, [string, string]> = {
   pending: [t('待支付'), 'warn'], processing: [t('已收款待交付'), 'warn'], refund_pending: [t('退款处理中'), 'warn'], paid: [t('已支付'), 'ok'], expired: [t('已过期'), 'off'], failed: [t('开通失败'), 'bad'], refunded: [t('已退款'), 'off'], cancelled: [t('已取消'), 'off'],
 }
 
 function money(o: Order) {
   if (o.method === 'code') return <span className="mono small">{o.amount}</span>
+  if (o.method === 'coupon') return t('免费')
   if (o.currency === 'XTR') return `${o.amount} ⭐`
   if (o.currency === 'CNY') return `¥${o.amount}`
   return `${o.amount} ${o.currency}`
@@ -118,7 +122,7 @@ function Orders() {
                   <td data-label={t('买家')}>{o.userId ? <b>{buyer(o)}</b> : <span className="mute">—</span>}<div className="small mute">{o.web && <span className="tag" style={{ marginRight: 4 }}>{t('网页')}</span>}{o.tgName || (o.telegramId ? `TG ${o.telegramId}` : '')}</div></td>
                   <td data-label={t('套餐')}>{o.kind === 'pack' && <span className="tag" style={{ marginRight: 6 }}>{t('流量包')}</span>}{o.planName}</td>
                   <td data-label={t('付款')} className="small">{methodLabel[o.method] ?? o.method}{o.method === 'usdt' && <div className="mute">{usdtNets.find((n) => n.id === (o.chain || 'tron'))?.short}</div>}</td>
-                  <td data-label={t('金额')} className="mono">{money(o)}</td>
+                  <td data-label={t('金额')} className="mono">{money(o)}{o.couponCode && <span className="tag" style={{ marginLeft: 6 }} title={o.couponCode}>{t('券')}</span>}</td>
                   <td data-label={t('状态')}><span className={'st ' + (statusLabel[o.status]?.[1] ?? '')}>{statusLabel[o.status]?.[0] ?? o.status}</span></td>
                   <td className="rt-actions"><button className="btn sm" type="button" onClick={(e) => { e.stopPropagation(); setOpen(o) }}>{t('详情')}</button></td>
                 </tr>
@@ -162,6 +166,7 @@ function Orders() {
             {d?.paymentRecovery?.[open.id]?.lastError && <><dt>{t('交付处理')}</dt><dd>{d.paymentRecovery[open.id].lastError}</dd></>}
             {d?.refundRecovery?.[open.id]?.lastError && <><dt>{t('退款处理')}</dt><dd>{d.refundRecovery[open.id].lastError}</dd></>}
             <dt>{t('金额')}</dt><dd className="mono">{money(open)} · {methodLabel[open.method] ?? open.method}{open.method === 'usdt' ? ' · ' + (usdtNets.find((n) => n.id === (open.chain || 'tron'))?.name ?? '') : ''}</dd>
+            {open.couponCode && <><dt>{t('优惠码')}</dt><dd><span className="mono">{open.couponCode}</span>{open.originalAmount ? ' · ' + t('原价 {a}', { a: open.originalAmount }) : ''}</dd></>}
             <dt>{t('账号')}</dt><dd>{open.userId ? buyer(open) : '—'}</dd>
             <dt>{t('买家')}</dt><dd>{open.web ? t('网页商店') : ''}{open.tgName ? ' ' + open.tgName : ''}{open.telegramId ? ` (TG ${open.telegramId})` : ''}{!open.web && !open.tgName && !open.telegramId ? '—' : ''}</dd>
             <dt>{t('下单时间')}</dt><dd>{datetime(open.createdAt)}</dd>
@@ -506,12 +511,179 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
   )
 }
 
+// datetime-local value <-> ISO time.
+const toLocal = (iso?: string | null) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+const fromLocal = (v: string) => (v ? new Date(v).toISOString() : null)
+
+type CouponForm = { editing: boolean; code: string; batch: boolean; prefix: string; count: string; name: string; mode: 'percent' | 'amount'; percent: string
+  offCny: string; offUsdt: string; offStars: string; plans: boolean; planIds: string[]; packs: boolean; maxUses: string; perUser: string; startsAt: string; expiresAt: string; enabled: boolean }
+
+const couponText = (c: Coupon) => c.percent > 0
+  ? (c.percent >= 100 ? t('免费') : t('减 {p}%', { p: c.percent }))
+  : [c.offCny > 0 && `¥${c.offCny}`, c.offUsdt > 0 && `${c.offUsdt} USDT`, c.offStars > 0 && `${c.offStars} ⭐`].filter(Boolean).join(' / ')
+
+function couponState(c: Coupon): [string, string] {
+  const now = Date.now()
+  if (!c.enabled) return [t('已停用'), 'off']
+  if (c.expiresAt && Date.parse(c.expiresAt) <= now) return [t('已过期'), 'off']
+  if (c.startsAt && Date.parse(c.startsAt) > now) return [t('未开始'), 'warn']
+  if (c.maxUses > 0 && c.used >= c.maxUses) return [t('已用完'), 'off']
+  return [t('可用'), 'ok']
+}
+
+// Coupons: discount codes for the web shop and the bot (/coupon CODE).
+function Coupons() {
+  const list = useLoad(() => get<{ items: Coupon[] }>('/coupons'))
+  const plans = useLoad(() => get<Group[]>('/plans'))
+  const [f, setF] = useState<CouponForm | null>(null)
+  const [made, setMade] = useState<string[] | null>(null)
+  const [uses, setUses] = useState<{ code: string; orders: Order[]; usernames: Record<string, string> } | null>(null)
+  const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const items = list.data?.items ?? []
+  const blank: CouponForm = { editing: false, code: '', batch: false, prefix: '', count: '20', name: '', mode: 'percent', percent: '20', offCny: '', offUsdt: '', offStars: '',
+    plans: true, planIds: [], packs: false, maxUses: '', perUser: '1', startsAt: '', expiresAt: '', enabled: true }
+  const edit = (c: Coupon) => setF({ editing: true, code: c.code, batch: false, prefix: '', count: '', name: c.name, mode: c.percent > 0 ? 'percent' : 'amount',
+    percent: c.percent ? String(c.percent) : '', offCny: c.offCny ? String(c.offCny) : '', offUsdt: c.offUsdt ? String(c.offUsdt) : '', offStars: c.offStars ? String(c.offStars) : '',
+    plans: c.plans, planIds: c.planIds ?? [], packs: c.packs, maxUses: c.maxUses ? String(c.maxUses) : '', perUser: String(c.perUser), startsAt: toLocal(c.startsAt), expiresAt: toLocal(c.expiresAt), enabled: c.enabled })
+  const set = (patch: Partial<CouponForm>) => setF((x) => (x ? { ...x, ...patch } : x))
+  const save = () => run(async () => {
+    if (!f) return
+    const body: Record<string, unknown> = {
+      name: f.name, percent: f.mode === 'percent' ? Number(f.percent) || 0 : 0,
+      offCny: f.mode === 'amount' ? Number(f.offCny) || 0 : 0, offUsdt: f.mode === 'amount' ? Number(f.offUsdt) || 0 : 0, offStars: f.mode === 'amount' ? Number(f.offStars) || 0 : 0,
+      plans: f.plans, planIds: f.plans ? f.planIds : [], packs: f.packs, maxUses: Number(f.maxUses) || 0, perUser: Number(f.perUser) || 0,
+      startsAt: fromLocal(f.startsAt), expiresAt: fromLocal(f.expiresAt), enabled: f.enabled,
+    }
+    if (f.editing) {
+      await put('/coupons/' + encodeURIComponent(f.code), body)
+    } else {
+      const r = await post<{ codes: string[] }>('/coupons', f.batch ? { ...body, prefix: f.prefix, count: Number(f.count) || 0 } : { ...body, code: f.code })
+      if (f.batch) setMade(r.codes)
+    }
+    setF(null); list.reload()
+  }, t('已保存'))
+  return (
+    <>
+      <div className="row">
+        <button className="btn pri" type="button" onClick={() => setF(blank)}>{t('+ 新建优惠券')}</button>
+        <span className="small mute">{t('用户在网页商店输入优惠码，或在机器人里发送 /coupon 优惠码，下单时按优惠价付款。')}</span>
+      </div>
+      <div className="card flush scroll">
+        {items.length === 0 ? <Empty>{t('还没有优惠券')}</Empty> : (
+          <table className="rtable">
+            <thead><tr><th>{t('优惠码')}</th><th>{t('优惠')}</th><th>{t('适用')}</th><th>{t('已用')}</th><th>{t('有效期')}</th><th>{t('状态')}</th><th></th></tr></thead>
+            <tbody>{items.map((c) => {
+              const [label, cls] = couponState(c)
+              const scope = [c.plans && (c.planIds?.length ? c.planIds.map((id) => plans.data?.find((p) => p.id === id)?.name ?? t('已删除')).join('、') : t('全部套餐')), c.packs && t('流量包')].filter(Boolean).join(' · ')
+              return (
+                <tr key={c.code}>
+                  <td className="rt-head"><span className="mono">{c.code}</span>{c.name && <div className="small mute">{c.name}</div>}</td>
+                  <td data-label={t('优惠')}>{couponText(c)}</td>
+                  <td data-label={t('适用')}>{scope}</td>
+                  <td data-label={t('已用')} className="mono">{c.used}{c.maxUses > 0 ? ` / ${c.maxUses}` : ''}{c.perUser > 0 ? <span className="small mute"> · {t('每人 {n} 次', { n: c.perUser })}</span> : ''}</td>
+                  <td data-label={t('有效期')} className="small">{c.startsAt ? datetime(c.startsAt) : t('立即')} → {c.expiresAt ? datetime(c.expiresAt) : t('长期')}</td>
+                  <td data-label={t('状态')}><span className={'st ' + cls}>{label}</span></td>
+                  <td className="rt-actions"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                    <button className="btn sm" type="button" onClick={() => run(async () => { setUses({ code: c.code, ...(await get<{ orders: Order[]; usernames: Record<string, string> }>(`/coupons/${encodeURIComponent(c.code)}/uses`)) }) })}>{t('使用记录')}</button>
+                    <button className="btn sm" type="button" onClick={() => edit(c)}>{t('编辑')}</button>
+                    <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(t('删除优惠券 {code}？已用它下的订单不受影响。', { code: c.code }), { danger: true, ok: t('删除') })) run(async () => { await del('/coupons/' + encodeURIComponent(c.code)); list.reload() }, t('已删除')) }}>{t('删除')}</button>
+                  </div></td>
+                </tr>
+              )
+            })}</tbody>
+          </table>
+        )}
+      </div>
+      {f && (
+        <Modal title={f.editing ? t('编辑优惠券 {code}', { code: f.code }) : t('新建优惠券')} onClose={() => setF(null)} footer={<>
+          <button className="btn" type="button" onClick={() => setF(null)}>{t('取消')}</button>
+          <button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button>
+        </>}>
+          <div style={{ display: 'grid', gap: 12 }}>
+            {!f.editing && <div className="chips">
+              <button type="button" className={'chip' + (!f.batch ? ' on' : '')} onClick={() => set({ batch: false })}>{t('单个优惠码')}</button>
+              <button type="button" className={'chip' + (f.batch ? ' on' : '')} onClick={() => set({ batch: true })}>{t('批量生成')}</button>
+            </div>}
+            <div className="form-grid">
+              {!f.editing && !f.batch && <Field label={t('优惠码')} hint={t('3–32 位字母、数字、- 或 _，不区分大小写')}><input className="input mono" value={f.code} placeholder="NEWYEAR" onChange={(e) => set({ code: e.target.value.toUpperCase() })} /></Field>}
+              {!f.editing && f.batch && <>
+                <Field label={t('前缀')} hint={t('可留空')}><input className="input mono" value={f.prefix} placeholder="VIP" onChange={(e) => set({ prefix: e.target.value.toUpperCase() })} /></Field>
+                <Field label={t('数量')}><input className="input mono" inputMode="numeric" value={f.count} onChange={(e) => set({ count: e.target.value })} /></Field>
+              </>}
+              <Field label={t('名称')} hint={t('只给管理员看，可留空')}><input className="input" value={f.name} onChange={(e) => set({ name: e.target.value })} /></Field>
+            </div>
+            <div className="chips">
+              <button type="button" className={'chip' + (f.mode === 'percent' ? ' on' : '')} onClick={() => set({ mode: 'percent' })}>{t('按比例')}</button>
+              <button type="button" className={'chip' + (f.mode === 'amount' ? ' on' : '')} onClick={() => set({ mode: 'amount' })}>{t('固定减免')}</button>
+            </div>
+            <div className="form-grid">
+              {f.mode === 'percent'
+                ? <Field label={t('减免比例（%）')} hint={t('20 表示减 20%（八折）；100 表示免费')}><input className="input mono" inputMode="numeric" value={f.percent} onChange={(e) => set({ percent: e.target.value })} /></Field>
+                : <>
+                  <Field label={t('人民币减免（¥）')}><input className="input mono" inputMode="decimal" value={f.offCny} onChange={(e) => set({ offCny: e.target.value })} /></Field>
+                  <Field label={t('USDT 减免')}><input className="input mono" inputMode="decimal" value={f.offUsdt} onChange={(e) => set({ offUsdt: e.target.value })} /></Field>
+                  <Field label={t('Stars 减免')}><input className="input mono" inputMode="numeric" value={f.offStars} onChange={(e) => set({ offStars: e.target.value })} /></Field>
+                </>}
+            </div>
+            <div className="toggle"><span>{t('可用于套餐')}</span><Switch label={t('可用于套餐')} on={f.plans} onChange={(v) => set({ plans: v })} /></div>
+            {f.plans && <Field label={t('适用套餐')} hint={t('不选表示全部套餐')}>
+              <div className="chips">{(plans.data ?? []).map((p) => (
+                <button key={p.id} type="button" className={'chip' + (f.planIds.includes(p.id) ? ' on' : '')}
+                  onClick={() => set({ planIds: f.planIds.includes(p.id) ? f.planIds.filter((x) => x !== p.id) : [...f.planIds, p.id] })}>{p.name}</button>
+              ))}</div>
+            </Field>}
+            <div className="toggle"><span>{t('可用于流量包')}</span><Switch label={t('可用于流量包')} on={f.packs} onChange={(v) => set({ packs: v })} /></div>
+            <div className="form-grid">
+              <Field label={t('总次数')} hint={t('留空或 0 表示不限')}><input className="input mono" inputMode="numeric" value={f.maxUses} onChange={(e) => set({ maxUses: e.target.value })} /></Field>
+              <Field label={t('每人次数')} hint={t('0 表示不限；按账号、Telegram 或浏览器识别')}><input className="input mono" inputMode="numeric" value={f.perUser} onChange={(e) => set({ perUser: e.target.value })} /></Field>
+              <Field label={t('开始时间')} hint={t('留空表示立即生效')}><input className="input" type="datetime-local" value={f.startsAt} onChange={(e) => set({ startsAt: e.target.value })} /></Field>
+              <Field label={t('结束时间')} hint={t('留空表示长期有效')}><input className="input" type="datetime-local" value={f.expiresAt} onChange={(e) => set({ expiresAt: e.target.value })} /></Field>
+            </div>
+            <div className="toggle"><span>{t('启用')}</span><Switch label={t('启用')} on={f.enabled} onChange={(v) => set({ enabled: v })} /></div>
+          </div>
+        </Modal>
+      )}
+      {made && (
+        <Modal title={t('已生成 {n} 个优惠码', { n: made.length })} onClose={() => setMade(null)} footer={<>
+          <button className="btn" type="button" onClick={() => downloadText('coupons.txt', made.join('\n') + '\n')}>{t('导出')}</button>
+          <button className="btn pri" type="button" onClick={() => setMade(null)}>{t('完成')}</button>
+        </>}>
+          <CopyBox text={made.join('\n')} />
+        </Modal>
+      )}
+      {uses && (
+        <Modal title={t('{code} 的使用记录', { code: uses.code })} onClose={() => setUses(null)} footer={<button className="btn pri" type="button" onClick={() => setUses(null)}>{t('关闭')}</button>}>
+          {uses.orders.length === 0 ? <Empty>{t('还没有人用过')}</Empty> : (
+            <table className="rtable">
+              <thead><tr><th>{t('订单号')}</th><th>{t('账号')}</th><th>{t('商品')}</th><th>{t('金额')}</th><th>{t('时间')}</th></tr></thead>
+              <tbody>{uses.orders.map((o) => (
+                <tr key={o.id}>
+                  <td className="rt-head mono small">{o.id}</td>
+                  <td data-label={t('账号')}>{uses.usernames[o.userId] ?? '—'}</td>
+                  <td data-label={t('商品')}>{o.planName}</td>
+                  <td data-label={t('金额')} className="mono">{money(o)}{o.originalAmount ? <span className="small mute"> · {t('原价 {a}', { a: o.originalAmount })}</span> : ''}</td>
+                  <td data-label={t('时间')}>{datetime(o.paidAt ?? o.createdAt)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          )}
+        </Modal>
+      )}
+    </>
+  )
+}
+
 export default function Shop() {
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') || 'orders'
   const st = useLoad(() => get<{ status: ShopStatus }>('/orders?limit=1'))
   const s = st.data?.status
-  const tabs = [{ id: 'orders', label: t('订单') }, { id: 'packs', label: t('流量包') }, { id: 'codes', label: t('兑换码') }, { id: 'pay', label: t('支付设置') }]
+  const tabs = [{ id: 'orders', label: t('订单') }, { id: 'packs', label: t('流量包') }, { id: 'codes', label: t('兑换码') }, { id: 'coupons', label: t('优惠券') }, { id: 'pay', label: t('支付设置') }]
   return (
     <>
       <div className="top">
@@ -527,6 +699,7 @@ export default function Shop() {
       {tab === 'orders' && <Orders />}
       {tab === 'packs' && <Packs />}
       {tab === 'codes' && <Codes />}
+      {tab === 'coupons' && <Coupons />}
       {tab === 'pay' && <PaySettings status={s} onSaved={st.reload} />}
     </>
   )
