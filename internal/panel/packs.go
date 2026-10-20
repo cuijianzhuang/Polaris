@@ -183,7 +183,7 @@ func (s *Server) newPackOrderFor(b shopBuyer, u *store.User, packID, method, cha
 	}
 	now := time.Now()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: u.ID, WebKey: b.WebKey, Kind: kindPack, PackID: p.ID,
-		PlanName: p.Name, Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
+		PlanName: p.Name, Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL()), Entitlements: freezePack(&p)}
 	if err := s.setUSDTChain(o, chain); err != nil {
 		return nil, err
 	}

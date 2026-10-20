@@ -111,6 +111,9 @@ func (s *Server) usdtPayTo(o *store.Order) (usdtNet, string) {
 	if !ok {
 		return usdtNet{}, ""
 	}
+	if o.PayAddress != "" {
+		return n, o.PayAddress
+	}
 	return n, s.usdtAddress(n)
 }
 

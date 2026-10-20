@@ -8,6 +8,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"database/sql"
 	"database/sql/driver"
 	"encoding/binary"
 	"encoding/gob"
@@ -182,7 +183,22 @@ func exportTable(db *gorm.DB, model any, emit func([]map[string]any) error) (int
 }
 
 // exportAll dumps every table: name -> gob stream of row batches.
-func exportAll(db *gorm.DB) (map[string][]byte, map[string]int, error) {
+func exportAll(db *gorm.DB) (files map[string][]byte, counts map[string]int, err error) {
+	// One snapshot covers every table and page. PostgreSQL's default READ
+	// COMMITTED would still permit a different snapshot for each SELECT.
+	opts := &sql.TxOptions{ReadOnly: true}
+	if db.Dialector.Name() == "postgres" {
+		opts.Isolation = sql.LevelRepeatableRead
+	}
+	err = db.Transaction(func(tx *gorm.DB) error {
+		var e error
+		files, counts, e = exportSnapshot(tx)
+		return e
+	}, opts)
+	return
+}
+
+func exportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
 	files, counts := map[string][]byte{}, map[string]int{}
 	for _, m := range store.AllModels() {
 		sch, err := tableSchema(db, m)
