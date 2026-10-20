@@ -732,7 +732,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{},
+		&TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{},
 	}
 }
 
@@ -833,6 +833,21 @@ type ClusterLease struct {
 	Name      string    `gorm:"primaryKey;size:32"`
 	Holder    string    `gorm:"size:64"`
 	ExpiresAt time.Time `gorm:"not null"`
+}
+
+// AgentPresence records which panel instance holds a node's agent stream,
+// so every instance knows the node is online and where to send commands.
+type AgentPresence struct {
+	NodeID     string    `gorm:"primaryKey;size:32"`
+	InstanceID string    `gorm:"size:32"`
+	SeenAt     time.Time `gorm:"index"`
+}
+
+// BusPayload carries a cluster message too large for a NOTIFY payload.
+type BusPayload struct {
+	ID        string    `gorm:"primaryKey;size:32"`
+	Data      string    `gorm:"type:text"`
+	CreatedAt time.Time `gorm:"index"`
 }
 
 // ClusterSecret holds values every instance must share, such as the internal

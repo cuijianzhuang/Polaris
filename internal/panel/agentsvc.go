@@ -107,8 +107,10 @@ func (a *agentService) Connect(ctx context.Context, stream *connect.BidiStream[p
 		return err
 	}
 	conn := a.s.hub.register(n.ID)
+	a.s.presenceUp(n.ID)
 	defer func() {
 		a.s.hub.unregister(conn)
+		a.s.presenceDown(n.ID)
 		a.s.hbMu.Lock()
 		delete(a.s.hbCores, n.ID)
 		delete(a.s.progress, n.ID)
@@ -222,9 +224,11 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		return
 	}
 	now := time.Now()
+	s.presenceTouch(nodeID)
 	status := "online"
 	if hb.AppliedRev < n.DesiredRev {
 		status = "syncing"
+		s.resendSpec(nodeID, n.DesiredRev)
 	}
 	if n.LastError != "" && hb.AppliedRev < n.DesiredRev {
 		status = "error"
@@ -370,4 +374,19 @@ func (s *Server) nodeProgressFor(nodeID string) *nodeProgress {
 	}
 	c := *p
 	return &c
+}
+
+// resendSpec repeats SpecChanged when a heartbeat shows the agent behind,
+// at most every 30 seconds: the notice can be lost (a full stream buffer,
+// or a cluster message missed while an instance reconnected).
+func (s *Server) resendSpec(nodeID string, rev int64) {
+	s.presMu.Lock()
+	due := time.Since(s.specAt[nodeID]) >= 30*time.Second
+	if due {
+		s.specAt[nodeID] = time.Now()
+	}
+	s.presMu.Unlock()
+	if due {
+		s.hub.notifyLocal(nodeID, rev)
+	}
 }

@@ -270,12 +270,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.hub.mu.Lock()
-	if conn, ok := s.hub.conns[id]; ok {
-		delete(s.hub.conns, id)
-		close(conn.done)
-	}
-	s.hub.mu.Unlock()
+	s.hub.Kick(id)
 	s.MarkDirty("upstream node deleted", upstream...)
 	s.auditCtx(c, "node.delete", n.Name, "")
 	c.Status(http.StatusNoContent)
@@ -395,12 +390,7 @@ func (s *Server) revokeNode(c *gin.Context) {
 		return
 	}
 	s.st.DB.Model(&n).Updates(map[string]any{"revoked": true, "cert_serial": "", "status": "offline"})
-	s.hub.mu.Lock()
-	if conn, ok := s.hub.conns[n.ID]; ok {
-		delete(s.hub.conns, n.ID)
-		close(conn.done)
-	}
-	s.hub.mu.Unlock()
+	s.hub.Kick(n.ID)
 	s.auditCtx(c, "node.revoke", n.Name, "")
 	c.Status(http.StatusNoContent)
 }

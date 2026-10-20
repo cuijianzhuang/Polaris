@@ -6,9 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -148,3 +151,104 @@ func TestSharedCA(t *testing.T) {
 		}
 	})
 }
+
+// startBus runs a server's cluster bus for the test and waits until it
+// listens.
+func startBus(t *testing.T, s *Server) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go s.bus.run(ctx)
+	select {
+	case <-s.bus.ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("bus not listening")
+	}
+}
+
+func nextMsg(t *testing.T, c *agentConn) *polarisv1.PanelMessage {
+	t.Helper()
+	select {
+	case m := <-c.out:
+		return m
+	case <-time.After(5 * time.Second):
+		t.Fatal("no message reached the agent")
+		return nil
+	}
+}
+
+// An agent connected to instance A is reachable from instance B: online
+// state, config notices, commands (large results too) and disconnects.
+func TestClusterAgentRouting(t *testing.T) {
+	ss := clusterServers(t, pgOnly(t), 2)
+	a, b := ss[0], ss[1]
+	startBus(t, a)
+	startBus(t, b)
+	a.st.DB.Create(&store.Node{ID: "n1", Name: "hk", Status: "online", LastSeen: ptrTime(time.Now().Add(-10 * time.Minute))})
+	conn := a.hub.register("n1")
+	a.presenceUp("n1")
+
+	if !b.hub.Online("n1") || b.hub.Local("n1") {
+		t.Fatal("B does not see the node on A")
+	}
+	// The offline sweep on B must not take the node down.
+	b.markOfflineNodes()
+	var n store.Node
+	b.st.DB.First(&n, "id = ?", "n1")
+	if n.Status != "online" {
+		t.Fatalf("node marked %s by another instance", n.Status)
+	}
+
+	rev, _, err := b.Publish("n1", "test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := nextMsg(t, conn).GetSpecChanged(); m == nil || m.Rev != rev {
+		t.Fatalf("spec notice: %v", m)
+	}
+
+	big := strings.Repeat("x", 20000) // beyond a NOTIFY payload
+	go func() {
+		cmd := nextMsg(t, conn).GetCommand()
+		a.hub.resolve("n1", &polarisv1.CommandResult{Id: cmd.Id, Ok: true, Output: cmd.Kind + big})
+	}()
+	res, err := b.hub.Command(context.Background(), "n1", "core_logs", nil, 5*time.Second)
+	if err != nil || !res.Ok || res.Output != "core_logs"+big {
+		t.Fatalf("forwarded command: %v %v", err, res != nil && res.Ok)
+	}
+
+	b.hub.Kick("n1")
+	select {
+	case <-conn.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("kick did not reach A")
+	}
+	a.presenceDown("n1")
+	time.Sleep(2100 * time.Millisecond) // presence cache
+	if b.hub.Online("n1") {
+		t.Fatal("node still online after disconnect")
+	}
+	if _, err := b.hub.Command(context.Background(), "n1", "x", nil, time.Second); err == nil {
+		t.Fatal("command to an offline node succeeded")
+	}
+}
+
+// A heartbeat behind the published revision gets the notice again, at most
+// every 30 seconds.
+func TestResendSpecOnLaggingHeartbeat(t *testing.T) {
+	s := newTestServer(t)
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "hk", DesiredRev: 3})
+	conn := s.hub.register("n1")
+	s.handleHeartbeat("n1", &polarisv1.Heartbeat{AppliedRev: 2})
+	if m := nextMsg(t, conn).GetSpecChanged(); m == nil || m.Rev != 3 {
+		t.Fatalf("resend: %v", m)
+	}
+	s.handleHeartbeat("n1", &polarisv1.Heartbeat{AppliedRev: 2})
+	select {
+	case m := <-conn.out:
+		t.Fatalf("resent again within 30s: %v", m)
+	default:
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }
