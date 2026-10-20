@@ -188,7 +188,7 @@ func (s *Server) webShopPage(c *gin.Context) {
 	data["Items"], data["Packs"], data["Types"], data["Orders"] = items, packs, types, orders
 	data["USDT"], data["Pay"], data["Nets"] = s.usdtOn(), s.epayOn() || s.usdtOn(), s.usdtNetsOn()
 	data["Code"] = s.codesOn()
-	data["AutoCreate"], data["Bot"] = s.shopAutoCreate(), s.tgWebLoginEnabled()
+	data["AutoCreate"], data["Bot"] = s.shopAutoCreate(), s.tgWebLoginEnabled() || s.mailLoginOn()
 	data["Terms"], data["Support"] = s.shopTerms(), strings.TrimSpace(s.st.GetSetting("shop_support", ""))
 	s.renderWebShop(c, webShopTpl, data)
 }
