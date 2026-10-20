@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"html/template"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -179,6 +180,15 @@ func (s *Server) portalPage(c *gin.Context) {
 	info.Rename = u.SelfService && s.selfRenameOn()
 	if s.webShopOn() {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
+	}
+	if s.ticketsOn() {
+		title := "🎫 工单"
+		var unread int64
+		s.st.DB.Model(&store.Ticket{}).Where("user_id = ? AND user_unread = ?", u.ID, true).Count(&unread)
+		if unread > 0 {
+			title = "🎫 工单（" + strconv.FormatInt(unread, 10) + " 条新回复）"
+		}
+		info.Extras = append(info.Extras, sub.ExtraLink{Title: title, URL: portalPath + "/tickets"})
 	}
 	for _, l := range s.pluginPortalLinks(u) {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: l.Title, URL: l.URL})
