@@ -34,14 +34,23 @@ func TestUSDTSettings(t *testing.T) {
 func TestUSDTAmountsPerNetwork(t *testing.T) {
 	s, _, _ := newAdminClient(t)
 	now := time.Now()
+	s.st.SetSetting("shop_usdt_address", "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t")
+	s.st.SetSetting("shop_usdt_evm_address", "0x55d398326f99059fF775485246999027B3197955")
+	quote := func(chain string) (string, error) {
+		o, e := s.reserveUSDTOrder(&store.Order{ID: store.NewID(), Chain: chain, Method: payUSDT, Status: "pending", CreatedAt: now}, 1, now)
+		if e != nil {
+			return "", e
+		}
+		return o.Amount, nil
+	}
 	for i := 1; i <= 500; i++ {
 		a := float64(1e4+i) / 1e4
 		s.st.DB.Create(&store.Order{ID: "old" + store.NewID(), Method: payUSDT, Status: "pending", Amount: fmt.Sprintf("%.4f", a), CreatedAt: now})
 	}
-	if _, err := s.uniqueUSDTAmount(1, "tron", now); err == nil {
+	if _, err := quote("tron"); err == nil {
 		t.Fatal("TRON amounts not taken by legacy orders")
 	}
-	if a, err := s.uniqueUSDTAmount(1, "bsc", now); err != nil || a == "" {
+	if a, err := quote("bsc"); err != nil || a == "" {
 		t.Fatalf("BSC amount blocked by TRON orders: %q %v", a, err)
 	}
 	if n, ok := usdtNetByID(""); !ok || n.ID != "tron" {

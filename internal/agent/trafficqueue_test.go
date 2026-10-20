@@ -29,7 +29,9 @@ func newQueueAgent(t *testing.T, dir string) *Agent {
 	if err := os.MkdirAll(a.idDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	a.loadQueue()
+	if err := a.loadQueue(); err != nil {
+		t.Fatal(err)
+	}
 	return a
 }
 
@@ -110,5 +112,112 @@ func TestTrafficFlushDoesNotBlockCollect(t *testing.T) {
 	<-done
 	if len(a.queue) != 0 {
 		t.Fatalf("left in queue: %d", len(a.queue))
+	}
+}
+
+// Broken storage must stop uploads before an unpersisted sequence is accepted.
+// Once storage recovers, the same batch is written, uploaded and recoverable.
+func TestTrafficQueueWriteFailureAndRecovery(t *testing.T) {
+	dir := t.TempDir()
+	a := newQueueAgent(t, dir)
+	iddir := a.idDir()
+	held := iddir + "-held"
+	if e := os.Rename(iddir, held); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(iddir, []byte("not a directory"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	restore := func() {
+		os.Remove(iddir)
+		if e := os.Rename(held, iddir); e != nil {
+			t.Fatal(e)
+		}
+	}
+	collectOnce(a)
+	if !a.queueDirty || len(a.queue) != 1 {
+		t.Fatal("write failure did not keep dirty batch")
+	}
+	// No client is installed: a call would panic if the dirty batch were sent.
+	a.flushTraffic(context.Background())
+	before := a.nextSeq
+	if a.retryQueue() {
+		t.Fatal("broken storage reported as healthy")
+	}
+	restore()
+	if !a.retryQueue() || a.queueDirty {
+		t.Fatal("queue did not recover")
+	}
+	b := newQueueAgent(t, dir)
+	if len(b.queue) != 1 || b.nextSeq != before || b.queue[0].Seq != 1 {
+		t.Fatalf("recovered state: %+v", b.queue)
+	}
+	c := &slowClient{entered: make(chan struct{}), release: make(chan struct{})}
+	close(c.release)
+	a.client = c
+	a.flushTraffic(context.Background())
+	b = newQueueAgent(t, dir)
+	if len(b.queue) != 0 || b.nextSeq != before {
+		t.Fatal("acknowledgement lost durable cursor")
+	}
+	collectOnce(b)
+	if b.queue[0].Seq != 2 {
+		t.Fatal("sequence regressed after acknowledgement")
+	}
+}
+
+func TestTrafficQueueCorruptionRefused(t *testing.T) {
+	for _, data := range []string{`broken`, `{}`, `{"epoch":"e","nextSeq":1,"batches":[{"epoch":"e","seq":1}]}`} {
+		a := newQueueAgent(t, t.TempDir())
+		if e := os.WriteFile(a.queuePath(), []byte(data), 0600); e != nil {
+			t.Fatal(e)
+		}
+		if e := a.loadQueue(); e == nil {
+			t.Fatal("corrupt queue silently reset", data)
+		}
+	}
+}
+
+type ackHookClient struct {
+	polarisv1connect.AgentServiceClient
+	hook func()
+}
+
+func (c *ackHookClient) ReportTraffic(_ context.Context, r *connect.Request[polarisv1.ReportTrafficRequest]) (*connect.Response[polarisv1.ReportTrafficResponse], error) {
+	c.hook()
+	out := &polarisv1.ReportTrafficResponse{}
+	for _, b := range r.Msg.Batches {
+		out.AcceptedBatchIds = append(out.AcceptedBatchIds, b.BatchId)
+	}
+	return connect.NewResponse(out), nil
+}
+func TestTrafficQueueAckWriteFailureKeepsSequence(t *testing.T) {
+	dir := t.TempDir()
+	a := newQueueAgent(t, dir)
+	collectOnce(a)
+	iddir := a.idDir()
+	held := iddir + "-held"
+	a.client = &ackHookClient{hook: func() {
+		if e := os.Rename(iddir, held); e != nil {
+			t.Fatal(e)
+		}
+		if e := os.WriteFile(iddir, []byte("blocked"), 0600); e != nil {
+			t.Fatal(e)
+		}
+	}}
+	a.flushTraffic(context.Background())
+	if !a.queueDirty {
+		t.Fatal("ack write failure was ignored")
+	}
+	os.Remove(iddir)
+	if e := os.Rename(held, iddir); e != nil {
+		t.Fatal(e)
+	}
+	// A crash before the prune was persisted replays the acknowledged batch;
+	// it never reuses that batch's sequence for new traffic.
+	b := newQueueAgent(t, dir)
+	collectOnce(b)
+	if len(b.queue) != 2 || b.queue[0].Seq != 1 || b.queue[1].Seq != 2 || b.nextSeq != 3 {
+		t.Fatal("ack rollback reused a sequence", b.queue)
 	}
 }

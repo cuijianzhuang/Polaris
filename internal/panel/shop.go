@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"net/http"
 	"slices"
@@ -244,7 +243,7 @@ func (s *Server) newOrderFor(b shopBuyer, planID, method, chain string) (*store.
 	}
 	now := time.Now()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: b.UserID, WebKey: b.WebKey, PlanID: p.ID, PlanName: p.Name,
-		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL())}
+		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL()), Entitlements: freezePlan(&p)}
 	if cp != nil {
 		o.CouponCode, o.OrigAmount = cp.Code, orig
 	}
@@ -267,7 +266,7 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 	if o.Method == payStars {
 		var existing store.Order
 		err := s.st.DB.Where("telegram_id = ? AND user_id = ? AND plan_id = ? AND pack_id = ? AND kind = ? AND method = ? AND amount = ? AND currency = ? AND status = ? AND expires_at > ?",
-			o.TelegramID, o.UserID, o.PlanID, o.PackID, o.Kind, payStars, o.Amount, o.Currency, "pending", now).Order("created_at desc").First(&existing).Error
+			o.TelegramID, o.UserID, o.PlanID, o.PackID, o.Kind, payStars, o.Amount, o.Currency, "pending", now).Where("entitlements = ?", o.Entitlements).Order("created_at desc").First(&existing).Error
 		if err == nil {
 			return &existing, nil
 		}
@@ -298,10 +297,7 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 		}
 	}
 	if o.Method == payUSDT {
-		var err error
-		if o.Amount, err = s.uniqueUSDTAmount(usdtPrice, o.Chain, now); err != nil {
-			return nil, err
-		}
+		return s.reserveUSDTOrder(o, usdtPrice, now)
 	}
 	if err := s.st.DB.Create(o).Error; err != nil {
 		return nil, err
@@ -320,29 +316,6 @@ func (s *Server) setUSDTChain(o *store.Order, chain string) error {
 	}
 	o.Chain = n.ID
 	return nil
-}
-
-// uniqueUSDTAmount adds 0.0001–0.0500 to the price so each recent
-// USDT order on a network has its own amount: a transfer is matched to its
-// order by amount alone.
-func (s *Server) uniqueUSDTAmount(price float64, chain string, now time.Time) (string, error) {
-	var used []string
-	q := s.st.DB.Model(&store.Order{}).Where("method = ? AND status IN ? AND created_at > ?", payUSDT, unpaidStatuses, now.Add(-usdtLookback))
-	if chain == "tron" || chain == "" {
-		q = q.Where("chain IN ?", []string{"", "tron"})
-	} else {
-		q = q.Where("chain = ?", chain)
-	}
-	q.Pluck("amount", &used)
-	base := int64(math.Round(price * 1e4))
-	for range 50 {
-		n, _ := rand.Int(rand.Reader, big.NewInt(500)) // at most 0.05 USDT over the price
-		a := fmt.Sprintf("%.4f", float64(base+n.Int64()+1)/1e4)
-		if !slices.Contains(used, a) {
-			return a, nil
-		}
-	}
-	return "", errors.New("同一时间的 USDT 订单太多，请稍后再试")
 }
 
 // fulfil marks order id paid with the provider's reference and applies its
@@ -385,7 +358,7 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 		}
 		if o.Kind == kindPack {
 			var pk store.TrafficPack
-			if err := tx.First(&pk, "id = ?", o.PackID).Error; err != nil {
+			if err := orderPack(tx, o, &pk); err != nil {
 				return commandInputError{"流量包 " + o.PlanName + " 已删除，请联系管理员处理"}
 			}
 			if (o.UserID == "" || tx.First(u, "id = ? AND is_service = ?", o.UserID, false).Error != nil) &&
@@ -403,7 +376,7 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			o.UserID, o.Detail = u.ID, truncate(detail, 255)
 			return tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error
 		}
-		if err := tx.First(&p, "id = ? AND plan = ?", o.PlanID, true).Error; err != nil {
+		if err := orderPlan(tx, o, &p); err != nil {
 			return commandInputError{"套餐 " + o.PlanName + " 已删除，请联系管理员处理"}
 		}
 		switch {
