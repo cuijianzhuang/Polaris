@@ -212,6 +212,8 @@ func webAmount(o *store.Order) string {
 	switch o.Method {
 	case payCode:
 		return "兑换码"
+	case payCoupon:
+		return "优惠券免费"
 	case payEPay:
 		return "¥" + o.Amount
 	case payStars:
@@ -238,7 +240,7 @@ func (s *Server) webShopBuy(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "商店暂未开放"})
 		return
 	}
-	var req struct{ Kind, ID, Method, Type string }
+	var req struct{ Kind, ID, Method, Type, Coupon string }
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
@@ -271,6 +273,7 @@ func (s *Server) webShopBuy(c *gin.Context) {
 	if req.Method == payUSDT {
 		chain = req.Type
 	}
+	b.Coupon = strings.TrimSpace(req.Coupon)
 	var o *store.Order
 	var err error
 	switch req.Kind {
@@ -466,6 +469,7 @@ var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 </div>{{else}}<div class="card"><p class="mute">暂时没有在售的套餐。</p></div>{{end}}
 {{if .Packs}}<h2>流量包</h2>{{range .Packs}}<div class="card" data-kind="pack" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}，下次流量重置或开始新周期时失效。</p>
 <div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div></div>{{end}}{{end}}
+<div class="card"><h2>优惠码</h2><div class="row"><input id="coupon" placeholder="输入优惠码" autocomplete="off" maxlength="32"><button class="btn alt" id="capply" type="button">使用</button></div><p class="mute" id="cnote" hidden></p></div>
 {{if .Code}}<div class="card"><h2>兑换码</h2><div class="row"><input id="code" placeholder="输入兑换码" autocomplete="off" maxlength="32"><button class="btn" id="redeem" type="button">兑换</button></div></div>{{end}}
 <p class="err" id="err" hidden></p>
 {{if .Orders}}<div class="card"><h2>我的订单</h2><table>{{range .Orders}}<tr><td><a href="` + shopWebPath + `/order/{{.ID}}">{{.Name}}</a><div class="mute mono">{{.ID}}</div></td><td>{{.Amount}}</td><td>{{.Status}}</td><td class="mute">{{.When}}</td></tr>{{end}}</table></div>{{end}}
@@ -478,10 +482,20 @@ var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 (function(){
 var err=document.getElementById('err');if(!err)return;
 function show(m){err.textContent=m;err.hidden=!m}
+var coupon='';
+document.querySelectorAll('.buy').forEach(function(b){b.dataset.label=b.textContent});
+var ca=document.getElementById('capply'),cn=document.getElementById('cnote');
+function note(m){cn.textContent=m;cn.hidden=!m}
+function applyQuote(j){document.querySelectorAll('[data-id]').forEach(function(card){var it=j&&j.items&&j.items[card.dataset.kind+':'+card.dataset.id];
+card.querySelectorAll('.buy').forEach(function(b){var l=b.dataset.label;if(it&&!it.error){var a=b.dataset.method==='usdt'?it.usdt:it.epay;if(a){var p=l.lastIndexOf(' ');l=l.slice(0,p+1)+(b.dataset.method==='usdt'?'':'¥')+(it.free?'免费':a)+'（原价 '+l.slice(p+1)+'）'}}b.textContent=l})})}
+if(ca)ca.addEventListener('click',function(){var c=document.getElementById('coupon').value.trim();show('');
+if(!c){coupon='';applyQuote(null);note('');return}ca.disabled=true;
+fetch('` + shopWebPath + `/coupon?code='+encodeURIComponent(c),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){ca.disabled=false;
+if(!j.ok){coupon='';applyQuote(null);note(j.error||'优惠码无效');return}coupon=j.code;applyQuote(j);note('已使用优惠码 '+j.code+'（'+j.label+'），价格已更新')}).catch(function(e){ca.disabled=false;note(e.message)})});
 function post(p,b){return fetch('` + shopWebPath + `/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
 document.querySelectorAll('.buy').forEach(function(b){b.addEventListener('click',function(){
 var card=b.closest('[data-id]');b.disabled=true;show('');
-post('order',{kind:card.dataset.kind,id:card.dataset.id,method:b.dataset.method,type:b.dataset.type||''}).then(function(j){location.href=j.pay||j.url}).catch(function(e){b.disabled=false;show(e.message)})})});
+post('order',{kind:card.dataset.kind,id:card.dataset.id,method:b.dataset.method,type:b.dataset.type||'',coupon:coupon}).then(function(j){location.href=j.pay||j.url}).catch(function(e){b.disabled=false;show(e.message)})})});
 var lg=document.getElementById('lgo');if(lg)lg.addEventListener('click',function(){var id=document.getElementById('lid').value.trim(),k=document.getElementById('lkey').value.trim().toLowerCase(),le=document.getElementById('lerr');
 if(!/^[a-z0-9]{8,32}$/.test(id)||!/^[0-9a-f]{32}$/.test(k)){le.textContent='请填写正确的订单号和 32 位订单凭据';le.hidden=false;return}
 location.href='` + shopWebPath + `/order/'+encodeURIComponent(id)+'?k='+k});

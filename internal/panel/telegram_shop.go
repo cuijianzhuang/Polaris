@@ -119,10 +119,11 @@ func (b *tgBot) shopView(id tgIdentity) (string, [][]button) {
 	if n := b.s.unpaidCount(id.chat); n > 0 {
 		rows = append(rows, []button{{Text: fmt.Sprintf("⏳ 未付款订单（%d）", n), Data: "v:unpaid"}})
 	}
+	codeRow := []button{{Text: "🏷 优惠码", Data: "v:coupon"}}
 	if b.s.codesOn() {
-		rows = append(rows, []button{{Text: "🎟 兑换码", Data: "v:redeem"}})
+		codeRow = append(codeRow, button{Text: "🎟 兑换码", Data: "v:redeem"})
 	}
-	rows = append(rows, []button{{Text: "📋 我的订单", Data: "v:orders"}})
+	rows = append(rows, codeRow, []button{{Text: "📋 我的订单", Data: "v:orders"}})
 	if b.s.shopTerms() != "" {
 		rows = append(rows, []button{{Text: "📄 购买条款", Data: "v:terms"}, {Text: "💬 售后", Data: "v:paysupport"}})
 	}
@@ -153,6 +154,8 @@ func orderAmount(o *store.Order) string {
 	switch o.Method {
 	case payCode:
 		return "兑换码"
+	case payCoupon:
+		return "优惠券免费"
 	case payStars:
 		return o.Amount + " ⭐"
 	case payEPay:
@@ -218,7 +221,7 @@ func (b *tgBot) unpaidView(chat int64) (string, [][]button) {
 	return sb.String(), rows
 }
 
-var payMethodName = map[string]string{payStars: "Stars", payEPay: "在线支付", payUSDT: "USDT", payCode: "兑换码", payManual: "手动"}
+var payMethodName = map[string]string{payStars: "Stars", payEPay: "在线支付", payUSDT: "USDT", payCode: "兑换码", payManual: "手动", payCoupon: "优惠券"}
 
 var orderStatusText = map[string]string{"pending": "⏳ 待支付", "processing": "🔄 已收款待交付", "refund_pending": "↩️ 退款处理中", "paid": "✅ 已支付", "expired": "⌛ 已过期", "failed": "❗ 开通失败", "refunded": "↩️ 已退款", "cancelled": "🚫 已取消"}
 
@@ -252,24 +255,12 @@ func (b *tgBot) planCard(id tgIdentity, planID string) (string, [][]button) {
 	default:
 		sb.WriteString("\n⚠️ 开通后从今天开始计时，<b>已用流量清零</b>，原套餐立即失效。")
 	}
+	cp, code, note := b.s.botCoupon(id.chat, "plan", p.ID, botBuyer(id))
+	sb.WriteString(couponLine(cp, code, note))
 	sb.WriteString("\n\n选择付款方式（付款即表示同意<b>购买条款</b>，见 /terms）：")
 	var rows [][]button
 	if id.user != nil || b.s.shopAutoCreate() {
-		if a, _, ok := b.s.orderPrice(&p, payStars); ok {
-			rows = append(rows, []button{{Text: "⭐ " + a + " Stars", Data: "s:m:" + p.ID + ":" + payStars}})
-		}
-		if a, _, ok := b.s.orderPrice(&p, payEPay); ok {
-			var row []button
-			for _, t := range b.s.epayTypes() {
-				row = append(row, button{Text: orDefault(epayTypeName[t], t) + " ¥" + a, Data: "s:m:" + p.ID + ":" + payEPay + ":" + t})
-			}
-			if len(row) > 0 {
-				rows = append(rows, row)
-			}
-		}
-		if _, _, ok := b.s.orderPrice(&p, payUSDT); ok {
-			rows = append(rows, b.s.usdtButtons("s:m:"+p.ID, p.PriceUSDT)...)
-		}
+		rows = b.s.priceButtons(cp, "s:m:"+p.ID, p.PriceStars, p.PriceCNY, p.PriceUSDT)
 	}
 	if len(rows) == 0 {
 		text := sb.String()
@@ -321,13 +312,12 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 		if id.user != nil {
 			userID = id.user.ID
 		}
-		o, err := b.s.newOrderFor(shopBuyer{TGID: chat, TGName: tgName(from), UserID: userID}, parts[2], parts[3], chain)
+		o, err := b.s.newOrderFor(shopBuyer{TGID: chat, TGName: tgName(from), UserID: userID, Coupon: b.s.tgCoupon(chat)}, parts[2], parts[3], chain)
 		if err != nil {
 			answer(err.Error())
 			return
 		}
-		answer("")
-		b.sendPayment(ctx, chat, msg, o, typ)
+		b.afterOrder(ctx, chat, msg, o, typ, answer)
 	case "k": // traffic pack card
 		text, rows := b.packCard(id, parts[2])
 		b.edit(chat, msg, text, rows...)
@@ -347,13 +337,12 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 			answer(err.Error())
 			return
 		}
-		o, err := b.s.newPackOrderFor(shopBuyer{TGID: chat, TGName: tgName(from)}, id.user, parts[2], parts[3], chain)
+		o, err := b.s.newPackOrderFor(shopBuyer{TGID: chat, TGName: tgName(from), Coupon: b.s.tgCoupon(chat)}, id.user, parts[2], parts[3], chain)
 		if err != nil {
 			answer(err.Error())
 			return
 		}
-		answer("")
-		b.sendPayment(ctx, chat, msg, o, typ)
+		b.afterOrder(ctx, chat, msg, o, typ, answer)
 	case "q":
 		var o store.Order
 		if b.s.st.DB.First(&o, "id = ? AND telegram_id = ?", parts[2], chat).Error != nil {
@@ -409,6 +398,21 @@ func (b *tgBot) shopCallback(ctx context.Context, parts []string, chat, msg int6
 	default:
 		answer("")
 	}
+}
+
+// afterOrder sends the payment of a new order; one the coupon made free
+// is already delivered (orderDelivered announces it).
+func (b *tgBot) afterOrder(ctx context.Context, chat, msg int64, o *store.Order, typ string, answer func(string)) {
+	if o.CouponCode != "" {
+		var old string
+		b.s.eph.take(tgCouponKey(chat), &old) // used: a later purchase starts without it
+	}
+	if o.Status == "paid" {
+		answer("已用优惠码免费开通")
+		return
+	}
+	answer("")
+	b.sendPayment(ctx, chat, msg, o, typ)
 }
 
 // resumeOrder sends the payment of an open order again. An EPay order
@@ -533,22 +537,11 @@ func (b *tgBot) packCard(id tgIdentity, packID string) (string, [][]button) {
 	}
 	text := fmt.Sprintf("📦 <b>%s</b>\n%s\n本周期增加 <b>%s</b> 流量，下次流量重置或开始新周期时失效。\n\n选择付款方式（付款即表示同意<b>购买条款</b>，见 /terms）：",
 		esc(p.Name), tgRule, sub.HumanBytes(p.Traffic))
-	var rows [][]button
-	if a, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payStars); ok {
-		rows = append(rows, []button{{Text: "⭐ " + a + " Stars", Data: "s:n:" + p.ID + ":" + payStars}})
+	cp, code, note := b.s.botCoupon(id.chat, kindPack, p.ID, botBuyer(id))
+	if l := couponLine(cp, code, note); l != "" {
+		text = strings.Replace(text, "\n\n选择付款方式", l+"\n\n选择付款方式", 1)
 	}
-	if a, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payEPay); ok {
-		var row []button
-		for _, t := range b.s.epayTypes() {
-			row = append(row, button{Text: orDefault(epayTypeName[t], t) + " ¥" + a, Data: "s:n:" + p.ID + ":" + payEPay + ":" + t})
-		}
-		if len(row) > 0 {
-			rows = append(rows, row)
-		}
-	}
-	if _, _, ok := b.s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payUSDT); ok {
-		rows = append(rows, b.s.usdtButtons("s:n:"+p.ID, p.PriceUSDT)...)
-	}
+	rows := b.s.priceButtons(cp, "s:n:"+p.ID, p.PriceStars, p.PriceCNY, p.PriceUSDT)
 	return text, append(rows, back...)
 }
 
@@ -560,12 +553,71 @@ func usdtChainArg(method, typ string) string {
 	return ""
 }
 
+// priceButtons are a product's buy buttons (prefix s:m:<plan> or
+// s:n:<pack>), with the coupon's prices when one applies.
+func (s *Server) priceButtons(cp *store.Coupon, prefix string, stars int, cny, usdt float64) [][]button {
+	var rows [][]button
+	label := func(orig, a string, free bool) string {
+		switch {
+		case free:
+			return orig + " → 免费"
+		case cp != nil && a != orig:
+			return orig + " → " + a
+		}
+		return a
+	}
+	if a, orig, _, _, free, ok := s.couponPrice(cp, stars, cny, usdt, payStars); ok {
+		rows = append(rows, []button{{Text: "⭐ " + label(orig, a, free) + " Stars", Data: prefix + ":" + payStars}})
+	}
+	if a, orig, _, _, free, ok := s.couponPrice(cp, stars, cny, usdt, payEPay); ok {
+		var row []button
+		for _, t := range s.epayTypes() {
+			row = append(row, button{Text: orDefault(epayTypeName[t], t) + " ¥" + label(orig, a, free), Data: prefix + ":" + payEPay + ":" + t})
+		}
+		if len(row) > 0 {
+			rows = append(rows, row)
+		}
+	}
+	if a, _, _, _, free, ok := s.couponPrice(cp, stars, cny, usdt, payUSDT); ok {
+		shown := strconv.FormatFloat(usdt, 'f', -1, 64)
+		if cp != nil {
+			shown = label(shown, strings.TrimRight(strings.TrimRight(a, "0"), "."), free)
+		}
+		rows = append(rows, s.usdtButtonsLabel(prefix, shown)...)
+	}
+	return rows
+}
+
+// couponLine is the card's note about the chat's coupon.
+func couponLine(cp *store.Coupon, code, note string) string {
+	switch {
+	case cp != nil:
+		return "\n🏷 优惠码 <code>" + esc(code) + "</code>：" + esc(couponLabel(cp))
+	case note != "":
+		return "\n🏷 优惠码 <code>" + esc(code) + "</code> 不可用：" + esc(note)
+	}
+	return ""
+}
+
+// botBuyer is the buyer behind a bot identity.
+func botBuyer(id tgIdentity) shopBuyer {
+	b := shopBuyer{TGID: id.chat}
+	if id.user != nil {
+		b.UserID = id.user.ID
+	}
+	return b
+}
+
 // usdtButtons is one USDT button per network that takes orders, two to a row.
 func (s *Server) usdtButtons(prefix string, price float64) [][]button {
+	return s.usdtButtonsLabel(prefix, strconv.FormatFloat(price, 'f', -1, 64))
+}
+
+func (s *Server) usdtButtonsLabel(prefix, price string) [][]button {
 	var rows [][]button
 	var row []button
 	for _, n := range s.usdtNetsOn() {
-		row = append(row, button{Text: "💲 USDT · " + n.Short + " " + strconv.FormatFloat(price, 'f', -1, 64), Data: prefix + ":" + payUSDT + ":" + n.ID})
+		row = append(row, button{Text: "💲 USDT · " + n.Short + " " + price, Data: prefix + ":" + payUSDT + ":" + n.ID})
 		if len(row) == 2 {
 			rows, row = append(rows, row), nil
 		}
