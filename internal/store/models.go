@@ -161,8 +161,9 @@ type User struct {
 	ExtraTraffic int64 `json:"extraTraffic"`
 	// PlanID is the user's current plan (a Group with Plan set), "" = none.
 	PlanID     string `gorm:"size:32;index" json:"planId"`
-	IsService  bool   `gorm:"index" json:"isService"`  // chain service account
-	TelegramID int64  `gorm:"index" json:"telegramId"` // bound Telegram chat
+	IsService  bool   `gorm:"index" json:"isService"`      // chain service account
+	TelegramID int64  `gorm:"index" json:"telegramId"`     // bound Telegram chat
+	Email      string `gorm:"size:254;index" json:"email"` // lower case; "" = none
 	// SelfService marks an account the shop created for its buyer: the buyer
 	// may rename it (Telegram /rename, user center) when the shop allows it.
 	SelfService  bool       `json:"selfService"`

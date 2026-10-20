@@ -35,6 +35,7 @@ type userReq struct {
 	NodeIDs         []string   `json:"nodeIds"`    // nil = unchanged on update
 	InboundIDs      []string   `json:"inboundIds"` // nil = unchanged on update
 	TelegramID      *int64     `json:"telegramId"` // nil = unchanged, 0 = unbind
+	Email           *string    `json:"email"`      // nil = unchanged, "" = none
 	UUID            string     `json:"uuid"`
 	Password        string     `json:"password"`
 }
@@ -150,7 +151,7 @@ func (s *Server) listUsers(c *gin.Context) {
 	q := base.Session(&gorm.Session{})
 	if v := strings.TrimSpace(c.Query("q")); v != "" {
 		like := "%" + v + "%"
-		q = q.Where(s.st.Like("username LIKE ? OR uuid LIKE ? OR remark LIKE ?"), like, like, like)
+		q = q.Where(s.st.Like("username LIKE ? OR uuid LIKE ? OR remark LIKE ? OR email LIKE ?"), like, like, like, like)
 	}
 	q = userFilter(q, c.Query("filter"), now, warn)
 	if g := c.Query("group"); g != "" {
@@ -251,6 +252,13 @@ func (s *Server) createUser(c *gin.Context) {
 	}
 	if req.TelegramID != nil {
 		u.TelegramID = *req.TelegramID
+	}
+	if req.Email != nil {
+		var err error
+		if u.Email, err = checkUserEmail(s.st.DB, *req.Email, u.ID); err != nil {
+			badRequest(c, err)
+			return
+		}
 	}
 	if req.GroupIDs == nil && req.NodeIDs == nil && req.InboundIDs == nil && (req.PlanID == nil || *req.PlanID == "") {
 		req.GroupIDs = s.defaultGroupIDs() // outside the transaction (single SQLite connection)
@@ -591,6 +599,13 @@ func (s *Server) updateUser(c *gin.Context) {
 		}
 		u.TelegramID = *req.TelegramID
 	}
+	if req.Email != nil {
+		var err error
+		if u.Email, err = checkUserEmail(s.st.DB, *req.Email, u.ID); err != nil {
+			badRequest(c, err)
+			return
+		}
+	}
 	switch req.Status {
 	case "disabled":
 		u.Status = "disabled"
@@ -605,7 +620,7 @@ func (s *Server) updateUser(c *gin.Context) {
 		// Only the edited columns: traffic settlement, IP bans and resets
 		// update the counters concurrently and must not be overwritten.
 		if err := tx.Model(&u).Select("username", "traffic_limit", "extra_traffic", "expire_at", "ip_limit", "expire_after_days",
-			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "status",
+			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "email", "status",
 			"renew_days", "renew_max", "renew_count", "device_limit", "speed_up_mbps", "speed_down_mbps").Updates(&u).Error; err != nil {
 			return err
 		}

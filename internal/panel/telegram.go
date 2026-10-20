@@ -812,7 +812,7 @@ func (s *Server) remindUsers() {
 	pctAt := atoiDefault(s.st.GetSetting("remind_usage_pct", "80"), 80)
 	expDays := atoiDefault(s.st.GetSetting("remind_expire_days", "3"), 3)
 	var us []store.User
-	s.st.DB.Where("telegram_id <> 0 AND is_service = ? AND status = ?", false, "active").Find(&us)
+	s.st.DB.Where("(telegram_id <> 0 OR email <> '') AND is_service = ? AND status = ?", false, "active").Find(&us)
 	now := time.Now()
 	for _, u := range us {
 		if u.TrafficLimit > 0 && pctAt > 0 {

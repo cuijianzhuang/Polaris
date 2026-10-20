@@ -102,12 +102,13 @@ func (s *Server) renewCert(c *gin.Context) {
 
 var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true,
 	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true,
-	"shop_epay_key": true, "shop_usdt_apikey": true}
+	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true}
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
 var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true, "audit_changes": true,
-	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true, "backup_store": true,
+	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true,
+	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_from": true, "mail_admin_to": true, "backup_store": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,
 	"shop_usdt_rpc_bsc": true, "shop_usdt_rpc_polygon": true, "shop_usdt_rpc_arbitrum": true} // where payments go, and who confirms them
 
@@ -121,6 +122,8 @@ var editableSettings = map[string]bool{
 	"backup_passphrase": true, "backup_webdav_url": true, "backup_webdav_user": true, "backup_webdav_pass": true,
 	"backup_s3_endpoint": true, "backup_s3_region": true, "backup_s3_bucket": true, "backup_s3_prefix": true, "backup_s3_access_key": true, "backup_s3_secret_key": true,
 	"backup_store": true, "backup_s3_path_style": true,
+	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
+	"mail_notify_users": true, "mail_admin_to": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "login_allowlist": true, "login_ban_failures": true,

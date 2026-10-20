@@ -205,8 +205,61 @@ const settingTabs = [
   { id: 'security', label: t('账号安全'), hint: t('密码、二次验证、登录设备、登录防护'), icon: <Icon.Lock /> },
   { id: 'update', label: t('版本与更新'), hint: t('在线升级、自动更新'), icon: <Icon.Refresh /> },
   { id: 'backup', label: t('备份与恢复'), hint: t('自动备份、恢复'), icon: <Icon.Download /> },
+  { id: 'mail', label: t('邮件'), hint: t('SMTP、邮件提醒'), icon: <Icon.Mail /> },
   { id: 'appearance', label: t('外观'), hint: t('主题与配色'), icon: <Icon.Sun /> },
 ]
+
+const mailKeys = ['smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from', 'smtp_from_name', 'mail_notify_users', 'mail_admin_to'] as const
+
+// MailSettings: the SMTP account, a test message, and who gets mail.
+function MailSettings() {
+  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const [f, setF] = useState<Record<string, string>>({})
+  const [pass, setPass] = useState('')
+  const [to, setTo] = useState('')
+  useEffect(() => {
+    if (s.data) setF(Object.fromEntries(mailKeys.map((k) => [k, String(s.data?.[k] ?? '')])))
+  }, [s.data])
+  const { busy, run } = useAction()
+  const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
+  const security = f.smtp_security || 'starttls'
+  const save = () => run(async () => {
+    const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'false' ? 'false' : 'true' }
+    if (pass) body.smtp_password = pass
+    await put('/settings', body); setPass(''); s.reload()
+  }, t('邮件设置已保存'))
+  const test = () => run(async () => {
+    const r = await post<{ ok: boolean; error?: string }>('/mail/test', { to, host: f.smtp_host, port: f.smtp_port, security, user: f.smtp_user, password: pass, from: f.smtp_from, fromName: f.smtp_from_name })
+    if (!r.ok) throw new Error(t('发送失败：{err}', { err: r.error ?? '' }))
+  }, t('测试邮件已发出，请查收'))
+  const passSet = !!s.data?.smtp_password_set
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <h2>{t('邮件（SMTP）')}</h2>
+      <div className="hint">{t('配置后，填了邮箱的用户会收到和 Telegram 相同的提醒（流量、到期、停用、恢复），以及订单开通通知。提醒阈值在「Telegram」页设置，两边共用。')}</div>
+      <div className="form-grid">
+        <Field label={t('SMTP 服务器')}><input className="input mono" value={f.smtp_host || ''} placeholder="smtp.example.com" onChange={(e) => set('smtp_host', e.target.value.trim())} /></Field>
+        <Field label={t('加密方式')}>
+          <select className="input" value={security} onChange={(e) => set('smtp_security', e.target.value)}>
+            <option value="starttls">STARTTLS（587）</option><option value="tls">SSL/TLS（465）</option><option value="none">{t('不加密（25，仅限内网中继）')}</option>
+          </select>
+        </Field>
+        <Field label={t('端口')} hint={t('留空按加密方式使用默认端口')}><input className="input mono" inputMode="numeric" value={f.smtp_port || ''} placeholder={security === 'tls' ? '465' : security === 'none' ? '25' : '587'} onChange={(e) => set('smtp_port', e.target.value.replace(/[^\d]/g, ''))} /></Field>
+        <Field label={t('用户名')} hint={t('通常是完整邮箱地址；中继不需要时留空')}><input className="input mono" autoComplete="off" value={f.smtp_user || ''} onChange={(e) => set('smtp_user', e.target.value.trim())} /></Field>
+        <Field label={t('密码 / 授权码')} hint={passSet ? t('已保存（留空不修改）') : t('QQ / 163 邮箱填授权码，Gmail 填应用专用密码')}><input className="input mono" type="password" autoComplete="new-password" value={pass} placeholder={passSet ? '••••••••' : ''} onChange={(e) => setPass(e.target.value)} /></Field>
+        <Field label={t('发件地址')}><input className="input mono" value={f.smtp_from || ''} placeholder="noreply@example.com" onChange={(e) => set('smtp_from', e.target.value.trim())} /></Field>
+        <Field label={t('发件人名称')} hint={t('可留空')}><input className="input" value={f.smtp_from_name || ''} onChange={(e) => set('smtp_from_name', e.target.value)} /></Field>
+        <Field label={t('管理员收件地址')} hint={t('可留空；填写后，发给 Telegram 管理员的通知（新订单、备份失败、升级结果、节点告警等）也抄送到这里')}><input className="input mono" value={f.mail_admin_to || ''} placeholder="ops@example.com" onChange={(e) => set('mail_admin_to', e.target.value.trim())} /></Field>
+      </div>
+      <div className="toggle"><span>{t('给用户发提醒邮件')}</span><Switch label={t('给用户发提醒邮件')} on={f.mail_notify_users !== 'false'} onChange={(v) => set('mail_notify_users', String(v))} /></div>
+      <div className="row">
+        <button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button>
+        <input className="input mono" style={{ width: 'auto', minWidth: 200 }} type="email" value={to} placeholder={t('测试收件地址')} onChange={(e) => setTo(e.target.value)} aria-label={t('测试收件地址')} />
+        <button className="btn" type="button" disabled={busy || !to || !f.smtp_host} onClick={test}>{t('发送测试邮件')}</button>
+      </div>
+    </section>
+  )
+}
 
 // Appearance: mode, accent and exclusive style are per browser; the logo is
 // the panel's (paid features "themes" and "branding").
@@ -609,6 +662,7 @@ export default function Settings() {
         {tab === 'update' && <><Updates /><Cluster /><OperationalHealth /></>}
         {tab === 'appearance' && <Appearance />}
         {tab === 'backup' && <Backups />}
+        {tab === 'mail' && <MailSettings />}
         {tab === 'security' && <>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('修改密码')} · {me.data?.username}</h2>

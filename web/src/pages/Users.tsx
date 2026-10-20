@@ -180,7 +180,7 @@ function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { user?: 
     expire: user?.expireAt ? date(user.expireAt) : '', ipLimit: String(user?.ipLimit ?? 0), resetPolicy: user?.resetPolicy ?? 'none',
     resetDay: String(user?.resetDay ?? 1), remark: user?.remark ?? '', status: user?.status === 'disabled' ? 'disabled' : 'active',
     groupIds: user?.groupIds ?? groups.filter((g) => g.isDefault).map((g) => g.id), afterDays: String(user?.expireAfterDays || ''),
-    nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [], telegramId: user?.telegramId ? String(user.telegramId) : '',
+    nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [], telegramId: user?.telegramId ? String(user.telegramId) : '', email: user?.email ?? '',
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
     renewDays: user?.renewDays ? String(user.renewDays) : '', renewMax: user?.renewMax ? String(user.renewMax) : '',
     deviceLimit: String(user?.deviceLimit ?? 0),
@@ -211,7 +211,7 @@ function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { user?: 
       expireAt: f.expireMode === 'date' && f.expire ? new Date(f.expire + 'T23:59:59').toISOString() : null,
       expireAfterDays: f.expireMode === 'first' ? Number(f.afterDays) || 0 : 0, resetPolicy: f.resetPolicy, resetDay: Number(f.resetDay) || 0,
       remark: f.remark, status: f.status, groupIds: f.groupIds, nodeIds: f.nodeIds, inboundIds: f.inboundIds,
-      telegramId: Number(f.telegramId.trim()) || 0,
+      telegramId: Number(f.telegramId.trim()) || 0, email: f.email.trim(),
       renewDays: Number(f.renewDays) || 0, renewMax: Number(f.renewMax) || 0, deviceLimit: Number(f.deviceLimit) || 0,
       speedUpMbps: Number(f.speedUp) || 0, speedDownMbps: Number(f.speedDown) || 0, planId: f.planId,
     }
@@ -317,9 +317,13 @@ function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { user?: 
         <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
           onChange={(k, v) => set(k, v)} />
       </Section>
-      <Section step={5 + sp} title="Telegram" defaultOpen={!!user?.telegramId} summary={f.telegramId ? t('已绑定 {id}', { id: f.telegramId }) : t('未绑定')}>
+      <Section step={5 + sp} title={t('Telegram 与邮箱')} defaultOpen={!!user?.telegramId || !!user?.email}
+        summary={[f.telegramId ? t('已绑定 {id}', { id: f.telegramId }) : t('未绑定'), f.email].filter(Boolean).join(' · ')}>
           <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? t('已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒') : t('纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定')}>
             <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder={t('例如 123456789')} />
+          </Field>
+          <Field label={t('邮箱')} htmlFor="u-mail" full hint={t('配置 SMTP 后，提醒和订单开通通知也会发到这个邮箱；留空表示不发邮件')}>
+            <input id="u-mail" className="input mono" type="email" autoComplete="off" value={f.email} onChange={(e) => set('email', e.target.value)} placeholder="user@example.com" />
           </Field>
       </Section>
       {user && <UserLinks userId={user.id} />}

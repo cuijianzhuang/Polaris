@@ -103,6 +103,7 @@ type Server struct {
 	tg           *tgBot
 	tgEvents     chan Event
 	hookEvents   chan Event
+	mailEvents   chan Event
 	seenBase     atomic.Value // string: public base URL the admin UI is reached at
 	auditChanges atomic.Bool  // record row changes made by admins (audit_changes)
 	changes      changeLog
@@ -144,6 +145,8 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.tgEvents = tgEvents
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
+	s.mailEvents = make(chan Event, 256)
+	s.sinks = append(s.sinks, s.mailEvents)
 	s.procID = store.NewID()
 	s.memberID, err = loadMemberID(cfg.DataDir)
 	if err != nil {
@@ -282,6 +285,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.tg.run(ctx)
 	go s.tg.runNotifications(ctx, s.tgEvents)
 	go s.runWebhooks(ctx, s.hookEvents)
+	go s.runMail(ctx, s.mailEvents)
 	licenseCtx, stopLicense := context.WithCancel(ctx)
 	defer stopLicense()
 	go s.runLicenseChecks(licenseCtx)

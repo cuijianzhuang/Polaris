@@ -368,6 +368,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/backup/files/:name", s.requireSudo, s.backupDelete)
 	p.POST("/backup/files/:name/restore", s.requireSudo, s.backupRestore)
 	p.POST("/backup/store/test", s.requireSudo, s.backupStoreTest)
+	p.POST("/mail/test", s.requireSudo, s.testMail)
 	p.GET("/settings", s.getSettings)
 	p.GET("/tokens", s.listTokens)
 	p.GET("/plugins", s.listPlugins)
