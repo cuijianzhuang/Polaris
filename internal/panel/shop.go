@@ -423,6 +423,7 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 	s.notify(Event{Kind: "order.paid", Text: fmt.Sprintf("💰 新订单：%s 购买 %s（%s %s，%s）", who, o.PlanName, o.Amount, o.Currency, methodName[o.Method]),
 		Data: map[string]any{"order": orderBrief(o), "user": userBrief(u)}})
 	go s.tg.orderDelivered(o, u, created)
+	go s.mailOrderDelivered(o, u, created)
 	return o, u, true, nil
 }
 

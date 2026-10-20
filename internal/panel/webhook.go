@@ -85,7 +85,7 @@ func matchEvent(subs []string, typ string) bool {
 // userBrief is the user as events describe it.
 func userBrief(u *store.User) map[string]any {
 	return map[string]any{"id": u.ID, "username": u.Username, "status": u.Status, "expire_at": u.ExpireAt,
-		"traffic_limit": u.TrafficLimit, "used_up": u.UsedUp, "used_down": u.UsedDown, "telegram_id": u.TelegramID, "remark": u.Remark, "plan_id": u.PlanID}
+		"traffic_limit": u.TrafficLimit, "used_up": u.UsedUp, "used_down": u.UsedDown, "telegram_id": u.TelegramID, "email": u.Email, "remark": u.Remark, "plan_id": u.PlanID}
 }
 
 // userEvent notifies a user change. Its Text is empty: these are for

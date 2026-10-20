@@ -57,6 +57,16 @@ func (s *Server) customReminder(kind string, u *store.User) string {
 	return html.EscapeString(renderTemplate(tpl, s.reminderVars(u)))
 }
 
+// reminderText renders the custom template for kind as plain text (mail),
+// or "" when none is set.
+func (s *Server) reminderText(kind string, u *store.User) string {
+	tpl := strings.TrimSpace(s.st.GetSetting("tpl_"+kind, ""))
+	if tpl == "" || u == nil {
+		return ""
+	}
+	return renderTemplate(tpl, s.reminderVars(u))
+}
+
 // previewReminder: POST /telegram/template-preview {kind, text} — renders a
 // template with a sample (or the first bound) user.
 func (s *Server) previewReminder(c *gin.Context) {

@@ -37,6 +37,7 @@ type userExport struct {
 	RenewMax        int        `json:"renewMax,omitempty"`
 	Status          string     `json:"status"`
 	TelegramID      int64      `json:"telegramId,omitempty"`
+	Mail            string     `json:"mail,omitempty"` // e-mail address ("email" is 3x-ui's client name)
 	Remark          string     `json:"remark,omitempty"`
 	Groups          []string   `json:"groups,omitempty"` // group names
 	Plan            string     `json:"plan,omitempty"`   // plan name
@@ -124,7 +125,7 @@ func (s *Server) exportUsers(c *gin.Context) {
 		e := userExport{Username: u.Username, UUID: u.UUID, Password: u.Password, SSSeed: u.SSSeed, SubToken: u.SubToken,
 			TrafficLimit: u.TrafficLimit, UsedUp: u.UsedUp, UsedDown: u.UsedDown, ExpireAt: u.ExpireAt, ExpireAfterDays: u.ExpireAfterDays,
 			IPLimit: u.IPLimit, DeviceLimit: u.DeviceLimit, ResetPolicy: u.ResetPolicy, ResetDay: u.ResetDay, RenewDays: u.RenewDays,
-			RenewMax: u.RenewMax, Status: u.Status, TelegramID: u.TelegramID, Remark: u.Remark, Plan: gname[u.PlanID]}
+			RenewMax: u.RenewMax, Status: u.Status, TelegramID: u.TelegramID, Mail: u.Email, Remark: u.Remark, Plan: gname[u.PlanID]}
 		for _, g := range u.GroupIDs {
 			if n := gname[g]; n != "" {
 				e.Groups = append(e.Groups, n)
@@ -209,6 +210,10 @@ func (s *Server) importUsers(c *gin.Context) {
 				u.SubToken = pki.Token(32)
 			}
 			u.UsedUp, u.UsedDown, u.TelegramID = max(e.UsedUp, 0), max(e.UsedDown, 0), max(e.TelegramID, 0)
+			if m, err := checkUserEmail(tx, e.Mail, u.ID); err == nil && m != "" && !taken["m:"+m] {
+				u.Email = m
+				taken["m:"+m] = true
+			}
 			u.PlanID = planID[e.Plan]
 			u.Status = computeStatus(&u, time.Now())
 			if err := tx.Create(&u).Error; err != nil {
