@@ -343,6 +343,49 @@ function Updates() {
   )
 }
 
+type ClusterInfo = { shared: boolean; members: { id: string; host: string; version: string; edition: string; startedAt: string; seenAt: string; online: boolean; leader: boolean; self: boolean }[] }
+
+// Cluster: the panel instances sharing this database (shown only when there
+// is more than one). The leader runs the scheduled jobs; "update" updates
+// every running instance.
+function Cluster() {
+  const info = useLoad(() => get<ClusterInfo>('/cluster'))
+  useEffect(() => {
+    const id = setInterval(() => info.reload(), 15000)
+    return () => clearInterval(id)
+  }, [])
+  const ms = info.data?.members ?? []
+  if (ms.length < 2) return null
+  const running = ms.filter((m) => m.online)
+  const versions = new Set(running.map((m) => m.version))
+  return (
+    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <h2>{t('集群')}</h2>
+        <span className="sub" style={{ margin: 0 }}>{t('{n} 个主控实例运行中', { n: running.length })}</span>
+      </div>
+      {versions.size > 1 && <div className="note warn">{t('各实例版本不一致，请等待升级完成或检查升级失败的实例。')}</div>}
+      <div className="card flush scroll">
+        <table className="rtable">
+          <thead><tr><th>{t('主机')}</th><th>{t('版本')}</th><th>{t('启动时间')}</th><th>{t('最后在线')}</th></tr></thead>
+          <tbody>{ms.map((m) => (
+            <tr key={m.id}>
+              <td className="rt-head mono">{m.host || m.id.slice(0, 8)}
+                {m.leader && <span className="tag ok" style={{ marginLeft: 6 }}>{t('主实例')}</span>}
+                {m.self && <span className="tag" style={{ marginLeft: 6 }}>{t('当前')}</span>}
+                {!m.online && <span className="tag warn" style={{ marginLeft: 6 }}>{t('离线')}</span>}</td>
+              <td data-label={t('版本')} className="mono">{m.version}</td>
+              <td data-label={t('启动时间')}>{datetime(m.startedAt)}</td>
+              <td data-label={t('最后在线')}>{datetime(m.seenAt)}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+      <div className="hint">{t('主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 1 天的实例自动移除。')}</div>
+    </section>
+  )
+}
+
 type AccessInfo = { adminPath: string; publicUrl: string; listen: string; domain?: string; subDomain?: string; updater: boolean; pending?: boolean
   last?: { action: string; value: string; ok: boolean; log: string; at: string } }
 
@@ -543,7 +586,7 @@ export default function Settings() {
           <div className="note">{t('后台路径、域名、端口和公开地址可在上方「面板访问」修改；数据库与加密密钥通过 /etc/polaris/polaris.env 设置（见 README）。使用后台路径时，其他路径一律返回 404 或伪装站点。')}</div>
         </section>
         </>}
-        {tab === 'update' && <Updates />}
+        {tab === 'update' && <><Updates /><Cluster /></>}
         {tab === 'appearance' && <Appearance />}
         {tab === 'backup' && <Backups />}
         {tab === 'security' && <>
