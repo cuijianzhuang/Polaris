@@ -22,6 +22,10 @@ func TestBackupRestore(t *testing.T) {
 	s.restartHook = func() { restarted <- struct{}{} }
 	s.st.DB.Create(&store.User{ID: "u1", Username: "before", UUID: "11111111-1111-1111-1111-111111111111", Password: "p", Status: "active", SubToken: "t1"})
 	s.st.DB.Create(&store.Node{ID: "net", Name: "net"})
+	anchoredExpiry := costTestDate(t, "2026-02-28")
+	if err := s.st.DB.Create(&store.NodeCost{NodeID: "net", Cycle: "month", ExpireAt: &anchoredExpiry, RenewalDay: 31, Revision: 2}).Error; err != nil {
+		t.Fatal(err)
+	}
 	for _, sample := range []*polarisv1.SystemStats{
 		bootSample("boot-1", "nic-a", 100, 100, 200),
 		bootSample("boot-1", "nic-a", 200, 110, 220),
@@ -99,6 +103,10 @@ func TestBackupRestore(t *testing.T) {
 	s2.st.DB.First(&u, "id = ?", "u1")
 	if u.Username != "before" {
 		t.Fatalf("restored username %q", u.Username)
+	}
+	renewed, err := s2.renewCost("net")
+	if err != nil || renewed.RenewalDay != 31 || renewed.Revision != 3 || renewed.ExpireAt.Format("2006-01-02") != "2026-03-31" {
+		t.Fatalf("restore lost billing-day anchor: %+v %v", renewed, err)
 	}
 	// A real restart after restore must keep the old boot retired and resume
 	// the active boot's baseline without charging its lifetime bytes again.

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -81,21 +82,6 @@ func (cs costSettings) toBase(amount float64, cur string) (float64, bool) {
 	return amount * r, ok && r > 0
 }
 
-// addCycle moves a renewal date forward by one billing cycle.
-func addCycle(t time.Time, cycle string) time.Time {
-	switch cycle {
-	case "quarter":
-		return t.AddDate(0, 3, 0)
-	case "halfyear":
-		return t.AddDate(0, 6, 0)
-	case "year":
-		return t.AddDate(1, 0, 0)
-	case "once":
-		return t
-	}
-	return t.AddDate(0, 1, 0)
-}
-
 type costItem struct {
 	store.NodeCost
 	Name              string  `json:"name"`
@@ -159,6 +145,10 @@ func (s *Server) listCosts(c *gin.Context) {
 		if !ok {
 			nc = store.NodeCost{NodeID: n.ID, Currency: cs.Base, Cycle: "month"}
 		}
+		if nc.ExpireAt != nil {
+			exp := costDate(*nc.ExpireAt)
+			nc.ExpireAt = &exp
+		}
 		tr := traffic[n.ID]
 		mode := orDefault(n.NetMode, "sum")
 		it := costItem{NodeCost: nc, Name: n.Name, Flag: n.Flag, Traffic30: nodeNetBytes(mode, tr.Rx, tr.Tx), TrafficRx30: tr.Rx, TrafficTx30: tr.Tx, TrafficMode: mode, TrafficDays: tr.Days, TrafficLegacyDays: tr.LegacyDays}
@@ -172,7 +162,7 @@ func (s *Server) listCosts(c *gin.Context) {
 			}
 		}
 		if nc.ExpireAt != nil {
-			d := int(math.Ceil(nc.ExpireAt.Sub(now).Hours() / 24))
+			d := costDaysLeft(*nc.ExpireAt, now)
 			it.DaysLeft = &d
 			if d <= cs.RemindDays && !nc.AutoRenew {
 				due++
@@ -193,21 +183,17 @@ func (s *Server) listCosts(c *gin.Context) {
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
 type costReq struct {
-	Provider  string  `json:"provider"`
-	Amount    float64 `json:"amount"`
-	Currency  string  `json:"currency"`
-	Cycle     string  `json:"cycle"`
-	ExpireAt  string  `json:"expireAt"` // YYYY-MM-DD, "" = none
-	AutoRenew bool    `json:"autoRenew"`
-	Note      string  `json:"note"`
+	Provider         string  `json:"provider"`
+	Amount           float64 `json:"amount"`
+	Currency         string  `json:"currency"`
+	Cycle            string  `json:"cycle"`
+	ExpireAt         string  `json:"expireAt"` // YYYY-MM-DD, "" = none
+	AutoRenew        bool    `json:"autoRenew"`
+	Note             string  `json:"note"`
+	ExpectedRevision *uint64 `json:"expectedRevision"`
 }
 
 func (s *Server) putNodeCost(c *gin.Context) {
-	var n store.Node
-	if err := s.st.DB.Select("id", "name").First(&n, "id = ?", c.Param("id")).Error; err != nil {
-		dbError(c, err)
-		return
-	}
 	var req costReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -234,43 +220,51 @@ func (s *Server) putNodeCost(c *gin.Context) {
 		badRequest(c, errors.New("币种代码应为 3–4 位英文字母，如 CNY、USD、USDT"))
 		return
 	}
-	nc := store.NodeCost{NodeID: n.ID, Provider: strings.TrimSpace(req.Provider), Amount: req.Amount, Currency: req.Currency,
+	nc := store.NodeCost{NodeID: c.Param("id"), Provider: strings.TrimSpace(req.Provider), Amount: req.Amount, Currency: req.Currency,
 		Cycle: req.Cycle, AutoRenew: req.AutoRenew, Note: req.Note}
 	if req.ExpireAt != "" {
 		t, err := time.ParseInLocation("2006-01-02", req.ExpireAt, time.Local)
-		if err != nil {
+		if err != nil || t.Year() < 1 {
 			badRequest(c, errors.New("到期日格式应为 YYYY-MM-DD"))
 			return
 		}
 		nc.ExpireAt = &t
 	}
-	var old store.NodeCost
-	if s.st.DB.First(&old, "node_id = ?", n.ID).Error == nil && old.ExpireAt != nil && nc.ExpireAt != nil && old.ExpireAt.Equal(*nc.ExpireAt) {
-		nc.WarnedFor = old.WarnedFor
+	var name string
+	err := s.withNodeCost(nc.NodeID, func(db *gorm.DB, n *store.Node, old *store.NodeCost) error {
+		if req.ExpectedRevision != nil && *req.ExpectedRevision != old.Revision {
+			return errCostChanged
+		}
+		name, nc.Revision = n.Name, old.Revision
+		if nc.ExpireAt != nil {
+			nc.RenewalDay = nc.ExpireAt.Day()
+			if old.ExpireAt != nil && costDate(*old.ExpireAt).Equal(*nc.ExpireAt) {
+				nc.WarnedFor, nc.RenewalDay = old.WarnedFor, costRenewalDay(old)
+			}
+		}
+		return saveNodeCost(db, &nc)
+	})
+	if errors.Is(err, errCostChanged) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
 	}
-	if err := s.st.DB.Save(&nc).Error; err != nil {
+	if err != nil {
 		dbError(c, err)
 		return
 	}
-	s.auditCtx(c, "node.cost", n.Name, fmt.Sprintf("%.2f %s / %s", nc.Amount, nc.Currency, nc.Cycle))
+	s.auditCtx(c, "node.cost", name, fmt.Sprintf("%.2f %s / %s", nc.Amount, nc.Currency, nc.Cycle))
 	c.JSON(http.StatusOK, nc)
 }
 
 // renewNodeCost records a renewal: the expiry moves forward one cycle.
 func (s *Server) renewNodeCost(c *gin.Context) {
-	var nc store.NodeCost
-	if err := s.st.DB.First(&nc, "node_id = ?", c.Param("id")).Error; err != nil || nc.ExpireAt == nil {
-		badRequest(c, errors.New("先设置到期日"))
+	nc, err := s.renewCost(c.Param("id"))
+	if err != nil {
+		dbError(c, err)
 		return
 	}
-	if nc.Cycle == "once" {
-		badRequest(c, errors.New("一次性付费不需要续费"))
-		return
-	}
-	t := addCycle(*nc.ExpireAt, nc.Cycle)
-	s.st.DB.Model(&store.NodeCost{}).Where("node_id = ?", nc.NodeID).Updates(map[string]any{"expire_at": t, "warned_for": ""})
-	s.auditCtx(c, "node.renew", nc.NodeID, t.Format("2006-01-02"))
-	c.JSON(http.StatusOK, gin.H{"expireAt": t})
+	s.auditCtx(c, "node.renew", nc.NodeID, nc.ExpireAt.Format("2006-01-02"))
+	c.JSON(http.StatusOK, gin.H{"expireAt": nc.ExpireAt, "revision": nc.Revision})
 }
 
 func (s *Server) putCostSettings(c *gin.Context) {
@@ -326,32 +320,40 @@ func (s *Server) putCostSettings(c *gin.Context) {
 // costRenewals is the daily job: remind before manual renewals and roll
 // auto-renewing servers forward once their date has passed.
 func (s *Server) costRenewals() {
+	s.costRenewalsAt(time.Now())
+}
+
+func (s *Server) costRenewalsAt(now time.Time) {
 	cs, err := s.costSettings()
 	if err != nil {
 		s.log.Error("read server cost settings", "err", err)
 		return
 	}
-	now := time.Now()
 	var costs []store.NodeCost
-	s.st.DB.Where("expire_at IS NOT NULL AND cycle <> ?", "once").Find(&costs)
-	for _, nc := range costs {
-		var n store.Node
-		if s.st.DB.Select("id", "name").First(&n, "id = ?", nc.NodeID).Error != nil {
-			continue
-		}
-		exp := *nc.ExpireAt
-		if nc.AutoRenew {
-			if now.After(exp.Add(24 * time.Hour)) {
-				for now.After(exp.Add(24 * time.Hour)) {
-					exp = addCycle(exp, nc.Cycle)
-				}
-				s.st.DB.Model(&store.NodeCost{}).Where("node_id = ?", nc.NodeID).Updates(map[string]any{"expire_at": exp, "warned_for": ""})
+	if err := s.st.DB.Select("node_id").Where("expire_at IS NOT NULL AND cycle <> ?", "once").Find(&costs).Error; err != nil {
+		s.log.Error("list server renewals", "err", err)
+		return
+	}
+	for _, candidate := range costs {
+		var alert *Event
+		err := s.withNodeCost(candidate.NodeID, func(db *gorm.DB, n *store.Node, nc *store.NodeCost) error {
+			// Settings and expiry may have changed since the candidate scan.
+			if nc.ExpireAt == nil || nc.Cycle == "once" {
+				return nil
 			}
-			continue
-		}
-		days := int(math.Ceil(exp.Sub(now).Hours() / 24))
-		key := exp.Format("2006-01-02")
-		if cs.RemindDays > 0 && days <= cs.RemindDays && nc.WarnedFor != key {
+			if nc.AutoRenew {
+				changed, err := catchUpCostExpiry(nc, now)
+				if err != nil || !changed {
+					return err
+				}
+				return saveNodeCost(db, nc)
+			}
+			exp := costDate(*nc.ExpireAt)
+			days := costDaysLeft(exp, now)
+			key := exp.Format("2006-01-02")
+			if cs.RemindDays <= 0 || days > cs.RemindDays || nc.WarnedFor == key {
+				return nil
+			}
 			price := ""
 			if nc.Amount > 0 {
 				price = fmt.Sprintf("，续费 %.2f %s", nc.Amount, nc.Currency)
@@ -366,8 +368,18 @@ func (s *Server) costRenewals() {
 			} else {
 				text = fmt.Sprintf("💳 节点 %s%s 的服务器将于 %s 到期（还剩 %d 天）%s", n.Name, who, key, days, price)
 			}
-			s.notify(Event{Kind: "server_renewal", NodeID: n.ID, Text: text})
-			s.st.DB.Model(&store.NodeCost{}).Where("node_id = ?", nc.NodeID).Update("warned_for", key)
+			if err := db.Model(nc).Update("warned_for", key).Error; err != nil {
+				return err
+			}
+			alert = &Event{Kind: "server_renewal", NodeID: n.ID, Text: text}
+			return nil
+		})
+		if err != nil {
+			s.log.Error("process server renewal", "node", candidate.NodeID, "err", err)
+			continue
+		}
+		if alert != nil {
+			s.notify(*alert)
 		}
 	}
 }
