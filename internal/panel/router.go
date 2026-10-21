@@ -188,6 +188,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/nodes/:id/geodata-update", s.geodataUpdate)
 	p.POST("/tools/reality-scan", s.realityScan)
 	p.GET("/tools/reality-candidates", s.realityCandidates)
+	p.POST("/tools/reality-discover", s.realityDiscover)
+	p.GET("/tools/shodan", s.shodanInfo)
 	p.POST("/tools/vlessenc", s.genVLESSEnc)
 	p.POST("/tools/mldsa65", s.genMLDSA65)
 	p.POST("/nodes/:id/upgrade-agent", s.upgradeAgentAPI)

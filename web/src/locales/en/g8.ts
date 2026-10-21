@@ -504,5 +504,23 @@ const m: Record<string, string> = {
   "近 1 小时平均 {ms} ms · 丢包 {loss}%": "Last hour avg {ms} ms · loss {loss}%",
   "还没有探测目标": "No probe targets yet",
   "页面标题": "Page title",
+  // REALITY scanner: Shodan discovery
+  "Shodan API Key 已保存": "Shodan API key saved",
+  "Shodan API Key（加密保存）": "Shodan API key (stored encrypted)",
+  "Shodan 共有 {total} 条匹配，取了 {n} 个候选逐个验证 · 查询：{q}": "Shodan has {total} matches; {n} candidates were checked · query: {q}",
+  "两位代码，如 JP、SG、US；选离节点近的更好": "Two-letter code such as JP, SG or US; closer to the node is better",
+  "从 Shodan 发现": "Discover via Shodan",
+  "保存 Key": "Save key",
+  "发现并验证": "Discover and check",
+  "发现并验证中…": "Discovering and checking…",
+  "国家 / 地区": "Country / region",
+  "已配置 Key · 套餐 {plan} · 剩余查询额度 {n}": "Key configured · plan {plan} · {n} query credits left",
+  "更换 Key": "Replace key",
+  "每页最多 100 个候选，消耗 1 个查询额度": "Up to 100 candidates per page; each page uses 1 query credit",
+  "用 Shodan 已收录的 HTTPS 服务器找候选，再逐个做 TLS 1.3 / HTTP/2 / 证书检测。面板不主动扫描网段，只查询 Shodan 的数据。": "Finds candidates among the HTTPS servers Shodan has indexed, then checks each for TLS 1.3, HTTP/2 and a valid certificate. The panel does not scan ranges itself; it only queries Shodan's data.",
+  "留空使用：{q}。可加 org:、asn:、ssl.cert.issuer.cn: 等 Shodan 过滤条件": "Empty: {q}. Shodan filters such as org:, asn: or ssl.cert.issuer.cn: can be added",
+  "自定义查询（可选）": "Custom query (optional)",
+  "输入新的 Key 以替换": "Enter a new key to replace it",
+  "页数": "Pages",
 }
 export default m

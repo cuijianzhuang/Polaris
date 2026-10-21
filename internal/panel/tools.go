@@ -29,29 +29,83 @@ func (s *Server) realityScan(c *gin.Context) {
 		// The candidate list is editable (设置 or the scanner dialog).
 		req.Target = strings.TrimSpace(s.st.GetSetting("reality_scan_candidates", ""))
 	}
-	from := "panel"
-	if req.NodeID != "" && s.hub.Online(req.NodeID) {
-		res, err := s.hub.Command(c, req.NodeID, "reality_scan", map[string]string{"target": req.Target}, 60*time.Second)
-		if err == nil && res.Ok {
-			var rs []realityscan.Result
-			// Agents before multi-target scans probe "a,b" as one host;
-			// scan from the panel instead.
-			if json.Unmarshal([]byte(res.Output), &rs) == nil && !(len(rs) == 1 && strings.ContainsAny(rs[0].Target, ", \n")) {
-				c.JSON(http.StatusOK, gin.H{"results": rs, "from": "node"})
-				return
-			}
-		} else if err == nil && res.Error != "" && !strings.HasPrefix(res.Error, "unknown command") {
-			badRequest(c, fmt.Errorf("%s", res.Error))
-			return
-		}
-		from = "panel (节点不支持扫描，请升级 Agent)"
-	}
-	rs, err := realityscan.Scan(c.Request.Context(), req.Target)
+	rs, from, err := s.scanTargets(c, req.Target, req.NodeID)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"results": rs, "from": from})
+}
+
+// scanTargets probes targets from the node when it is online and supports
+// it, else from the panel.
+func (s *Server) scanTargets(c *gin.Context, target, nodeID string) ([]realityscan.Result, string, error) {
+	from := "panel"
+	if nodeID != "" && s.hub.Online(nodeID) {
+		res, err := s.hub.Command(c, nodeID, "reality_scan", map[string]string{"target": target}, 90*time.Second)
+		if err == nil && res.Ok {
+			var rs []realityscan.Result
+			// Agents before multi-target scans probe "a,b" as one host;
+			// scan from the panel instead.
+			if json.Unmarshal([]byte(res.Output), &rs) == nil && !(len(rs) == 1 && strings.ContainsAny(rs[0].Target, ", \n")) {
+				return rs, "node", nil
+			}
+		} else if err == nil && res.Error != "" && !strings.HasPrefix(res.Error, "unknown command") {
+			return nil, "", fmt.Errorf("%s", res.Error)
+		}
+		from = "panel (节点不支持扫描，请升级 Agent)"
+	}
+	rs, err := realityscan.Scan(c.Request.Context(), target)
+	return rs, from, err
+}
+
+// realityDiscover is POST /tools/reality-discover {query, country, pages,
+// nodeId}: finds candidates in Shodan's index with the saved API key, then
+// checks them like a normal scan (TLS 1.3, h2, certificate).
+func (s *Server) realityDiscover(c *gin.Context) {
+	var req struct {
+		Query   string `json:"query"`
+		Country string `json:"country"`
+		Pages   int    `json:"pages"`
+		NodeID  string `json:"nodeId"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	key := s.st.Box.MustOpen(s.st.GetSetting("shodan_api_key", ""))
+	found, err := realityscan.ShodanDiscover(c.Request.Context(), key, realityscan.ShodanQuery{Query: req.Query, Country: req.Country, Pages: req.Pages})
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	out := gin.H{"query": found.Query, "total": found.Total, "candidates": found.Hosts, "results": []realityscan.Result{}, "from": ""}
+	if len(found.Hosts) > 0 {
+		rs, from, err := s.scanTargets(c, strings.Join(found.Hosts, ","), req.NodeID)
+		if err != nil {
+			badRequest(c, err)
+			return
+		}
+		out["results"], out["from"] = rs, from
+	}
+	s.auditCtx(c, "tools.reality_discover", found.Query, fmt.Sprintf("%d candidates", len(found.Hosts)))
+	c.JSON(http.StatusOK, out)
+}
+
+// shodanInfo is GET /tools/shodan: whether a key is saved and, if so, the
+// query credits left.
+func (s *Server) shodanInfo(c *gin.Context) {
+	key := s.st.Box.MustOpen(s.st.GetSetting("shodan_api_key", ""))
+	if key == "" {
+		c.JSON(http.StatusOK, gin.H{"configured": false, "defaultQuery": realityscan.DefaultShodanQuery})
+		return
+	}
+	credits, plan, err := realityscan.ShodanCredits(c.Request.Context(), key)
+	out := gin.H{"configured": true, "defaultQuery": realityscan.DefaultShodanQuery, "credits": credits, "plan": plan}
+	if err != nil {
+		out["error"] = err.Error()
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // realityCandidates is GET /tools/reality-candidates: the targets an empty

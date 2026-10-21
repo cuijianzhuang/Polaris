@@ -127,7 +127,7 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
   nodeId?: string; initial?: string; onPick: (target: string, names: string[]) => void; onClose: () => void
 }) {
   const [q, setQ] = useState(initial ?? '')
-  const [res, setRes] = useState<{ results: RealityScanResult[]; from: string; ms: number } | null>(null)
+  const [res, setRes] = useState<{ results: RealityScanResult[]; from: string; ms: number; shodan?: { total: number; candidates: number; query: string } } | null>(null)
   const [okOnly, setOkOnly] = useState(false)
   const [editing, setEditing] = useState<{ value: string; def: string } | null>(null)
   const { busy, run } = useAction()
@@ -147,11 +147,14 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
     setEditing(null)
     if (!q.trim()) scan('')
   }, t('候选目标已保存'))
+  const [shodan, setShodan] = useState<ShodanInfo | null>(null)
+  const openShodan = () => run(async () => setShodan(await get<ShodanInfo>('/tools/shodan')))
   const rows = (res?.results ?? []).filter((r) => !okOnly || r.ok)
   const okCount = (res?.results ?? []).filter((r) => r.ok).length
   return (
     <Modal xwide title={t('REALITY 目标扫描器')} onClose={onClose} footer={<>
-      <button className="btn" type="button" style={{ marginRight: 'auto' }} disabled={busy} onClick={editCandidates}>{t('编辑默认候选')}</button>
+      <button className="btn" type="button" disabled={busy} onClick={editCandidates}>{t('编辑默认候选')}</button>
+      <button className="btn" type="button" style={{ marginRight: 'auto' }} disabled={busy} onClick={() => (shodan ? setShodan(null) : openShodan())}>{t('从 Shodan 发现')}</button>
       <button className="btn" type="button" disabled={busy} onClick={() => scan()}>{busy ? t('扫描中…') : t('重新扫描')}</button>
       <button className="btn pri" type="button" onClick={onClose}>{t('关闭')}</button>
     </>}>
@@ -172,6 +175,9 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
           </div>
         </div>
       )}
+      {shodan && <ShodanPanel info={shodan} nodeId={nodeId} busy={busy} run={run} onInfo={setShodan}
+        onResult={(r, ms) => setRes({ results: r.results, from: r.from, ms, shodan: { total: r.total, candidates: r.candidates.length, query: r.query } })} />}
+      {res?.shodan && <div className="small sub" style={{ marginTop: 10 }}>{t('Shodan 共有 {total} 条匹配，取了 {n} 个候选逐个验证 · 查询：{q}', { total: res.shodan.total, n: res.shodan.candidates, q: res.shodan.query })}</div>}
       {res && (
         <div className="row small sub" style={{ marginTop: 12, justifyContent: 'space-between' }}>
           <span>{t('共 {total} 个目标，可用 {ok} 个 · 来源：{from} · 用时 {sec} 秒', { total: res.results.length, ok: okCount, from: res.from === 'node' ? t('节点') : res.from === 'panel' ? t('面板') : res.from, sec: (res.ms / 1000).toFixed(1) })}</span>
@@ -204,6 +210,66 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
         </table>
       </div>
     </Modal>
+  )
+}
+
+type ShodanInfo = { configured: boolean; defaultQuery: string; credits?: number; plan?: string; error?: string }
+type DiscoverResult = { query: string; total: number; candidates: string[]; results: RealityScanResult[]; from: string }
+
+// ShodanPanel finds REALITY candidates in Shodan's index of HTTPS servers
+// (with the API key saved as an encrypted setting), then checks each one
+// with the normal scan.
+function ShodanPanel({ info, nodeId, busy, run, onInfo, onResult }: {
+  info: ShodanInfo; nodeId?: string; busy: boolean
+  run: <T>(fn: () => Promise<T>, ok?: string) => Promise<T | undefined>
+  onInfo: (i: ShodanInfo) => void; onResult: (r: DiscoverResult, ms: number) => void
+}) {
+  const [key, setKey] = useState('')
+  const [replacing, setReplacing] = useState(false)
+  const [country, setCountry] = useState('')
+  const [query, setQuery] = useState('')
+  const [pages, setPages] = useState(1)
+  const saveKey = () => run(async () => {
+    await put('/settings', { shodan_api_key: key.trim() })
+    setKey('')
+    setReplacing(false)
+    onInfo(await get<ShodanInfo>('/tools/shodan'))
+  }, t('Shodan API Key 已保存'))
+  const discover = () => run(async () => {
+    const t0 = performance.now()
+    const r = await post<DiscoverResult>('/tools/reality-discover', { query: query.trim(), country: country.trim(), pages, nodeId })
+    onResult(r, Math.round(performance.now() - t0))
+  })
+  return (
+    <div className="card" style={{ marginTop: 12, display: 'grid', gap: 10, padding: 14 }}>
+      <div className="small">{t('用 Shodan 已收录的 HTTPS 服务器找候选，再逐个做 TLS 1.3 / HTTP/2 / 证书检测。面板不主动扫描网段，只查询 Shodan 的数据。')}</div>
+      {!info.configured || replacing ? (
+        <div className="joined">
+          <input className="input mono" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
+            placeholder={info.configured ? t('输入新的 Key 以替换') : t('Shodan API Key（加密保存）')} aria-label="Shodan API Key" />
+          <button className="btn pri" type="button" disabled={busy || !key.trim()} onClick={saveKey}>{t('保存 Key')}</button>
+        </div>
+      ) : (
+        <div className="row small" style={{ justifyContent: 'space-between' }}>
+          <span>{info.error ? <span style={{ color: 'var(--bad)' }}>{info.error}</span> : t('已配置 Key · 套餐 {plan} · 剩余查询额度 {n}', { plan: info.plan || '—', n: info.credits ?? 0 })}</span>
+          <button className="btn sm link" type="button" onClick={() => setReplacing(true)}>{t('更换 Key')}</button>
+        </div>
+      )}
+      {info.configured && <>
+        <div className="form-grid">
+          <Field label={t('国家 / 地区')} hint={t('两位代码，如 JP、SG、US；选离节点近的更好')}>
+            <input className="input mono" maxLength={2} value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} placeholder="JP" />
+          </Field>
+          <Field label={t('页数')} hint={t('每页最多 100 个候选，消耗 1 个查询额度')}>
+            <select className="input" value={pages} onChange={(e) => setPages(Number(e.target.value))}>{[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+          </Field>
+        </div>
+        <Field label={t('自定义查询（可选）')} hint={t('留空使用：{q}。可加 org:、asn:、ssl.cert.issuer.cn: 等 Shodan 过滤条件', { q: info.defaultQuery })}>
+          <input className="input mono" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={info.defaultQuery} />
+        </Field>
+        <div><button className="btn pri" type="button" disabled={busy} onClick={discover}>{busy ? t('发现并验证中…') : t('发现并验证')}</button></div>
+      </>}
+    </div>
   )
 }
 
