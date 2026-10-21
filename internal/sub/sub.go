@@ -25,6 +25,8 @@ type Node struct {
 	Username string // socks / http / naive
 	Method   string // shadowsocks cipher
 	Flow     string
+	// VisionUDP443 changes Xray share links only; native client formats keep Flow.
+	VisionUDP443 bool
 	// Encryption is the VLESS Encryption client key ("" = none); clients
 	// that cannot speak it skip the node.
 	Encryption string

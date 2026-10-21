@@ -5,7 +5,7 @@ export type Security = 'none' | 'tls' | 'reality'
 
 export interface Fallback { inboundId: string; path?: string; alpn?: string; xver?: number }
 export interface ProtocolSpec {
-  type: Protocol; flow?: string; method?: string; congestionControl?: string
+  type: Protocol; flow?: string; visionUDP443?: boolean; method?: string; congestionControl?: string
   upMbps?: number; downMbps?: number; obfs?: string; obfsPassword?: string
   handshakeServer?: string; detour?: string; udp?: boolean
   fallbacks?: Fallback[]

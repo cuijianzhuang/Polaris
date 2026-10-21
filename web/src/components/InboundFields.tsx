@@ -38,6 +38,7 @@ export function normalizeDraft(d: InboundDraft, caps: CapSet[]): InboundDraft {
   if (!supports(caps, p, t, s)) s = SECURITIES.find((x) => supports(caps, p, t, x)) ?? s
   const protocol = { ...d.protocol }
   if (p !== 'vless' || t !== 'tcp' || s === 'none') { delete protocol.flow; delete protocol.testSeed }
+  if (p !== 'vless' || t !== 'tcp' || (s !== 'tls' && s !== 'reality') || protocol.flow !== 'xtls-rprx-vision') delete protocol.visionUDP443
   if (p !== 'vless') { delete protocol.decryption; delete protocol.encryption }
   if (p === 'shadowsocks' && !protocol.method) protocol.method = SS_METHODS[0]
   return { ...d, protocol, transport: { ...d.transport, type: t }, security: { ...d.security, type: s } }
@@ -124,10 +125,18 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
       {/* protocol specific */}
       {flowable && (
         <Field label={t('流控')} htmlFor="f-flow" hint={showFlowHint ? t('Vision 仅用于 TCP + TLS/REALITY') : undefined}>
-          <select id="f-flow" className="input mono" value={p.flow ?? ''} onChange={(e) => setP({ flow: e.target.value || undefined })}>
+          <select id="f-flow" className="input mono" value={p.flow ?? ''} onChange={(e) => set({ protocol: { ...p, flow: e.target.value || undefined } })}>
             <option value="xtls-rprx-vision">xtls-rprx-vision</option>
             <option value="">{t('无')}</option>
           </select>
+        </Field>
+      )}
+      {flowable && p.flow === 'xtls-rprx-vision' && (
+        <Field label={t('Xray 订阅客户端')} hint={t('开启后，VLESS 分享链接使用 xtls-rprx-vision-udp443，允许代理 UDP 443（QUIC / HTTP/3）。服务端仍使用普通 Vision；sing-box、mihomo 等原生订阅保持各自的 UDP 策略。')}>
+          <div className="toggle">
+            <span>{t('允许 UDP 443')}</span>
+            <Switch label={t('允许 UDP 443')} on={!!p.visionUDP443} onChange={(v) => setP({ visionUDP443: v })} />
+          </div>
         </Field>
       )}
       {flowable && p.flow && hasFeature(caps, 'vless-encryption') && <TestSeed p={p} setP={setP} />}

@@ -96,6 +96,9 @@ func ParseLink(link string) (Node, error) {
 	switch strings.ToLower(u.Scheme) {
 	case "vless":
 		n.Protocol, n.UUID, n.Flow = model.ProtoVLESS, user, q.Get("flow")
+		if n.Flow == "xtls-rprx-vision-udp443" {
+			n.Flow, n.VisionUDP443 = "xtls-rprx-vision", true
+		}
 		if e := q.Get("encryption"); e != "" && e != "none" {
 			n.Encryption = e
 		}

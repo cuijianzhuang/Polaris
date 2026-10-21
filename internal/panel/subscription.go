@@ -184,7 +184,7 @@ func rateLabel(rate float64) string {
 func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) sub.Node {
 	um := u.ToModel()
 	n := sub.Node{Server: nodeHost(node), Port: m.Port, Protocol: m.Protocol.Type, UUID: u.UUID, Password: u.Password,
-		Username: u.ID, Flow: m.Protocol.Flow, Transport: m.Transport,
+		Username: u.ID, Flow: m.Protocol.Flow, VisionUDP443: m.Protocol.VisionUDP443, Transport: m.Transport,
 		UpMbps: m.Protocol.UpMbps, DownMbps: m.Protocol.DownMbps, Obfs: m.Protocol.Obfs, ObfsPassword: m.Protocol.ObfsPassword,
 		CongestionControl: m.Protocol.CongestionControl}
 	if m.Protocol.Obfs == "" {
