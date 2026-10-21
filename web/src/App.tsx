@@ -4,6 +4,7 @@ import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler
 import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
 import { recordRates } from './components/NodeCard'
+import { receivedNetHealth } from './netHealth'
 import { setPremiumThemes, useTheme } from './theme'
 import { usePlugins } from './plugins'
 import { useBrand } from './brand'
@@ -49,7 +50,8 @@ export function useNodes() { return useContext(NodesCtx) }
 
 function NodesProvider({ children }: { children: ReactNode }) {
   const [nodes, setNodes] = useState<Node[]>([])
-  const refresh = useCallback(() => { get<Node[]>('/nodes').then(setNodes).catch(() => {}) }, [])
+  const receive = useCallback((items: Node[]) => setNodes(items.map((n) => ({ ...n, netHealth: receivedNetHealth(n.netHealth) }))), [])
+  const refresh = useCallback(() => { get<Node[]>('/nodes').then(receive).catch(() => {}) }, [receive])
   useEffect(() => {
     refresh()
     let ws: WebSocket | null = null
@@ -60,14 +62,14 @@ function NodesProvider({ children }: { children: ReactNode }) {
       ws.onmessage = (e) => {
         try {
           const m = JSON.parse(e.data)
-          if (m.type === 'nodes') setNodes(m.data)
+          if (m.type === 'nodes') receive(m.data)
         } catch { /* ignore */ }
       }
       ws.onclose = () => { if (!stop) retry = setTimeout(connect, 5000) }
     }
     connect()
     return () => { stop = true; clearTimeout(retry); ws?.close() }
-  }, [refresh])
+  }, [refresh, receive])
   useEffect(() => { recordRates(nodes) }, [nodes])
   return <NodesCtx.Provider value={{ nodes, refresh }}>{children}</NodesCtx.Provider>
 }

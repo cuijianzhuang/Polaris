@@ -7,6 +7,7 @@ import NodeMetrics from '../components/NodeMetrics'
 import LimitedUsers from '../components/LimitedUsers'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
 import NodeProvider from '../components/NodeProvider'
+import NetCollectionHealth from '../components/NetCollectionHealth'
 import { ProTag, useFeature } from '../components/License'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed, coreInstalling } from '../format'
@@ -467,6 +468,7 @@ export default function Nodes() {
                 {(sel.progress || (sel.connected && sel.appliedRev < sel.desiredRev && sel.status !== 'error')) && <div style={{ marginTop: 12 }}><NodeActivity n={sel} /></div>}
                 {sel.lastError && !sel.progress?.active && !sel.progress?.error && <div className="note bad" style={{ marginTop: 12 }}>{t('最近一次下发失败：')}{sel.lastError}</div>}
               </section>
+              <NetCollectionHealth health={sel.netHealth} onRefresh={refresh} />
               <section className="card"><TrafficChart query={'node=' + sel.id} title={t('节点用户流量')} /></section>
               <section className="card"><NodeMetrics nodeId={sel.id} /></section>
               {!scoped && <NodeProvider nodeId={sel.id} onSynced={refresh} />}

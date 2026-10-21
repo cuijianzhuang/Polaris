@@ -22,6 +22,7 @@ import (
 
 type nodeView struct {
 	store.Node
+	NetHealth    nodeNetHealth `json:"netHealth"`
 	Cores        []store.Core  `json:"cores"`
 	InboundCount int64         `json:"inboundCount"`
 	Connected    bool          `json:"connected"`
@@ -41,8 +42,9 @@ func (s *Server) nodeViews() []nodeView {
 	var counts []cnt
 	s.st.DB.Model(&store.Inbound{}).Select("node_id, core, count(*) AS n").Group("node_id, core").Scan(&counts)
 	out := make([]nodeView, 0, len(ns))
+	now := time.Now()
 	for _, n := range ns {
-		v := nodeView{Node: n, Cores: []store.Core{}, Connected: s.hub.Online(n.ID), Progress: s.nodeProgressFor(n.ID)}
+		v := nodeView{Node: n, NetHealth: nodeNetHealthOf(&n, now), Cores: []store.Core{}, Connected: s.hub.Online(n.ID), Progress: s.nodeProgressFor(n.ID)}
 		for _, c := range cores {
 			if c.NodeID == n.ID {
 				for _, k := range counts {

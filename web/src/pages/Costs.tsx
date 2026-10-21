@@ -1,10 +1,15 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import NetCollectionHealth from '../components/NetCollectionHealth'
+import type { NetCollectionHealth as NetHealth } from '../types'
+import { receivedNetHealth } from '../netHealth'
 import { get, post, put } from '../api'
 import { Drawer, Empty, Field, Modal, Switch, useAction, useLoad } from '../components/ui'
 import { bytes, flag } from '../format'
 import { t } from '../i18n'
 
 interface CostItem {
+  netHealth?: NetHealth
   nodeId: string; name: string; flag: string; provider: string; amount: number; currency: string; cycle: string
   expireAt?: string; revision: number; autoRenew: boolean; note: string; monthly: number; converted: boolean; daysLeft?: number; traffic30: number; trafficRx30: number; trafficTx30: number; trafficMode: string; trafficDays: number; trafficLegacyDays: number; perGb: number
 }
@@ -113,7 +118,7 @@ function SettingsModal({ s, onClose, onSaved }: { s: CostSettings; onClose: () =
 }
 
 export default function Costs() {
-  const data = useLoad(() => get<CostData>('/costs'))
+  const data = useLoad(() => get<CostData>('/costs').then((d) => ({ ...d, items: d.items.map((it) => ({ ...it, netHealth: receivedNetHealth(it.netHealth) })) })))
   const [edit, setEdit] = useState<CostItem | null>(null)
   const [settings, setSettings] = useState(false)
   const { busy, run } = useAction()
@@ -123,7 +128,7 @@ export default function Costs() {
     <>
       <div className="top">
         <div><h1>{t('服务器成本')}</h1><div className="sub">{t('每台节点服务器的价格、付费周期和到期日；汇总折算成 {base}，到期前 Telegram 提醒', { base })}</div></div>
-        <div className="row"><button className="btn" type="button" onClick={() => setSettings(true)} disabled={!d}>{t('汇率与提醒')}</button></div>
+        <div className="row"><button className="btn" type="button" onClick={data.reload} disabled={data.loading}>{t('刷新')}</button><button className="btn" type="button" onClick={() => setSettings(true)} disabled={!d}>{t('汇率与提醒')}</button></div>
       </div>
       {data.error && <div className="note bad" role="alert">{t('服务器成本加载失败，请重试')} <button className="link" type="button" disabled={data.loading} onClick={data.reload}>{t('重试')}</button></div>}
       {d && (
@@ -142,7 +147,7 @@ export default function Costs() {
               <tbody>
                 {(d?.items ?? []).map((it) => (
                   <tr key={it.nodeId}>
-                    <td style={{ fontWeight: 500 }}>{it.flag ? flag(it.flag) + ' ' : ''}{it.name}</td>
+                    <td style={{ fontWeight: 500 }}><Link className="link" to={'/nodes?id=' + encodeURIComponent(it.nodeId)} title={t('查看节点采样详情')}>{it.flag ? flag(it.flag) + ' ' : ''}{it.name}</Link></td>
                     <td>{it.provider || <span className="mute">—</span>}{it.note && <div className="small mute">{it.note}</div>}</td>
                     <td className="mono">{it.amount ? <>{money(it.amount, it.currency)}<span className="mute"> / {Object.fromEntries(cycles())[it.cycle] ?? it.cycle}</span></> : <span className="mute">{t('未设置')}</span>}</td>
                     <td className="mono">{it.monthly ? money(it.monthly, base) : it.cycle !== 'once' && it.amount && !it.converted ? <span className="mute">{t('无汇率')}</span> : '—'}</td>
@@ -151,7 +156,7 @@ export default function Costs() {
                       {it.autoRenew ? <span className="tag ok" style={{ marginLeft: 6 }}>{t('自动续费')}</span>
                         : it.daysLeft !== undefined && <span className={'tag ' + (it.daysLeft < 0 ? 'bad' : it.daysLeft <= d!.settings.remindDays ? 'warn' : '')} style={{ marginLeft: 6 }}>{it.daysLeft < 0 ? t('已过期 {n} 天', { n: -it.daysLeft }) : t('还剩 {n} 天', { n: it.daysLeft })}</span>}
                     </> : <span className="mute">—</span>}</td>
-                    <td><div className="mono">{it.trafficDays > 0 ? bytes(it.traffic30) : '—'}</div><div className="small mute">{trafficModeLabel(it.trafficMode)}</div>{it.trafficDays > 0 && <><div className="mono small mute">↓ {bytes(it.trafficRx30)} · ↑ {bytes(it.trafficTx30)}</div><div className="small mute">{t('有数据 {n}/30 天', { n: it.trafficDays })}</div>{it.trafficLegacyDays > 0 && <div className="small" style={{ color: 'var(--warn)' }}>{t('含旧版采集记录，需核对')}</div>}</>}</td>
+                    <td><div className="mono">{it.trafficDays > 0 ? bytes(it.traffic30) : '—'}</div><div className="small mute">{trafficModeLabel(it.trafficMode)}</div>{it.trafficDays > 0 && <><div className="mono small mute">↓ {bytes(it.trafficRx30)} · ↑ {bytes(it.trafficTx30)}</div><div className="small mute">{t('有数据 {n}/30 天', { n: it.trafficDays })}</div>{it.trafficLegacyDays > 0 && <div className="small" style={{ color: 'var(--warn)' }}>{t('含旧版采集记录，需核对')}</div>}</>}<NetCollectionHealth health={it.netHealth} compact /></td>
                     <td className="mono">{it.monthly > 0 && it.traffic30 > 0 ? moneyRate(it.perGb, base) : '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {it.expireAt && it.cycle !== 'once' && !it.autoRenew && <button className="link" type="button" disabled={busy} onClick={() => run(async () => { await post(`/nodes/${it.nodeId}/renew`); data.reload() }, t('已续费，到期日顺延一个周期'))}>{t('已续费')}</button>}

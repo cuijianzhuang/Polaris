@@ -146,8 +146,8 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 		if modern && n.NetBaseline && n.NetEpoch == epoch && sample.NetSampleUptimeMillis <= n.NetSampleUptime {
 			return nil
 		}
-		baseline := n.NetBaseline || n.NetLastRx > 0 || n.NetLastTx > 0
-		rebase := !baseline || n.NetEpoch != epoch || n.NetBootID != sample.NetBootId || rx < n.NetLastRx || tx < n.NetLastTx
+		reason := nodeNetRebaseReason(n, sample, epoch)
+		rebase := reason != ""
 		var drx, dtx int64
 		if !rebase {
 			drx, dtx = netDelta(n.NetLastRx, rx), netDelta(n.NetLastTx, tx)
@@ -156,6 +156,15 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 			return errors.New("network totals overflow")
 		}
 		updates := map[string]any{"net_last_rx": rx, "net_last_tx": tx, "net_baseline": true, "net_epoch": epoch, "net_boot_id": sample.NetBootId, "net_sample_uptime": sample.NetSampleUptimeMillis, "net_observed_at": now, "net_rx": gorm.Expr("net_rx + ?", drx), "net_tx": gorm.Expr("net_tx + ?", dtx)}
+		if rebase {
+			updates["net_baseline_at"], updates["net_baseline_reason"] = now, reason
+		}
+		if n.NetObservedAt != nil {
+			gap := int64(now.Sub(*n.NetObservedAt).Seconds())
+			if gap >= int64(nodeNetStaleAfter.Seconds()) {
+				updates["net_last_gap_at"], updates["net_last_gap_seconds"] = now, gap
+			}
+		}
 		row := store.NodeTrafficDaily{NodeID: id, Day: now.Format("2006-01-02"), Rx: drx, Tx: dtx}
 		if modern {
 			row.AccountingVersion = 1

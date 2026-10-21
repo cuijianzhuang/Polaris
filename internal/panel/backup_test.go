@@ -26,14 +26,23 @@ func TestBackupRestore(t *testing.T) {
 	if err := s.st.DB.Create(&store.NodeCost{NodeID: "net", Cycle: "month", ExpireAt: &anchoredExpiry, RenewalDay: 31, Revision: 2}).Error; err != nil {
 		t.Fatal(err)
 	}
-	for _, sample := range []*polarisv1.SystemStats{
+	firstSampleAt := time.Now().Add(-3 * time.Minute)
+	for i, sample := range []*polarisv1.SystemStats{
 		bootSample("boot-1", "nic-a", 100, 100, 200),
 		bootSample("boot-1", "nic-a", 200, 110, 220),
 		bootSample("boot-2", "nic-b", 10, 1, 2),
 	} {
-		if err := s.accountNodeNet("net", sample, time.Now()); err != nil {
+		at := time.Now()
+		if i == 0 {
+			at = firstSampleAt
+		}
+		if err := s.accountNodeNet("net", sample, at); err != nil {
 			t.Fatal(err)
 		}
+	}
+	var samplingBefore store.Node
+	if err := s.st.DB.First(&samplingBefore, "id = ?", "net").Error; err != nil {
+		t.Fatal(err)
 	}
 
 	st, out := admin.do("POST", "/backup", nil)
@@ -103,6 +112,13 @@ func TestBackupRestore(t *testing.T) {
 	s2.st.DB.First(&u, "id = ?", "u1")
 	if u.Username != "before" {
 		t.Fatalf("restored username %q", u.Username)
+	}
+	var samplingAfter store.Node
+	if err := s2.st.DB.First(&samplingAfter, "id = ?", "net").Error; err != nil {
+		t.Fatal(err)
+	}
+	if samplingAfter.NetBaselineReason != "boot_changed" || samplingAfter.NetBaselineAt == nil || !samplingAfter.NetBaselineAt.Equal(*samplingBefore.NetBaselineAt) || samplingAfter.NetLastGapAt == nil || !samplingAfter.NetLastGapAt.Equal(*samplingBefore.NetLastGapAt) || samplingAfter.NetLastGapSeconds != samplingBefore.NetLastGapSeconds || samplingAfter.NetLastGapSeconds < 180 {
+		t.Fatalf("restore lost collection diagnostics: %+v", nodeNetHealthOf(&samplingAfter, time.Now()))
 	}
 	renewed, err := s2.renewCost("net")
 	if err != nil || renewed.RenewalDay != 31 || renewed.Revision != 3 || renewed.ExpireAt.Format("2006-01-02") != "2026-03-31" {

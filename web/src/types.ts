@@ -45,6 +45,14 @@ export interface Node {
   // Server traffic this billing cycle (host NICs) against the provider's allowance.
   netLimit?: number; netMode?: '' | 'sum' | 'up' | 'down' | 'max'; netResetDay?: number; netWarnPct?: number
   netOffset?: number; netRx?: number; netTx?: number; netCycleStart?: string; netWarned?: number
+  netHealth?: NetCollectionHealth
+}
+
+export interface NetCollectionHealth {
+  state: 'never' | 'healthy' | 'stale'; mode: 'boot' | 'epoch' | 'legacy' | 'unknown'
+  checkedAt: string; lastSampleAt?: string; sampleAgeSeconds?: number; staleAfterSeconds: number
+  baselineAt?: string; baselineReason?: string; lastGapAt?: string; lastGapSeconds: number
+  receivedAtMonotonic?: number // client receipt time, retained when navigating between pages
 }
 // What the node's agent is doing right now (applying a revision, installing
 // a core, upgrading itself); a finished one stays for about a minute.
