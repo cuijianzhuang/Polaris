@@ -102,7 +102,7 @@ func (s *Server) renewCert(c *gin.Context) {
 
 var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true,
 	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true,
-	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true}
+	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true, "shodan_api_key": true}
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
@@ -124,7 +124,8 @@ var editableSettings = map[string]bool{
 	"backup_store": true, "backup_s3_path_style": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
 	"mail_notify_users": true, "mail_notify_admin": true, "mail_admin_to": true,
-	"probe_enabled": true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true,
+	"shodan_api_key": true,
+	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
