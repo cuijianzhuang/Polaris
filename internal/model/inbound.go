@@ -78,6 +78,9 @@ type ProtocolSpec struct {
 	Type Protocol `json:"type"`
 
 	Flow string `json:"flow,omitempty"` // vless: "xtls-rprx-vision"
+	// VisionUDP443 opts Xray share-link clients into relaying UDP/443.
+	// It is a subscription preference; server-side Flow stays ordinary Vision.
+	VisionUDP443 bool `json:"visionUDP443,omitempty"`
 
 	// VLESS Encryption (xray): the server's "decryption" (secret, sealed at
 	// rest) and the matching client "encryption", e.g.
@@ -249,6 +252,10 @@ func (in *Inbound) Normalize() {
 	}
 	if in.Listen == "" {
 		in.Listen = "::"
+	}
+	if in.Protocol.Type != ProtoVLESS || in.Protocol.Flow != "xtls-rprx-vision" ||
+		in.Transport.Type != TransTCP || (in.Security.Type != SecTLS && in.Security.Type != SecReality) {
+		in.Protocol.VisionUDP443 = false
 	}
 }
 

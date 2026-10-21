@@ -521,6 +521,9 @@ const m: Record<string, string> = {
   "近 1 小时平均 {ms} ms · 丢包 {loss}%": "Last hour avg {ms} ms · loss {loss}%",
   "还没有探测目标": "No probe targets yet",
   "页面标题": "Page title",
+  'Xray 订阅客户端': 'Xray subscription clients',
+  '允许 UDP 443': 'Allow UDP 443',
+  '开启后，VLESS 分享链接使用 xtls-rprx-vision-udp443，允许代理 UDP 443（QUIC / HTTP/3）。服务端仍使用普通 Vision；sing-box、mihomo 等原生订阅保持各自的 UDP 策略。': 'When enabled, VLESS share links use xtls-rprx-vision-udp443 to allow UDP 443 (QUIC / HTTP/3). The server keeps ordinary Vision; native sing-box and mihomo subscriptions retain their own UDP policies.',
   // REALITY scanner: Shodan discovery
   "Shodan API Key 已保存": "Shodan API key saved",
   "Shodan API Key（加密保存）": "Shodan API key (stored encrypted)",

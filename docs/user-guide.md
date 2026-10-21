@@ -213,6 +213,8 @@ polaris node
 | REALITY 目标站点 | 填写节点可达、满足能力要求的目标地址和端口 |
 | SNI / Server Names | 必须与目标站点证书匹配，可使用界面扫描功能辅助选择 |
 
+**允许 UDP 443**：选择 VLESS + TCP + TLS/REALITY 和 `xtls-rprx-vision` 后，可在「Xray 订阅客户端」中打开「允许 UDP 443」。默认关闭；开启后，VLESS 分享链接（包括链接订阅和用户中心复制链接）使用 `xtls-rprx-vision-udp443`，让支持此选项的 Xray 客户端代理 UDP 443，例如 QUIC / HTTP/3。保存后需要在客户端更新订阅。服务端流控仍为 `xtls-rprx-vision`；sing-box、mihomo 等原生订阅不追加该后缀，UDP 行为由对应客户端配置决定。此开关不修改节点监听端口或防火墙规则。入站模板中也可以配置此选项。
+
 REALITY 私钥、公钥和 shortId 由面板生成。不要把目标站点的 SNI、主控域名和节点地址混为同一个字段。REALITY 目标需要支持 TLS 1.3 和 h2；新版本 Xray 还有额外客户端要求。
 
 **挑选目标站点**：REALITY 字段旁的「扫描」按钮会打开目标扫描器。它检查 TLS 1.3、HTTP/2 和 SNI 对应的证书，并展示 X25519MLKEM768 等兼容性信息。可以输入域名、IP 或 CIDR；每段最多展开 256 个地址，一次总量最多 512 个。没有 SNI 的 IP 会先读取证书，再连接同一 IP 带 SNI 重新握手。点击「使用」会保留拨号目标并填入实际验证的 SNI。节点在线且 Agent 支持新版命令时由节点发起，延迟包含最终 TCP 与 TLS 握手；节点离线或 Agent 较旧时明确标注面板验证，恢复或升级后应从节点复测。

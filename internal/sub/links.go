@@ -48,6 +48,11 @@ func ShareLink(n Node) string {
 		q.Set("encryption", orDefault(n.Encryption, "none"))
 		if n.Flow != "" {
 			q.Set("flow", n.Flow)
+			if n.VisionUDP443 && n.Flow == "xtls-rprx-vision" &&
+				(n.Transport.Type == "" || n.Transport.Type == model.TransTCP) &&
+				(n.TLS.Type == model.SecTLS || n.TLS.Type == model.SecReality) {
+				q.Set("flow", "xtls-rprx-vision-udp443")
+			}
 		}
 		return "vless://" + n.UUID + "@" + hostPort(n) + "?" + q.Encode() + frag
 	case model.ProtoTrojan:
