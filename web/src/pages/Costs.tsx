@@ -6,7 +6,7 @@ import { t } from '../i18n'
 
 interface CostItem {
   nodeId: string; name: string; flag: string; provider: string; amount: number; currency: string; cycle: string
-  expireAt?: string; autoRenew: boolean; note: string; monthly: number; converted: boolean; daysLeft?: number; traffic30: number; trafficRx30: number; trafficTx30: number; trafficMode: string; trafficDays: number; trafficLegacyDays: number; perGb: number
+  expireAt?: string; revision: number; autoRenew: boolean; note: string; monthly: number; converted: boolean; daysLeft?: number; traffic30: number; trafficRx30: number; trafficTx30: number; trafficMode: string; trafficDays: number; trafficLegacyDays: number; perGb: number
 }
 interface CostSettings { base: string; rates: Record<string, number>; remindDays: number }
 interface CostData { settings: CostSettings; items: CostItem[]; total: { monthly: number; yearly: number; dueSoon: number; unconverted: string[] } }
@@ -48,7 +48,7 @@ function CostDrawer({ it, base, currencies, onClose, onSaved }: { it: CostItem; 
     <Drawer title={t('服务器成本 · {name}', { name: it.name })} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
-        await put(`/nodes/${it.nodeId}/cost`, { ...f, amount: Number(f.amount) || 0 }); onSaved()
+        await put(`/nodes/${it.nodeId}/cost`, { ...f, amount: Number(f.amount) || 0, expectedRevision: it.revision ?? 0 }); onSaved()
       }, t('已保存'))}>{t('保存')}</button>
     </>}>
       <div className="form-grid">

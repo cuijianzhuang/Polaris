@@ -1,5 +1,8 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+  "服务器成本已更新，请关闭编辑窗口并刷新后重试": "Server costs have changed. Close the editor and refresh before trying again",
+  "付费周期或续费日期无效": "Invalid billing cycle or renewal date",
+  "续费日期超出支持范围": "Renewal date is outside the supported range",
   "重试": "Retry",
   "第 {n} 行汇率无效，请填写币种代码和正数汇率": "Invalid rate on line {n}; enter a currency code and a positive rate",
   "{currency} 的汇率重复": "Duplicate rate for {currency}",

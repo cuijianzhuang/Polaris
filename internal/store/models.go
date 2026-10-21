@@ -254,16 +254,18 @@ type NodeTrafficDaily struct {
 // NodeCost is what a node's server costs and when it renews. Cycle: month,
 // quarter, halfyear, year or once.
 type NodeCost struct {
-	NodeID    string     `gorm:"primaryKey;size:32" json:"nodeId"`
-	Provider  string     `gorm:"size:64" json:"provider"`
-	Amount    float64    `json:"amount"`
-	Currency  string     `gorm:"size:8" json:"currency"`
-	Cycle     string     `gorm:"size:16" json:"cycle"`
-	ExpireAt  *time.Time `json:"expireAt"`
-	AutoRenew bool       `json:"autoRenew"`
-	Note      string     `gorm:"size:255" json:"note"`
-	WarnedFor string     `gorm:"size:10" json:"-"` // expiry date the reminder was sent for
-	UpdatedAt time.Time  `json:"updatedAt"`
+	NodeID     string     `gorm:"primaryKey;size:32" json:"nodeId"`
+	Provider   string     `gorm:"size:64" json:"provider"`
+	Amount     float64    `json:"amount"`
+	Currency   string     `gorm:"size:8" json:"currency"`
+	Cycle      string     `gorm:"size:16" json:"cycle"`
+	ExpireAt   *time.Time `json:"expireAt"`
+	RenewalDay int        `json:"-"` // retain the billing day through shorter months
+	Revision   uint64     `json:"revision"`
+	AutoRenew  bool       `json:"autoRenew"`
+	Note       string     `gorm:"size:255" json:"note"`
+	WarnedFor  string     `gorm:"size:10" json:"-"` // expiry date the reminder was sent for
+	UpdatedAt  time.Time  `json:"updatedAt"`
 }
 
 // NodeProvider links a node to its hosting provider's API (BandwagonHost
