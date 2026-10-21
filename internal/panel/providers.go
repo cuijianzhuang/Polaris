@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/provider"
@@ -62,44 +63,60 @@ func (s *Server) syncProvider(ctx context.Context, p *store.NodeProvider, live b
 		return nil, err
 	}
 	raw, _ := json.Marshal(in)
-	s.st.DB.Model(&store.NodeProvider{}).Where("node_id = ?", p.NodeID).Updates(map[string]any{"info": string(raw), "last_error": "", "last_sync": now})
 	if p.Sync {
-		s.calibrateNodeNet(p.NodeID, in, now)
+		err = s.calibrateNodeNet(p.NodeID, in, now)
+	}
+	lastError := ""
+	if err != nil {
+		lastError = truncate(err.Error(), 255)
+	}
+	if saveErr := s.st.DB.Model(&store.NodeProvider{}).Where("node_id = ?", p.NodeID).Updates(map[string]any{"info": string(raw), "last_error": lastError, "last_sync": now}).Error; saveErr != nil {
+		return nil, saveErr
+	}
+	if err != nil {
+		return nil, err
 	}
 	return in, nil
 }
 
 // calibrateNodeNet makes the node's traffic cycle match the provider's.
-func (s *Server) calibrateNodeNet(nodeID string, in *provider.Info, now time.Time) {
-	var n store.Node
-	if s.st.DB.First(&n, "id = ?", nodeID).Error != nil {
-		return
-	}
-	upd := map[string]any{}
-	if in.DataLimit > 0 && in.DataLimit != n.NetLimit {
-		n.NetLimit = in.DataLimit
-		upd["net_limit"] = n.NetLimit
-	}
-	if !in.NextReset.IsZero() {
-		day := in.NextReset.In(now.Location()).Day()
-		if day != n.NetResetDay {
-			n.NetResetDay = day
-			upd["net_reset_day"] = day
-			upd["net_cycle_start"] = cycleStart(day, now)
+func (s *Server) calibrateNodeNet(nodeID string, in *provider.Info, now time.Time) error {
+	var alert *Event
+	err := s.withNodeNet(nodeID, func(db *gorm.DB, n *store.Node) error {
+		if err := advanceNodeNetCycle(db, n, now); err != nil {
+			return err
 		}
+		upd := map[string]any{}
+		if in.DataLimit > 0 && in.DataLimit != n.NetLimit {
+			n.NetLimit = in.DataLimit
+			upd["net_limit"] = n.NetLimit
+		}
+		if !in.NextReset.IsZero() {
+			day := in.NextReset.In(now.Location()).Day()
+			if day != n.NetResetDay {
+				n.NetResetDay = day
+				upd["net_reset_day"] = day
+				start := cycleStart(day, now)
+				n.NetCycleStart = &start
+				upd["net_cycle_start"] = start
+			}
+		}
+		n.NetOffset = in.DataUsed - nodeNetBytes(n.NetMode, n.NetRx, n.NetTx)
+		upd["net_offset"] = n.NetOffset
+		lvl := netAlertLevel(n)
+		switch {
+		case lvl > n.NetWarned:
+			upd["net_warned"] = lvl
+			alert = &Event{Kind: "node_traffic", NodeID: n.ID, Text: netAlertText(n, lvl, now)}
+		case lvl < n.NetWarned:
+			upd["net_warned"] = lvl // a new cycle at the provider
+		}
+		return db.Model(&store.Node{}).Where("id = ?", n.ID).Updates(upd).Error
+	})
+	if err == nil && alert != nil {
+		s.notify(*alert)
 	}
-	n.NetOffset = 0
-	n.NetOffset = in.DataUsed - netUsed(&n)
-	upd["net_offset"] = n.NetOffset
-	lvl := netAlertLevel(&n)
-	switch {
-	case lvl > n.NetWarned:
-		upd["net_warned"] = lvl
-		s.notify(Event{Kind: "node_traffic", NodeID: n.ID, Text: netAlertText(&n, lvl, now)})
-	case lvl < n.NetWarned:
-		upd["net_warned"] = lvl // a new cycle at the provider
-	}
-	s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(upd)
+	return err
 }
 
 // syncProviders runs for every configured node (leader, every 15 minutes).
