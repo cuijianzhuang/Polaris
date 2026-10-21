@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -207,6 +208,37 @@ func (s *Store) SetSetting(key, value string) error {
 		s.OnSettingChange(key)
 	}
 	return err
+}
+
+// SetSettings commits related settings together. Readers that need a coherent
+// group must fetch those rows in one query. Publish invalidations after commit.
+func (s *Store) SetSettings(values map[string]string) error {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys) // keep row locking order consistent across writers
+	if err := s.DB.Transaction(func(tx *gorm.DB) error {
+		for _, key := range keys {
+			if err := tx.Save(&Setting{Key: key, Value: values[key]}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	s.setMu.Lock()
+	for _, key := range keys {
+		delete(s.settings, key)
+	}
+	s.setMu.Unlock()
+	if s.OnSettingChange != nil {
+		for _, key := range keys {
+			s.OnSettingChange(key)
+		}
+	}
+	return nil
 }
 
 // ForgetSetting drops a cached setting so the next read goes to the database.

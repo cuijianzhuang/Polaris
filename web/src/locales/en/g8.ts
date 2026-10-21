@@ -1,5 +1,15 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+  "重试": "Retry",
+  "第 {n} 行汇率无效，请填写币种代码和正数汇率": "Invalid rate on line {n}; enter a currency code and a positive rate",
+  "{currency} 的汇率重复": "Duplicate rate for {currency}",
+  "本币自身的汇率必须为 1": "The base currency rate must be 1",
+  "请先填写 {currency} 相对当前本币的汇率": "First enter the {currency} rate against the current base currency",
+  "换算后的汇率超出有效范围": "The converted rate is outside the valid range",
+  "切换本币时自动换算已填写汇率；节点原价和币种保持不变": "Changing the base currency converts the entered rates; node prices and currencies stay the same",
+  "每行填写币种代码和 1 单位折合的 {base} 金额；仅保存填写的币种": "One currency code and its value in {base} per line; only entered currencies are saved",
+  "服务器成本加载失败，请重试": "Could not load server costs. Please retry",
+
  "含旧版采集记录，需核对": "Includes legacy samples; verify against provider records",
   "有数据 {n}/30 天": "Data on {n}/30 days",
   "近 30 天包含今天，按节点的计费方式统计服务器网卡流量；包含服务器其他程序的网络用量，与用户套餐流量不同。每 GB 成本 = 折合每月成本 ÷ 对应流量。": "The last 30 calendar days include today. Server NIC traffic follows each node's billing mode and includes other applications, so it differs from users' plan traffic. Cost per GB = monthly cost ÷ that traffic.",
