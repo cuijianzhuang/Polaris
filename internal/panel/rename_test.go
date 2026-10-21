@@ -50,9 +50,13 @@ func TestSelfRename(t *testing.T) {
 		t.Fatal("bad name accepted")
 	}
 	fake.push(msg(700, "/rename Alice_01"))
-	waitUntil(t, "renamed", func() bool { return name("u1") == "Alice_01" })
-	if !strings.Contains(fake.textsTo(700), "用户名已改为") {
-		t.Fatal("no confirmation")
+	// The database commit precedes building and sending the bot response.
+	// Wait for delivery before checking the completed command's effects.
+	waitUntil(t, "rename confirmation", func() bool {
+		return strings.Contains(fake.textsTo(700), "用户名已改为 <b>Alice_01</b>")
+	})
+	if name("u1") != "Alice_01" {
+		t.Fatal("confirmation sent without renaming")
 	}
 	fake.push(msg(700, "/rename alice02"))
 	waitUntil(t, "cooldown", func() bool { return strings.Contains(fake.textsTo(700), "7 天内只能修改一次") })
