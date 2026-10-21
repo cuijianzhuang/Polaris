@@ -334,7 +334,7 @@ body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "IBM Plex Sans
 main{max-width:420px;margin:0 auto;padding:12vh 16px 48px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px;text-align:center}
 h1{font-size:20px;margin:0}.mute{color:var(--mute);font-size:13px;margin:0}
-.btn{display:flex;align-items:center;justify-content:center;min-height:44px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;text-decoration:none;font:inherit;font-weight:500;cursor:pointer;padding:0 14px}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;text-decoration:none;font:inherit;font-weight:500;cursor:pointer;padding:0 14px}
 .btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}
 .btn:disabled{opacity:.6;cursor:default}
 .num{font:600 44px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;color:var(--pri)}
