@@ -26,17 +26,29 @@ func TestNetworkCounterIdentity(t *testing.T) {
 	if a.epoch != b.epoch {
 		t.Fatal("counter growth changed source identity")
 	}
+	if a.boot == "" || a.boot != b.boot {
+		t.Fatal("counter growth changed boot identity")
+	}
 	c, _ := parseNetCounters(strings.NewReader(nicLine("eth0", 1, 2)), "boot-b", id)
 	if a.epoch == c.epoch {
 		t.Fatal("reboot preserved source identity")
+	}
+	if a.boot == c.boot {
+		t.Fatal("reboot preserved boot identity")
 	}
 	d, _ := parseNetCounters(strings.NewReader(nicLine("eth0", 1, 2)+nicLine("eth1", 1000, 2000)), "boot-a", id)
 	if a.epoch == d.epoch {
 		t.Fatal("new interface did not rebaseline")
 	}
+	if a.boot != d.boot {
+		t.Fatal("interface change lost boot ordering")
+	}
 	reindex, _ := parseNetCounters(strings.NewReader(nicLine("eth0", 1, 2)), "boot-a", func(string) (string, error) { return "replacement-index", nil })
 	if a.epoch == reindex.epoch {
 		t.Fatal("replaced interface preserved source identity")
+	}
+	if a.boot != reindex.boot {
+		t.Fatal("replaced interface changed boot identity")
 	}
 }
 func TestNetworkCounterRejectsPartialRead(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -20,6 +21,16 @@ func TestBackupRestore(t *testing.T) {
 	restarted := make(chan struct{}, 1)
 	s.restartHook = func() { restarted <- struct{}{} }
 	s.st.DB.Create(&store.User{ID: "u1", Username: "before", UUID: "11111111-1111-1111-1111-111111111111", Password: "p", Status: "active", SubToken: "t1"})
+	s.st.DB.Create(&store.Node{ID: "net", Name: "net"})
+	for _, sample := range []*polarisv1.SystemStats{
+		bootSample("boot-1", "nic-a", 100, 100, 200),
+		bootSample("boot-1", "nic-a", 200, 110, 220),
+		bootSample("boot-2", "nic-b", 10, 1, 2),
+	} {
+		if err := s.accountNodeNet("net", sample, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	st, out := admin.do("POST", "/backup", nil)
 	if st != 200 {
@@ -47,6 +58,7 @@ func TestBackupRestore(t *testing.T) {
 
 	// Change state after the backup, then restore the archive by upload.
 	s.st.DB.Model(&store.User{}).Where("id = ?", "u1").Update("username", "after")
+	s.st.DB.Where("node_id = ?", "net").Delete(&store.NodeNetBoot{})
 	upload := func(c *apiClient, data []byte) (int, string) {
 		var buf bytes.Buffer
 		w := multipart.NewWriter(&buf)
@@ -87,6 +99,23 @@ func TestBackupRestore(t *testing.T) {
 	s2.st.DB.First(&u, "id = ?", "u1")
 	if u.Username != "before" {
 		t.Fatalf("restored username %q", u.Username)
+	}
+	// A real restart after restore must keep the old boot retired and resume
+	// the active boot's baseline without charging its lifetime bytes again.
+	for _, sample := range []*polarisv1.SystemStats{
+		bootSample("boot-1", "nic-a", 300, 120, 240),
+		bootSample("boot-2", "nic-b", 20, 6, 12),
+	} {
+		if err := s2.accountNodeNet("net", sample, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var node store.Node
+	if err := s2.st.DB.First(&node, "id = ?", "net").Error; err != nil {
+		t.Fatal(err)
+	}
+	if node.NetRx != 15 || node.NetTx != 30 || node.NetBootID != "boot-2" {
+		t.Fatalf("restore lost network replay protection: %+v", node)
 	}
 	if _, err := os.Stat(filepath.Join(s.cfg.DataDir, restoreDir)); !os.IsNotExist(err) {
 		t.Fatal("staging dir left behind")

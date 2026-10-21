@@ -51,6 +51,7 @@ func (s *sysSampler) Sample() *polarisv1.SystemStats {
 		s.rx, s.tx, s.at, s.netEpoch = rx, tx, now, netSample.epoch
 		out.RxBytes, out.TxBytes = rx, tx
 		out.NetEpoch = netSample.epoch
+		out.NetBootId = netSample.boot
 		out.NetCountersValid = true
 	}
 	if b, err := os.ReadFile("/proc/uptime"); err == nil {
@@ -66,6 +67,7 @@ func (s *sysSampler) Sample() *polarisv1.SystemStats {
 	if out.NetSampleUptimeMillis == 0 {
 		out.NetCountersValid = false
 		out.NetEpoch = ""
+		out.NetBootId = ""
 		out.RxBytes = 0
 		out.TxBytes = 0
 	}
@@ -130,6 +132,7 @@ func readMem() float64 {
 type netCounters struct {
 	rx, tx uint64
 	epoch  string
+	boot   string
 }
 
 func skipNetInterface(name string) bool {
@@ -188,6 +191,8 @@ func parseNetCounters(r io.Reader, boot string, identity func(string) (string, e
 		return out, fmt.Errorf("network counter identity unavailable")
 	}
 	sort.Strings(ids)
+	bootHash := sha256.Sum256([]byte(strings.TrimSpace(boot)))
+	out.boot = hex.EncodeToString(bootHash[:])
 	h := sha256.Sum256([]byte(strings.TrimSpace(boot) + "\n" + strings.Join(ids, "\n")))
 	out.epoch = hex.EncodeToString(h[:])
 	return out, nil

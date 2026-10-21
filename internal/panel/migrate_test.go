@@ -28,6 +28,9 @@ func TestMigrate(t *testing.T) {
 		long := strings.Repeat("备注", 200) // SQLite ignores size:255
 		db.Create(&store.User{ID: "u1", Username: "Alice", UUID: "u1", SubToken: "t1", Status: "active", Remark: long, Password: src.st.Box.Seal("pw")})
 		db.Create(&store.Node{ID: "n1", Name: "HK"})
+		if err := db.Create(&[]store.NodeNetBoot{{NodeID: "n1", BootID: "retired-boot", LastUptime: 900, Retired: true}, {NodeID: "n1", BootID: "current-boot", LastUptime: 100}}).Error; err != nil {
+			t.Fatal(err)
+		}
 		db.Create(&store.TagTraffic{NodeID: "n1", Kind: "inbound", Tag: "a", Up: 1})
 		db.Create(&store.TagTraffic{NodeID: "n1", Kind: "inbound", Tag: "b", Up: 2})
 		db.Create(&store.TrafficInbox{NodeID: "n1", UserID: "u1", Up: 5})
@@ -82,6 +85,13 @@ func TestMigrate(t *testing.T) {
 			t.Fatalf("sealed value: %q %v", pw, err)
 		}
 		var tags, inbox int64
+		var boots []store.NodeNetBoot
+		if err := dst.st.DB.Where("node_id = ?", "n1").Order("boot_id").Find(&boots).Error; err != nil {
+			t.Fatal(err)
+		}
+		if len(boots) != 2 || boots[0].BootID != "current-boot" || boots[0].LastUptime != 100 || boots[0].Retired || boots[1].BootID != "retired-boot" || boots[1].LastUptime != 900 || !boots[1].Retired {
+			t.Fatalf("network boot checkpoints not migrated: %+v", boots)
+		}
 		dst.st.DB.Model(&store.TagTraffic{}).Count(&tags)
 		dst.st.DB.Model(&store.TrafficInbox{}).Count(&inbox)
 		var revs int64

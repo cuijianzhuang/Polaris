@@ -58,6 +58,7 @@ type Node struct {
 	NetLastTx       uint64     `json:"-"`
 	NetBaseline     bool       `json:"-"`
 	NetEpoch        string     `gorm:"size:64" json:"-"`
+	NetBootID       string     `gorm:"size:64" json:"-"`
 	NetSampleUptime uint64     `json:"-"`
 	NetObservedAt   *time.Time `json:"-"`
 	CreatedAt       time.Time  `json:"createdAt"`
@@ -229,6 +230,16 @@ type Group struct {
 	InboundIDs []string           `gorm:"-" json:"inboundIds"`
 	UserCount  int64              `gorm:"-" json:"userCount"`
 	CreatedAt  time.Time          `json:"createdAt"`
+}
+
+// NodeNetBoot remembers accepted host boots even after the node moves to a
+// new source. Retired boot IDs cannot be reused by a delayed heartbeat.
+type NodeNetBoot struct {
+	NodeID     string `gorm:"primaryKey;size:32"`
+	BootID     string `gorm:"primaryKey;size:64"`
+	LastUptime uint64
+	Retired    bool
+	UpdatedAt  time.Time
 }
 
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).
@@ -750,7 +761,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeCost{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
 		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{},

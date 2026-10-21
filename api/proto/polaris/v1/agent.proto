@@ -103,6 +103,9 @@ message SystemStats {
   uint64 net_sample_uptime_millis = 10;
   // Distinguishes an observed zero counter from an unavailable sample.
   bool net_counters_valid = 11;
+  // Hash of the host boot ID only. Unlike net_epoch, this remains stable
+  // across interface changes, so the panel can order samples across them.
+  string net_boot_id = 12;
 }
 
 message CoreState {
