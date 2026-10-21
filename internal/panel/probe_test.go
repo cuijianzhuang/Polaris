@@ -170,3 +170,102 @@ func TestRecordLatencyMinAfterLoss(t *testing.T) {
 		t.Fatalf("%+v avg %v", m, p.Avg)
 	}
 }
+
+func TestProbePublicVisibilityLegacyNull(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	for _, n := range []store.Node{
+		{ID: "legacy", Name: "legacy"},
+		{ID: "visible", Name: "visible"},
+		{ID: "hidden", Name: "hidden", StatusHidden: true},
+	} {
+		if err := s.st.DB.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The first probe release added a nullable column. Existing nodes have
+	// NULL until an administrator manually changes their visibility switch.
+	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", "legacy").Update("status_hidden", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	if code, out := admin.do("GET", "/probe", nil); code != 200 || out["statusPage"] != false {
+		t.Fatalf("public page must remain off by default: %d %v", code, out)
+	} else {
+		for _, raw := range out["nodes"].([]any) {
+			n := raw.(map[string]any)
+			if n["id"] == "legacy" && n["hidden"] == true {
+				t.Fatal("legacy switch is not displayed as visible", n)
+			}
+		}
+	}
+	public := &apiClient{t: t, base: srv.URL}
+	assertPublic := func(want ...string) {
+		t.Helper()
+		code, out := public.do("GET", "/status/data", nil)
+		if len(want) == 0 {
+			if (code != 200 && code != 404) || out["nodes"] != nil {
+				t.Fatalf("disabled public page exposed data: %d %v", code, out)
+			}
+			return
+		}
+		if code != 200 {
+			t.Fatalf("public status: %d %v", code, out)
+		}
+		nodes, _ := out["nodes"].([]any)
+		if len(nodes) != len(want) {
+			t.Fatalf("public nodes = %v, want %v", nodes, want)
+		}
+		ids := make(map[string]bool)
+		for _, raw := range nodes {
+			ids[raw.(map[string]any)["id"].(string)] = true
+		}
+		for _, id := range want {
+			if !ids[id] {
+				t.Fatalf("node %s absent despite visible switch: %v", id, nodes)
+			}
+		}
+	}
+	assertPublic()
+	if code, out := admin.do("PUT", "/settings", map[string]string{"status_page": "true"}); code != 200 {
+		t.Fatalf("enable public page: %d %v", code, out)
+	}
+	// No per-node toggle is needed to make the pre-upgrade node appear.
+	assertPublic("legacy", "visible")
+	for _, hidden := range []bool{true, false} {
+		if code, out := admin.do("PUT", "/probe/nodes/legacy", map[string]bool{"hidden": hidden}); code != 204 {
+			t.Fatalf("set hidden=%v: %d %v", hidden, code, out)
+		}
+		if hidden {
+			assertPublic("visible")
+		} else {
+			assertPublic("legacy", "visible")
+		}
+	}
+	// Even with a populated public-data cache, the global gate stays effective.
+	if code, out := admin.do("PUT", "/settings", map[string]string{"status_page": "false"}); code != 200 {
+		t.Fatalf("disable public page: %d %v", code, out)
+	}
+	assertPublic()
+}
+
+func TestProbeVisibilityColumnMigration(t *testing.T) {
+	onEngines(t, func(t *testing.T, dsn string) {
+		s := clusterServers(t, dsn, 1)[0]
+		if err := s.st.DB.Create(&store.Node{ID: "old", Name: "old"}).Error; err != nil {
+			t.Fatal(err)
+		}
+		// Reproduce an upgrade from the schema before probe visibility existed.
+		if err := s.st.DB.Migrator().DropColumn(&store.Node{}, "StatusHidden"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.st.DB.AutoMigrate(&store.Node{}); err != nil {
+			t.Fatal(err)
+		}
+		var visible int64
+		if err := s.st.DB.Model(&store.Node{}).Where("id = ? AND status_hidden = ?", "old", false).Count(&visible).Error; err != nil {
+			t.Fatal(err)
+		}
+		if visible != 1 {
+			t.Fatal("new visibility column did not default existing nodes to false")
+		}
+	})
+}
