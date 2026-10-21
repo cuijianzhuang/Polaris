@@ -20,9 +20,9 @@ type Node struct {
 	Lng          *float64         `json:"lng"`
 	Labels       JSON[[]string]   `json:"labels"`
 	AgentVersion string           `gorm:"size:32" json:"agentVersion"`
-	Arch         string           `gorm:"size:16" json:"arch"`         // agent GOARCH, "" until a new agent reports it
-	Status       string           `gorm:"size:16;index" json:"status"` // pending / online / offline / syncing / error
-	StatusHidden bool             `json:"statusHidden"`                // left off the public status page
+	Arch         string           `gorm:"size:16" json:"arch"`               // agent GOARCH, "" until a new agent reports it
+	Status       string           `gorm:"size:16;index" json:"status"`       // pending / online / offline / syncing / error
+	StatusHidden bool             `gorm:"default:false" json:"statusHidden"` // left off the public status page
 	LastSeen     *time.Time       `json:"lastSeen"`
 	DesiredRev   int64            `json:"desiredRev"`
 	AppliedRev   int64            `json:"appliedRev"`

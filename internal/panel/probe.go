@@ -270,7 +270,9 @@ func (s *Server) probeOverview(public bool) gin.H {
 	var ns []store.Node
 	q := s.st.DB.Order("sort_order, name")
 	if public {
-		q = q.Where("status_hidden = ?", false)
+		// Nodes upgraded from the first probe release can have NULL here.
+		// Match the admin switch: only an explicit true hides the node.
+		q = q.Where("status_hidden = ? OR status_hidden IS NULL", false)
 	}
 	q.Find(&ns)
 	ids := make([]string, len(ns))
