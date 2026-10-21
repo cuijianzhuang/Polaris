@@ -796,6 +796,26 @@ func probe(ctx context.Context, args map[string]string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if addr := args["tcp"]; addr != "" {
+		// Resolve first so only the TCP handshake is timed (the latency
+		// figure, not the resolver's).
+		if host, port, err := net.SplitHostPort(addr); err == nil && net.ParseIP(host) == nil {
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return 0, err
+			}
+			if len(ips) == 0 {
+				return 0, fmt.Errorf("no address for %s", host)
+			}
+			ip := ips[0].IP
+			for _, x := range ips { // prefer IPv4, as a plain dial would on most hosts
+				if x.IP.To4() != nil {
+					ip = x.IP
+					break
+				}
+			}
+			addr = net.JoinHostPort(ip.String(), port)
+			start = time.Now()
+		}
 		var d net.Dialer
 		c, err := d.DialContext(ctx, "tcp", addr)
 		if err != nil {

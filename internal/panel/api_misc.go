@@ -124,6 +124,7 @@ var editableSettings = map[string]bool{
 	"backup_store": true, "backup_s3_path_style": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
 	"mail_notify_users": true, "mail_admin_to": true,
+	"probe_enabled": true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,

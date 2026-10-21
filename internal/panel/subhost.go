@@ -60,7 +60,7 @@ func resetSubHostCache() {
 // subOnlyPath lists what a subscription domain serves.
 func subOnlyPath(p string) bool {
 	return strings.HasPrefix(p, "/sub/") || p == portalPath || strings.HasPrefix(p, portalPath+"/") ||
-		p == "/favicon.ico" || p == "/apple-touch-icon.png" || p == "/robots.txt"
+		p == statusPath || p == statusPath+"/data" || p == "/favicon.ico" || p == "/apple-touch-icon.png" || p == "/robots.txt"
 }
 
 // subHostGate keeps the subscription domain to subscription routes.

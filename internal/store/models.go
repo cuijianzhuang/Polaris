@@ -22,6 +22,7 @@ type Node struct {
 	AgentVersion string           `gorm:"size:32" json:"agentVersion"`
 	Arch         string           `gorm:"size:16" json:"arch"`         // agent GOARCH, "" until a new agent reports it
 	Status       string           `gorm:"size:16;index" json:"status"` // pending / online / offline / syncing / error
+	StatusHidden bool             `json:"statusHidden"`                // left off the public status page
 	LastSeen     *time.Time       `json:"lastSeen"`
 	DesiredRev   int64            `json:"desiredRev"`
 	AppliedRev   int64            `json:"appliedRev"`
@@ -285,6 +286,32 @@ type NodeProvider struct {
 	LastSync  *time.Time `json:"lastSync"`
 	LastError string     `gorm:"size:255" json:"lastError"`
 	UpdatedAt time.Time  `json:"updatedAt"`
+}
+
+// ProbeTarget is an address every node measures its latency to (TCP
+// connect time), e.g. one China Telecom / Unicom / Mobile endpoint each.
+type ProbeTarget struct {
+	ID        string    `gorm:"primaryKey;size:32" json:"id"`
+	Name      string    `gorm:"size:64" json:"name"`
+	Carrier   string    `gorm:"size:8" json:"carrier"` // ct / cu / cm / "" (other): the colour in charts
+	Addr      string    `gorm:"size:255" json:"addr"`  // host:port
+	SortOrder int       `json:"sortOrder"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// NodeLatency folds one node's probes of a target into a 5-minute slot.
+type NodeLatency struct {
+	NodeID   string    `gorm:"primaryKey;size:32" json:"-"`
+	TargetID string    `gorm:"primaryKey;size:32" json:"target"`
+	At       time.Time `gorm:"primaryKey;index" json:"t"`
+	Sent     int       `json:"sent"`
+	Lost     int       `json:"lost"`
+	SumMs    float64   `json:"-"`
+	MinMs    float64   `json:"min"`
+	MaxMs    float64   `json:"max"`
+	LastMs   float64   `json:"last"` // 0 when the last probe failed
+	LastAt   time.Time `json:"lastAt"`
 }
 
 // GroupNode gives a group's users every inbound on a node.
@@ -770,7 +797,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{},
 	}
 }
 
