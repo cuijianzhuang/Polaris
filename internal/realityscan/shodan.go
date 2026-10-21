@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -34,17 +35,27 @@ type ShodanQuery struct {
 	Query   string // Shodan search filters; empty: DefaultShodanQuery
 	Country string // ISO 3166 code added as country:XX (optional)
 	Pages   int    // 1–MaxShodanPages
+	ASN     string // optional AS number
+	Network string // optional exact CIDR filter, queried in Shodan only
 }
 
 // ShodanResult is what a discovery found.
 type ShodanResult struct {
-	Query string   `json:"query"`
-	Total int      `json:"total"` // matches Shodan has for the query
-	Hosts []string `json:"hosts"` // host:port, names preferred over IPs, deduplicated
+	Query      string      `json:"query"`
+	Total      int         `json:"total"` // matches Shodan has for the query
+	Hosts      []string    `json:"hosts"` // retained for API clients; actual dial addresses
+	Candidates []Candidate `json:"candidates"`
+	Warnings   []string    `json:"warnings,omitempty"`
+	PagesRead  int         `json:"pagesRead"`
 }
 
 type shodanMatch struct {
-	IP        string   `json:"ip_str"`
+	IP       string `json:"ip_str"`
+	ASN      string `json:"asn"`
+	Org      string `json:"org"`
+	Location struct {
+		Country string `json:"country_code"`
+	} `json:"location"`
 	Port      int      `json:"port"`
 	Hostnames []string `json:"hostnames"`
 	SSL       *struct {
@@ -52,6 +63,10 @@ type shodanMatch struct {
 			Subject struct {
 				CN string `json:"CN"`
 			} `json:"subject"`
+			Extensions []struct {
+				Name string `json:"name"`
+				Data string `json:"data"`
+			} `json:"extensions"`
 		} `json:"cert"`
 	} `json:"ssl"`
 }
@@ -67,6 +82,25 @@ func (q ShodanQuery) build() (string, error) {
 		}
 		if !strings.Contains(strings.ToLower(query), "country:") {
 			query += " country:" + cc
+		}
+	}
+	if asn := strings.ToUpper(strings.TrimSpace(q.ASN)); asn != "" {
+		asn = strings.TrimPrefix(asn, "AS")
+		n, err := strconv.ParseUint(asn, 10, 32)
+		if err != nil || n == 0 {
+			return "", errors.New("ASN 格式应为 AS13335 或 13335")
+		}
+		if !strings.Contains(strings.ToLower(query), "asn:") {
+			query += " asn:AS" + strconv.FormatUint(n, 10)
+		}
+	}
+	if network := strings.TrimSpace(q.Network); network != "" {
+		prefix, err := netip.ParsePrefix(network)
+		if err != nil {
+			return "", errors.New("网段必须是有效 CIDR，例如 203.0.113.0/24")
+		}
+		if !strings.Contains(strings.ToLower(query), "net:") {
+			query += " net:" + prefix.Masked().String()
 		}
 	}
 	if len(query) > 500 {
@@ -86,7 +120,7 @@ func ShodanDiscover(ctx context.Context, key string, q ShodanQuery) (*ShodanResu
 		return nil, err
 	}
 	pages := min(max(q.Pages, 1), MaxShodanPages)
-	out := &ShodanResult{Query: query, Hosts: []string{}}
+	out := &ShodanResult{Query: query, Hosts: []string{}, Candidates: []Candidate{}}
 	seen := map[string]bool{}
 	for page := 1; page <= pages; page++ {
 		var body struct {
@@ -96,15 +130,20 @@ func ShodanDiscover(ctx context.Context, key string, q ShodanQuery) (*ShodanResu
 		v := url.Values{"key": {key}, "query": {query}, "page": {strconv.Itoa(page)}}
 		if err := shodanGet(ctx, key, "/shodan/host/search", v, &body); err != nil {
 			if page > 1 && len(out.Hosts) > 0 {
-				break // keep what the earlier pages found
+				out.Warnings = append(out.Warnings, fmt.Sprintf("第 %d 页查询未完成：%s", page, err.Error()))
+				break // keep what earlier pages found, with a visible explanation
 			}
 			return nil, err
 		}
+		out.PagesRead++
 		out.Total = body.Total
 		for _, m := range body.Matches {
-			if h := candidateOf(m); h != "" && !seen[strings.ToLower(h)] {
-				seen[strings.ToLower(h)] = true
-				out.Hosts = append(out.Hosts, h)
+			c := candidateOf(m)
+			identity := c.Address + "|" + c.ServerName
+			if c.Address != "" && !seen[identity] {
+				seen[identity] = true
+				out.Candidates = append(out.Candidates, c)
+				out.Hosts = append(out.Hosts, c.Address)
 			}
 		}
 		if len(body.Matches) < 100 {
@@ -114,35 +153,41 @@ func ShodanDiscover(ctx context.Context, key string, q ShodanQuery) (*ShodanResu
 	return out, nil
 }
 
-// candidateOf picks the name a match is probed by: the certificate name
-// (it is what REALITY clients send as SNI), else a reverse-DNS name, else
-// the address (Probe then reads names from the certificate).
-func candidateOf(m shodanMatch) string {
+// candidateOf preserves Shodan's actual service IP and an independent SNI
+// hint. Equal certificates on different IPs are still distinct candidates.
+func candidateOf(m shodanMatch) Candidate {
+	ip := net.ParseIP(m.IP)
 	port := m.Port
 	if port == 0 {
 		port = 443
 	}
-	host := ""
-	if m.SSL != nil {
-		if cn := strings.ToLower(strings.TrimSpace(m.SSL.Cert.Subject.CN)); validHostname(cn) {
-			host = cn
-		}
+	if ip == nil || port < 1 || port > 65535 {
+		return Candidate{}
 	}
-	if host == "" {
-		for _, h := range m.Hostnames {
-			if h = strings.ToLower(strings.TrimSpace(h)); validHostname(h) {
-				host = h
-				break
+	c := Candidate{Address: net.JoinHostPort(ip.String(), strconv.Itoa(port)), ASN: m.ASN, Org: m.Org, Country: m.Location.Country}
+	var names []string
+	if m.SSL != nil {
+		for _, ext := range m.SSL.Cert.Extensions {
+			if strings.EqualFold(ext.Name, "subjectAltName") {
+				for _, entry := range strings.Split(ext.Data, ",") {
+					entry = strings.TrimSpace(entry)
+					if strings.HasPrefix(strings.ToUpper(entry), "DNS:") {
+						names = append(names, entry[4:])
+					}
+				}
 			}
 		}
+		names = append(names, m.SSL.Cert.Subject.CN)
 	}
-	if host == "" {
-		if net.ParseIP(m.IP) == nil {
-			return ""
+	names = append(names, m.Hostnames...)
+	for _, name := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if validHostname(name) {
+			c.ServerName = name
+			break
 		}
-		host = m.IP
 	}
-	return net.JoinHostPort(host, strconv.Itoa(port))
+	return c
 }
 
 // validHostname accepts plain DNS names (no wildcards, IPs or spaces).

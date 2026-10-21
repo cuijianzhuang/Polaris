@@ -738,8 +738,18 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 		t, u := busyPorts()
 		b, _ := json.Marshal(map[string][]int{"tcp": t, "udp": u})
 		res.Output = string(b)
-	case "reality_scan":
-		rs, err := realityscan.Scan(ctx, c.Args["target"])
+	case "reality_scan", "reality_scan_v2":
+		var rs []realityscan.Result
+		var err error
+		if input := c.Args["candidates"]; input != "" {
+			var candidates []realityscan.Candidate
+			err = json.Unmarshal([]byte(input), &candidates)
+			if err == nil {
+				rs, err = realityscan.ScanCandidates(ctx, candidates)
+			}
+		} else {
+			rs, err = realityscan.Scan(ctx, c.Args["target"])
+		}
 		if err != nil {
 			fail(err)
 			break

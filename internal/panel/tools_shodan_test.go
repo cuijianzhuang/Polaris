@@ -1,14 +1,19 @@
 package panel
 
 import (
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/internal/realityscan"
+	"github.com/gin-gonic/gin"
 )
 
 func TestRealityDiscover(t *testing.T) {
@@ -30,7 +35,7 @@ func TestRealityDiscover(t *testing.T) {
 			w.Write([]byte(`{"query_credits":42,"plan":"membership"}`))
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"total": 1, "matches": []map[string]any{{"ip_str": "127.0.0.1", "port": port}}})
+		json.NewEncoder(w).Encode(map[string]any{"total": 1, "matches": []map[string]any{{"ip_str": "127.0.0.1", "port": port, "ssl": map[string]any{"cert": map[string]any{"subject": map[string]string{"CN": "example.invalid"}}}}}})
 	}))
 	defer shodan.Close()
 	old := realityscan.ShodanBase
@@ -80,10 +85,79 @@ func TestRealityDiscover(t *testing.T) {
 		t.Fatalf("results %v", rs)
 	}
 	r := rs[0].(map[string]any)
-	if r["tls"] != "1.3" || r["alpn"] != "h2" || out["from"] != "panel" {
+	if r["target"] != "127.0.0.1:"+strconv.Itoa(port) || r["serverName"] != "example.invalid" || r["ok"] != false || r["tls"] != "1.3" || r["alpn"] != "h2" || out["from"] != "panel" {
 		t.Fatalf("checked result %v from %v", r, out["from"])
 	}
 	if strings.Contains(toJSONString(out), "sk-test") {
 		t.Fatal("key in the response")
+	}
+}
+
+func TestRealityScanNodeSourceAndCompatibility(t *testing.T) {
+	var handshakes atomic.Int32
+	site := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	site.EnableHTTP2 = true
+	site.TLS = &tls.Config{GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+		handshakes.Add(1)
+		return nil, nil
+	}}
+	site.StartTLS()
+	defer site.Close()
+	address := strings.TrimPrefix(site.URL, "https://")
+	candidate := realityscan.Candidate{Address: address, ServerName: "example.invalid", ASN: "AS64500"}
+	for _, mode := range []string{"new", "old", "failed", "malformed", "canceled"} {
+		t.Run(mode, func(t *testing.T) {
+			s := newTestServer(t)
+			conn := s.hub.register("node")
+			defer s.hub.unregister(conn)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			observed := make(chan *polarisv1.Command, 1)
+			go func() {
+				select {
+				case m := <-conn.out:
+					cmd := m.GetCommand()
+					observed <- cmd
+					if mode == "canceled" {
+						cancel()
+						return
+					}
+					r := &polarisv1.CommandResult{Id: cmd.Id, Ok: true, Output: `[]`}
+					switch mode {
+					case "old":
+						r.Ok, r.Error = false, "unknown command: reality_scan_v2"
+					case "failed":
+						r.Ok, r.Error = false, "node scan failed"
+					case "malformed":
+						r.Output = `null`
+					}
+					s.hub.resolve("node", r)
+				case <-t.Context().Done():
+				}
+			}()
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequestWithContext(ctx, "POST", "/tools/reality-discover", nil)
+			before := handshakes.Load()
+			_, from, err := s.scanReality(c, "", []realityscan.Candidate{candidate}, "node")
+			cmd := <-observed
+			var received []realityscan.Candidate
+			if cmd.Kind != "reality_scan_v2" || json.Unmarshal([]byte(cmd.Args["candidates"]), &received) != nil || len(received) != 1 || received[0] != candidate {
+				t.Fatalf("node did not receive endpoint/SNI pair: %+v", cmd)
+			}
+			switch mode {
+			case "new":
+				if err != nil || from != "node" || handshakes.Load() != before {
+					t.Fatalf("new Agent incorrectly fell back: %s %v", from, err)
+				}
+			case "old":
+				if err != nil || from != "panel-fallback-unsupported" || handshakes.Load() <= before {
+					t.Fatalf("old Agent fallback not identified: %s %v", from, err)
+				}
+			default:
+				if err == nil || handshakes.Load() != before {
+					t.Fatalf("failed node scan silently repeated from panel: %s %v", from, err)
+				}
+			}
+		})
 	}
 }

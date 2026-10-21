@@ -120,14 +120,19 @@ export function SniffExtras({ sn, set }: { sn: SniffSpec; set: (x: SniffSpec) =>
   )
 }
 
+function scanSource(from: string) {
+  const labels: Record<string, string> = { node: t('节点'), panel: t('面板'), 'panel-fallback-offline': t('面板（节点离线）'), 'panel-fallback-unsupported': t('面板（需升级 Agent）'), '': t('未执行验证') }
+  return labels[from] ?? from
+}
+
 // RealityScanner probes candidates (or domains / IPs / CIDRs, several at
-// once) for a REALITY target: TLS 1.3, h2, X25519MLKEM768 and a valid
-// certificate. Modelled on the 3x-ui scanner.
+// once) for a REALITY target: preserve the dial address and verify the SNI
+// on that endpoint before returning a usable target/serverNames pair.
 export function RealityScanner({ nodeId, initial, onPick, onClose }: {
   nodeId?: string; initial?: string; onPick: (target: string, names: string[]) => void; onClose: () => void
 }) {
   const [q, setQ] = useState(initial ?? '')
-  const [res, setRes] = useState<{ results: RealityScanResult[]; from: string; ms: number; shodan?: { total: number; candidates: number; query: string } } | null>(null)
+  const [res, setRes] = useState<{ results: RealityScanResult[]; from: string; ms: number; warnings?: string[]; shodan?: { total: number; candidates: number; query: string; pagesRead: number } } | null>(null)
   const [okOnly, setOkOnly] = useState(false)
   const [editing, setEditing] = useState<{ value: string; def: string } | null>(null)
   const { busy, run } = useAction()
@@ -176,34 +181,42 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
         </div>
       )}
       {shodan && <ShodanPanel info={shodan} nodeId={nodeId} busy={busy} run={run} onInfo={setShodan}
-        onResult={(r, ms) => setRes({ results: r.results, from: r.from, ms, shodan: { total: r.total, candidates: r.candidates.length, query: r.query } })} />}
-      {res?.shodan && <div className="small sub" style={{ marginTop: 10 }}>{t('Shodan 共有 {total} 条匹配，取了 {n} 个候选逐个验证 · 查询：{q}', { total: res.shodan.total, n: res.shodan.candidates, q: res.shodan.query })}</div>}
+        onResult={(r, ms) => setRes({ results: r.results, from: r.from, ms, warnings: r.warnings, shodan: { total: r.total, candidates: r.candidates.length, query: r.query, pagesRead: r.pagesRead } })} />}
+      {res?.shodan && <div className="small sub" style={{ marginTop: 10 }}>{t('已读取 {n} 页', { n: res.shodan.pagesRead })} · {t('Shodan 共有 {total} 条匹配，取了 {n} 个候选逐个验证 · 查询：{q}', { total: res.shodan.total, n: res.shodan.candidates, q: res.shodan.query })}</div>}
       {res && (
         <div className="row small sub" style={{ marginTop: 12, justifyContent: 'space-between' }}>
-          <span>{t('共 {total} 个目标，可用 {ok} 个 · 来源：{from} · 用时 {sec} 秒', { total: res.results.length, ok: okCount, from: res.from === 'node' ? t('节点') : res.from === 'panel' ? t('面板') : res.from, sec: (res.ms / 1000).toFixed(1) })}</span>
-          <label className="chk" style={{ margin: 0 }}><input type="checkbox" checked={okOnly} onChange={(e) => setOkOnly(e.target.checked)} />{t('只看可用')}</label>
+          <span>{t('共 {total} 个目标，基础检测通过 {ok} 个 · 来源：{from} · 用时 {sec} 秒', { total: res.results.length, ok: okCount, from: scanSource(res.from), sec: (res.ms / 1000).toFixed(1) })}</span>
+          <label className="chk" style={{ margin: 0 }}><input type="checkbox" checked={okOnly} onChange={(e) => setOkOnly(e.target.checked)} />{t('只看基础检测通过')}</label>
         </div>
       )}
+      {res?.from.startsWith('panel-fallback-') && <div className="note warn">{t('当前结果由面板验证，节点连通性与延迟需在节点恢复或升级 Agent 后复测。')}</div>}
+      {(res?.warnings ?? []).map((warning, i) => <div className="note warn" key={i}>{warning}</div>)}
+      <div className="hint">{t('基础检测覆盖 TLS 1.3、HTTP/2 和 SNI 证书校验；HTTP 首页行为、CDN 与长期稳定性需另行核对。')}</div>
       <div className="scroll scan-table" style={{ marginTop: 8 }} aria-busy={busy}>
         <table>
-          <thead><tr><th>{t('目标')}</th><th>{t('状态')}</th><th>TLS</th><th>ALPN</th><th>{t('交换')}</th><th>{t('证书')}</th><th>{t('证书链')}</th><th>{t('延迟')}</th><th /></tr></thead>
+          <thead><tr><th>{t('目标')}</th><th>{t('状态')}</th><th>TLS</th><th>ALPN</th><th>{t('交换')}</th><th>{t('证书')}</th><th>{t('证书链')}</th><th>{t('握手延迟')}</th><th /></tr></thead>
           <tbody>
             {!res && busy && <tr><td colSpan={9} className="sub">{t('正在扫描…')}</td></tr>}
             {res && rows.length === 0 && <tr><td colSpan={9} className="sub">{okOnly ? t('没有可用的目标') : t('没有响应的目标')}</td></tr>}
             {rows.map((r) => (
-              <tr key={r.target}>
-                <td className="mono small">{r.target}</td>
-                <td><span className={'tag ' + (r.ok ? 'ok' : 'bad')}>{r.ok ? t('可用') : t('不可用')}</span>{r.problem && <div className="sub" style={{ fontSize: 11, maxWidth: 180, whiteSpace: 'normal' }}>{r.problem}</div>}</td>
+              <tr key={r.target + '|' + (r.serverName ?? '')}>
+                <td className="mono small">{r.target}
+                  {r.serverName && <div>SNI: {r.serverName}</div>}
+                  {r.address && r.address !== r.target && <div className="sub" style={{ fontSize: 11 }}>{t('连接地址：{address}', { address: r.address })}</div>}
+                  {(r.asn || r.country) && <div className="sub" style={{ fontSize: 11 }}>{[r.asn, r.country].filter(Boolean).join(' · ')}</div>}
+                  {r.org && <div className="sub" style={{ fontSize: 11, maxWidth: 200, whiteSpace: 'normal' }}>{r.org}</div>}
+                </td>
+                <td><span className={'tag ' + (r.ok ? 'ok' : 'bad')}>{r.ok ? t('基础检测通过') : t('未通过')}</span>{r.problem && <div className="sub" style={{ fontSize: 11, maxWidth: 180, whiteSpace: 'normal' }}>{r.problem}</div>}</td>
                 <td className="mono small">{r.tls ?? '—'}</td>
                 <td className="mono small">{r.alpn || '—'}</td>
                 <td className="mono small">{r.keyShare ?? '—'}</td>
-                <td className="small" title={[r.issuer && t('签发：{v}', { v: r.issuer }), r.notAfter && t('到期：{v}', { v: r.notAfter.slice(0, 10) }), r.names?.length && t('域名：{v}', { v: r.names.join(', ') })].filter(Boolean).join('\n')}>
+                <td className="small" title={[r.issuer && t('签发：{v}', { v: r.issuer }), r.notAfter && t('到期：{v}', { v: r.notAfter.slice(0, 10) }), r.certNames?.length && t('域名：{v}', { v: r.certNames.join(', ') })].filter(Boolean).join('\n')}>
                   {r.certName ?? '—'}
                   {(r.issuer || r.notAfter) && <div className="sub" style={{ fontSize: 11 }}>{r.issuer}{r.notAfter ? ' · ' + t('{date} 到期', { date: r.notAfter.slice(0, 10) }) : ''}</div>}
                 </td>
                 <td className="mono small">{r.chainSize ? `${r.chainSize} B` : '—'}{r.tls && <div className={'sub'} style={{ fontSize: 11 }} title={t('REALITY ML-DSA-65 签名需要证书链至少约 3.5 KB')}>{r.mldsa ? t('ML-DSA 可用') : t('ML-DSA 不可用')}</div>}</td>
                 <td className="mono small">{r.latencyMs != null ? t('{n} 毫秒', { n: r.latencyMs }) : '—'}</td>
-                <td>{r.ok && <button className="btn sm link" type="button" onClick={() => { onPick(r.target, r.names ?? []); onClose() }}>{t('使用')}</button>}</td>
+                <td>{r.ok && <button className="btn sm link" type="button" onClick={() => { onPick(r.target, r.serverName ? [r.serverName] : r.names ?? []); onClose() }}>{t('使用')}</button>}</td>
               </tr>
             ))}
           </tbody>
@@ -214,7 +227,7 @@ export function RealityScanner({ nodeId, initial, onPick, onClose }: {
 }
 
 type ShodanInfo = { configured: boolean; defaultQuery: string; credits?: number; plan?: string; error?: string }
-type DiscoverResult = { query: string; total: number; candidates: string[]; results: RealityScanResult[]; from: string }
+type DiscoverResult = { query: string; total: number; candidates: string[]; results: RealityScanResult[]; from: string; warnings?: string[]; pagesRead: number }
 
 // ShodanPanel finds REALITY candidates in Shodan's index of HTTPS servers
 // (with the API key saved as an encrypted setting), then checks each one
@@ -229,6 +242,8 @@ function ShodanPanel({ info, nodeId, busy, run, onInfo, onResult }: {
   const [country, setCountry] = useState('')
   const [query, setQuery] = useState('')
   const [pages, setPages] = useState(1)
+  const [asn, setAsn] = useState('')
+  const [network, setNetwork] = useState('')
   const saveKey = () => run(async () => {
     await put('/settings', { shodan_api_key: key.trim() })
     setKey('')
@@ -237,12 +252,13 @@ function ShodanPanel({ info, nodeId, busy, run, onInfo, onResult }: {
   }, t('Shodan API Key 已保存'))
   const discover = () => run(async () => {
     const t0 = performance.now()
-    const r = await post<DiscoverResult>('/tools/reality-discover', { query: query.trim(), country: country.trim(), pages, nodeId })
+    const r = await post<DiscoverResult>('/tools/reality-discover', { query: query.trim(), country: country.trim(), asn: asn.trim(), network: network.trim(), pages, nodeId })
     onResult(r, Math.round(performance.now() - t0))
+    try { onInfo(await get<ShodanInfo>('/tools/shodan')) } catch { /* Keep completed results when credit refresh is unavailable. */ }
   })
   return (
     <div className="card" style={{ marginTop: 12, display: 'grid', gap: 10, padding: 14 }}>
-      <div className="small">{t('用 Shodan 已收录的 HTTPS 服务器找候选，再逐个做 TLS 1.3 / HTTP/2 / 证书检测。面板不主动扫描网段，只查询 Shodan 的数据。')}</div>
+      <div className="small">{t('从 Shodan 获取候选 IP 和证书域名，保留原始地址并使用候选 SNI 实测。ASN、组织和国家信息来自 Shodan 索引。')}</div>
       {!info.configured || replacing ? (
         <div className="joined">
           <input className="input mono" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
@@ -257,6 +273,12 @@ function ShodanPanel({ info, nodeId, busy, run, onInfo, onResult }: {
       )}
       {info.configured && <>
         <div className="form-grid">
+          <Field label={t('ASN（可选）')} hint={t('按运营商网络筛选，例如 AS13335；同 ASN 不代表同机房')}>
+            <input className="input mono" value={asn} onChange={(e) => setAsn(e.target.value.toUpperCase())} placeholder="AS13335" />
+          </Field>
+          <Field label={t('网段（可选）')} hint={t('只查询 Shodan 索引内该 CIDR 的站点，例如 203.0.113.0/24')}>
+            <input className="input mono" value={network} onChange={(e) => setNetwork(e.target.value)} placeholder="203.0.113.0/24" />
+          </Field>
           <Field label={t('国家 / 地区')} hint={t('两位代码，如 JP、SG、US；选离节点近的更好')}>
             <input className="input mono" maxLength={2} value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} placeholder="JP" />
           </Field>
