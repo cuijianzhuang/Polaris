@@ -495,7 +495,7 @@ html[data-mode="dark"] .overlay { background: rgba(0, 0, 0, .55); }
 .joined { display: flex; }
 .joined .input { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .joined .btn { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; }
-.scan-table { max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+.scan-table { flex-shrink: 0; max-height: 52vh; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
 .scan-table thead th { position: sticky; top: 0; background: var(--soft); z-index: 1; }
 .btn.link { border-color: transparent; background: none; color: var(--pri); box-shadow: none; }
 .btn.link:hover { background: var(--pri-soft); color: var(--pri-ink); }

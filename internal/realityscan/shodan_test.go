@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -50,7 +51,7 @@ func TestShodanDiscover(t *testing.T) {
 		match("203.0.113.1", 443, "www.example.com"),               // certificate name
 		match("203.0.113.2", 443, "*.cdn.example", "edge.example"), // wildcard: reverse DNS instead
 		match("203.0.113.3", 8443, ""),                             // nothing: the address
-		match("203.0.113.4", 443, "WWW.Example.com"),               // duplicate name
+		match("203.0.113.4", 443, "WWW.Example.com"),               // same certificate on a different endpoint: keep both
 		match("not-an-ip", 443, "bad name"),                        // unusable
 	}}, &q)
 
@@ -61,9 +62,13 @@ func TestShodanDiscover(t *testing.T) {
 	if q != DefaultShodanQuery+" country:JP" || res.Query != q {
 		t.Fatalf("query %q / %q", q, res.Query)
 	}
-	want := []string{"www.example.com:443", "edge.example:443", "203.0.113.3:8443"}
+	want := []string{"203.0.113.1:443", "203.0.113.2:443", "203.0.113.3:8443", "203.0.113.4:443"}
 	if strings.Join(res.Hosts, ",") != strings.Join(want, ",") || res.Total != 1234 {
 		t.Fatalf("hosts %v total %d", res.Hosts, res.Total)
+	}
+
+	if len(res.Candidates) != 4 || res.Candidates[0].ServerName != "www.example.com" || res.Candidates[1].ServerName != "edge.example" || res.Candidates[2].ServerName != "" {
+		t.Fatalf("endpoint/SNI pairs lost: %+v", res.Candidates)
 	}
 
 	// A country filter already in the query is not added twice.
@@ -92,5 +97,58 @@ func TestShodanErrorsHideKey(t *testing.T) {
 	ShodanBase = "http://127.0.0.1:1"
 	if _, err := ShodanDiscover(t.Context(), "secret-key-456", ShodanQuery{}); err == nil || strings.Contains(err.Error(), "secret-key-456") {
 		t.Fatalf("connection error leaks key: %v", err)
+	}
+}
+
+func TestShodanNetworkFilters(t *testing.T) {
+	q, err := (ShodanQuery{ASN: "64500", Network: "203.0.113.49/24", Country: "jp"}).build()
+	if err != nil || q != DefaultShodanQuery+" country:JP asn:AS64500 net:203.0.113.0/24" {
+		t.Fatalf("network filters: %q %v", q, err)
+	}
+	for _, q := range []ShodanQuery{{ASN: "AS0"}, {ASN: "ASbad"}, {Network: "203.0.113.1"}, {Network: "203.0.113.0/33"}} {
+		if _, err := q.build(); err == nil {
+			t.Fatalf("invalid network filter accepted: %+v", q)
+		}
+	}
+}
+
+func TestShodanSANAndPartialResults(t *testing.T) {
+	m := match("203.0.113.1", 443, "*.example.com", "unrelated.invalid")
+	m["asn"], m["org"], m["location"] = "AS64500", "Fixture", map[string]string{"country_code": "JP"}
+	m["ssl"].(map[string]any)["cert"].(map[string]any)["extensions"] = []map[string]string{{"name": "subjectAltName", "data": "DNS:*.example.com, DNS:edge.example.com"}}
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Query().Get("page") == "2" {
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(`{"error":"quota exhausted"}`))
+			return
+		}
+		// A full page triggers a second query; duplicates cost no extra probes.
+		rows := make([]map[string]any, 100)
+		for i := range rows {
+			rows[i] = m
+		}
+		json.NewEncoder(w).Encode(map[string]any{"total": 250, "matches": rows})
+	}))
+	defer srv.Close()
+	old := ShodanBase
+	ShodanBase = srv.URL
+	defer func() { ShodanBase = old }()
+	found, err := ShodanDiscover(t.Context(), "fixture-key", ShodanQuery{Pages: 3})
+	if err != nil || calls != 2 || found.PagesRead != 1 || len(found.Warnings) != 1 || len(found.Candidates) != 1 {
+		t.Fatalf("partial pages discarded or hidden: %+v %v calls=%d", found, err, calls)
+	}
+	c := found.Candidates[0]
+	if c.Address != "203.0.113.1:443" || c.ServerName != "edge.example.com" || c.ASN != "AS64500" || c.Org != "Fixture" || c.Country != "JP" {
+		t.Fatal("SAN and endpoint metadata lost", c)
+	}
+	for _, port := range []int{-1, 65536} {
+		var invalid shodanMatch
+		data, _ := json.Marshal(match("203.0.113.1", port, "edge.example.com"))
+		json.Unmarshal(data, &invalid)
+		if candidateOf(invalid).Address != "" {
+			t.Fatal("invalid port retained", strconv.Itoa(port))
+		}
 	}
 }

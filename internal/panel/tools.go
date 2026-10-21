@@ -40,20 +40,43 @@ func (s *Server) realityScan(c *gin.Context) {
 // scanTargets probes targets from the node when it is online and supports
 // it, else from the panel.
 func (s *Server) scanTargets(c *gin.Context, target, nodeID string) ([]realityscan.Result, string, error) {
+	return s.scanReality(c, target, nil, nodeID)
+}
+
+func (s *Server) scanReality(c *gin.Context, target string, candidates []realityscan.Candidate, nodeID string) ([]realityscan.Result, string, error) {
 	from := "panel"
-	if nodeID != "" && s.hub.Online(nodeID) {
-		res, err := s.hub.Command(c, nodeID, "reality_scan", map[string]string{"target": target}, 90*time.Second)
-		if err == nil && res.Ok {
-			var rs []realityscan.Result
-			// Agents before multi-target scans probe "a,b" as one host;
-			// scan from the panel instead.
-			if json.Unmarshal([]byte(res.Output), &rs) == nil && !(len(rs) == 1 && strings.ContainsAny(rs[0].Target, ", \n")) {
+	args := map[string]string{"target": target}
+	if candidates != nil {
+		raw, err := json.Marshal(candidates)
+		if err != nil {
+			return nil, "", err
+		}
+		args["candidates"] = string(raw)
+	}
+	if nodeID != "" {
+		if s.hub.Online(nodeID) {
+			res, err := s.hub.Command(c.Request.Context(), nodeID, "reality_scan_v2", args, 120*time.Second)
+			if err != nil {
+				return nil, "", err
+			} // a timeout or disconnect must not repeat the scan elsewhere
+			if res.Ok {
+				var rs []realityscan.Result
+				if json.Unmarshal([]byte(res.Output), &rs) != nil || rs == nil {
+					return nil, "", fmt.Errorf("节点返回无效扫描结果")
+				}
 				return rs, "node", nil
 			}
-		} else if err == nil && res.Error != "" && !strings.HasPrefix(res.Error, "unknown command") {
-			return nil, "", fmt.Errorf("%s", res.Error)
+			if !strings.HasPrefix(res.Error, "unknown command") {
+				return nil, "", fmt.Errorf("%s", orDefault(res.Error, "节点扫描失败"))
+			}
+			from = "panel-fallback-unsupported"
+		} else {
+			from = "panel-fallback-offline"
 		}
-		from = "panel (节点不支持扫描，请升级 Agent)"
+	}
+	if candidates != nil {
+		rs, err := realityscan.ScanCandidates(c.Request.Context(), candidates)
+		return rs, from, err
 	}
 	rs, err := realityscan.Scan(c.Request.Context(), target)
 	return rs, from, err
@@ -67,6 +90,8 @@ func (s *Server) realityDiscover(c *gin.Context) {
 		Query   string `json:"query"`
 		Country string `json:"country"`
 		Pages   int    `json:"pages"`
+		ASN     string `json:"asn"`
+		Network string `json:"network"`
 		NodeID  string `json:"nodeId"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -74,14 +99,14 @@ func (s *Server) realityDiscover(c *gin.Context) {
 		return
 	}
 	key := s.st.Box.MustOpen(s.st.GetSetting("shodan_api_key", ""))
-	found, err := realityscan.ShodanDiscover(c.Request.Context(), key, realityscan.ShodanQuery{Query: req.Query, Country: req.Country, Pages: req.Pages})
+	found, err := realityscan.ShodanDiscover(c.Request.Context(), key, realityscan.ShodanQuery{Query: req.Query, Country: req.Country, Pages: req.Pages, ASN: req.ASN, Network: req.Network})
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	out := gin.H{"query": found.Query, "total": found.Total, "candidates": found.Hosts, "results": []realityscan.Result{}, "from": ""}
+	out := gin.H{"query": found.Query, "total": found.Total, "candidates": found.Hosts, "targets": found.Candidates, "results": []realityscan.Result{}, "from": "", "warnings": found.Warnings, "pagesRead": found.PagesRead}
 	if len(found.Hosts) > 0 {
-		rs, from, err := s.scanTargets(c, strings.Join(found.Hosts, ","), req.NodeID)
+		rs, from, err := s.scanReality(c, "", found.Candidates, req.NodeID)
 		if err != nil {
 			badRequest(c, err)
 			return
