@@ -178,8 +178,7 @@ func (s *Server) portalMailCode(c *gin.Context) {
 	if userID != "" {
 		title = "绑定邮箱验证码"
 	}
-	text := fmt.Sprintf("你的验证码是：%s\n\n%d 分钟内有效。如果不是你本人操作，请忽略这封邮件。", code, int(mailCodeTTL.Minutes()))
-	plain, body := s.mailBody(title, text, nil)
+	plain, body := s.mailCodeBody(title, code)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()
 	if err := s.sendMail(ctx, addr, title+" "+code, plain, body); err != nil {

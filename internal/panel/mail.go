@@ -57,36 +57,6 @@ func plainText(s string) string {
 	return strings.TrimSpace(html.UnescapeString(tagRe.ReplaceAllString(strings.ReplaceAll(s, tgRule, ""), "")))
 }
 
-// mailBody wraps text in the site's simple HTML layout.
-func (s *Server) mailBody(title, text string, u *store.User) (string, string) {
-	site := s.st.GetSetting("site_title", "Polaris")
-	plain := text
-	var foot []string
-	if u != nil && u.SubToken != "" {
-		plain += "\n\n订阅链接：" + s.subURL(u.SubToken)
-		foot = append(foot, `订阅链接：<a href="`+html.EscapeString(s.subURL(u.SubToken))+`">`+html.EscapeString(s.subURL(u.SubToken))+`</a>`)
-	}
-	if s.portalEnabled() {
-		plain += "\n用户中心：" + s.portalURL()
-		foot = append(foot, `用户中心：<a href="`+html.EscapeString(s.portalURL())+`">`+html.EscapeString(s.portalURL())+`</a>`)
-	}
-	if sup := strings.TrimSpace(s.st.GetSetting("sub_support_url", "")); sup != "" {
-		plain += "\n客服：" + sup
-		foot = append(foot, "客服："+html.EscapeString(sup))
-	}
-	plain += "\n\n— " + site
-	body := strings.ReplaceAll(html.EscapeString(text), "\n", "<br>")
-	h := `<!doctype html><html><body style="margin:0;background:#f4f5f7;font:15px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2328">` +
-		`<div style="max-width:560px;margin:24px auto;background:#fff;border-radius:10px;padding:24px 28px">` +
-		`<div style="font-size:13px;color:#6b7280">` + html.EscapeString(site) + `</div>` +
-		`<h2 style="margin:6px 0 16px;font-size:20px">` + html.EscapeString(title) + `</h2>` +
-		`<div>` + body + `</div>`
-	if len(foot) > 0 {
-		h += `<div style="margin-top:20px;padding-top:14px;border-top:1px solid #e5e7eb;font-size:13px;color:#6b7280;word-break:break-all">` + strings.Join(foot, "<br>") + `</div>`
-	}
-	return plain, h + `</div></body></html>`
-}
-
 // sendMail sends one message with the configured account.
 func (s *Server) sendMail(ctx context.Context, to, subject, text, htmlBody string) error {
 	c := s.mailConfig()
