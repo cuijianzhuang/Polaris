@@ -1,0 +1,1594 @@
+{
+  "source": "https://www.zstaticcdn.com/api/v1/DescribeAllNodes",
+  "UpdatedAt": "2026-09-15T12:27:24Z",
+  "ProvinceNodes": [
+    {
+      "province": "河北",
+      "carriers": {
+        "mobile": "he-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "he-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "he-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "山西",
+      "carriers": {
+        "mobile": "sx-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "sx-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "sx-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "辽宁",
+      "carriers": {
+        "mobile": "ln-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "ln-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "ln-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "吉林",
+      "carriers": {
+        "mobile": "jl-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "jl-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "jl-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "黑龙江",
+      "carriers": {
+        "mobile": "hl-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "hl-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "hl-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "江苏",
+      "carriers": {
+        "mobile": "js-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "js-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "js-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "浙江",
+      "carriers": {
+        "mobile": "zj-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "zj-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "zj-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "安徽",
+      "carriers": {
+        "mobile": "ah-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "ah-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "ah-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "福建",
+      "carriers": {
+        "mobile": "fj-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "fj-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "fj-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "江西",
+      "carriers": {
+        "mobile": "jx-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "jx-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "jx-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "山东",
+      "carriers": {
+        "mobile": "sd-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "sd-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "sd-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "河南",
+      "carriers": {
+        "mobile": "ha-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "ha-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "ha-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "湖北",
+      "carriers": {
+        "mobile": "hb-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "hb-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "hb-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "湖南",
+      "carriers": {
+        "mobile": "hn-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "hn-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "hn-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "广东",
+      "carriers": {
+        "mobile": "gd-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "gd-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "gd-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "海南",
+      "carriers": {
+        "mobile": "hi-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "hi-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "hi-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "四川",
+      "carriers": {
+        "mobile": "sc-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "sc-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "sc-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "贵州",
+      "carriers": {
+        "mobile": "gz-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "gz-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "gz-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "云南",
+      "carriers": {
+        "mobile": "yn-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "yn-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "yn-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "陕西",
+      "carriers": {
+        "mobile": "sn-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "sn-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "sn-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "甘肃",
+      "carriers": {
+        "mobile": "gs-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "gs-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "gs-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "青海",
+      "carriers": {
+        "mobile": "qh-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "qh-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "qh-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "内蒙古",
+      "carriers": {
+        "mobile": "nm-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "nm-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "nm-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "广西",
+      "carriers": {
+        "mobile": "gx-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "gx-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "gx-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "西藏",
+      "carriers": {
+        "mobile": "xz-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "xz-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "xz-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "宁夏",
+      "carriers": {
+        "mobile": "nx-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "nx-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "nx-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "新疆",
+      "carriers": {
+        "mobile": "xj-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "xj-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "xj-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "北京",
+      "carriers": {
+        "mobile": "bj-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "bj-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "bj-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "天津",
+      "carriers": {
+        "mobile": "tj-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "tj-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "tj-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "上海",
+      "carriers": {
+        "mobile": "sh-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "sh-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "sh-ct-v4.ip.zstaticcdn.com:80"
+      }
+    },
+    {
+      "province": "重庆",
+      "carriers": {
+        "mobile": "cq-cm-v4.ip.zstaticcdn.com:80",
+        "unicom": "cq-cu-v4.ip.zstaticcdn.com:80",
+        "telecom": "cq-ct-v4.ip.zstaticcdn.com:80"
+      }
+    }
+  ],
+  "CityNodes": [
+    {
+      "city": "西安",
+      "province": "陕西",
+      "carrier": "mobile",
+      "endpoint": "sn-xian-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "无锡",
+      "province": "江苏",
+      "carrier": "mobile",
+      "endpoint": "js-wuxi-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "济南",
+      "province": "山东",
+      "carrier": "mobile",
+      "endpoint": "sd-jinan-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "苏州",
+      "province": "江苏",
+      "carrier": "mobile",
+      "endpoint": "js-suzhou-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "宁波",
+      "province": "浙江",
+      "carrier": "mobile",
+      "endpoint": "zj-ningbo-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "东莞",
+      "province": "广东",
+      "carrier": "mobile",
+      "endpoint": "gd-dongguan-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "成都",
+      "province": "四川",
+      "carrier": "mobile",
+      "endpoint": "sc-chengdu-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "贵阳",
+      "province": "贵州",
+      "carrier": "mobile",
+      "endpoint": "gz-guiyang-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "株洲",
+      "province": "湖南",
+      "carrier": "mobile",
+      "endpoint": "hn-zhuzhou-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "郑州",
+      "province": "河南",
+      "carrier": "mobile",
+      "endpoint": "ha-zhengzhou-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "呼和浩特",
+      "province": "内蒙古",
+      "carrier": "mobile",
+      "endpoint": "nm-huhehaote-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "广州",
+      "province": "广东",
+      "carrier": "mobile",
+      "endpoint": "gd-guangzhou-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "厦门",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-xiamen-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "宁德",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-ningde-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南平",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-nanping-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "廊坊",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-langfang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "贵阳",
+      "province": "贵州",
+      "carrier": "unicom",
+      "endpoint": "gz-guiyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "呼和浩特",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-huhehaote-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "郴州",
+      "province": "湖南",
+      "carrier": "telecom",
+      "endpoint": "hn-chenzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "杭州",
+      "province": "浙江",
+      "carrier": "telecom",
+      "endpoint": "zj-hangzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "海口",
+      "province": "海南",
+      "carrier": "telecom",
+      "endpoint": "hi-haikou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "武汉",
+      "province": "湖北",
+      "carrier": "telecom",
+      "endpoint": "hb-wuhan-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "兰州",
+      "province": "甘肃",
+      "carrier": "telecom",
+      "endpoint": "gs-lanzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南京",
+      "province": "江苏",
+      "carrier": "telecom",
+      "endpoint": "js-nanjing-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "西安",
+      "province": "陕西",
+      "carrier": "telecom",
+      "endpoint": "sn-xian-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "广州",
+      "province": "广东",
+      "carrier": "telecom",
+      "endpoint": "gd-guangzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "辽阳",
+      "province": "辽宁",
+      "carrier": "telecom",
+      "endpoint": "ln-liaoyang-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "青岛",
+      "province": "山东",
+      "carrier": "telecom",
+      "endpoint": "sd-qingdao-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "福州",
+      "province": "福建",
+      "carrier": "telecom",
+      "endpoint": "fj-fuzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "乌鲁木齐",
+      "province": "新疆",
+      "carrier": "telecom",
+      "endpoint": "xj-wulumuqi-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "长沙",
+      "province": "湖南",
+      "carrier": "telecom",
+      "endpoint": "hn-changsha-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "中卫",
+      "province": "甘肃",
+      "carrier": "telecom",
+      "endpoint": "gs-zhongwei-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "太原",
+      "province": "山西",
+      "carrier": "telecom",
+      "endpoint": "sx-taiyuan-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "芜湖",
+      "province": "安徽",
+      "carrier": "telecom",
+      "endpoint": "ah-wuhu-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "郑州",
+      "province": "河南",
+      "carrier": "telecom",
+      "endpoint": "ha-zhengzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "庆阳",
+      "province": "甘肃",
+      "carrier": "telecom",
+      "endpoint": "gs-qingyang-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "呼和浩特",
+      "province": "内蒙古",
+      "carrier": "telecom",
+      "endpoint": "nm-huhehaote-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "孝感",
+      "province": "湖北",
+      "carrier": "telecom",
+      "endpoint": "hb-xiaogan-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "宜昌",
+      "province": "湖北",
+      "carrier": "telecom",
+      "endpoint": "hb-yichang-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "怀化",
+      "province": "湖南",
+      "carrier": "telecom",
+      "endpoint": "hn-huaihua-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "深圳",
+      "province": "广东",
+      "carrier": "telecom",
+      "endpoint": "gd-shenzhen-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "揭阳",
+      "province": "广东",
+      "carrier": "telecom",
+      "endpoint": "gd-jieyang-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "台州",
+      "province": "浙江",
+      "carrier": "telecom",
+      "endpoint": "zj-taizhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "拉萨",
+      "province": "西藏",
+      "carrier": "telecom",
+      "endpoint": "xz-lasa-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "永州",
+      "province": "湖南",
+      "carrier": "telecom",
+      "endpoint": "hn-yongzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "苏州",
+      "province": "江苏",
+      "carrier": "telecom",
+      "endpoint": "js-suzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "镇江",
+      "province": "江苏",
+      "carrier": "telecom",
+      "endpoint": "js-zhenjiang-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "雄安",
+      "province": "河北",
+      "carrier": "telecom",
+      "endpoint": "he-xiongan-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "株洲",
+      "province": "湖南",
+      "carrier": "telecom",
+      "endpoint": "hn-zhuzhou-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "襄阳",
+      "province": "湖北",
+      "carrier": "telecom",
+      "endpoint": "hb-xiangyang-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南京",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-nanjing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南京",
+      "province": "江苏",
+      "carrier": "mobile",
+      "endpoint": "js-nanjing-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "合肥",
+      "province": "安徽",
+      "carrier": "mobile",
+      "endpoint": "ah-hefei-cm-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "合肥",
+      "province": "安徽",
+      "carrier": "telecom",
+      "endpoint": "ah-hefei-ct-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "合肥",
+      "province": "安徽",
+      "carrier": "unicom",
+      "endpoint": "ah-hefei-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "东莞",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-dongguan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "长沙",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-changsha-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "洛阳",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-luoyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "长春",
+      "province": "吉林",
+      "carrier": "unicom",
+      "endpoint": "jl-changchun-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "台州",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-taizhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "咸阳",
+      "province": "陕西",
+      "carrier": "unicom",
+      "endpoint": "sn-xianyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "安康",
+      "province": "陕西",
+      "carrier": "unicom",
+      "endpoint": "sn-ankang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "渭南",
+      "province": "陕西",
+      "carrier": "unicom",
+      "endpoint": "sn-weinan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "广州",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-guangzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "安庆",
+      "province": "安徽",
+      "carrier": "unicom",
+      "endpoint": "ah-anqing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "蚌埠",
+      "province": "安徽",
+      "carrier": "unicom",
+      "endpoint": "ah-bengbu-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "亳州",
+      "province": "安徽",
+      "carrier": "unicom",
+      "endpoint": "ah-bozhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "宿州",
+      "province": "安徽",
+      "carrier": "unicom",
+      "endpoint": "ah-suzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "龙岩",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-longyan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "莆田",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-putian-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "泉州",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-quanzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "三明",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-sanming-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "漳州",
+      "province": "福建",
+      "carrier": "unicom",
+      "endpoint": "fj-zhangzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "潮州",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-chaozhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "佛山",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-foshan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "河源",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-heyuan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "惠州",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-huizhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "江门",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-jiangmen-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "茂名",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-maoming-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "汕头",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-shantou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "汕尾",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-shanwei-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "韶关",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-shaoguan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "阳江",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-yangjiang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "云浮",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-yunfu-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "湛江",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-zhanjiang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "肇庆",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-zhaoqing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "中山",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-zhongshan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "珠海",
+      "province": "广东",
+      "carrier": "unicom",
+      "endpoint": "gd-zhuhai-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "桂林",
+      "province": "广西",
+      "carrier": "unicom",
+      "endpoint": "gx-guilin-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "柳州",
+      "province": "广西",
+      "carrier": "unicom",
+      "endpoint": "gx-liuzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南宁",
+      "province": "广西",
+      "carrier": "unicom",
+      "endpoint": "gx-nanning-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "安阳",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-anyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "鹤壁",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-hebi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "焦作",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-jiaozuo-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "济源",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-jiyuan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "开封",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-kaifeng-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "漯河",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-luohe-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南阳",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-nanyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "平顶山",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-pingdingshan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "三门峡",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-sanmenxia-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "商丘",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-shangqiu-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "新乡",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-xinxiang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "信阳",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-xinyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "许昌",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-xuchang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "周口",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-zhoukou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "驻马店",
+      "province": "河南",
+      "carrier": "unicom",
+      "endpoint": "ha-zhumadian-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "鄂州",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-ezhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "黄冈",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-huanggang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "黄石",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-huangshi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "荆门",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-jingmen-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "荆州",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-jingzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "十堰",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-shiyan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "随州",
+      "province": "湖北",
+      "carrier": "unicom",
+      "endpoint": "hb-suizhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "保定",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-baoding-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "沧州",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-cangzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "承德",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-chengde-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "邯郸",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-handan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "衡水",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-hengshui-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "石家庄",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-shijiazhuang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "唐山",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-tangshan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "邢台",
+      "province": "河北",
+      "carrier": "unicom",
+      "endpoint": "he-xingtai-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "大庆",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-daqing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "大兴安岭",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-daxinganling-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "哈尔滨",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-haerbin-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "鹤岗",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-hegang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "黑河",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-heihe-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "佳木斯",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-jiamusi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "鸡西",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-jixi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "牡丹江",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-mudanjiang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "齐齐哈尔",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-qiqihaer-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "七台河",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-qitaihe-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "双鸭山",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-shuangyashan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "绥化",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-suihua-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "伊春",
+      "province": "黑龙江",
+      "carrier": "unicom",
+      "endpoint": "hl-yichun-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "衡阳",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-hengyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "娄底",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-loudi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "邵阳",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-shaoyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "湘潭",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-xiangtan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "湘西",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-xiangxi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "张家界",
+      "province": "湖南",
+      "carrier": "unicom",
+      "endpoint": "hn-zhangjiajie-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "吉林",
+      "province": "吉林",
+      "carrier": "unicom",
+      "endpoint": "jl-jilin-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "四平",
+      "province": "吉林",
+      "carrier": "unicom",
+      "endpoint": "jl-siping-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "松原",
+      "province": "吉林",
+      "carrier": "unicom",
+      "endpoint": "jl-songyuan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "通化",
+      "province": "吉林",
+      "carrier": "unicom",
+      "endpoint": "jl-tonghua-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "连云港",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-lianyungang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南通",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-nantong-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "徐州",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-xuzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "盐城",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-yancheng-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "扬州",
+      "province": "江苏",
+      "carrier": "unicom",
+      "endpoint": "js-yangzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "抚州",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-fuzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "吉安",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-jian-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "景德镇",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-jingdezhen-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "九江",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-jiujiang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "南昌",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-nanchang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "上饶",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-shangrao-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "新余",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-xinyu-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "宜春",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-yichun-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "鹰潭",
+      "province": "江西",
+      "carrier": "unicom",
+      "endpoint": "jx-yingtan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "朝阳",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-chaoyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "大连",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-dalian-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "丹东",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-dandong-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "抚顺",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-fushun-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "阜新",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-fuxin-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "葫芦岛",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-huludao-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "锦州",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-jinzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "沈阳",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-shenyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "铁岭",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-tieling-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "营口",
+      "province": "辽宁",
+      "carrier": "unicom",
+      "endpoint": "ln-yingkou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "包头",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-baotou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "巴彦淖尔",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-bayannaoer-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "赤峰",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-chifeng-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "呼伦贝尔",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-hulunbeier-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "通辽",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-tongliao-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "乌海",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-wuhai-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "乌兰察布",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-wulanchabu-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "锡林郭勒",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-xilinguole-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "兴安",
+      "province": "内蒙古",
+      "carrier": "unicom",
+      "endpoint": "nm-xingan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "银川",
+      "province": "宁夏",
+      "carrier": "unicom",
+      "endpoint": "nx-yinchuan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "西宁",
+      "province": "青海",
+      "carrier": "unicom",
+      "endpoint": "qh-xining-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "达州",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-dazhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "乐山",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-leshan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "凉山",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-liangshan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "泸州",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-luzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "绵阳",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-mianyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "内江",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-neijiang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "资阳",
+      "province": "四川",
+      "carrier": "unicom",
+      "endpoint": "sc-ziyang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "滨州",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-binzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "东营",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-dongying-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "菏泽",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-heze-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "济宁",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-jining-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "临沂",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-linyi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "泰安",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-taian-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "潍坊",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-weifang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "威海",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-weihai-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "烟台",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-yantai-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "枣庄",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-zaozhuang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "淄博",
+      "province": "山东",
+      "carrier": "unicom",
+      "endpoint": "sd-zibo-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "宝鸡",
+      "province": "陕西",
+      "carrier": "unicom",
+      "endpoint": "sn-baoji-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "商洛",
+      "province": "陕西",
+      "carrier": "unicom",
+      "endpoint": "sn-shangluo-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "榆林",
+      "province": "陕西",
+      "carrier": "unicom",
+      "endpoint": "sn-yulin-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "长治",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-changzhi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "晋中",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-jinzhong-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "临汾",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-linfen-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "吕梁",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-lvliang-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "朔州",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-shuozhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "阳泉",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-yangquan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "运城",
+      "province": "山西",
+      "carrier": "unicom",
+      "endpoint": "sx-yuncheng-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "巴音郭楞",
+      "province": "新疆",
+      "carrier": "unicom",
+      "endpoint": "xj-bayinguoleng-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "哈密",
+      "province": "新疆",
+      "carrier": "unicom",
+      "endpoint": "xj-hami-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "和田",
+      "province": "新疆",
+      "carrier": "unicom",
+      "endpoint": "xj-hetian-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "石河子",
+      "province": "新疆",
+      "carrier": "unicom",
+      "endpoint": "xj-shihezi-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "吐鲁番",
+      "province": "新疆",
+      "carrier": "unicom",
+      "endpoint": "xj-tulufan-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "德宏",
+      "province": "云南",
+      "carrier": "unicom",
+      "endpoint": "yn-dehong-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "昆明",
+      "province": "云南",
+      "carrier": "unicom",
+      "endpoint": "yn-kunming-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "普洱",
+      "province": "云南",
+      "carrier": "unicom",
+      "endpoint": "yn-puer-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "曲靖",
+      "province": "云南",
+      "carrier": "unicom",
+      "endpoint": "yn-qujing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "西双版纳",
+      "province": "云南",
+      "carrier": "unicom",
+      "endpoint": "yn-xishuangbanna-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "湖州",
+      "province": "浙江",
+      "carrier": "unicom",
+      "endpoint": "zj-huzhou-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "嘉兴",
+      "province": "浙江",
+      "carrier": "unicom",
+      "endpoint": "zj-jiaxing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "金华",
+      "province": "浙江",
+      "carrier": "unicom",
+      "endpoint": "zj-jinhua-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "丽水",
+      "province": "浙江",
+      "carrier": "unicom",
+      "endpoint": "zj-lishui-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "绍兴",
+      "province": "浙江",
+      "carrier": "unicom",
+      "endpoint": "zj-shaoxing-cu-v4.ip.zstaticcdn.com:443"
+    },
+    {
+      "city": "温州",
+      "province": "浙江",
+      "carrier": "unicom",
+      "endpoint": "zj-wenzhou-cu-v4.ip.zstaticcdn.com:443"
+    }
+  ]
+}

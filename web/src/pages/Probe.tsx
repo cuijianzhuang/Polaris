@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { del, get, post, put } from '../api'
 import { Lines } from '../components/Charts'
+import ProbePresetPicker from '../components/ProbePresetPicker'
+import { probePresets, type ProbePreset } from '../probeTargets'
 import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll } from '../components/ui'
 import { bps, bytes, datetime, flag, uptime } from '../format'
 import { t } from '../i18n'
@@ -164,33 +166,51 @@ function NodeDrawer({ n, onClose, onChanged }: { n: PNode; onClose: () => void; 
 }
 
 function TargetForm({ tg, nodes, onClose, onSaved }: { tg?: Target; nodes: PNode[]; onClose: () => void; onSaved: () => void }) {
+  const initialPreset = probePresets.find((p) => p.addr === tg?.addr && p.carrier === tg?.carrier)
+  const [source, setSource] = useState<'catalog' | 'custom'>(!tg || initialPreset ? 'catalog' : 'custom')
+  const [preset, setPreset] = useState<ProbePreset | undefined>(initialPreset)
   const [f, setF] = useState({ name: tg?.name ?? '', carrier: tg?.carrier ?? 'ct', addr: tg?.addr ?? '', sortOrder: tg?.sortOrder ?? 0, enabled: tg?.enabled ?? true })
   const online = nodes.filter((n) => n.online)
   const [node, setNode] = useState(online[0]?.id ?? '')
   const [test, setTest] = useState('')
   const { busy, run } = useAction()
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
+  const choose = (p?: ProbePreset) => {
+    setPreset(p)
+    setTest('')
+    if (!p) { setF((x) => ({ ...x, name: '', addr: '' })); return }
+    const name = p.province + p.city + carriers.find((c) => c.v === p.carrier)!.l + (p.family === 'ipv4' ? '' : ' · ' + (p.family === 'ipv6' ? 'IPv6' : t('双栈')))
+    setF((x) => ({ ...x, name, carrier: p.carrier, addr: p.addr }))
+  }
+  const validAddress = !!f.addr && (source === 'custom' || !!preset)
   return (
     <Modal title={tg ? t('编辑探测目标') : t('添加探测目标')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
-      <button className="btn pri" type="button" disabled={busy || !f.name || !f.addr} onClick={() => run(async () => {
+      <button className="btn pri" type="button" disabled={busy || !f.name || !validAddress} onClick={() => run(async () => {
         if (tg) await put(`/probe/targets/${tg.id}`, f); else await post('/probe/targets', f)
         onSaved()
       }, t('已保存'))}>{t('保存')}</button>
     </>}>
+      <Field label={t('目标来源')} htmlFor="pt-source"><select id="pt-source" className="input" value={source} onChange={(e) => {
+        const next = e.target.value as 'catalog' | 'custom'
+        setSource(next)
+        setPreset(probePresets.find((p) => p.addr === f.addr && p.carrier === f.carrier))
+        setTest('')
+      }}><option value="catalog">{t('Zstatic 节点目录')}</option><option value="custom">{t('自定义')}</option></select></Field>
+      {source === 'catalog' && <ProbePresetPicker initial={preset} onChange={choose} />}
       <Field label={t('名称')} htmlFor="pt-name"><input id="pt-name" className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder={t('广东电信')} /></Field>
-      <Field label={t('运营商')} hint={t('决定图表里的颜色')}>
+      {source === 'custom' && <Field label={t('运营商')} hint={t('决定图表里的颜色')}>
         <div className="seg">{carriers.map((c) => <button key={c.v} type="button" className={'opt' + (f.carrier === c.v ? ' on' : '')} aria-pressed={f.carrier === c.v} onClick={() => set('carrier', c.v)}>{c.l}</button>)}</div>
-      </Field>
-      <Field label={t('地址')} htmlFor="pt-addr" hint={t('主机:端口，用 TCP 连接测延迟。省级三网地址格式：省份-ct/cu/cm-v4.ip.zstaticcdn.com:80，如 gd-ct-v4.ip.zstaticcdn.com:80')}>
-        <input id="pt-addr" className="input mono" value={f.addr} onChange={(e) => set('addr', e.target.value)} placeholder="gd-ct-v4.ip.zstaticcdn.com:80" />
+      </Field>}
+      <Field label={t('地址')} htmlFor="pt-addr" hint={source === 'catalog' ? t('选择节点后自动填写；需要修改地址时切换到自定义') : t('主机:端口，用 TCP 连接测延迟。省级三网地址格式：省份-ct/cu/cm-v4.ip.zstaticcdn.com:80，如 gd-ct-v4.ip.zstaticcdn.com:80')}>
+        <input id="pt-addr" className="input mono" readOnly={source === 'catalog'} value={source === 'catalog' && !preset ? '' : f.addr} onChange={(e) => { set('addr', e.target.value); setTest('') }} placeholder="gd-ct-v4.ip.zstaticcdn.com:80" />
       </Field>
       <Field label={t('排序')} htmlFor="pt-sort"><input id="pt-sort" className="input mono" type="number" value={f.sortOrder} onChange={(e) => set('sortOrder', Number(e.target.value) || 0)} /></Field>
       <Field label={t('启用')}><label className="row small"><Switch label={t('启用')} on={f.enabled} onChange={(v) => set('enabled', v)} />{t('参与定时探测')}</label></Field>
       {online.length > 0 && <Field label={t('试测')} hint={test || undefined}>
         <div className="row">
           <select className="input" value={node} onChange={(e) => setNode(e.target.value)} aria-label={t('节点')}>{online.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select>
-          <button className="btn sm" type="button" disabled={busy || !f.addr} onClick={() => run(async () => {
+          <button className="btn sm" type="button" disabled={busy || !validAddress} onClick={() => run(async () => {
             const r = await post<{ ok: boolean; ms?: number; error?: string }>('/probe/targets/test', { nodeId: node, addr: f.addr })
             setTest(r.ok ? t('{ms} ms', { ms: r.ms ?? 0 }) : t('失败：{e}', { e: r.error ?? '' }))
           })}>{t('从该节点测一次')}</button>

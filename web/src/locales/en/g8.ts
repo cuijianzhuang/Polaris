@@ -1,5 +1,20 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+  '节点级别': 'Node level',
+  '省级': 'Province',
+  '市级': 'City',
+  '省份': 'Province',
+  '城市': 'City',
+  '请选择省份': 'Select a province',
+  '请选择城市': 'Select a city',
+  '请先选择地区': 'Select a region first',
+  'IP 协议': 'IP protocol',
+  '市级目录目前仅提供 IPv4 节点': 'The city directory currently provides IPv4 nodes only',
+  '目录更新于 {date}': 'Directory updated on {date}',
+  '目标来源': 'Target source',
+  'Zstatic 节点目录': 'Zstatic node directory',
+  '选择节点后自动填写；需要修改地址时切换到自定义': 'Filled automatically after choosing a node; switch to Custom to edit the address',
+
   "{n} 秒": "{n} seconds",
   "首次有效采样": "First valid sample",
   "主机启动来源变化": "Host boot source changed",
