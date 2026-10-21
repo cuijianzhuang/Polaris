@@ -31,24 +31,45 @@ type costSettings struct {
 	RemindDays int                `json:"remindDays"`
 }
 
-func (s *Server) costSettings() costSettings {
-	cs := costSettings{Base: s.st.GetSetting("cost_base", "CNY"), RemindDays: atoiDefault(s.st.GetSetting("cost_remind_days", "7"), 7)}
-	cs.Rates = map[string]float64{}
-	if raw := s.st.GetSetting("cost_rates", ""); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &cs.Rates)
+func (s *Server) costSettings() (costSettings, error) {
+	// One SELECT observes the same committed version of all three settings.
+	var rows []store.Setting
+	if err := s.st.DB.Where("key IN ?", []string{"cost_base", "cost_rates", "cost_remind_days"}).Find(&rows).Error; err != nil {
+		return costSettings{}, err
+	}
+	values := map[string]string{}
+	for _, row := range rows {
+		values[row.Key] = row.Value
+	}
+	cs := costSettings{Base: orDefault(values["cost_base"], "CNY"), RemindDays: atoiDefault(values["cost_remind_days"], 7), Rates: map[string]float64{}}
+	if raw := values["cost_rates"]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cs.Rates); err != nil {
+			return cs, fmt.Errorf("invalid stored cost exchange rates: %w", err)
+		}
 	}
 	if len(cs.Rates) == 0 {
-		// Defaults are CNY-based; rebase them when another base is chosen.
-		b := defaultRates[cs.Base]
-		if b == 0 {
-			b = 1
-		}
-		for k, v := range defaultRates {
-			cs.Rates[k] = v / b
+		cs.Rates = map[string]float64{}
+		// Unknown custom bases have no implicit conversion from CNY.
+		if b := defaultRates[cs.Base]; b > 0 {
+			for k, v := range defaultRates {
+				cs.Rates[k] = v / b
+			}
 		}
 	}
 	cs.Rates[cs.Base] = 1
-	return cs
+	return cs, nil
+}
+
+func validCurrency(code string) bool {
+	if len(code) < 3 || len(code) > 4 {
+		return false
+	}
+	for _, ch := range code {
+		if ch < 'A' || ch > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 // toBase converts an amount into the base currency (0 when the rate is unknown).
@@ -92,11 +113,21 @@ type costItem struct {
 }
 
 func (s *Server) listCosts(c *gin.Context) {
-	cs := s.costSettings()
+	cs, err := s.costSettings()
+	if err != nil {
+		serverError(c, err)
+		return
+	}
 	var nodes []store.Node
-	s.st.DB.Select("id", "name", "flag", "sort_order", "net_mode").Order("sort_order, name").Find(&nodes)
+	if err := s.st.DB.Select("id", "name", "flag", "sort_order", "net_mode").Order("sort_order, name").Find(&nodes).Error; err != nil {
+		serverError(c, err)
+		return
+	}
 	var costs []store.NodeCost
-	s.st.DB.Find(&costs)
+	if err := s.st.DB.Find(&costs).Error; err != nil {
+		serverError(c, err)
+		return
+	}
 	byNode := map[string]store.NodeCost{}
 	for _, nc := range costs {
 		byNode[nc.NodeID] = nc
@@ -133,7 +164,7 @@ func (s *Server) listCosts(c *gin.Context) {
 		it := costItem{NodeCost: nc, Name: n.Name, Flag: n.Flag, Traffic30: nodeNetBytes(mode, tr.Rx, tr.Tx), TrafficRx30: tr.Rx, TrafficTx30: tr.Tx, TrafficMode: mode, TrafficDays: tr.Days, TrafficLegacyDays: tr.LegacyDays}
 		if m := cycleMonths[nc.Cycle]; m > 0 && nc.Amount > 0 {
 			v, conv := cs.toBase(nc.Amount/m, nc.Currency)
-			it.Monthly, it.Converted = round2(v), conv
+			it.Monthly, it.Converted = v, conv
 			if conv {
 				monthly += v
 			} else if !contains(unconverted, nc.Currency) {
@@ -182,7 +213,7 @@ func (s *Server) putNodeCost(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	if req.Amount < 0 {
+	if req.Amount < 0 || math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) {
 		badRequest(c, errors.New("价格不能为负数"))
 		return
 	}
@@ -192,7 +223,16 @@ func (s *Server) putNodeCost(c *gin.Context) {
 	}
 	req.Currency = strings.ToUpper(strings.TrimSpace(req.Currency))
 	if req.Currency == "" {
-		req.Currency = s.costSettings().Base
+		cs, err := s.costSettings()
+		if err != nil {
+			serverError(c, err)
+			return
+		}
+		req.Currency = cs.Base
+	}
+	if !validCurrency(req.Currency) {
+		badRequest(c, errors.New("币种代码应为 3–4 位英文字母，如 CNY、USD、USDT"))
+		return
 	}
 	nc := store.NodeCost{NodeID: n.ID, Provider: strings.TrimSpace(req.Provider), Amount: req.Amount, Currency: req.Currency,
 		Cycle: req.Cycle, AutoRenew: req.AutoRenew, Note: req.Note}
@@ -240,8 +280,8 @@ func (s *Server) putCostSettings(c *gin.Context) {
 		return
 	}
 	req.Base = strings.ToUpper(strings.TrimSpace(req.Base))
-	if len(req.Base) < 3 || len(req.Base) > 4 {
-		badRequest(c, errors.New("本币代码应为 3 位，如 CNY、USD"))
+	if !validCurrency(req.Base) {
+		badRequest(c, errors.New("本币代码应为 3–4 位英文字母，如 CNY、USD、USDT"))
 		return
 	}
 	if req.RemindDays < 0 || req.RemindDays > 90 {
@@ -254,25 +294,43 @@ func (s *Server) putCostSettings(c *gin.Context) {
 		if k == "" {
 			continue
 		}
-		if v <= 0 {
-			badRequest(c, fmt.Errorf("%s 的汇率应大于 0", k))
+		if !validCurrency(k) || v <= 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+			badRequest(c, fmt.Errorf("%s 的币种或汇率无效", k))
+			return
+		}
+		if _, exists := rates[k]; exists {
+			badRequest(c, fmt.Errorf("%s 的汇率重复", k))
+			return
+		}
+		if k == req.Base && v != 1 {
+			badRequest(c, errors.New("本币自身的汇率必须为 1，请先换算其他汇率"))
 			return
 		}
 		rates[k] = v
 	}
 	rates[req.Base] = 1
-	b, _ := json.Marshal(rates)
-	s.st.SetSetting("cost_base", req.Base)
-	s.st.SetSetting("cost_rates", string(b))
-	s.st.SetSetting("cost_remind_days", fmt.Sprint(req.RemindDays))
+	b, err := json.Marshal(rates)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	if err := s.st.SetSettings(map[string]string{"cost_base": req.Base, "cost_rates": string(b), "cost_remind_days": fmt.Sprint(req.RemindDays)}); err != nil {
+		serverError(c, err)
+		return
+	}
 	s.auditCtx(c, "cost.settings", req.Base, "")
-	c.JSON(http.StatusOK, s.costSettings())
+	req.Rates = rates
+	c.JSON(http.StatusOK, req)
 }
 
 // costRenewals is the daily job: remind before manual renewals and roll
 // auto-renewing servers forward once their date has passed.
 func (s *Server) costRenewals() {
-	cs := s.costSettings()
+	cs, err := s.costSettings()
+	if err != nil {
+		s.log.Error("read server cost settings", "err", err)
+		return
+	}
 	now := time.Now()
 	var costs []store.NodeCost
 	s.st.DB.Where("expire_at IS NOT NULL AND cycle <> ?", "once").Find(&costs)
