@@ -20,8 +20,8 @@ import (
 
 // E-mail: with an SMTP server configured (smtp_*), users who have an
 // address get the same notices as on Telegram (mail_notify_users), plus a
-// receipt when an order is delivered; mail_admin_to also receives the admin
-// notices. Mail goes out from one goroutine, in order, best effort.
+// receipt when an order is delivered; mail_admin_to receives admin notices
+// when mail_notify_admin is on. Mail goes out in order, best effort.
 
 // mailConfigFrom builds the SMTP account from settings values.
 func mailConfigFrom(get func(string, string) string, pass string) *mailer.Config {
@@ -115,7 +115,7 @@ func (s *Server) runMail(ctx context.Context, events <-chan Event) {
 }
 
 func (s *Server) mailEvent(ctx context.Context, e Event) {
-	if !e.UserOnly {
+	if !e.UserOnly && s.st.GetSetting("mail_notify_admin", "true") == "true" {
 		if to := mailer.Normalize(s.st.GetSetting("mail_admin_to", "")); to != "" {
 			text := plainText(e.Text)
 			subject := strings.SplitN(text, "\n", 2)[0]

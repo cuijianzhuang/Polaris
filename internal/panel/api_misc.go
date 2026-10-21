@@ -123,7 +123,7 @@ var editableSettings = map[string]bool{
 	"backup_s3_endpoint": true, "backup_s3_region": true, "backup_s3_bucket": true, "backup_s3_prefix": true, "backup_s3_access_key": true, "backup_s3_secret_key": true,
 	"backup_store": true, "backup_s3_path_style": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
-	"mail_notify_users": true, "mail_admin_to": true,
+	"mail_notify_users": true, "mail_notify_admin": true, "mail_admin_to": true,
 	"probe_enabled": true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
@@ -159,7 +159,7 @@ func (s *Server) getSettings(c *gin.Context) {
 	}
 	out["admin_path"] = s.cfg.AdminPath
 	// Missing switches keep the behavior of existing installations.
-	for _, key := range []string{"shop_epay_enabled", "shop_usdt_enabled", "shop_code_enabled"} {
+	for _, key := range []string{"shop_epay_enabled", "shop_usdt_enabled", "shop_code_enabled", "mail_notify_admin"} {
 		if _, exists := out[key]; !exists {
 			out[key] = "true"
 		}
