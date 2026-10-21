@@ -138,3 +138,56 @@ func TestMailNotices(t *testing.T) {
 		t.Fatal("bad recipient accepted")
 	}
 }
+
+func TestAdminMailNotificationSwitch(t *testing.T) {
+	s, _, admin := newAdminClient(t)
+	m := useMail(t, s)
+	if err := s.st.SetSetting("mail_admin_to", "ops@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	u := newUser(&userReq{Username: "notice-user"})
+	u.Email = "user@example.com"
+	if err := s.st.DB.Create(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Missing settings preserve existing installations' administrator notices.
+	if code, out := admin.do("GET", "/settings", nil); code != 200 || out["mail_notify_admin"] != "true" {
+		t.Fatalf("default administrator switch: %d %v", code, out)
+	}
+	var admins, users int
+	for _, tc := range []struct {
+		admin, user string
+	}{
+		{"", "true"}, {"false", "true"}, {"true", "false"}, {"false", "false"}, {"true", "true"},
+	} {
+		settings := map[string]string{"mail_notify_users": tc.user}
+		if tc.admin != "" {
+			settings["mail_notify_admin"] = tc.admin
+		}
+		code, out := admin.do("PUT", "/settings", settings)
+		wantAdmin := tc.admin != "false"
+		if code != 200 || out["mail_notify_admin"] != strconv.FormatBool(wantAdmin) || out["mail_admin_to"] != "ops@example.com" {
+			t.Fatalf("save switch admin=%s user=%s: %d %v", tc.admin, tc.user, code, out)
+		}
+		if tc.admin != "" && s.st.GetSetting("mail_notify_admin", "") != tc.admin {
+			t.Fatal("administrator switch was not persisted")
+		}
+		// Synchronous delivery avoids sleeps when checking that disabled
+		// recipients receive nothing, including events addressed to both.
+		s.mailEvent(context.Background(), Event{Kind: "user_limited", UserID: u.ID, Text: "notice-user 流量已用尽"})
+		if wantAdmin {
+			admins++
+		}
+		if tc.user == "true" {
+			users++
+		}
+		if len(m.To("ops@example.com")) != admins || len(m.To(u.Email)) != users {
+			t.Fatalf("switches not independent: admin=%s user=%s got admin=%d user=%d; want %d %d", tc.admin, tc.user, len(m.To("ops@example.com")), len(m.To(u.Email)), admins, users)
+		}
+	}
+	// User-only notices never leak to administrators, even with the switch on.
+	s.mailEvent(context.Background(), Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: "请续费"})
+	if len(m.To("ops@example.com")) != admins || len(m.To(u.Email)) != users+1 {
+		t.Fatal("user-only notice sent to administrator")
+	}
+}

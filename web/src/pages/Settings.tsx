@@ -209,7 +209,7 @@ const settingTabs = [
   { id: 'appearance', label: t('外观'), hint: t('主题与配色'), icon: <Icon.Sun /> },
 ]
 
-const mailKeys = ['smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from', 'smtp_from_name', 'mail_notify_users', 'mail_admin_to'] as const
+const mailKeys = ['smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_from', 'smtp_from_name', 'mail_notify_users', 'mail_notify_admin', 'mail_admin_to'] as const
 
 // MailSettings: the SMTP account, a test message, and who gets mail.
 function MailSettings() {
@@ -224,7 +224,7 @@ function MailSettings() {
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const security = f.smtp_security || 'starttls'
   const save = () => run(async () => {
-    const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'false' ? 'false' : 'true' }
+    const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'false' ? 'false' : 'true', mail_notify_admin: f.mail_notify_admin === 'false' ? 'false' : 'true' }
     if (pass) body.smtp_password = pass
     await put('/settings', body); setPass(''); s.reload()
   }, t('邮件设置已保存'))
@@ -249,9 +249,10 @@ function MailSettings() {
         <Field label={t('密码 / 授权码')} hint={passSet ? t('已保存（留空不修改）') : t('QQ / 163 邮箱填授权码，Gmail 填应用专用密码')}><input className="input mono" type="password" autoComplete="new-password" value={pass} placeholder={passSet ? '••••••••' : ''} onChange={(e) => setPass(e.target.value)} /></Field>
         <Field label={t('发件地址')}><input className="input mono" value={f.smtp_from || ''} placeholder="noreply@example.com" onChange={(e) => set('smtp_from', e.target.value.trim())} /></Field>
         <Field label={t('发件人名称')} hint={t('可留空')}><input className="input" value={f.smtp_from_name || ''} onChange={(e) => set('smtp_from_name', e.target.value)} /></Field>
-        <Field label={t('管理员收件地址')} hint={t('可留空；填写后，发给 Telegram 管理员的通知（新订单、备份失败、升级结果、节点告警等）也抄送到这里')}><input className="input mono" value={f.mail_admin_to || ''} placeholder="ops@example.com" onChange={(e) => set('mail_admin_to', e.target.value.trim())} /></Field>
+        <Field label={t('管理员收件地址')} hint={t('可留空；开启管理员邮件通知后，新订单、备份失败、升级结果、节点告警等通知发送到这里')}><input className="input mono" value={f.mail_admin_to || ''} placeholder="ops@example.com" onChange={(e) => set('mail_admin_to', e.target.value.trim())} /></Field>
       </div>
       <div className="toggle"><span>{t('给用户发提醒邮件')}</span><Switch label={t('给用户发提醒邮件')} on={f.mail_notify_users !== 'false'} onChange={(v) => set('mail_notify_users', String(v))} /></div>
+      <div className="toggle"><span>{t('给管理员发通知邮件')}</span><Switch label={t('给管理员发通知邮件')} on={f.mail_notify_admin !== 'false'} onChange={(v) => set('mail_notify_admin', String(v))} /></div>
       <div className="row">
         <button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button>
         <input className="input mono" style={{ width: 'auto', minWidth: 200 }} type="email" value={to} placeholder={t('测试收件地址')} onChange={(e) => setTo(e.target.value)} aria-label={t('测试收件地址')} />

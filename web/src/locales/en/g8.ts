@@ -1,5 +1,7 @@
 // Node map and node coordinates.
 const m: Record<string, string> = {
+  '给管理员发通知邮件': 'Send notification emails to administrators',
+  '可留空；开启管理员邮件通知后，新订单、备份失败、升级结果、节点告警等通知发送到这里': 'Optional; when administrator email notifications are enabled, new orders, backup failures, upgrade results, node alerts and other notices are sent here',
   '节点级别': 'Node level',
   '省级': 'Province',
   '市级': 'City',
