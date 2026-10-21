@@ -884,3 +884,21 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
 .plan-card { display: flex; flex-direction: column; gap: 8px; margin: 0; }
 .plan-price { font-weight: 600; color: var(--pri); white-space: nowrap; }
 @media (max-width: 760px) { .plans { grid-template-columns: minmax(0, 1fr); } }
+
+/* Server probe */
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.pr-card { display: flex; flex-direction: column; gap: 10px; text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%; }
+.pr-card:hover { border-color: var(--pri); }
+.pr-card.off { opacity: .65; }
+.pr-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.pr-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-bg); flex: none; }
+.pr-dot.off { background: var(--bad); box-shadow: none; }
+.pr-lat { display: flex; flex-direction: column; gap: 5px; border-top: 1px dashed var(--line); padding-top: 8px; }
+.pr-lt { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; font-size: 12px; }
+.pr-k { display: flex; align-items: center; gap: 5px; color: var(--mute); white-space: nowrap; }
+.pr-k i { width: 7px; height: 7px; border-radius: 2px; }
+.pr-v { text-align: right; white-space: nowrap; font-size: 12px; }
+.pr-spark { width: 100%; height: 18px; display: block; }
+.pr-loss { color: var(--warn); }
+.pr-dead { color: var(--bad); }

@@ -53,6 +53,8 @@ type Server struct {
 	tgWeb       tgWebLogins // login-page Telegram sign-in requests
 	portalWeb   tgWebLogins // user center Telegram sign-in requests
 	hbMu        sync.Mutex
+	probeBusy   atomic.Bool                         // a probe round is running
+	statusCache atomic.Pointer[statusSnap]          // public status page data
 	restartHook func()                              // tests: replaces the re-exec after a restore
 	hbCores     map[string]hbCoreState              // last core state written per node
 	progress    map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
@@ -417,6 +419,7 @@ func (s *Server) startJobs() func() {
 	add("0 13 9 * * *", "server-renewals", s.costRenewals)
 	add("30 */15 * * * *", "providers", s.syncProviders)
 	add("0 41 5 * * *", "ticket-autoclose", s.autoCloseTickets)
+	add("*/30 * * * * *", "latency-probes", s.runLatencyProbes)
 	if s.isLeader() {
 		go s.backfillDaily()
 	}
@@ -445,6 +448,7 @@ func (s *Server) cleanup() {
 	s.st.DB.Where("hour < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.TrafficHourly{})
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.TrafficBatchSeen{})
 	s.st.DB.Where("at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.NodeMetric{})
+	s.st.DB.Where("at < ?", time.Now().Add(-latencyKeep)).Delete(&store.NodeLatency{})
 	s.st.DB.Where("expires_at < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.AdminSession{}) // kept a while: new-address alerts compare against them
 	s.st.DB.Where("(until IS NULL OR until < ?) AND updated_at < ?", time.Now(), time.Now().AddDate(0, 0, -30)).Delete(&store.LoginBan{})
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -180)).Delete(&store.AuditLog{})

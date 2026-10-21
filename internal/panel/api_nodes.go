@@ -259,6 +259,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 		tx.Where("node_id = ?", id).Delete(&store.GroupNode{})
 		tx.Where("node_id = ?", id).Delete(&store.NodeCost{})
 		tx.Where("node_id = ?", id).Delete(&store.NodeProvider{})
+		tx.Where("node_id = ?", id).Delete(&store.NodeLatency{})
 		tx.Where("node_id = ?", id).Delete(&store.UserNodeQuota{})
 		tx.Where("node_id = ?", id).Delete(&store.TrafficCursor{})
 		tx.Where("node_id = ?", id).Delete(&store.TrafficBatchSeen{})
