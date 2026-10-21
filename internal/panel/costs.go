@@ -84,18 +84,19 @@ func (cs costSettings) toBase(amount float64, cur string) (float64, bool) {
 
 type costItem struct {
 	store.NodeCost
-	Name              string  `json:"name"`
-	Flag              string  `json:"flag"`
-	Monthly           float64 `json:"monthly"` // in base currency
-	Converted         bool    `json:"converted"`
-	DaysLeft          *int    `json:"daysLeft"`
-	Traffic30         int64   `json:"traffic30"` // server NIC bytes, last 30 days
-	TrafficRx30       int64   `json:"trafficRx30"`
-	TrafficTx30       int64   `json:"trafficTx30"`
-	TrafficMode       string  `json:"trafficMode"`
-	TrafficLegacyDays int     `json:"trafficLegacyDays"`
-	TrafficDays       int     `json:"trafficDays"`
-	PerGB             float64 `json:"perGb"` // monthly cost / 30-day traffic, base currency
+	NetHealth         nodeNetHealth `json:"netHealth"`
+	Name              string        `json:"name"`
+	Flag              string        `json:"flag"`
+	Monthly           float64       `json:"monthly"` // in base currency
+	Converted         bool          `json:"converted"`
+	DaysLeft          *int          `json:"daysLeft"`
+	Traffic30         int64         `json:"traffic30"` // server NIC bytes, last 30 days
+	TrafficRx30       int64         `json:"trafficRx30"`
+	TrafficTx30       int64         `json:"trafficTx30"`
+	TrafficMode       string        `json:"trafficMode"`
+	TrafficLegacyDays int           `json:"trafficLegacyDays"`
+	TrafficDays       int           `json:"trafficDays"`
+	PerGB             float64       `json:"perGb"` // monthly cost / 30-day traffic, base currency
 }
 
 func (s *Server) listCosts(c *gin.Context) {
@@ -105,7 +106,7 @@ func (s *Server) listCosts(c *gin.Context) {
 		return
 	}
 	var nodes []store.Node
-	if err := s.st.DB.Select("id", "name", "flag", "sort_order", "net_mode").Order("sort_order, name").Find(&nodes).Error; err != nil {
+	if err := s.st.DB.Select("id", "name", "flag", "sort_order", "net_mode", "net_epoch", "net_boot_id", "net_observed_at", "net_baseline_at", "net_baseline_reason", "net_last_gap_at", "net_last_gap_seconds").Order("sort_order, name").Find(&nodes).Error; err != nil {
 		serverError(c, err)
 		return
 	}
@@ -151,7 +152,7 @@ func (s *Server) listCosts(c *gin.Context) {
 		}
 		tr := traffic[n.ID]
 		mode := orDefault(n.NetMode, "sum")
-		it := costItem{NodeCost: nc, Name: n.Name, Flag: n.Flag, Traffic30: nodeNetBytes(mode, tr.Rx, tr.Tx), TrafficRx30: tr.Rx, TrafficTx30: tr.Tx, TrafficMode: mode, TrafficDays: tr.Days, TrafficLegacyDays: tr.LegacyDays}
+		it := costItem{NodeCost: nc, NetHealth: nodeNetHealthOf(&n, now), Name: n.Name, Flag: n.Flag, Traffic30: nodeNetBytes(mode, tr.Rx, tr.Tx), TrafficRx30: tr.Rx, TrafficTx30: tr.Tx, TrafficMode: mode, TrafficDays: tr.Days, TrafficLegacyDays: tr.LegacyDays}
 		if m := cycleMonths[nc.Cycle]; m > 0 && nc.Amount > 0 {
 			v, conv := cs.toBase(nc.Amount/m, nc.Currency)
 			it.Monthly, it.Converted = v, conv

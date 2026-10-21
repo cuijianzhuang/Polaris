@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -27,7 +28,8 @@ func TestMigrate(t *testing.T) {
 		db := src.st.DB
 		long := strings.Repeat("备注", 200) // SQLite ignores size:255
 		db.Create(&store.User{ID: "u1", Username: "Alice", UUID: "u1", SubToken: "t1", Status: "active", Remark: long, Password: src.st.Box.Seal("pw")})
-		db.Create(&store.Node{ID: "n1", Name: "HK"})
+		sampledAt := time.Now().Truncate(time.Microsecond)
+		db.Create(&store.Node{ID: "n1", Name: "HK", NetObservedAt: &sampledAt, NetBaselineAt: &sampledAt, NetBaselineReason: "interfaces_changed", NetLastGapAt: &sampledAt, NetLastGapSeconds: 300})
 		exp := costTestDate(t, "2026-02-28")
 		if err := db.Create(&store.NodeCost{NodeID: "n1", Cycle: "month", ExpireAt: &exp, RenewalDay: 31, Revision: 2}).Error; err != nil {
 			t.Fatal(err)
@@ -89,6 +91,13 @@ func TestMigrate(t *testing.T) {
 			t.Fatalf("sealed value: %q %v", pw, err)
 		}
 		var tags, inbox int64
+		var sampling store.Node
+		if err := dst.st.DB.First(&sampling, "id = ?", "n1").Error; err != nil {
+			t.Fatal(err)
+		}
+		if sampling.NetObservedAt == nil || !sampling.NetObservedAt.Equal(sampledAt) || sampling.NetBaselineAt == nil || !sampling.NetBaselineAt.Equal(sampledAt) || sampling.NetBaselineReason != "interfaces_changed" || sampling.NetLastGapAt == nil || !sampling.NetLastGapAt.Equal(sampledAt) || sampling.NetLastGapSeconds != 300 {
+			t.Fatalf("migration lost collection diagnostics: %+v", sampling)
+		}
 		renewed, err := dst.renewCost("n1")
 		if err != nil || renewed.RenewalDay != 31 || renewed.Revision != 3 || renewed.ExpireAt.Format("2006-01-02") != "2026-03-31" {
 			t.Fatalf("migration lost billing-day anchor: %+v %v", renewed, err)

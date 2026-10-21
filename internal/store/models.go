@@ -45,24 +45,28 @@ type Node struct {
 	// Server traffic: what the host's NICs moved this billing cycle, against
 	// the provider's monthly allowance. NetMode decides what counts: "sum"
 	// (up + down, default), "up", "down" or "max".
-	NetLimit        int64      `json:"netLimit"` // bytes per cycle, 0 = unlimited
-	NetMode         string     `gorm:"size:8" json:"netMode"`
-	NetResetDay     int        `json:"netResetDay"` // day of month the cycle restarts, 0 = never
-	NetWarnPct      int        `json:"netWarnPct"`  // alert at this share of the limit, 0 = 80
-	NetOffset       int64      `json:"netOffset"`   // added to the counted total (calibration)
-	NetRx           int64      `json:"netRx"`       // received this cycle
-	NetTx           int64      `json:"netTx"`       // sent this cycle
-	NetCycleStart   *time.Time `json:"netCycleStart"`
-	NetWarned       int        `json:"netWarned"` // 1 = threshold alert sent, 2 = over-limit alert sent
-	NetLastRx       uint64     `json:"-"`         // last reported NIC counters
-	NetLastTx       uint64     `json:"-"`
-	NetBaseline     bool       `json:"-"`
-	NetEpoch        string     `gorm:"size:64" json:"-"`
-	NetBootID       string     `gorm:"size:64" json:"-"`
-	NetSampleUptime uint64     `json:"-"`
-	NetObservedAt   *time.Time `json:"-"`
-	CreatedAt       time.Time  `json:"createdAt"`
-	UpdatedAt       time.Time  `json:"updatedAt"`
+	NetLimit          int64      `json:"netLimit"` // bytes per cycle, 0 = unlimited
+	NetMode           string     `gorm:"size:8" json:"netMode"`
+	NetResetDay       int        `json:"netResetDay"` // day of month the cycle restarts, 0 = never
+	NetWarnPct        int        `json:"netWarnPct"`  // alert at this share of the limit, 0 = 80
+	NetOffset         int64      `json:"netOffset"`   // added to the counted total (calibration)
+	NetRx             int64      `json:"netRx"`       // received this cycle
+	NetTx             int64      `json:"netTx"`       // sent this cycle
+	NetCycleStart     *time.Time `json:"netCycleStart"`
+	NetWarned         int        `json:"netWarned"` // 1 = threshold alert sent, 2 = over-limit alert sent
+	NetLastRx         uint64     `json:"-"`         // last reported NIC counters
+	NetLastTx         uint64     `json:"-"`
+	NetBaseline       bool       `json:"-"`
+	NetEpoch          string     `gorm:"size:64" json:"-"`
+	NetBootID         string     `gorm:"size:64" json:"-"`
+	NetSampleUptime   uint64     `json:"-"`
+	NetObservedAt     *time.Time `json:"-"`
+	NetBaselineAt     *time.Time `json:"-"`
+	NetBaselineReason string     `gorm:"size:32" json:"-"`
+	NetLastGapAt      *time.Time `json:"-"` // receipt of the first accepted sample after a long gap
+	NetLastGapSeconds int64      `json:"-"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
 }
 
 // SystemInfo is the latest heartbeat snapshot of a node.
