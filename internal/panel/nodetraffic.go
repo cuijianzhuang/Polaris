@@ -83,6 +83,30 @@ func advanceNodeNetCycle(db *gorm.DB, n *store.Node, now time.Time) error {
 	return db.Model(&store.Node{}).Where("id = ?", n.ID).Updates(updates).Error
 }
 
+// Called under the node lock, in the same transaction as the NIC baseline.
+// Uptime orders all interface epochs in one boot. Keep retired boots so a
+// delayed pre-reboot message cannot switch the active source back.
+func acceptNodeNetBoot(db *gorm.DB, id string, sample *polarisv1.SystemStats) (bool, error) {
+	if sample.NetBootId == "" { // older agents have only an interface epoch
+		return true, nil
+	}
+	var boot store.NodeNetBoot
+	err := db.First(&boot, "node_id = ? AND boot_id = ?", id, sample.NetBootId).Error
+	if err == nil {
+		if boot.Retired || sample.NetSampleUptimeMillis <= boot.LastUptime {
+			return false, nil
+		}
+		return true, db.Model(&boot).Update("last_uptime", sample.NetSampleUptimeMillis).Error
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return false, err
+	}
+	if err := db.Model(&store.NodeNetBoot{}).Where("node_id = ? AND retired = ?", id, false).Update("retired", true).Error; err != nil {
+		return false, err
+	}
+	return true, db.Create(&store.NodeNetBoot{NodeID: id, BootID: sample.NetBootId, LastUptime: sample.NetSampleUptimeMillis}).Error
+}
+
 // The baseline, billing-cycle counters and daily ledger commit together. Lock
 // before reading so duplicate heartbeats on different instances count once.
 func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now time.Time) error {
@@ -97,6 +121,12 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 	if modern && (sample.NetEpoch == "" || len(sample.NetEpoch) > 64 || sample.NetSampleUptimeMillis == 0) {
 		return errors.New("invalid network sample identity")
 	}
+	if sample.NetBootId != "" && (!modern || len(sample.NetBootId) > 64) {
+		return errors.New("invalid network boot identity")
+	}
+	if modern && sample.NetSampleUptimeMillis > math.MaxInt64 {
+		return errors.New("network sample uptime exceeds storage range")
+	}
 	if rx > math.MaxInt64 || tx > math.MaxInt64 {
 		return errors.New("network counters exceed storage range")
 	}
@@ -106,6 +136,10 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 	}
 	var alert *Event
 	err := s.withNodeNet(id, func(db *gorm.DB, n *store.Node) error {
+		accepted, err := acceptNodeNetBoot(db, id, sample)
+		if err != nil || !accepted {
+			return err
+		}
 		if e := advanceNodeNetCycle(db, n, now); e != nil {
 			return e
 		}
@@ -113,7 +147,7 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 			return nil
 		}
 		baseline := n.NetBaseline || n.NetLastRx > 0 || n.NetLastTx > 0
-		rebase := !baseline || n.NetEpoch != epoch || rx < n.NetLastRx || tx < n.NetLastTx
+		rebase := !baseline || n.NetEpoch != epoch || n.NetBootID != sample.NetBootId || rx < n.NetLastRx || tx < n.NetLastTx
 		var drx, dtx int64
 		if !rebase {
 			drx, dtx = netDelta(n.NetLastRx, rx), netDelta(n.NetLastTx, tx)
@@ -121,7 +155,7 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 		if n.NetRx > math.MaxInt64-drx || n.NetTx > math.MaxInt64-dtx {
 			return errors.New("network totals overflow")
 		}
-		updates := map[string]any{"net_last_rx": rx, "net_last_tx": tx, "net_baseline": true, "net_epoch": epoch, "net_sample_uptime": sample.NetSampleUptimeMillis, "net_observed_at": now, "net_rx": gorm.Expr("net_rx + ?", drx), "net_tx": gorm.Expr("net_tx + ?", dtx)}
+		updates := map[string]any{"net_last_rx": rx, "net_last_tx": tx, "net_baseline": true, "net_epoch": epoch, "net_boot_id": sample.NetBootId, "net_sample_uptime": sample.NetSampleUptimeMillis, "net_observed_at": now, "net_rx": gorm.Expr("net_rx + ?", drx), "net_tx": gorm.Expr("net_tx + ?", dtx)}
 		row := store.NodeTrafficDaily{NodeID: id, Day: now.Format("2006-01-02"), Rx: drx, Tx: dtx}
 		if modern {
 			row.AccountingVersion = 1
