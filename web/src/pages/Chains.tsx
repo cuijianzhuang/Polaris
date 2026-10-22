@@ -5,6 +5,7 @@ import { Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, use
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t } from '../i18n'
 import GeoPicker from '../components/GeoPicker'
+import WarpDialog from '../components/WarpDialog'
 import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet } from '../types'
 import { DNSSettings, RuleSets } from './DNSRules'
 
@@ -356,6 +357,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
   const ruleSets = useLoad(() => get<RuleSet[]>('/rulesets'))
   const [drawer, setDrawer] = useState<Outbound | 'new' | null>(null)
   const [geoPick, setGeoPick] = useState<'geosite' | 'geoip' | null>(null)
+  const [warp, setWarp] = useState(false)
   const [draft, setDraft] = useState<{ priority: number; outboundTag: string; key: keyof RouteMatch; value: string } | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -375,8 +377,11 @@ function Routing({ nodes }: { nodes: Node[] }) {
         </select>
         <span className="spacer" />
         <button className="btn" type="button" onClick={() => setPreset({ key: presets.data?.[0]?.key ?? '', outbound: '', nodeIds: [nodeId] })}>{t('应用规则预设')}</button>
+        <button className="btn" type="button" disabled={!node} onClick={() => setWarp(true)} title={t('一键注册 Cloudflare WARP 并添加为出站')}>{t('+ WARP')}</button>
         <button className="btn pri" type="button" disabled={!node} onClick={() => setDrawer('new')}>{t('+ 出站')}</button>
       </div>
+      {warp && node && <WarpDialog nodeId={node.id} nodeName={node.name} taken={(outs.data ?? []).map((o) => o.tag)} onClose={() => setWarp(false)}
+        onDone={() => { setWarp(false); outs.reload(); rules.reload() }} />}
       {global && <div className="note">{t('全局规则下发到每个节点，排在节点自身规则之后（同优先级时节点规则优先）；引用的出站在某节点不存在时，该节点自动跳过这条规则。')}</div>}
       {nodeHasHysteria && <div className="note">{t('这个节点有 Hysteria2 入站：Hysteria2 只能走 直连 / 拦截 / SOCKS5 / HTTP 出站，按用户、关键词的规则和指向其他出站的规则对它不生效；用到 geosite / geoip 时由 Hysteria2 自行下载规则文件。')}</div>}
       {!global && <section className="card flush">

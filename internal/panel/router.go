@@ -317,6 +317,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/chains/:id/probe", s.probeChain)
 	p.GET("/nodes/:id/outbounds", s.listOutbounds)
 	p.POST("/nodes/:id/outbounds", s.createOutbound)
+	p.POST("/nodes/:id/warp", s.addWARP)
 	p.PUT("/nodes/:id/outbounds/:oid", s.updateOutbound)
 	p.DELETE("/nodes/:id/outbounds/:oid", s.deleteOutbound)
 	p.GET("/routing/presets", s.listRulePresets)

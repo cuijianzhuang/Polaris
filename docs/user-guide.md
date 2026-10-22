@@ -694,6 +694,14 @@ DNS 服务商管理属于基础功能，自动域名绑定和 DDNS 需要专业�
 
 分类数据随面板版本内置，查看时不需要联网。节点上实际生效的是内核自带或下载的数据文件，个别新分类可能要等内核数据更新后才可用。
 
+**WARP 出站**：「出站与路由」里选中节点后点「+ WARP」：
+
+1. 面板向 Cloudflare 注册一个免费 WARP 设备，自动生成一个 WireGuard 出站（默认标签 `warp`）。WireGuard 私钥在面板生成，不会发给 Cloudflare；有 WARP+ 许可证可以一并填入。
+2. 勾选哪些流量走 WARP：AI 服务（OpenAI、Claude、Gemini、Perplexity）、流媒体、Google / YouTube、TikTok / Spotify，也可以用分类浏览器挑其他 geosite 分类，或填额外的域名。面板会添加一条「WARP 分流」路由规则（优先级 25），之后可在路由规则里修改或删除。
+3. 都不勾选时只添加出站，可以自己写规则，或把它加进负载均衡组、作为其他出站的下一跳。
+
+走 WARP 的流量出口是 Cloudflare 的 IP，常用于访问对机房 IP 有限制的 AI 和流媒体服务。注册由面板服务器发起，面板需要能访问 `api.cloudflareclient.com`；节点则需要能连通 Cloudflare 的 WARP 端点（UDP 2408）。只有 Hysteria2 内核的节点不能使用 WireGuard 出站。每个节点建议单独注册，不要共用同一个 WARP 设备。
+
 <a id="security"></a>
 
 ## 11. Telegram、登录与审计
