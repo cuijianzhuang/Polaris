@@ -241,6 +241,10 @@ func (s *Server) updateChain(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if ch.Managed {
+		c.JSON(http.StatusConflict, gin.H{"error": "该线路由一键中转管理，请使用入站中转接口；更换路径需重新预览"})
+		return
+	}
 	var req chainReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -271,6 +275,8 @@ func (s *Server) updateChain(c *gin.Context) {
 }
 
 func (s *Server) deleteChain(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var ch store.Chain
 	if err := s.st.DB.First(&ch, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -299,6 +305,10 @@ func (s *Server) probeChain(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if ch.Disabled {
+		badRequest(c, fmt.Errorf("线路已停用"))
+		return
+	}
 	probes := s.runChainProbe(&ch)
 	c.JSON(http.StatusOK, gin.H{"probe": probes, "probedAt": ch.ProbedAt})
 }
@@ -325,6 +335,9 @@ func (s *Server) runChainProbe(ch *store.Chain) []store.HopProbe {
 					if s.st.DB.First(&in, "id = ?", hops[i+1].InboundID).Error == nil {
 						port = in.Port
 					}
+				}
+				if ch.TunnelType != "" {
+					port = hops[i+1].TunnelPort
 				}
 				args["tcp"] = net.JoinHostPort(nodeHost(&next), strconv.Itoa(port))
 			} else {

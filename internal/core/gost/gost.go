@@ -121,7 +121,7 @@ type config struct {
 }
 
 // Tunnel types GOST understands as listener / dialer.
-var tunnelTypes = map[string]bool{"ws": true, "wss": true, "tls": true, "mwss": true, "mtls": true, "kcp": true, "quic": true, "grpc": true}
+var tunnelTypes = map[string]bool{"tcp": true, "ws": true, "wss": true, "tls": true, "mwss": true, "mtls": true, "kcp": true, "quic": true, "grpc": true}
 
 func strategy(balance string) string {
 	switch balance {

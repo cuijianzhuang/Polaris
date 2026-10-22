@@ -449,13 +449,38 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 	}
 	var out []model.ForwardRule
 	for _, c := range chains {
+		if c.Disabled {
+			continue
+		}
 		hops := c.Hops.V
 		if len(hops) < 2 {
+			continue
+		}
+		participates := false
+		for _, h := range hops {
+			participates = participates || h.NodeID == nodeID
+		}
+		if !participates {
 			continue
 		}
 		landing := hops[len(hops)-1]
 		var in store.Inbound
 		if err := s.st.DB.First(&in, "id = ?", landing.InboundID).Error; err != nil {
+			continue
+		}
+		if c.Managed && !in.Enabled {
+			continue
+		}
+		if c.Managed && c.TunnelType != "" {
+			nodes, e := relayNodes(s.st.DB, &c)
+			if e != nil {
+				return nil, e
+			}
+			auth, e := s.st.Box.Open(c.TunnelAuth)
+			if e != nil || auth == "" {
+				return nil, fmt.Errorf("managed relay %s: invalid tunnel authentication", c.ID)
+			}
+			out = append(out, managedRelayForwards(&c, nodes, in, auth)[nodeID]...)
 			continue
 		}
 		mi := s.toModelInbound(&in)

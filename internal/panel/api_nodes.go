@@ -240,6 +240,8 @@ func (s *Server) updateNode(c *gin.Context) {
 }
 
 func (s *Server) deleteNode(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	id := c.Param("id")
 	var n store.Node
 	if err := s.st.DB.First(&n, "id = ?", id).Error; err != nil {
@@ -250,6 +252,12 @@ func (s *Server) deleteNode(c *gin.Context) {
 	s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", id).Pluck("id", &inIDs)
 	upstream := s.nodesForInbounds(inIDs...)
 	err := s.withNodeNet(id, func(tx *gorm.DB, _ *store.Node) error {
+		extra, e := s.cleanupManagedRelays(tx, "", id)
+		if e != nil {
+			return e
+		}
+		upstream = append(upstream, extra...)
+
 		for _, m := range []any{&store.Core{}, &store.Inbound{}, &store.Outbound{}, &store.RoutingRule{}, &store.ConfigRevision{}, &store.ForwardRule{}, &store.NodeNetBoot{}} {
 			if err := tx.Where("node_id = ?", id).Delete(m).Error; err != nil {
 				return err

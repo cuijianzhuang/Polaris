@@ -146,3 +146,14 @@ func TestFirewallIptablesReal(t *testing.T) {
 		t.Fatalf("after removal:\n%s", rules)
 	}
 }
+
+func TestManagedRelayLoopbackFirewall(t *testing.T) {
+	spec := &model.NodeSpec{Forwards: []model.ForwardRule{
+		{Tag: "local-bridge", Engine: model.EngineGost, ListenIP: "127.0.0.1", Listen: 30001, Network: "tcp,udp"},
+		{Tag: "public-receiver", Engine: model.EngineGost, TunnelRole: "server", TunnelType: "tcp", Listen: 30002, Network: "tcp,udp"},
+	}}
+	ports := wantedPorts(spec)
+	if len(ports) != 1 || ports[0].Port != 30002 || ports[0].Proto != "tcp" {
+		t.Fatalf("internal bridge must not open public firewall ports: %+v", ports)
+	}
+}

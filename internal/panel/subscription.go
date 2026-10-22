@@ -282,7 +282,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		return out
 	case "relay":
 		for _, ch := range chains {
-			if ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 {
+			if ch.Disabled || ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 {
 				continue
 			}
 			entry, ok := nodes[ch.Hops.V[0].NodeID]

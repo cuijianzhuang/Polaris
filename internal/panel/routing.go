@@ -302,6 +302,9 @@ func (s *Server) probeChains() {
 	landing := map[string]bool{} // node -> any probe ok
 	tested := map[string]bool{}
 	for i := range chains {
+		if chains[i].Disabled {
+			continue
+		}
 		hops := chains[i].Hops.V
 		if len(hops) < 2 {
 			continue

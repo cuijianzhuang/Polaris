@@ -299,6 +299,8 @@ func (s *Server) updateInbound(c *gin.Context) {
 }
 
 func (s *Server) deleteInbound(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var row store.Inbound
 	if err := s.st.DB.First(&row, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -316,6 +318,12 @@ func (s *Server) deleteInbound(c *gin.Context) {
 	}
 	nodes := s.nodesForInbounds(row.ID)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		extra, e := s.cleanupManagedRelays(tx, row.ID, "")
+		if e != nil {
+			return e
+		}
+		nodes = append(nodes, extra...)
+
 		tx.Where("inbound_id = ?", row.ID).Delete(&store.GroupInbound{})
 		tx.Where("kind = ? AND target_id = ?", "inbound", row.ID).Delete(&store.UserAccess{})
 		tx.Where("inbound_id = ?", row.ID).Delete(&store.Endpoint{})
@@ -488,6 +496,19 @@ func (s *Server) createEndpoint(c *gin.Context) {
 }
 
 func (s *Server) deleteEndpoint(c *gin.Context) {
+	var endpoint store.Endpoint
+	if err := s.st.DB.First(&endpoint, "id = ? AND inbound_id = ?", c.Param("eid"), c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	if endpoint.RelayChainID != "" {
+		var chain store.Chain
+		if s.st.DB.First(&chain, "id = ?", endpoint.RelayChainID).Error == nil && chain.Managed {
+			c.JSON(http.StatusConflict, gin.H{"error": "该入口由一键中转管理，请停用或删除关联中转线路"})
+			return
+		}
+	}
+
 	res := s.st.DB.Where("id = ? AND inbound_id = ?", c.Param("eid"), c.Param("id")).Delete(&store.Endpoint{})
 	if res.RowsAffected == 0 {
 		notFound(c)
