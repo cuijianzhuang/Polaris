@@ -204,7 +204,7 @@ func (s *Server) portConflictExcept(nodeID string, m *model.Inbound, excludeID, 
 			continue
 		}
 		for _, h := range c.Hops.V {
-			if h.NodeID == nodeID && h.Port == m.Port && h.InboundID == "" {
+			if h.NodeID == nodeID && ((h.Port == m.Port && h.InboundID == "") || (h.TunnelPort > 0 && h.TunnelPort == m.Port)) {
 				return fmt.Errorf("port %d is used by relay chain %s", m.Port, c.Name)
 			}
 		}
@@ -236,8 +236,13 @@ func (s *Server) usedPorts(nodeID string) (map[int]bool, error) {
 	}
 	for _, c := range chains {
 		for _, h := range c.Hops.V {
-			if h.NodeID == nodeID && h.Port > 0 {
-				used[h.Port] = true
+			if h.NodeID == nodeID {
+				if h.Port > 0 {
+					used[h.Port] = true
+				}
+				if h.TunnelPort > 0 {
+					used[h.TunnelPort] = true
+				}
 			}
 		}
 	}

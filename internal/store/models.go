@@ -555,9 +555,10 @@ type Outbound struct {
 
 // ChainHop is one node in a relay chain. The last hop is the landing inbound.
 type ChainHop struct {
-	NodeID    string `json:"nodeId"`
-	InboundID string `json:"inboundId,omitempty"` // proxy mode: relay inbound; last hop: landing inbound
-	Port      int    `json:"port,omitempty"`      // l4 mode: listen port on the relay
+	NodeID     string `json:"nodeId"`
+	InboundID  string `json:"inboundId,omitempty"`  // proxy mode: relay inbound; last hop: landing inbound
+	Port       int    `json:"port,omitempty"`       // l4 mode: listen port on the relay
+	TunnelPort int    `json:"tunnelPort,omitempty"` // managed tunnel receiver on this hop
 }
 
 // ForwardRemote is one target of a standalone forward rule.
@@ -610,16 +611,21 @@ type HopProbe struct {
 
 // Chain is an ingress relay path to a landing inbound.
 type Chain struct {
-	ID            string           `gorm:"primaryKey;size:32" json:"id"`
-	Name          string           `gorm:"size:64;uniqueIndex" json:"name"`
-	Mode          string           `gorm:"size:8" json:"mode"` // l4 / proxy
-	Hops          JSON[[]ChainHop] `json:"hops"`
-	ServiceUserID string           `gorm:"size:32" json:"serviceUserId"`
-	Probe         JSON[[]HopProbe] `json:"probe"`
-	ProbedAt      *time.Time       `json:"probedAt"`
-	Remark        string           `gorm:"size:255" json:"remark"`
-	CreatedAt     time.Time        `json:"createdAt"`
-	UpdatedAt     time.Time        `json:"updatedAt"`
+	Managed       bool                   `gorm:"default:false" json:"managed"`
+	Disabled      bool                   `gorm:"default:false" json:"disabled"`
+	TunnelType    string                 `gorm:"size:16" json:"tunnelType,omitempty"`
+	TunnelAuth    string                 `gorm:"type:text" json:"-"` // sealed, managed tunnel only
+	TargetRevs    JSON[map[string]int64] `json:"targetRevs,omitempty"`
+	ID            string                 `gorm:"primaryKey;size:32" json:"id"`
+	Name          string                 `gorm:"size:64;uniqueIndex" json:"name"`
+	Mode          string                 `gorm:"size:8" json:"mode"` // l4 / proxy
+	Hops          JSON[[]ChainHop]       `json:"hops"`
+	ServiceUserID string                 `gorm:"size:32" json:"serviceUserId"`
+	Probe         JSON[[]HopProbe]       `json:"probe"`
+	ProbedAt      *time.Time             `json:"probedAt"`
+	Remark        string                 `gorm:"size:255" json:"remark"`
+	CreatedAt     time.Time              `json:"createdAt"`
+	UpdatedAt     time.Time              `json:"updatedAt"`
 }
 
 // RoutingRule is a persisted model.RouteRule.

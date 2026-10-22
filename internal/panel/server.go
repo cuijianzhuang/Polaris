@@ -72,6 +72,7 @@ type Server struct {
 	dirty      map[string]string
 	kick       chan struct{}
 	pubMu      sync.Mutex
+	relayMu    sync.Mutex // serializes managed relay planning, application and cleanup
 	outboundMu sync.Mutex // serializes outbound dependency validation and mutations
 	shopMu     sync.Mutex // serializes pending checkout reuse and USDT amount allocation
 

@@ -54,7 +54,7 @@ func portsOf(spec *model.NodeSpec) []portUse {
 	}
 	for _, f := range spec.Forwards {
 		for _, n := range strings.Split(f.ListenNetwork(), ",") {
-			out = append(out, portUse{strings.TrimSpace(n), "", f.Listen, f.Tag})
+			out = append(out, portUse{strings.TrimSpace(n), f.ListenIP, f.Listen, f.Tag})
 		}
 	}
 	seen := map[int]bool{}
