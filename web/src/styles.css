@@ -504,6 +504,10 @@ details.menu { position: relative; }
 details.menu > summary { list-style: none; }
 details.menu > summary::-webkit-details-marker { display: none; }
 .menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-2); padding: 6px; display: flex; flex-direction: column; animation: fade-in .15s var(--ease) both; }
+@media (max-width: 760px) {
+  /* Toolbar actions start at the left edge after wrapping on mobile. */
+  .top > .row > .menu > .menu-list { left: 0; right: auto; min-width: min(220px, calc(100vw - 24px)); max-width: calc(100vw - 24px); }
+}
 .menu-list button { text-align: left; border: none; background: none; padding: 9px 10px; border-radius: 6px; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; }
 .menu-list button:hover:not(:disabled) { background: var(--soft); }
 .menu-list button:disabled { color: var(--faint); cursor: not-allowed; }
