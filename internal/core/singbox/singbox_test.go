@@ -14,6 +14,11 @@ import (
 func spec(t *testing.T) *model.NodeSpec {
 	s := model.CoreSingbox
 	obs, routes := coretest.Chain()
+	for i := range obs {
+		set, _ := obs[i].ParseSettings()
+		set.Fallback = ""
+		obs[i].Settings = coretest.Settings(set)
+	}
 	obs = append(obs, model.Outbound{Tag: "warp", Type: model.OutWireGuard, Settings: coretest.Settings(model.OutboundSettings{
 		Server: "162.159.192.1", Port: 2408, PrivateKey: "YNXtAzepDqRv9H52osJVDQnznT5AM11eCK3ESpwSt04=",
 		PeerPublicKey: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=", LocalAddress: []string{"172.16.0.2/32"}})})
@@ -68,5 +73,13 @@ func TestHotUsersUnsupported(t *testing.T) {
 	a := New(core.Options{})
 	if err := a.AddUsers(t.Context(), "x", nil); err != core.ErrNotSupported {
 		t.Fatal("sing-box must fall back to reload")
+	}
+}
+
+func TestBalancerFallbackRejected(t *testing.T) {
+	a := New(core.Options{})
+	_, err := a.Render(&model.NodeSpec{Outbounds: []model.Outbound{{Tag: "primary", Type: model.OutBalancer, Settings: coretest.Settings(model.OutboundSettings{Members: []string{"direct"}, Fallback: "backup"})}}})
+	if err == nil || !strings.Contains(err.Error(), "sing-box does not support group fallback") {
+		t.Fatalf("fallback must not be silently ignored: %v", err)
 	}
 }

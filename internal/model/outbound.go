@@ -84,7 +84,7 @@ type OutboundSettings struct {
 	Interval  string   `json:"interval,omitempty"`
 	Strategy  string   `json:"strategy,omitempty"`  // balancer strategy
 	Tolerance int      `json:"tolerance,omitempty"` // ms, latency difference tolerated before switching
-	Fallback  string   `json:"fallback,omitempty"`  // tag used when every member is down
+	Fallback  string   `json:"fallback,omitempty"`  // outbound or group tag used when every primary member is down
 }
 
 // IsGroup reports outbound types that select among member outbounds.

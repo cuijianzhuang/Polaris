@@ -204,6 +204,29 @@ const lbStrategies: [string, string, string][] = [
   ['roundRobin', t('轮询'), t('逐连接轮换（仅 Xray）')], ['random', t('随机'), t('逐连接随机（仅 Xray）')],
 ]
 
+function dependsOn(tag: string, target: string, outbounds: Outbound[], seen = new Set<string>()): boolean {
+  if (tag === target) return true
+  if (seen.has(tag)) return false
+  seen.add(tag)
+  const o = outbounds.find((o) => o.tag === tag)
+  if (!o) return false
+  const group = ['balancer', 'urltest', 'selector'].includes(o.type)
+  return [o.detour, ...(group ? [...(o.settings?.members ?? []), o.settings?.fallback] : [])]
+    .some((next) => next && dependsOn(next, target, outbounds, seen))
+}
+
+function fallbackPath(tag: string, fallback: string, outbounds: Outbound[]): string {
+  const path = [tag || '?']
+  const seen = new Set(path)
+  let next = fallback
+  while (next && !seen.has(next)) {
+    path.push(next)
+    seen.add(next)
+    next = outbounds.find((o) => o.tag === next)?.settings?.fallback ?? ''
+  }
+  return path.join(' → ')
+}
+
 function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved }: { node: Node; outbound?: Outbound; inbounds: Inbound[]; outbounds: Outbound[]; onClose: () => void; onSaved: () => void }) {
   const s = outbound?.settings ?? {}
   const [f, setF] = useState({
@@ -222,17 +245,24 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
       case 'trojan': case 'hysteria2': return { server: f.server, port: Number(f.port), password: f.password, security: { type: 'tls', serverName: f.sni || undefined } }
       case 'vless': case 'vmess': return { server: f.server, port: Number(f.port), uuid: f.uuid, security: f.tls ? { type: 'tls', serverName: f.sni || undefined } : undefined }
       case 'wireguard': return { server: f.server, port: Number(f.port), privateKey: f.privateKey, peerPublicKey: f.peerPublicKey, localAddress: fromLines(f.localAddress), reserved: f.reserved ? f.reserved.split(',').map(Number) : undefined }
-      case 'urltest': case 'selector': return { members: f.members, testUrl: f.testUrl || undefined, interval: f.interval || undefined, tolerance: Number(f.tolerance) || undefined }
+      case 'selector': return { members: f.members }
+      case 'urltest': return { members: f.members, fallback: f.fallback || undefined, testUrl: f.testUrl || undefined, interval: f.interval || undefined, tolerance: Number(f.tolerance) || undefined }
       case 'balancer': return { members: f.members, strategy: f.strategy, testUrl: f.testUrl || undefined, interval: f.interval || undefined, tolerance: Number(f.tolerance) || undefined, fallback: f.fallback || undefined }
       default: return {}
     }
   }
   const remote = inbounds.filter((i) => i.nodeId !== node.id)
   const caps = useLoad(() => get<CapSet[]>('/capabilities?node=' + node.id), [node.id]).data ?? []
+  const hasSingbox = node.cores.some((c) => c.type === 'singbox')
+  const hasMihomo = node.cores.some((c) => c.type === 'mihomo')
+  const isAutoGroup = f.type === 'balancer' || f.type === 'urltest'
+  const fallbackUnsupported = isAutoGroup && !!f.fallback && (hasSingbox || (hasMihomo && f.fallback === 'block'))
+  const fallbackChoices = outbounds.filter((o) => o.tag !== f.tag && !f.members.includes(o.tag) && !dependsOn(o.tag, outbound?.tag ?? f.tag, outbounds))
+
   return (
     <Drawer title={outbound ? t('编辑出站 · {tag}', { tag: outbound.tag }) : t('新建出站')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
-      <button className="btn pri" type="button" disabled={busy || !f.tag} onClick={() => run(async () => {
+      <button className="btn pri" type="button" disabled={busy || !f.tag || fallbackUnsupported} onClick={() => run(async () => {
         const body = { tag: f.tag, type: f.type, nodeRefInboundId: f.type === 'node_ref' ? f.nodeRefInboundId : '', detour: f.detour, remark: f.remark, settings: f.type === 'node_ref' ? undefined : settings() }
         if (outbound) await put(`/nodes/${node.id}/outbounds/${outbound.id}`, body)
         else await post(`/nodes/${node.id}/outbounds`, body)
@@ -285,14 +315,21 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
             <Field label={t('探测地址')} hint={t('默认 gstatic generate_204')}><input className="input mono" value={f.testUrl} onChange={(e) => set('testUrl', e.target.value)} placeholder="https://www.gstatic.com/generate_204" /></Field>
             <Field label={t('探测间隔')}><input className="input mono" value={f.interval} onChange={(e) => set('interval', e.target.value)} placeholder="1m" /></Field>
             <Field label={t('容差（ms）')} hint={t('延迟差小于此值不切换')}><input className="input mono" value={f.tolerance} onChange={(e) => set('tolerance', e.target.value)} placeholder="50" /></Field>
-            {f.type === 'balancer' && (
-              <Field label={t('兜底出站')} hint={t('所有成员都不可用时使用')}>
-                <select className="input" value={f.fallback} onChange={(e) => set('fallback', e.target.value)}>
-                  <option value="">{t('无')}</option><option value="direct">direct</option><option value="block">block</option>
-                  {outbounds.filter((o) => o.tag !== f.tag && !f.members.includes(o.tag)).map((o) => <option key={o.id} value={o.tag}>{o.tag}</option>)}
-                </select>
-              </Field>
-            )}
+            <Field label={t('兜底出站 / 均衡组')} hint={t('主组全部不可用时切换备用组；恢复后新连接回到主组。支持多级回退，禁止成环。')}>
+              <select className="input" aria-label={t('兜底出站 / 均衡组')} value={f.fallback} onChange={(e) => set('fallback', e.target.value)}>
+                <option value="">{t('无')}</option><option value="direct" disabled={hasSingbox}>direct</option><option value="block" disabled={hasSingbox || hasMihomo}>block</option>
+                <optgroup label={t('备用均衡组')}>
+                  {fallbackChoices.filter((o) => ['balancer', 'urltest', 'selector'].includes(o.type)).map((o) => <option key={o.id} value={o.tag} disabled={hasSingbox}>{o.tag}</option>)}
+                </optgroup>
+                <optgroup label={t('备用出站')}>
+                  {fallbackChoices.filter((o) => !['balancer', 'urltest', 'selector'].includes(o.type)).map((o) => <option key={o.id} value={o.tag} disabled={hasSingbox}>{o.tag}</option>)}
+                </optgroup>
+                {f.fallback && !RESERVED.includes(f.fallback) && !fallbackChoices.some((o) => o.tag === f.fallback) && <option value={f.fallback} disabled>{f.fallback} · {t('不可用，请重新选择')}</option>}
+              </select>
+              {f.fallback && <div className="hint mono">{t('回退路径：{path}', { path: fallbackPath(f.tag, f.fallback, outbounds) })}</div>}
+              {hasSingbox && <div className="hint">{t('sing-box 暂不支持组间兜底；请清除兜底或使用 Xray / mihomo。')}</div>}
+              {hasMihomo && <div className="hint">{t('mihomo 支持备用组或出站，不支持 block 兜底。')}</div>}
+            </Field>
           </div>
         )}
       </>) : f.type !== 'direct' && (
@@ -395,7 +432,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
               <tr key={o.id}>
                 <td className="mono">{o.tag}{o.chainId && <span className="tag" style={{ marginLeft: 6 }}>{t('链路')}</span>}</td>
                 <td>{o.type}</td>
-                <td className="mono small">{o.type === 'node_ref' ? (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.nodeName ?? '') + ' · ' + (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.tag ?? '') : o.settings?.server ? `${o.settings.server}:${o.settings.port}` : o.settings?.members?.join(', ') ?? '—'}</td>
+                <td className="mono small">{o.type === 'node_ref' ? (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.nodeName ?? '') + ' · ' + (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.tag ?? '') : o.settings?.server ? `${o.settings.server}:${o.settings.port}` : o.settings?.members?.join(', ') ?? '—'}{o.settings?.fallback && <div className="hint">{t('兜底：{tag}', { tag: o.settings.fallback })}</div>}</td>
                 <td className="mono">{o.detour || '—'}</td>
                 <td style={{ textAlign: 'right' }}>{!o.chainId && <>
                   <button className="link" type="button" onClick={() => setDrawer(o)}>{t('编辑')}</button>

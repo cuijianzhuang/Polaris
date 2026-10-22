@@ -29,6 +29,8 @@ import (
 // setCoreVersion installs or switches a core on a node (shared by the core
 // form, rollback and batch upgrade). It returns an HTTP status on error.
 func (s *Server) setCoreVersion(nodeID string, typ model.CoreType, version string, isDefault bool) (*store.Core, int, error) {
+	s.outboundMu.Lock()
+	defer s.outboundMu.Unlock()
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
 	if version == "" {
 		return nil, http.StatusBadRequest, fmt.Errorf("version is required")
@@ -48,6 +50,24 @@ func (s *Server) setCoreVersion(nodeID string, typ model.CoreType, version strin
 		m := s.toModelInbound(&in)
 		if err := caps.SupportsInbound(&m); err != nil {
 			return nil, http.StatusConflict, fmt.Errorf("入站 %s 在该版本不受支持：%v", in.Tag, err)
+		}
+	}
+	// Installing a second core must not invalidate existing fallback groups.
+	var obs []store.Outbound
+	if err := s.st.DB.Where("node_id = ?", nodeID).Find(&obs).Error; err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	for _, o := range obs {
+		if !o.Type.IsGroup() {
+			continue
+		}
+		mo := model.Outbound{Settings: o.Settings}
+		set, err := mo.ParseSettings()
+		if err != nil {
+			return nil, http.StatusConflict, err
+		}
+		if err := validateGroupFallbackCore(typ, set); err != nil {
+			return nil, http.StatusConflict, fmt.Errorf("均衡组 %s：%w", o.Tag, err)
 		}
 	}
 	var cur store.Core
