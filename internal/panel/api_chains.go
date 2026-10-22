@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -361,48 +362,59 @@ type outboundReq struct {
 }
 
 func (s *Server) saveOutbound(c *gin.Context, o *store.Outbound, req *outboundReq) {
-	nodeID := c.Param("id")
-	if req.Tag == "direct" || req.Tag == "block" || req.Tag == "api" {
-		badRequest(c, fmt.Errorf("tag %q is reserved", req.Tag))
+	if err := s.storeOutbound(c.Param("id"), o, req); err != nil {
+		var bad badInput
+		if errors.As(err, &bad) {
+			badRequest(c, bad.error)
+		} else {
+			dbError(c, err)
+		}
 		return
+	}
+	s.auditCtx(c, "outbound.save", o.Tag, string(o.Type))
+	c.JSON(http.StatusOK, o)
+}
+
+// badInput marks a storeOutbound error caused by the request (400), not the
+// database.
+type badInput struct{ error }
+
+// storeOutbound validates and saves an outbound on a node and schedules the
+// affected nodes.
+func (s *Server) storeOutbound(nodeID string, o *store.Outbound, req *outboundReq) error {
+	if req.Tag == "direct" || req.Tag == "block" || req.Tag == "api" {
+		return badInput{fmt.Errorf("tag %q is reserved", req.Tag)}
 	}
 	t := req.Type
 	if t == model.OutNodeRef {
 		var in store.Inbound
 		if err := s.st.DB.First(&in, "id = ?", req.NodeRefInboundID).Error; err != nil {
-			badRequest(c, fmt.Errorf("referenced inbound: %w", err))
-			return
+			return badInput{fmt.Errorf("referenced inbound: %w", err)}
 		}
 		if in.NodeID == nodeID {
-			badRequest(c, fmt.Errorf("不能引用本节点的入站"))
-			return
+			return badInput{fmt.Errorf("不能引用本节点的入站")}
 		}
 		var ok bool
 		if t, ok = outboundTypeFor(in.Protocol.V.Type); !ok {
-			badRequest(c, fmt.Errorf("%s 不能作为出站目标", in.Protocol.V.Type))
-			return
+			return badInput{fmt.Errorf("%s 不能作为出站目标", in.Protocol.V.Type)}
 		}
 	}
 	if err := s.nodeSupportsOutbound(nodeID, t); err != nil {
-		badRequest(c, err)
-		return
+		return badInput{err}
 	}
 	if req.Detour != "" {
 		if err := s.checkDetour(nodeID, o.ID, req.Tag, req.Detour); err != nil {
-			badRequest(c, err)
-			return
+			return badInput{err}
 		}
 	}
 	if len(req.Settings) > 0 {
 		var tmp model.OutboundSettings
 		if err := json.Unmarshal(req.Settings, &tmp); err != nil {
-			badRequest(c, fmt.Errorf("settings: %w", err))
-			return
+			return badInput{fmt.Errorf("settings: %w", err)}
 		}
 		if req.Type.IsGroup() {
 			if err := s.validateBalancer(nodeID, req.Tag, tmp); err != nil {
-				badRequest(c, err)
-				return
+				return badInput{err}
 			}
 		}
 	}
@@ -421,8 +433,7 @@ func (s *Server) saveOutbound(c *gin.Context, o *store.Outbound, req *outboundRe
 		return tx.Save(o).Error
 	})
 	if err != nil {
-		dbError(c, err)
-		return
+		return err
 	}
 	nodes := []string{nodeID}
 	if o.NodeRefInboundID != "" {
@@ -432,8 +443,7 @@ func (s *Server) saveOutbound(c *gin.Context, o *store.Outbound, req *outboundRe
 		}
 	}
 	s.MarkDirty("outbound "+o.Tag, nodes...)
-	s.auditCtx(c, "outbound.save", o.Tag, string(o.Type))
-	c.JSON(http.StatusOK, o)
+	return nil
 }
 
 // checkDetour rejects detour loops within the node's outbounds.
