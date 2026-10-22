@@ -647,9 +647,23 @@ type InboundTemplate struct {
 	UpdatedAt   time.Time            `json:"updatedAt"`
 }
 
+// TemplateRun holds an immutable preview and its per-node application result.
+// Snapshot contains generated credentials and is encrypted by the panel.
+type TemplateRun struct {
+	ID         string          `gorm:"primaryKey;size:32" json:"id"`
+	TemplateID string          `gorm:"size:32;index" json:"templateId"`
+	State      string          `gorm:"size:16;index" json:"state"`
+	Snapshot   string          `json:"-"`
+	Results    json.RawMessage `gorm:"type:text;serializer:rawjson" json:"-"`
+	ExpiresAt  time.Time       `gorm:"index" json:"expiresAt"`
+	CreatedAt  time.Time       `json:"createdAt"`
+	UpdatedAt  time.Time       `json:"updatedAt"`
+}
+
 // TemplateItem describes one inbound a template generates.
 type TemplateItem struct {
-	Key        string              `json:"key"`  // stable id within the template
+	Key        string              `json:"key"` // stable id within the template
+	Name       string              `json:"name,omitempty"`
 	Core       model.CoreType      `json:"core"` // concrete core or auto
 	Protocol   model.ProtocolSpec  `json:"protocol"`
 	Transport  model.TransportSpec `json:"transport"`
@@ -791,7 +805,7 @@ func AllModels() []any {
 	return []any{
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
-		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{},
+		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
