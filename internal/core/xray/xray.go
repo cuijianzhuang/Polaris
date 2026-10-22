@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -32,9 +33,10 @@ type Adapter struct {
 	opt  core.Options
 	proc *core.Process
 
-	mu   sync.Mutex
-	last *model.NodeSpec // spec of the most recent Render, used by hot updates
-	api  *core.APIClient
+	mu        sync.Mutex
+	last      *model.NodeSpec // spec of the most recent Render, used by hot updates
+	api       *core.APIClient
+	fallbacks map[string]fallbackBinding
 }
 
 // New constructs an Xray adapter.
@@ -155,11 +157,20 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	}
 	cfg["inbounds"] = inbounds
 
-	outs, balancers, observe, err := renderOutbounds(spec.Outbounds, a.legacyKCP())
+	fallbacks, err := a.balancerFallbacks(spec)
 	if err != nil {
 		return nil, err
 	}
+	outs, balancers, observe, err := renderOutbounds(fallbacks.Outbounds, a.legacyKCP())
+	if err != nil {
+		return nil, err
+	}
+	outs = append(outs, fallbacks.Bridges...)
+	cfg["inbounds"] = append(inbounds, fallbacks.Reentries...)
 	rules, defTag := renderRules(core.AliasRoutes(spec), balancers)
+	if _, isGroup := balancers[defTag]; isGroup {
+		rules = append(rules, map[string]any{"type": "field", "network": "tcp,udp", "balancerTag": defTag})
+	}
 	if defTag != "" {
 		outs = moveFirst(outs, defTag)
 	}
@@ -197,6 +208,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		// First after the api rule: a limited user's traffic detours through
 		// the limiter, then meets every other rule as "<id>#lim".
 		rules = append(append(rules[:1:1], limRules...), rules[1:]...)
+	}
+	if len(fallbacks.Rules) > 0 {
+		rules = append(append(rules[:1:1], fallbacks.Rules...), rules[1:]...)
 	}
 	routing := map[string]any{"domainStrategy": domainStrategy, "rules": rules}
 	if len(balancers) > 0 {
@@ -508,6 +522,7 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 	balancers = map[string]map[string]any{}
 	var probe, burst []string
 	probeURL := "https://www.gstatic.com/generate_204"
+	probeInterval := time.Duration(0)
 	for _, o := range obs {
 		s, perr := o.ParseSettings()
 		if perr != nil {
@@ -582,9 +597,16 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 				probe = append(probe, s.Members...)
 			case model.LBLeastLoad:
 				burst = append(burst, s.Members...)
+			case model.LBRandom, model.LBRoundRobin:
+				if s.Fallback != "" {
+					probe = append(probe, s.Members...)
+				}
 			}
 			if s.TestURL != "" {
 				probeURL = s.TestURL
+			}
+			if d, e := time.ParseDuration(orDefault(s.Interval, "1m")); e == nil && d > 0 && (probeInterval == 0 || d < probeInterval) {
+				probeInterval = d
 			}
 			continue
 		default:
@@ -616,14 +638,22 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 		}
 		outs = append(outs, ob)
 	}
+	// Xray strategies consume one Observatory feature. Registering both types
+	// makes some groups read a report that never probes their members. Burst
+	// reports include the ordinary Alive/Delay fields, so share them when any
+	// group needs leastLoad.
+	if len(burst) > 0 {
+		burst = append(burst, probe...)
+		probe = nil
+	}
 	if len(probe) > 0 || len(burst) > 0 {
 		observe = map[string]any{}
 		if len(probe) > 0 {
-			observe["observatory"] = map[string]any{"subjectSelector": dedupe(probe), "probeUrl": probeURL, "probeInterval": "60s"}
+			observe["observatory"] = map[string]any{"subjectSelector": dedupe(probe), "probeUrl": probeURL, "probeInterval": probeInterval.String()}
 		}
 		if len(burst) > 0 {
 			observe["burstObservatory"] = map[string]any{"subjectSelector": dedupe(burst),
-				"pingConfig": map[string]any{"destination": probeURL, "interval": "1m", "sampling": 3, "timeout": "5s"}}
+				"pingConfig": map[string]any{"destination": probeURL, "interval": probeInterval.String(), "sampling": 3, "timeout": "5s"}}
 		}
 	}
 	return outs, balancers, observe, nil
@@ -866,8 +896,27 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	if err != nil {
 		return nil, err
 	}
+	a.mu.Lock()
+	// Internal bridge counters are transport overhead, not public inbounds or
+	// user egresses. Only suppress tags absent from the requested node spec.
+	internal := map[string]bool{}
+	for tag := range a.fallbacks {
+		internal[tag] = true
+	}
+	if a.last != nil {
+		for _, in := range a.last.Inbounds {
+			delete(internal, in.Tag)
+		}
+		for _, ob := range a.last.Outbounds {
+			delete(internal, ob.Tag)
+		}
+	}
+	a.mu.Unlock()
 	var out []model.TrafficDelta
 	for id, v := range core.AllTraffic(stats) {
+		if kind, tag, ok := strings.Cut(id, ">>>"); ok && (kind == "inbound" || kind == "outbound") && internal[tag] {
+			continue
+		}
 		if v[0] == 0 && v[1] == 0 {
 			continue
 		}

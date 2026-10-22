@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -264,6 +265,21 @@ func listenAddr(s string) string {
 // renderOutbounds reuses the subscription renderer's Clash proxy mapping.
 func renderOutbounds(obs []model.Outbound) ([]any, []any, error) {
 	var proxies, groups []any
+	used := map[string]bool{}
+	hasFallback := false
+	for _, o := range obs {
+		used[o.Tag] = true
+		set, err := o.ParseSettings()
+		if err != nil {
+			return nil, nil, err
+		}
+		hasFallback = hasFallback || set.Fallback != ""
+	}
+	if hasFallback {
+		if err := model.ValidateOutboundGraph(obs); err != nil {
+			return nil, nil, err
+		}
+	}
 	for _, o := range obs {
 		s, err := o.ParseSettings()
 		if err != nil {
@@ -299,6 +315,27 @@ func renderOutbounds(obs []model.Outbound) ([]any, []any, error) {
 				if s.Tolerance > 0 {
 					g["tolerance"] = s.Tolerance
 				}
+			}
+			if s.Interval != "" {
+				interval, err := time.ParseDuration(s.Interval)
+				if err != nil || interval < time.Second {
+					return nil, nil, fmt.Errorf("outbound %s: invalid probe interval", o.Tag)
+				}
+				g["interval"] = int(math.Ceil(interval.Seconds()))
+			}
+			if s.Fallback != "" {
+				if s.Fallback == "block" {
+					return nil, nil, fmt.Errorf("outbound %s: mihomo cannot health-check a block fallback", o.Tag)
+				}
+				inner := "polaris-primary-" + o.Tag
+				for used[inner] {
+					inner += "-"
+				}
+				used[inner] = true
+				g["name"] = inner
+				g["lazy"] = false
+				groups = append(groups, g)
+				g = map[string]any{"name": o.Tag, "type": "fallback", "proxies": []string{inner, mapTag(s.Fallback)}, "url": g["url"], "interval": g["interval"], "lazy": false}
 			}
 			groups = append(groups, g)
 			continue

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -130,11 +132,15 @@ func (s *Server) markRoutingDirty(nodeIDs ...string) {
 // validateBalancer checks members and that every proxying core on the node
 // supports the strategy.
 func (s *Server) validateBalancer(nodeID, selfTag string, set model.OutboundSettings) error {
+	return s.validateBalancerOn(s.st.DB, nodeID, selfTag, set)
+}
+
+func (s *Server) validateBalancerOn(db *gorm.DB, nodeID, selfTag string, set model.OutboundSettings) error {
 	if len(set.Members) == 0 {
 		return fmt.Errorf("负载均衡组至少需要一个成员")
 	}
 	var tags []string
-	s.st.DB.Model(&store.Outbound{}).Where("node_id = ?", nodeID).Pluck("tag", &tags)
+	db.Model(&store.Outbound{}).Where("node_id = ?", nodeID).Pluck("tag", &tags)
 	have := map[string]bool{"direct": true, "block": true}
 	for _, t := range tags {
 		have[t] = true
@@ -150,19 +156,46 @@ func (s *Server) validateBalancer(nodeID, selfTag string, set model.OutboundSett
 			return fmt.Errorf("成员出站 %q 不存在", m)
 		}
 	}
+	if set.Interval != "" {
+		if d, err := time.ParseDuration(set.Interval); err != nil || d < time.Second {
+			return fmt.Errorf("探测间隔至少为 1s，例如 1m")
+		}
+	}
+	if set.TestURL != "" {
+		u, err := url.Parse(set.TestURL)
+		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("探测地址必须是 HTTP / HTTPS URL")
+		}
+	}
 	strategy := set.Strategy
 	if strategy == "" {
 		strategy = model.LBLeastPing
 	}
-	cores, _ := s.nodeCores(nodeID)
+	var cores []store.Core
+	if err := db.Where("node_id = ?", nodeID).Find(&cores).Error; err != nil {
+		return err
+	}
 	for _, cr := range cores {
-		if cr.Type != model.CoreXray && cr.Type != model.CoreSingbox {
+		if cr.Type != model.CoreXray && cr.Type != model.CoreSingbox && cr.Type != model.CoreMihomo {
 			continue
+		}
+		if err := validateGroupFallbackCore(cr.Type, set); err != nil {
+			return err
 		}
 		caps, _ := core.Capabilities(cr.Type, cr.Version)
 		if !caps.SupportsBalancer(strategy) {
 			return fmt.Errorf("%s 不支持 %s 负载均衡策略", cr.Type, strategy)
 		}
+	}
+	return nil
+}
+
+func validateGroupFallbackCore(typ model.CoreType, set model.OutboundSettings) error {
+	if set.Fallback != "" && typ == model.CoreSingbox {
+		return fmt.Errorf("sing-box 不支持均衡组兜底，请清除兜底或使用 Xray / mihomo")
+	}
+	if set.Fallback == "block" && typ == model.CoreMihomo {
+		return fmt.Errorf("mihomo 无法对 block 兜底执行健康检查，请选择备用出站或均衡组")
 	}
 	return nil
 }

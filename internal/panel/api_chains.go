@@ -57,12 +57,19 @@ func outboundTypeFor(p model.Protocol) (model.OutboundType, bool) {
 
 // nodeSupportsOutbound checks every proxying core on the node can render t.
 func (s *Server) nodeSupportsOutbound(nodeID string, t model.OutboundType) error {
-	cores, _ := s.nodeCores(nodeID)
+	return s.nodeSupportsOutboundOn(s.st.DB, nodeID, t)
+}
+
+func (s *Server) nodeSupportsOutboundOn(db *gorm.DB, nodeID string, t model.OutboundType) error {
+	var cores []store.Core
+	if err := db.Where("node_id = ?", nodeID).Find(&cores).Error; err != nil {
+		return err
+	}
 	ok := false
 	for _, cr := range cores {
 		caps, _ := core.Capabilities(cr.Type, cr.Version)
 		switch cr.Type {
-		case model.CoreXray, model.CoreSingbox:
+		case model.CoreXray, model.CoreSingbox, model.CoreMihomo:
 			if !caps.SupportsOutbound(t) {
 				return fmt.Errorf("%s %s 不支持 %s 出站", cr.Type, cr.Version, t)
 			}
@@ -74,7 +81,7 @@ func (s *Server) nodeSupportsOutbound(nodeID string, t model.OutboundType) error
 		}
 	}
 	if !ok {
-		return fmt.Errorf("节点没有可承载 %s 出站的内核（Xray / sing-box；Hysteria2 仅支持 SOCKS5 / HTTP）", t)
+		return fmt.Errorf("节点没有可承载 %s 出站的内核（Xray / sing-box / mihomo；Hysteria2 仅支持 SOCKS5 / HTTP）", t)
 	}
 	return nil
 }
@@ -382,59 +389,10 @@ type badInput struct{ error }
 // storeOutbound validates and saves an outbound on a node and schedules the
 // affected nodes.
 func (s *Server) storeOutbound(nodeID string, o *store.Outbound, req *outboundReq) error {
-	if req.Tag == "direct" || req.Tag == "block" || req.Tag == "api" {
-		return badInput{fmt.Errorf("tag %q is reserved", req.Tag)}
-	}
-	t := req.Type
-	if t == model.OutNodeRef {
-		var in store.Inbound
-		if err := s.st.DB.First(&in, "id = ?", req.NodeRefInboundID).Error; err != nil {
-			return badInput{fmt.Errorf("referenced inbound: %w", err)}
-		}
-		if in.NodeID == nodeID {
-			return badInput{fmt.Errorf("不能引用本节点的入站")}
-		}
-		var ok bool
-		if t, ok = outboundTypeFor(in.Protocol.V.Type); !ok {
-			return badInput{fmt.Errorf("%s 不能作为出站目标", in.Protocol.V.Type)}
-		}
-	}
-	if err := s.nodeSupportsOutbound(nodeID, t); err != nil {
-		return badInput{err}
-	}
-	if req.Detour != "" {
-		if err := s.checkDetour(nodeID, o.ID, req.Tag, req.Detour); err != nil {
-			return badInput{err}
-		}
-	}
-	if len(req.Settings) > 0 {
-		var tmp model.OutboundSettings
-		if err := json.Unmarshal(req.Settings, &tmp); err != nil {
-			return badInput{fmt.Errorf("settings: %w", err)}
-		}
-		if req.Type.IsGroup() {
-			if err := s.validateBalancer(nodeID, req.Tag, tmp); err != nil {
-				return badInput{err}
-			}
-		}
-	}
-	o.NodeID, o.Tag, o.Type, o.Settings, o.NodeRefInboundID, o.Detour, o.Remark =
-		nodeID, req.Tag, req.Type, req.Settings, req.NodeRefInboundID, req.Detour, req.Remark
-	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if o.Type == model.OutNodeRef && o.ServiceUserID == "" {
-			svc := store.User{ID: store.NewID(), Username: "svc-out-" + o.ID, UUID: pki.UUID(), Password: pki.Password(24),
-				SSSeed: pki.Token(24), Status: "active", SubToken: pki.Token(32), IsService: true, Remark: "outbound " + o.Tag,
-				OnlineIPs: store.NewJSON([]string{})}
-			if err := tx.Create(&svc).Error; err != nil {
-				return err
-			}
-			o.ServiceUserID = svc.ID
-		}
-		return tx.Save(o).Error
-	})
-	if err != nil {
+	if err := s.mutateOutbounds(nodeID, func(tx *gorm.DB) error { return s.storeOutboundTx(tx, nodeID, o, req) }); err != nil {
 		return err
 	}
+
 	nodes := []string{nodeID}
 	if o.NodeRefInboundID != "" {
 		var in store.Inbound
@@ -446,10 +404,77 @@ func (s *Server) storeOutbound(nodeID string, o *store.Outbound, req *outboundRe
 	return nil
 }
 
+func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, req *outboundReq) error {
+	if req.Tag == "direct" || req.Tag == "block" || req.Tag == "api" {
+		return badInput{fmt.Errorf("tag %q is reserved", req.Tag)}
+	}
+	t := req.Type
+	if t == model.OutNodeRef {
+		var in store.Inbound
+		if err := tx.First(&in, "id = ?", req.NodeRefInboundID).Error; err != nil {
+			return badInput{fmt.Errorf("referenced inbound: %w", err)}
+		}
+		if in.NodeID == nodeID {
+			return badInput{fmt.Errorf("不能引用本节点的入站")}
+		}
+		var ok bool
+		if t, ok = outboundTypeFor(in.Protocol.V.Type); !ok {
+			return badInput{fmt.Errorf("%s 不能作为出站目标", in.Protocol.V.Type)}
+		}
+	}
+	if err := s.nodeSupportsOutboundOn(tx, nodeID, t); err != nil {
+		return badInput{err}
+	}
+	if req.Detour != "" {
+		if err := s.checkDetourOn(tx, nodeID, o.ID, req.Tag, req.Detour); err != nil {
+			return badInput{err}
+		}
+	}
+	var tmp model.OutboundSettings
+	if len(req.Settings) > 0 {
+		if err := json.Unmarshal(req.Settings, &tmp); err != nil {
+			return badInput{fmt.Errorf("settings: %w", err)}
+		}
+	}
+	if req.Type.IsGroup() {
+		if err := s.validateBalancerOn(tx, nodeID, req.Tag, tmp); err != nil {
+			return badInput{err}
+		}
+	} else if tmp.Fallback != "" {
+		return badInput{fmt.Errorf("仅均衡组支持兜底出站")}
+	}
+	if err := s.validateOutboundChange(tx, nodeID, o.ID, req); err != nil {
+		return badInput{err}
+	}
+
+	o.NodeID, o.Tag, o.Type, o.Settings, o.NodeRefInboundID, o.Detour, o.Remark =
+		nodeID, req.Tag, req.Type, req.Settings, req.NodeRefInboundID, req.Detour, req.Remark
+	err := func() error {
+		if o.Type == model.OutNodeRef && o.ServiceUserID == "" {
+			svc := store.User{ID: store.NewID(), Username: "svc-out-" + o.ID, UUID: pki.UUID(), Password: pki.Password(24),
+				SSSeed: pki.Token(24), Status: "active", SubToken: pki.Token(32), IsService: true, Remark: "outbound " + o.Tag,
+				OnlineIPs: store.NewJSON([]string{})}
+			if err := tx.Create(&svc).Error; err != nil {
+				return err
+			}
+			o.ServiceUserID = svc.ID
+		}
+		return tx.Save(o).Error
+	}()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // checkDetour rejects detour loops within the node's outbounds.
 func (s *Server) checkDetour(nodeID, selfID, selfTag, detour string) error {
+	return s.checkDetourOn(s.st.DB, nodeID, selfID, selfTag, detour)
+}
+
+func (s *Server) checkDetourOn(db *gorm.DB, nodeID, selfID, selfTag, detour string) error {
 	var obs []store.Outbound
-	s.st.DB.Where("node_id = ? AND id <> ?", nodeID, selfID).Find(&obs)
+	db.Where("node_id = ? AND id <> ?", nodeID, selfID).Find(&obs)
 	next := map[string]string{selfTag: detour}
 	exists := map[string]bool{}
 	for _, o := range obs {
@@ -502,24 +527,34 @@ func (s *Server) updateOutbound(c *gin.Context) {
 
 func (s *Server) deleteOutbound(c *gin.Context) {
 	var o store.Outbound
-	if err := s.st.DB.First(&o, "id = ? AND node_id = ?", c.Param("oid"), c.Param("id")).Error; err != nil {
-		dbError(c, err)
+	err := s.mutateOutbounds(c.Param("id"), func(tx *gorm.DB) error {
+		if err := tx.First(&o, "id = ? AND node_id = ?", c.Param("oid"), c.Param("id")).Error; err != nil {
+			return err
+		}
+		if o.ChainID != "" {
+			return badInput{fmt.Errorf("该出站由链路管理，请删除链路")}
+		}
+		if err := s.checkOutboundReferences(tx, o.NodeID, o.ID, o.Tag); err != nil {
+			return badInput{err}
+		}
+		if err := tx.Delete(&o).Error; err != nil {
+			return err
+		}
+		if o.ServiceUserID != "" {
+			return tx.Where("id = ? AND is_service = ?", o.ServiceUserID, true).Delete(&store.User{}).Error
+		}
+		return nil
+	})
+	if err != nil {
+		var bad badInput
+		if errors.As(err, &bad) {
+			c.JSON(http.StatusConflict, gin.H{"error": bad.Error()})
+		} else {
+			dbError(c, err)
+		}
 		return
 	}
-	if o.ChainID != "" {
-		c.JSON(http.StatusConflict, gin.H{"error": "该出站由链路管理，请删除链路"})
-		return
-	}
-	var n int64
-	s.st.DB.Model(&store.Outbound{}).Where("node_id = ? AND detour = ?", o.NodeID, o.Tag).Count(&n)
-	if n > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "其他出站经由该出站"})
-		return
-	}
-	s.st.DB.Delete(&o)
-	if o.ServiceUserID != "" {
-		s.st.DB.Where("id = ? AND is_service = ?", o.ServiceUserID, true).Delete(&store.User{})
-	}
+
 	nodes := []string{o.NodeID}
 	if o.NodeRefInboundID != "" {
 		nodes = append(nodes, s.nodesForInbounds(o.NodeRefInboundID)...)

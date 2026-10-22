@@ -68,11 +68,12 @@ type Server struct {
 	licenseManualAvailable atomic.Int64         // nanosecond timestamp for the UI cooldown
 	licenseSchedule        licenseCheckSchedule // guarded by licenseMu
 
-	dirtyMu sync.Mutex
-	dirty   map[string]string
-	kick    chan struct{}
-	pubMu   sync.Mutex
-	shopMu  sync.Mutex // serializes pending checkout reuse and USDT amount allocation
+	dirtyMu    sync.Mutex
+	dirty      map[string]string
+	kick       chan struct{}
+	pubMu      sync.Mutex
+	outboundMu sync.Mutex // serializes outbound dependency validation and mutations
+	shopMu     sync.Mutex // serializes pending checkout reuse and USDT amount allocation
 
 	// shared holds online IPs, rate limits and alert de-duplication:
 	// in memory, or in Redis when redis_url is set (several instances).

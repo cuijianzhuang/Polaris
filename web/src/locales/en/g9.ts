@@ -46,5 +46,14 @@ const m: Record<string, string> = {
   '应用记录 · {name}': 'Deployment history · {name}',
   '最近 20 次应用，保留 30 天': 'Last 20 deployments, retained for 30 days',
   '暂无应用记录': 'No deployments yet',
+  '兜底出站 / 均衡组': 'Fallback outbound / balancer',
+  '主组全部不可用时切换备用组；恢复后新连接回到主组。支持多级回退，禁止成环。': 'Use the backup only when all primary members are unavailable. New connections return to the primary after recovery. Chained fallbacks are supported; cycles are forbidden.',
+  '备用均衡组': 'Backup balancers',
+  '备用出站': 'Backup outbounds',
+  '不可用，请重新选择': 'Unavailable; choose another target',
+  '回退路径：{path}': 'Fallback path: {path}',
+  'sing-box 暂不支持组间兜底；请清除兜底或使用 Xray / mihomo。': 'sing-box does not support inter-group fallback. Clear the fallback or use Xray / mihomo.',
+  'mihomo 支持备用组或出站，不支持 block 兜底。': 'mihomo supports backup groups and outbounds, but not a block fallback.',
+  '兜底：{tag}': 'Fallback: {tag}',
 }
 export default m
