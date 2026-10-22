@@ -907,3 +907,17 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
 .pr-spark { width: 100%; height: 18px; display: block; }
 .pr-loss { color: var(--warn); }
 .pr-dead { color: var(--bad); }
+
+/* geosite / geoip picker */
+.geo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 7px 4px; border-bottom: 1px solid var(--line-2); }
+.geo-row .chk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.geo-attrs { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 26px; }
+.geo-attrs .chip { font-size: 11px; padding: 1px 8px; }
+.geo-entries { flex-basis: 100%; padding: 6px 8px 6px 26px; display: grid; gap: 2px; max-height: 240px; overflow: auto; background: var(--soft, var(--line-2)); border-radius: 6px; word-break: break-all; }
+
+/* routing rule editor row */
+.form-grid.rule-draft { margin-top: 12px; grid-template-columns: 90px 150px minmax(0, 1fr) 160px auto; align-items: end; }
+@media (max-width: 760px) {
+  .form-grid.rule-draft { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .form-grid.rule-draft > :nth-child(n + 3) { grid-column: 1 / -1; }
+}

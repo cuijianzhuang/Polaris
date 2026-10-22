@@ -4,6 +4,7 @@ import { useNodes } from '../App'
 import { Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t } from '../i18n'
+import GeoPicker from '../components/GeoPicker'
 import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet } from '../types'
 import { DNSSettings, RuleSets } from './DNSRules'
 
@@ -354,6 +355,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
   const groups = useLoad(() => get<{ id: string; name: string }[]>('/groups'))
   const ruleSets = useLoad(() => get<RuleSet[]>('/rulesets'))
   const [drawer, setDrawer] = useState<Outbound | 'new' | null>(null)
+  const [geoPick, setGeoPick] = useState<'geosite' | 'geoip' | null>(null)
   const [draft, setDraft] = useState<{ priority: number; outboundTag: string; key: keyof RouteMatch; value: string } | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -421,7 +423,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
           </table>
         </div>
         {draft && (
-          <div className="form-grid" style={{ marginTop: 12, gridTemplateColumns: '90px 150px minmax(0,1fr) 160px auto', alignItems: 'end' }}>
+          <div className="form-grid rule-draft">
             <Field label={t('优先级')}><input className="input mono" value={draft.priority} onChange={(e) => setDraft({ ...draft, priority: Number(e.target.value) })} /></Field>
             <Field label={t('条件')}>
               <select className="input" value={draft.key} onChange={(e) => setDraft({ ...draft, key: e.target.value as keyof RouteMatch, value: '' })}>
@@ -437,7 +439,13 @@ function Routing({ nodes }: { nodes: Node[] }) {
                 <select className="input" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })}>
                   <option value="">{ruleSets.data?.length ? t('选择规则集') : t('先在「规则集」页新建')}</option>{(ruleSets.data ?? []).map((r) => <option key={r.id} value={r.tag}>{r.tag}{r.name ? ` · ${r.name}` : ''}（{r.count}）</option>)}
                 </select>
-              ) : <input className="input mono" disabled={draft.key === 'users'} value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} placeholder={draft.key === 'geosite' ? 'netflix, openai' : ''} />}
+              ) : draft.key === 'geosite' || draft.key === 'geoip' ? (
+                <div className="joined">
+                  <input className="input mono" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} placeholder={draft.key === 'geosite' ? 'netflix, openai' : 'cn, private'} />
+                  <button className="btn" type="button" onClick={() => setGeoPick(draft.key as 'geosite' | 'geoip')}>{t('浏览')}</button>
+                </div>
+              ) : <input className="input mono" disabled={draft.key === 'users'} value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} />}
+              {geoPick && <GeoPicker kind={geoPick} value={fromLines(draft.value)} onChange={(v) => setDraft({ ...draft, value: v.join(', ') })} onClose={() => setGeoPick(null)} />}
             </Field>
             <Field label={t('出口')}>
               <select className="input" value={draft.outboundTag} onChange={(e) => setDraft({ ...draft, outboundTag: e.target.value })}>{tags.map((t) => <option key={t}>{t}</option>)}</select>
