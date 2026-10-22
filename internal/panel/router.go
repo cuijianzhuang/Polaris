@@ -320,6 +320,8 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/nodes/:id/outbounds/:oid", s.updateOutbound)
 	p.DELETE("/nodes/:id/outbounds/:oid", s.deleteOutbound)
 	p.GET("/routing/presets", s.listRulePresets)
+	p.GET("/routing/geo", s.geoCategories)
+	p.GET("/routing/geo/geosite/:name", s.geoEntries)
 	p.POST("/routing/presets/apply", s.applyRulePreset)
 	p.GET("/nodes/:id/routing", s.getRouting)
 	p.PUT("/nodes/:id/routing", s.putRouting)
