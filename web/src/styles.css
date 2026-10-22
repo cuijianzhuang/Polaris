@@ -507,6 +507,11 @@ details.menu > summary::-webkit-details-marker { display: none; }
 .menu-list button { text-align: left; border: none; background: none; padding: 9px 10px; border-radius: 6px; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; }
 .menu-list button:hover:not(:disabled) { background: var(--soft); }
 .menu-list button:disabled { color: var(--faint); cursor: not-allowed; }
+/* Phones: the page actions wrap under the title and "More" sits at the left
+   edge, so a right-anchored menu would open off-screen. */
+@media (max-width: 760px) {
+  .menu-list { left: 0; right: auto; max-width: calc(100vw - 32px); }
+}
 th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 th.sortable:hover { color: var(--ink); }
 .sort-ind { margin-left: 4px; font-size: 11px; opacity: .5; }
