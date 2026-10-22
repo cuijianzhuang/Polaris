@@ -50,6 +50,10 @@ func (s *Server) createTemplate(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if err := s.validateTemplate(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
 	t := store.InboundTemplate{ID: store.NewID(), Name: req.Name, Description: req.Description, Items: store.NewJSON(req.Items),
 		Groups: store.NewJSON(nonNilStrs(req.Groups)), BoundLabels: store.NewJSON(nonNilStrs(req.BoundLabels))}
 	if err := s.st.DB.Create(&t).Error; err != nil {
@@ -71,6 +75,14 @@ func (s *Server) updateTemplate(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if t.Builtin {
+		badRequest(c, fmt.Errorf("内置模板请另存为自定义模板"))
+		return
+	}
+	if err := s.validateTemplate(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
 	t.Name, t.Description, t.Items = req.Name, req.Description, store.NewJSON(req.Items)
 	t.Groups, t.BoundLabels = store.NewJSON(nonNilStrs(req.Groups)), store.NewJSON(nonNilStrs(req.BoundLabels))
 	if err := s.st.DB.Save(&t).Error; err != nil {
@@ -87,6 +99,10 @@ func (s *Server) deleteTemplate(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if t.Builtin {
+		badRequest(c, fmt.Errorf("内置模板不能删除"))
+		return
+	}
 	// Generated inbounds stay, detached from the template.
 	s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", t.ID).Update("template_id", "")
 	s.st.DB.Delete(&t)
@@ -97,39 +113,50 @@ func (s *Server) deleteTemplate(c *gin.Context) {
 // --- generation engine ---
 
 type planOptions struct {
-	NodeIDs      []string `json:"nodeIds"`
-	Labels       []string `json:"labels"`       // alternatively select nodes by label
-	Reassign     bool     `json:"reassign"`     // move to the node's other core when unsupported
-	AutoPort     bool     `json:"autoPort"`     // pick another port on conflict
-	BindLabel    string   `json:"bindLabel"`    // bind the template to a node label
-	ItemKeys     []string `json:"itemKeys"`     // restrict to some items
-	CDNProfileID string   `json:"cdnProfileId"` // used by cdn endpoint items without a profile
+	PlanID           string                                      `json:"planId,omitempty"`
+	NodeIDs          []string                                    `json:"nodeIds"`
+	Labels           []string                                    `json:"labels"`       // alternatively select nodes by label
+	Reassign         bool                                        `json:"reassign"`     // move to the node's other core when unsupported
+	AutoPort         bool                                        `json:"autoPort"`     // pick another port on conflict
+	BindLabel        string                                      `json:"bindLabel"`    // bind the template to a node label
+	ItemKeys         []string                                    `json:"itemKeys"`     // restrict to some items
+	CDNProfileID     string                                      `json:"cdnProfileId"` // used by cdn endpoint items without a profile
+	VerifyReality    bool                                        `json:"verifyReality"`
+	RealityOverrides map[string]map[string]templateRealityTarget `json:"realityOverrides,omitempty"`
+}
+
+type templateRealityTarget struct {
+	Dest        string   `json:"dest"`
+	ServerNames []string `json:"serverNames"`
 }
 
 // PlannedInbound is one row of a generation preview.
 type PlannedInbound struct {
-	NodeID   string         `json:"nodeId"`
-	NodeName string         `json:"nodeName"`
-	ItemKey  string         `json:"itemKey"`
-	Tag      string         `json:"tag"`
-	Core     model.CoreType `json:"core,omitempty"`
-	Port     int            `json:"port,omitempty"`
-	Network  string         `json:"network,omitempty"`
-	Cert     string         `json:"cert"`
-	Entries  string         `json:"entries"`
-	Result   string         `json:"result"` // new / fix / skip
-	Reason   string         `json:"reason,omitempty"`
+	NodeID    string         `json:"nodeId"`
+	NodeName  string         `json:"nodeName"`
+	ItemKey   string         `json:"itemKey"`
+	Tag       string         `json:"tag"`
+	Core      model.CoreType `json:"core,omitempty"`
+	Port      int            `json:"port,omitempty"`
+	Network   string         `json:"network,omitempty"`
+	Cert      string         `json:"cert"`
+	Entries   string         `json:"entries"`
+	Result    string         `json:"result"` // new / fix / skip
+	Reason    string         `json:"reason,omitempty"`
+	InboundID string         `json:"inboundId,omitempty"`
 
 	inbound *model.Inbound
 	item    store.TemplateItem
 }
 
 type nodePlan struct {
-	NodeID   string           `json:"nodeId"`
-	NodeName string           `json:"nodeName"`
-	Summary  string           `json:"summary"`
-	Items    []PlannedInbound `json:"items"`
-	Error    string           `json:"error,omitempty"`
+	NodeID      string           `json:"nodeId"`
+	NodeName    string           `json:"nodeName"`
+	Summary     string           `json:"summary"`
+	Items       []PlannedInbound `json:"items"`
+	Error       string           `json:"error,omitempty"`
+	ApplyStatus string           `json:"applyStatus,omitempty"`
+	Revision    int64            `json:"revision,omitempty"`
 }
 
 var tagSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_.\-]+`)
@@ -139,12 +166,16 @@ func expandVars(s string, node *store.Node, proto string, rnd map[string]string)
 	if !strings.Contains(s, "{") {
 		return s
 	}
-	r := strings.NewReplacer(
+	pairs := []string{
 		"{node.name}", node.Name, "{node.region}", node.Region, "{node.domain}", node.Domain,
 		"{node.ip}", node.Address, "{protocol}", proto,
-		"{rand.path}", rnd["path"], "{rand.shortid}", rnd["shortid"], "{rand.port}", rnd["port"],
-	)
-	return r.Replace(s)
+	}
+	for _, key := range []string{"path", "shortid", "port"} {
+		if value, ok := rnd[key]; ok {
+			pairs = append(pairs, "{rand."+key+"}", value)
+		}
+	}
+	return strings.NewReplacer(pairs...).Replace(s)
 }
 
 func (s *Server) selectNodes(opt *planOptions) ([]store.Node, error) {
@@ -214,6 +245,11 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 		np.Summary += " · 443 已被占用"
 	}
 	for _, item := range t.Items.V {
+		// Expanding a node's variables must never mutate the template's slices.
+		raw, _ := json.Marshal(item)
+		var copied store.TemplateItem
+		_ = json.Unmarshal(raw, &copied)
+		item = copied
 		if len(opt.ItemKeys) > 0 && !contains(opt.ItemKeys, item.Key) {
 			continue
 		}
@@ -231,8 +267,16 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 		}
 		m := model.Inbound{NodeID: node.ID, Tag: tag, Core: item.Core, Protocol: item.Protocol, Transport: item.Transport,
 			Security: item.Security, Sniffing: item.Sniffing, Enabled: true}
+		if override, ok := opt.RealityOverrides[node.ID][item.Key]; ok && m.Security.Type == model.SecReality {
+			m.Security.RealityDest, m.Security.RealityServerNames = override.Dest, append([]string(nil), override.ServerNames...)
+		}
 		m.Transport.Path = expandVars(m.Transport.Path, node, proto, rnd)
 		m.Transport.Host = expandVars(m.Transport.Host, node, proto, rnd)
+		m.Transport.ServiceName = expandVars(m.Transport.ServiceName, node, proto, rnd)
+		m.Security.RealityDest = expandVars(m.Security.RealityDest, node, proto, rnd)
+		for i, name := range m.Security.RealityServerNames {
+			m.Security.RealityServerNames[i] = expandVars(name, node, proto, rnd)
+		}
 		m.Security.ServerName = expandVars(m.Security.ServerName, node, proto, rnd)
 		if m.Security.ServerName == "" && m.Security.Type == model.SecTLS {
 			m.Security.ServerName = orDefault(node.Domain, node.Address)
@@ -325,6 +369,22 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 		}
 		used[m.Port] = true
 		tagUsed[tag] = true
+		rnd["port"] = strconv.Itoa(m.Port)
+		m.Transport.Path = expandVars(m.Transport.Path, node, proto, rnd)
+		m.Transport.Host = expandVars(m.Transport.Host, node, proto, rnd)
+		m.Transport.ServiceName = expandVars(m.Transport.ServiceName, node, proto, rnd)
+		m.Security.ServerName = expandVars(m.Security.ServerName, node, proto, rnd)
+		m.Security.RealityDest = expandVars(m.Security.RealityDest, node, proto, rnd)
+		for i, name := range m.Security.RealityServerNames {
+			m.Security.RealityServerNames[i] = expandVars(name, node, proto, rnd)
+		}
+		for i, sid := range m.Security.RealityShortIDs {
+			m.Security.RealityShortIDs[i] = expandVars(sid, node, proto, rnd)
+		}
+		for i := range item.Endpoints {
+			item.Endpoints[i].Address = expandVars(item.Endpoints[i].Address, node, proto, rnd)
+		}
+		pi.item = item
 		// Certificates.
 		switch {
 		case m.Security.Type == model.SecReality:
@@ -341,7 +401,7 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 				m.Security.CertificateID, pi.Cert = cert.ID, label
 			} else {
 				switch {
-				case item.Cert == "acme" && s.acmeConfigured():
+				case item.Cert == "acme" && (s.acmeConfigured() || (s.acmeHTTPReady() && s.nodeForDomain(domain) != "")):
 					pi.Cert = "ACME"
 				case item.Cert == "acme":
 					pi.Cert = "自签（未配置 ACME）"
@@ -372,6 +432,8 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 		}
 		pi.Entries = strings.Join(entries, " + ")
 		pi.Core, pi.Port, pi.Network = m.Core, m.Port, m.Network()
+		m.ID = store.NewID()
+		pi.InboundID = m.ID
 		mm := m
 		pi.inbound = &mm
 		np.Items = append(np.Items, pi)
@@ -432,12 +494,12 @@ func (s *Server) previewTemplate(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	plans, err := s.plan(&t, &opt, false)
+	run, plans, err := s.freezeTemplatePlan(&t, &opt)
 	if err != nil {
-		serverError(c, err)
+		badRequest(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"plans": plans, "summary": summarize(plans)})
+	c.JSON(http.StatusOK, gin.H{"planId": run.ID, "expiresAt": run.ExpiresAt, "plans": plans, "summary": summarize(plans)})
 }
 
 func summarize(plans []nodePlan) gin.H {
@@ -470,6 +532,16 @@ func (s *Server) applyTemplate(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	// Older API callers can still request an immediate apply. The web UI
+	// always supplies a frozen preview ID and never replans at confirmation.
+	if opt.PlanID != "" {
+		s.applyFrozenTemplate(c, &t, &opt)
+		return
+	}
+	if opt.VerifyReality {
+		badRequest(c, fmt.Errorf("要求节点检测时，请先预览并检测，再提交 planId"))
+		return
+	}
 	plans, err := s.applyPlan(&t, &opt)
 	if err != nil {
 		serverError(c, err)
@@ -499,6 +571,9 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 					continue
 				}
 				row := store.Inbound{ID: store.NewID(), TemplateID: t.ID, TemplateItemKey: it.ItemKey, OverriddenFields: store.NewJSON([]string{})}
+				if _, ok := opt.RealityOverrides[nodes[i].ID][it.ItemKey]; ok {
+					row.OverriddenFields = store.NewJSON([]string{"security.realityDest", "security.realityServerNames"})
+				}
 				fromModel(it.inbound, &row)
 				s.sealInbound(&row)
 				if err := tx.Create(&row).Error; err != nil {
@@ -559,28 +634,56 @@ func (s *Server) syncTemplate(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Confirm   bool `json:"confirm"`
-		Overwrite bool `json:"overwrite"` // also overwrite overridden fields
+		Confirm      bool                `json:"confirm"`
+		Overwrite    bool                `json:"overwrite"` // also overwrite overridden fields
+		Selections   map[string][]string `json:"selections"`
+		Expected     map[string]string   `json:"expected"`
+		TemplateHash string              `json:"templateHash"`
 	}
-	_ = c.ShouldBindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
 	var ins []store.Inbound
 	s.st.DB.Where("template_id = ?", t.ID).Find(&ins)
+	if req.Confirm && req.TemplateHash != "" && req.TemplateHash != templateHash(t) {
+		c.JSON(http.StatusConflict, gin.H{"error": "模板已变化，请重新查看同步差异"})
+		return
+	}
+	for _, in := range ins {
+		if req.Confirm && req.Expected[in.ID] != "" && req.Expected[in.ID] != templateHash(s.toModelInbound(&in)) {
+			c.JSON(http.StatusConflict, gin.H{"error": "入站已变化，请重新查看同步差异"})
+			return
+		}
+	}
 	items := map[string]store.TemplateItem{}
 	for _, it := range t.Items.V {
 		items[it.Key] = it
 	}
 	type change struct {
-		InboundID string   `json:"inboundId"`
-		Tag       string   `json:"tag"`
-		NodeName  string   `json:"nodeName"`
-		Fields    []string `json:"fields"`
-		Kept      []string `json:"kept"`
-		Error     string   `json:"error,omitempty"`
+		InboundID string                `json:"inboundId"`
+		Tag       string                `json:"tag"`
+		NodeName  string                `json:"nodeName"`
+		Fields    []string              `json:"fields"`
+		Kept      []string              `json:"kept"`
+		Error     string                `json:"error,omitempty"`
+		Details   []templateFieldChange `json:"details"`
+		Hash      string                `json:"hash"`
 	}
 	names := s.nodeNames()
 	var changes []change
 	dirty := map[string]bool{}
 	for _, in := range ins {
+		var selected map[string]bool
+		if req.Selections != nil {
+			if len(req.Selections[in.ID]) == 0 {
+				continue
+			}
+			selected = map[string]bool{}
+			for _, field := range req.Selections[in.ID] {
+				selected[field] = true
+			}
+		}
 		item, ok := matchItem(items, &in)
 		if !ok {
 			continue
@@ -592,19 +695,23 @@ func (s *Server) syncTemplate(c *gin.Context) {
 			over[f] = !req.Overwrite
 		}
 		var fields, kept []string
-		apply := func(name string, eq bool, set func()) {
-			if eq {
-				return
-			}
-			if over[name] {
-				kept = append(kept, name)
-				return
-			}
-			fields = append(fields, name)
-			set()
+		var details []templateFieldChange
+		applyGroup := func(name string, before, after, destination any) {
+			f, k, d := mergeTemplateGroup(name, before, after, destination, over, selected)
+			fields, kept, details = append(fields, f...), append(kept, k...), append(details, d...)
 		}
 		var node store.Node
 		s.st.DB.First(&node, "id = ?", in.NodeID)
+		expand := func(pattern, previous string) string {
+			if strings.Contains(pattern, "{rand.path}") || strings.Contains(pattern, "{rand.shortid}") {
+				return previous
+			}
+			proto := string(item.Protocol.Type)
+			if item.Transport.Type != "" && item.Transport.Type != model.TransTCP && item.Transport.Type != model.TransQUIC {
+				proto += "-" + string(item.Transport.Type)
+			}
+			return expandVars(pattern, &node, proto, map[string]string{"port": strconv.Itoa(cur.Port)})
+		}
 		wantProto := item.Protocol
 		wantProto.ServerKey = cur.Protocol.ServerKey
 		if (wantProto.Decryption != "") == (cur.Protocol.Decryption != "") {
@@ -620,16 +727,25 @@ func (s *Server) syncTemplate(c *gin.Context) {
 		if strings.Contains(wantT.Path, "{rand.path}") || wantT.Path == "" {
 			wantT.Path = cur.Transport.Path // random values are kept per node
 		} else {
-			wantT.Path = expandVars(wantT.Path, &node, "", nil)
+			wantT.Path = expand(wantT.Path, cur.Transport.Path)
 		}
-		wantT.Host = expandVars(wantT.Host, &node, "", nil)
+		wantT.Host = expand(wantT.Host, cur.Transport.Host)
 		if wantT.ServiceName == "" || strings.Contains(wantT.ServiceName, "{rand.") {
 			wantT.ServiceName = cur.Transport.ServiceName
 		} else {
-			wantT.ServiceName = expandVars(wantT.ServiceName, &node, "", nil)
+			wantT.ServiceName = expand(wantT.ServiceName, cur.Transport.ServiceName)
 		}
 		wantS := item.Security
-		wantS.ServerName = expandVars(wantS.ServerName, &node, "", nil)
+		wantS.ServerName = expand(wantS.ServerName, cur.Security.ServerName)
+		wantS.RealityDest = expand(wantS.RealityDest, cur.Security.RealityDest)
+		wantS.RealityServerNames = append([]string(nil), item.Security.RealityServerNames...)
+		for i, name := range wantS.RealityServerNames {
+			previous := ""
+			if i < len(cur.Security.RealityServerNames) {
+				previous = cur.Security.RealityServerNames[i]
+			}
+			wantS.RealityServerNames[i] = expand(name, previous)
+		}
 		if wantS.ServerName == "" {
 			wantS.ServerName = cur.Security.ServerName
 		}
@@ -647,36 +763,59 @@ func (s *Server) syncTemplate(c *gin.Context) {
 		// or every sync would report changes.
 		want := cur
 		want.Protocol, want.Transport, want.Security, want.Sniffing = wantProto, wantT, wantS, item.Sniffing
-		_ = s.prepareInbound(&want)
+		if err := s.prepareInbound(&want); err != nil {
+			changes = append(changes, change{InboundID: in.ID, Tag: in.Tag, NodeName: names[in.NodeID], Error: err.Error()})
+			continue
+		}
 		wantProto, wantT, wantS = want.Protocol, want.Transport, want.Security
-		apply("protocol", jsonEq(cur.Protocol, wantProto), func() { next.Protocol = wantProto })
-		apply("transport", jsonEq(cur.Transport, wantT), func() { next.Transport = wantT })
+		next.Protocol = model.ProtocolSpec{}
+		next.Transport = model.TransportSpec{}
+		applyGroup("protocol", cur.Protocol, wantProto, &next.Protocol)
+		applyGroup("transport", cur.Transport, wantT, &next.Transport)
 		cs, ws := cur.Security, wantS
 		cs.CertPEM, cs.KeyPEM = "", ""
 		ws.CertPEM, ws.KeyPEM = "", ""
-		apply("security", jsonEq(cs, ws), func() { next.Security = wantS })
-		apply("sniffing", jsonEq(cur.Sniffing, want.Sniffing), func() { next.Sniffing = want.Sniffing })
-		if item.Port.Mode == "fixed" {
-			apply("port", cur.Port == item.Port.Fixed, func() { next.Port = item.Port.Fixed })
+		next.Security = model.SecuritySpec{}
+		next.Sniffing = model.SniffSpec{}
+		applyGroup("security", cs, ws, &next.Security)
+		applyGroup("sniffing", cur.Sniffing, want.Sniffing, &next.Sniffing)
+		if item.Port.Mode == "fixed" && cur.Port != item.Port.Fixed && (selected == nil || selected["port"]) {
+			d := templateFieldChange{Field: "port", Before: cur.Port, After: item.Port.Fixed, Kept: over["port"]}
+			if d.Kept {
+				kept = append(kept, "port")
+			} else {
+				fields = append(fields, "port")
+				next.Port = item.Port.Fixed
+			}
+			details = append(details, d)
 		}
 		if len(fields) == 0 {
 			if len(kept) > 0 {
-				changes = append(changes, change{InboundID: in.ID, Tag: in.Tag, NodeName: names[in.NodeID], Kept: kept})
+				changes = append(changes, change{InboundID: in.ID, Tag: in.Tag, NodeName: names[in.NodeID], Kept: kept, Details: details, Hash: templateHash(cur)})
 			}
 			continue
 		}
-		ch := change{InboundID: in.ID, Tag: in.Tag, NodeName: names[in.NodeID], Fields: fields, Kept: kept}
+		ch := change{InboundID: in.ID, Tag: in.Tag, NodeName: names[in.NodeID], Fields: fields, Kept: kept, Details: details, Hash: templateHash(cur)}
 		if req.Confirm {
 			if err := s.validateInbound(&node, &next, in.ID); err != nil {
 				ch.Error = err.Error()
 			} else {
 				fromModel(&next, &in)
 				if req.Overwrite {
-					in.OverriddenFields = store.NewJSON([]string{})
+					remaining := []string{}
+					for _, field := range in.OverriddenFields.V {
+						if req.Selections != nil && !contains(fields, field) {
+							remaining = append(remaining, field)
+						}
+					}
+					in.OverriddenFields = store.NewJSON(remaining)
 				}
 				s.sealInbound(&in)
-				if err := s.st.DB.Save(&in).Error; err != nil {
-					ch.Error = err.Error()
+				result := s.st.DB.Model(&store.Inbound{}).Where("id = ? AND updated_at = ?", in.ID, in.UpdatedAt).Select("*").Updates(&in)
+				if result.Error != nil {
+					ch.Error = result.Error.Error()
+				} else if result.RowsAffected != 1 {
+					ch.Error = "入站已变化，请重新查看同步差异"
 				} else {
 					for _, n := range s.nodesForInbounds(in.ID) {
 						dirty[n] = true
@@ -697,7 +836,7 @@ func (s *Server) syncTemplate(c *gin.Context) {
 	if changes == nil {
 		changes = []change{}
 	}
-	c.JSON(http.StatusOK, gin.H{"changes": changes, "applied": req.Confirm})
+	c.JSON(http.StatusOK, gin.H{"changes": changes, "applied": req.Confirm, "templateHash": templateHash(t)})
 }
 
 // matchItem finds the template item that generated an inbound.

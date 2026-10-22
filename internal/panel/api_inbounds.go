@@ -512,18 +512,26 @@ func diffFields(a, b *model.Inbound) []string {
 		out = append(out, "tag")
 	}
 	if !eq(a.Protocol, b.Protocol) {
-		out = append(out, "protocol")
+		for _, change := range configChanges("protocol", configObject(a.Protocol), configObject(b.Protocol)) {
+			out = append(out, change.Field)
+		}
 	}
 	if !eq(a.Transport, b.Transport) {
-		out = append(out, "transport")
+		for _, change := range configChanges("transport", configObject(a.Transport), configObject(b.Transport)) {
+			out = append(out, change.Field)
+		}
 	}
 	sa, sb := a.Security, b.Security
 	sa.CertPEM, sa.KeyPEM, sb.CertPEM, sb.KeyPEM = "", "", "", ""
 	if !eq(sa, sb) {
-		out = append(out, "security")
+		for _, change := range configChanges("security", configObject(sa), configObject(sb)) {
+			out = append(out, change.Field)
+		}
 	}
 	if !eq(a.Sniffing, b.Sniffing) {
-		out = append(out, "sniffing")
+		for _, change := range configChanges("sniffing", configObject(a.Sniffing), configObject(b.Sniffing)) {
+			out = append(out, change.Field)
+		}
 	}
 	if string(a.Extra) != string(b.Extra) {
 		out = append(out, "extra")

@@ -363,6 +363,10 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/templates/:id", s.deleteTemplate)
 	p.POST("/templates/:id/preview", s.previewTemplate)
 	p.POST("/templates/:id/apply", s.applyTemplate)
+	p.GET("/templates/:id/runs/:run", s.getTemplateRun)
+	p.GET("/templates/:id/runs", s.listTemplateRuns)
+	p.POST("/templates/:id/runs/:run/retry", s.retryTemplateRun)
+	p.POST("/templates/:id/runs/:run/reality-check", s.checkTemplateReality)
 	p.POST("/templates/:id/sync", s.syncTemplate)
 	p.POST("/templates/:id/bulk", s.bulkTemplateInbounds)
 
