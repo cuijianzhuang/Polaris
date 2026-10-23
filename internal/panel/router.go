@@ -171,6 +171,8 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/probe/targets/:id", s.deleteProbeTarget)
 	p.PUT("/probe/nodes/:id", s.setNodeStatusHidden)
 	p.GET("/nodes/:id/latency", s.nodeLatency)
+	p.GET("/nodes/:id/probe-policy", s.getNodeProbePolicy)
+	p.PUT("/nodes/:id/probe-policy", s.putNodeProbePolicy)
 	p.GET("/nodes/:id/provider", s.getNodeProvider)
 	p.PUT("/nodes/:id/provider", s.requireSudo, s.putNodeProvider)
 	p.POST("/nodes/:id/provider/refresh", s.refreshNodeProvider)

@@ -10,37 +10,39 @@ import (
 
 // Node is one managed server running an agent.
 type Node struct {
-	ID            string           `gorm:"primaryKey;size:32" json:"id"`
-	Name          string           `gorm:"size:64;uniqueIndex" json:"name"`
-	Address       string           `gorm:"size:255" json:"address"` // public host/IP used in subscriptions
-	Domain        string           `gorm:"size:255" json:"domain"`  // optional, for ACME and {node.domain}
-	Region        string           `gorm:"size:64" json:"region"`
-	Flag          string           `gorm:"size:8" json:"flag"` // ISO country code for emoji flags
-	Lat           *float64         `json:"lat"`                // optional map position, degrees; both or neither
-	Lng           *float64         `json:"lng"`
-	Labels        JSON[[]string]   `json:"labels"`
-	AgentVersion  string           `gorm:"size:32" json:"agentVersion"`
-	AgentFeatures JSON[[]string]   `json:"agentFeatures"`
-	Arch          string           `gorm:"size:16" json:"arch"`               // agent GOARCH, "" until a new agent reports it
-	Status        string           `gorm:"size:16;index" json:"status"`       // pending / online / offline / syncing / error
-	StatusHidden  bool             `gorm:"default:false" json:"statusHidden"` // left off the public status page
-	LastSeen      *time.Time       `json:"lastSeen"`
-	DesiredRev    int64            `json:"desiredRev"`
-	AppliedRev    int64            `json:"appliedRev"`
-	LastError     string           `gorm:"size:2000" json:"lastError"`
-	DefaultCore   model.CoreType   `gorm:"size:16" json:"defaultCore"`
-	TrafficRate   float64          `gorm:"default:1" json:"trafficRate"` // billing multiplier
-	System        JSON[SystemInfo] `json:"system"`
-	TokenHash     string           `gorm:"size:64;index" json:"-"`
-	TokenExpires  *time.Time       `json:"-"`
-	CertSerial    string           `gorm:"size:64" json:"-"`
-	Revoked       bool             `json:"revoked"`
-	SortOrder     int              `json:"sortOrder"`
-	DDNS          bool             `json:"ddns"`       // follow the agent-detected public IP
-	NoFirewall    bool             `json:"noFirewall"` // don't let the agent manage host firewall ports
-	PublicIPv4    string           `gorm:"size:64" json:"publicIpv4"`
-	PublicIPv6    string           `gorm:"size:64" json:"publicIpv6"`
-	IPChangedAt   *time.Time       `json:"ipChangedAt"`
+	ID            string              `gorm:"primaryKey;size:32" json:"id"`
+	Name          string              `gorm:"size:64;uniqueIndex" json:"name"`
+	Address       string              `gorm:"size:255" json:"address"` // public host/IP used in subscriptions
+	Domain        string              `gorm:"size:255" json:"domain"`  // optional, for ACME and {node.domain}
+	Region        string              `gorm:"size:64" json:"region"`
+	Flag          string              `gorm:"size:8" json:"flag"` // ISO country code for emoji flags
+	Lat           *float64            `json:"lat"`                // optional map position, degrees; both or neither
+	Lng           *float64            `json:"lng"`
+	Labels        JSON[[]string]      `json:"labels"`
+	AgentVersion  string              `gorm:"size:32" json:"agentVersion"`
+	AgentFeatures JSON[[]string]      `json:"agentFeatures"`
+	Arch          string              `gorm:"size:16" json:"arch"`               // agent GOARCH, "" until a new agent reports it
+	Status        string              `gorm:"size:16;index" json:"status"`       // pending / online / offline / syncing / error
+	StatusHidden  bool                `gorm:"default:false" json:"statusHidden"` // left off the public status page
+	ProbeMode     string              `gorm:"size:16" json:"probeMode"`          // empty/inherit, custom, off
+	ProbeTargets  JSON[[]ProbeTarget] `json:"-"`                                 // independent targets; never expose addresses in node/public views
+	LastSeen      *time.Time          `json:"lastSeen"`
+	DesiredRev    int64               `json:"desiredRev"`
+	AppliedRev    int64               `json:"appliedRev"`
+	LastError     string              `gorm:"size:2000" json:"lastError"`
+	DefaultCore   model.CoreType      `gorm:"size:16" json:"defaultCore"`
+	TrafficRate   float64             `gorm:"default:1" json:"trafficRate"` // billing multiplier
+	System        JSON[SystemInfo]    `json:"system"`
+	TokenHash     string              `gorm:"size:64;index" json:"-"`
+	TokenExpires  *time.Time          `json:"-"`
+	CertSerial    string              `gorm:"size:64" json:"-"`
+	Revoked       bool                `json:"revoked"`
+	SortOrder     int                 `json:"sortOrder"`
+	DDNS          bool                `json:"ddns"`       // follow the agent-detected public IP
+	NoFirewall    bool                `json:"noFirewall"` // don't let the agent manage host firewall ports
+	PublicIPv4    string              `gorm:"size:64" json:"publicIpv4"`
+	PublicIPv6    string              `gorm:"size:64" json:"publicIpv6"`
+	IPChangedAt   *time.Time          `json:"ipChangedAt"`
 	// Level is the tier a group needs to reach this node (0 = not tiered:
 	// only explicit grants apply).
 	Level int `json:"level"`

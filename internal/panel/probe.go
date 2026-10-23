@@ -3,6 +3,8 @@ package panel
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -73,29 +76,36 @@ func (s *Server) runLatencyProbes() {
 	defer s.probeBusy.Store(false)
 	s.seedProbeTargets()
 	ts := s.latencyTargets(true)
-	if len(ts) == 0 {
+	var nodes []store.Node
+	if err := s.st.DB.Where("status IN ?", []string{"online", "syncing", "error"}).Find(&nodes).Error; err != nil {
 		return
 	}
-	var ids []string
-	s.st.DB.Model(&store.Node{}).Where("status IN ?", []string{"online", "syncing", "error"}).Pluck("id", &ids)
 	ctx, cancel := context.WithTimeout(s.ctxBG(), 25*time.Second)
 	defer cancel()
 	sem := make(chan struct{}, probeParallel)
 	var wg sync.WaitGroup
-	for _, id := range ids {
+	for _, n := range nodes {
+		id := n.ID
 		if !s.hub.Online(id) {
 			continue
 		}
-		for _, t := range ts {
+		for _, t := range nodeProbeTargets(&n, ts) {
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				wg.Wait()
+				return
+			}
 			wg.Add(1)
-			sem <- struct{}{}
 			go func(nodeID string, t store.ProbeTarget) {
 				defer func() { <-sem; wg.Done() }()
 				ms, ok := s.probeOnce(ctx, nodeID, t.Addr)
 				if ctx.Err() != nil && !ok {
 					return // the job ran out of time: not the target's fault
 				}
-				s.recordLatency(nodeID, t.ID, ms, ok, time.Now())
+				if err := s.recordNodeProbe(nodeID, t, ms, ok, time.Now()); err != nil {
+					slog.Warn("record node probe", "node", nodeID, "error", err)
+				}
 			}(id, t)
 		}
 	}
@@ -108,7 +118,7 @@ func (s *Server) probeOnce(ctx context.Context, nodeID, addr string) (float64, b
 		return 0, false
 	}
 	ms, err := strconv.ParseFloat(res.Output, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(ms) || math.IsInf(ms, 0) || ms < 0 {
 		return 0, false
 	}
 	return max(ms, 0.1), true // the agent reports whole milliseconds; 0 means < 1 ms
@@ -116,21 +126,27 @@ func (s *Server) probeOnce(ctx context.Context, nodeID, addr string) (float64, b
 
 // recordLatency folds one probe into its slot.
 func (s *Server) recordLatency(nodeID, targetID string, ms float64, ok bool, now time.Time) {
+	_ = recordLatencyDB(s.st.DB, nodeID, targetID, ms, ok, now)
+}
+
+func recordLatencyDB(db *gorm.DB, nodeID, targetID string, ms float64, ok bool, now time.Time) error {
 	at := now.UTC().Truncate(latencySlot)
 	var m store.NodeLatency
-	if s.st.DB.First(&m, "node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Error != nil {
+	err := db.First(&m, "node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		m = store.NodeLatency{NodeID: nodeID, TargetID: targetID, At: at, Sent: 1, LastAt: now}
 		if ok {
 			m.SumMs, m.MinMs, m.MaxMs, m.LastMs = ms, ms, ms, ms
 		} else {
 			m.Lost = 1
 		}
-		if s.st.DB.Create(&m).Error == nil {
-			return
+		if err := db.Create(&m).Error; err != nil {
+			return err
 		}
-		if s.st.DB.First(&m, "node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Error != nil {
-			return
-		}
+		return nil
 	}
 	upd := map[string]any{"sent": m.Sent + 1, "last_at": now, "last_ms": 0.0}
 	if ok {
@@ -144,7 +160,7 @@ func (s *Server) recordLatency(nodeID, targetID string, ms float64, ok bool, now
 	} else {
 		upd["lost"] = m.Lost + 1
 	}
-	s.st.DB.Model(&store.NodeLatency{}).Where("node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Updates(upd)
+	return db.Model(&store.NodeLatency{}).Where("node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Updates(upd).Error
 }
 
 // latencyPoint is a slot as the UI draws it.
@@ -185,6 +201,18 @@ func (s *Server) latencySummary(nodeIDs []string, now time.Time) map[string]map[
 	if len(nodeIDs) == 0 {
 		return out
 	}
+	var nodes []store.Node
+	if err := s.st.DB.Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
+		return out
+	}
+	global := s.latencyTargets(true)
+	allowed := map[string]map[string]bool{}
+	for _, n := range nodes {
+		allowed[n.ID] = map[string]bool{}
+		for _, t := range nodeProbeTargets(&n, global) {
+			allowed[n.ID][t.ID] = true
+		}
+	}
 	from := now.UTC().Add(-2 * time.Hour).Truncate(latencySlot)
 	var ms []store.NodeLatency
 	s.st.DB.Where("node_id IN ? AND at >= ?", nodeIDs, from).Order("at").Find(&ms)
@@ -196,6 +224,9 @@ func (s *Server) latencySummary(nodeIDs []string, now time.Time) map[string]map[
 	hour := map[string]*acc{}
 	for i := range ms {
 		m := &ms[i]
+		if !allowed[m.NodeID][m.TargetID] {
+			continue
+		}
 		if out[m.NodeID] == nil {
 			out[m.NodeID] = map[string]*latencyNow{}
 		}
@@ -303,9 +334,15 @@ func (s *Server) probeOverview(public bool) gin.H {
 		nodes = append(nodes, p)
 	}
 	ts := s.latencyTargets(true)
-	tv := make([]probeTargetView, len(ts))
-	for i, t := range ts {
-		tv[i] = probeTargetView{ID: t.ID, Name: t.Name, Carrier: t.Carrier}
+	tv := make([]probeTargetView, 0, len(ts))
+	seenTargets := map[string]bool{}
+	for _, n := range ns {
+		for _, t := range nodeProbeTargets(&n, ts) {
+			if !seenTargets[t.ID] {
+				tv = append(tv, probeTargetView{ID: t.ID, Name: t.Name, Carrier: t.Carrier})
+				seenTargets[t.ID] = true
+			}
+		}
 	}
 	return gin.H{"nodes": nodes, "targets": tv, "at": now, "probeEnabled": s.probeEnabled()}
 }
@@ -323,15 +360,25 @@ func (s *Server) probePage(c *gin.Context) {
 
 // nodeLatency: GET /nodes/:id/latency?hours=24 (up to 7 days).
 func (s *Server) nodeLatency(c *gin.Context) {
+	var n store.Node
+	if err := s.st.DB.First(&n, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	targets := nodeProbeTargets(&n, s.latencyTargets(true))
+	ids := []string{}
+	for _, t := range targets {
+		ids = append(ids, t.ID)
+	}
 	hours, _ := strconv.Atoi(c.DefaultQuery("hours", "24"))
 	hours = min(max(hours, 1), 168)
 	var ms []store.NodeLatency
-	s.st.DB.Where("node_id = ? AND at >= ?", c.Param("id"), time.Now().Add(-time.Duration(hours)*time.Hour).UTC()).Order("at").Find(&ms)
+	s.st.DB.Where("node_id = ? AND target_id IN ? AND at >= ?", c.Param("id"), ids, time.Now().Add(-time.Duration(hours)*time.Hour).UTC()).Order("at").Find(&ms)
 	pts := make([]latencyPoint, len(ms))
 	for i := range ms {
 		pts[i] = pointOf(&ms[i])
 	}
-	c.JSON(http.StatusOK, gin.H{"slotSeconds": int(latencySlot.Seconds()), "targets": s.latencyTargets(false), "points": pts})
+	c.JSON(http.StatusOK, gin.H{"slotSeconds": int(latencySlot.Seconds()), "targets": nonNil(targets), "points": pts})
 }
 
 type probeTargetReq struct {
@@ -412,13 +459,29 @@ func (s *Server) updateProbeTarget(c *gin.Context) {
 	if r.Enabled != nil {
 		upd["enabled"] = *r.Enabled
 	}
-	if err := s.st.DB.Model(&t).Updates(upd).Error; err != nil {
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		// Serialize address changes with in-flight sample recording.
+		if err := tx.Model(&store.ProbeTarget{}).Where("id = ?", t.ID).UpdateColumn("id", gorm.Expr("id")).Error; err != nil {
+			return err
+		}
+		var current store.ProbeTarget
+		if err := tx.First(&current, "id = ?", t.ID).Error; err != nil {
+			return err
+		}
+		oldAddr := current.Addr
+		if err := tx.Model(&current).Updates(upd).Error; err != nil {
+			return err
+		}
+		if oldAddr != r.Addr {
+			return tx.Where("target_id = ?", t.ID).Delete(&store.NodeLatency{}).Error
+		}
+		return nil
+	})
+	if err != nil {
 		dbError(c, err)
 		return
 	}
-	if t.Addr != r.Addr { // old figures were for another address
-		s.st.DB.Where("target_id = ?", t.ID).Delete(&store.NodeLatency{})
-	}
+	s.statusCache.Store(nil)
 	s.auditCtx(c, "probe.target.update", r.Name, r.Addr)
 	s.st.DB.First(&t, "id = ?", t.ID)
 	c.JSON(http.StatusOK, t)
@@ -431,8 +494,20 @@ func (s *Server) deleteProbeTarget(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.st.DB.Delete(&t)
-	s.st.DB.Where("target_id = ?", t.ID).Delete(&store.NodeLatency{})
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&store.ProbeTarget{}).Where("id = ?", t.ID).UpdateColumn("id", gorm.Expr("id")).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&t).Error; err != nil {
+			return err
+		}
+		return tx.Where("target_id = ?", t.ID).Delete(&store.NodeLatency{}).Error
+	})
+	if err != nil {
+		dbError(c, err)
+		return
+	}
+	s.statusCache.Store(nil)
 	s.auditCtx(c, "probe.target.delete", t.Name, t.Addr)
 	c.Status(http.StatusNoContent)
 }
