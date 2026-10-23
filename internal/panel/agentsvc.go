@@ -201,7 +201,7 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	features := []string{}
 	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
-		if v == model.RelayAccessFeature {
+		if (v == model.RelayAccessFeature || v == model.OutboundIPFeature) && !contains(features, v) {
 			features = append(features, v)
 		}
 	}
@@ -210,12 +210,18 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	var spec struct {
 		AccessRules []json.RawMessage `json:"accessRules"`
+		Inbounds    []model.Inbound   `json:"inbounds"`
 	}
 	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if len(spec.AccessRules) > 0 && len(features) == 0 {
+	if len(spec.AccessRules) > 0 && !contains(features, model.RelayAccessFeature) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持中转访问保护的新版 Agent"))
+	}
+	for _, in := range spec.Inbounds {
+		if in.Enabled && !in.OutboundIPStrategy.IsAuto() && !contains(features, model.OutboundIPFeature) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持出站 IP 策略的新版 Agent"))
+		}
 	}
 	return connect.NewResponse(&polarisv1.GetSpecResponse{Rev: rev, SpecJson: []byte(raw)}), nil
 }

@@ -190,18 +190,19 @@ type SniffSpec struct {
 
 // Inbound is one listener on one node, owned by exactly one core.
 type Inbound struct {
-	ID        string          `json:"id"`
-	NodeID    string          `json:"nodeId"`
-	Tag       string          `json:"tag"`
-	Core      CoreType        `json:"core"`
-	Listen    string          `json:"listen,omitempty"`
-	Port      int             `json:"port"`
-	Protocol  ProtocolSpec    `json:"protocol"`
-	Transport TransportSpec   `json:"transport"`
-	Security  SecuritySpec    `json:"security"`
-	Sniffing  SniffSpec       `json:"sniffing"`
-	Extra     json.RawMessage `json:"extra,omitempty"` // escape hatch: merged verbatim into the native config
-	Enabled   bool            `json:"enabled"`
+	ID                 string             `json:"id"`
+	NodeID             string             `json:"nodeId"`
+	Tag                string             `json:"tag"`
+	Core               CoreType           `json:"core"`
+	Listen             string             `json:"listen,omitempty"`
+	Port               int                `json:"port"`
+	Protocol           ProtocolSpec       `json:"protocol"`
+	Transport          TransportSpec      `json:"transport"`
+	Security           SecuritySpec       `json:"security"`
+	Sniffing           SniffSpec          `json:"sniffing"`
+	Extra              json.RawMessage    `json:"extra,omitempty"` // escape hatch: merged verbatim into the native config
+	OutboundIPStrategy OutboundIPStrategy `json:"outboundIPStrategy,omitempty"`
+	Enabled            bool               `json:"enabled"`
 
 	// Users is populated only inside a NodeSpec: the users authorised on this
 	// inbound at this revision.
@@ -261,6 +262,20 @@ func (in *Inbound) Normalize() {
 
 // Validate checks structural consistency that does not depend on a core.
 func (in *Inbound) Validate() error {
+	if !in.OutboundIPStrategy.IsAuto() && len(in.Extra) > 0 {
+		var extra map[string]any
+		if err := json.Unmarshal(in.Extra, &extra); err != nil {
+			return err
+		}
+		for _, key := range []string{"tag", "detour"} {
+			if _, ok := extra[key]; ok {
+				return fmt.Errorf("outbound IP strategy cannot override inbound %s", key)
+			}
+		}
+	}
+	if err := in.OutboundIPStrategy.Validate(); err != nil {
+		return err
+	}
 	if in.Tag == "" {
 		return fmt.Errorf("tag is required")
 	}

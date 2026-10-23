@@ -402,7 +402,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			continue
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
-		req.Header().Set("X-Polaris-Agent-Features", model.RelayAccessFeature)
+		req.Header().Set("X-Polaris-Agent-Features", model.RelayAccessFeature+","+model.OutboundIPFeature)
 		resp, err := a.client.GetSpec(ctx, req)
 		if err != nil {
 			a.log.Error("fetch spec", "rev", rev, "err", err)

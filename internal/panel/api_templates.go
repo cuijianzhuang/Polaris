@@ -37,11 +37,31 @@ func (s *Server) listTemplates(c *gin.Context) {
 }
 
 type templateReq struct {
-	Name        string               `json:"name" binding:"required"`
-	Description string               `json:"description"`
-	Items       []store.TemplateItem `json:"items" binding:"required"`
-	Groups      []string             `json:"groups"`
-	BoundLabels []string             `json:"boundLabels"`
+	ipStrategies []bool
+	Name         string               `json:"name" binding:"required"`
+	Description  string               `json:"description"`
+	Items        []store.TemplateItem `json:"items" binding:"required"`
+	Groups       []string             `json:"groups"`
+	BoundLabels  []string             `json:"boundLabels"`
+}
+
+// Keep newly added strategy fields when older template editors omit them.
+func (r *templateReq) UnmarshalJSON(data []byte) error {
+	type plain templateReq
+	if err := json.Unmarshal(data, (*plain)(r)); err != nil {
+		return err
+	}
+	var raw struct {
+		Items []map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	r.ipStrategies = make([]bool, len(raw.Items))
+	for i, item := range raw.Items {
+		_, r.ipStrategies[i] = item["outboundIPStrategy"]
+	}
+	return nil
 }
 
 func (s *Server) createTemplate(c *gin.Context) {
@@ -74,6 +94,16 @@ func (s *Server) updateTemplate(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
+	}
+	for i := range req.Items {
+		if i < len(req.ipStrategies) && !req.ipStrategies[i] {
+			for _, old := range t.Items.V {
+				if old.Key == req.Items[i].Key {
+					req.Items[i].OutboundIPStrategy = old.OutboundIPStrategy
+					break
+				}
+			}
+		}
 	}
 	if t.Builtin {
 		badRequest(c, fmt.Errorf("内置模板请另存为自定义模板"))
@@ -266,7 +296,7 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 			continue
 		}
 		m := model.Inbound{NodeID: node.ID, Tag: tag, Core: item.Core, Protocol: item.Protocol, Transport: item.Transport,
-			Security: item.Security, Sniffing: item.Sniffing, Enabled: true}
+			Security: item.Security, Sniffing: item.Sniffing, Enabled: true, OutboundIPStrategy: item.OutboundIPStrategy}
 		if override, ok := opt.RealityOverrides[node.ID][item.Key]; ok && m.Security.Type == model.SecReality {
 			m.Security.RealityDest, m.Security.RealityServerNames = override.Dest, append([]string(nil), override.ServerNames...)
 		}
@@ -319,6 +349,11 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 			}
 		} else if want != "" && want != model.CoreAuto && want != m.Core {
 			pi.Result, pi.Reason = "fix", "改派 "+string(m.Core)
+		}
+		if err := s.checkInboundOutboundIP(node, &m); err != nil {
+			pi.Result, pi.Reason = "skip", err.Error()
+			np.Items = append(np.Items, pi)
+			continue
 		}
 		// Port policy.
 		port := 0
@@ -786,6 +821,16 @@ func (s *Server) syncTemplate(c *gin.Context) {
 			} else {
 				fields = append(fields, "port")
 				next.Port = item.Port.Fixed
+			}
+			details = append(details, d)
+		}
+		if cur.OutboundIPStrategy != item.OutboundIPStrategy && (selected == nil || selected["outboundIPStrategy"]) {
+			d := templateFieldChange{Field: "outboundIPStrategy", Before: cur.OutboundIPStrategy, After: item.OutboundIPStrategy, Kept: over["outboundIPStrategy"]}
+			if d.Kept {
+				kept = append(kept, d.Field)
+			} else {
+				fields = append(fields, d.Field)
+				next.OutboundIPStrategy = item.OutboundIPStrategy
 			}
 			details = append(details, d)
 		}

@@ -104,29 +104,30 @@ type Core struct {
 
 // Inbound is the persisted form of model.Inbound.
 type Inbound struct {
-	ID               string                    `gorm:"primaryKey;size:32" json:"id"`
-	NodeID           string                    `gorm:"size:32;index;uniqueIndex:idx_inbound_node_tag" json:"nodeId"`
-	Core             model.CoreType            `gorm:"size:16" json:"core"`
-	Tag              string                    `gorm:"size:64;uniqueIndex:idx_inbound_node_tag" json:"tag"`
-	Listen           string                    `gorm:"size:64" json:"listen"`
-	Port             int                       `json:"port"`
-	Protocol         JSON[model.ProtocolSpec]  `json:"protocol"`
-	Transport        JSON[model.TransportSpec] `json:"transport"`
-	Security         JSON[model.SecuritySpec]  `json:"security"`
-	Sniffing         JSON[model.SniffSpec]     `json:"sniffing"`
-	Extra            json.RawMessage           `gorm:"type:text;serializer:rawjson" json:"extra,omitempty"`
-	Enabled          bool                      `json:"enabled"`
-	TemplateID       string                    `gorm:"size:32;index" json:"templateId,omitempty"`
-	TemplateItemKey  string                    `gorm:"size:64" json:"templateItemKey,omitempty"` // which template item generated it
-	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
-	ServiceOnly      bool                      `json:"serviceOnly"`                    // internal service inbound, hidden from subscriptions
-	RelayOnly        bool                      `gorm:"default:false" json:"relayOnly"` // publication policy; keep only relay endpoints
-	RelayAccess      JSON[RelayAccessPolicy]   `json:"relayAccess"`
-	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
-	SpeedLimitMbps   int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
-	Remark           string                    `gorm:"size:255" json:"remark"`
-	CreatedAt        time.Time                 `json:"createdAt"`
-	UpdatedAt        time.Time                 `json:"updatedAt"`
+	ID                 string                    `gorm:"primaryKey;size:32" json:"id"`
+	NodeID             string                    `gorm:"size:32;index;uniqueIndex:idx_inbound_node_tag" json:"nodeId"`
+	Core               model.CoreType            `gorm:"size:16" json:"core"`
+	Tag                string                    `gorm:"size:64;uniqueIndex:idx_inbound_node_tag" json:"tag"`
+	Listen             string                    `gorm:"size:64" json:"listen"`
+	Port               int                       `json:"port"`
+	Protocol           JSON[model.ProtocolSpec]  `json:"protocol"`
+	Transport          JSON[model.TransportSpec] `json:"transport"`
+	Security           JSON[model.SecuritySpec]  `json:"security"`
+	Sniffing           JSON[model.SniffSpec]     `json:"sniffing"`
+	Extra              json.RawMessage           `gorm:"type:text;serializer:rawjson" json:"extra,omitempty"`
+	Enabled            bool                      `json:"enabled"`
+	TemplateID         string                    `gorm:"size:32;index" json:"templateId,omitempty"`
+	TemplateItemKey    string                    `gorm:"size:64" json:"templateItemKey,omitempty"` // which template item generated it
+	OverriddenFields   JSON[[]string]            `json:"overriddenFields"`
+	ServiceOnly        bool                      `json:"serviceOnly"`                    // internal service inbound, hidden from subscriptions
+	RelayOnly          bool                      `gorm:"default:false" json:"relayOnly"` // publication policy; keep only relay endpoints
+	OutboundIPStrategy model.OutboundIPStrategy  `gorm:"size:24" json:"outboundIPStrategy"`
+	RelayAccess        JSON[RelayAccessPolicy]   `json:"relayAccess"`
+	OutboundTag        string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
+	SpeedLimitMbps     int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
+	Remark             string                    `gorm:"size:255" json:"remark"`
+	CreatedAt          time.Time                 `json:"createdAt"`
+	UpdatedAt          time.Time                 `json:"updatedAt"`
 }
 
 type RelayAccessPolicy struct {
@@ -678,17 +679,18 @@ type TemplateRun struct {
 
 // TemplateItem describes one inbound a template generates.
 type TemplateItem struct {
-	Key        string              `json:"key"` // stable id within the template
-	Name       string              `json:"name,omitempty"`
-	Core       model.CoreType      `json:"core"` // concrete core or auto
-	Protocol   model.ProtocolSpec  `json:"protocol"`
-	Transport  model.TransportSpec `json:"transport"`
-	Security   model.SecuritySpec  `json:"security"`
-	Sniffing   model.SniffSpec     `json:"sniffing"`
-	Port       PortPolicy          `json:"port"`
-	TagPattern string              `json:"tagPattern"` // e.g. "{node.name}-{protocol}"
-	Cert       string              `json:"cert"`       // acme / wildcard:<certId> / selfsigned / none
-	Endpoints  []EndpointTemplate  `json:"endpoints"`
+	OutboundIPStrategy model.OutboundIPStrategy `json:"outboundIPStrategy,omitempty"`
+	Key                string                   `json:"key"` // stable id within the template
+	Name               string                   `json:"name,omitempty"`
+	Core               model.CoreType           `json:"core"` // concrete core or auto
+	Protocol           model.ProtocolSpec       `json:"protocol"`
+	Transport          model.TransportSpec      `json:"transport"`
+	Security           model.SecuritySpec       `json:"security"`
+	Sniffing           model.SniffSpec          `json:"sniffing"`
+	Port               PortPolicy               `json:"port"`
+	TagPattern         string                   `json:"tagPattern"` // e.g. "{node.name}-{protocol}"
+	Cert               string                   `json:"cert"`       // acme / wildcard:<certId> / selfsigned / none
+	Endpoints          []EndpointTemplate       `json:"endpoints"`
 }
 
 // PortPolicy picks ports per node.

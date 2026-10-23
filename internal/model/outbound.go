@@ -41,13 +41,16 @@ type InboundRef struct {
 
 // Outbound is a node egress. Detour chains outbounds into a multi-hop path.
 type Outbound struct {
-	ID       string          `json:"id"`
-	NodeID   string          `json:"nodeId"`
-	Tag      string          `json:"tag"`
-	Type     OutboundType    `json:"type"`
-	Settings json.RawMessage `json:"settings,omitempty"`
-	NodeRef  *InboundRef     `json:"nodeRef,omitempty"`
-	Detour   string          `json:"detour,omitempty"`
+	// DialIPStrategy is set by the renderer plan, never accepted from API JSON.
+	DialIPStrategy OutboundIPStrategy `json:"-"`
+	DialUDP        bool               `json:"-"`
+	ID             string             `json:"id"`
+	NodeID         string             `json:"nodeId"`
+	Tag            string             `json:"tag"`
+	Type           OutboundType       `json:"type"`
+	Settings       json.RawMessage    `json:"settings,omitempty"`
+	NodeRef        *InboundRef        `json:"nodeRef,omitempty"`
+	Detour         string             `json:"detour,omitempty"`
 }
 
 // OutboundSettings is the typed view of Outbound.Settings.
@@ -119,15 +122,17 @@ func (o *Outbound) ParseSettings() (OutboundSettings, error) {
 
 // RouteMatch is the condition part of a routing rule. All set fields must match.
 type RouteMatch struct {
-	Inbound       []string `json:"inbound,omitempty"`
-	UserGroups    []string `json:"userGroups,omitempty"` // resolved into Users by the panel
-	Users         []string `json:"users,omitempty"`
-	Domain        []string `json:"domain,omitempty"`
-	DomainSuffix  []string `json:"domainSuffix,omitempty"`
-	DomainKeyword []string `json:"domainKeyword,omitempty"`
-	Geosite       []string `json:"geosite,omitempty"`
-	GeoIP         []string `json:"geoip,omitempty"`
-	IPCIDR        []string `json:"ipCidr,omitempty"`
+	// NativeIPVersion is an internal sing-box strict-family guard.
+	NativeIPVersion int      `json:"-"`
+	Inbound         []string `json:"inbound,omitempty"`
+	UserGroups      []string `json:"userGroups,omitempty"` // resolved into Users by the panel
+	Users           []string `json:"users,omitempty"`
+	Domain          []string `json:"domain,omitempty"`
+	DomainSuffix    []string `json:"domainSuffix,omitempty"`
+	DomainKeyword   []string `json:"domainKeyword,omitempty"`
+	Geosite         []string `json:"geosite,omitempty"`
+	GeoIP           []string `json:"geoip,omitempty"`
+	IPCIDR          []string `json:"ipCidr,omitempty"`
 	// RuleSets names panel rule sets; the panel expands them into the
 	// fields above before the spec reaches a node.
 	RuleSets []string `json:"ruleSets,omitempty"`

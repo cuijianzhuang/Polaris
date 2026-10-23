@@ -35,14 +35,15 @@ type Adapter struct {
 	opt  core.Options
 	proc *core.Process
 
-	mu      sync.Mutex
-	last    *model.NodeSpec
-	api     *core.APIClient
-	service string
-	stats   bool                // binary built with with_v2ray_api
-	secret  string              // Clash API secret (builds without v2ray_api)
-	conns   map[string][2]int64 // Clash API per-connection counters at last poll
-	online  *onlineTracker      // users and source IPs read from the connection log lines
+	mu            sync.Mutex
+	egressOrigins map[string]string
+	last          *model.NodeSpec
+	api           *core.APIClient
+	service       string
+	stats         bool                // binary built with with_v2ray_api
+	secret        string              // Clash API secret (builds without v2ray_api)
+	conns         map[string][2]int64 // Clash API per-connection counters at last poll
+	online        *onlineTracker      // users and source IPs read from the connection log lines
 }
 
 // New constructs a sing-box adapter.
@@ -92,7 +93,12 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	if core.VersionAtLeast(v, "1.12.0") {
 		b.Add([]model.Protocol{model.ProtoAnyTLS}, []model.Transport{model.TransTCP}, []model.Security{model.SecTLS})
 	}
+	var features []string
+	if core.VersionAtLeast(v, "1.12.0") {
+		features = append(features, model.FeatureOutboundIP)
+	}
 	return model.CapSet{
+		Features: features,
 		Core:     model.CoreSingbox,
 		Version:  v,
 		Combos:   b.Combos(),
@@ -108,6 +114,12 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 
 // Render translates the sing-box-hosted part of a NodeSpec into sing-box JSON.
 func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
+	original := spec
+	egress, err := core.PlanEgress(spec, model.CoreSingbox, a.opt.Version, a.opt.Limit)
+	if err != nil {
+		return nil, err
+	}
+	spec = egress.Spec
 	ins := spec.InboundsFor(model.CoreSingbox)
 	var inbounds []any
 	var users []string
@@ -139,12 +151,14 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	if lim != nil {
 		// Limited users come back from the agent's limiter here, as "<id>#lim".
 		var us []any
-		for _, u := range lim.Users {
+		for _, binding := range lim.Bindings {
+			u := binding.WireUser
 			us = append(us, map[string]any{"username": u + model.LimitAlias, "password": lim.Secret})
 		}
 		inbounds = append(inbounds, map[string]any{"type": "socks", "tag": model.LimitInbound,
 			"listen": lim.ReentryHost, "listen_port": lim.ReentryPort, "users": us})
-		for _, u := range lim.Users {
+		for _, binding := range lim.Bindings {
+			u := binding.WireUser
 			outs = append(outs, map[string]any{"type": "socks", "tag": model.LimitOutboundPrefix + u, "server": lim.LimiterHost,
 				"server_port": lim.LimiterPort, "version": "5", "username": u, "password": lim.Secret})
 		}
@@ -185,8 +199,13 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			at = 1
 		}
 		add := []any{}
-		for _, u := range lim.Users {
-			add = append(add, map[string]any{"auth_user": []string{u}, "outbound": model.LimitOutboundPrefix + u})
+		for _, binding := range lim.Bindings {
+			u := binding.WireUser
+			r := map[string]any{"auth_user": []string{binding.User}, "outbound": model.LimitOutboundPrefix + u}
+			if binding.Inbound != "" {
+				r["inbound"] = []string{binding.Inbound}
+			}
+			add = append(add, r)
 		}
 		add = append(add, map[string]any{"inbound": []string{model.LimitInbound}, "action": "sniff"})
 		rules = append(append(append([]any(nil), rules[:at]...), add...), rules[at:]...)
@@ -221,12 +240,14 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	if len(endpoints) > 0 {
 		cfg["endpoints"] = endpoints
 	}
+	applyOutboundIPs(cfg, spec)
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	a.mu.Lock()
-	a.last = spec.Clone()
+	a.last = original.Clone()
+	a.egressOrigins = egress.OutboundOrigins
 	a.mu.Unlock()
 	return out, nil
 }
@@ -560,6 +581,9 @@ func renderRules(rules []model.RouteRule) (out []any, ruleSets []any, final stri
 	for _, r := range rs {
 		m := r.Match
 		x := map[string]any{}
+		if m.NativeIPVersion != 0 {
+			x["ip_version"] = m.NativeIPVersion
+		}
 		setIf := func(k string, v []string) {
 			if len(v) > 0 {
 				x[k] = v
@@ -728,9 +752,10 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	}
 	a.mu.Lock()
 	a.service = svc
+	origins := a.egressOrigins
 	a.mu.Unlock()
 	var out []model.TrafficDelta
-	for id, v := range core.AllTraffic(stats) {
+	for id, v := range core.EgressTraffic(core.AllTraffic(stats), origins) {
 		if v[0] != 0 || v[1] != 0 {
 			out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
 		}

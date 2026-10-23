@@ -65,6 +65,14 @@ func (c CapSet) SupportsInbound(in *Inbound) error {
 		}
 		return fmt.Errorf("%s %s does not support %s", c.Core, c.Version, what)
 	}
+	if err := in.OutboundIPStrategy.Validate(); err != nil {
+		return err
+	}
+	if !in.OutboundIPStrategy.IsAuto() {
+		if err := need(FeatureOutboundIP, "per-inbound outbound IP strategy"); err != nil {
+			return err
+		}
+	}
 	if in.Protocol.Decryption != "" && in.Protocol.Decryption != "none" {
 		if err := need(FeatureVLESSEncryption, "VLESS Encryption"); err != nil {
 			return err
@@ -137,6 +145,7 @@ func (b *CapBuilder) Combos() []Combo { return b.combos }
 
 // Optional inbound features a core may list in CapSet.Features.
 const (
+	FeatureOutboundIP      = "outbound-ip"
 	FeatureVLESSEncryption = "vless-encryption"
 	FeatureRealityMLDSA65  = "reality-mldsa65"
 	FeatureProxyProtocol   = "proxy-protocol"

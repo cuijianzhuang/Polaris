@@ -164,6 +164,8 @@ func (s *Server) getDNS(c *gin.Context) {
 }
 
 func (s *Server) putDNS(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	scope := c.Param("scope")
 	var req struct {
 		Mode string        `json:"mode"`
@@ -196,6 +198,10 @@ func (s *Server) putDNS(c *gin.Context) {
 			badRequest(c, err)
 			return
 		}
+	}
+	if err := s.checkOutboundIPDNSChange(scope, req.Mode, &req.Spec); err != nil {
+		badRequest(c, err)
+		return
 	}
 	if !global && req.Mode == "inherit" {
 		s.st.DB.Delete(&store.DNSConfig{}, "scope = ?", scope)

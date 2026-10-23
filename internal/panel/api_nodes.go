@@ -439,7 +439,7 @@ func (s *Server) renderNodeCore(c *gin.Context) {
 			version = cs.Version
 		}
 	}
-	ad, err := core.New(t, core.Options{Version: version})
+	ad, err := core.New(t, core.Options{Version: version, Limit: outboundIPPreviewWire()})
 	if err != nil {
 		badRequest(c, err)
 		return
