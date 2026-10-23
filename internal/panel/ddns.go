@@ -27,6 +27,7 @@ func (s *Server) observePublicIP(n *store.Node, v4, v6 string) {
 		upd["public_ipv6"] = v6
 	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(upd)
+	s.dirtyRelayPaths(n.ID)
 	first := n.PublicIPv4 == "" && n.PublicIPv6 == ""
 	if !first {
 		s.audit("system", "node.ip_changed", n.Name, fmt.Sprintf("v4 %s→%s v6 %s→%s", n.PublicIPv4, v4, n.PublicIPv6, v6), "")

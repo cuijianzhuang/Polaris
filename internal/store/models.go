@@ -10,36 +10,37 @@ import (
 
 // Node is one managed server running an agent.
 type Node struct {
-	ID           string           `gorm:"primaryKey;size:32" json:"id"`
-	Name         string           `gorm:"size:64;uniqueIndex" json:"name"`
-	Address      string           `gorm:"size:255" json:"address"` // public host/IP used in subscriptions
-	Domain       string           `gorm:"size:255" json:"domain"`  // optional, for ACME and {node.domain}
-	Region       string           `gorm:"size:64" json:"region"`
-	Flag         string           `gorm:"size:8" json:"flag"` // ISO country code for emoji flags
-	Lat          *float64         `json:"lat"`                // optional map position, degrees; both or neither
-	Lng          *float64         `json:"lng"`
-	Labels       JSON[[]string]   `json:"labels"`
-	AgentVersion string           `gorm:"size:32" json:"agentVersion"`
-	Arch         string           `gorm:"size:16" json:"arch"`               // agent GOARCH, "" until a new agent reports it
-	Status       string           `gorm:"size:16;index" json:"status"`       // pending / online / offline / syncing / error
-	StatusHidden bool             `gorm:"default:false" json:"statusHidden"` // left off the public status page
-	LastSeen     *time.Time       `json:"lastSeen"`
-	DesiredRev   int64            `json:"desiredRev"`
-	AppliedRev   int64            `json:"appliedRev"`
-	LastError    string           `gorm:"size:2000" json:"lastError"`
-	DefaultCore  model.CoreType   `gorm:"size:16" json:"defaultCore"`
-	TrafficRate  float64          `gorm:"default:1" json:"trafficRate"` // billing multiplier
-	System       JSON[SystemInfo] `json:"system"`
-	TokenHash    string           `gorm:"size:64;index" json:"-"`
-	TokenExpires *time.Time       `json:"-"`
-	CertSerial   string           `gorm:"size:64" json:"-"`
-	Revoked      bool             `json:"revoked"`
-	SortOrder    int              `json:"sortOrder"`
-	DDNS         bool             `json:"ddns"`       // follow the agent-detected public IP
-	NoFirewall   bool             `json:"noFirewall"` // don't let the agent manage host firewall ports
-	PublicIPv4   string           `gorm:"size:64" json:"publicIpv4"`
-	PublicIPv6   string           `gorm:"size:64" json:"publicIpv6"`
-	IPChangedAt  *time.Time       `json:"ipChangedAt"`
+	ID            string           `gorm:"primaryKey;size:32" json:"id"`
+	Name          string           `gorm:"size:64;uniqueIndex" json:"name"`
+	Address       string           `gorm:"size:255" json:"address"` // public host/IP used in subscriptions
+	Domain        string           `gorm:"size:255" json:"domain"`  // optional, for ACME and {node.domain}
+	Region        string           `gorm:"size:64" json:"region"`
+	Flag          string           `gorm:"size:8" json:"flag"` // ISO country code for emoji flags
+	Lat           *float64         `json:"lat"`                // optional map position, degrees; both or neither
+	Lng           *float64         `json:"lng"`
+	Labels        JSON[[]string]   `json:"labels"`
+	AgentVersion  string           `gorm:"size:32" json:"agentVersion"`
+	AgentFeatures JSON[[]string]   `json:"agentFeatures"`
+	Arch          string           `gorm:"size:16" json:"arch"`               // agent GOARCH, "" until a new agent reports it
+	Status        string           `gorm:"size:16;index" json:"status"`       // pending / online / offline / syncing / error
+	StatusHidden  bool             `gorm:"default:false" json:"statusHidden"` // left off the public status page
+	LastSeen      *time.Time       `json:"lastSeen"`
+	DesiredRev    int64            `json:"desiredRev"`
+	AppliedRev    int64            `json:"appliedRev"`
+	LastError     string           `gorm:"size:2000" json:"lastError"`
+	DefaultCore   model.CoreType   `gorm:"size:16" json:"defaultCore"`
+	TrafficRate   float64          `gorm:"default:1" json:"trafficRate"` // billing multiplier
+	System        JSON[SystemInfo] `json:"system"`
+	TokenHash     string           `gorm:"size:64;index" json:"-"`
+	TokenExpires  *time.Time       `json:"-"`
+	CertSerial    string           `gorm:"size:64" json:"-"`
+	Revoked       bool             `json:"revoked"`
+	SortOrder     int              `json:"sortOrder"`
+	DDNS          bool             `json:"ddns"`       // follow the agent-detected public IP
+	NoFirewall    bool             `json:"noFirewall"` // don't let the agent manage host firewall ports
+	PublicIPv4    string           `gorm:"size:64" json:"publicIpv4"`
+	PublicIPv6    string           `gorm:"size:64" json:"publicIpv6"`
+	IPChangedAt   *time.Time       `json:"ipChangedAt"`
 	// Level is the tier a group needs to reach this node (0 = not tiered:
 	// only explicit grants apply).
 	Level int `json:"level"`
@@ -120,11 +121,18 @@ type Inbound struct {
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
 	ServiceOnly      bool                      `json:"serviceOnly"`                    // internal service inbound, hidden from subscriptions
 	RelayOnly        bool                      `gorm:"default:false" json:"relayOnly"` // publication policy; keep only relay endpoints
-	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"`     // route all traffic of this inbound to an outbound
-	SpeedLimitMbps   int                       `json:"speedLimitMbps"`                 // port bandwidth cap on the node (tc), 0 = none
+	RelayAccess      JSON[RelayAccessPolicy]   `json:"relayAccess"`
+	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
+	SpeedLimitMbps   int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
 	Remark           string                    `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time                 `json:"createdAt"`
 	UpdatedAt        time.Time                 `json:"updatedAt"`
+}
+
+type RelayAccessPolicy struct {
+	Enabled         bool                `json:"enabled"`
+	ProxyProtocol   int                 `json:"proxyProtocol"`
+	SourceOverrides map[string][]string `json:"sourceOverrides,omitempty"`
 }
 
 // User is a panel user with quota.

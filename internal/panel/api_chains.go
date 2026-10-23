@@ -113,6 +113,9 @@ func (s *Server) validateChain(req *chainReq, chainID string) error {
 	if err := s.st.DB.First(&landing, "id = ? AND node_id = ?", last.InboundID, last.NodeID).Error; err != nil {
 		return fmt.Errorf("落地入站不存在")
 	}
+	if landing.RelayAccess.V.Enabled {
+		return fmt.Errorf("该落地已启用来源保护，请使用入站一键中转接口创建受管线路")
+	}
 	for i, h := range req.Hops[:len(req.Hops)-1] {
 		switch req.Mode {
 		case "l4":

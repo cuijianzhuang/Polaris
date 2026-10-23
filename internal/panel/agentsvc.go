@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/api/gen/polaris/v1/polarisv1connect"
+	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -196,6 +198,24 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	raw, err := a.s.st.Box.Open(r.Spec)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	features := []string{}
+	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
+		if v == model.RelayAccessFeature {
+			features = append(features, v)
+		}
+	}
+	if err := a.s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Update("agent_features", store.NewJSON(features)).Error; err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	var spec struct {
+		AccessRules []json.RawMessage `json:"accessRules"`
+	}
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if len(spec.AccessRules) > 0 && len(features) == 0 {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持中转访问保护的新版 Agent"))
 	}
 	return connect.NewResponse(&polarisv1.GetSpecResponse{Rev: rev, SpecJson: []byte(raw)}), nil
 }

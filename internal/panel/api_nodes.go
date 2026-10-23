@@ -223,6 +223,7 @@ func (s *Server) updateNode(c *gin.Context) {
 		s.MarkDirty("firewall management changed", n.ID)
 	}
 	if addrChanged {
+		s.dirtyRelayPaths(n.ID)
 		// Upstream nodes reference this node's address in their outbounds/forwards.
 		var ids []string
 		s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", n.ID).Pluck("id", &ids)

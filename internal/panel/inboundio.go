@@ -27,7 +27,8 @@ func (s *Server) exportInbound(c *gin.Context) {
 	enabled, relayOnly := row.Enabled, row.RelayOnly
 	req := inboundReq{NodeID: row.NodeID, Core: m.Core, Tag: m.Tag, Listen: m.Listen, Port: m.Port, Protocol: m.Protocol,
 		Transport: m.Transport, Security: m.Security, Sniffing: m.Sniffing, Extra: m.Extra, Enabled: &enabled, RelayOnly: &relayOnly,
-		Remark: row.Remark, GroupIDs: groups, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps}
+		RelayAccess: &row.RelayAccess.V,
+		Remark:      row.Remark, GroupIDs: groups, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps}
 	req.Security.CertPEM, req.Security.KeyPEM = "", ""
 	s.auditCtx(c, "inbound.export", row.Tag, "")
 	c.Header("Content-Disposition", "attachment; filename=inbound-"+row.Tag+".json")
@@ -87,7 +88,7 @@ func (s *Server) cloneInbound(c *gin.Context) {
 			}
 			m.Port++
 		}
-		r, err := s.insertInbound(&node, &m, inboundMeta{Remark: row.Remark, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps, RelayOnly: row.RelayOnly}, groups)
+		r, err := s.insertInbound(&node, &m, inboundMeta{Remark: row.Remark, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps, RelayOnly: row.RelayOnly, RelayAccess: row.RelayAccess.V}, groups)
 		if err != nil {
 			out = append(out, result{Node: node.Name, Error: err.Error()})
 			continue

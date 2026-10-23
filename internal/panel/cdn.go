@@ -213,6 +213,8 @@ func (s *Server) createCDN(c *gin.Context) {
 }
 
 func (s *Server) updateCDN(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var p store.CDNProfile
 	if err := s.st.DB.First(&p, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -222,6 +224,19 @@ func (s *Server) updateCDN(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
+	}
+	if req.CaddyFronting {
+		var ins []store.Inbound
+		if err := s.st.DB.Model(&store.Inbound{}).Joins("JOIN endpoints ep ON ep.inbound_id = inbounds.id").Where("ep.cdn_profile_id = ?", p.ID).Find(&ins).Error; err != nil {
+			dbError(c, err)
+			return
+		}
+		for _, in := range ins {
+			if in.RelayAccess.V.Enabled {
+				badRequest(c, fmt.Errorf("关联入站已开启来源限制，不能启用 Caddy 共用回源"))
+				return
+			}
+		}
 	}
 	req.apply(&p, s.st.Box.Seal)
 	if err := s.st.DB.Save(&p).Error; err != nil {

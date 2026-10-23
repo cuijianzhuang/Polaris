@@ -60,10 +60,10 @@ type inboundRelayView struct {
 }
 
 func relayInputHash(in store.Inbound, nodes map[string]store.Node, ch *store.Chain) string {
-	values := []any{in.ID, in.NodeID, in.Tag, in.Port, in.Listen, in.Enabled, in.ServiceOnly, in.Protocol, in.Transport, in.Security, in.Extra}
+	values := []any{in.ID, in.NodeID, in.Tag, in.Port, in.Listen, in.Enabled, in.ServiceOnly, in.Protocol, in.Transport, in.Security, in.Extra, in.RelayAccess}
 	for _, h := range ch.Hops.V {
 		n := nodes[h.NodeID]
-		values = append(values, []any{n.ID, n.Revoked, nodeHost(&n)})
+		values = append(values, []any{n.ID, n.Revoked, nodeHost(&n), n.PublicIPv4, n.PublicIPv6, n.AgentFeatures})
 	}
 	return templateHash(values)
 }
@@ -180,7 +180,7 @@ func (s *Server) planInboundRelay(c *gin.Context, req relaySetupRequest) (*relay
 		return nil, nil, nil, fmt.Errorf("仅本机监听的入站请使用 tunnel 模式")
 	}
 	// An accepting PROXY protocol inbound cannot receive a plain tunnel stream.
-	if in.Transport.V.AcceptProxyProtocol {
+	if in.Transport.V.AcceptProxyProtocol && in.RelayAccess.V.ProxyProtocol == 0 {
 		return nil, nil, nil, fmt.Errorf("该入站要求 PROXY protocol，请使用现有转发配置显式匹配发送端")
 	}
 	for _, h := range req.Relays {
@@ -196,6 +196,12 @@ func (s *Server) planInboundRelay(c *gin.Context, req relaySetupRequest) (*relay
 	}
 	nodes, err := relayNodes(s.st.DB, &ch)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err = validateRelayAccessInbound(s.st.DB, in); err != nil {
+		return nil, nil, nil, err
+	}
+	if _, err = checkRelayAccessChain(s.st.DB, in, &ch); err != nil {
 		return nil, nil, nil, err
 	}
 	if ch.Name == "" {
@@ -354,6 +360,12 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 		if relayInputHash(in, nodes, &plan.Chain) != plan.Inputs {
 			return badInput{fmt.Errorf("入站或节点地址已变化，请重新预览")}
 		}
+		if e = validateRelayAccessInbound(tx, in); e != nil {
+			return badInput{e}
+		}
+		if _, e = checkRelayAccessChain(tx, in, &plan.Chain); e != nil {
+			return badInput{e}
+		}
 		for _, h := range plan.Chain.Hops.V {
 			used, e := relayUsedPorts(tx, h.NodeID)
 			if e != nil {
@@ -419,11 +431,11 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 
 func relayTargetRevs(ch *store.Chain, nodes map[string]store.Node) map[string]int64 {
 	out := map[string]int64{}
-	for i, h := range ch.Hops.V {
-		n := nodes[h.NodeID]
-		out[n.ID] = n.DesiredRev
-		if i < len(ch.Hops.V)-1 || ch.TunnelType != "" {
-			out[n.ID]++
+	for _, h := range ch.Hops.V {
+		if n, ok := nodes[h.NodeID]; ok {
+			// Raw landing ports can change their source guard without changing
+			// the core configuration. relayView handles truly unchanged specs.
+			out[n.ID] = n.DesiredRev + 1
 		}
 	}
 	return out
@@ -552,6 +564,18 @@ func (s *Server) setInboundRelayState(c *gin.Context) {
 			return e
 		}
 		ch.Disabled = !*req.Enabled
+		if *req.Enabled {
+			var in store.Inbound
+			if e := tx.First(&in, "id = ?", c.Param("id")).Error; e != nil {
+				return e
+			}
+			if e := validateRelayAccessInbound(tx, in); e != nil {
+				return badInput{e}
+			}
+			if _, e := checkRelayAccessChain(tx, in, &ch); e != nil {
+				return badInput{e}
+			}
+		}
 		ch.TargetRevs = store.NewJSON(relayTargetRevs(&ch, nodes))
 		return tx.Save(&ch).Error
 	})

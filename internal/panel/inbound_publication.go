@@ -14,6 +14,8 @@ import (
 // Publication is separate from the node's listener / firewall configuration.
 // Keep the original endpoints so turning the policy off restores that set.
 func (s *Server) setInboundPublication(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var req struct {
 		RelayOnly *bool `json:"relayOnly" binding:"required"`
 	}
@@ -28,6 +30,9 @@ func (s *Server) setInboundPublication(c *gin.Context) {
 		}
 		if in.ServiceOnly {
 			return badInput{fmt.Errorf("内部服务入站不对用户发布")}
+		}
+		if in.RelayAccess.V.Enabled && !*req.RelayOnly {
+			return badInput{fmt.Errorf("请先关闭中转来源限制，再允许发布直连入口")}
 		}
 		res := tx.Model(&store.Inbound{}).Where("id = ?", in.ID).Update("relay_only", *req.RelayOnly)
 		if res.Error != nil {
