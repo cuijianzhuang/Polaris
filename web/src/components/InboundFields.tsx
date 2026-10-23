@@ -103,7 +103,7 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
           })}
         </div>
       </Field>
-      <div className="form-grid">
+      <div className="form-grid inbound-connection">
         <Field label={t('传输')}>
           <div className="seg">
             {TRANSPORTS.filter((x) => supports(allCaps, p.type, x) || x === tp.type).map((x) => (

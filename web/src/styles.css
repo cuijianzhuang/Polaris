@@ -184,6 +184,10 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 .search { min-width: 240px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .form-grid .full { grid-column: 1 / -1; }
+/* Transport has two option columns; security has one. Keep their buttons
+   similarly sized instead of squeezing long transport names into a quarter. */
+.inbound-connection { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.inbound-connection .opt { min-width: 0; overflow-wrap: anywhere; }
 .seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .seg.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .seg.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
