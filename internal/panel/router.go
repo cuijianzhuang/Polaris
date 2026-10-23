@@ -222,6 +222,8 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/inbounds/:id/outbound-ip", s.setOutboundIP)
 	p.GET("/inbounds/:id/relays", s.listInboundRelays)
 	p.POST("/inbounds/:id/relays/preview", s.previewInboundRelay)
+	p.POST("/inbounds/:id/relays/batch/preview", s.previewInboundRelayBatch)
+	p.POST("/inbounds/:id/relays/batch", s.createInboundRelayBatch)
 	p.POST("/inbounds/:id/relays", s.createInboundRelay)
 	p.PUT("/inbounds/:id/relays/:rid/state", s.setInboundRelayState)
 	p.DELETE("/inbounds/:id/relays/:rid", s.deleteInboundRelay)

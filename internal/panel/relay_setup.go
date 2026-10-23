@@ -153,6 +153,10 @@ func relayNodes(db *gorm.DB, ch *store.Chain) (map[string]store.Node, error) {
 }
 
 func (s *Server) planInboundRelay(c *gin.Context, req relaySetupRequest) (*relaySetupPlan, map[string]store.Node, []string, error) {
+	return s.planInboundRelayWithPorts(c, req, nil)
+}
+
+func (s *Server) planInboundRelayWithPorts(c *gin.Context, req relaySetupRequest, reserved map[string]map[int]bool) (*relaySetupPlan, map[string]store.Node, []string, error) {
 	if req.Mode == "" {
 		req.Mode = "l4"
 	}
@@ -226,6 +230,9 @@ func (s *Server) planInboundRelay(c *gin.Context, req relaySetupRequest) (*relay
 		if e != nil {
 			return nil, nil, nil, e
 		}
+		for p := range reserved[id] {
+			used[p] = true
+		}
 		for p := range s.nodeBusyPorts(id) {
 			used[p] = true
 		}
@@ -283,14 +290,9 @@ func (s *Server) previewInboundRelay(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	ports := []map[string]any{}
-	for nodeID, rules := range managedRelayForwards(&plan.Chain, nodes, inbound, "") {
-		for _, rule := range rules {
-			ports = append(ports, map[string]any{"nodeId": nodeID, "port": rule.Listen, "network": rule.ListenNetwork(), "public": !isLoopbackHost(rule.ListenIP), "role": rule.TunnelRole, "engine": orDefault(rule.Engine, "realm")})
-		}
-	}
-	entry := nodes[plan.Chain.Hops.V[0].NodeID]
-	c.JSON(http.StatusOK, gin.H{"planToken": s.st.Box.Seal(string(b)), "expiresAt": plan.Expires, "chain": plan.Chain, "network": plan.Network, "address": nodeHost(&entry), "port": plan.Chain.Hops.V[0].Port, "warnings": warnings, "ports": ports})
+	view := relayPlanPreview(plan, nodes, inbound)
+	view["planToken"], view["expiresAt"], view["warnings"] = s.st.Box.Seal(string(b)), plan.Expires, warnings
+	c.JSON(http.StatusOK, view)
 }
 
 func (s *Server) createInboundRelay(c *gin.Context) {
@@ -313,7 +315,19 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 			return
 		}
 	}
-	canonical := &idempotencyRequest{Key: idemDigest("relay-plan:" + plan.Owner + ":" + plan.Chain.ID), RequestHash: templateHash(plan)}
+	s.commitInboundRelayPlans(c, []relaySetupPlan{plan}, "")
+}
+
+// Both APIs reserve one canonical command before reading allocation state.
+// A batch commits all chains, endpoints, audits and replay body together.
+func (s *Server) commitInboundRelayPlans(c *gin.Context, plans []relaySetupPlan, batchID string) {
+	key := "relay-plan:" + plans[0].Owner + ":" + plans[0].Chain.ID
+	var hash any = plans[0]
+	if batchID != "" {
+		key = "relay-batch:" + plans[0].Owner + ":" + batchID
+		hash = plans
+	}
+	canonical := &idempotencyRequest{Key: idemDigest(key), RequestHash: templateHash(hash)}
 	infos := []*idempotencyRequest{canonical}
 	if v, ok := c.Get(idemContextKey); ok {
 		infos = append([]*idempotencyRequest{v.(*idempotencyRequest)}, infos...)
@@ -321,8 +335,7 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 	var cached *store.IdempotencyKey
 	var body []byte
 	s.relayMu.Lock()
-	err = s.st.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		// Take SQLite's writer reservation before reading allocation state.
+	err := s.st.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		for _, info := range infos {
 			prev, e := reserveUserCommand(tx, info)
 			if e != nil {
@@ -346,67 +359,26 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 				return e
 			}
 		}
-		if time.Now().After(plan.Expires) {
-			return badInput{fmt.Errorf("预览已过期，请重新预览")}
-		}
-		in, e := relayLanding(tx, plan.InboundID)
-		if e != nil {
-			return badInput{e}
-		}
-		nodes, e := relayNodes(tx, &plan.Chain)
-		if e != nil {
-			return badInput{e}
-		}
-		if relayInputHash(in, nodes, &plan.Chain) != plan.Inputs {
-			return badInput{fmt.Errorf("入站或节点地址已变化，请重新预览")}
-		}
-		if e = validateRelayAccessInbound(tx, in); e != nil {
-			return badInput{e}
-		}
-		if _, e = checkRelayAccessChain(tx, in, &plan.Chain); e != nil {
-			return badInput{e}
-		}
-		for _, h := range plan.Chain.Hops.V {
-			used, e := relayUsedPorts(tx, h.NodeID)
-			if e != nil {
-				return e
-			}
-			for _, p := range []int{h.Port, h.TunnelPort} {
-				if p > 0 {
-					if _, e = relayPort(used, p); e != nil {
-						return badInput{e}
-					}
-				}
-			}
-		}
-		plan.Chain.TunnelAuth = plan.Auth
-		plan.Chain.TargetRevs = store.NewJSON(relayTargetRevs(&plan.Chain, nodes))
-		if e = tx.Create(&plan.Chain).Error; e != nil {
-			return e
-		}
-		// Preserve the implicit direct entry instead of silently replacing it.
-		var count int64
-		if e = tx.Model(&store.Endpoint{}).Where("inbound_id = ?", in.ID).Count(&count).Error; e != nil {
-			return e
-		}
-		if count == 0 && !in.RelayOnly && !isLoopbackHost(in.Listen) {
-			if e = tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: in.ID, Kind: "direct"}).Error; e != nil {
+		for i := range plans {
+			if e := s.persistRelayPlan(tx, c, &plans[i]); e != nil {
 				return e
 			}
 		}
-		if e = s.materializeChain(tx, &plan.Chain); e != nil {
-			return e
+		var e error
+		if batchID == "" {
+			body, e = json.Marshal(plans[0].Chain)
+		} else {
+			chains := make([]store.Chain, 0, len(plans))
+			for _, p := range plans {
+				chains = append(chains, p.Chain)
+			}
+			body, e = json.Marshal(gin.H{"batchId": batchID, "chains": chains})
 		}
-		body, e = json.Marshal(plan.Chain)
 		if e != nil {
-			return e
-		}
-		audit := store.AuditLog{Admin: c.GetString("admin"), Action: "relay.create", Target: plan.Chain.Name, Detail: "one-click " + plan.Chain.TunnelType, IP: clientIP(c.Request)}
-		if e = tx.Create(&audit).Error; e != nil {
 			return e
 		}
 		for _, info := range infos {
-			if e = tx.Model(&store.IdempotencyKey{}).Where("key = ?", info.Key).Updates(map[string]any{"status": http.StatusCreated, "body": body}).Error; e != nil {
+			if e := tx.Model(&store.IdempotencyKey{}).Where("key = ?", info.Key).Updates(map[string]any{"status": http.StatusCreated, "body": body}).Error; e != nil {
 				return e
 			}
 		}
@@ -418,15 +390,80 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 		return
 	}
 	if cached != nil {
-		var existing store.Chain
-		if s.st.DB.First(&existing, "id = ?", plan.Chain.ID).Error == nil {
-			s.MarkDirty("relay replay reconciliation", chainNodes(&existing)...)
+		for _, plan := range plans {
+			var existing store.Chain
+			if s.st.DB.First(&existing, "id = ?", plan.Chain.ID).Error == nil {
+				s.MarkDirty("relay replay reconciliation", chainNodes(&existing)...)
+			}
 		}
 		replayIdempotency(c, *cached)
 		return
 	}
-	s.MarkDirty("one-click relay "+plan.Chain.Name, chainNodes(&plan.Chain)...)
+	var nodes []string
+	for _, p := range plans {
+		nodes = append(nodes, chainNodes(&p.Chain)...)
+	}
+	s.MarkDirty("one-click relay", nodes...)
 	c.Data(http.StatusCreated, "application/json; charset=utf-8", body)
+}
+
+func (s *Server) persistRelayPlan(tx *gorm.DB, c *gin.Context, plan *relaySetupPlan) error {
+	if time.Now().After(plan.Expires) {
+		return badInput{fmt.Errorf("预览已过期，请重新预览")}
+	}
+	in, e := relayLanding(tx, plan.InboundID)
+	if e != nil {
+		return badInput{e}
+	}
+	nodes, e := relayNodes(tx, &plan.Chain)
+	if e != nil {
+		return badInput{e}
+	}
+	if relayInputHash(in, nodes, &plan.Chain) != plan.Inputs {
+		return badInput{fmt.Errorf("入站或节点地址已变化，请重新预览")}
+	}
+	if e = validateRelayAccessInbound(tx, in); e != nil {
+		return badInput{e}
+	}
+	if _, e = checkRelayAccessChain(tx, in, &plan.Chain); e != nil {
+		return badInput{e}
+	}
+	for _, h := range plan.Chain.Hops.V {
+		used, e := relayUsedPorts(tx, h.NodeID)
+		if e != nil {
+			return e
+		}
+		for _, p := range []int{h.Port, h.TunnelPort} {
+			if p > 0 {
+				if _, e = relayPort(used, p); e != nil {
+					return badInput{e}
+				}
+			}
+		}
+	}
+	plan.Chain.TunnelAuth = plan.Auth
+	plan.Chain.TargetRevs = store.NewJSON(relayTargetRevs(&plan.Chain, nodes))
+	if e = tx.Create(&plan.Chain).Error; e != nil {
+		return e
+	}
+	// Preserve the implicit direct entry instead of silently replacing it.
+	var count int64
+	if e = tx.Model(&store.Endpoint{}).Where("inbound_id = ?", in.ID).Count(&count).Error; e != nil {
+		return e
+	}
+	if count == 0 && !in.RelayOnly && !isLoopbackHost(in.Listen) {
+		if e = tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: in.ID, Kind: "direct"}).Error; e != nil {
+			return e
+		}
+	}
+	if e = s.materializeChain(tx, &plan.Chain); e != nil {
+		return e
+	}
+	audit := store.AuditLog{Admin: c.GetString("admin"), Action: "relay.create", Target: plan.Chain.Name, Detail: "one-click " + plan.Chain.TunnelType, IP: clientIP(c.Request)}
+	if e = tx.Create(&audit).Error; e != nil {
+		return e
+	}
+	return nil
 }
 
 func relayTargetRevs(ch *store.Chain, nodes map[string]store.Node) map[string]int64 {
