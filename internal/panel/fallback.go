@@ -60,6 +60,9 @@ func (s *Server) validateFallbacks(m *model.Inbound, selfID string) error {
 		if err := s.st.DB.First(&child, "id = ?", f.InboundID).Error; err != nil {
 			return fmt.Errorf("回落 #%d：子入站不存在", i+1)
 		}
+		if child.RelayAccess.V.Enabled {
+			return fmt.Errorf("回落子入站已启用中转来源限制，请使用独立入站")
+		}
 		if child.NodeID != m.NodeID {
 			return fmt.Errorf("回落 #%d：子入站「%s」不在同一节点", i+1, child.Tag)
 		}

@@ -218,6 +218,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/inbounds/preview", s.previewDraftInbound)
 	p.GET("/inbounds/:id", s.getInbound)
 	p.PUT("/inbounds/:id/publication", s.setInboundPublication)
+	p.PUT("/inbounds/:id/relay-access", s.setRelayAccess)
 	p.GET("/inbounds/:id/relays", s.listInboundRelays)
 	p.POST("/inbounds/:id/relays/preview", s.previewInboundRelay)
 	p.POST("/inbounds/:id/relays", s.createInboundRelay)

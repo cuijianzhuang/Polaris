@@ -198,6 +198,9 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	limited := map[string]store.User{} // candidates for per-user speed limits
 	for i := range ins {
 		m := s.toModelInbound(&ins[i])
+		if ins[i].RelayAccess.V.Enabled && ins[i].RelayAccess.V.ProxyProtocol > 0 {
+			m.Transport.AcceptProxyProtocol = true
+		}
 		if m.Security.Type == model.SecTLS && m.Security.CertificateID != "" {
 			c, ok := certCache[m.Security.CertificateID]
 			if !ok {
@@ -235,6 +238,9 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		spec.Inbounds = append(spec.Inbounds, m)
 	}
 	resolveFallbacks(spec.Inbounds)
+	if spec.AccessRules, err = s.buildAccessRules(node.ID); err != nil {
+		return nil, err
+	}
 	spec.UserLimits = s.userLimits(limited)
 
 	if spec.Outbounds, err = s.buildOutbounds(node.ID); err != nil {
@@ -471,6 +477,11 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 		if c.Managed && !in.Enabled {
 			continue
 		}
+		if in.RelayAccess.V.Enabled {
+			if _, e := checkRelayAccessChain(s.st.DB, in, &c); e != nil {
+				return nil, e
+			}
+		}
 		if c.Managed && c.TunnelType != "" {
 			nodes, e := relayNodes(s.st.DB, &c)
 			if e != nil {
@@ -500,7 +511,8 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 			}
 			out = append(out, model.ForwardRule{
 				Tag: fmt.Sprintf("chain-%s-%d", c.ID, i), Listen: hops[i].Port, Network: mi.Network(),
-				Target: net.JoinHostPort(nodeHost(&nn), strconv.Itoa(port)),
+				Target:    net.JoinHostPort(nodeHost(&nn), strconv.Itoa(port)),
+				SendProxy: in.RelayAccess.V.ProxyProtocol, AcceptProxy: in.RelayAccess.V.ProxyProtocol > 0 && i > 0,
 			})
 		}
 	}

@@ -157,6 +157,8 @@ type NodeSpec struct {
 	// AutoFirewall lets the agent open the spec's ports in the host
 	// firewall (ufw / firewalld / iptables) and close them again.
 	AutoFirewall bool `json:"autoFirewall,omitempty"`
+	// AccessRules are mandatory source restrictions, independent of port opening.
+	AccessRules []AccessRule `json:"accessRules,omitempty"`
 	// SpeedLimits caps the bandwidth of inbound ports with tc on the node;
 	// everyone on the port shares the cap.
 	SpeedLimits []SpeedLimit `json:"speedLimits,omitempty"`
@@ -170,6 +172,14 @@ type NodeSpec struct {
 	// DNS is the cores' resolver configuration (nil = core defaults).
 	DNS       *DNSSpec  `json:"dns,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+const RelayAccessFeature = "relay-access-v1"
+
+type AccessRule struct {
+	Protocol string   `json:"protocol"`
+	Port     int      `json:"port"`
+	Sources  []string `json:"sources"` // canonical CIDRs; empty denies external access
 }
 
 // SpeedLimit is one port's bandwidth cap, each direction.

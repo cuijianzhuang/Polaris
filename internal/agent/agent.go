@@ -401,7 +401,9 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		if rev != 0 && rev == a.appliedRev() {
 			continue
 		}
-		resp, err := a.client.GetSpec(ctx, connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev}))
+		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
+		req.Header().Set("X-Polaris-Agent-Features", model.RelayAccessFeature)
+		resp, err := a.client.GetSpec(ctx, req)
 		if err != nil {
 			a.log.Error("fetch spec", "rev", rev, "err", err)
 			continue

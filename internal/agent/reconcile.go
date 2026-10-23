@@ -101,6 +101,9 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	if msgs := portConflicts(held, spec); len(msgs) > 0 {
 		return applyResult{ok: false, method: "reload", err: errors.New(strings.Join(msgs, "; "))}
 	}
+	if err := a.prepareAccess(ctx, spec); err != nil {
+		return applyResult{err: fmt.Errorf("中转访问保护：%w", err)}
+	}
 	method := "hot"
 	wanted := map[model.CoreType]model.CoreSpec{}
 	for _, cs := range spec.Cores {
@@ -126,7 +129,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	for t, m := range a.cores {
 		if _, ok := wanted[t]; !ok {
 			a.collectFrom(ctx, m)
-			_ = m.adapter.Stop(ctx)
+			if err := m.adapter.Stop(ctx); err != nil {
+				// Keep the transitional source guard while the old listener may
+				// still be running; do not acknowledge or release its port.
+				return applyResult{method: "reload", err: fmt.Errorf("停止 %s 失败：%w", t, err)}
+			}
 			a.setCore(t, nil)
 			method = "reload"
 		}
@@ -209,6 +216,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	}
 	if len(errs) > 0 {
 		return applyResult{ok: false, method: method, err: errors.New(strings.Join(errs, "; ")), rolledBack: rolledBack, installFailed: installFailed}
+	}
+	if a.fw != nil {
+		if err := a.fw.syncAccess(ctx, spec.AccessRules); err != nil {
+			return applyResult{method: method, err: fmt.Errorf("中转访问保护：%w", err)}
+		}
 	}
 	a.current = spec
 	a.rev.Store(spec.Rev)

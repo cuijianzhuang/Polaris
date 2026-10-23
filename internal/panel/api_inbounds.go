@@ -15,20 +15,21 @@ import (
 )
 
 type inboundReq struct {
-	NodeID    string              `json:"nodeId" binding:"required"`
-	Core      model.CoreType      `json:"core"`
-	Tag       string              `json:"tag" binding:"required"`
-	Listen    string              `json:"listen"`
-	Port      int                 `json:"port" binding:"required"`
-	Protocol  model.ProtocolSpec  `json:"protocol"`
-	Transport model.TransportSpec `json:"transport"`
-	Security  model.SecuritySpec  `json:"security"`
-	Sniffing  model.SniffSpec     `json:"sniffing"`
-	Extra     json.RawMessage     `json:"extra"`
-	Enabled   *bool               `json:"enabled"`
-	RelayOnly *bool               `json:"relayOnly,omitempty"`
-	Remark    string              `json:"remark"`
-	GroupIDs  []string            `json:"groupIds"`
+	NodeID      string                   `json:"nodeId" binding:"required"`
+	Core        model.CoreType           `json:"core"`
+	Tag         string                   `json:"tag" binding:"required"`
+	Listen      string                   `json:"listen"`
+	Port        int                      `json:"port" binding:"required"`
+	Protocol    model.ProtocolSpec       `json:"protocol"`
+	Transport   model.TransportSpec      `json:"transport"`
+	Security    model.SecuritySpec       `json:"security"`
+	Sniffing    model.SniffSpec          `json:"sniffing"`
+	Extra       json.RawMessage          `json:"extra"`
+	Enabled     *bool                    `json:"enabled"`
+	RelayOnly   *bool                    `json:"relayOnly,omitempty"`
+	RelayAccess *store.RelayAccessPolicy `json:"relayAccess,omitempty"`
+	Remark      string                   `json:"remark"`
+	GroupIDs    []string                 `json:"groupIds"`
 	// OutboundTag sends all traffic of the inbound to this egress ("" = routing rules decide).
 	OutboundTag string `json:"outboundTag"`
 	// SpeedLimitMbps caps the port's bandwidth on the node (0 = none).
@@ -41,10 +42,15 @@ type inboundMeta struct {
 	OutboundTag    string
 	SpeedLimitMbps int
 	RelayOnly      bool
+	RelayAccess    store.RelayAccessPolicy
 }
 
 func (r *inboundReq) meta() inboundMeta {
-	return inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps, RelayOnly: r.RelayOnly != nil && *r.RelayOnly}
+	m := inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps, RelayOnly: r.RelayOnly != nil && *r.RelayOnly}
+	if r.RelayAccess != nil {
+		m.RelayAccess = *r.RelayAccess
+	}
+	return m
 }
 
 func checkSpeedLimit(mbps int) error {
@@ -203,6 +209,13 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 	row := store.Inbound{ID: store.NewID(), Remark: meta.Remark, OutboundTag: meta.OutboundTag, SpeedLimitMbps: meta.SpeedLimitMbps, RelayOnly: meta.RelayOnly,
 		OverriddenFields: store.NewJSON([]string{})}
 	fromModel(m, &row)
+	row.RelayAccess = store.NewJSON(meta.RelayAccess)
+	if row.RelayAccess.V.Enabled {
+		row.RelayOnly = true
+	}
+	if err := validateRelayAccessInbound(s.st.DB, row); err != nil {
+		return store.Inbound{}, err
+	}
 	s.sealInbound(&row)
 	if groupIDs == nil {
 		groupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
@@ -225,6 +238,8 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 }
 
 func (s *Server) updateInbound(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var row store.Inbound
 	if err := s.st.DB.First(&row, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -236,6 +251,10 @@ func (s *Server) updateInbound(c *gin.Context) {
 		return
 	}
 	req.NodeID = row.NodeID // moving inbounds between nodes is not supported
+	if req.RelayAccess != nil && templateHash(*req.RelayAccess) != templateHash(row.RelayAccess.V) {
+		badRequest(c, fmt.Errorf("请使用 relay-access 接口修改访问保护"))
+		return
+	}
 	var node store.Node
 	if err := s.st.DB.First(&node, "id = ?", row.NodeID).Error; err != nil {
 		dbError(c, err)
@@ -273,15 +292,23 @@ func (s *Server) updateInbound(c *gin.Context) {
 		return
 	}
 	fromModel(&m, &row)
+	if row.RelayAccess.V.Enabled && req.RelayOnly != nil && !*req.RelayOnly {
+		badRequest(c, fmt.Errorf("来源限制开启时必须仅发布中转"))
+		return
+	}
+	if err := validateRelayAccessInbound(s.st.DB, row); err != nil {
+		badRequest(c, err)
+		return
+	}
 	row.Remark, row.OutboundTag, row.SpeedLimitMbps = req.Remark, req.OutboundTag, req.SpeedLimitMbps
 	s.sealInbound(&row)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		// Publication is edited independently; an older editor must not
 		// overwrite a relay-only policy selected after it loaded this row.
-		write := tx.Omit("RelayOnly")
+		write := tx.Omit("RelayOnly", "RelayAccess")
 		if req.RelayOnly != nil {
 			row.RelayOnly = *req.RelayOnly
-			write = tx
+			write = tx.Omit("RelayAccess")
 		}
 		if err := write.Save(&row).Error; err != nil {
 			return err
@@ -462,6 +489,8 @@ func (s *Server) listEndpoints(c *gin.Context) {
 }
 
 func (s *Server) createEndpoint(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var row store.Inbound
 	if err := s.st.DB.First(&row, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -487,6 +516,10 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		var p store.CDNProfile
 		if err := s.st.DB.First(&p, "id = ?", e.CDNProfileID).Error; err != nil {
 			dbError(c, err)
+			return
+		}
+		if row.RelayAccess.V.Enabled && p.CaddyFronting {
+			badRequest(c, fmt.Errorf("来源限制不能与 Caddy 共用回源入口同时启用"))
 			return
 		}
 	case "relay":
