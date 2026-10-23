@@ -161,10 +161,13 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 		}
 		var eps []store.Endpoint
 		s.st.DB.Where("inbound_id = ?", in.ID).Order("sort_order, created_at").Find(&eps)
-		if len(eps) == 0 {
+		if len(eps) == 0 && !in.RelayOnly {
 			eps = []store.Endpoint{{Kind: "direct"}}
 		}
 		for _, ep := range eps {
+			if in.RelayOnly && ep.Kind != "relay" {
+				continue
+			}
 			out = append(out, s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m)...)
 		}
 	}
@@ -282,7 +285,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		return out
 	case "relay":
 		for _, ch := range chains {
-			if ch.Disabled || ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 {
+			if ch.Disabled || ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != m.ID {
 				continue
 			}
 			entry, ok := nodes[ch.Hops.V[0].NodeID]

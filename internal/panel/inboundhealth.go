@@ -97,6 +97,9 @@ func (s *Server) probeTargets(only string) []probeTarget {
 	}
 	var out []probeTarget
 	for _, in := range ins {
+		if in.RelayOnly {
+			continue // direct reachability is deliberately not published
+		}
 		n := nodes[in.NodeID]
 		if n == nil || nodeHost(n) == "" || isLoopbackHost(in.Listen) {
 			continue
@@ -174,7 +177,7 @@ func (s *Server) probeAndRecord(t probeTarget) store.InboundHealth {
 func (s *Server) probeInboundAPI(c *gin.Context) {
 	ts := s.probeTargets(c.Param("id"))
 	if len(ts) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "无法探测：入站未启用、仅本机监听，或节点没有地址"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无法直连探测：入站未启用、仅本机监听、仅通过中转提供，或节点没有地址；中转线路请使用线路诊断"})
 		return
 	}
 	c.JSON(http.StatusOK, s.probeAndRecord(ts[0]))

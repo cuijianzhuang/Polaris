@@ -26,6 +26,7 @@ type inboundReq struct {
 	Sniffing  model.SniffSpec     `json:"sniffing"`
 	Extra     json.RawMessage     `json:"extra"`
 	Enabled   *bool               `json:"enabled"`
+	RelayOnly *bool               `json:"relayOnly,omitempty"`
 	Remark    string              `json:"remark"`
 	GroupIDs  []string            `json:"groupIds"`
 	// OutboundTag sends all traffic of the inbound to this egress ("" = routing rules decide).
@@ -39,10 +40,11 @@ type inboundMeta struct {
 	Remark         string
 	OutboundTag    string
 	SpeedLimitMbps int
+	RelayOnly      bool
 }
 
 func (r *inboundReq) meta() inboundMeta {
-	return inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps}
+	return inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps, RelayOnly: r.RelayOnly != nil && *r.RelayOnly}
 }
 
 func checkSpeedLimit(mbps int) error {
@@ -75,7 +77,7 @@ func (s *Server) inboundView(in store.Inbound, nodes map[string]string, users ma
 	}
 	s.st.DB.Model(&store.Endpoint{}).Where("inbound_id = ?", in.ID).Count(&v.Endpoints)
 	var h store.InboundHealth
-	if s.st.DB.First(&h, "inbound_id = ?", in.ID).Error == nil {
+	if !in.RelayOnly && s.st.DB.First(&h, "inbound_id = ?", in.ID).Error == nil {
 		v.Health = &h
 	}
 	return v
@@ -198,7 +200,7 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 	if err := checkSpeedLimit(meta.SpeedLimitMbps); err != nil {
 		return store.Inbound{}, err
 	}
-	row := store.Inbound{ID: store.NewID(), Remark: meta.Remark, OutboundTag: meta.OutboundTag, SpeedLimitMbps: meta.SpeedLimitMbps,
+	row := store.Inbound{ID: store.NewID(), Remark: meta.Remark, OutboundTag: meta.OutboundTag, SpeedLimitMbps: meta.SpeedLimitMbps, RelayOnly: meta.RelayOnly,
 		OverriddenFields: store.NewJSON([]string{})}
 	fromModel(m, &row)
 	s.sealInbound(&row)
@@ -274,7 +276,14 @@ func (s *Server) updateInbound(c *gin.Context) {
 	row.Remark, row.OutboundTag, row.SpeedLimitMbps = req.Remark, req.OutboundTag, req.SpeedLimitMbps
 	s.sealInbound(&row)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Save(&row).Error; err != nil {
+		// Publication is edited independently; an older editor must not
+		// overwrite a relay-only policy selected after it loaded this row.
+		write := tx.Omit("RelayOnly")
+		if req.RelayOnly != nil {
+			row.RelayOnly = *req.RelayOnly
+			write = tx
+		}
+		if err := write.Save(&row).Error; err != nil {
 			return err
 		}
 		if req.GroupIDs != nil {
@@ -295,6 +304,10 @@ func (s *Server) updateInbound(c *gin.Context) {
 	}
 	s.MarkDirty("inbound "+row.Tag+" updated", s.nodesForInbounds(row.ID)...)
 	s.auditCtx(c, "inbound.update", node.Name+"/"+row.Tag, "")
+	var current store.Inbound
+	if s.st.DB.Select("relay_only").First(&current, "id = ?", row.ID).Error == nil {
+		row.RelayOnly = current.RelayOnly
+	}
 	c.JSON(http.StatusOK, gin.H{"inbound": row, "core": m.Core})
 }
 
@@ -480,6 +493,10 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		var ch store.Chain
 		if err := s.st.DB.First(&ch, "id = ?", e.RelayChainID).Error; err != nil {
 			badRequest(c, fmt.Errorf("relay chain: %w", err))
+			return
+		}
+		if ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != row.ID {
+			badRequest(c, fmt.Errorf("该中转线路的落地与当前入站不匹配"))
 			return
 		}
 	default:

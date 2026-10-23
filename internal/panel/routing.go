@@ -311,6 +311,9 @@ func (s *Server) probeChains() {
 		}
 		probes := s.runChainProbe(&chains[i])
 		last := hops[len(hops)-1].NodeID
+		if len(probes) < 2 || probes[len(probes)-2].Skipped {
+			continue // unsupported UDP check: retain heartbeat-based health
+		}
 		tested[last] = true
 		if len(probes) >= 2 && probes[len(probes)-2].OK {
 			landing[last] = true
