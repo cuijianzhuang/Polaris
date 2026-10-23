@@ -13,6 +13,15 @@ type Event struct {
 	// Kind when empty. Data adds structured fields to the webhook payload.
 	Type string
 	Data map[string]any
+	// ResourceID identifies the affected inbound/plugin/certificate. It is
+	// internal metadata, never a credential or a human-readable error string.
+	ResourceID         string
+	noticeRecipient    string
+	noticeKey          string
+	noticeToken        string
+	noticeMerged       int64
+	noticePreviousOpen bool
+	noticeDisabled     bool
 }
 
 // notify fans an event out to every registered sink without blocking.

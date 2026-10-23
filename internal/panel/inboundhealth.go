@@ -158,11 +158,11 @@ func (s *Server) probeAndRecord(t probeTarget) store.InboundHealth {
 		h.Fails++
 		if h.Fails >= probeAlertAt && !h.Alerted {
 			h.Alerted = true
-			s.notify(Event{Kind: "inbound_down", NodeID: t.node.ID, Text: fmt.Sprintf("🔴 入站无法连接：%s\n%s（连续 %d 次）", label, h.Error, h.Fails)})
+			s.notify(Event{Kind: "inbound_down", NodeID: t.node.ID, ResourceID: t.in.ID, Text: fmt.Sprintf("🔴 入站无法连接：%s\n%s（连续 %d 次）", label, h.Error, h.Fails)})
 		}
 	} else {
 		if h.Alerted {
-			s.notify(Event{Kind: "inbound_up", NodeID: t.node.ID, Text: fmt.Sprintf("🟢 入站已恢复：%s，延迟 %d ms", label, lat.Milliseconds())})
+			s.notify(Event{Kind: "inbound_up", NodeID: t.node.ID, ResourceID: t.in.ID, Text: fmt.Sprintf("🟢 入站已恢复：%s，延迟 %d ms", label, lat.Milliseconds())})
 		}
 		h.OK, h.Error, h.Fails, h.Alerted, h.LatencyMs = true, "", 0, false, int(lat.Milliseconds())
 	}

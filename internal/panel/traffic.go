@@ -109,6 +109,9 @@ func (s *Server) ingestTraffic(nodeID string, batches []*polarisv1.TrafficBatch,
 	deltas := func(b *polarisv1.TrafficBatch) []model.TrafficDelta {
 		ds := make([]model.TrafficDelta, 0, len(b.Users))
 		for _, u := range b.Users {
+			if model.IsDiagnosticCounter(u.UserId) {
+				continue
+			}
 			if !allowed[u.UserId] && !isTagCounter(u.UserId) {
 				continue // not a user of this node
 			}

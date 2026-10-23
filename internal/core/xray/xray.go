@@ -50,7 +50,18 @@ func New(o core.Options) *Adapter {
 	}
 	a := &Adapter{opt: o}
 	if o.BinPath != "" {
+		// A SIGKILL cannot run diagnostic defers. All owned native processes
+		// died with that agent; discard their private client files on restart.
+		if o.WorkDir != "" {
+			entries, _ := os.ReadDir(o.WorkDir)
+			for _, entry := range entries {
+				if entry.IsDir() && strings.HasPrefix(entry.Name(), "diagnostic-") {
+					_ = os.RemoveAll(filepath.Join(o.WorkDir, entry.Name()))
+				}
+			}
+		}
 		a.proc = core.NewProcess("xray", o.BinPath, o.WorkDir, o.Logger, "run", "-c", a.configPath())
+		a.proc.BindToParent = o.BindToParent
 		a.proc.Env = []string{"XRAY_LOCATION_ASSET=" + filepath.Dir(o.BinPath)}
 	}
 	return a

@@ -140,7 +140,7 @@ func (s *Server) checkOperationalHealth() {
 	}
 	for _, i := range issues {
 		if s.shared.once("operational:"+i.Key, 30*time.Minute) {
-			s.notify(Event{Kind: "operational_alert", Text: "⚠️ " + i.Detail, Data: map[string]any{"key": i.Key}})
+			s.notify(Event{Kind: "operational_alert", ResourceID: i.Key, Text: "⚠️ " + i.Detail, Data: map[string]any{"key": i.Key}})
 		}
 	}
 }

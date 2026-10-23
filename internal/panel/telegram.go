@@ -150,7 +150,7 @@ func (b *tgBot) do(req *http.Request, out any) error {
 	return nil
 }
 
-func (b *tgBot) send(chat int64, text string, rows ...[]button) {
+func (b *tgBot) send(chat int64, text string, rows ...[]button) error {
 	p := map[string]any{"chat_id": chat, "text": text, "parse_mode": "HTML", "disable_web_page_preview": true}
 	if len(rows) > 0 {
 		p["reply_markup"] = map[string]any{"inline_keyboard": rows}
@@ -159,7 +159,9 @@ func (b *tgBot) send(chat int64, text string, rows ...[]button) {
 	defer cancel()
 	if err := b.call(ctx, "sendMessage", p, nil); err != nil {
 		b.s.log.Warn("telegram send", "chat", chat, "err", err)
+		return err
 	}
+	return nil
 }
 
 func (b *tgBot) edit(chat, msg int64, text string, rows ...[]button) {
@@ -761,19 +763,28 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 		case <-ctx.Done():
 			return
 		case e := <-events:
-			if !b.isRunning() || e.Text == "" { // no text: webhook-only events
+			if e.Text == "" { // no text: webhook-only events
 				continue
 			}
+			running := b.isRunning()
 			var admins []store.TGAdmin
 			if !e.UserOnly {
-				b.s.st.DB.Where("notify = ?", true).Find(&admins)
+				b.s.st.DB.Find(&admins)
 			}
 			for _, a := range admins {
 				if a.Role == "owner" || (e.NodeID != "" && tgIdentity{admin: &a}.canNode(e.NodeID)) {
-					b.send(a.ChatID, esc(e.Text))
+					notice := e
+					notice.noticeRecipient = a.ID
+					notice.noticeDisabled = !running || !a.Notify
+					notice, allowed := b.s.operationalNotice("telegram", notice, time.Now())
+					if allowed && !notice.noticeDisabled {
+						if err := b.send(a.ChatID, esc(notice.Text)); err != nil {
+							b.s.retryOperationalNotice(notice)
+						}
+					}
 				}
 			}
-			if e.UserID != "" && b.s.st.GetSetting("tg_notify_users", "true") == "true" {
+			if running && e.UserID != "" && b.s.st.GetSetting("tg_notify_users", "true") == "true" {
 				var u store.User
 				if b.s.st.DB.First(&u, "id = ?", e.UserID).Error == nil && u.TelegramID != 0 {
 					if e.UserOnly { // reminders are pre-formatted HTML

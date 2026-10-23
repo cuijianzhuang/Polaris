@@ -76,7 +76,7 @@ func (s *Server) runMail(ctx context.Context, events <-chan Event) {
 		case <-ctx.Done():
 			return
 		case e := <-events:
-			if e.Text == "" || s.mailConfig() == nil {
+			if e.Text == "" {
 				continue
 			}
 			s.mailEvent(ctx, e)
@@ -85,20 +85,28 @@ func (s *Server) runMail(ctx context.Context, events <-chan Event) {
 }
 
 func (s *Server) mailEvent(ctx context.Context, e Event) {
-	if !e.UserOnly && s.st.GetSetting("mail_notify_admin", "true") == "true" {
+	ready := s.mailConfig() != nil
+	if !e.UserOnly {
 		if to := mailer.Normalize(s.st.GetSetting("mail_admin_to", "")); to != "" {
-			text := plainText(e.Text)
-			subject := strings.SplitN(text, "\n", 2)[0]
-			if len([]rune(subject)) > 60 {
-				subject = string([]rune(subject)[:60]) + "…"
-			}
-			plain, h := s.mailBody(subject, text, nil)
-			if err := s.sendMail(ctx, to, subject, plain, h); err != nil {
-				s.log.Warn("admin mail", "kind", e.Kind, "err", err)
+			notice := e
+			notice.noticeRecipient = to
+			notice.noticeDisabled = !ready || s.st.GetSetting("mail_notify_admin", "true") != "true"
+			notice, allowed := s.operationalNotice("email", notice, time.Now())
+			if allowed && !notice.noticeDisabled {
+				text := plainText(notice.Text)
+				subject := strings.SplitN(text, "\n", 2)[0]
+				if len([]rune(subject)) > 60 {
+					subject = string([]rune(subject)[:60]) + "…"
+				}
+				plain, h := s.mailBody(subject, text, nil)
+				if err := s.sendMail(ctx, to, subject, plain, h); err != nil {
+					s.retryOperationalNotice(notice)
+					s.log.Warn("admin mail", "kind", e.Kind, "err", err)
+				}
 			}
 		}
 	}
-	if e.UserID == "" || s.st.GetSetting("mail_notify_users", "true") != "true" {
+	if !ready || e.UserID == "" || s.st.GetSetting("mail_notify_users", "true") != "true" {
 		return
 	}
 	var u store.User

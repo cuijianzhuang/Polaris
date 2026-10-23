@@ -599,7 +599,7 @@ func (s *Server) checkPlugins() {
 			case ok:
 				upd["status"], upd["last_error"], upd["last_seen_at"] = "online", "", now
 				if p.Status == "offline" {
-					s.notify(Event{Kind: "plugin_online", Text: "✅ 插件 " + p.Name + " 已恢复", Data: map[string]any{"plugin": p.ID}})
+					s.notify(Event{Kind: "plugin_online", ResourceID: p.ID, Text: "✅ 插件 " + p.Name + " 已恢复", Data: map[string]any{"plugin": p.ID}})
 				}
 			default:
 				msg := "HTTP " + strconv.Itoa(code)
@@ -613,7 +613,7 @@ func (s *Server) checkPlugins() {
 				}
 				upd["status"], upd["last_error"] = "offline", truncate(msg, 500)
 				if p.Status == "online" {
-					s.notify(Event{Kind: "plugin_offline", Text: "⚠️ 插件 " + p.Name + " 无法访问：" + truncate(msg, 200), Data: map[string]any{"plugin": p.ID}})
+					s.notify(Event{Kind: "plugin_offline", ResourceID: p.ID, Text: "⚠️ 插件 " + p.Name + " 无法访问：" + truncate(msg, 200), Data: map[string]any{"plugin": p.ID}})
 				}
 			}
 			s.st.DB.Model(&store.Plugin{}).Where("id = ?", p.ID).Updates(upd)

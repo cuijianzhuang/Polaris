@@ -732,7 +732,7 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupArchive, box *se
 
 func runtimeControlModel(m any) bool {
 	switch m.(type) {
-	case *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus:
+	case *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus, *store.NotificationState:
 		return true
 	}
 	return false
