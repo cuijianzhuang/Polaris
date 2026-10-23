@@ -38,7 +38,7 @@ var kindTypes = map[string]string{
 	"expire_warn": "user.expire_warn", "traffic_spike": "user.traffic_spike",
 	"login_ban": "admin.login_banned", "admin_login_new_ip": "admin.login_new_ip", "admin_recovery_code": "admin.recovery_code_used",
 	"backup_failed": "system.backup_failed", "cert_failed": "system.cert_failed", "license": "system.license",
-	"panel_update": "system.panel_update", "plugin_offline": "system.plugin_offline", "plugin_online": "system.plugin_online",
+	"operational_alert": "system.operational_alert", "panel_update": "system.panel_update", "plugin_offline": "system.plugin_offline", "plugin_online": "system.plugin_online",
 }
 
 // EventTypes lists every type a webhook can subscribe to.
@@ -50,7 +50,7 @@ var EventTypes = []string{
 	"node.offline", "node.online", "node.apply_failed", "node.traffic_alert", "node.renewal_due",
 	"inbound.down", "inbound.up", "routing.health",
 	"admin.login_banned", "admin.login_new_ip", "admin.recovery_code_used",
-	"system.backup_failed", "system.cert_failed", "system.license", "system.panel_update",
+	"system.backup_failed", "system.cert_failed", "system.license", "system.panel_update", "system.operational_alert",
 	"system.plugin_offline", "system.plugin_online",
 }
 
@@ -138,20 +138,29 @@ func (s *Server) runWebhooks(ctx context.Context, events <-chan Event) {
 				continue
 			}
 			var hooks []store.Webhook
-			s.st.DB.Where("enabled = ?", true).Find(&hooks)
-			var payload map[string]any
+			s.st.DB.Find(&hooks)
+			eventID := "evt_" + store.NewID()
 			for _, h := range hooks {
-				if !matchEvent(h.Events.V, typ) {
+				notice := e
+				notice.noticeDisabled = !h.Enabled || !matchEvent(h.Events.V, typ)
+				notice.noticeRecipient = h.ID
+				notice, allowed := s.operationalNotice("webhook", notice, time.Now())
+				if !allowed || notice.noticeDisabled {
 					continue
 				}
-				if payload == nil {
-					payload = s.eventPayload(e, typ)
+				payload := s.eventPayload(notice, typ)
+				payload["id"] = eventID
+				body, err := json.Marshal(payload)
+				if err != nil {
+					s.retryOperationalNotice(notice)
+					continue
 				}
-				body, _ := json.Marshal(payload)
 				d := store.WebhookDelivery{ID: store.NewID(), WebhookID: h.ID, EventID: payload["id"].(string), Type: typ,
 					Payload: string(body), Status: "pending", NextAt: time.Now()}
-				if s.st.DB.Create(&d).Error == nil {
+				if err := s.st.DB.Create(&d).Error; err == nil {
 					go s.deliverWebhook(d.ID)
+				} else {
+					s.retryOperationalNotice(notice)
 				}
 			}
 		}
@@ -183,6 +192,10 @@ func (s *Server) deliverWebhook(id string) {
 	var h store.Webhook
 	if s.st.DB.First(&h, "id = ?", d.WebhookID).Error != nil {
 		s.st.DB.Model(&d).Updates(map[string]any{"status": "failed", "last_error": "webhook 已删除"})
+		return
+	}
+	if s.operationalWebhookMuted(&d, time.Now()) {
+		s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "运维通知暂缓：渠道关闭或维护窗口"})
 		return
 	}
 	code, err := s.sendWebhook(&h, &d)

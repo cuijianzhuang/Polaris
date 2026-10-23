@@ -720,6 +720,19 @@ type Setting struct {
 	Value string `gorm:"type:text" json:"value"`
 }
 
+// NotificationState coordinates operational notice attempts across instances.
+// Message bodies and credentials are never persisted here.
+type NotificationState struct {
+	Key         string `gorm:"primaryKey;size:64"`
+	NodeID      string `gorm:"size:32;index"`
+	Fingerprint string `gorm:"size:64"`
+	Token       string `gorm:"size:32"`
+	Open        bool
+	LastAttempt *time.Time
+	Suppressed  int64
+	UpdatedAt   time.Time `gorm:"index"`
+}
+
 // SubTemplate is an editable rule template per subscription format.
 type SubTemplate struct {
 	ID        string    `gorm:"primaryKey;size:32" json:"id"`
@@ -833,7 +846,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{},
 	}
 }
 

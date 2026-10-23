@@ -251,7 +251,7 @@ func (s *Server) setNodeHealth(nodeID string, down bool, why string) {
 	}
 	s.audit("system", "health.change", n.Name, why, "")
 	if refs := s.nodesReferencing(nodeID); len(refs) > 0 {
-		s.notify(Event{Kind: "health", NodeID: nodeID, Text: "🩺 落地 " + n.Name + " " + state + "（" + why + "）"})
+		s.notify(Event{Kind: "health", NodeID: nodeID, Data: map[string]any{"down": down}, Text: "🩺 落地 " + n.Name + " " + state + "（" + why + "）"})
 		s.MarkDirty("landing health changed", refs...)
 	}
 }
