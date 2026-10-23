@@ -510,6 +510,7 @@ type AuditLog struct {
 // Endpoint is one way for clients to reach an inbound (direct / cdn / relay).
 type Endpoint struct {
 	ID           string    `gorm:"primaryKey;size:32" json:"id"`
+	ShareName    string    `gorm:"size:64" json:"shareName,omitempty"` // explicit managed-relay subscription name
 	InboundID    string    `gorm:"size:32;index" json:"inboundId"`
 	Kind         string    `gorm:"size:16" json:"kind"` // direct / cdn / relay
 	Address      string    `gorm:"size:255" json:"address"`

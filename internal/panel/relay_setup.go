@@ -53,10 +53,13 @@ type relaySetupNode struct {
 
 type inboundRelayView struct {
 	store.Chain
-	Address string           `json:"address"`
-	Port    int              `json:"port"`
-	State   string           `json:"state"`
-	Nodes   []relaySetupNode `json:"nodes"`
+	ShareAddress string           `json:"shareAddress,omitempty"`
+	SharePort    int              `json:"sharePort,omitempty"`
+	ShareName    string           `json:"shareName,omitempty"`
+	Address      string           `json:"address"`
+	Port         int              `json:"port"`
+	State        string           `json:"state"`
+	Nodes        []relaySetupNode `json:"nodes"`
 }
 
 func relayInputHash(in store.Inbound, nodes map[string]store.Node, ch *store.Chain) string {
@@ -514,6 +517,10 @@ func (s *Server) listInboundRelays(c *gin.Context) {
 func (s *Server) relayView(ch store.Chain, in store.Inbound) inboundRelayView {
 	hops := ch.Hops.V
 	view := inboundRelayView{Chain: ch, Port: hops[0].Port, State: "applied", Nodes: []relaySetupNode{}}
+	var endpoint store.Endpoint
+	if s.st.DB.Where("relay_chain_id = ? AND inbound_id = ? AND kind = ?", ch.ID, in.ID, "relay").Order("created_at, id").First(&endpoint).Error == nil {
+		view.ShareAddress, view.SharePort, view.ShareName = endpoint.Address, endpoint.Port, endpoint.ShareName
+	}
 	for _, h := range hops {
 		var n store.Node
 		if err := s.st.DB.First(&n, "id = ?", h.NodeID).Error; err != nil {

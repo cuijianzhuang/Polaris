@@ -302,6 +302,9 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			v["node"] = entry.Name + " → " + vars["node"]
 			v["flag"] = sub.Flag(entry.Flag)
 			n.Name = sub.NameVars(nameTpl, v)
+			if ch.Managed && ep.ShareName != "" {
+				n.Name = ep.ShareName
+			}
 			return []sub.Node{n}
 		}
 		return nil
