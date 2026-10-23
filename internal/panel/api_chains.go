@@ -315,6 +315,15 @@ func (s *Server) probeChain(c *gin.Context) {
 
 func (s *Server) runChainProbe(ch *store.Chain) []store.HopProbe {
 	hops := ch.Hops.V
+	udpOnly := false
+	if ch.Mode == "l4" && ch.TunnelType == "" && len(hops) > 0 {
+		var in store.Inbound
+		if s.st.DB.First(&in, "id = ?", hops[len(hops)-1].InboundID).Error == nil {
+			m := s.toModelInbound(&in)
+			m.Normalize()
+			udpOnly = !m.UsesTCP()
+		}
+	}
 	probes := make([]store.HopProbe, len(hops))
 	var wg sync.WaitGroup
 	for i := range hops {
@@ -324,6 +333,10 @@ func (s *Server) runChainProbe(ch *store.Chain) []store.HopProbe {
 			h := hops[i]
 			args := map[string]string{}
 			if i < len(hops)-1 {
+				if udpOnly {
+					probes[i] = store.HopProbe{NodeID: h.NodeID, Skipped: true, Error: "原样 UDP 转发不使用 TCP 端口探测"}
+					return
+				}
 				var next store.Node
 				if s.st.DB.First(&next, "id = ?", hops[i+1].NodeID).Error != nil {
 					probes[i] = store.HopProbe{NodeID: h.NodeID, Error: "next node missing"}

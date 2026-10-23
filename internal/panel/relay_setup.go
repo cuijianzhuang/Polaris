@@ -377,7 +377,7 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 		if e = tx.Model(&store.Endpoint{}).Where("inbound_id = ?", in.ID).Count(&count).Error; e != nil {
 			return e
 		}
-		if count == 0 && !isLoopbackHost(in.Listen) {
+		if count == 0 && !in.RelayOnly && !isLoopbackHost(in.Listen) {
 			if e = tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: in.ID, Kind: "direct"}).Error; e != nil {
 				return e
 			}
@@ -457,52 +457,57 @@ func (s *Server) listInboundRelays(c *gin.Context) {
 		if len(hops) < 2 || hops[len(hops)-1].InboundID != c.Param("id") {
 			continue
 		}
-		view := inboundRelayView{Chain: ch, Port: hops[0].Port, State: "applied", Nodes: []relaySetupNode{}}
-		for _, h := range hops {
-			var n store.Node
-			if err := s.st.DB.First(&n, "id = ?", h.NodeID).Error; err != nil {
-				view.State = "failed"
-				continue
-			}
-			if h.NodeID == hops[0].NodeID {
-				view.Address = nodeHost(&n)
-			}
-			status := "applied"
-			required := ch.TargetRevs.V[n.ID]
-			// The reconciler may coalesce disable/enable into no change. In
-			// that case there will be no extra revision to reach the estimate.
-			if n.DesiredRev < required && n.DesiredRev > 0 {
-				if published, err := s.loadRevision(n.ID, n.DesiredRev); err == nil {
-					if desired, err := s.BuildSpec(n.ID); err == nil && sameSpec(published, desired) {
-						required = n.DesiredRev
-					}
-				}
-			}
-			switch {
-			case n.Status == "offline" || n.Status == "pending":
-				status = "offline"
-			case n.DesiredRev < required:
-				status = "pending"
-			case n.LastError != "":
-				status = "failed"
-			case n.AppliedRev < n.DesiredRev:
-				status = "syncing"
-			}
-			rank := map[string]int{"applied": 0, "pending": 1, "syncing": 2, "offline": 3, "failed": 4}
-			if rank[status] > rank[view.State] {
-				view.State = status
-			}
-			view.Nodes = append(view.Nodes, relaySetupNode{NodeID: n.ID, Name: n.Name, DesiredRev: n.DesiredRev, AppliedRev: n.AppliedRev, RequiredRev: required, State: status, Error: n.LastError})
-		}
-		if !in.Enabled {
-			view.State = "blocked"
-		}
-		if ch.Disabled {
-			view.State = "disabled"
-		}
-		out = append(out, view)
+		out = append(out, s.relayView(ch, in))
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+func (s *Server) relayView(ch store.Chain, in store.Inbound) inboundRelayView {
+	hops := ch.Hops.V
+	view := inboundRelayView{Chain: ch, Port: hops[0].Port, State: "applied", Nodes: []relaySetupNode{}}
+	for _, h := range hops {
+		var n store.Node
+		if err := s.st.DB.First(&n, "id = ?", h.NodeID).Error; err != nil {
+			view.State = "failed"
+			continue
+		}
+		if h.NodeID == hops[0].NodeID {
+			view.Address = nodeHost(&n)
+		}
+		status := "applied"
+		required := ch.TargetRevs.V[n.ID]
+		// The reconciler may coalesce disable/enable into no change. In
+		// that case there will be no extra revision to reach the estimate.
+		if n.DesiredRev < required && n.DesiredRev > 0 {
+			if published, err := s.loadRevision(n.ID, n.DesiredRev); err == nil {
+				if desired, err := s.BuildSpec(n.ID); err == nil && sameSpec(published, desired) {
+					required = n.DesiredRev
+				}
+			}
+		}
+		switch {
+		case n.Status == "offline" || n.Status == "pending":
+			status = "offline"
+		case n.DesiredRev < required:
+			status = "pending"
+		case n.LastError != "":
+			status = "failed"
+		case n.AppliedRev < n.DesiredRev:
+			status = "syncing"
+		}
+		rank := map[string]int{"applied": 0, "pending": 1, "syncing": 2, "offline": 3, "failed": 4}
+		if rank[status] > rank[view.State] {
+			view.State = status
+		}
+		view.Nodes = append(view.Nodes, relaySetupNode{NodeID: n.ID, Name: n.Name, DesiredRev: n.DesiredRev, AppliedRev: n.AppliedRev, RequiredRev: required, State: status, Error: n.LastError})
+	}
+	if !in.Enabled {
+		view.State = "blocked"
+	}
+	if ch.Disabled {
+		view.State = "disabled"
+	}
+	return view
 }
 
 func loadInboundRelay(db *gorm.DB, id, inboundID string) (store.Chain, error) {

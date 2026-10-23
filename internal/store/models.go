@@ -118,9 +118,10 @@ type Inbound struct {
 	TemplateID       string                    `gorm:"size:32;index" json:"templateId,omitempty"`
 	TemplateItemKey  string                    `gorm:"size:64" json:"templateItemKey,omitempty"` // which template item generated it
 	OverriddenFields JSON[[]string]            `json:"overriddenFields"`
-	ServiceOnly      bool                      `json:"serviceOnly"`                // relay-only inbound, hidden from subscriptions
-	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
-	SpeedLimitMbps   int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
+	ServiceOnly      bool                      `json:"serviceOnly"`                    // internal service inbound, hidden from subscriptions
+	RelayOnly        bool                      `gorm:"default:false" json:"relayOnly"` // publication policy; keep only relay endpoints
+	OutboundTag      string                    `gorm:"size:64" json:"outboundTag"`     // route all traffic of this inbound to an outbound
+	SpeedLimitMbps   int                       `json:"speedLimitMbps"`                 // port bandwidth cap on the node (tc), 0 = none
 	Remark           string                    `gorm:"size:255" json:"remark"`
 	CreatedAt        time.Time                 `json:"createdAt"`
 	UpdatedAt        time.Time                 `json:"updatedAt"`
@@ -606,6 +607,7 @@ type HopProbe struct {
 	NodeID    string `json:"nodeId"`
 	LatencyMs int    `json:"latencyMs"`
 	OK        bool   `json:"ok"`
+	Skipped   bool   `json:"skipped,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
