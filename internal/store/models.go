@@ -622,6 +622,7 @@ type HopProbe struct {
 
 // Chain is an ingress relay path to a landing inbound.
 type Chain struct {
+	BatchID       string                 `gorm:"size:32;index" json:"batchId,omitempty"` // multi-entry creation group
 	Managed       bool                   `gorm:"default:false" json:"managed"`
 	Disabled      bool                   `gorm:"default:false" json:"disabled"`
 	TunnelType    string                 `gorm:"size:16" json:"tunnelType,omitempty"`
