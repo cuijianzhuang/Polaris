@@ -28,6 +28,9 @@ type Process struct {
 	// it is not kept in the log buffer (used for high-volume lines an adapter
 	// only needs to count). Set before Start.
 	Filter func(line string) bool
+	// BindToParent kills the child if its owning process dies. Start and Wait
+	// stay on one locked OS thread: Linux PDEATHSIG tracks the creating thread.
+	BindToParent bool
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
@@ -62,7 +65,17 @@ func (p *Process) Start(ctx context.Context) error {
 	pr, pw := io.Pipe()
 	cmd.Stdout = pw
 	cmd.Stderr = pw
-	if err := cmd.Start(); err != nil {
+	var wait func() error
+	var startErr error
+	if p.BindToParent {
+		wait, startErr = startParentBound(cmd)
+	} else {
+		startErr = cmd.Start()
+		wait = cmd.Wait
+	}
+	if err := startErr; err != nil {
+		pr.Close()
+		pw.Close()
 		p.mu.Unlock()
 		return fmt.Errorf("start %s: %w", p.Name, err)
 	}
@@ -75,7 +88,7 @@ func (p *Process) Start(ctx context.Context) error {
 
 	go p.pump(pr)
 	go func() {
-		err := cmd.Wait()
+		err := wait()
 		pw.Close()
 		p.mu.Lock()
 		p.lastErr = err

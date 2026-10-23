@@ -232,6 +232,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/inbounds/:id/relay-batches/:bid", s.deleteInboundRelayBatch)
 	p.DELETE("/inbounds/:id/relays/:rid", s.deleteInboundRelay)
 	p.POST("/inbounds/:id/relays/:rid/diagnose", s.diagnoseInboundRelay)
+	p.POST("/inbounds/:id/relays/:rid/diagnose/business", s.diagnoseInboundRelayBusiness)
 	p.POST("/inbounds/:id/probe", s.probeInboundAPI)
 	p.POST("/inbounds/bulk", s.bulkInbounds)
 	p.PUT("/inbounds/:id", s.updateInbound)

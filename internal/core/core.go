@@ -54,10 +54,11 @@ type ConfigHot interface {
 
 // Options configures an adapter instance on a node.
 type Options struct {
-	Version   string
-	BinPath   string // path to the core executable
-	WorkDir   string // directory holding config and runtime files
-	APIListen string // loopback address for the core's management API
+	BindToParent bool // Linux process lifetime enforcement, required for ephemeral diagnostic users
+	Version      string
+	BinPath      string // path to the core executable
+	WorkDir      string // directory holding config and runtime files
+	APIListen    string // loopback address for the core's management API
 	// AuthURL is the agent-local callback for cores that support external auth.
 	AuthURL string
 	// Limit, when set, routes users listed in NodeSpec.UserLimits through

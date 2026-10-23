@@ -80,8 +80,13 @@ type Agent struct {
 	sys           sysSampler
 	ips           *ipDetector
 
-	applyMu sync.Mutex
-	current *model.NodeSpec
+	applyMu            sync.Mutex
+	diagnosticMu       sync.Mutex
+	diagnosticID       string
+	diagnosticCancel   context.CancelFunc
+	diagnosticDone     chan struct{}
+	diagnosticCanceled map[string]time.Time
+	current            *model.NodeSpec
 	// rev mirrors current.Rev for heartbeats, which must never wait for an
 	// apply (installing a core can take minutes).
 	rev   atomic.Int64
@@ -402,7 +407,11 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			continue
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
-		req.Header().Set("X-Polaris-Agent-Features", model.RelayAccessFeature+","+model.OutboundIPFeature)
+		features := model.RelayAccessFeature + "," + model.OutboundIPFeature
+		if core.ParentBoundSupported() {
+			features += "," + model.RelayBusinessFeature
+		}
+		req.Header().Set("X-Polaris-Agent-Features", features)
 		resp, err := a.client.GetSpec(ctx, req)
 		if err != nil {
 			a.log.Error("fetch spec", "rev", rev, "err", err)
@@ -579,7 +588,7 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 	merged := model.MergeDeltas(all...)
 	kept := merged[:0]
 	for _, d := range merged {
-		if !model.IsLimiterCounter(d.UserID) { // the limiter detour would count twice
+		if !model.IsLimiterCounter(d.UserID) && !model.IsDiagnosticCounter(d.UserID) {
 			kept = append(kept, d)
 		}
 	}
@@ -684,7 +693,7 @@ func (a *Agent) sendOnlineIPs(ctx context.Context) {
 			continue
 		}
 		for u, list := range ips {
-			if strings.HasSuffix(u, model.LimitAlias) {
+			if strings.HasSuffix(u, model.LimitAlias) || model.IsDiagnosticCounter(u) {
 				continue // the limiter's own loopback connections
 			}
 			if merged[u] == nil {
@@ -796,6 +805,17 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			fail(err)
 		} else {
 			res.Output = strconv.Itoa(ms)
+		}
+	case model.RelayBusinessFeature + "/cancel":
+		if err := a.cancelRelayDiagnostic(ctx, c.Args["id"]); err != nil {
+			fail(err)
+		}
+	case model.RelayBusinessFeature:
+		result, err := a.relayBusinessProbe(ctx, c.Args["request"])
+		b, _ := json.Marshal(result)
+		res.Output = string(b)
+		if err != nil {
+			fail(err)
 		}
 	default:
 		fail(fmt.Errorf("unknown command %q", c.Kind))
