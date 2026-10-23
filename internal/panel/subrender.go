@@ -33,27 +33,61 @@ var (
 	_, thisNet, _ = net.ParseCIDR("0.0.0.0/8")
 )
 
+func checkSourceIP(ip net.IP, allowPrivate bool) error {
+	// An explicit LAN opt-in must not also enable metadata/link-local or
+	// non-destination addresses.
+	if ip == nil || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() || thisNet.Contains(ip) {
+		return errPrivateTarget
+	}
+	if !allowPrivate && (ip.IsLoopback() || ip.IsPrivate() || cgnat.Contains(ip)) {
+		return errPrivateTarget
+	}
+	return nil
+}
+
+// A proxy resolves and dials the destination itself: the socket guard only
+// sees the proxy. Check every destination (including redirects) before handing
+// it to an environment proxy. The configured proxy remains a trusted resolver;
+// this check does not pin the proxy's remote DNS result.
+func sourceProxy(allowPrivate bool, proxy func(*http.Request) (*url.URL, error), lookup func(context.Context, string, string) ([]net.IP, error)) func(*http.Request) (*url.URL, error) {
+	return func(req *http.Request) (*url.URL, error) {
+		p, err := proxy(req)
+		if err != nil || p == nil {
+			return p, err
+		}
+		host := req.URL.Hostname()
+		ips := []net.IP{net.ParseIP(host)}
+		if ips[0] == nil {
+			ips, err = lookup(req.Context(), "ip", host)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(ips) == 0 {
+			return nil, errPrivateTarget
+		}
+		for _, ip := range ips {
+			if err := checkSourceIP(ip, allowPrivate); err != nil {
+				return nil, err
+			}
+		}
+		return p, nil
+	}
+}
+
 // safeClient refuses to connect to private ranges unless allowed (SSRF guard).
 func (s *Server) safeClient(timeout time.Duration) *http.Client {
 	allowPrivate := s.st.GetSetting("allow_private_sources", "false") == "true"
 	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
-		if allowPrivate {
-			return nil
-		}
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			return err
 		}
-		ip := net.ParseIP(host)
-		if ip == nil || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() ||
-			ip.IsInterfaceLocalMulticast() || cgnat.Contains(ip) || thisNet.Contains(ip) {
-			return errPrivateTarget
-		}
-		return nil
+		return checkSourceIP(net.ParseIP(host), allowPrivate)
 	}}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.DialContext = dialer.DialContext
-	tr.Proxy = http.ProxyFromEnvironment
+	tr.Proxy = sourceProxy(allowPrivate, http.ProxyFromEnvironment, net.DefaultResolver.LookupIP)
 	return &http.Client{Timeout: timeout, Transport: tr, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return errors.New("too many redirects")
