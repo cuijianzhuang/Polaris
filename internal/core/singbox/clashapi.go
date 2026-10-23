@@ -105,7 +105,7 @@ func (a *Adapter) clashTraffic(ctx context.Context) ([]model.TrafficDelta, error
 	}
 	a.conns = seen
 	out := make([]model.TrafficDelta, 0, len(per))
-	for k, v := range per {
+	for k, v := range core.EgressTraffic(per, a.egressOrigins) {
 		out = append(out, model.TrafficDelta{UserID: k, Up: v[0], Down: v[1]})
 	}
 	return out, nil

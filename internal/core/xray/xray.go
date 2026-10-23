@@ -33,10 +33,11 @@ type Adapter struct {
 	opt  core.Options
 	proc *core.Process
 
-	mu        sync.Mutex
-	last      *model.NodeSpec // spec of the most recent Render, used by hot updates
-	api       *core.APIClient
-	fallbacks map[string]fallbackBinding
+	mu            sync.Mutex
+	egressOrigins map[string]string
+	last          *model.NodeSpec // spec of the most recent Render, used by hot updates
+	api           *core.APIClient
+	fallbacks     map[string]fallbackBinding
 }
 
 // New constructs an Xray adapter.
@@ -82,6 +83,9 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	b.Add([]model.Protocol{model.ProtoShadowsocks, model.ProtoSOCKS, model.ProtoHTTP},
 		[]model.Transport{model.TransTCP}, []model.Security{model.SecNone})
 	features := []string{model.FeatureProxyProtocol, model.FeatureTCPHTTPHeader}
+	if core.VersionAtLeast(v, "26.5.9") {
+		features = append(features, model.FeatureOutboundIP)
+	}
 	if core.VersionAtLeast(v, "25.9.11") {
 		features = append(features, model.FeatureVLESSEncryption, model.FeatureRealityMLDSA65)
 	}
@@ -105,6 +109,12 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 
 // Render translates the Xray-hosted part of a NodeSpec into Xray JSON.
 func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
+	original := spec
+	egress, err := core.PlanEgress(spec, model.CoreXray, a.opt.Version, a.opt.Limit)
+	if err != nil {
+		return nil, err
+	}
+	spec = egress.Spec
 	cfg := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
 		"api": map[string]any{
@@ -145,15 +155,24 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	if lim != nil {
 		// Limited users come back from the agent's limiter here, as "<id>#lim".
 		var accts []any
-		for _, u := range lim.Users {
+		for _, binding := range lim.Bindings {
+			u := binding.WireUser
 			accts = append(accts, map[string]any{"user": u + model.LimitAlias, "pass": lim.Secret})
 		}
-		inbounds = append(inbounds, map[string]any{
-			"tag": model.LimitInbound, "listen": lim.ReentryHost, "port": lim.ReentryPort, "protocol": "socks",
-			"settings": map[string]any{"auth": "password", "udp": true, "ip": lim.ReentryHost, "accounts": accts},
-			// Recover the domain for routing rules (the limiter forwards addresses as given).
-			"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
-		})
+		if lim.ReentryProtocol == "vless" {
+			var clients []any
+			for _, binding := range lim.Bindings {
+				clients = append(clients, map[string]any{"id": model.LimitUUID(lim.Secret, binding.WireUser), "email": binding.WireUser + model.LimitAlias})
+			}
+			inbounds = append(inbounds, map[string]any{"tag": model.LimitInbound, "listen": lim.ReentryHost, "port": lim.ReentryPort, "protocol": "vless", "settings": map[string]any{"decryption": "none", "clients": clients}, "streamSettings": map[string]any{"network": "tcp", "security": "none"}, "sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true}})
+		} else {
+			inbounds = append(inbounds, map[string]any{
+				"tag": model.LimitInbound, "listen": lim.ReentryHost, "port": lim.ReentryPort, "protocol": "socks",
+				"settings": map[string]any{"auth": "password", "udp": true, "ip": lim.ReentryHost, "accounts": accts},
+				// Recover the domain for routing rules (the limiter forwards addresses as given).
+				"sniffing": map[string]any{"enabled": true, "destOverride": []string{"http", "tls", "quic"}, "routeOnly": true},
+			})
+		}
 	}
 	cfg["inbounds"] = inbounds
 
@@ -176,13 +195,18 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	}
 	var limRules []any
 	if lim != nil {
-		for _, u := range lim.Users {
+		for _, binding := range lim.Bindings {
+			u := binding.WireUser
 			tag := model.LimitOutboundPrefix + u
 			outs = append(outs, map[string]any{"tag": tag, "protocol": "socks", "settings": map[string]any{
 				"servers": []any{map[string]any{"address": lim.LimiterHost, "port": lim.LimiterPort,
 					"users": []any{map[string]any{"user": u, "pass": lim.Secret}}}},
 			}})
-			limRules = append(limRules, map[string]any{"type": "field", "user": []string{u}, "outboundTag": tag})
+			r := map[string]any{"type": "field", "user": []string{binding.User}, "outboundTag": tag}
+			if binding.Inbound != "" {
+				r["inboundTag"] = []string{binding.Inbound}
+			}
+			limRules = append(limRules, r)
 		}
 	}
 	cfg["outbounds"] = outs
@@ -232,7 +256,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		return nil, err
 	}
 	a.mu.Lock()
-	a.last = spec.Clone()
+	a.last = original.Clone()
+	a.egressOrigins = egress.OutboundOrigins
 	a.mu.Unlock()
 	return out, nil
 }
@@ -636,6 +661,7 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 			}
 			st["sockopt"] = map[string]any{"dialerProxy": o.Detour}
 		}
+		applyOutboundIP(ob, o)
 		outs = append(outs, ob)
 	}
 	// Xray strategies consume one Observatory feature. Registering both types
@@ -911,9 +937,10 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 			delete(internal, ob.Tag)
 		}
 	}
+	origins := a.egressOrigins
 	a.mu.Unlock()
 	var out []model.TrafficDelta
-	for id, v := range core.AllTraffic(stats) {
+	for id, v := range core.EgressTraffic(core.AllTraffic(stats), origins) {
 		if kind, tag, ok := strings.Cut(id, ">>>"); ok && (kind == "inbound" || kind == "outbound") && internal[tag] {
 			continue
 		}
@@ -1025,11 +1052,11 @@ func dedupe(in []string) []string {
 	return out
 }
 
-// geodata renders the auto-update block (Xray 26.4.25+). Xray refuses
+// geodata renders the auto-update block (Xray 26.5.9+). Xray refuses
 // assets whose file is missing, so only files present next to the binary
 // are listed (the agent downloads missing ones before applying).
 func (a *Adapter) geodata(g *model.GeodataSpec) map[string]any {
-	if g == nil || g.Cron == "" || !core.VersionAtLeast(a.opt.Version, "26.4.25") {
+	if g == nil || g.Cron == "" || !core.VersionAtLeast(a.opt.Version, "26.5.9") {
 		return nil
 	}
 	var assets []any

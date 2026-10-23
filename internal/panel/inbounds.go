@@ -22,7 +22,7 @@ func (s *Server) toModelInbound(in *store.Inbound) model.Inbound {
 	m := model.Inbound{
 		ID: in.ID, NodeID: in.NodeID, Tag: in.Tag, Core: in.Core, Listen: in.Listen, Port: in.Port,
 		Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V, Sniffing: in.Sniffing.V,
-		Extra: in.Extra, Enabled: in.Enabled,
+		Extra: in.Extra, Enabled: in.Enabled, OutboundIPStrategy: in.OutboundIPStrategy,
 	}
 	m.Security.RealityPrivateKey = s.st.Box.MustOpen(m.Security.RealityPrivateKey)
 	m.Protocol.ServerKey = s.st.Box.MustOpen(m.Protocol.ServerKey)

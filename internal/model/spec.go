@@ -212,9 +212,11 @@ const (
 
 // LimitWire is how one core reaches the limiter and back.
 type LimitWire struct {
-	Limiter string // agent limiter, 127.0.0.1:port (SOCKS5)
-	Reentry string // the core's inbound for limited traffic, 127.0.0.1:port
-	Secret  string // SOCKS5 password on both hops
+	ReentryProtocol string // socks (legacy) or vless (identity-preserving TCP/UDP)
+	Contexts        bool   // limiter understands inbound-scoped user identities
+	Limiter         string // agent limiter, 127.0.0.1:port (SOCKS5)
+	Reentry         string // the core's inbound for limited traffic, 127.0.0.1:port
+	Secret          string // SOCKS5 password on both hops
 }
 
 // LimitedUsers returns the ids in UserLimits that the given users include.

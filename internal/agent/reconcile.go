@@ -56,7 +56,13 @@ func (a *Agent) limitWire(t model.CoreType) *model.LimitWire {
 		return nil
 	}
 	base := a.cfg.APIPortBase + off
-	return a.lim.wire("127.0.0.1:"+strconv.Itoa(base), "127.0.0.1:"+strconv.Itoa(base+1))
+	listen, reentry := "127.0.0.1:"+strconv.Itoa(base), "127.0.0.1:"+strconv.Itoa(base+1)
+	if provider, ok := any(a.lim).(interface {
+		wireFor(model.CoreType, string, string) *model.LimitWire
+	}); ok {
+		return provider.wireFor(t, listen, reentry)
+	}
+	return a.lim.wire(listen, reentry)
 }
 
 var cfgNames = map[model.CoreType]string{
@@ -87,6 +93,20 @@ type applyResult struct {
 func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
+	for _, in := range spec.Inbounds {
+		if !in.Enabled {
+			continue
+		}
+		version := ""
+		for _, cs := range spec.Cores {
+			if cs.Type == in.Core {
+				version = cs.Version
+			}
+		}
+		if err := core.CheckOutboundIP(in.Core, version, in.OutboundIPStrategy); err != nil {
+			return applyResult{err: err}
+		}
+	}
 	if a.lim != nil {
 		a.lim.setLimits(spec.UserLimits) // rates change in place, no core reload
 	}

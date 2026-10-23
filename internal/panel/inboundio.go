@@ -27,8 +27,8 @@ func (s *Server) exportInbound(c *gin.Context) {
 	enabled, relayOnly := row.Enabled, row.RelayOnly
 	req := inboundReq{NodeID: row.NodeID, Core: m.Core, Tag: m.Tag, Listen: m.Listen, Port: m.Port, Protocol: m.Protocol,
 		Transport: m.Transport, Security: m.Security, Sniffing: m.Sniffing, Extra: m.Extra, Enabled: &enabled, RelayOnly: &relayOnly,
-		RelayAccess: &row.RelayAccess.V,
-		Remark:      row.Remark, GroupIDs: groups, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps}
+		RelayAccess: &row.RelayAccess.V, OutboundIPStrategy: &row.OutboundIPStrategy,
+		Remark: row.Remark, GroupIDs: groups, OutboundTag: row.OutboundTag, SpeedLimitMbps: row.SpeedLimitMbps}
 	req.Security.CertPEM, req.Security.KeyPEM = "", ""
 	s.auditCtx(c, "inbound.export", row.Tag, "")
 	c.Header("Content-Disposition", "attachment; filename=inbound-"+row.Tag+".json")

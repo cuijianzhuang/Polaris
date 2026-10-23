@@ -35,6 +35,7 @@ jobs:
         run: |
           mkdir -p /tmp/cores && cd /tmp/cores
           curl -fsSL -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip && unzip -q xray.zip -d xray
+          curl -fsSL -o xray-egress.zip https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-64.zip && unzip -q xray-egress.zip -d xray-egress
           curl -fsSL https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz | tar xz
           curl -fsSL https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz | gunzip > mihomo && chmod +x mihomo
           mkdir -p gost && curl -fsSL https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz | tar xz -C gost
@@ -50,6 +51,7 @@ jobs:
       - run: go test -count=1 ./...
         env:
           POLARIS_XRAY_BIN: /tmp/cores/xray/xray
+          POLARIS_XRAY_EGRESS_BIN: /tmp/cores/xray-egress/xray
           POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_GOST_BIN: /tmp/cores/gost/gost
@@ -67,6 +69,7 @@ jobs:
           PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
           BRANCH: ${{ github.head_ref || github.ref_name }}
           POLARIS_XRAY_BIN: /tmp/cores/xray/xray
+          POLARIS_XRAY_EGRESS_BIN: /tmp/cores/xray-egress/xray
           POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
         run: |

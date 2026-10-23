@@ -10,13 +10,17 @@ import (
 // LimitPlan is what a core renderer needs to send limited users through
 // the agent's limiter: the users (sorted), and where the limiter and the
 // re-entry inbound listen.
+type LimitBinding struct{ User, WireUser, Inbound string }
+
 type LimitPlan struct {
-	Users       []string
-	LimiterHost string
-	LimiterPort int
-	ReentryHost string
-	ReentryPort int
-	Secret      string
+	ReentryProtocol string
+	Bindings        []LimitBinding
+	Users           []string
+	LimiterHost     string
+	LimiterPort     int
+	ReentryHost     string
+	ReentryPort     int
+	Secret          string
 }
 
 // PlanLimits returns the limiter plan for the users of the given inbounds,
@@ -38,7 +42,18 @@ func PlanLimits(w *model.LimitWire, spec *model.NodeSpec, ins []model.Inbound) *
 	if lp == 0 || rp == 0 {
 		return nil
 	}
-	return &LimitPlan{Users: users, LimiterHost: lh, LimiterPort: lp, ReentryHost: rh, ReentryPort: rp, Secret: w.Secret}
+	var bindings []LimitBinding
+	for _, in := range ins {
+		if !in.OutboundIPStrategy.IsAuto() {
+			for _, u := range spec.LimitedUsers(in.Users) {
+				bindings = append(bindings, LimitBinding{User: u, WireUser: model.ScopedLimitUser(u, in.Tag), Inbound: in.Tag})
+			}
+		}
+	}
+	for _, u := range users {
+		bindings = append(bindings, LimitBinding{User: u, WireUser: u})
+	}
+	return &LimitPlan{ReentryProtocol: w.ReentryProtocol, Bindings: bindings, Users: users, LimiterHost: lh, LimiterPort: lp, ReentryHost: rh, ReentryPort: rp, Secret: w.Secret}
 }
 
 func splitHostPort(a string) (string, int) {

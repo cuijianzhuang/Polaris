@@ -169,3 +169,9 @@ POLARIS_NFT_DOCKER_TEST=1 go test ./internal/agent -run TestLiveAccessFirewall -
 ```
 
 第二项需要 Docker 能实际授予容器 NET_ADMIN，验证独立容器网络中 TCP / UDP、IPv4 / IPv6 的允许、拒绝、空来源拒绝与清理，同时保留其他防火墙表；不修改宿主机防火墙。当前云环境即使指定 `--cap-add NET_ADMIN` 也未实际获得该权限，因此这项原生防火墙验证受阻；命令事务和失败处理已通过模拟测试，不将其等同于内核级收发验证。
+
+## 入站出站 IP 策略
+
+落地入站可独立设置自动、仅 IPv4、仅 IPv6、优先 IPv4、优先 IPv6；它与仅中转发布、来源限制和 PROXY protocol 分别配置。接口、兼容边界及计费约束见[按入站设置出站 IP 策略](outbound-ip-strategy.md)。
+
+多入口选择、入口地址覆盖、转发单/双向计费与倍率、自定义质量检测目标属于后续中转扩展，当前一键接口暂未加入这些字段。

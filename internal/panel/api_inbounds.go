@@ -15,21 +15,22 @@ import (
 )
 
 type inboundReq struct {
-	NodeID      string                   `json:"nodeId" binding:"required"`
-	Core        model.CoreType           `json:"core"`
-	Tag         string                   `json:"tag" binding:"required"`
-	Listen      string                   `json:"listen"`
-	Port        int                      `json:"port" binding:"required"`
-	Protocol    model.ProtocolSpec       `json:"protocol"`
-	Transport   model.TransportSpec      `json:"transport"`
-	Security    model.SecuritySpec       `json:"security"`
-	Sniffing    model.SniffSpec          `json:"sniffing"`
-	Extra       json.RawMessage          `json:"extra"`
-	Enabled     *bool                    `json:"enabled"`
-	RelayOnly   *bool                    `json:"relayOnly,omitempty"`
-	RelayAccess *store.RelayAccessPolicy `json:"relayAccess,omitempty"`
-	Remark      string                   `json:"remark"`
-	GroupIDs    []string                 `json:"groupIds"`
+	OutboundIPStrategy *model.OutboundIPStrategy `json:"outboundIPStrategy,omitempty"`
+	NodeID             string                    `json:"nodeId" binding:"required"`
+	Core               model.CoreType            `json:"core"`
+	Tag                string                    `json:"tag" binding:"required"`
+	Listen             string                    `json:"listen"`
+	Port               int                       `json:"port" binding:"required"`
+	Protocol           model.ProtocolSpec        `json:"protocol"`
+	Transport          model.TransportSpec       `json:"transport"`
+	Security           model.SecuritySpec        `json:"security"`
+	Sniffing           model.SniffSpec           `json:"sniffing"`
+	Extra              json.RawMessage           `json:"extra"`
+	Enabled            *bool                     `json:"enabled"`
+	RelayOnly          *bool                     `json:"relayOnly,omitempty"`
+	RelayAccess        *store.RelayAccessPolicy  `json:"relayAccess,omitempty"`
+	Remark             string                    `json:"remark"`
+	GroupIDs           []string                  `json:"groupIds"`
 	// OutboundTag sends all traffic of the inbound to this egress ("" = routing rules decide).
 	OutboundTag string `json:"outboundTag"`
 	// SpeedLimitMbps caps the port's bandwidth on the node (0 = none).
@@ -150,6 +151,9 @@ func (s *Server) validateInbound(node *store.Node, m *model.Inbound, excludeID s
 	if err := s.assignCore(node, m); err != nil {
 		return err
 	}
+	if err := s.checkInboundOutboundIP(node, m); err != nil {
+		return err
+	}
 	if err := s.validateFallbacks(m, excludeID); err != nil {
 		return err
 	}
@@ -162,10 +166,18 @@ func (r *inboundReq) toModel() model.Inbound {
 		en = *r.Enabled
 	}
 	return model.Inbound{NodeID: r.NodeID, Core: r.Core, Tag: r.Tag, Listen: r.Listen, Port: r.Port, Protocol: r.Protocol,
-		Transport: r.Transport, Security: r.Security, Sniffing: r.Sniffing, Extra: r.Extra, Enabled: en}
+		Transport: r.Transport, Security: r.Security, Sniffing: r.Sniffing, Extra: r.Extra, Enabled: en, OutboundIPStrategy: r.ipStrategy()}
+}
+
+func (r *inboundReq) ipStrategy() model.OutboundIPStrategy {
+	if r.OutboundIPStrategy != nil {
+		return *r.OutboundIPStrategy
+	}
+	return model.OutboundIPAuto
 }
 
 func fromModel(m *model.Inbound, row *store.Inbound) {
+	row.OutboundIPStrategy = m.OutboundIPStrategy
 	row.NodeID, row.Core, row.Tag, row.Listen, row.Port = m.NodeID, m.Core, m.Tag, m.Listen, m.Port
 	row.Protocol, row.Transport = store.NewJSON(m.Protocol), store.NewJSON(m.Transport)
 	row.Security, row.Sniffing = store.NewJSON(m.Security), store.NewJSON(m.Sniffing)
@@ -262,6 +274,9 @@ func (s *Server) updateInbound(c *gin.Context) {
 	}
 	old := s.toModelInbound(&row)
 	m := req.toModel()
+	if req.OutboundIPStrategy == nil {
+		m.OutboundIPStrategy = row.OutboundIPStrategy
+	}
 	if req.Enabled == nil {
 		m.Enabled = row.Enabled
 	}
@@ -305,13 +320,18 @@ func (s *Server) updateInbound(c *gin.Context) {
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		// Publication is edited independently; an older editor must not
 		// overwrite a relay-only policy selected after it loaded this row.
-		write := tx.Omit("RelayOnly", "RelayAccess")
+		write := tx.Omit("RelayOnly", "RelayAccess", "OutboundIPStrategy")
 		if req.RelayOnly != nil {
 			row.RelayOnly = *req.RelayOnly
-			write = tx.Omit("RelayAccess")
+			write = tx.Omit("RelayAccess", "OutboundIPStrategy")
 		}
 		if err := write.Save(&row).Error; err != nil {
 			return err
+		}
+		if req.OutboundIPStrategy != nil {
+			if err := tx.Model(&store.Inbound{}).Where("id = ?", row.ID).Update("outbound_ip_strategy", row.OutboundIPStrategy).Error; err != nil {
+				return err
+			}
 		}
 		if req.GroupIDs != nil {
 			if err := tx.Where("inbound_id = ?", row.ID).Delete(&store.GroupInbound{}).Error; err != nil {
@@ -396,7 +416,7 @@ func (s *Server) previewInbound(c *gin.Context) {
 			version = cs.Version
 		}
 	}
-	ad, err := core.New(row.Core, core.Options{Version: version})
+	ad, err := core.New(row.Core, core.Options{Version: version, Limit: outboundIPPreviewWire()})
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -469,7 +489,7 @@ func (s *Server) previewDraftInbound(c *gin.Context) {
 			version = cs.Version
 		}
 	}
-	ad, err := core.New(m.Core, core.Options{Version: version})
+	ad, err := core.New(m.Core, core.Options{Version: version, Limit: outboundIPPreviewWire()})
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -575,6 +595,9 @@ func diffFields(a, b *model.Inbound) []string {
 		bx, _ := json.Marshal(x)
 		by, _ := json.Marshal(y)
 		return string(bx) == string(by)
+	}
+	if a.OutboundIPStrategy != b.OutboundIPStrategy {
+		out = append(out, "outboundIPStrategy")
 	}
 	if a.Port != b.Port {
 		out = append(out, "port")

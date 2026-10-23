@@ -98,7 +98,7 @@ func (s *Server) validateTemplateItem(it *store.TemplateItem) error {
 		it.TagPattern = "{node.name}-{protocol}"
 	}
 	m := model.Inbound{Tag: "check", Port: 1, Core: it.Core, Protocol: it.Protocol, Transport: it.Transport,
-		Security: it.Security, Sniffing: it.Sniffing}
+		Security: it.Security, Sniffing: it.Sniffing, OutboundIPStrategy: it.OutboundIPStrategy}
 	// Templates may store only an authentication marker. As in planNode,
 	// validate using a generated pair without persisting or sharing it.
 	if auth := pki.VLESSAuthOf(m.Protocol.Decryption); auth != "" {

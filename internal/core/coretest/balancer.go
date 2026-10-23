@@ -28,7 +28,7 @@ func LiveBalancerFallback(t *testing.T, a interface {
 	Start(context.Context) error
 	Stop(context.Context) error
 	CollectTraffic(context.Context) ([]model.TrafficDelta, error)
-}, typ model.CoreType, configPath string, primaryStrategy string) {
+}, typ model.CoreType, configPath string, primaryStrategy string, policies ...model.OutboundIPStrategy) {
 	t.Helper()
 	obs := []model.Outbound{}
 	var alive []*atomic.Bool
@@ -80,6 +80,9 @@ func LiveBalancerFallback(t *testing.T, a interface {
 	obs = append(obs, primary, group("backup", "last", "p3"), group("last", "", "p4"))
 	port := FreePort(t)
 	in := Inbound(typ, "entry", port, model.ProtocolSpec{Type: model.ProtoVLESS}, model.TransportSpec{}, model.SecuritySpec{})
+	if len(policies) > 0 {
+		in.OutboundIPStrategy = policies[0]
+	}
 	in.Listen = "127.0.0.1"
 	in.Sniffing.Enabled = false
 	if typ == model.CoreMihomo {
