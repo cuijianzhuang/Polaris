@@ -173,6 +173,8 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/probe/targets/:id", s.deleteProbeTarget)
 	p.PUT("/probe/nodes/:id", s.setNodeStatusHidden)
 	p.GET("/nodes/:id/latency", s.nodeLatency)
+	p.GET("/nodes/:id/route-schedule", s.getNodeRouteSchedule)
+	p.PUT("/nodes/:id/route-schedule", s.putNodeRouteSchedule)
 	p.POST("/nodes/:id/route-trace", s.traceNodeRoute)
 	p.GET("/nodes/:id/route-traces", s.nodeRouteHistory)
 	p.GET("/nodes/:id/route-traces/:traceId", s.nodeRouteDetail)

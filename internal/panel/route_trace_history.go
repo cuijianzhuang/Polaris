@@ -15,7 +15,7 @@ import (
 
 const (
 	routeTraceKeep          = 7 * 24 * time.Hour
-	routeTraceCompareWindow = 24 * time.Hour
+	routeTraceCompareWindow = 25 * time.Hour // allow daily schedules plus dispatch jitter
 	routeTraceHistoryLimit  = 100
 	routeTraceProfile       = "udp-traceroute-v1"
 )
@@ -31,28 +31,34 @@ func lockRouteNode(tx *gorm.DB, nodeID string) error {
 	return nil
 }
 
-func (s *Server) beginRouteTrace(nodeID string, req model.RouteTraceRequest) ([]store.NodeRouteTrace, error) {
+func createRouteTraceRows(tx *gorm.DB, nodeID string, req model.RouteTraceRequest, now time.Time, source string, revision int64) ([]store.NodeRouteTrace, error) {
 	rows := []store.NodeRouteTrace{}
-	now := time.Now().UTC()
+	if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at < ?", nodeID, "running", now.Add(-30*time.Second)).Updates(map[string]any{"state": "interrupted", "finished_at": now, "comparison": store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "interrupted", ChangedTTLs: []int{}})}).Error; err != nil {
+		return nil, err
+	}
 	runID := store.NewID()
+	for _, t := range []struct{ family, target string }{{"ipv4", req.IPv4}, {"ipv6", req.IPv6}} {
+		if t.target == "" {
+			continue
+		}
+		row := store.NodeRouteTrace{NodeID: nodeID, Family: t.family, Target: t.target, RunID: runID, Profile: routeTraceProfile, Source: source, ScheduleRevision: revision, State: "running", StartedAt: now, Comparison: store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "running", ChangedTTLs: []int{}})}
+		if err := tx.Create(&row).Error; err != nil {
+			return nil, err
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (s *Server) beginRouteTrace(nodeID string, req model.RouteTraceRequest) ([]store.NodeRouteTrace, error) {
+	var rows []store.NodeRouteTrace
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockRouteNode(tx, nodeID); err != nil {
 			return err
 		}
-		if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at < ?", nodeID, "running", now.Add(-30*time.Second)).Updates(map[string]any{"state": "interrupted", "finished_at": now, "comparison": store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "interrupted", ChangedTTLs: []int{}})}).Error; err != nil {
-			return err
-		}
-		for _, t := range []struct{ family, target string }{{"ipv4", req.IPv4}, {"ipv6", req.IPv6}} {
-			if t.target == "" {
-				continue
-			}
-			row := store.NodeRouteTrace{NodeID: nodeID, Family: t.family, Target: t.target, RunID: runID, Profile: routeTraceProfile, State: "running", StartedAt: now, Comparison: store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "running", ChangedTTLs: []int{}})}
-			if err := tx.Create(&row).Error; err != nil {
-				return err
-			}
-			rows = append(rows, row)
-		}
-		return nil
+		var err error
+		rows, err = createRouteTraceRows(tx, nodeID, req, time.Now().UTC(), "manual", 0)
+		return err
 	})
 	return rows, err
 }
@@ -71,7 +77,7 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 		}
 		for i := range rows {
 			var row store.NodeRouteTrace
-			if err := tx.First(&row, "id = ? AND node_id = ?", rows[i].ID, rows[i].NodeID).Error; err != nil {
+			if err := tx.First(&row, "id = ? AND node_id = ? AND run_id = ?", rows[i].ID, rows[i].NodeID, rows[i].RunID).Error; err != nil {
 				return err
 			}
 			if row.State != "running" {
@@ -103,7 +109,7 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 				if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND family = ? AND target = ? AND id > ?", row.NodeID, row.Family, row.Target, row.ID).Count(&newer).Error; err != nil {
 					return err
 				}
-				if newer == 0 {
+				if newer == 0 && routeScheduleNoticeCurrent(tx, row) {
 					var node store.Node
 					if err := tx.Select("id", "name").First(&node, "id = ?", row.NodeID).Error; err != nil {
 						return err
@@ -213,7 +219,7 @@ func routeTraceView(row store.NodeRouteTrace, detail bool) gin.H {
 	if !detail {
 		result.Raw = ""
 	}
-	return gin.H{"id": row.ID, "runId": row.RunID, "nodeId": row.NodeID, "family": row.Family, "target": row.Target, "profile": row.Profile, "state": state, "startedAt": row.StartedAt, "finishedAt": row.FinishedAt, "result": result, "comparison": comparison}
+	return gin.H{"id": row.ID, "runId": row.RunID, "nodeId": row.NodeID, "family": row.Family, "target": row.Target, "profile": row.Profile, "source": orDefault(row.Source, "manual"), "scheduleRevision": row.ScheduleRevision, "state": state, "startedAt": row.StartedAt, "finishedAt": row.FinishedAt, "result": result, "comparison": comparison}
 }
 
 func (s *Server) nodeRouteHistory(c *gin.Context) {
