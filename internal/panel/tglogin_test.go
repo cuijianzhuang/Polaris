@@ -74,6 +74,8 @@ func TestTelegramLoginScope(t *testing.T) {
 	expect(opc, "GET", "/settings", 403)
 	expect(opc, "GET", "/notifications/policy", 403)
 	expect(opc, "PUT", "/notifications/policy", 403)
+	expect(opc, "GET", "/nodes/"+mine+"/route-traces", 403)
+	expect(opc, "GET", "/nodes/"+mine+"/route-traces/1", 403)
 	expect(opc, "POST", "/nodes/"+mine+"/route-trace", 403)
 	expect(opc, "GET", "/nodes/"+mine+"/probe-policy", 403)
 	expect(opc, "PUT", "/nodes/"+mine+"/probe-policy", 403)
