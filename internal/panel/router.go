@@ -310,6 +310,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/redeem-codes", s.deleteCodes)
 
 	p.GET("/stats/overview", s.statsOverview)
+	p.GET("/stats/operational", s.statsOperational)
 	p.GET("/stats/traffic", s.statsTraffic)
 	p.GET("/stats/tags", s.tagStats)
 	p.GET("/stats/nodes", s.nodeTrafficAPI)
