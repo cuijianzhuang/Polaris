@@ -86,6 +86,8 @@ type Server struct {
 	restored          bool   // a staged backup was applied at this start
 	startedAt         time.Time
 	memberAt          time.Time // last cluster_members refresh
+	routeASNMu        sync.Mutex
+	routeASNCache     *routeASNDatabase
 	routeScheduleBusy atomic.Bool
 	leader            atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
 	bus               *clusterBus // messages between instances (PostgreSQL only)
