@@ -50,6 +50,7 @@ func TestLiveRelayBusinessThroughTunnel(t *testing.T) {
 		t.Fatal("no isolated ports")
 	}
 	id := createRelayTest(t, c, preview)
+	isolateLocalRelayPorts(t, s, id)
 	markRelayApplied(t, s, id)
 	specs := map[string]*model.NodeSpec{}
 	running := map[string]*gost.Adapter{}
@@ -141,5 +142,26 @@ func TestLiveRelayBusinessThroughTunnel(t *testing.T) {
 	s.st.DB.First(&saved, "id = ?", u.ID)
 	if saved.UsedUp != 0 || saved.UsedDown != 0 {
 		t.Fatal("real user billed")
+	}
+}
+
+// Logical nodes share one host in live tests; production allocates per node.
+// Use globally unique non-ephemeral listeners before starting native processes.
+func isolateLocalRelayPorts(t *testing.T, s *Server, id string) {
+	t.Helper()
+	var ch store.Chain
+	if err := s.st.DB.First(&ch, "id = ?", id).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := range ch.Hops.V {
+		if i < len(ch.Hops.V)-1 {
+			ch.Hops.V[i].Port = coretest.FreePort(t)
+		}
+		if ch.Hops.V[i].TunnelPort != 0 {
+			ch.Hops.V[i].TunnelPort = coretest.FreePort(t)
+		}
+	}
+	if err := s.st.DB.Model(&ch).Update("hops", ch.Hops).Error; err != nil {
+		t.Fatal(err)
 	}
 }

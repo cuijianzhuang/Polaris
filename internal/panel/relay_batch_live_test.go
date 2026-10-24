@@ -76,6 +76,10 @@ func TestLiveRelayBatch(t *testing.T) {
 			createRelayBatchTest(t, c, preview)
 			var chains []store.Chain
 			s.st.DB.Where("batch_id = ?", preview["batchId"]).Order("created_at").Find(&chains)
+			for _, ch := range chains {
+				isolateLocalRelayPorts(t, s, ch.ID)
+			}
+			s.st.DB.Where("batch_id = ?", preview["batchId"]).Order("created_at").Find(&chains)
 			if len(chains) != 2 {
 				t.Fatal(chains)
 			}

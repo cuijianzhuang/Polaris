@@ -3,6 +3,7 @@ package coretest
 import (
 	"bufio"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -76,21 +77,33 @@ func claimShared(p int) bool {
 	return !taken
 }
 
-// FreePort returns a loopback TCP port no test in any process was given in
-// the last ten minutes.
+// FreePort avoids the OS ephemeral range: closing a reservation socket must
+// not allow an outgoing connection to steal a future test listener's port.
 func FreePort(t testing.TB) int {
 	t.Helper()
-	for i := 0; i < 200; i++ {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
+	low, high := 32768, 65535 // conservative fallback on non-Linux hosts
+	if raw, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range"); err == nil {
+		var l, h int
+		if _, err := fmt.Sscanf(string(raw), "%d %d", &l, &h); err == nil && l > 0 && h >= l && h <= 65535 {
+			low, high = l, h
 		}
-		p := l.Addr().(*net.TCPAddr).Port
+	}
+	start := rand.IntN(65536 - 1024)
+	for i := 0; i < 65536-1024; i++ {
+		p := 1024 + (start+i)%(65536-1024)
+		if p >= low && p <= high {
+			continue
+		}
+		l, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		if err != nil {
+			continue
+		}
+		ok := Claim(p)
 		l.Close()
-		if Claim(p) {
+		if ok {
 			return p
 		}
 	}
-	t.Fatal("no free port left")
+	t.Fatal("no free non-ephemeral test port left")
 	return 0
 }
