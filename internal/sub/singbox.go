@@ -102,6 +102,19 @@ func SingboxOutbound(n Node) map[string]any {
 	}
 	o := map[string]any{"tag": n.Name, "server": n.Server, "server_port": n.Port}
 	switch n.Protocol {
+	case model.ProtoSnell:
+		if n.SnellVersion != 4 && n.SnellVersion != 6 {
+			return nil
+		}
+		if n.SnellPSK == "" || n.SnellUserKey == "" {
+			return nil
+		}
+		o["type"], o["version"], o["psk"], o["userkey"] = "snell", n.SnellVersion, n.SnellPSK, n.SnellUserKey
+		if n.SnellVersion == 6 {
+			o["mode"] = orDefault(n.SnellMode, "default")
+		} else {
+			o["obfs_mode"] = orDefault(n.SnellObfs, "none")
+		}
 	case model.ProtoVLESS:
 		if n.Encryption != "" {
 			return nil // sing-box has no VLESS Encryption

@@ -1,4 +1,10 @@
 const operations: Record<string, string> = {
+  "Snell 需要 sing-box 1.14+ 和支持按用户计费的内核。每个用户使用独立密钥；停用、到期或超额后撤销授权。用户变更会重载内核并断开现有连接。": "Snell requires sing-box 1.14+ with per-user traffic statistics. Each user has an independent key, revoked on disablement, expiry or quota exhaustion. User changes reload the core and disconnect existing sessions.",
+  "Snell 服务端版本": "Snell server version",
+  "v5 使用 v4 客户端协议；当前仅向 sing-box 1.14+ 订阅输出，其他客户端会过滤此节点。": "v5 uses the v4 client protocol. Only sing-box 1.14+ subscriptions include this node; other clients omit it.",
+  "流量整形": "Traffic shaping",
+  "Snell 混淆": "Snell obfuscation",
+
   "选择处理组": "Choose processing group",
   "处理组版本": "Processing group version",
   "跟随最新版本": "Follow latest version",

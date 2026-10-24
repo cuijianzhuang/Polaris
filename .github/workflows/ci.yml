@@ -84,6 +84,36 @@ jobs:
           scripts/pro.sh clean
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
+  snell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build pinned Snell multi-user core with real traffic counters
+        run: |
+          git clone --depth 1 --branch v1.14.4 https://github.com/SagerNet/sing-box.git /tmp/snell-src
+          test "$(git -C /tmp/snell-src rev-parse HEAD)" = c005f35300ce76427dc285481ec5695f5b179cd2
+          cd /tmp/snell-src
+          go build -tags with_v2ray_api,with_clash_api -ldflags '-X github.com/sagernet/sing-box/constant.Version=1.14.4' -o /tmp/snell-core ./cmd/sing-box
+      - name: Verify native TCP/UDP, per-user billing and revocation
+        run: go test -count=1 -v ./internal/core/singbox ./internal/panel -run Snell
+        env:
+          POLARIS_SNELL_BIN: /tmp/snell-core
+      - name: Verify Snell through the professional per-user limiter
+        env:
+          PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          POLARIS_SNELL_BIN: /tmp/snell-core
+        run: |
+          set -euo pipefail
+          if [ -z "${PRO_TOKEN}" ]; then echo "PRO_TOKEN not available: skipping professional limiter"; exit 0; fi
+          url="https://x-access-token:${PRO_TOKEN}@github.com/cuijianzhuang/polaris-pro.git"
+          git clone -q --depth 1 --branch "$BRANCH" "$url" /tmp/snell-pro 2>/dev/null || git clone -q --depth 1 "$url" /tmp/snell-pro
+          scripts/pro.sh copy /tmp/snell-pro
+          go test -tags pro -count=1 -v ./internal/agent -run Snell
+          scripts/pro.sh clean
   web:
     runs-on: ubuntu-latest
     steps:

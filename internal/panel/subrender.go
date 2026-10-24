@@ -224,7 +224,17 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	nodes = applyNodeOpts(s.decorateNodes(nodes, info, raw || sub.ReadsProfileHeaders(c.GetHeader("User-Agent"))), ro)
 	var body []byte
 	ctype := ""
-	if cc.External && !raw && format != "links" {
+	hasSnell := false
+	for _, n := range nodes {
+		if n.Protocol == "snell" {
+			hasSnell = true
+			break
+		}
+	}
+	if format == "singbox" {
+		nodes = sub.FilterSnellClient(nodes, c.GetHeader("User-Agent"))
+	}
+	if cc.External && !raw && format != "links" && !(hasSnell && format == "singbox") {
 		var err error
 		body, ctype, err = s.renderExternal(c.Request.Context(), cc, format, s.callbackURL(callback))
 		if err != nil {

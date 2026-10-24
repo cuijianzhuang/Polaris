@@ -116,3 +116,13 @@ func TestLiveOnlineIPs(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlineSnellUDPUser(t *testing.T) {
+	tr := newOnlineTracker()
+	tr.line("INFO [77 0ms] inbound/snell[snell]: inbound connection from 192.0.2.1:4567")
+	tr.line("INFO [77 1ms] inbound/snell[snell]: [alice] inbound packet connection from 192.0.2.1:4567")
+	got := tr.online(time.Now())
+	if len(got["alice"]) != 1 || got["alice"][0] != "192.0.2.1" {
+		t.Fatal("Snell UDP user/source identity lost", got)
+	}
+}

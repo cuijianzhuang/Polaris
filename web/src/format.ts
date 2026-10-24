@@ -63,7 +63,7 @@ export const coreColor: Record<string, string> = { xray: '#0E7490', singbox: '#6
 
 export const protoLabel: Record<Protocol, string> = {
   vless: 'VLESS', vmess: 'VMess', trojan: 'Trojan', shadowsocks: 'SS 2022', hysteria2: 'Hysteria2', tuic: 'TUIC v5',
-  anytls: 'AnyTLS', shadowtls: 'ShadowTLS', naive: 'Naive', socks: 'SOCKS', http: 'HTTP',
+  anytls: 'AnyTLS', snell: 'Snell', shadowtls: 'ShadowTLS', naive: 'Naive', socks: 'SOCKS', http: 'HTTP',
 }
 export const transLabel: Record<Transport, string> = { tcp: 'TCP', ws: 'WS', grpc: 'gRPC', httpupgrade: 'HTTPUpgrade', xhttp: 'XHTTP', kcp: 'mKCP', quic: 'QUIC' }
 export const secLabel: Record<Security, string> = { none: t('无'), tls: 'TLS', reality: 'REALITY' }

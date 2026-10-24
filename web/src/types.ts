@@ -1,6 +1,6 @@
 export type OutboundIPStrategy = 'auto' | 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6'
 export type CoreType = 'xray' | 'singbox' | 'mihomo' | 'hysteria' | 'forwarder' | 'gost' | 'caddy' | 'auto'
-export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'anytls' | 'shadowtls' | 'naive' | 'socks' | 'http'
+export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'anytls' | 'snell' | 'shadowtls' | 'naive' | 'socks' | 'http'
 export type Transport = 'tcp' | 'ws' | 'grpc' | 'httpupgrade' | 'xhttp' | 'kcp' | 'quic'
 export type Security = 'none' | 'tls' | 'reality'
 
@@ -9,6 +9,7 @@ export interface ProtocolSpec {
   type: Protocol; flow?: string; visionUDP443?: boolean; method?: string; congestionControl?: string
   upMbps?: number; downMbps?: number; obfs?: string; obfsPassword?: string
   handshakeServer?: string; detour?: string; udp?: boolean
+  snellVersion?: 5 | 6; snellMode?: string; snellObfs?: string
   fallbacks?: Fallback[]
   decryption?: string; encryption?: string; testSeed?: number[]
 }

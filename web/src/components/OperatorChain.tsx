@@ -1,7 +1,7 @@
 import type { Operator } from '../types'
 import { t } from '../i18n'
 import { Field, Switch } from './ui'
-const protos = ['vless', 'vmess', 'trojan', 'shadowsocks', 'hysteria2', 'tuic', 'anytls', 'socks', 'http', 'wireguard']
+const protos = ['vless', 'vmess', 'trojan', 'shadowsocks', 'hysteria2', 'tuic', 'anytls', 'snell', 'socks', 'http', 'wireguard']
 const opLabel: Record<Operator['type'], string> = { filter: t('过滤'), rename: t('重命名'), sort: t('排序'), dedup: t('去重') }
 
 export default function OperatorChain({ ops, onChange, meta, maxSteps }: { ops: Operator[]; onChange: (o: Operator[]) => void; meta?: { regions: { Code: string; Name: string }[] }; maxSteps?: number }) {
