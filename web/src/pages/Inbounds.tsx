@@ -1,3 +1,5 @@
+import OutboundIPField from '../components/OutboundIPField'
+import RelayManager, { RelayAccessFields } from '../components/RelayManager'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icons'
@@ -198,6 +200,10 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   const [extra, setExtra] = useState(editing?.extra ? JSON.stringify(editing.extra, null, 2) : '')
   const [enabled, setEnabled] = useState(editing?.enabled ?? true)
   const [remark, setRemark] = useState(editing?.remark ?? '')
+  const [ipStrategy, setIPStrategy] = useState<import('../types').OutboundIPStrategy>(editing?.outboundIPStrategy || 'auto')
+  const [relayOnly, setRelayOnly] = useState(!!editing?.relayOnly)
+  const [relayAccess, setRelayAccess] = useState<NonNullable<Inbound['relayAccess']>>(editing?.relayAccess ?? { enabled: false, proxyProtocol: 0 })
+  const [relaysOpen, setRelaysOpen] = useState(false)
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
   const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
@@ -227,7 +233,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
     let ex: any = undefined
     if (extra.trim()) ex = JSON.parse(extra)
     return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
-      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)) }
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly, relayAccess: { ...relayAccess, sourceOverrides: Object.fromEntries(Object.entries(relayAccess.sourceOverrides ?? {}).map(([id, sources]) => [id, sources.map((x) => x.trim()).filter(Boolean)])) }, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)) }
   }
   const save = () => run(async () => {
     if (editing) await put('/inbounds/' + editing.id, body())
@@ -301,10 +307,12 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
             {(outbounds.data ?? []).map((o) => <option key={o.id} value={o.tag}>{o.tag} · {o.type === 'balancer' ? t('负载均衡') : o.type}</option>)}
           </select>
         </Field>
+        <OutboundIPField value={ipStrategy} onChange={setIPStrategy} />
         <Field label={t('限速（Mbps）')} htmlFor="ib-speed" hint={t('节点用 tc 限制这个端口的上传、下载带宽，所有用户共享；留空或 0 不限速。需要节点有 tc（iproute2）')}>
           <input id="ib-speed" className="input mono" inputMode="numeric" placeholder={t('不限速')} value={speedLimit} onChange={(e) => setSpeedLimit(e.target.value.replace(/[^0-9]/g, ''))} />
         </Field>
       </Section>
+      <section className="card ops-stack"><h3>{t('中转与访问控制')}</h3><RelayAccessFields value={relayAccess} relayOnly={relayOnly} nodes={nodes.filter((n) => n.id !== nodeId)} onChange={(only, policy) => { setRelayOnly(only); setRelayAccess(policy) }} />{editing && <button className="btn" onClick={() => setRelaysOpen(true)}>{t('中转管理')}</button>}</section>
       <Section step={4} title={t('高级')} defaultOpen={!!extra.trim()} summary={extra.trim() ? t('已设置 Extra') : t('Extra（原样合并进内核配置）')}>
         <Field label="Extra" hint={t('原样合并进内核配置的 JSON')}>
           <textarea className="input" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='{"sniffing": {"routeOnly": true}}' />
@@ -317,6 +325,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
         <div className="note warn">{t('该节点运行的是官方版 sing-box（不含 v2ray_api），暂时只能统计入站总流量，用户的已用流量不会增加。Polaris 会自动构建带统计功能的同版本 sing-box，发布后 Agent 下次启动时自动替换；也可以在「节点」页把 sing-box 切换到已构建的版本。')}</div>
       )}
       {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
+      {editing && relaysOpen && <RelayManager inbound={editing} nodes={nodes} onClose={() => setRelaysOpen(false)} onChanged={onSaved} />}
       {preview && <Modal title={t('{core} 原生配置预览', { core: coreLabel[draft.core] })} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}
     </Drawer>
   )
@@ -341,6 +350,7 @@ export default function Inbounds() {
     return m
   }, [tagStats.data])
   const [drawer, setDrawer] = useState<Inbound | 'new' | null>(null)
+  const [relayInbound, setRelayInbound] = useState<Inbound>()
   const [cloning, setCloning] = useState<Inbound | null>(null)
   const [importing, setImporting] = useState(false)
   const [q, setQ] = useState('')
@@ -445,7 +455,8 @@ export default function Inbounds() {
                   <td data-label={t('入口')} className="mono">{i.endpoints}</td>
                   <td data-label={t('启用')} onClick={(e) => e.stopPropagation()}><Switch label={t('启用')} on={i.enabled} onChange={() => toggle(i)} /></td>
                   <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
-                    <div className="row" style={{ flexWrap: 'nowrap', gap: 2 }}>
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 2 }}>
+                      <button className="btn sm" type="button" onClick={() => setRelayInbound(i)}>{t('中转')}</button>
                       <button className="icon-btn" type="button" title={t('复制到…（同节点或其他节点）')} aria-label={t('复制入站')} onClick={() => setCloning(i)}><Icon.Copy /></button>
                       <button className="icon-btn" type="button" title={t('导出 JSON')} aria-label={t('导出入站')} onClick={() => exportOne(i)}><Icon.Download /></button>
                       <button className="icon-btn" type="button" title={t('清零流量统计')} aria-label={t('清零流量')} onClick={() => resetTraffic(i)}><Icon.Reset /></button>
@@ -457,6 +468,7 @@ export default function Inbounds() {
           </table>
         )}
       </div>
+      {relayInbound && <RelayManager inbound={relayInbound} nodes={nodes} onClose={() => setRelayInbound(undefined)} onChanged={list.reload} />}
       {bulk && <BulkModal kind={bulk} ids={[...sel]} onClose={() => setBulk(null)} onDone={() => list.reload()} />}
       {cloning && <CloneModal inbound={cloning} nodes={nodes} onClose={() => setCloning(null)} onDone={() => { setCloning(null); list.reload() }} />}
       {importing && <ImportInboundModal nodes={nodes} onClose={() => setImporting(false)} onDone={() => { setImporting(false); list.reload() }} />}

@@ -1,3 +1,4 @@
+import OperationalOverview, { type OperationalData } from '../components/OperationalOverview'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { get } from '../api'
@@ -10,6 +11,7 @@ import type { Node, NodeTraffic } from '../types'
 import { t } from '../i18n'
 
 interface Overview {
+  operational?: OperationalData
   nodes: { online: number; total: number; timeout: number; error?: number }
   users: { online: number; active: number; total: number }
   today: { Up: number; Down: number }
@@ -159,6 +161,7 @@ export default function Dashboard() {
         </div>
       </div>
       {data && <Attention d={data} />}
+      {data && <OperationalOverview data={data.operational} />}
       <section className="grid g4" aria-label={t('概览')}>
         <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">{t('在线节点')}</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? t('{n} 个离线', { n: data.nodes.timeout }) : t('全部在线')}{data?.nodes.error ? ' · ' + t('{n} 个下发失败', { n: data.nodes.error }) : ''}</div></Link>
         <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">{t('在线用户')}</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">{t('有效 {active} · 共 {total} 个用户', { active: data?.users.active ?? 0, total: data?.users.total ?? 0 })}</div></Link>

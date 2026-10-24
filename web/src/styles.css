@@ -929,3 +929,20 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
   .form-grid.rule-draft { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
   .form-grid.rule-draft > :nth-child(n + 3) { grid-column: 1 / -1; }
 }
+
+/* Operational controls share the existing cards, tables and modal surfaces. */
+.ops-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ops-stack > .btn { align-self: flex-start; }
+.ops-summary { border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; overflow-wrap: anywhere; }
+.ops-summary > b { display: block; margin-bottom: 8px; }
+.ops-summary .row > b { min-width: 0; overflow-wrap: anywhere; }
+.ops-break { overflow-wrap: anywhere; word-break: break-word; }
+.ops-raw { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; }
+.ops-choices { display: flex; flex-wrap: wrap; gap: 10px 18px; max-height: 220px; overflow: auto; }
+.ops-target { display: grid; grid-template-columns: minmax(100px, 1fr) 100px minmax(140px, 1.5fr) auto; gap: 8px; align-items: center; }
+@media (max-width: 700px) {
+  .ops-target { grid-template-columns: minmax(0, 1fr) 100px; }
+  .ops-target .mono { grid-column: 1; }
+  .ops-stack .ctitle { flex-wrap: wrap; gap: 10px; }
+  .ops-stack .ctitle .row { flex-wrap: wrap; }
+}

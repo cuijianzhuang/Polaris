@@ -1,3 +1,4 @@
+import NodeNetworkTools from '../components/NodeNetworkTools'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
@@ -471,6 +472,7 @@ export default function Nodes() {
               <NetCollectionHealth health={sel.netHealth} onRefresh={refresh} />
               <section className="card"><TrafficChart query={'node=' + sel.id} title={t('节点用户流量')} /></section>
               <section className="card"><NodeMetrics nodeId={sel.id} /></section>
+              {!scoped && <NodeNetworkTools key={sel.id} node={sel} />}
               {!scoped && <NodeProvider nodeId={sel.id} onSynced={refresh} />}
               <LimitedUsers nodeId={sel.id} />
               <h2>{t('内核')}</h2>

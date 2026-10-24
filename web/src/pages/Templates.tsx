@@ -1,3 +1,4 @@
+import OutboundIPField from '../components/OutboundIPField'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
@@ -96,6 +97,7 @@ function TemplateEditor({ tpl, groups, onClose, onSaved }: { tpl?: InboundTempla
             <button className="btn sm" disabled={idx === items.length-1} onClick={() => { const next = [...items]; [next[idx+1], next[idx]] = [next[idx], next[idx+1]]; setItems(next); setIdx(idx+1) }}>{t('下移')}</button>
           </div>
           <Field label={t('入站名称（可选）')} htmlFor="template-item-name"><input id="template-item-name" className="input" maxLength={64} value={it.name ?? ''} placeholder={itemTag(it)} onChange={(e) => setIt({ name: e.target.value })} /></Field>
+          <OutboundIPField value={it.outboundIPStrategy} onChange={(outboundIPStrategy) => setIt({ outboundIPStrategy })} />
           <div className="note">{itemTag(it)} · {portText(it)} · {it.protocol.flow || t('无流控')}{it.protocol.visionUDP443 && ' · UDP 443'}</div>
           <InboundFields draft={{ core: it.core, protocol: it.protocol, transport: it.transport, security: it.security, sniffing: it.sniffing }}
             onChange={(d: InboundDraft) => setIt({ core: d.core, protocol: d.protocol, transport: d.transport, security: d.security, sniffing: d.sniffing,

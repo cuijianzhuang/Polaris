@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { del, get, post, put } from '../api'
+import { api, del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
@@ -55,7 +55,12 @@ function ChainCard({ c, nodes, inbounds, onEdit, onChanged }: { c: Chain; nodes:
         <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await post(`/chains/${c.id}/probe`); onChanged() }, t('探测完成'))}>{t('立即探测')}</button>
         <button className="btn sm" type="button" onClick={onEdit}>{t('编辑')}</button>
         <button className="btn sm danger" type="button" onClick={async () => {
-          if (await confirm(t('删除链路 {name}？相关出站、路由和服务账号会一并回收。', { name: c.name }), { danger: true })) run(async () => { await del('/chains/' + c.id); onChanged() }, t('已删除'))
+          run(async () => {
+            const preview = await post<{ etag: string; blocked: boolean; references: { kind: string; resourceId: string }[]; warnings: string[]; nodes: { name: string }[]; endpointIds: string[]; outboundIds: string[]; routingRuleIds: string[]; serviceUserIds: string[] }>(`/chains/${c.id}/change-preview`, { action: 'delete' })
+            if (preview.blocked) throw new Error(t('仍有外部引用，解除引用后才能执行。') + '\n' + preview.references.map((r) => `${r.kind}: ${r.resourceId}`).join('\n'))
+            const detail = [t('删除链路 {name}？相关出站、路由和服务账号会一并回收。', { name: c.name }), preview.nodes.map((n) => n.name).join(' → '), `${t('涉及发布入口')} ${preview.endpointIds.length} · ${t('出站')} ${preview.outboundIds.length} · ${t('路由规则')} ${preview.routingRuleIds.length} · ${t('服务身份')} ${preview.serviceUserIds.length}`, ...preview.warnings].join('\n')
+            if (await confirm(detail, { danger: true })) { await api('DELETE', '/chains/' + c.id, undefined, { 'If-Match': preview.etag }); onChanged() }
+          })
         }}>{t('删除')}</button>
         {c.probedAt && <span className="small mute">{t('上次探测 {ago}', { ago: ago(c.probedAt) })}</span>}
       </div>
