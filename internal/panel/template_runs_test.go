@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -246,9 +247,118 @@ func TestTemplateRunAcrossInstances(t *testing.T) {
 	}
 	wg.Wait()
 	var n int64
-	s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", id).Count(&n)
+	if err := s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", id).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
 	if n != 2 {
-		t.Fatalf("cross-instance confirmation produced %d inbounds", n)
+		var run store.TemplateRun
+		if err := s.st.DB.First(&run, "id = ?", opt["planId"]).Error; err != nil {
+			t.Fatal(err)
+		}
+		t.Fatalf("cross-instance confirmation produced %d inbounds: state=%s results=%s", n, run.State, run.Results)
+	}
+}
+
+// A different replica can ingest a heartbeat between the fingerprint read and
+// the inbound insert. SQLite must reserve its writer before taking that snapshot.
+func TestTemplateApplyWithConcurrentHeartbeat(t *testing.T) {
+	s, c, id, opt := templateFixture(t)
+	if s.st.DB.Dialector.Name() != "sqlite" {
+		t.Skip("SQLite read-to-write snapshot regression")
+	}
+	opt["planId"] = previewFixture(t, c, id, opt)["planId"]
+	other, err := store.Open(s.cfg.DB.DSN, s.st.Box, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db, _ := other.DB.DB(); db.Close() })
+	if err := other.DB.Exec("PRAGMA busy_timeout = 50").Error; err != nil {
+		t.Fatal(err)
+	}
+	injected := false
+	var heartbeatErr error
+	const hook = "fixture:heartbeat-during-template"
+	if err := s.st.DB.Callback().Create().Before("gorm:create").Register(hook, func(db *gorm.DB) {
+		if _, ok := db.Statement.ConnPool.(*sql.Tx); !ok || db.Statement.Table != "inbounds" || injected {
+			return
+		}
+		injected = true
+		// Change a real value: a no-op UPDATE need not append a WAL frame.
+		heartbeatErr = other.DB.Exec("UPDATE nodes SET net_rx = net_rx + 1 WHERE id = ?", "n1").Error
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.st.DB.Callback().Create().Remove(hook) })
+	code, out := c.do("POST", "/templates/"+id+"/apply", opt)
+	if !injected {
+		t.Fatal("heartbeat interleaving was not exercised")
+	}
+	if code != 200 {
+		t.Fatalf("apply: %d %v", code, out)
+	}
+	var n int64
+	if err := s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", id).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		var run store.TemplateRun
+		s.st.DB.First(&run, "id = ?", opt["planId"])
+		t.Fatalf("heartbeat interrupted template: %d inbounds, results=%s (heartbeat error: %v)", n, run.Results, heartbeatErr)
+	}
+	if heartbeatErr != nil {
+		var busy interface {
+			error
+			Code() int
+		}
+		if !errors.As(heartbeatErr, &busy) || busy.Code()&0xff != 5 {
+			t.Fatalf("unexpected heartbeat failure: %v", heartbeatErr)
+		}
+		if err := other.DB.Exec("UPDATE nodes SET net_rx = net_rx + 1 WHERE id = ?", "n1").Error; err != nil {
+			t.Fatalf("heartbeat could not resume after template commit: %v", err)
+		}
+	}
+	var node store.Node
+	if err := s.st.DB.First(&node, "id = ?", "n1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if node.NetRx != 1 {
+		t.Fatalf("heartbeat data was lost: net_rx=%d", node.NetRx)
+	}
+}
+
+func TestTemplateFrozenNodeRejectsChangedInputs(t *testing.T) {
+	for _, field := range []string{"address", "port"} {
+		t.Run(field, func(t *testing.T) {
+			s, c, id, opt := templateFixture(t)
+			runID := previewFixture(t, c, id, opt)["planId"].(string)
+			_, frozen, err := s.loadTemplateRun(runID, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			nodeID := frozen.Nodes[0].Plan.NodeID
+			switch field {
+			case "address":
+				err = s.st.DB.Model(&store.Node{}).Where("id = ?", nodeID).Update("address", "203.0.113.2").Error
+			case "port":
+				err = s.st.DB.Create(&store.Inbound{ID: "other", NodeID: nodeID, Tag: "other", Port: 12345}).Error
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Exercise the transaction guard itself, after the request-level
+			// preflight could already have passed on a different replica.
+			result := s.applyFrozenNode(frozen, &frozen.Nodes[0])
+			if result.Written || !strings.Contains(result.Error, "节点配置已变化") {
+				t.Fatalf("stale node was applied: %+v", result)
+			}
+			var count int64
+			if err := s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", id).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count != 0 {
+				t.Fatalf("stale node created %d inbounds", count)
+			}
+		})
 	}
 }
 
