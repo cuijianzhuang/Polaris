@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -251,6 +252,10 @@ func (s *Server) updateChain(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "该线路由一键中转管理，请使用入站中转接口；更换路径需重新预览"})
 		return
 	}
+	if c.GetHeader("If-Match") != "" {
+		badRequest(c, fmt.Errorf("普通链路更新暂不支持变更预览条件；该预览仅用于删除"))
+		return
+	}
 	var req chainReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -260,8 +265,15 @@ func (s *Server) updateChain(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	before := chainNodes(&ch)
+	before := []string{}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&ch, "id = ?", c.Param("id")).Error; err != nil {
+			return err
+		}
+		before = chainNodes(&ch)
+		if err := checkRelayChange(tx, c, "chain", "delete", []store.Chain{ch}); err != nil {
+			return err
+		}
 		if err := s.dematerializeChain(tx, &ch); err != nil {
 			return err
 		}
@@ -272,7 +284,7 @@ func (s *Server) updateChain(c *gin.Context) {
 		return s.materializeChain(tx, &ch)
 	})
 	if err != nil {
-		dbError(c, err)
+		relayChangeError(c, err)
 		return
 	}
 	s.MarkDirty("chain "+ch.Name, append(before, chainNodes(&ch)...)...)
@@ -289,13 +301,19 @@ func (s *Server) deleteChain(c *gin.Context) {
 		return
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&ch, "id = ?", c.Param("id")).Error; err != nil {
+			return err
+		}
+		if err := checkRelayChange(tx, c, "chain", "delete", []store.Chain{ch}); err != nil {
+			return err
+		}
 		if err := s.dematerializeChain(tx, &ch); err != nil {
 			return err
 		}
 		return tx.Delete(&ch).Error
 	})
 	if err != nil {
-		serverError(c, err)
+		relayChangeError(c, err)
 		return
 	}
 	s.MarkDirty("chain deleted", chainNodes(&ch)...)

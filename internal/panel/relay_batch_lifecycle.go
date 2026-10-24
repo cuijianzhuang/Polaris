@@ -88,6 +88,13 @@ func (s *Server) setInboundRelayBatchState(c *gin.Context) {
 		if err != nil {
 			return err
 		}
+		action := "disable"
+		if *req.Enabled {
+			action = "enable"
+		}
+		if err = checkRelayChange(tx, c, "batch", action, chains); err != nil {
+			return err
+		}
 		if *req.Enabled {
 			if _, err := relayLanding(tx, in.ID); err != nil {
 				return badInput{err}
@@ -124,7 +131,7 @@ func (s *Server) setInboundRelayBatchState(c *gin.Context) {
 		return tx.Create(&audit).Error
 	})
 	if err != nil {
-		relaySetupError(c, err)
+		relayChangeError(c, err)
 		return
 	}
 	if len(affected) > 0 {
@@ -143,6 +150,9 @@ func (s *Server) deleteInboundRelayBatch(c *gin.Context) {
 		if err != nil {
 			return err
 		}
+		if err = checkRelayChange(tx, c, "batch", "delete", chains); err != nil {
+			return err
+		}
 		for _, ch := range chains {
 			if err := s.dematerializeChain(tx, &ch); err != nil {
 				return err
@@ -155,7 +165,7 @@ func (s *Server) deleteInboundRelayBatch(c *gin.Context) {
 		return tx.Create(&audit).Error
 	})
 	if err != nil {
-		relaySetupError(c, err)
+		relayChangeError(c, err)
 		return
 	}
 	var affected []string

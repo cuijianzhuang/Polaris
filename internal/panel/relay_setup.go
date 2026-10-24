@@ -589,10 +589,18 @@ func (s *Server) setInboundRelayState(c *gin.Context) {
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
 	var ch store.Chain
+	changed := false
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		var e error
 		ch, e = loadInboundRelay(tx, c.Param("rid"), c.Param("id"))
 		if e != nil {
+			return e
+		}
+		action := "disable"
+		if *req.Enabled {
+			action = "enable"
+		}
+		if e = checkRelayChange(tx, c, "relay", action, []store.Chain{ch}); e != nil {
 			return e
 		}
 		if *req.Enabled {
@@ -621,14 +629,20 @@ func (s *Server) setInboundRelayState(c *gin.Context) {
 			}
 		}
 		ch.TargetRevs = store.NewJSON(relayTargetRevs(&ch, nodes))
-		return tx.Save(&ch).Error
+		if e := tx.Save(&ch).Error; e != nil {
+			return e
+		}
+		changed = true
+		return nil
 	})
 	if err != nil {
-		relaySetupError(c, err)
+		relayChangeError(c, err)
 		return
 	}
-	s.MarkDirty("relay state changed", chainNodes(&ch)...)
-	s.auditCtx(c, "relay.state", ch.Name, strconv.FormatBool(*req.Enabled))
+	if changed {
+		s.MarkDirty("relay state changed", chainNodes(&ch)...)
+		s.auditCtx(c, "relay.state", ch.Name, strconv.FormatBool(*req.Enabled))
+	}
 	c.JSON(http.StatusOK, ch)
 }
 
@@ -642,13 +656,16 @@ func (s *Server) deleteInboundRelay(c *gin.Context) {
 		if e != nil {
 			return e
 		}
+		if e = checkRelayChange(tx, c, "relay", "delete", []store.Chain{ch}); e != nil {
+			return e
+		}
 		if e = s.dematerializeChain(tx, &ch); e != nil {
 			return e
 		}
 		return tx.Delete(&ch).Error
 	})
 	if err != nil {
-		relaySetupError(c, err)
+		relayChangeError(c, err)
 		return
 	}
 	s.MarkDirty("relay deleted", chainNodes(&ch)...)
