@@ -408,6 +408,9 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
 		features := model.RelayAccessFeature + "," + model.OutboundIPFeature
+		if runtime.GOOS == "linux" {
+			features += "," + model.RouteTraceFeature
+		}
 		if core.ParentBoundSupported() {
 			features += "," + model.RelayBusinessFeature
 		}
@@ -798,6 +801,13 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			time.Sleep(300 * time.Millisecond) // let the result reach the panel
 			a.requestRestart()
 			return
+		}
+	case model.RouteTraceFeature:
+		out, err := routeTraceCommand(ctx, c.Args["request"])
+		if err != nil {
+			fail(err)
+		} else {
+			res.Output = out
 		}
 	case "probe":
 		ms, err := probe(ctx, c.Args)
