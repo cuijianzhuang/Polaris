@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -145,29 +144,12 @@ func TestACMEHTTP01(t *testing.T) {
 	}
 }
 
-// distinctPorts reserves n free ports at once, away from each other's and
-// every earlier port's neighbourhood. Agent API bases come from
-// agentPortBase, which keeps the agent's whole port range clear.
+// distinctPorts uses the shared TCP/UDP registry, including all reserved
+// Agent API ranges, rather than a separate package-local allocator.
 func distinctPorts(t *testing.T, n int) []int {
-	var ls []net.Listener
-	defer func() {
-		for _, l := range ls {
-			l.Close()
-		}
-	}()
-	var out []int
-	for len(out) < n {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		ls = append(ls, l)
-		if p := l.Addr().(*net.TCPAddr).Port; claimPort(p) {
-			out = append(out, p)
-		}
-		if len(ls) > 500 {
-			t.Fatal("no free port left")
-		}
+	out := make([]int, n)
+	for i := range out {
+		out[i] = freeMixedPort(t)
 	}
 	return out
 }

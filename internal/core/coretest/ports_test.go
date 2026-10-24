@@ -88,3 +88,24 @@ func TestFreePortAvoidsEphemeralRange(t *testing.T) {
 		l.Close()
 	}
 }
+
+func TestFreePortRangeReservesDerivedListeners(t *testing.T) {
+	const span = 128
+	base := FreePortRange(t, span)
+	for p := base; p < base+span; p++ {
+		if Claim(p) {
+			t.Fatalf("derived port %d was not reserved", p)
+		}
+		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(p))
+		l, err := net.Listen("tcp4", addr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := net.ListenPacket("udp4", addr)
+		l.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.Close()
+	}
+}
