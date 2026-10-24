@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -26,99 +25,16 @@ func freePort(t *testing.T) int {
 	return distinctPorts(t, 1)[0]
 }
 
-// handedOut holds every port given to a test in this process. Ports are
-// released before the code under test binds them, so without this two
-// parallel tests could be handed the same one (or one inside another's
-// agent API range) and talk to each other's servers.
-var (
-	portsMu   sync.Mutex
-	handedOut []int
-)
-
-// agentSpan covers every loopback port an agent derives from its API port
-// base: core APIs at +0..+20 and, in the professional build, the speed-limit
-// listeners at +100..+105.
+// Include every core API and professional speed-limit listener derived from
+// the Agent API base; all test packages share the same reservation registry.
 const agentSpan = 128
 
-// agentBases holds the ports handed out as agent API bases.
-var agentBases []int
-
-// claimPort records p unless it lies within 32 of a port already handed out
-// or inside an agent's port range.
-func claimPort(p int) bool {
-	portsMu.Lock()
-	defer portsMu.Unlock()
-	return claimLocked(p, 32, 32) && coretest.Claim(p) // coretest: also against other packages' tests
-}
-
-// claimLocked records p unless another port lies in (p-below, p+above) or p
-// falls inside an agent's range.
-func claimLocked(p, below, above int) bool {
-	for _, q := range handedOut {
-		if q > p-below && q < p+above {
-			return false
-		}
-	}
-	for _, b := range agentBases {
-		if p >= b && p < b+agentSpan {
-			return false
-		}
-	}
-	handedOut = append(handedOut, p)
-	return true
-}
-
-// agentPortBase returns an API port base whose whole agent range is clear of
-// every other port handed out in this process.
 func agentPortBase(t *testing.T) int {
-	t.Helper()
-	for i := 0; i < 200; i++ {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := l.Addr().(*net.TCPAddr).Port
-		l.Close()
-		if p+agentSpan > 65535 {
-			continue
-		}
-		portsMu.Lock()
-		ok := claimLocked(p, 32, agentSpan)
-		if ok {
-			agentBases = append(agentBases, p)
-		}
-		portsMu.Unlock()
-		if ok {
-			return p
-		}
-	}
-	t.Fatal("no free agent port range")
-	return 0
+	return coretest.FreePortRange(t, agentSpan)
 }
 
-// freeMixedPort returns a port free for both TCP and UDP: a client's mixed
-// (http+socks) inbound binds both, and a TCP-only check can hand out a port a
-// UDP server inbound (TUIC, Hysteria 2) already holds.
 func freeMixedPort(t *testing.T) int {
-	for i := 0; i < 50; i++ {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		p := l.Addr().(*net.TCPAddr).Port
-		u, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", p))
-		l.Close()
-		if err == nil && !claimPort(p) {
-			u.Close()
-			continue
-		}
-		if err == nil {
-			u.Close()
-			return p
-		}
-	}
-	t.Fatal("no port free for both tcp and udp")
-	return 0
+	return coretest.FreePortRange(t, 32)
 }
 
 type api struct {

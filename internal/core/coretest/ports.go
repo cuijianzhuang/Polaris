@@ -81,25 +81,73 @@ func claimShared(p int) bool {
 // not allow an outgoing connection to steal a future test listener's port.
 func FreePort(t testing.TB) int {
 	t.Helper()
-	low, high := 32768, 65535 // conservative fallback on non-Linux hosts
+	return FreePortRange(t, 1)
+}
+
+// FreePortRange reserves a contiguous TCP/UDP range, including derived Agent APIs.
+func FreePortRange(t testing.TB, span int) int {
+	t.Helper()
+	if span < 1 || span > 65535-1024 {
+		t.Fatal("invalid port span")
+	}
+	low, high := 49152, 65535 // IANA dynamic range fallback on non-Linux hosts
 	if raw, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range"); err == nil {
 		var l, h int
 		if _, err := fmt.Sscanf(string(raw), "%d %d", &l, &h); err == nil && l > 0 && h >= l && h <= 65535 {
 			low, high = l, h
 		}
 	}
-	start := rand.IntN(65536 - 1024)
-	for i := 0; i < 65536-1024; i++ {
-		p := 1024 + (start+i)%(65536-1024)
-		if p >= low && p <= high {
+	// Keep isolated listeners out of the Agent range pool so many single-port
+	// tests cannot fragment all contiguous ranges during repeated suite runs.
+	first, limit := 32768, 65536
+	if span > 1 && span <= 32 {
+		first, limit = 16384, 32768
+	}
+	if span > 32 {
+		first, limit = 1024, 16384
+	}
+	candidates := (limit - first) / span
+	if candidates == 0 {
+		t.Fatal("port span exceeds test pool")
+	}
+	start := rand.IntN(candidates)
+	stride := 1
+	if span == 1 {
+		stride = 7919
+	} // coprime to the single-port pool size
+	for i := 0; i < candidates; i++ {
+		p := first + ((start+i*stride)%candidates)*span
+		if p+span-1 > 65535 || (p <= high && p+span-1 >= low) {
 			continue
 		}
-		l, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
-		if err != nil {
-			continue
+		var sockets []interface{ Close() error }
+		ok := true
+		for q := p; q < p+span; q++ {
+			addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(q))
+			l, err := net.Listen("tcp4", addr)
+			if err != nil {
+				ok = false
+				break
+			}
+			sockets = append(sockets, l)
+			u, err := net.ListenPacket("udp4", addr)
+			if err != nil {
+				ok = false
+				break
+			}
+			sockets = append(sockets, u)
 		}
-		ok := Claim(p)
-		l.Close()
+		if ok {
+			for q := p; q < p+span; q++ {
+				if !Claim(q) {
+					ok = false
+					break
+				}
+			}
+		}
+		for _, socket := range sockets {
+			socket.Close()
+		}
 		if ok {
 			return p
 		}
