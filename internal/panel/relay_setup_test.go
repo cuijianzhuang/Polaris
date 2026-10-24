@@ -377,6 +377,7 @@ func TestLiveOneClickRelay(t *testing.T) {
 			}()
 			preview := previewRelayTest(t, c, map[string]any{"mode": "tunnel", "transport": transport, "relays": []any{map[string]any{"nodeId": "relay"}, map[string]any{"nodeId": "middle"}}})
 			id := createRelayTest(t, c, preview)
+			isolateLocalRelayPorts(t, s, id)
 			var ch store.Chain
 			s.st.DB.First(&ch, "id = ?", id)
 			for _, id := range []string{"land", "middle", "relay"} {

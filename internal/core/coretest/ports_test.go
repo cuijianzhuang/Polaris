@@ -1,6 +1,8 @@
 package coretest
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -62,5 +64,27 @@ func TestHelperPorts(t *testing.T) {
 	}
 	for i := 0; i < 60; i++ {
 		os.Stdout.WriteString("PORT " + strconv.Itoa(FreePort(t)) + "\n")
+	}
+}
+
+func TestFreePortAvoidsEphemeralRange(t *testing.T) {
+	raw, err := os.ReadFile("/proc/sys/net/ipv4/ip_local_port_range")
+	if err != nil {
+		t.Skip("Linux ephemeral range unavailable")
+	}
+	var low, high int
+	if _, err := fmt.Sscanf(string(raw), "%d %d", &low, &high); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		p := FreePort(t)
+		if p >= low && p <= high {
+			t.Fatalf("listener %d overlaps ephemeral range %d-%d", p, low, high)
+		}
+		l, err := net.Listen("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		l.Close()
 	}
 }
