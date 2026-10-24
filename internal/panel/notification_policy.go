@@ -26,12 +26,15 @@ var notificationChannels = []string{"telegram", "email", "webhook"}
 // Only operational events are configurable here. Unknown/new events, customer
 // events and explicit business/security webhook types bypass this policy.
 type notificationKind struct {
-	Group    string `json:"group"`
-	Paired   bool   `json:"paired"`
-	Recovery bool   `json:"recovery"`
+	Group      string `json:"group"`
+	Paired     bool   `json:"paired"`
+	Recovery   bool   `json:"recovery"`
+	DefaultOff bool   `json:"defaultOff,omitempty"`
+	Cooldown   bool   `json:"cooldown,omitempty"`
 }
 
 var notificationKinds = map[string]notificationKind{
+	"route_changed":     {Group: "route_changed", DefaultOff: true, Cooldown: true},
 	"node_offline":      {Group: "node_availability", Paired: true},
 	"node_online":       {Group: "node_availability", Paired: true, Recovery: true},
 	"inbound_down":      {Group: "inbound_availability", Paired: true},
@@ -141,7 +144,8 @@ func (s *Server) loadNotificationPolicy() (notificationPolicy, error) {
 }
 
 func (p notificationPolicy) muted(channel string, e Event, now time.Time) bool {
-	if enabled, exists := p.Channels[channel][e.Kind]; exists && !enabled {
+	enabled, exists := p.Channels[channel][e.Kind]
+	if (!exists && notificationKinds[e.Kind].DefaultOff) || (exists && !enabled) {
 		return true
 	}
 	contains := func(items []string, v string) bool {
@@ -202,7 +206,7 @@ func (s *Server) operationalNotice(channel string, e Event, now time.Time) (Even
 	p, err := s.loadNotificationPolicy()
 	if err != nil {
 		s.log.Warn("notification policy unavailable", "error", err)
-		return e, true
+		return e, !kind.DefaultOff
 	}
 	resource := e.ResourceID
 	if resource == "" {
@@ -247,7 +251,7 @@ func (s *Server) operationalNotice(channel string, e Event, now time.Time) (Even
 				}
 			}
 		} else {
-			allow = !muted && (state.LastAttempt == nil || state.Fingerprint != fingerprint || p.RepeatWindowSeconds == 0 || now.Sub(*state.LastAttempt) >= time.Duration(p.RepeatWindowSeconds)*time.Second)
+			allow = !muted && (state.LastAttempt == nil || (!kind.Cooldown && state.Fingerprint != fingerprint) || p.RepeatWindowSeconds == 0 || now.Sub(*state.LastAttempt) >= time.Duration(p.RepeatWindowSeconds)*time.Second)
 		}
 		state.UpdatedAt = now
 		if allow {
@@ -303,13 +307,14 @@ func (s *Server) operationalWebhookMuted(d *store.WebhookDelivery, now time.Time
 	if e.Kind == "operational_alert" {
 		e.ResourceID, _ = payload.Data["key"].(string)
 	}
-	if _, applies := operationalNotificationKind(e); !applies {
+	kind, applies := operationalNotificationKind(e)
+	if !applies {
 		return false
 	}
 	p, err := s.loadNotificationPolicy()
 	if err != nil {
 		s.log.Warn("webhook notification policy unavailable", "error", err)
-		return false
+		return kind.DefaultOff
 	}
 	return p.muted("webhook", e, now)
 }
