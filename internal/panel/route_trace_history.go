@@ -64,6 +64,7 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 		return nil, errors.New("missing route trace attempt")
 	}
 	now := time.Now().UTC()
+	events := []Event{}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockRouteNode(tx, rows[0].NodeID); err != nil {
 			return err
@@ -97,6 +98,19 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 				return err
 			}
 			rows[i] = row
+			if row.Comparison.V.State == "changed" {
+				var newer int64
+				if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND family = ? AND target = ? AND id > ?", row.NodeID, row.Family, row.Target, row.ID).Count(&newer).Error; err != nil {
+					return err
+				}
+				if newer == 0 {
+					var node store.Node
+					if err := tx.Select("id", "name").First(&node, "id = ?", row.NodeID).Error; err != nil {
+						return err
+					}
+					events = append(events, routeChangeEvent(node, row))
+				}
+			}
 		}
 		// Bound both age and per-node storage. Keep pending observations until the
 		// request finishes; crashed attempts are removed by age cleanup.
@@ -111,6 +125,11 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 		}
 		return tx.Where("node_id = ? AND started_at < ?", rows[0].NodeID, now.Add(-routeTraceKeep)).Delete(&store.NodeRouteTrace{}).Error
 	})
+	if err == nil {
+		for _, e := range events {
+			s.notify(e)
+		}
+	}
 	return rows, err
 }
 
