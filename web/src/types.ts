@@ -1,3 +1,4 @@
+export type OutboundIPStrategy = 'auto' | 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6'
 export type CoreType = 'xray' | 'singbox' | 'mihomo' | 'hysteria' | 'forwarder' | 'gost' | 'caddy' | 'auto'
 export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'anytls' | 'shadowtls' | 'naive' | 'socks' | 'http'
 export type Transport = 'tcp' | 'ws' | 'grpc' | 'httpupgrade' | 'xhttp' | 'kcp' | 'quic'
@@ -64,7 +65,7 @@ export interface Inbound {
   protocol: ProtocolSpec; transport: TransportSpec; security: SecuritySpec; sniffing: SniffSpec; extra?: any
   enabled: boolean; templateId?: string; overriddenFields: string[]; remark: string
   nodeName: string; userCount: number; groupIds: string[]; endpoints: number; network: string; cdnCapable: boolean
-  outboundTag: string; speedLimitMbps: number
+  outboundTag: string; speedLimitMbps: number; outboundIPStrategy?: OutboundIPStrategy; relayOnly?: boolean; relayAccess?: { enabled: boolean; proxyProtocol: number; sourceOverrides?: Record<string, string[]> }
   health?: InboundHealth
 }
 export interface NodeQuota { userId: string; nodeId: string; nodeName: string; extra: number; extraUsed: number; limit: number; used: number }
@@ -113,6 +114,7 @@ export interface RoutingRule { id: string; nodeId: string; match: RouteMatch; ou
 export interface PortPolicy { mode: 'fixed' | 'range'; fixed?: number; min?: number; max?: number }
 export interface EndpointTemplate { kind: string; cdnProfileId?: string; relayChainId?: string; address?: string; port?: number }
 export interface TemplateItem {
+  outboundIPStrategy?: OutboundIPStrategy
   key: string; name?: string; core: CoreType; protocol: ProtocolSpec; transport: TransportSpec; security: SecuritySpec; sniffing: SniffSpec
   port: PortPolicy; tagPattern: string; cert: string; endpoints: EndpointTemplate[]
 }

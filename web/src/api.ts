@@ -44,22 +44,22 @@ const listeners = new Set<(n: number) => void>()
 export function onInflight(fn: (n: number) => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
 function track(d: number) { inflight += d; listeners.forEach((l) => l(inflight)) }
 
-export async function api<T = any>(method: string, path: string, body?: unknown): Promise<T> {
+export async function api<T = any>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
   track(1)
   try {
-    try { return await request<T>(method, path, body) } catch (e) {
-      if (needsSudo(e) && onSudo && await onSudo()) return await request<T>(method, path, body)
+    try { return await request<T>(method, path, body, extraHeaders) } catch (e) {
+      if (needsSudo(e) && onSudo && await onSudo()) return await request<T>(method, path, body, extraHeaders)
       throw e
     }
   } finally { track(-1) }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = {}
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+  const headers: Record<string, string> = { ...extraHeaders }
   const tok = getToken()
   if (tok) headers['Authorization'] = 'Bearer ' + tok
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const resp = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? 'application/octet-stream' : 'application/json'
+  const resp = await fetch(API + path, { method, headers, body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body) })
   if (resp.status === 204) return undefined as T
   const text = await resp.text()
   let data: any = undefined
