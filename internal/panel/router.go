@@ -174,6 +174,8 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/probe/nodes/:id", s.setNodeStatusHidden)
 	p.GET("/nodes/:id/latency", s.nodeLatency)
 	p.POST("/nodes/:id/route-trace", s.traceNodeRoute)
+	p.GET("/nodes/:id/route-traces", s.nodeRouteHistory)
+	p.GET("/nodes/:id/route-traces/:traceId", s.nodeRouteDetail)
 	p.GET("/nodes/:id/probe-policy", s.getNodeProbePolicy)
 	p.PUT("/nodes/:id/probe-policy", s.putNodeProbePolicy)
 	p.GET("/nodes/:id/provider", s.getNodeProvider)

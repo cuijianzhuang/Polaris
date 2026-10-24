@@ -446,6 +446,7 @@ func (s *Server) markOfflineNodes() {
 
 func (s *Server) cleanup() {
 	s.pruneIdempotency()
+	s.st.DB.Where("started_at < ?", time.Now().Add(-routeTraceKeep)).Delete(&store.NodeRouteTrace{})
 	s.st.DB.Where("open = ? AND updated_at < ?", false, time.Now().AddDate(0, 0, -30)).Delete(&store.NotificationState{})
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -7)).Delete(&store.WebhookDelivery{})
 	s.st.DB.Where("hour < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.TrafficHourly{})
