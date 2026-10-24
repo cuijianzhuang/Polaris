@@ -20,11 +20,16 @@ type Node struct {
 	Port     int
 	Protocol model.Protocol
 
-	UUID     string
-	Password string
-	Username string // socks / http / naive
-	Method   string // shadowsocks cipher
-	Flow     string
+	UUID         string
+	Password     string
+	Username     string // socks / http / naive
+	Method       string // shadowsocks cipher
+	SnellPSK     string // shared encryption key; UserKey remains mandatory for panel users
+	SnellUserKey string
+	SnellVersion int // client wire version 4 or 6
+	SnellMode    string
+	SnellObfs    string
+	Flow         string
 	// VisionUDP443 changes Xray share links only; native client formats keep Flow.
 	VisionUDP443 bool
 	// Encryption is the VLESS Encryption client key ("" = none); clients
@@ -344,6 +349,8 @@ func ProtocolLabel(n Node) string {
 		return "Hy2"
 	case model.ProtoTUIC:
 		return "TUIC"
+	case model.ProtoSnell:
+		return "Snell"
 	case model.ProtoAnyTLS:
 		return "AnyTLS"
 	case model.ProtoNaive:

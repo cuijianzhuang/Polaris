@@ -34,6 +34,7 @@ const (
 	ProtoHysteria2   Protocol = "hysteria2"
 	ProtoTUIC        Protocol = "tuic"
 	ProtoAnyTLS      Protocol = "anytls"
+	ProtoSnell       Protocol = "snell"
 	ProtoShadowTLS   Protocol = "shadowtls"
 	ProtoNaive       Protocol = "naive"
 	ProtoSOCKS       Protocol = "socks"
@@ -43,7 +44,7 @@ const (
 // AllProtocols lists every protocol known to the model, in display order.
 var AllProtocols = []Protocol{
 	ProtoVLESS, ProtoVMess, ProtoTrojan, ProtoShadowsocks, ProtoHysteria2,
-	ProtoTUIC, ProtoAnyTLS, ProtoShadowTLS, ProtoNaive, ProtoSOCKS, ProtoHTTP,
+	ProtoTUIC, ProtoAnyTLS, ProtoSnell, ProtoShadowTLS, ProtoNaive, ProtoSOCKS, ProtoHTTP,
 }
 
 // Transport is the stream transport below the protocol.
@@ -90,8 +91,11 @@ type ProtocolSpec struct {
 	// TestSeed tunes Vision padding (xray "testseed", four numbers).
 	TestSeed []int `json:"testSeed,omitempty"`
 
-	Method    string `json:"method,omitempty"`    // shadowsocks cipher, e.g. 2022-blake3-aes-128-gcm
-	ServerKey string `json:"serverKey,omitempty"` // shadowsocks 2022 server PSK (encrypted at rest)
+	Method       string `json:"method,omitempty"`       // shadowsocks cipher, e.g. 2022-blake3-aes-128-gcm
+	ServerKey    string `json:"serverKey,omitempty"`    // shadowsocks 2022 / Snell server PSK (encrypted at rest)
+	SnellVersion int    `json:"snellVersion,omitempty"` // server version 5 (v4 wire) or 6
+	SnellMode    string `json:"snellMode,omitempty"`    // v6: default / unshaped / unsafe-raw
+	SnellObfs    string `json:"snellObfs,omitempty"`    // v5: none / http
 
 	CongestionControl string `json:"congestionControl,omitempty"` // tuic: bbr / cubic / new_reno
 
@@ -246,6 +250,10 @@ func (in *Inbound) Normalize() {
 		if in.Security.Type == SecNone {
 			in.Security.Type = SecTLS
 		}
+	case ProtoSnell:
+		if in.Protocol.SnellVersion == 0 {
+			in.Protocol.SnellVersion = 5
+		}
 	case ProtoAnyTLS, ProtoNaive:
 		if in.Security.Type == SecNone {
 			in.Security.Type = SecTLS
@@ -298,6 +306,11 @@ func (in *Inbound) Validate() error {
 	}
 	if in.Protocol.Type == ProtoShadowsocks && in.Protocol.Method == "" {
 		return fmt.Errorf("shadowsocks requires method")
+	}
+	if in.Protocol.Type == ProtoSnell {
+		if err := in.ValidateSnell(); err != nil {
+			return err
+		}
 	}
 	if len(in.Extra) > 0 && !json.Valid(in.Extra) {
 		return fmt.Errorf("extra is not valid JSON")

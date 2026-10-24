@@ -21,7 +21,7 @@ import (
 var (
 	ansiRe     = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 	fromRe     = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: inbound (?:packet )?connection from (\S+)\s*$`)
-	userRe     = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: \[([^\]]+)\] inbound (?:packet )?connection to `)
+	userRe     = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: \[([^\]]+)\] inbound (?:packet )?connection (?:to|from) `)
 	outboundRe = regexp.MustCompile(`\] outbound/[^:\s]+: outbound (?:packet )?connection to `)
 )
 

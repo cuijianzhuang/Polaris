@@ -103,6 +103,18 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 				version = cs.Version
 			}
 		}
+		if in.Protocol.Type == model.ProtoSnell {
+			caps, ok := core.Capabilities(in.Core, version)
+			if !ok {
+				return applyResult{err: fmt.Errorf("unknown Snell core %s", in.Core)}
+			}
+			if err := caps.SupportsInbound(&in); err != nil {
+				return applyResult{err: err}
+			}
+			if err := in.ValidateSnell(); err != nil {
+				return applyResult{err: err}
+			}
+		}
 		if err := core.CheckOutboundIP(in.Core, version, in.OutboundIPStrategy); err != nil {
 			return applyResult{err: err}
 		}

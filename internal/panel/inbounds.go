@@ -36,6 +36,9 @@ func (s *Server) toModelInbound(in *store.Inbound) model.Inbound {
 // while the client key is unchanged, and the ML-DSA-65 seed while its
 // verify key is unchanged.
 func keepSecrets(m, old *model.Inbound) {
+	if m.Protocol.Type == model.ProtoSnell && old.Protocol.Type == model.ProtoSnell && m.Protocol.ServerKey == "" {
+		m.Protocol.ServerKey = old.Protocol.ServerKey
+	}
 	if m.Protocol.Decryption == "" && m.Protocol.Encryption != "" && m.Protocol.Encryption == old.Protocol.Encryption {
 		m.Protocol.Decryption = old.Protocol.Decryption
 	}
@@ -86,6 +89,9 @@ func (s *Server) prepareInbound(m *model.Inbound) error {
 	}
 	if m.Protocol.Type == model.ProtoTUIC && m.Security.Type == model.SecTLS && len(m.Security.ALPN) == 0 {
 		m.Security.ALPN = []string{"h3"} // clients offer h3; a server without ALPN rejects the handshake
+	}
+	if m.Protocol.Type == model.ProtoSnell && m.Protocol.ServerKey == "" {
+		m.Protocol.ServerKey = pki.Password(32)
 	}
 	if m.Protocol.Type == model.ProtoShadowsocks {
 		if m.Protocol.Method == "" {
@@ -142,6 +148,14 @@ func (s *Server) assignCore(node *store.Node, m *model.Inbound) error {
 		return fmt.Errorf("node %s has no core installed", node.Name)
 	}
 	check := func(c store.Core) error {
+		if m.Protocol.Type == model.ProtoSnell {
+			if !contains(node.AgentFeatures.V, model.SnellUsersFeature) {
+				return fmt.Errorf("节点需要先升级 Agent 并完成配置拉取，才能使用 Snell 独立用户授权")
+			}
+			if c.NoUserTraffic {
+				return fmt.Errorf("Snell 需要带 with_v2ray_api 的 sing-box，当前内核无法按用户计费")
+			}
+		}
 		caps, ok := core.Capabilities(c.Type, c.Version)
 		if !ok {
 			return fmt.Errorf("unknown core %s", c.Type)

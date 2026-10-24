@@ -193,6 +193,14 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 	if m.Protocol.Obfs == "" {
 		n.ObfsPassword = "" // the server has obfs off
 	}
+	if m.Protocol.Type == model.ProtoSnell {
+		n.SnellPSK, n.SnellUserKey = m.Protocol.ServerKey, um.Password
+		n.SnellVersion = 4
+		if m.Protocol.SnellVersion == 6 {
+			n.SnellVersion = 6
+		}
+		n.SnellMode, n.SnellObfs = m.Protocol.SnellMode, m.Protocol.SnellObfs
+	}
 	n.Encryption = m.Protocol.Encryption
 	if m.Protocol.Type == model.ProtoShadowsocks {
 		n.Method = m.Protocol.Method

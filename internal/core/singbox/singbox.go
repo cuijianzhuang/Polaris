@@ -93,6 +93,9 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	if core.VersionAtLeast(v, "1.12.0") {
 		b.Add([]model.Protocol{model.ProtoAnyTLS}, []model.Transport{model.TransTCP}, []model.Security{model.SecTLS})
 	}
+	if core.VersionAtLeast(v, model.SnellMinVersion) && !strings.Contains(v, "-") {
+		b.Add([]model.Protocol{model.ProtoSnell}, []model.Transport{model.TransTCP}, []model.Security{model.SecNone})
+	}
 	var features []string
 	if core.VersionAtLeast(v, "1.12.0") {
 		features = append(features, model.FeatureOutboundIP)
@@ -126,6 +129,22 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	seenUser := map[string]bool{}
 	var sniffTags []string
 	for _, in := range ins {
+		if in.Protocol.Type == model.ProtoSnell {
+			if !core.VersionAtLeast(a.opt.Version, model.SnellMinVersion) || strings.Contains(a.opt.Version, "-") {
+				return nil, fmt.Errorf("Snell requires sing-box >= %s", model.SnellMinVersion)
+			}
+			if !a.stats {
+				return nil, fmt.Errorf("Snell requires sing-box built with with_v2ray_api for per-user billing")
+			}
+			if err := in.ValidateSnell(); err != nil {
+				return nil, err
+			}
+			// An empty users array activates upstream's single-PSK mode.
+			// Remove the listener instead; the shared PSK alone must never work.
+			if len(in.Users) == 0 {
+				continue
+			}
+		}
 		ib, err := renderInbound(in)
 		if err != nil {
 			return nil, fmt.Errorf("inbound %s: %w", in.Tag, err)
@@ -261,6 +280,31 @@ func renderInbound(in model.Inbound) (map[string]any, error) {
 	}
 	var users []any
 	switch in.Protocol.Type {
+	case model.ProtoSnell:
+		if err := in.ValidateSnell(); err != nil {
+			return nil, err
+		}
+		if len(in.Users) == 0 || len(in.Protocol.ServerKey) < 12 {
+			return nil, fmt.Errorf("Snell requires a PSK and authorised users")
+		}
+		version := in.Protocol.SnellVersion
+		if version == 0 {
+			version = 5
+		}
+		ib["version"], ib["psk"] = version, in.Protocol.ServerKey
+		if version == 6 {
+			ib["mode"] = orDefault(in.Protocol.SnellMode, "default")
+		} else {
+			ib["obfs_mode"] = orDefault(in.Protocol.SnellObfs, "none")
+		}
+		seen := map[string]bool{}
+		for _, u := range in.Users {
+			if u.ID == "" || u.Password == "" || len(u.Password) > 255 || seen[u.Password] {
+				return nil, fmt.Errorf("Snell requires distinct, non-empty user keys and identities")
+			}
+			seen[u.Password] = true
+			users = append(users, map[string]any{"name": u.ID, "userkey": u.Password})
+		}
 	case model.ProtoVLESS:
 		for _, u := range in.Users {
 			x := map[string]any{"name": u.ID, "uuid": u.UUID}

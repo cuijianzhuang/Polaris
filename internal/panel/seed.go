@@ -371,5 +371,10 @@ func builtinTemplates() []store.InboundTemplate {
 		mk("VMess 全家桶", "VMess TCP、TCP+HTTP 伪装、TCP+TLS、WS、WS+TLS（可 CDN）；TLS 项需要域名与证书", vmessTCP, vmessHTTP, vmessTLS, vmessWS, vmessWSTLS),
 		mk("mKCP（UDP）", "VLESS / VMess + mKCP，UDP 随机高位端口，无需域名，仅 Xray", vlessKCP, vmessKCP),
 		mk("Shadowsocks", "Shadowsocks 2022（2022-blake3-aes-128-gcm）与 AEAD（aes-128-gcm），无需域名，随机高位端口", ss2022, ssAEAD),
+		mk("Snell 独立用户", "Snell v5（v4 线协议），需 sing-box 1.14+、新版 Agent 和按用户计费内核；仅输出 sing-box 客户端配置", store.TemplateItem{
+			Key: "snell", Core: model.CoreSingbox, Protocol: model.ProtocolSpec{Type: model.ProtoSnell, SnellVersion: 5},
+			Transport: model.TransportSpec{Type: model.TransTCP}, Security: model.SecuritySpec{Type: model.SecNone},
+			Port: rnd, TagPattern: "{node.name}-snell", Endpoints: []store.EndpointTemplate{{Kind: "direct"}},
+		}),
 	}
 }
