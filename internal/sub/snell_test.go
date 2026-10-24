@@ -47,14 +47,14 @@ func TestSnellClientCompatibilityAndRoundtrip(t *testing.T) {
 	if len(Deduplicate([]Node{n, n, other})) != 2 {
 		t.Fatal("different user keys deduplicated")
 	}
-	// A source entry without a userkey must never be reissued as a shared PSK.
+	// A standard PSK source must preserve its explicit authentication mode.
 	o["userkey"] = ""
 	raw, _ := json.Marshal(map[string]any{"outbounds": []any{o}})
 	parsed, err = ParseSubscription(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parsed) != 0 {
-		t.Fatal("shared-key source imported")
+	if len(parsed) != 1 || !parsed[0].SnellSinglePSK || !strings.Contains(SurgeLine(parsed[0]), "psk="+n.SnellPSK) {
+		t.Fatal("standard PSK source lost")
 	}
 }

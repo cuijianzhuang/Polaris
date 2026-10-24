@@ -62,6 +62,12 @@ func (s *Server) sealInbound(in *store.Inbound) {
 // paths) and normalises the inbound. It is idempotent.
 func (s *Server) prepareInbound(m *model.Inbound) error {
 	m.Normalize()
+	if m.SnellDedicated() {
+		var owner store.User
+		if err := s.st.DB.Select("id").Where("id = ? AND is_service = ?", m.Protocol.SnellUserID, false).First(&owner).Error; err != nil {
+			return fmt.Errorf("Snell 专属用户不存在")
+		}
+	}
 	if m.Security.Type == model.SecReality {
 		if m.Security.RealityPrivateKey == "" {
 			priv, pub, err := pki.RealityKeyPair()
@@ -149,6 +155,9 @@ func (s *Server) assignCore(node *store.Node, m *model.Inbound) error {
 	}
 	check := func(c store.Core) error {
 		if m.Protocol.Type == model.ProtoSnell {
+			if m.SnellDedicated() && !contains(node.AgentFeatures.V, model.SnellPSKFeature) {
+				return fmt.Errorf("节点需要先升级 Agent，才能使用 Snell 独立 PSK 模式")
+			}
 			if !contains(node.AgentFeatures.V, model.SnellUsersFeature) {
 				return fmt.Errorf("节点需要先升级 Agent 并完成配置拉取，才能使用 Snell 独立用户授权")
 			}

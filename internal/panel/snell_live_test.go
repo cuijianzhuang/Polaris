@@ -17,6 +17,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/core/coretest"
 	"github.com/cuijianzhuang/polaris/internal/core/singbox"
+	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 	"golang.org/x/net/proxy"
@@ -25,11 +26,38 @@ import (
 // This is the actual panel -> core -> collector -> inbox -> rate -> quota
 // path, not fabricated traffic numbers. The native core test also covers UDP.
 func TestSnellNativePanelBillingQuotaAndSubscription(t *testing.T) {
+	for _, mode := range []string{"userkey", "psk"} {
+		t.Run(mode, func(t *testing.T) { snellNativePanelBilling(t, mode) })
+	}
+}
+func snellNativePanelBilling(t *testing.T, mode string) {
 	bin := os.Getenv("POLARIS_SNELL_BIN")
 	if bin == "" {
 		t.Skip("set POLARIS_SNELL_BIN")
 	}
-	s, _, _ := snellPanelFixture(t)
+	s, _, id := snellPanelFixture(t)
+	if mode == "psk" {
+		var original store.Inbound
+		s.st.DB.First(&original, "id = ?", id)
+		original.Protocol.V.SnellAuth = "psk"
+		original.Protocol.V.SnellUserID = "u1"
+		if e := s.st.DB.Save(&original).Error; e != nil {
+			t.Fatal(e)
+		}
+		second := original
+		second.ID = store.NewID()
+		second.Tag = "second-user"
+		second.Port = coretest.FreePort(t)
+		second.Protocol.V.SnellUserID = "u2"
+		if e := s.st.DB.Create(&second).Error; e != nil {
+			t.Fatal(e)
+		}
+		for _, user := range []string{"u1", "u2"} {
+			if e := s.st.DB.Create(&store.UserAccess{UserID: user, Kind: "inbound", TargetID: second.ID}).Error; e != nil {
+				t.Fatal(e)
+			}
+		}
+	}
 	dir := t.TempDir()
 	api := fmt.Sprintf("127.0.0.1:%d", coretest.FreePort(t))
 	adapter := singbox.New(core.Options{BinPath: bin, Version: "1.14.4", WorkDir: dir, APIListen: api})
@@ -67,8 +95,11 @@ func TestSnellNativePanelBillingQuotaAndSubscription(t *testing.T) {
 		if e != nil || len(nodes) != 1 {
 			t.Fatal(e, nodes)
 		}
-		if nodes[0].SnellUserKey != u.Password {
+		if mode == "userkey" && nodes[0].SnellUserKey != u.Password {
 			t.Fatal("subscription did not use independent credential")
+		}
+		if mode == "psk" && (!nodes[0].SnellSinglePSK || nodes[0].SnellUserKey != "" || sub.SurgeLine(nodes[0]) == "") {
+			t.Fatal("dedicated standard PSK subscription lost")
 		}
 		out := sub.SingboxOutbound(nodes[0])
 		port := coretest.FreePort(t)
@@ -190,7 +221,11 @@ func TestSnellNativePanelBillingQuotaAndSubscription(t *testing.T) {
 	}
 	s.enforceLimits()
 	spec, e := s.BuildSpec("snell-node")
-	if e != nil || len(spec.Inbounds[0].Users) != 1 || spec.Inbounds[0].Users[0].ID != "u2" {
+	var remaining []model.User
+	for _, in := range spec.Inbounds {
+		remaining = append(remaining, in.Users...)
+	}
+	if e != nil || len(remaining) != 1 || remaining[0].ID != "u2" {
 		t.Fatal("exhausted user retained in core spec", e)
 	}
 	var exhausted store.User

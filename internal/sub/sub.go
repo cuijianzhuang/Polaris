@@ -20,16 +20,17 @@ type Node struct {
 	Port     int
 	Protocol model.Protocol
 
-	UUID         string
-	Password     string
-	Username     string // socks / http / naive
-	Method       string // shadowsocks cipher
-	SnellPSK     string // shared encryption key; UserKey remains mandatory for panel users
-	SnellUserKey string
-	SnellVersion int // client wire version 4 or 6
-	SnellMode    string
-	SnellObfs    string
-	Flow         string
+	UUID           string
+	Password       string
+	Username       string // socks / http / naive
+	Method         string // shadowsocks cipher
+	SnellSinglePSK bool   // a dedicated standard-PSK listener, no userkey extension
+	SnellPSK       string // shared encryption key; UserKey remains mandatory for panel users
+	SnellUserKey   string
+	SnellVersion   int // client wire version 4 or 6
+	SnellMode      string
+	SnellObfs      string
+	Flow           string
 	// VisionUDP443 changes Xray share links only; native client formats keep Flow.
 	VisionUDP443 bool
 	// Encryption is the VLESS Encryption client key ("" = none); clients

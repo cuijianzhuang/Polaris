@@ -231,10 +231,13 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 			break
 		}
 	}
+	if format == "surge" {
+		nodes = sub.FilterSurgeSnell(nodes, c.GetHeader("User-Agent"))
+	}
 	if format == "singbox" {
 		nodes = sub.FilterSnellClient(nodes, c.GetHeader("User-Agent"))
 	}
-	if cc.External && !raw && format != "links" && !(hasSnell && format == "singbox") {
+	if cc.External && !raw && format != "links" && !(hasSnell && (format == "singbox" || format == "surge")) {
 		var err error
 		body, ctype, err = s.renderExternal(c.Request.Context(), cc, format, s.callbackURL(callback))
 		if err != nil {

@@ -1,4 +1,14 @@
 const operations: Record<string, string> = {
+  "Snell 授权模式": "Snell authentication mode",
+  "独立 PSK 模式每个入站只服务一名指定用户，占用独立端口；其他用户即使在同一分组也不会获得此节点。": "Dedicated PSK mode serves one selected user per inbound on a separate port. Other users in the same group do not receive this node.",
+  "多用户 userkey（sing-box）": "Multi-user userkey (sing-box)",
+  "独立 PSK / 端口（Surge 兼容）": "Dedicated PSK / port (Surge compatible)",
+  "v5 输出 v4 客户端协议。Surge 使用独立 PSK 模式；v6 需 Surge iOS 5.20+ 或 Mac 6.7+，并仍需实际客户端验收。": "v5 exports the v4 client protocol. Surge uses dedicated PSK mode; v6 requires Surge iOS 5.20+ or Mac 6.7+. Actual Surge app acceptance is still required.",
+  "搜索 Snell 专属用户": "Search dedicated Snell user",
+  "Snell 专属用户": "Dedicated Snell user",
+  "选择用户不会额外授予访问权；仍需通过分组、节点或入站授权。停用、到期或超额时关闭该监听。": "Selecting an owner adds no access rights; group, node or inbound authorization is still required. Disablement, expiry or quota exhaustion closes this listener.",
+  "请选择用户": "Choose a user",
+
   "Snell 需要 sing-box 1.14+ 和支持按用户计费的内核。每个用户使用独立密钥；停用、到期或超额后撤销授权。用户变更会重载内核并断开现有连接。": "Snell requires sing-box 1.14+ with per-user traffic statistics. Each user has an independent key, revoked on disablement, expiry or quota exhaustion. User changes reload the core and disconnect existing sessions.",
   "Snell 服务端版本": "Snell server version",
   "v5 使用 v4 客户端协议；当前仅向 sing-box 1.14+ 订阅输出，其他客户端会过滤此节点。": "v5 uses the v4 client protocol. Only sing-box 1.14+ subscriptions include this node; other clients omit it.",
