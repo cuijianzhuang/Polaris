@@ -80,19 +80,20 @@ type Server struct {
 	// in memory, or in Redis when redis_url is set (several instances).
 	shared sharedState
 
-	memberID  string // stable local installation identity across restarts
-	opsMu     sync.Mutex
-	procID    string // this process, for the leader lease
-	restored  bool   // a staged backup was applied at this start
-	startedAt time.Time
-	memberAt  time.Time   // last cluster_members refresh
-	leader    atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
-	bus       *clusterBus // messages between instances (PostgreSQL only)
-	presMu    sync.Mutex
-	presAt    map[string]time.Time // last presence refresh per node
-	specAt    map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
-	shareAt   map[string]time.Time // last heartbeat state shared per node
-	rtShare   atomic.Bool          // node list changed here: tell the other instances
+	memberID          string // stable local installation identity across restarts
+	opsMu             sync.Mutex
+	procID            string // this process, for the leader lease
+	restored          bool   // a staged backup was applied at this start
+	startedAt         time.Time
+	memberAt          time.Time // last cluster_members refresh
+	routeScheduleBusy atomic.Bool
+	leader            atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
+	bus               *clusterBus // messages between instances (PostgreSQL only)
+	presMu            sync.Mutex
+	presAt            map[string]time.Time // last presence refresh per node
+	specAt            map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat
+	shareAt           map[string]time.Time // last heartbeat state shared per node
+	rtShare           atomic.Bool          // node list changed here: tell the other instances
 
 	subLimit      *sharedLimiter
 	shopLimit     *sharedLimiter
@@ -422,6 +423,7 @@ func (s *Server) startJobs() func() {
 	add("30 */15 * * * *", "providers", s.syncProviders)
 	add("0 41 5 * * *", "ticket-autoclose", s.autoCloseTickets)
 	add("*/30 * * * * *", "latency-probes", s.runLatencyProbes)
+	add("*/30 * * * * *", "route-traces", s.runScheduledRouteTraces)
 	if s.isLeader() {
 		go s.backfillDaily()
 	}

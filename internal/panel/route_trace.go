@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -47,48 +48,67 @@ func (s *Server) traceNodeRoute(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	results, saved, err := s.executeRouteTrace(c.Request.Context(), n.ID, req, rows)
+	if err != nil {
+		if errors.Is(err, errRouteTraceCommand) || errors.Is(err, errRouteTraceResult) {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		} else {
+			serverError(c, err)
+		}
+		return
+	}
+	history := make([]gin.H, 0, len(saved))
+	for _, row := range saved {
+		history = append(history, routeTraceView(row, false))
+	}
+	c.JSON(http.StatusOK, gin.H{"nodeId": n.ID, "results": results, "history": history})
+}
+
+var errRouteTraceCommand = errors.New("回程检测未完成，请检查节点状态或稍后重试")
+var errRouteTraceResult = errors.New("节点返回了无效的回程检测结果")
+
+func (s *Server) executeRouteTrace(parent context.Context, nodeID string, req model.RouteTraceRequest, rows []store.NodeRouteTrace) ([]model.RouteTraceResult, []store.NodeRouteTrace, error) {
 	finished := false
 	defer func() {
 		if !finished {
 			if _, err := s.finishRouteTrace(rows, nil, "interrupted"); err != nil {
-				slog.Warn("finish interrupted route trace", "node", n.ID, "error", err)
+				slog.Warn("finish interrupted route trace", "node", nodeID, "error", err)
 			}
 		}
 	}()
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	if parent.Err() != nil {
+		if _, err := s.finishRouteTrace(rows, nil, "interrupted"); err == nil {
+			finished = true
+		}
+		return nil, nil, errRouteTraceCommand
+	}
+	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
 	defer cancel()
 	raw, _ := json.Marshal(req)
-	res, err := s.hub.Command(ctx, n.ID, model.RouteTraceFeature, map[string]string{"request": string(raw)}, 14*time.Second)
+	res, err := s.hub.Command(ctx, nodeID, model.RouteTraceFeature, map[string]string{"request": string(raw)}, 14*time.Second)
 	if err != nil || !res.Ok {
 		state := "failed"
-		if c.Request.Context().Err() != nil {
+		if parent.Err() != nil {
 			state = "interrupted"
 		}
 		if _, saveErr := s.finishRouteTrace(rows, nil, state); saveErr == nil {
 			finished = true
 		}
-		c.JSON(http.StatusBadGateway, gin.H{"error": "回程检测未完成，请检查节点状态或稍后重试"})
-		return
+		return nil, nil, errRouteTraceCommand
 	}
 	var results []model.RouteTraceResult
 	if len(res.Output) > 96*1024 || json.Unmarshal([]byte(res.Output), &results) != nil || !validRouteTraceResults(req, results) {
 		if _, saveErr := s.finishRouteTrace(rows, nil, "failed"); saveErr == nil {
 			finished = true
 		}
-		c.JSON(http.StatusBadGateway, gin.H{"error": "节点返回了无效的回程检测结果"})
-		return
+		return nil, nil, errRouteTraceResult
 	}
 	saved, err := s.finishRouteTrace(rows, results, "completed")
 	if err != nil {
-		serverError(c, err)
-		return
+		return nil, nil, err
 	}
 	finished = true
-	history := make([]gin.H, 0, len(saved))
-	for _, row := range saved {
-		history = append(history, routeTraceView(row, false))
-	}
-	c.JSON(http.StatusOK, gin.H{"nodeId": n.ID, "results": results, "history": history})
+	return results, saved, nil
 }
 
 func validRouteTraceResults(req model.RouteTraceRequest, results []model.RouteTraceResult) bool {
