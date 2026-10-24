@@ -103,6 +103,7 @@ func (s *Server) executeRouteTrace(parent context.Context, nodeID string, req mo
 		}
 		return nil, nil, errRouteTraceResult
 	}
+	s.enrichRouteASN(results)
 	saved, err := s.finishRouteTrace(rows, results, "completed")
 	if err != nil {
 		return nil, nil, err

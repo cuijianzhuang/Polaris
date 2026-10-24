@@ -35,15 +35,17 @@ func (r RouteTraceRequest) Validate() error {
 }
 
 type RouteTraceHop struct {
-	TTL       int      `json:"ttl"`
-	Addresses []string `json:"addresses"`
+	ASN       []RouteTraceIPASN `json:"asn,omitempty"`
+	TTL       int               `json:"ttl"`
+	Addresses []string          `json:"addresses"`
 }
 
 type RouteTraceResult struct {
-	Family    string          `json:"family"`
-	Target    string          `json:"target"`
-	CheckedAt time.Time       `json:"checkedAt"`
-	State     string          `json:"state"` // reached / partial / timeout / unavailable / failed
-	Hops      []RouteTraceHop `json:"hops"`
-	Raw       string          `json:"raw"`
+	ASN       *RouteTraceASNMetadata `json:"asn,omitempty"`
+	Family    string                 `json:"family"`
+	Target    string                 `json:"target"`
+	CheckedAt time.Time              `json:"checkedAt"`
+	State     string                 `json:"state"` // reached / partial / timeout / unavailable / failed
+	Hops      []RouteTraceHop        `json:"hops"`
+	Raw       string                 `json:"raw"`
 }
