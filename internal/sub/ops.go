@@ -203,7 +203,7 @@ func Deduplicate(nodes []Node) []Node {
 	for _, n := range nodes {
 		key := fmt.Sprintf("%s|%s|%d|%s|%s|%s", n.Protocol, strings.ToLower(n.Server), n.Port, n.UUID, n.Password, n.Transport.Path)
 		if n.Protocol == "snell" {
-			key += fmt.Sprintf("|%q|%q|%d|%q|%q", n.SnellPSK, n.SnellUserKey, n.SnellVersion, n.SnellMode, n.SnellObfs)
+			key += fmt.Sprintf("|%q|%q|%d|%q|%q|%t", n.SnellPSK, n.SnellUserKey, n.SnellVersion, n.SnellMode, n.SnellObfs, n.SnellSinglePSK)
 		}
 		if seen[key] {
 			continue

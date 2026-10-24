@@ -302,6 +302,22 @@ func (s *Server) inboundUsers(inboundIDs []string, packIDs ...string) (map[strin
 			out[o.NodeRefInboundID] = appendUnique(out[o.NodeRefInboundID], u)
 		}
 	}
+	var dedicated []store.Inbound
+	if err := s.st.DB.Where("id IN ?", inboundIDs).Find(&dedicated).Error; err != nil {
+		return nil, err
+	}
+	for _, in := range dedicated {
+		if in.Protocol.V.Type != model.ProtoSnell || in.Protocol.V.SnellAuth != "psk" {
+			continue
+		}
+		users := out[in.ID]
+		out[in.ID] = nil
+		for _, u := range users {
+			if u.ID == in.Protocol.V.SnellUserID {
+				out[in.ID] = append(out[in.ID], u)
+			}
+		}
+	}
 	return out, nil
 }
 

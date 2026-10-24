@@ -106,10 +106,13 @@ func SingboxOutbound(n Node) map[string]any {
 		if n.SnellVersion != 4 && n.SnellVersion != 6 {
 			return nil
 		}
-		if n.SnellPSK == "" || n.SnellUserKey == "" {
+		if n.SnellPSK == "" || (n.SnellUserKey == "" && !n.SnellSinglePSK) {
 			return nil
 		}
-		o["type"], o["version"], o["psk"], o["userkey"] = "snell", n.SnellVersion, n.SnellPSK, n.SnellUserKey
+		o["type"], o["version"], o["psk"] = "snell", n.SnellVersion, n.SnellPSK
+		if !n.SnellSinglePSK {
+			o["userkey"] = n.SnellUserKey
+		}
 		if n.SnellVersion == 6 {
 			o["mode"] = orDefault(n.SnellMode, "default")
 		} else {

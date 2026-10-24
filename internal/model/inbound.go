@@ -91,8 +91,10 @@ type ProtocolSpec struct {
 	// TestSeed tunes Vision padding (xray "testseed", four numbers).
 	TestSeed []int `json:"testSeed,omitempty"`
 
-	Method       string `json:"method,omitempty"`       // shadowsocks cipher, e.g. 2022-blake3-aes-128-gcm
-	ServerKey    string `json:"serverKey,omitempty"`    // shadowsocks 2022 / Snell server PSK (encrypted at rest)
+	Method       string `json:"method,omitempty"`    // shadowsocks cipher, e.g. 2022-blake3-aes-128-gcm
+	ServerKey    string `json:"serverKey,omitempty"` // shadowsocks 2022 / Snell server PSK (encrypted at rest)
+	SnellAuth    string `json:"snellAuth,omitempty"` // empty/userkey or psk (dedicated user/port)
+	SnellUserID  string `json:"snellUserId,omitempty"`
 	SnellVersion int    `json:"snellVersion,omitempty"` // server version 5 (v4 wire) or 6
 	SnellMode    string `json:"snellMode,omitempty"`    // v6: default / unshaped / unsafe-raw
 	SnellObfs    string `json:"snellObfs,omitempty"`    // v5: none / http

@@ -3,7 +3,6 @@ package singbox
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -34,14 +32,31 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 		name       string
 		version    int
 		obfs, mode string
+		single     bool
 	}{
-		{"v5", 5, "none", ""}, {"v5-http", 5, "http", ""}, {"v6", 6, "", "default"}, {"v6-unshaped", 6, "", "unshaped"}, {"v6-raw", 6, "", "unsafe-raw"},
+		{"v5", 5, "none", "", false}, {"v5-http", 5, "http", "", false}, {"v6", 6, "", "default", false}, {"v6-unshaped", 6, "", "unshaped", false}, {"v6-raw", 6, "", "unsafe-raw", false},
+		{"psk-v5", 5, "none", "", true}, {"psk-v5-http", 5, "http", "", true}, {"psk-v6", 6, "", "default", true}, {"psk-v6-unshaped", 6, "", "unshaped", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			s := snellSpec(t)
 			in := &s.Inbounds[0]
 			in.Protocol.SnellVersion, in.Protocol.SnellObfs, in.Protocol.SnellMode = tc.version, tc.obfs, tc.mode
+			authorised := coretest.Users()
+			if tc.single {
+				s.Inbounds = append(s.Inbounds, s.Inbounds[0])
+				in = &s.Inbounds[0]
+				for i := range s.Inbounds {
+					s.Inbounds[i].Users = []model.User{authorised[i]}
+					s.Inbounds[i].Protocol.SnellAuth = "psk"
+					s.Inbounds[i].Protocol.SnellUserID = authorised[i].ID
+				}
+				s.Inbounds[1].Tag = "snell-second"
+				s.Inbounds[1].ID = "snell-second"
+				s.Inbounds[1].Port = coretest.FreePort(t)
+			}
+
+			s.Routes = []model.RouteRule{{Priority: 1, Match: model.RouteMatch{Users: []string{"u1"}, IPCIDR: []string{"127.0.0.2/32"}}, Outbound: "block"}}
 			dir := t.TempDir()
 			a := New(core.Options{BinPath: bin, Version: "1.14.4", WorkDir: dir, APIListen: fmt.Sprintf("127.0.0.1:%d", coretest.FreePort(t))})
 			if !a.PerUserTraffic() {
@@ -117,6 +132,27 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 				node.SnellUserKey = "placeholder"
 				outbound := sub.SingboxOutbound(node)
 				outbound["userkey"] = key
+				if tc.single {
+					source := in
+					u := authorised[0]
+					if key == authorised[1].Password {
+						source = &s.Inbounds[1]
+						u = authorised[1]
+					}
+					node.SnellSinglePSK = true
+					node.SnellUserKey = ""
+					node.Port = source.Port
+					node.SnellPSK = source.SnellClientPSK(u)
+					if key == "wrong-key" {
+						node.SnellPSK = "wrong-encryption-key"
+					} else if key == "" {
+						node.SnellPSK = source.Protocol.ServerKey
+					} else if key == "cross-user" {
+						node.SnellPSK = in.SnellClientPSK(authorised[1])
+					}
+					outbound = sub.SingboxOutbound(node)
+				}
+
 				cfg := map[string]any{"log": map[string]any{"level": "error"}, "inbounds": []any{map[string]any{"type": "socks", "tag": "local", "listen": "127.0.0.1", "listen_port": port}}, "outbounds": []any{outbound}, "route": map[string]any{"final": "snell"}}
 				b, _ := json.Marshal(cfg)
 				p := filepath.Join(dir, fmt.Sprintf("client-%d.json", port))
@@ -140,13 +176,17 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 				t.Fatal("client did not start")
 				return 0
 			}
-			p1, p2, wrong, bare := client(in.Users[0].Password), client(in.Users[1].Password), client("wrong-key"), client("")
-			transfer := func(port int) error {
+			p1, p2, wrong, bare := client(authorised[0].Password), client(authorised[1].Password), client("wrong-key"), client("")
+			transfer := func(port int, destinations ...string) error {
 				d, e := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), nil, &net.Dialer{Timeout: time.Second})
 				if e != nil {
 					return e
 				}
-				c, e := d.Dial("tcp", target.Addr().String())
+				destination := target.Addr().String()
+				if len(destinations) > 0 {
+					destination = destinations[0]
+				}
+				c, e := d.Dial("tcp", destination)
 				if e != nil {
 					return e
 				}
@@ -162,15 +202,28 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 				}
 				return e
 			}
+			payload := bytes.Repeat([]byte("udp"), 64)
+			for _, p := range []int{p1, p2} {
+				if err := coretest.SOCKSUDP(p, packet.LocalAddr().String(), payload); err != nil {
+					t.Fatal("authorised UDP", err)
+				}
+			}
+			// Log attribution is asynchronous with delivery of the UDP reply.
+			var ipsBeforeTCP map[string][]string
+			sourceDeadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(sourceDeadline) {
+				ipsBeforeTCP, _ = a.OnlineIPs(ctx)
+				if len(ipsBeforeTCP["u1"]) > 0 && len(ipsBeforeTCP["u2"]) > 0 {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if len(ipsBeforeTCP["u1"]) == 0 || len(ipsBeforeTCP["u2"]) == 0 {
+				t.Fatal("UDP-only source attribution lost", ipsBeforeTCP)
+			}
 			for _, p := range []int{p1, p2} {
 				if err := transfer(p); err != nil {
 					t.Fatal("authorised TCP", err)
-				}
-			}
-			payload := bytes.Repeat([]byte("udp"), 64)
-			for _, p := range []int{p1, p2} {
-				if err := snellUDP(p, packet.LocalAddr().String(), payload); err != nil {
-					t.Fatal("authorised UDP", err)
 				}
 			}
 			counts := map[string][2]int64{}
@@ -199,13 +252,50 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 					t.Fatalf("%s actual payload count %v want %v (must not double bill)", id, counts[id], want)
 				}
 			}
-			for _, p := range []int{wrong, bare} {
+			negatives := []int{wrong, bare}
+			if tc.single {
+				negatives = append(negatives, client("cross-user"))
+			}
+			for _, p := range negatives {
 				if transfer(p) == nil {
 					t.Fatal("unknown or absent user key accepted")
 				}
 			}
 			if hits.Load() != 2 {
 				t.Fatal("unauthorised request reached business target", hits.Load())
+			}
+			// A user's routing policy must also match anonymous-metadata PSK
+			// listeners. Another user may still reach the same local target.
+			otherTarget, e := net.Listen("tcp", "127.0.0.2:0")
+			if e != nil {
+				t.Fatal(e)
+			}
+			defer otherTarget.Close()
+			go func() {
+				for {
+					conn, e := otherTarget.Accept()
+					if e != nil {
+						return
+					}
+					go func() {
+						defer conn.Close()
+						conn.SetDeadline(time.Now().Add(2 * time.Second))
+						b := make([]byte, len(up))
+						if _, e := io.ReadFull(conn, b); e == nil {
+							conn.Write(down)
+						}
+					}()
+				}
+			}()
+			if transfer(p1, otherTarget.Addr().String()) == nil {
+				t.Fatal("owner-based routing policy was bypassed")
+			}
+			if e := transfer(p2, otherTarget.Addr().String()); e != nil {
+				t.Fatal("another user's route was incorrectly blocked", e)
+			}
+			ips, e := a.OnlineIPs(ctx)
+			if e != nil || len(ips["u1"]) == 0 || len(ips["u2"]) == 0 {
+				t.Fatal("authenticated source attribution lost", ips, e)
 			}
 			// Keep an authenticated session open across the user removal.
 			hold, e := net.Listen("tcp", "127.0.0.1:0")
@@ -234,10 +324,27 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 			if _, e = io.ReadFull(active, pong[:]); e != nil || string(pong[:]) != "ping" {
 				t.Fatal("active session setup failed", e)
 			}
-			// Flush counters as the Agent does before replacing the core config.
-			a.CollectTraffic(ctx)
-			s.Inbounds[0].Users = s.Inbounds[0].Users[1:]
+			// Render the replacement first, then drain the still-running core,
+			// exactly as the Agent does. Pending ownership must not steal bytes.
+			if tc.single {
+				s.Inbounds[0].Users = nil
+			} else {
+				s.Inbounds[0].Users = s.Inbounds[0].Users[1:]
+			}
 			write()
+			ds, err := a.CollectTraffic(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oldOwnerFound := false
+			for _, d := range ds {
+				if d.UserID == "u1" && d.Up >= 4 && d.Down >= 4 {
+					oldOwnerFound = true
+				}
+			}
+			if !oldOwnerFound {
+				t.Fatal("rendering replacement lost the previous owner's last traffic")
+			}
 			if err := a.Reload(ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -254,7 +361,9 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 			if err := transfer(p2); err != nil {
 				t.Fatal("remaining user lost access", err)
 			}
-			s.Inbounds[0].Users = nil
+			for i := range s.Inbounds {
+				s.Inbounds[i].Users = nil
+			}
 			write()
 			if err := a.Reload(ctx); err != nil {
 				t.Fatal(err)
@@ -278,59 +387,4 @@ func snellReady(t *testing.T, a *Adapter, ctx context.Context) {
 		time.Sleep(30 * time.Millisecond)
 	}
 	t.Fatal("stats/core did not become healthy", a.Health(ctx))
-}
-
-func snellUDP(port int, target string, payload []byte) error {
-	c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	c.SetDeadline(time.Now().Add(2 * time.Second))
-	c.Write([]byte{5, 1, 0})
-	var hello [2]byte
-	if _, err = io.ReadFull(c, hello[:]); err != nil {
-		return err
-	}
-	c.Write([]byte{5, 3, 0, 1, 0, 0, 0, 0, 0, 0})
-	var header [4]byte
-	if _, err = io.ReadFull(c, header[:]); err != nil {
-		return err
-	}
-	if header[1] != 0 {
-		return fmt.Errorf("SOCKS UDP associate rejected")
-	}
-	n := 4
-	if header[3] == 4 {
-		n = 16
-	} else if header[3] != 1 {
-		return fmt.Errorf("unexpected bind family")
-	}
-	bind := make([]byte, n+2)
-	if _, err = io.ReadFull(c, bind); err != nil {
-		return err
-	}
-	u, err := net.Dial("udp", net.JoinHostPort(net.IP(bind[:n]).String(), strconv.Itoa(int(binary.BigEndian.Uint16(bind[n:])))))
-	if err != nil {
-		return err
-	}
-	defer u.Close()
-	u.SetDeadline(time.Now().Add(2 * time.Second))
-	host, p, _ := net.SplitHostPort(target)
-	pn, _ := strconv.Atoi(p)
-	packet := append([]byte{0, 0, 0, 1}, net.ParseIP(host).To4()...)
-	packet = append(packet, byte(pn>>8), byte(pn))
-	packet = append(packet, payload...)
-	if _, err = u.Write(packet); err != nil {
-		return err
-	}
-	b := make([]byte, 4096)
-	nr, err := u.Read(b)
-	if err != nil {
-		return err
-	}
-	if nr < 10 || !bytes.Equal(b[10:nr], payload) {
-		return fmt.Errorf("UDP payload mismatch")
-	}
-	return nil
 }

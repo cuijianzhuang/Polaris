@@ -447,8 +447,8 @@ func parseSingbox(data []byte) ([]Node, error) {
 			n.Protocol, n.SnellPSK, n.SnellUserKey = model.ProtoSnell, mstr(o, "psk"), mstr(o, "userkey")
 			n.SnellVersion, _ = strconv.Atoi(mstr(o, "version"))
 			n.SnellMode, n.SnellObfs = mstr(o, "mode"), mstr(o, "obfs_mode")
-			// Only independently authenticated Snell entries can be reissued.
-			if n.SnellUserKey == "" || (n.SnellVersion != 4 && n.SnellVersion != 6) {
+			n.SnellSinglePSK = n.SnellUserKey == ""
+			if n.SnellPSK == "" || (n.SnellVersion != 4 && n.SnellVersion != 6) {
 				continue
 			}
 		case "anytls":

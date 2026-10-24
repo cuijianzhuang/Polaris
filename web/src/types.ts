@@ -9,6 +9,7 @@ export interface ProtocolSpec {
   type: Protocol; flow?: string; visionUDP443?: boolean; method?: string; congestionControl?: string
   upMbps?: number; downMbps?: number; obfs?: string; obfsPassword?: string
   handshakeServer?: string; detour?: string; udp?: boolean
+  snellAuth?: 'userkey' | 'psk'; snellUserId?: string
   snellVersion?: 5 | 6; snellMode?: string; snellObfs?: string
   fallbacks?: Fallback[]
   decryption?: string; encryption?: string; testSeed?: number[]

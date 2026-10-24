@@ -19,10 +19,12 @@ import (
 // Pairing the two gives user and source IP. Those lines (and the matching
 // outbound ones) are consumed here instead of filling the log buffer.
 var (
-	ansiRe     = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	fromRe     = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: inbound (?:packet )?connection from (\S+)\s*$`)
-	userRe     = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: \[([^\]]+)\] inbound (?:packet )?connection (?:to|from) `)
-	outboundRe = regexp.MustCompile(`\] outbound/[^:\s]+: outbound (?:packet )?connection to `)
+	ansiRe       = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	fromRe       = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: inbound (?:packet )?connection from (\S+)\s*$`)
+	userRe       = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/[^:\s]+: \[([^\]]+)\] inbound (?:packet )?connection (?:to|from) `)
+	singleFromRe = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/snell\[([^\]]+)\]: inbound connection from (\S+)\s*$`)
+	singleUserRe = regexp.MustCompile(`\[(\d+) [^\]]*\] inbound/snell\[([^\]]+)\]: inbound (?:connection to|packet connection from) `)
+	outboundRe   = regexp.MustCompile(`\] outbound/[^:\s]+: outbound (?:packet )?connection to `)
 )
 
 // onlineWindow is how long an IP counts as online after its last new
@@ -33,9 +35,10 @@ const onlineWindow = 60 * time.Second
 const maxPending = 20000
 
 type onlineTracker struct {
-	mu      sync.Mutex
-	pending map[string]string               // connection id -> source IP
-	seen    map[string]map[string]time.Time // user -> ip -> last new connection
+	singleOwners map[string]string
+	mu           sync.Mutex
+	pending      map[string]string               // connection id -> source IP
+	seen         map[string]map[string]time.Time // user -> ip -> last new connection
 }
 
 func newOnlineTracker() *onlineTracker {
@@ -49,6 +52,38 @@ func (t *onlineTracker) line(raw string) bool {
 		return false
 	}
 	s := ansiRe.ReplaceAllString(raw, "")
+	if m := singleUserRe.FindStringSubmatch(s); m != nil {
+		t.mu.Lock()
+		if owner := t.singleOwners[m[2]]; owner != "" {
+			if ip, ok := t.pending[m[1]]; ok {
+				delete(t.pending, m[1])
+				if t.seen[owner] == nil {
+					t.seen[owner] = map[string]time.Time{}
+				}
+				t.seen[owner][ip] = time.Now()
+			}
+		}
+		t.mu.Unlock()
+		return true
+	}
+	if m := singleFromRe.FindStringSubmatch(s); m != nil {
+		t.mu.Lock()
+		owner := t.singleOwners[m[2]]
+		if owner != "" {
+			host, _, err := net.SplitHostPort(m[3])
+			if err != nil {
+				host = m[3]
+			}
+			if len(t.pending) >= maxPending {
+				t.pending = map[string]string{}
+			}
+			t.pending[m[1]] = host
+		}
+		t.mu.Unlock()
+		if owner != "" {
+			return true
+		}
+	}
 	if m := fromRe.FindStringSubmatch(s); m != nil {
 		host, _, err := net.SplitHostPort(m[2])
 		if err != nil {

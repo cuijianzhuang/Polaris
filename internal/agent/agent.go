@@ -407,7 +407,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			continue
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
-		features := model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature
+		features := model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature + "," + model.SnellPSKFeature
 		if runtime.GOOS == "linux" {
 			features += "," + model.RouteTraceFeature
 		}

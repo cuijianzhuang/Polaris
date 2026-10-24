@@ -6,6 +6,7 @@ import { Field, Switch, TagInput, fromLines } from './ui'
 import { useState } from 'react'
 import { RealityAdvanced, RealityScanner, SniffExtras, TestSeed, VlessEncryption, hasFeature } from './XrayExtras'
 import { t } from '../i18n'
+import SnellOwner from './SnellOwner'
 
 export interface InboundDraft {
   core: CoreType
@@ -40,6 +41,7 @@ export function normalizeDraft(d: InboundDraft, caps: CapSet[]): InboundDraft {
   if (p !== 'vless' || t !== 'tcp' || s === 'none') { delete protocol.flow; delete protocol.testSeed }
   if (p !== 'vless' || t !== 'tcp' || (s !== 'tls' && s !== 'reality') || protocol.flow !== 'xtls-rprx-vision') delete protocol.visionUDP443
   if (p !== 'vless') { delete protocol.decryption; delete protocol.encryption }
+  if (p !== 'snell') { delete protocol.snellAuth; delete protocol.snellUserId }
   if (p === 'snell' && !protocol.snellVersion) protocol.snellVersion = 5
   if (p === 'shadowsocks' && !protocol.method) protocol.method = SS_METHODS[0]
   return { ...d, protocol, transport: { ...d.transport, type: t }, security: { ...d.security, type: s } }
@@ -154,12 +156,18 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
       {p.type === 'snell' && (
         <>
           <div className="notice">{t('Snell 需要 sing-box 1.14+ 和支持按用户计费的内核。每个用户使用独立密钥；停用、到期或超额后撤销授权。用户变更会重载内核并断开现有连接。')}</div>
-          <Field label={t('Snell 服务端版本')} htmlFor="f-snell-version" hint={t('v5 使用 v4 客户端协议；当前仅向 sing-box 1.14+ 订阅输出，其他客户端会过滤此节点。')}>
+          <Field label={t('Snell 授权模式')} htmlFor="f-snell-auth" hint={t('独立 PSK 模式每个入站只服务一名指定用户，占用独立端口；其他用户即使在同一分组也不会获得此节点。')}>
+            <select id="f-snell-auth" className="input" value={p.snellAuth ?? 'userkey'} onChange={(e) => setP({ snellAuth: e.target.value as 'userkey' | 'psk', snellUserId: undefined, snellMode: p.snellMode === 'unsafe-raw' ? undefined : p.snellMode })}>
+              <option value="userkey">{t('多用户 userkey（sing-box）')}</option><option value="psk">{t('独立 PSK / 端口（Surge 兼容）')}</option>
+            </select>
+          </Field>
+          {p.snellAuth === 'psk' && <SnellOwner value={p.snellUserId ?? ''} onChange={(v) => setP({ snellUserId: v })} />}
+          <Field label={t('Snell 服务端版本')} htmlFor="f-snell-version" hint={t('v5 输出 v4 客户端协议。Surge 使用独立 PSK 模式；v6 需 Surge iOS 5.20+ 或 Mac 6.7+，并仍需实际客户端验收。')}>
             <select id="f-snell-version" className="input" value={p.snellVersion ?? 5} onChange={(e) => setP({ snellVersion: Number(e.target.value) as 5 | 6, snellMode: undefined, snellObfs: undefined })}>
               <option value="5">Snell v5 (v4)</option><option value="6">Snell v6</option>
             </select>
           </Field>
-          {p.snellVersion === 6 ? <Field label={t('流量整形')} htmlFor="f-snell-mode"><select id="f-snell-mode" className="input" value={p.snellMode ?? 'default'} onChange={(e) => setP({ snellMode: e.target.value })}><option>default</option><option>unshaped</option><option>unsafe-raw</option></select></Field>
+          {p.snellVersion === 6 ? <Field label={t('流量整形')} htmlFor="f-snell-mode"><select id="f-snell-mode" className="input" value={p.snellMode ?? 'default'} onChange={(e) => setP({ snellMode: e.target.value })}><option>default</option><option>unshaped</option>{p.snellAuth !== 'psk' && <option>unsafe-raw</option>}</select></Field>
             : <Field label={t('Snell 混淆')} htmlFor="f-snell-obfs"><select id="f-snell-obfs" className="input" value={p.snellObfs ?? 'none'} onChange={(e) => setP({ snellObfs: e.target.value })}><option>none</option><option>http</option></select></Field>}
         </>
       )}

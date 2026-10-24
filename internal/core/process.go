@@ -86,10 +86,14 @@ func (p *Process) Start(ctx context.Context) error {
 	p.lastErr = nil
 	p.mu.Unlock()
 
-	go p.pump(pr)
+	pumpDone := make(chan struct{})
+	go func() { defer close(pumpDone); defer pr.Close(); p.pump(pr) }()
 	go func() {
 		err := wait()
 		pw.Close()
+		// A stopped process must not emit delayed log callbacks after the
+		// caller activates a new credential/traffic ownership mapping.
+		<-pumpDone
 		p.mu.Lock()
 		p.lastErr = err
 		p.mu.Unlock()

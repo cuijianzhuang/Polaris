@@ -7,6 +7,7 @@ package singbox
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -35,15 +36,19 @@ type Adapter struct {
 	opt  core.Options
 	proc *core.Process
 
-	mu            sync.Mutex
-	egressOrigins map[string]string
-	last          *model.NodeSpec
-	api           *core.APIClient
-	service       string
-	stats         bool                // binary built with with_v2ray_api
-	secret        string              // Clash API secret (builds without v2ray_api)
-	conns         map[string][2]int64 // Clash API per-connection counters at last poll
-	online        *onlineTracker      // users and source IPs read from the connection log lines
+	mu                 sync.Mutex
+	egressOrigins      map[string]string
+	snellOwners        map[string]string
+	pendingSnellOwners map[string]string
+	pendingSnellDigest [32]byte
+	activeSnellDigest  [32]byte
+	last               *model.NodeSpec
+	api                *core.APIClient
+	service            string
+	stats              bool                // binary built with with_v2ray_api
+	secret             string              // Clash API secret (builds without v2ray_api)
+	conns              map[string][2]int64 // Clash API per-connection counters at last poll
+	online             *onlineTracker      // users and source IPs read from the connection log lines
 }
 
 // New constructs a sing-box adapter.
@@ -118,6 +123,7 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 // Render translates the sing-box-hosted part of a NodeSpec into sing-box JSON.
 func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	original := spec
+	spec = snellOwnerRoutes(spec)
 	egress, err := core.PlanEgress(spec, model.CoreSingbox, a.opt.Version, a.opt.Limit)
 	if err != nil {
 		return nil, err
@@ -128,6 +134,7 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	var users []string
 	seenUser := map[string]bool{}
 	var sniffTags []string
+	snellOwners := map[string]string{}
 	for _, in := range ins {
 		if in.Protocol.Type == model.ProtoSnell {
 			if !core.VersionAtLeast(a.opt.Version, model.SnellMinVersion) || strings.Contains(a.opt.Version, "-") {
@@ -143,6 +150,12 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			// Remove the listener instead; the shared PSK alone must never work.
 			if len(in.Users) == 0 {
 				continue
+			}
+			if in.SnellDedicated() {
+				if len(in.Users) != 1 || in.Users[0].ID != in.Protocol.SnellUserID || in.Users[0].Password == "" {
+					return nil, fmt.Errorf("dedicated Snell requires exactly its authorised owner")
+				}
+				snellOwners[in.Tag] = in.Users[0].ID
 			}
 		}
 		ib, err := renderInbound(in)
@@ -224,6 +237,13 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			if binding.Inbound != "" {
 				r["inbound"] = []string{binding.Inbound}
 			}
+			for _, singleInbound := range ins {
+				tag := singleInbound.Tag
+				owner := snellOwners[tag]
+				if owner == binding.User && (binding.Inbound == tag || (binding.Inbound == "" && snellAutoInbound(ins, tag))) {
+					add = append(add, map[string]any{"inbound": []string{tag}, "outbound": model.LimitOutboundPrefix + u})
+				}
+			}
 			add = append(add, r)
 		}
 		add = append(add, map[string]any{"inbound": []string{model.LimitInbound}, "action": "sniff"})
@@ -265,6 +285,8 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		return nil, err
 	}
 	a.mu.Lock()
+	a.pendingSnellOwners = snellOwners
+	a.pendingSnellDigest = sha256.Sum256(out)
 	a.last = original.Clone()
 	a.egressOrigins = egress.OutboundOrigins
 	a.mu.Unlock()
@@ -342,7 +364,14 @@ func renderInbound(in model.Inbound) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("protocol %s not supported by sing-box", in.Protocol.Type)
 	}
-	ib["users"] = nonNil(users)
+	if in.SnellDedicated() {
+		if len(in.Users) != 1 || in.Users[0].ID != in.Protocol.SnellUserID || in.Users[0].Password == "" {
+			return nil, fmt.Errorf("dedicated Snell requires exactly its authorised owner")
+		}
+		ib["psk"] = in.SnellClientPSK(in.Users[0])
+	} else {
+		ib["users"] = nonNil(users)
+	}
 
 	switch in.Protocol.Type {
 	case model.ProtoHysteria2:
@@ -720,6 +749,9 @@ func (a *Adapter) Start(ctx context.Context) error {
 	}
 	if !a.proc.Running() {
 		a.resetCounters()
+		if err := a.activateSnellOwners(); err != nil {
+			return err
+		}
 	}
 	return a.proc.Start(ctx)
 }
@@ -737,6 +769,17 @@ func (a *Adapter) Reload(ctx context.Context) error {
 		return fmt.Errorf("sing-box binary not configured")
 	}
 	if !a.proc.Running() {
+		return a.Start(ctx)
+	}
+	a.mu.Lock()
+	dedicated := len(a.snellOwners) > 0 || len(a.pendingSnellOwners) > 0
+	a.mu.Unlock()
+	if dedicated {
+		// The Agent drained counters under the old ownership map first.
+		// A synchronous stop prevents attributing old-process bytes to a new owner.
+		if err := a.proc.Stop(ctx); err != nil {
+			return err
+		}
 		return a.Start(ctx)
 	}
 	return a.proc.Signal(syscall.SIGHUP)
@@ -797,9 +840,10 @@ func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, err
 	a.mu.Lock()
 	a.service = svc
 	origins := a.egressOrigins
+	owners := a.snellOwners
 	a.mu.Unlock()
 	var out []model.TrafficDelta
-	for id, v := range core.EgressTraffic(core.AllTraffic(stats), origins) {
+	for id, v := range snellOwnerTraffic(core.EgressTraffic(core.AllTraffic(stats), origins), owners) {
 		if v[0] != 0 || v[1] != 0 {
 			out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
 		}

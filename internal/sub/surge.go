@@ -49,7 +49,7 @@ func (surgeRenderer) Render(nodes []Node, info Info, tpl string) ([]byte, error)
 
 // SurgeLine renders one [Proxy] line, or "" if Surge cannot express the node.
 func SurgeLine(n Node) string {
-	name := strings.NewReplacer(",", " ", "=", " ").Replace(n.Name)
+	name := strings.NewReplacer(",", " ", "=", " ", "\r", " ", "\n", " ").Replace(n.Name)
 	var parts []string
 	tls := func() {
 		if n.TLS.ServerName != "" {
@@ -63,6 +63,33 @@ func SurgeLine(n Node) string {
 		return ""
 	}
 	switch n.Protocol {
+	case model.ProtoSnell:
+		if !n.SnellSinglePSK || n.SnellPSK == "" || (n.SnellVersion != 4 && n.SnellVersion != 6) {
+			return ""
+		}
+		if (n.Transport.Type != "" && n.Transport.Type != model.TransTCP) || (n.TLS.Type != "" && n.TLS.Type != model.SecNone) {
+			return ""
+		}
+		// Dedicated panel keys are URL-safe. Never let imported source fields
+		// inject a second Surge policy parameter or line.
+		for _, v := range []string{n.Server, n.SnellPSK, n.SnellMode, n.SnellObfs} {
+			if strings.ContainsAny(v, ",\r\n") {
+				return ""
+			}
+		}
+		parts = []string{"snell", n.Server, fmt.Sprint(n.Port), "psk=" + n.SnellPSK, fmt.Sprintf("version=%d", n.SnellVersion)}
+		if n.SnellVersion == 6 {
+			switch n.SnellMode {
+			case "", "default", "unshaped", "unsafe-raw":
+			default:
+				return ""
+			}
+			parts = append(parts, "mode="+orDefault(n.SnellMode, "default"))
+		} else if n.SnellObfs == "http" {
+			parts = append(parts, "obfs=http")
+		} else if n.SnellObfs != "" && n.SnellObfs != "none" {
+			return ""
+		}
 	case model.ProtoVMess, model.ProtoTrojan:
 		if n.Protocol == model.ProtoVMess {
 			parts = []string{"vmess", n.Server, fmt.Sprint(n.Port), "username=" + n.UUID, "vmess-aead=true"}

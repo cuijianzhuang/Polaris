@@ -201,7 +201,7 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	features := []string{}
 	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
-		if (v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SnellUsersFeature) && !contains(features, v) {
+		if (v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature) && !contains(features, v) {
 			features = append(features, v)
 		}
 	}
@@ -219,6 +219,9 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持中转访问保护的新版 Agent"))
 	}
 	for _, in := range spec.Inbounds {
+		if in.Enabled && in.SnellDedicated() && !contains(features, model.SnellPSKFeature) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持 Snell 独立 PSK 的新版 Agent"))
+		}
 		if in.Enabled && in.Protocol.Type == model.ProtoSnell && !contains(features, model.SnellUsersFeature) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持 Snell 独立用户授权的新版 Agent"))
 		}

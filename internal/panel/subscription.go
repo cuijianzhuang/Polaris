@@ -92,6 +92,9 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 	capped, pack := s.nodeAccess(u.ID)
 	kept := ins[:0]
 	for _, in := range ins {
+		if in.Protocol.V.Type == model.ProtoSnell && in.Protocol.V.SnellAuth == "psk" && in.Protocol.V.SnellUserID != u.ID {
+			continue
+		}
 		if !capped[in.NodeID] && (u.Status == "active" || pack[in.NodeID]) {
 			kept = append(kept, in)
 		}
@@ -195,6 +198,11 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 	}
 	if m.Protocol.Type == model.ProtoSnell {
 		n.SnellPSK, n.SnellUserKey = m.Protocol.ServerKey, um.Password
+		if m.SnellDedicated() {
+			n.SnellSinglePSK = true
+			n.SnellPSK = m.SnellClientPSK(um)
+			n.SnellUserKey = ""
+		}
 		n.SnellVersion = 4
 		if m.Protocol.SnellVersion == 6 {
 			n.SnellVersion = 6
