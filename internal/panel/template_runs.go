@@ -359,7 +359,19 @@ func (s *Server) applyFrozenNode(snapshot *frozenTemplate, n *frozenTemplateNode
 		return result
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if tx.Dialector.Name() == "postgres" {
+		if tx.Dialector.Name() == "sqlite" {
+			// A deferred SQLite transaction cannot upgrade its read snapshot
+			// after another replica commits (SQLITE_BUSY_SNAPSHOT). Reserve the
+			// writer before fingerprinting, so unrelated heartbeats cannot turn
+			// an otherwise valid plan into a partially applied batch.
+			r := tx.Exec("UPDATE nodes SET net_last_rx = net_last_rx WHERE id = ?", node.ID)
+			if r.Error != nil {
+				return r.Error
+			}
+			if r.RowsAffected != 1 {
+				return gorm.ErrRecordNotFound
+			}
+		} else if tx.Dialector.Name() == "postgres" {
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&store.Node{}, "id = ?", node.ID).Error; err != nil {
 				return err
 			}
