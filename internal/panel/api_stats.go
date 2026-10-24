@@ -115,7 +115,7 @@ func (s *Server) statsOverview(c *gin.Context) {
 	for _, cr := range cores {
 		dist[cr.Type]++
 	}
-	c.JSON(http.StatusOK, gin.H{
+	out := gin.H{
 		"nodes":       gin.H{"online": online, "total": len(nodes), "timeout": timeout, "error": failed},
 		"users":       gin.H{"online": onlineUsers, "active": activeUsers, "total": totalUsers},
 		"today":       today,
@@ -127,7 +127,18 @@ func (s *Server) statsOverview(c *gin.Context) {
 		"cores":       dist,
 		"nodeList":    nodes,
 		"generatedAt": now,
-	})
+	}
+	// Traffic-read tokens already access this route; do not expand that scope
+	// to payment, refund or diagnostic information. The dedicated endpoint is
+	// administrator-session only by default.
+	if apiTokenOf(c) == nil {
+		operational, err := s.loadOperationalOverview(now)
+		if err != nil {
+			s.log.Warn("operational overview unavailable", "error", err)
+		}
+		out["operational"] = operational
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // statsTraffic returns a series: ?user=&node=&from=&to=&bucket=hour|day.

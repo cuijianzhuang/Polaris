@@ -75,3 +75,19 @@ type OperationalStatus struct {
 	LastFailure *time.Time `json:"lastFailure,omitempty"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 }
+
+// RelayBusinessStatus retains the latest standard-target diagnostic attempt.
+// It contains no temporary identity, target address, or raw Agent message.
+type RelayBusinessStatus struct {
+	ChainID          string `gorm:"primaryKey;size:32"`
+	InboundID        string `gorm:"size:32;index"`
+	NodeID           string `gorm:"size:32;index"`
+	RunID            string `gorm:"size:32"`
+	Fingerprint      string `gorm:"size:64"`
+	State            string `gorm:"size:16"`
+	StartedAt        time.Time
+	CheckedAt        *time.Time
+	BusinessVerified bool
+	CleanupVerified  bool
+	FailedChecks     JSON[[]string]
+}

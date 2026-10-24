@@ -272,6 +272,9 @@ func (s *Server) deleteNode(c *gin.Context) {
 		tx.Where("node_id = ?", id).Delete(&store.UserNodeQuota{})
 		tx.Where("node_id = ?", id).Delete(&store.TrafficCursor{})
 		tx.Where("node_id = ?", id).Delete(&store.TrafficBatchSeen{})
+		if err := tx.Where("key = ?", "agent-traffic:"+id).Delete(&store.OperationalStatus{}).Error; err != nil {
+			return err
+		}
 		if len(inIDs) > 0 {
 			tx.Where("kind = ? AND target_id IN ?", "inbound", inIDs).Delete(&store.UserAccess{})
 			tx.Where("inbound_id IN ?", inIDs).Delete(&store.GroupInbound{})

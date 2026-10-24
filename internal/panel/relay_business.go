@@ -48,7 +48,7 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"state": "unsupported", "businessVerified": false, "message": "当前支持升级后的 Linux Agent 与 Xray VLESS；请先升级落地 Agent"})
 		return
 	}
-	req := model.RelayBusinessRequest{ID: store.NewID() + store.NewID(), ExpiresAt: time.Now().Add(15 * time.Second).Unix(), InboundTag: in.Tag, ServerName: orDefault(in.Security.V.ServerName, landing.Domain), EntryAddress: view.Address, EntryPort: view.Port, TCPURL: orDefault(targets.TCPURL, "https://www.gstatic.com/generate_204"), UDPAddress: orDefault(targets.UDPAddress, "1.1.1.1:53")}
+	req := model.RelayBusinessRequest{ID: store.NewID() + store.NewID(), ExpiresAt: time.Now().Add(15 * time.Second).Unix(), InboundTag: in.Tag, ServerName: orDefault(in.Security.V.ServerName, landing.Domain), EntryAddress: view.Address, EntryPort: view.Port, TCPURL: orDefault(targets.TCPURL, relayBusinessTCP), UDPAddress: orDefault(targets.UDPAddress, relayBusinessUDP)}
 	if view.ShareAddress != "" {
 		req.EntryAddress = view.ShareAddress
 	}
@@ -56,8 +56,23 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 		req.EntryPort = view.SharePort
 	}
 	raw, _ := json.Marshal(req)
+	standard := req.TCPURL == relayBusinessTCP && req.UDPAddress == relayBusinessUDP
+	if standard {
+		if err := s.beginRelayBusinessStatus(ch, in, req); err != nil {
+			serverError(c, err)
+			return
+		}
+	}
 	s.auditCtx(c, "relay.diagnose.start", ch.ID, req.ID)
 	outcome := "interrupted"
+	var result model.RelayBusinessResult
+	defer func() {
+		if standard {
+			if err := s.finishRelayBusinessStatus(ch.ID, req.ID, outcome, result); err != nil {
+				s.log.Warn("persist relay business status", "chain", ch.ID, "error", err)
+			}
+		}
+	}()
 	defer func() { s.auditCtx(c, "relay.diagnose.finish", ch.ID, req.ID+" "+outcome) }()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 23*time.Second)
 	defer cancel()
@@ -69,8 +84,8 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"state": "failed", "businessVerified": false, "message": "诊断中断或节点未返回结果，不能确认业务或清理成功"})
 		return
 	}
-	var result model.RelayBusinessResult
 	if json.Unmarshal([]byte(res.Output), &result) != nil {
+		outcome = "failed"
 		c.JSON(http.StatusOK, gin.H{"state": "failed", "businessVerified": false, "message": "节点返回无效诊断结果"})
 		return
 	}

@@ -186,6 +186,9 @@ func (s *Server) materializeChain(tx *gorm.DB, ch *store.Chain) error {
 }
 
 func (s *Server) dematerializeChain(tx *gorm.DB, ch *store.Chain) error {
+	if err := tx.Where("chain_id = ?", ch.ID).Delete(&store.RelayBusinessStatus{}).Error; err != nil {
+		return err
+	}
 	if err := tx.Where("chain_id = ?", ch.ID).Delete(&store.Outbound{}).Error; err != nil {
 		return err
 	}
