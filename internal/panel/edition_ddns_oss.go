@@ -58,3 +58,13 @@ func (s *Server) autoBindAll(c *gin.Context)        { proOnly(license.FeatureDDN
 func (s *Server) syncAllBindings()                                {}
 func (s *Server) autoBindAfterEnroll(string)                      {}
 func (s *Server) ddnsIPChanged(*store.Node, string, string, bool) {}
+
+// Reusable subscription processing groups follow the existing conversion gate.
+func (s *Server) listProcessingGroups(c *gin.Context)    { emptyList(c) }
+func (s *Server) processingGroupVersions(c *gin.Context) { proOnly(license.FeatureSubConvert)(c) }
+func (s *Server) createProcessingGroup(c *gin.Context)   { proOnly(license.FeatureSubConvert)(c) }
+func (s *Server) previewProcessingGroup(c *gin.Context)  { proOnly(license.FeatureSubConvert)(c) }
+func (s *Server) updateProcessingGroup(c *gin.Context)   { proOnly(license.FeatureSubConvert)(c) }
+func (s *Server) deleteProcessingGroup(c *gin.Context)   { proOnly(license.FeatureSubConvert)(c) }
+
+func (s *Server) processingGroupVersion(c *gin.Context) { proOnly(license.FeatureSubConvert)(c) }

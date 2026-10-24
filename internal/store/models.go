@@ -802,25 +802,26 @@ type SubTraffic struct {
 
 // SubProfile combines panel nodes and sources into one published subscription.
 type SubProfile struct {
-	ID            string                  `gorm:"primaryKey;size:32" json:"id"`
-	Name          string                  `gorm:"size:64;uniqueIndex" json:"name"`
-	Token         string                  `gorm:"size:64;uniqueIndex" json:"token"`
-	Enabled       bool                    `json:"enabled"`
-	SourceIDs     JSON[[]string]          `json:"sourceIds"`
-	PanelUserID   string                  `gorm:"size:32" json:"panelUserId"` // include this user's panel nodes
-	Operators     JSON[[]sub.Operator]    `json:"operators"`                  // empty = global default chain
-	UseGlobalOps  bool                    `json:"useGlobalOps"`
-	Templates     JSON[map[string]string] `json:"templates"`                // format -> sub template id
-	Converter     string                  `gorm:"size:16" json:"converter"` // "" = global setting, builtin, external
-	Backend       string                  `gorm:"size:500" json:"backend"`  // external backend override
-	BackendConfig string                  `gorm:"size:1000" json:"backendConfig"`
-	Scheme        string                  `gorm:"size:1000" json:"scheme"` // rule scheme: "" = global, "none", preset id or ini URL
-	SkipCert      *bool                   `json:"skipCert"`                // nil = global setting
-	ForceUDP      *bool                   `json:"forceUdp"`
-	Downloads     int64                   `json:"downloads"`
-	Remark        string                  `gorm:"size:255" json:"remark"`
-	CreatedAt     time.Time               `json:"createdAt"`
-	UpdatedAt     time.Time               `json:"updatedAt"`
+	ProcessingGroups JSON[[]SubProcessingRef] `json:"processingGroups"`
+	ID               string                   `gorm:"primaryKey;size:32" json:"id"`
+	Name             string                   `gorm:"size:64;uniqueIndex" json:"name"`
+	Token            string                   `gorm:"size:64;uniqueIndex" json:"token"`
+	Enabled          bool                     `json:"enabled"`
+	SourceIDs        JSON[[]string]           `json:"sourceIds"`
+	PanelUserID      string                   `gorm:"size:32" json:"panelUserId"` // include this user's panel nodes
+	Operators        JSON[[]sub.Operator]     `json:"operators"`                  // empty = global default chain
+	UseGlobalOps     bool                     `json:"useGlobalOps"`
+	Templates        JSON[map[string]string]  `json:"templates"`                // format -> sub template id
+	Converter        string                   `gorm:"size:16" json:"converter"` // "" = global setting, builtin, external
+	Backend          string                   `gorm:"size:500" json:"backend"`  // external backend override
+	BackendConfig    string                   `gorm:"size:1000" json:"backendConfig"`
+	Scheme           string                   `gorm:"size:1000" json:"scheme"` // rule scheme: "" = global, "none", preset id or ini URL
+	SkipCert         *bool                    `json:"skipCert"`                // nil = global setting
+	ForceUDP         *bool                    `json:"forceUdp"`
+	Downloads        int64                    `json:"downloads"`
+	Remark           string                   `gorm:"size:255" json:"remark"`
+	CreatedAt        time.Time                `json:"createdAt"`
+	UpdatedAt        time.Time                `json:"updatedAt"`
 }
 
 // TGAdmin is a Telegram chat allowed to administer the panel. Owners see
@@ -841,7 +842,7 @@ func AllModels() []any {
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
-		&Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
+		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
