@@ -144,7 +144,10 @@ export interface SubSource {
   id: string; name: string; kind: 'url' | 'manual'; url: string; content: string; userAgent: string; group: string; enabled: boolean
   refreshMin: number; nodeCount: number; userInfo: SubTraffic; fetchedAt?: string; lastError: string; sortOrder: number; remark: string
 }
+export interface SubProcessingRef { groupId: string; revision: number }
+export interface SubProcessingGroup { id: string; name: string; remark: string; operators: Operator[]; revision: number; createdAt: string; updatedAt: string }
 export interface SubProfile {
+  processingGroups?: SubProcessingRef[]
   id: string; name: string; token: string; enabled: boolean; sourceIds: string[]; panelUserId: string; operators: Operator[]
   useGlobalOps: boolean; templates: Record<string, string>; converter: string; backend: string; backendConfig: string
   scheme: string; skipCert: boolean | null; forceUdp: boolean | null
