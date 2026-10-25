@@ -221,7 +221,7 @@ Agent 阻止诊断用户计数进入持久上报队列及在线用户报告，�
 
 Agent 在替换共享进程前采集正式用户计数，并在销毁临时进程前保留期间的正式用户增量，避免正常完成时丢失普通用户流量；诊断身份计数仅进入诊断结果，不进入客户扣量队列。异常终止仍可能丢失尚未采集的正常流量尾部。临时进程已停止但正式配置恢复失败时，`cleanupVerified` 可为 true，但整体结果仍为 failed，Agent 按原有恢复流程继续处理。
 
-真实 sing-box 1.13.5 的测试覆盖中转后的 REALITY/Vision、受信 HTTPS、不受信证书拒绝、UDP 内容校验、错误入口、会话取消、租约到期、撤销后 UUID 重放拒绝、普通用户流量保留和 Agent SIGKILL 后重启。可设置 `POLARIS_SINGBOX_BIN`，运行 `go test -race ./internal/core/singbox -run 'TestLiveSingbox|TestDiagnosticRefuses'`。测试二进制需包含 `with_v2ray_api,with_utls`。
+真实 sing-box 1.13.5 的测试覆盖中转后的 REALITY/Vision、受信 HTTPS、不受信证书拒绝、UDP 内容校验、错误入口、会话取消、租约到期、撤销后 UUID 重放拒绝、普通用户流量保留和 Agent SIGKILL 后重启。可设置 `POLARIS_SINGBOX_DIAGNOSTIC_BIN`，运行 `go test -race ./internal/core/singbox -run 'TestLiveSingbox|TestDiagnosticRefuses'`。测试二进制需包含 `with_v2ray_api,with_utls`。CI 使用固定提交的 1.13.5 源码单独构建并运行原生诊断竞态检查；通用内核测试允许缺少这些能力的官方构建跳过诊断，专用诊断变量指向不兼容构建时则明确失败。
 
 
 ## 参考截图的功能映射

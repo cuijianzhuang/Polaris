@@ -84,6 +84,23 @@ jobs:
           scripts/pro.sh clean
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
+  singbox-diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build pinned sing-box with diagnostic prerequisites
+        run: |
+          git clone --depth 1 --branch v1.13.5 https://github.com/SagerNet/sing-box.git /tmp/diagnostic-singbox-src
+          test "$(git -C /tmp/diagnostic-singbox-src rev-parse HEAD)" = 7ffdc48b49718d6aeee19ede523a31d1286724cf
+          cd /tmp/diagnostic-singbox-src
+          go build -tags with_v2ray_api,with_utls,with_clash_api -ldflags '-X github.com/sagernet/sing-box/constant.Version=1.13.5' -o /tmp/diagnostic-singbox ./cmd/sing-box
+      - name: Verify real relay authentication, traffic and credential revocation
+        run: go test -race -count=1 -v ./internal/core/singbox -run 'TestLiveSingbox|TestDiagnosticRefuses'
+        env:
+          POLARIS_SINGBOX_DIAGNOSTIC_BIN: /tmp/diagnostic-singbox
   snell:
     runs-on: ubuntu-latest
     steps:
@@ -135,6 +152,9 @@ jobs:
       - run: npm ci --no-audit --no-fund
         working-directory: web
       - run: npm run i18n:check
+        working-directory: web
+      - name: Notification policy behavior
+        run: node --experimental-strip-types --test scripts/notification-policy.test.mjs
         working-directory: web
       - run: npm run build
         working-directory: web

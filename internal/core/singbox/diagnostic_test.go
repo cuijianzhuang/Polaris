@@ -23,12 +23,33 @@ import (
 	"github.com/miekg/dns"
 )
 
+// Generic integration jobs may use an upstream build without statistics.
+// Dedicated diagnostic jobs must provide a compatible binary and fail loudly
+// instead of reporting a skipped test suite as successful validation.
+func diagnosticBinary(t *testing.T) string {
+	t.Helper()
+	bin := os.Getenv("POLARIS_SINGBOX_DIAGNOSTIC_BIN")
+	required := bin != ""
+	if bin == "" {
+		bin = os.Getenv("POLARIS_SINGBOX_BIN")
+	}
+	if bin == "" {
+		t.Skip("native sing-box binary not set")
+	}
+	for _, tag := range []string{"with_v2ray_api", "with_utls"} {
+		if !hasBuildTag(bin, tag) {
+			if required {
+				t.Fatalf("diagnostic binary must include %s", tag)
+			}
+			t.Skipf("generic sing-box lacks %s; use POLARIS_SINGBOX_DIAGNOSTIC_BIN for native diagnostics", tag)
+		}
+	}
+	return bin
+}
+
 func diagnosticFixture(t *testing.T) (*Adapter, model.Inbound, []byte) {
 	t.Helper()
-	bin := os.Getenv("POLARIS_SINGBOX_BIN")
-	if bin == "" {
-		t.Skip("POLARIS_SINGBOX_BIN not set")
-	}
+	bin := diagnosticBinary(t)
 	if !core.ParentBoundSupported() {
 		t.Skip("Linux parent-death enforcement required")
 	}
@@ -275,9 +296,7 @@ func TestLiveSingboxDiagnosticHTTPS(t *testing.T) {
 		}
 		return
 	}
-	if os.Getenv("POLARIS_SINGBOX_BIN") == "" {
-		t.Skip("POLARIS_SINGBOX_BIN not set")
-	}
+	diagnosticBinary(t)
 	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Polaris-Diagnostic") == "" {
 			http.Error(w, "nonce missing", 400)
@@ -324,7 +343,8 @@ func TestLiveSingboxDiagnosticOwner(t *testing.T) {
 }
 
 func TestLiveSingboxDiagnosticCrashRevokesIdentity(t *testing.T) {
-	if os.Getenv("POLARIS_SINGBOX_BIN") == "" || !core.ParentBoundSupported() {
+	bin := diagnosticBinary(t)
+	if !core.ParentBoundSupported() {
 		t.Skip("native sing-box and Linux required")
 	}
 	entered := make(chan struct{}, 1)
@@ -399,7 +419,7 @@ func TestLiveSingboxDiagnosticCrashRevokesIdentity(t *testing.T) {
 		t.Fatal("diagnostic listener survived Agent SIGKILL")
 	}
 	// Restarting an Agent must use the stable file and remove private orphans.
-	a := New(core.Options{Version: "1.13.5", BinPath: os.Getenv("POLARIS_SINGBOX_BIN"), WorkDir: state.WorkDir, APIListen: state.APIListen, BindToParent: true})
+	a := New(core.Options{Version: "1.13.5", BinPath: bin, WorkDir: state.WorkDir, APIListen: state.APIListen, BindToParent: true})
 	defer os.RemoveAll(state.WorkDir)
 	if _, err = a.Render(&model.NodeSpec{Inbounds: []model.Inbound{state.Inbound}}); err != nil {
 		t.Fatal(err)
