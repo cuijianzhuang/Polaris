@@ -44,7 +44,11 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	if in.Core != model.CoreXray || in.Protocol.V.Type != model.ProtoVLESS || !contains(landing.AgentFeatures.V, model.RelayBusinessFeature) {
+	if in.Core != model.CoreXray || in.Protocol.V.Type != model.ProtoVLESS {
+		c.JSON(http.StatusOK, gin.H{"state": "unsupported", "businessVerified": false, "message": "真实业务诊断目前仅支持 Xray VLESS；此限制不影响当前协议的中转创建和转发"})
+		return
+	}
+	if !contains(landing.AgentFeatures.V, model.RelayBusinessFeature) {
 		c.JSON(http.StatusOK, gin.H{"state": "unsupported", "businessVerified": false, "message": "当前支持升级后的 Linux Agent 与 Xray VLESS；请先升级落地 Agent"})
 		return
 	}

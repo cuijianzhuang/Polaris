@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useState } from 'react'
 import { api, get, post, put } from '../api'
-import { datetime } from '../format'
+import { datetime, errMsg } from '../format'
 import { t } from '../i18n'
 import type { Inbound, Node } from '../types'
 import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll } from './ui'
@@ -29,22 +29,30 @@ function RelayCreate({ inbound, nodes, onClose, onDone }: { inbound: Inbound; no
   const [mode, setMode] = useState('l4')
   const [transport, setTransport] = useState('tcp')
   const [plan, setPlan] = useState<Plan>()
+  const [previewError, setPreviewError] = useState('')
   const { busy, run } = useAction()
   const usable = nodes.filter((n) => n.id !== inbound.nodeId && !n.revoked)
-  const touch = () => setPlan(undefined)
+  const touch = () => { setPlan(undefined); setPreviewError('') }
   const [now, setNow] = useState(Date.now)
   useEffect(() => { if (!plan) return; const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer) }, [plan])
   const expired = !!plan && now > Date.parse(plan.expiresAt)
-  return <Modal title={t('一键配置中转')} onClose={onClose} wide footer={<><button className="btn" disabled={busy} onClick={onClose}>{t('取消')}</button><button className="btn" disabled={busy || entryIds.length === 0 || tail.some((h) => !h.nodeId)} onClick={() => run(async () => setPlan(await post<Plan>(`/inbounds/${inbound.id}/relays/batch/preview`, { name, remark, mode, transport, entries: entryIds.map((nodeId) => ({ nodeId })), relays: tail })))}>{t('预览配置')}</button>{plan && <button className="btn pri" disabled={busy || expired} onClick={() => run(async () => { await post(`/inbounds/${inbound.id}/relays/batch`, { planToken: plan.planToken }); onDone() }, t('中转已创建，等待节点应用'))}>{t('确认创建并下发')}</button>}</>}>
-    <div className="ops-stack"><div className="note">{t('并行入口各自生成一条线路；后续中转按列表顺序串联。端口由服务端分配，先预览再创建。')}</div>
+  const preview = () => run(async () => {
+    setPreviewError('')
+    try {
+      setPlan(await post<Plan>(`/inbounds/${inbound.id}/relays/batch/preview`, { name, remark, mode, ...(mode === 'tunnel' ? { transport } : {}), entries: entryIds.map((nodeId) => ({ nodeId })), relays: tail }))
+    } catch (e) { setPlan(undefined); setPreviewError(errMsg(e)); throw e }
+  })
+  return <Modal title={t('一键配置中转')} onClose={onClose} wide footer={<><button className="btn" disabled={busy} onClick={onClose}>{t('取消')}</button><button className="btn" disabled={busy || entryIds.length === 0 || tail.some((h) => !h.nodeId)} onClick={preview}>{t('预览配置')}</button>{plan && <button className="btn pri" disabled={busy || expired} onClick={() => run(async () => { await post(`/inbounds/${inbound.id}/relays/batch`, { planToken: plan.planToken }); onDone() }, t('中转已创建，等待节点应用'))}>{t('确认创建并下发')}</button>}</>}>
+    <fieldset className="ops-stack" disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}><div className="note">{t('并行入口各自生成一条线路；后续中转按列表顺序串联。端口由服务端分配，先预览再创建。')}</div>
       <Field label={t('线路名称')}><input className="input" aria-label={t('线路名称')} maxLength={64} value={name} onChange={(e) => { setName(e.target.value); touch() }} /></Field>
       <Field label={t('中转方式')}><select className="input" aria-label={t('中转方式')} value={mode} onChange={(e) => { setMode(e.target.value); touch() }}><option value="l4">{t('原样端口转发')}</option><option value="tunnel">{t('GOST 认证隧道')}</option></select></Field>
-      {mode === 'tunnel' && <Field label={t('隧道传输')}><select className="input" value={transport} onChange={(e) => { setTransport(e.target.value); touch() }}><option value="tcp">TCP</option><option value="ws">WebSocket</option></select></Field>}
+      {mode === 'tunnel' && <Field label={t('隧道传输')}><select className="input" aria-label={t('隧道传输')} value={transport} onChange={(e) => { setTransport(e.target.value); touch() }}><option value="tcp">TCP</option><option value="ws">WebSocket</option></select></Field>}
       <Field label={t('并行入口节点（最多 16 个）')}><div className="ops-choices">{usable.filter((n) => !tail.some((h) => h.nodeId === n.id)).map((n) => <label className="chk" key={n.id}><input type="checkbox" checked={entryIds.includes(n.id)} disabled={!entryIds.includes(n.id) && entryIds.length >= 16} onChange={(e) => { setEntries(e.target.checked ? [...entryIds, n.id] : entryIds.filter((id) => id !== n.id)); touch() }} />{n.name} · {relayState(n.status)}</label>)}</div></Field>
       <Field label={t('后续中转（按顺序，可留空）')}><div className="ops-stack">{tail.map((hop, i) => <div className="row" key={i}><span>{i + 1}.</span><select className="input" style={{ flex: 1 }} aria-label={t('后续中转节点')} value={hop.nodeId} onChange={(e) => { setTail(tail.map((x, j) => i === j ? { nodeId: e.target.value } : x)); touch() }}><option value="">{t('请选择节点')}</option>{usable.filter((n) => !entryIds.includes(n.id) && !tail.some((x, j) => j !== i && x.nodeId === n.id)).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}</select><button className="btn sm" onClick={() => { setTail(tail.filter((_, j) => i !== j)); touch() }}>{t('删除')}</button></div>)}<button className="btn sm" disabled={tail.length >= 2} onClick={() => { setTail([...tail, { nodeId: '' }]); touch() }}>{t('添加后续中转')}</button></div></Field>
       <div className="small">{t('落地入站')}：{inbound.nodeName} · {inbound.tag}</div><Field label={t('备注')}><input className="input" aria-label={t('备注')} value={remark} onChange={(e) => { setRemark(e.target.value); touch() }} /></Field>
+      {previewError && <div className="note warn" role="alert">{previewError}</div>}
       {plan && <div className="ops-stack"><h3>{t('创建预览')}</h3><div className="small mute">{t('有效期至')} {datetime(plan.expiresAt)}</div>{plan.warnings?.map((w) => <div className="note warn" key={w}>{w}</div>)}{plan.entries.map((e) => <div key={e.chain.id} className="ops-summary ops-stack"><b>{e.chain.name}</b><div className="mono">{e.address} : {e.port}</div><Ports ports={e.ports} nodes={nodes} /></div>)}{expired && <div className="note warn">{t('预览已过期，请重新预览')}</div>}</div>}
-    </div>
+    </fieldset>
   </Modal>
 }
 
@@ -90,7 +98,7 @@ export default function RelayManager({ inbound, nodes, onClose, onChanged }: { i
         <div className="row"><button className="btn sm" disabled={busy} onClick={() => setEditing(r)}>{t('编辑')}</button><button className="btn sm" disabled={busy} onClick={() => diagnose(r, false)}>{t('网络诊断')}</button><button className="btn sm" disabled={busy || r.disabled} onClick={() => diagnose(r, true)}>{t('真实业务诊断')}</button><button className="btn sm" disabled={busy} onClick={() => actionPreview(`${base}/relays/${r.id}`, r.disabled ? 'enable' : 'disable')}>{r.disabled ? t('启用') : t('停用')}</button><button className="btn sm danger" disabled={busy} onClick={() => actionPreview(`${base}/relays/${r.id}`, 'delete')}>{t('删除')}</button></div>
       </div>)}
       {!list.loading && !list.error && !list.data?.length && <Empty>{t('还没有受管中转线路')}</Empty>}
-      <div className="hint">{t('网络诊断不验证用户认证；真实业务诊断首版支持 Linux + Xray VLESS。保存成功与节点应用成功分别展示。')}</div>
+      <div className="hint">{t('一键中转按入站的 TCP/UDP 网络转发；真实业务诊断目前仅支持 Linux + Xray VLESS，此限制不影响其他协议创建中转。保存成功与节点应用成功分别展示。')}</div>
     </div>
     {creating && <RelayCreate inbound={inbound} nodes={nodes} onClose={() => setCreating(false)} onDone={() => { setCreating(false); refresh() }} />}
     {editing && <RelayMetadata relay={editing} base={base} onClose={() => setEditing(undefined)} onDone={() => { setEditing(undefined); refresh() }} />}

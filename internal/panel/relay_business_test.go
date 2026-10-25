@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,5 +146,22 @@ func TestRelayBusinessCanceledRequestSendsCancel(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancel command not sent")
+	}
+}
+
+func TestRelayBusinessUnsupportedProtocolDoesNotSuggestAgentUpgrade(t *testing.T) {
+	s, c := relayFixture(t)
+	if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{"core": model.CoreSingbox, "protocol": store.NewJSON(model.ProtocolSpec{Type: model.ProtoAnyTLS})}).Error; err != nil {
+		t.Fatal(err)
+	}
+	id := createRelayTest(t, c, previewRelayTest(t, c, map[string]any{"mode": "l4", "relays": []map[string]any{{"nodeId": "relay"}}}))
+	markRelayApplied(t, s, id)
+	st, out := c.do("POST", "/inbounds/in/relays/"+id+"/diagnose/business", nil)
+	if st != 200 || out["state"] != "unsupported" || out["businessVerified"] != false {
+		t.Fatal(st, out)
+	}
+	message, _ := out["message"].(string)
+	if !strings.Contains(message, "不影响") || strings.Contains(message, "升级") {
+		t.Fatal(message)
 	}
 }

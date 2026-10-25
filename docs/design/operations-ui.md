@@ -48,3 +48,7 @@ POLARIS_WEB_TEST_URL=http://127.0.0.1:5187 python3 web/scripts/operations-ui-smo
 城市归属接口、文件边界和快照语义参见[国家省市归属说明](route-geo.md)。
 
 回程能力通过 Agent 的 `X-Polaris-Agent-Features: route-trace-v1` 协商。面板需保留该标记，页面才会显示支持；缺少系统 `traceroute` 是执行阶段的“不可用”，不应被判断为旧 Agent。升级面板修复版后，可在节点上点“强制同步”，再刷新回程区域；较新 Linux Agent 的分钟级配置刷新也会重新上报能力。旧 Agent 或非 Linux 节点仍需按真实能力处理，节点系统工具需另行安装。
+
+一键中转默认的原样端口转发（`l4`）请求不包含隧道传输参数；只有 GOST 隧道模式发送 `transport`。预览期间锁定编辑字段，预览错误在窗口内保留；模式或配置变更会清除旧计划。AnyTLS/TCP、Hysteria2/UDP、TUIC/UDP 的预览及创建使用相同服务端接口验证，原样转发不受真实业务诊断的 Xray VLESS 限制。非 VLESS 的诊断会说明能力边界，不再错误提示升级 Agent 即可支持。
+
+针对创建流程的浏览器回归：`POLARIS_WEB_TEST_URL=http://127.0.0.1:5193 python3 web/scripts/relay-create-ui-smoke.py`，覆盖中英文、390/1440 宽度、原样/隧道请求契约、错误重试、编辑锁定、模式切换及冻结计划提交。
