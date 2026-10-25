@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Link, useLocation } from 'react-router-dom'
 import { get, post, put } from '../api'
+import { geoLocationText, geoStateText, type GeoLocation } from '../geoip'
 import { datetime } from '../format'
 import { t } from '../i18n'
 import type { Node } from '../types'
@@ -10,7 +12,8 @@ export type ProbeTarget = { name: string; carrier: string; addr: string }
 type ProbePolicy = { mode: 'inherit' | 'custom' | 'off'; targets: ProbeTarget[]; effectiveTargets: ProbeTarget[] }
 type Targets = { ipv4: string; ipv6: string }
 type Schedule = { policy: { enabled: boolean; targets: Partial<Targets>; intervalMinutes: number; revision: number }; runtime?: { nextAt: string; lastStartedAt?: string; lastState: string }; agentSupported: boolean; online: boolean; pausedByGlobalProbeSwitch: boolean }
-type TraceResult = { state: string; raw: string; asn?: { state: string; reason?: string; databaseSha256?: string; databaseType?: string; buildEpoch?: number; limited?: boolean }; hops: { ttl: number; addresses: string[]; asn?: { ip: string; state: string; asn?: number; organization?: string }[] }[] }
+type TraceMetadata = { state: string; reason?: string; databaseSha256?: string; databaseType?: string; buildEpoch?: number; limited?: boolean }
+type TraceResult = { state: string; raw: string; asn?: TraceMetadata; geo?: TraceMetadata; hops: { ttl: number; addresses: string[]; asn?: { ip: string; state: string; asn?: number; organization?: string }[]; geo?: GeoLocation[] }[] }
 type Trace = { id: number; family: string; target: string; source: string; state: string; startedAt: string; result: TraceResult; comparison: { state: string; reason?: string; previousId?: number; changedTtls: number[] } }
 const stateText = (v: string) => ({ reached: t('已到达'), partial: t('部分结果'), timeout: t('超时'), unavailable: t('不可用'), failed: t('失败'), running: t('运行中'), completed: t('已完成'), interrupted: t('已中断'), baseline: t('首次基线'), same: t('路径相同'), changed: t('路径变化'), not_comparable: t('不可比较'), scheduled: t('定时'), manual: t('手动'), disabled: t('已关闭'), ready: t('就绪') }[v] ?? v)
 
@@ -56,10 +59,12 @@ function TraceDetail({ trace, nodeId, onClose }: { trace: Trace; nodeId: string;
       <div className="note">{stateText(trace.comparison.state)}{trace.comparison.changedTtls?.length ? ' · TTL ' + trace.comparison.changedTtls.join(', ') : ''}{trace.comparison.reason && <div className="small mono">{trace.comparison.reason}</div>}</div>
       <div className="hint">{t('路径不完整或采样条件不符时不会比较。ASN 是数据库归属注释，不代表 BGP 路径或商业线路等级。')}</div>
       {r.asn && <div className="small">ASN · {stateText(r.asn.state)} {r.asn.reason}<div className="mono ops-break">{r.asn.databaseSha256}</div>{r.asn.databaseType}{r.asn.buildEpoch ? ' · ' + datetime(new Date(r.asn.buildEpoch * 1000).toISOString()) : ''}{r.asn.limited && <div>{t('部分地址未注释')}</div>}</div>}
+      {r.geo && <div className="small">{t('地理归属')} · {stateText(r.geo.state)} {r.geo.reason}<div className="mono ops-break">{r.geo.databaseSha256}</div>{r.geo.databaseType}{r.geo.buildEpoch ? ' · ' + datetime(new Date(r.geo.buildEpoch * 1000).toISOString()) : ''}{r.geo.limited && <div>{t('部分地址未注释')}</div>}</div>}
+      <div className="hint">{t('地理归属是数据库估计；国家、省份或城市缺失时不推测补全。')}</div>
       {previous.error && <div className="note warn" role="alert">{t('上次对照记录不可用')} · {previous.error}</div>}
-      <div className="scroll"><table><thead><tr><th>TTL</th>{trace.comparison.previousId && <th>{t('上次路径')}</th>}<th>{t('当前路径')}</th><th>ASN</th></tr></thead><tbody>{hops.map((ttl) => {
+      <div className="scroll"><table><thead><tr><th>TTL</th>{trace.comparison.previousId && <th>{t('上次路径')}</th>}<th>{t('当前路径')}</th><th>ASN</th><th>{t('国家 / 省份 / 城市')}</th></tr></thead><tbody>{hops.map((ttl) => {
         const current = r.hops?.find((h) => h.ttl === ttl), before = previous.data?.result.hops?.find((h) => h.ttl === ttl)
-        return <tr key={ttl}><td style={trace.comparison.changedTtls?.includes(ttl) ? { color: 'var(--warn)', fontWeight: 700 } : undefined}>{ttl}</td>{trace.comparison.previousId && <td className="mono">{previous.loading ? t('加载中…') : before?.addresses?.join(', ') || '*'}</td>}<td className="mono">{current?.addresses?.join(', ') || '*'}</td><td>{current?.asn?.map((a) => <div key={a.ip}>{a.asn ? `AS${a.asn} · ${a.organization ?? ''}` : a.state}</div>) ?? '—'}</td></tr>
+        return <tr key={ttl}><td style={trace.comparison.changedTtls?.includes(ttl) ? { color: 'var(--warn)', fontWeight: 700 } : undefined}>{ttl}</td>{trace.comparison.previousId && <td className="mono">{previous.loading ? t('加载中…') : before?.addresses?.join(', ') || '*'}</td>}<td className="mono">{current?.addresses?.join(', ') || '*'}</td><td>{current?.asn?.map((a) => <div key={a.ip}>{a.asn ? `AS${a.asn} · ${a.organization ?? ''}` : a.state}</div>) ?? '—'}</td><td>{current?.geo?.length ? current.geo.map((g) => <div key={g.ip} style={{ minWidth: 140, maxWidth: 240, overflowWrap: 'anywhere' }}><span className="mono small">{g.ip}</span><div>{g.state === 'matched' ? geoLocationText(g) : geoStateText(g.state)}</div></div>) : '—'}</td></tr>
       })}</tbody></table></div>
       <details><summary>{t('原始检测输出')}</summary><pre className="code ops-raw">{r.raw || t('没有原始输出')}</pre></details>
     </div>
@@ -93,6 +98,7 @@ function RouteTools({ nodeId }: { nodeId: string }) {
     {schedule.data?.pausedByGlobalProbeSwitch && <div className="note warn">{t('全局探测已关闭，定时回程暂停；手动检测仍可使用。')}</div>}
     <button className="btn pri" disabled={busy || !schedule.data || (enabled && (!capable || (!targets.ipv4 && !targets.ipv6))) || interval < 5 || interval > 1440} onClick={() => run(async () => { try { await put(`/nodes/${nodeId}/route-schedule`, { enabled, targets, intervalMinutes: interval, expectedRevision: schedule.data!.policy.revision }); schedule.reload() } catch (e) { if ((e as { status?: number }).status === 409) schedule.reload(); throw e } }, t('已保存'))}>{t('保存定时策略')}</button>
     {schedule.data?.runtime && <div className="small mute">{t('下次检测')}：{datetime(schedule.data.runtime.nextAt)} · {t('上次任务')}：{stateText(schedule.data.runtime.lastState || '—')}</div>}
+    <div className="hint">{t('开启 ASN 或地理归属后，新的回程历史详情会显示注释；旧记录不会补算。')} <Link to="/settings#network" className="link">{t('配置归属数据库')}</Link></div>
     <h3>{t('回程历史')}</h3><div className="row"><select className="input" style={{ width: 'auto' }} aria-label={t('地址族筛选')} value={family} onChange={(e) => { setFamily(e.target.value); setBefore(undefined) }}><option value="">{t('全部')}</option><option value="ipv4">IPv4</option><option value="ipv6">IPv6</option></select><input className="input mono" aria-label={t('目标 IP 筛选')} placeholder={t('目标 IP 筛选')} value={filterDraft} onChange={(e) => setFilterDraft(e.target.value)} /><button className="btn" onClick={() => { setTargetFilter(filterDraft.trim()); setBefore(undefined) }}>{t('筛选')}</button></div>
     {history.error && <div className="note warn" role="alert">{history.error}</div>}
     <div className="scroll"><table><thead><tr><th>{t('时间')}</th><th>{t('目标')}</th><th>{t('来源')}</th><th>{t('状态')}</th><th>{t('路径对比')}</th><th /></tr></thead><tbody>{(history.data?.items ?? []).map((row) => <tr key={row.id}><td>{datetime(row.startedAt)}</td><td className="mono">{row.target}</td><td>{stateText(row.source)}</td><td>{stateText(row.result?.state || row.state)}</td><td>{stateText(row.comparison.state)}</td><td><button className="link" disabled={busy} onClick={() => run(async () => setDetail(await get<Trace>(`/nodes/${nodeId}/route-traces/${row.id}`)))}>{t('详情')}</button></td></tr>)}</tbody></table></div>
@@ -103,6 +109,10 @@ function RouteTools({ nodeId }: { nodeId: string }) {
 }
 
 export default function NodeNetworkTools({ node }: { node: Node }) {
-  const [tab, setTab] = useState<'probe' | 'route' | ''>('')
-  return <section className="card ops-stack"><div className="ctitle"><h2>{t('节点网络检测')}</h2><div className="row"><button className={'btn sm' + (tab === 'probe' ? ' pri' : '')} onClick={() => setTab(tab === 'probe' ? '' : 'probe')}>{t('测试点策略')}</button><button className={'btn sm' + (tab === 'route' ? ' pri' : '')} onClick={() => setTab(tab === 'route' ? '' : 'route')}>{t('回程与定时检测')}</button></div></div>{tab === 'probe' && <ProbePolicyEditor key={node.id} nodeId={node.id} />}{tab === 'route' && <RouteTools key={node.id} nodeId={node.id} />}</section>
+  const { search } = useLocation()
+  const requested = new URLSearchParams(search).get('network') === 'route'
+  const section = useRef<HTMLElement>(null)
+  const [tab, setTab] = useState<'probe' | 'route' | ''>(() => requested ? 'route' : '')
+  useEffect(() => { if (requested) { setTab('route'); section.current?.scrollIntoView({ block: 'start', inline: 'nearest' }) } }, [requested])
+  return <section ref={section} className="card ops-stack" style={{ scrollMarginTop: 76 }}><div className="ctitle"><h2>{t('节点网络检测')}</h2><div className="row"><button className={'btn sm' + (tab === 'probe' ? ' pri' : '')} onClick={() => setTab(tab === 'probe' ? '' : 'probe')}>{t('测试点策略')}</button><button className={'btn sm' + (tab === 'route' ? ' pri' : '')} onClick={() => setTab(tab === 'route' ? '' : 'route')}>{t('回程与定时检测')}</button></div></div>{tab === 'probe' && <ProbePolicyEditor key={node.id} nodeId={node.id} />}{tab === 'route' && <RouteTools key={node.id} nodeId={node.id} />}</section>
 }

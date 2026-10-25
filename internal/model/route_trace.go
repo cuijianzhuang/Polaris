@@ -35,12 +35,14 @@ func (r RouteTraceRequest) Validate() error {
 }
 
 type RouteTraceHop struct {
+	Geo       []RouteTraceIPGeo `json:"geo,omitempty"`
 	ASN       []RouteTraceIPASN `json:"asn,omitempty"`
 	TTL       int               `json:"ttl"`
 	Addresses []string          `json:"addresses"`
 }
 
 type RouteTraceResult struct {
+	Geo       *RouteTraceGeoMetadata `json:"geo,omitempty"`
 	ASN       *RouteTraceASNMetadata `json:"asn,omitempty"`
 	Family    string                 `json:"family"`
 	Target    string                 `json:"target"`

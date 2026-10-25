@@ -4,7 +4,19 @@ import { useNodes } from '../App'
 import { t } from '../i18n'
 import { Field, Switch, useAction, useLoad } from './ui'
 
-export { RouteASNSettings } from './RouteASNSettings'
+import { RouteASNSettings } from './RouteASNSettings'
+import RouteGeoSettings from './RouteGeoSettings'
+
+export function NetworkDatabaseSettings() {
+  const [tab, setTab] = useState<'asn' | 'geo'>('asn')
+  return <div className="ops-stack">
+    <nav className="tabs" aria-label={t('网络归属数据库')}>
+      <button className={'tab' + (tab === 'asn' ? ' on' : '')} type="button" aria-pressed={tab === 'asn'} onClick={() => setTab('asn')}>{t('ASN 归属')}</button>
+      <button className={'tab' + (tab === 'geo' ? ' on' : '')} type="button" aria-pressed={tab === 'geo'} onClick={() => setTab('geo')}>{t('地理归属')}</button>
+    </nav>
+    {tab === 'asn' ? <RouteASNSettings /> : <RouteGeoSettings />}
+  </div>
+}
 
 type Window = { id: string; nodeIds: string[]; channels: string[]; startsAt: string; endsAt: string }
 type Policy = { repeatWindowSeconds: number; channels: Record<string, Record<string, boolean>>; maintenance: Window[] }

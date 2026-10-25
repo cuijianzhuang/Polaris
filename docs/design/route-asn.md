@@ -2,18 +2,19 @@
 
 管理入口：**设置 → 网络检测**，包含启用状态、数据库信息、安装与更新、本地 IP 归属验证。参见[界面接入说明](operations-ui.md)。
 
-ASN 数据来自管理员上传的本地 MMDB；不自动下载数据库、不发起外部 IP 查询、不做反向 DNS、不使用 Shodan 密钥。初始默认关闭且不包含生产数据库。
+ASN 数据来自本地 MMDB；可由管理员手动上传，或点击“从仓库获取并安装”由面板从预设仓库下载。不定时自动更新、不发起外部 IP 查询、不做反向 DNS、不使用 Shodan 密钥。初始默认关闭且不包含生产数据库。
 
 ## 安装和启用
 
 管理员接口：
 
 - `GET /tools/route-asn`：desired policy、当前实例的数据库状态、类型/构建时间/IP 版本，以及 `effectiveEnabled`。
+- `POST /tools/route-asn/database/fetch`：`{"source":"loyalsoldier","expectedRevision":0}`，从预设仓库下载并安装。来源还支持 `loyalsoldier-cdn`、`free-geoip`；必须携带当前版本，下载前检查，安装事务中再次比较。
 - `PUT /tools/route-asn/database?expectedRevision=0`：请求体为原始 MMDB 二进制，最多 64 MiB。上传仅安装/替换数据；首次上传不自动启用，更新已经启用的数据源则保留开关状态。
 - `POST /tools/route-asn/lookup`：`{"ip":"1.1.1.1"}`，使用当前实例快照预览单个 IPv4/IPv6 的归属，返回 `match`、`databaseSHA256` 和 `effectiveEnabled`；允许在注释开关关闭时验证已安装数据库，不改变策略、历史或开关。仅接受 IP 字面量，不解析域名，拒绝带端口、CIDR 或 zone 的输入。缺少有效数据库返回 409 和当前 `databaseState`。
 - `PUT /tools/route-asn`：`{"enabled":true,"expectedRevision":1}`。开启前要求当前实例已安装该策略引用的有效数据库。
 
-`expectedRevision` 可省略；建议先 GET 再使用其 policy.revision，冲突返回 409。重复上传相同数据或重复保存相同开关不递增版本。上传接口不接受 URL、服务器文件路径或自定义文件名，不通过通用 settings 接口修改策略。
+上传和开关接口的 `expectedRevision` 可省略，仓库获取接口必填；建议先 GET 再使用其 policy.revision，冲突返回 409。重复上传相同数据或重复保存相同开关不递增版本。上传接口不接受 URL、服务器文件路径或自定义文件名，不通过通用 settings 接口修改策略。
 
 使用兼容 MaxMind ASN 字段 `autonomous_system_number`、`autonomous_system_organization` 的 ASN MMDB。检查大小、文件完整性、数据库类型、地址族和兼容记录；国家/城市库及字段不兼容的其他 ASN 格式不作为本数据源使用。数据库真实性、覆盖范围和更新由管理员选择的数据源决定；格式校验和 SHA-256 校验不等于验证归属事实。
 
@@ -64,9 +65,11 @@ ASN 数据是地址网段的归属注释，不证明真实 BGP AS path、实际�
 
 ## 管理界面
 
+“查看回程检测”可直接进入节点页并展开回程检测区域，不自动触发网络探测。注释显示在新回程历史详情的 ASN 列；不是节点地图或仪表盘 IP 归属。回程区域也提供返回配置页的入口。
+
 状态区分别显示策略开关和当前实例是否实际生效，提供数据库类型、构建时间、地址支持及 SHA-256。缺少文件或校验失败不会显示为就绪；已开启但当前实例不可用时仍可关闭策略。
 
-安装区提供 Loyalsoldier/geoip `release` 分支的 `GeoLite2-ASN.mmdb` GitHub/CDN 下载和 SHA-256 文件，同时保留 MaxMind 官方获取说明（GeoLite2 需要免费账号）和字段格式文档。`Country.mmdb`、`Country-asn.mmdb` 属于规则分类库，不能替代含 ASN 编号和组织字段的数据库。下载在用户浏览器中发起，不引入服务器自动更新或远程 IP 查询。管理员下载并解压 `.mmdb` 后上传；前端检查扩展名、空文件和 64 MiB 大小，后端继续执行完整的内容验证。首次上传仍需显式开启，替换数据库保留开关。配置冲突后刷新状态，不覆盖其他管理员修改。
+安装区提供 Loyalsoldier/geoip `release` 分支的 `GeoLite2-ASN.mmdb` GitHub/CDN 下载和 SHA-256 文件，同时保留 MaxMind 官方获取说明（GeoLite2 需要免费账号）和字段格式文档。`Country.mmdb`、`Country-asn.mmdb` 属于规则分类库，不能替代含 ASN 编号和组织字段的数据库。可直接在后台选择来源后获取并安装，保留浏览器下载入口和手动上传；不引入定时自动更新或远程 IP 查询。手动方式下载并解压 `.mmdb` 后上传；前端检查扩展名、空文件和 64 MiB 大小，后端继续执行完整的内容验证。首次上传仍需显式开启，替换数据库保留开关。配置冲突后刷新状态，不覆盖其他管理员修改。
 
 验证区在数据库就绪时可用，本地查询支持匹配、私网/特殊地址、未收录等结果；更换数据库或编辑输入后清除旧预览。IPv6 数据库按其格式支持 IPv4/IPv6 查询，具体覆盖依赖文件记录。
 
@@ -78,6 +81,16 @@ UI 回归：`POLARIS_WEB_TEST_URL=http://127.0.0.1:5193 python3 web/scripts/asn-
 | --- | --- | --- |
 | Loyalsoldier/geoip | `release/GeoLite2-ASN.mmdb` | 提供 GitHub/CDN 链接及 SHA-256 文件；`Country-asn.mmdb` 不含 ASN 编号 |
 | lwpk110/free-geoip-databases | `GeoLite2-ASN-日期.mmdb` | 使用 GeoLite2 Releases 筛选入口，文件名含日期，避免固定过期版本或误选 City/Country |
-| wp-statistics/GeoLite2-City | 无 | 提供城市级库，适用于独立的国家/省市归属功能，不可作为 ASN 数据库上传；其 `.mmdb.gz` 也不是直接上传格式 |
+| wp-statistics/GeoLite2-City | 无 | 在独立的“地理归属”页安装城市库（支持 `.mmdb.gz`），不可作为 ASN 数据库上传 |
 
-来源选择只提供浏览器下载入口，数据库按管理员选择上传。已使用 Polaris 解析器验证 lwpk110 来源的真实 GeoLite2-ASN 文件及 IPv4/IPv6 归属；数据文件未加入仓库。以上是第三方分发来源，底层数据库的使用条款以原始提供者说明为准。
+仓库获取由管理员显式触发，下载至当前实例；保留浏览器下载及管理员上传方式。已使用 Polaris 解析器验证 lwpk110 来源的真实 GeoLite2-ASN 文件及 IPv4/IPv6 归属；数据文件未加入仓库。以上是第三方分发来源，底层数据库的使用条款以原始提供者说明为准。
+
+国家、省份、城市信息由独立的[地理归属功能](route-geo.md)提供，与 ASN 开关和数据互不影响。
+
+## 仓库直接获取
+
+来源是固定预设，不接受任意 URL。下载请求及重定向限 HTTPS 和预设仓库/CDN/GitHub 发布资源域名，直连拒绝私网目标；支持运维配置的 HTTP/HTTPS 环境代理，代理转发前仍检查仓库目的地址。请求不携带面板 Authorization/Cookie。总超时 90 秒，下载、发布元数据和校验文件均有独立大小限制。
+
+Loyalsoldier 来源校验其发布的 SHA-256。free-geoip 来源按 Releases 中正式 `geolite2-日期` 发布匹配对应 ASN/City 文件，跳过 DB-IP、草稿、预发布和不匹配的文件名，核对下载仓库及路径；元数据提供 SHA-256 digest 时一并校验。对有日期的文件不硬编码过期版本。格式或内容校验失败、GitHub 限流、网络失败或版本冲突都不替换原策略引用。
+
+`POLARIS_DATABASE_REPOSITORY_TEST=1 go test ./internal/panel -run '^TestLiveRepositoryDatabase$' -count=1 -v` 可手动验证真实上游与解析器。默认测试使用固定仓库响应，不在每次 CI 重复下载生产数据库。

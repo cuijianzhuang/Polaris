@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, get, post, put } from '../api'
 import { bytes, datetime } from '../format'
 import { t } from '../i18n'
+import RepositoryDatabaseInstall from './RepositoryDatabaseInstall'
 import { Field, Switch, useAction, useLoad } from './ui'
 
 type ASNInfo = {
@@ -45,8 +47,9 @@ export function RouteASNSettings() {
 
   return <div className="asn-settings ops-stack" aria-busy={busy || info.loading}>
     <section className="card ops-stack">
-      <div className="ctitle"><h2>{t('回程 ASN 归属')}</h2><button className="btn sm" disabled={busy || info.loading} onClick={info.reload}>{t('刷新')}</button></div>
+      <div className="ctitle"><h2>{t('回程 ASN 归属')}</h2><div className="row"><Link className="btn sm" to="/nodes?network=route">{t('查看回程检测')}</Link><button className="btn sm" disabled={busy || info.loading} onClick={info.reload}>{t('刷新')}</button></div></div>
       <p className="hint asn-description">{t('为回程检测的每跳 IP 标注 ASN 编号和所属组织，便于识别网络归属。')}</p>
+      <div className="hint">{t('显示位置：节点 → 回程与定时检测 → 回程历史详情 → ASN 列。')}</div>
       {info.error && <div className="note warn" role="alert">{info.error}</div>}
       {info.loading && !d && <div className="hint" role="status">{t('正在读取数据库状态…')}</div>}
       {d && <>
@@ -69,11 +72,13 @@ export function RouteASNSettings() {
     <section className="card ops-stack">
       <div className="ctitle"><h2>{t('安装与更新数据库')}</h2></div>
       <div className="hint">{t('支持 GeoLite2 ASN、GeoIP2 ASN 等兼容 MaxMind ASN 字段的 MMDB 文件；国家库、城市库不能用于 ASN 注释。')}</div>
+      <RepositoryDatabaseInstall kind="asn" disabled={locked} busy={busy} onFetch={(source) => run(async () => { if (!d) return; try { await post('/tools/route-asn/database/fetch', { source, expectedRevision: d.policy.revision }); setFile(undefined); setFileVersion((v) => v + 1); setLookup(undefined) } finally { info.reload() } }, t('ASN 数据库已安装'))} />
       <div className="asn-source-links"><span>{t('获取数据库')}</span><a href="https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-ASN.mmdb" target="_blank" rel="noopener noreferrer">GeoLite2-ASN.mmdb · GitHub ↗</a><a href="https://cdn.jsdelivr.net/gh/Loyalsoldier/geoip@release/GeoLite2-ASN.mmdb" target="_blank" rel="noopener noreferrer">{t('CDN 镜像')} ↗</a><a href="https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-ASN.mmdb.sha256sum" target="_blank" rel="noopener noreferrer">{t('SHA-256 校验文件')} ↗</a></div>
       <div className="hint">{t('由 Loyalsoldier/geoip 提供 GeoLite2 ASN 下载。请选择 GeoLite2-ASN.mmdb；Country.mmdb、Country-asn.mmdb 是规则分类库，不提供 ASN 编号。')}</div>
       <div className="asn-source-links"><span>{t('备用 ASN 数据源')}</span><a href="https://github.com/lwpk110/free-geoip-databases/releases?q=geolite2&amp;expanded=true" target="_blank" rel="noopener noreferrer">free-geoip-databases ↗</a></div>
       <div className="hint">{t('备用来源请选择 GeoLite2-ASN-日期.mmdb；不要选择 City 或 Country 文件。')}</div>
       <details className="asn-details"><summary>{t('数据来源与格式说明')}</summary><div className="asn-source-links"><a href="https://github.com/Loyalsoldier/geoip#maxmind-mmdb-%E4%B8%8B%E8%BD%BD%E5%9C%B0%E5%9D%80" target="_blank" rel="noopener noreferrer">Loyalsoldier / geoip ↗</a><a href="https://dev.maxmind.com/geoip/geolite2-free-geolocation-data/" target="_blank" rel="noopener noreferrer">{t('GeoLite2 ASN（需免费账号）')} ↗</a><a href="https://dev.maxmind.com/geoip/docs/databases/asn/" target="_blank" rel="noopener noreferrer">{t('ASN 格式说明')} ↗</a></div></details>
+      <div className="hint asn-details">{t('也可以手动上传数据库文件。')}</div>
       <Field htmlFor="asn-database-file" label={t('上传 ASN MMDB')} hint={t('选择解压后的 .mmdb 文件，最大 64 MiB。上传后会校验格式、完整性和 SHA-256。')}>
         <input id="asn-database-file" key={fileVersion} className="input asn-file" type="file" accept=".mmdb" disabled={locked} onChange={(e) => setFile(e.target.files?.[0])} />
       </Field>
@@ -96,7 +101,7 @@ export function RouteASNSettings() {
         <div className="mono ops-break">{match.ip}</div>
         {match.state === 'matched' ? <><strong>AS{match.asn} · {match.organization}</strong><div className="hint mono ops-break">{match.network}</div></> : <div>{({ private: t('私网或特殊地址，不查询 ASN 归属。'), not_found: t('当前数据库未收录此地址。'), unavailable: t('当前数据库查询不可用。'), invalid: t('请输入有效的 IPv4 或 IPv6 地址') }[match.state] ?? t('当前数据库查询不可用。'))}</div>}
       </div>}
-      <div className="hint">{t('ASN 归属不代表真实 BGP 路径、线路等级或业务可用性。面板不会自动下载数据库，也不会向外部服务查询 IP。')}</div>
+      <div className="hint">{t('ASN 归属不代表真实 BGP 路径、线路等级或业务可用性。面板仅在管理员操作时下载数据库，不会向外部服务查询 IP。')}</div>
     </section>
   </div>
 }

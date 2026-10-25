@@ -80,12 +80,16 @@ type Server struct {
 	// in memory, or in Redis when redis_url is set (several instances).
 	shared sharedState
 
+	routeDatabaseTransport http.RoundTripper // tests: repository download transport
+
 	memberID          string // stable local installation identity across restarts
 	opsMu             sync.Mutex
 	procID            string // this process, for the leader lease
 	restored          bool   // a staged backup was applied at this start
 	startedAt         time.Time
 	memberAt          time.Time // last cluster_members refresh
+	routeGeoMu        sync.Mutex
+	routeGeoCache     *routeGeoDatabase
 	routeASNMu        sync.Mutex
 	routeASNCache     *routeASNDatabase
 	routeScheduleBusy atomic.Bool
