@@ -34,8 +34,9 @@ type managed struct {
 	applied *model.NodeSpec
 }
 
-// Hysteria uses base+10.. (one stats port per inbound).
-var apiOffsets = map[model.CoreType]int{model.CoreXray: 0, model.CoreSingbox: 1, model.CoreMihomo: 3, model.CoreCaddy: 4, model.CoreGost: 5, model.CoreHysteria: 10}
+// Hysteria uses base+10.. (one stats port per inbound). base+5 (10090) is
+// the agent's own auth listener, so nothing may use offset 5.
+var apiOffsets = map[model.CoreType]int{model.CoreXray: 0, model.CoreSingbox: 1, model.CoreMihomo: 3, model.CoreCaddy: 4, model.CoreGost: 6, model.CoreHysteria: 10}
 
 func (a *Agent) apiListen(t model.CoreType) string {
 	off, ok := apiOffsets[t]
