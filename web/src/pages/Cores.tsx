@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { get, post } from '../api'
 import { useNodes } from '../App'
+import RolloutPanel from '../components/Rollouts'
 import GeodataCard from '../components/GeodataCard'
 import { NodeActivity } from '../components/NodeCard'
 import { Empty, Modal, useAction, useConfirm, useLoad } from '../components/ui'
@@ -16,6 +17,7 @@ type Row = { node: Node; core: Core }
 
 export default function Cores() {
   const { nodes, refresh } = useNodes()
+  const [tick, setTick] = useState(0)
   const nav = useNavigate()
   const latest = useLoad(() => get<Record<string, string>>('/core-latest').catch(() => ({} as Record<string, string>)))
   const [filter, setFilter] = useState<CoreType | 'all' | 'outdated'>('all')
@@ -48,6 +50,7 @@ export default function Cores() {
           {rows.length > 0 && <button className="btn pri" type="button" onClick={() => setBatch(true)}>{t('批量升级')}</button>}
         </div>
       </div>
+      <RolloutPanel nodes={nodes} refresh={tick} />
 
       {active.length > 0 && (
         <section className="card" aria-label={t('节点活动')}>
@@ -145,7 +148,7 @@ export default function Cores() {
 
       {rows.some((r) => r.core.type === 'xray') && <GeodataCard />}
 
-      {batch && <BatchCoreUpgrade nodes={nodes} latest={lv} onClose={() => setBatch(false)} onDone={() => { setBatch(false); refresh() }} />}
+      {batch && <BatchCoreUpgrade nodes={nodes} latest={lv} onClose={() => setBatch(false)} onDone={() => { setBatch(false); setTick((x) => x + 1); refresh() }} />}
       {switching && <CoreForm node={switching.node} core={switching.core} onClose={() => setSwitching(null)} onSaved={() => { setSwitching(null); refresh() }} />}
       {preview && (
         <Modal wide title={preview.title} onClose={() => setPreview(null)} footer={<button className="btn" type="button" onClick={() => setPreview(null)}>{t('关闭')}</button>}>
