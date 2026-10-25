@@ -1,7 +1,13 @@
 package panel
 
 import (
+	"connectrpc.com/connect"
+	"context"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"math/big"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,5 +77,47 @@ func TestRouteTraceRejectsMismatchedResults(t *testing.T) {
 	r.State = "success"
 	if validRouteTraceResults(req, []model.RouteTraceResult{r}) {
 		t.Fatal("invalid state accepted")
+	}
+}
+
+// Exercise the actual authenticated GetSpec handshake rather than seeding the
+// capability directly, so a missing service allowlist entry cannot hide behind
+// the API fixtures that already assume a capable Agent.
+func TestRouteTraceCapabilityNegotiation(t *testing.T) {
+	s, c := traceHistoryFixture(t)
+	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", "trace").Updates(map[string]any{"cert_serial": "1", "desired_rev": 7, "agent_features": store.NewJSON([]string{})}).Error; err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(model.NodeSpec{NodeID: "trace", Rev: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Create(&store.ConfigRevision{NodeID: "trace", Rev: 7, Spec: s.st.Box.Seal(string(raw))}).Error; err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), peerCertKey, &x509.Certificate{Subject: pkix.Name{CommonName: "trace"}, SerialNumber: big.NewInt(1)})
+	service := &agentService{s: s}
+	req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: 7})
+	req.Header().Set("X-Polaris-Agent-Features", strings.Join([]string{model.RouteTraceFeature, model.RelayAccessFeature, model.RouteTraceFeature, "unknown-test-feature"}, ","))
+	if _, err := service.GetSpec(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	var node store.Node
+	if err := s.st.DB.First(&node, "id = ?", "trace").Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(node.AgentFeatures.V) != 2 || !contains(node.AgentFeatures.V, model.RouteTraceFeature) || !contains(node.AgentFeatures.V, model.RelayAccessFeature) {
+		t.Fatal(node.AgentFeatures.V)
+	}
+	if st, out := c.do("GET", "/nodes/trace/route-schedule", nil); st != 200 || out["agentSupported"] != true {
+		t.Fatal("advertised feature unavailable to the frontend", st, out)
+	}
+	// Older/non-Linux Agents that do not advertise it must remain unsupported.
+	req.Header().Set("X-Polaris-Agent-Features", model.RelayAccessFeature)
+	if _, err := service.GetSpec(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := c.do("GET", "/nodes/trace/route-schedule", nil); st != 200 || out["agentSupported"] != false {
+		t.Fatal(st, out)
 	}
 }

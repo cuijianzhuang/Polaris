@@ -46,3 +46,5 @@ POLARIS_WEB_TEST_URL=http://127.0.0.1:5187 python3 web/scripts/operations-ui-smo
 浏览器测试不是公网 traceroute 或真实代理连通性验收；这些由后端已有测试和部署环境验收分别覆盖。
 
 城市归属接口、文件边界和快照语义参见[国家省市归属说明](route-geo.md)。
+
+回程能力通过 Agent 的 `X-Polaris-Agent-Features: route-trace-v1` 协商。面板需保留该标记，页面才会显示支持；缺少系统 `traceroute` 是执行阶段的“不可用”，不应被判断为旧 Agent。升级面板修复版后，可在节点上点“强制同步”，再刷新回程区域；较新 Linux Agent 的分钟级配置刷新也会重新上报能力。旧 Agent 或非 Linux 节点仍需按真实能力处理，节点系统工具需另行安装。
