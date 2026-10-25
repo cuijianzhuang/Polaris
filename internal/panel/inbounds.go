@@ -212,6 +212,11 @@ func (s *Server) portConflictExcept(nodeID string, m *model.Inbound, excludeID, 
 		return err
 	}
 	for _, o := range ins {
+		if o.RelayAccess.V.Enabled {
+			// The source guard is per port: a sibling on the other L4
+			// network would leave the node unable to render.
+			return fmt.Errorf("port %d belongs to inbound %s, which only accepts relay traffic; no other inbound may share it", m.Port, o.Tag)
+		}
 		om := s.toModelInbound(&o)
 		om.Normalize()
 		if (om.UsesTCP() && m.UsesTCP()) || (om.UsesUDP() && m.UsesUDP()) {

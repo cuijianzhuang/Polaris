@@ -498,12 +498,17 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 			continue
 		}
 		if in.RelayAccess.V.Enabled {
-			if _, e := checkRelayAccessChain(s.st.DB, in, &c); e != nil {
+			if _, e := checkRelayAccessChain(s.st.DB, in, &c); errors.Is(e, errRelayNodeGone) {
+				continue
+			} else if e != nil {
 				return nil, e
 			}
 		}
 		if c.Managed && c.TunnelType != "" {
 			nodes, e := relayNodes(s.st.DB, &c)
+			if errors.Is(e, errRelayNodeGone) {
+				continue
+			}
 			if e != nil {
 				return nil, e
 			}

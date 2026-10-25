@@ -2,6 +2,7 @@ package panel
 
 import (
 	"testing"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -120,5 +121,20 @@ func TestChargeNodeQuotaLarge(t *testing.T) {
 	cu, cd, _ := chargeNodeQuota(q, up, down)
 	if cu < 0 || cd < 0 || cu > up || cd > down || (up-cu)+(down-cd) != 8*tb {
 		t.Fatalf("split: cu=%d cd=%d", cu, cd)
+	}
+}
+
+// A rolling reset stays on its cycle boundary instead of drifting to
+// whenever the periodic check ran.
+func TestCycleResetNoDrift(t *testing.T) {
+	s := newTestServer(t)
+	last := time.Now().Add(-30*24*time.Hour - 50*time.Minute).Truncate(time.Second)
+	s.st.DB.Create(&store.User{ID: "c1", Username: "cyc", UUID: "c", SubToken: "cyc-0000000000000000", Status: "active",
+		ResetPolicy: "cycle", ResetDay: 30, LastResetAt: &last, UsedUp: 100})
+	s.resetTrafficCycles()
+	var u store.User
+	s.st.DB.First(&u, "id = ?", "c1")
+	if u.UsedUp != 0 || u.LastResetAt == nil || !u.LastResetAt.Equal(last.Add(30*24*time.Hour)) {
+		t.Fatalf("reset at %v, want %v (used %d)", u.LastResetAt, last.Add(30*24*time.Hour), u.UsedUp)
 	}
 }

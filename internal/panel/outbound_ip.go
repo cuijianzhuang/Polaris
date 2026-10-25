@@ -150,3 +150,56 @@ func (s *Server) checkOutboundIPDNSChange(scope, mode string, proposed *model.DN
 func outboundIPPreviewWire() *model.LimitWire {
 	return &model.LimitWire{Limiter: "127.0.0.1:10086", Reentry: "127.0.0.1:10087", Secret: "preview-only", Contexts: true, ReentryProtocol: "vless"}
 }
+
+// wireGuardEgressConflict refuses routing that would send an inbound with an
+// outbound IP strategy through WireGuard (directly, or via a group, fallback
+// or detour): the strategy cannot be applied there and the node would fail
+// to render. rules are the proposed (inbound scope, outbound tag) pairs;
+// extra holds outbounds not stored yet.
+func (s *Server) wireGuardEgressConflict(nodeID string, rules []model.RouteRule, extra ...model.Outbound) error {
+	var strict []store.Inbound
+	s.st.DB.Where("node_id = ? AND outbound_ip_strategy <> '' AND outbound_ip_strategy <> ?", nodeID, "auto").Find(&strict)
+	if len(strict) == 0 {
+		return nil
+	}
+	var rows []store.Outbound
+	s.st.DB.Where("node_id = ?", nodeID).Find(&rows)
+	obs := map[string]model.Outbound{}
+	for i := range rows {
+		obs[rows[i].Tag] = model.Outbound{Tag: rows[i].Tag, Type: rows[i].Type, Settings: rows[i].Settings, Detour: rows[i].Detour}
+	}
+	for _, o := range extra {
+		obs[o.Tag] = o
+	}
+	seen := map[string]bool{}
+	var usesWG func(tag string) bool
+	usesWG = func(tag string) bool {
+		o, ok := obs[tag]
+		if !ok || seen[tag] {
+			return false
+		}
+		seen[tag] = true
+		if o.Type == model.OutWireGuard {
+			return true
+		}
+		set, _ := o.ParseSettings()
+		for _, m := range set.Members {
+			if usesWG(m) {
+				return true
+			}
+		}
+		return (set.Fallback != "" && usesWG(set.Fallback)) || (o.Detour != "" && usesWG(o.Detour))
+	}
+	for _, r := range rules {
+		clear(seen)
+		if !usesWG(r.Outbound) {
+			continue
+		}
+		for _, in := range strict {
+			if len(r.Match.Inbound) == 0 || contains(r.Match.Inbound, in.Tag) {
+				return fmt.Errorf("入站 %s 设置了出站 IP 策略，不能把它的流量路由到 WireGuard / WARP 出站 %s；请先把该入站的出站 IP 策略改回自动，或让规则只匹配其他入站", in.Tag, r.Outbound)
+			}
+		}
+	}
+	return nil
+}

@@ -502,12 +502,17 @@ func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, 
 			return badInput{fmt.Errorf("settings: %w", err)}
 		}
 	}
+	var members []string
 	if req.Type.IsGroup() {
 		if err := s.validateBalancerOn(tx, nodeID, req.Tag, tmp); err != nil {
 			return badInput{err}
 		}
+		members = tmp.Members
 	} else if tmp.Fallback != "" {
 		return badInput{fmt.Errorf("仅均衡组支持兜底出站")}
+	}
+	if err := xrayPrefixClash(tx, nodeID, o.ID, req.Tag, members); err != nil {
+		return badInput{err}
 	}
 	if err := s.validateOutboundChange(tx, nodeID, o.ID, req); err != nil {
 		return badInput{err}
@@ -671,6 +676,16 @@ func (s *Server) putRouting(c *gin.Context) {
 				badRequest(c, fmt.Errorf("规则集 %q 不存在", t))
 				return
 			}
+		}
+	}
+	if nodeID != model.GlobalNodeID {
+		proposed := make([]model.RouteRule, len(req))
+		for i, r := range req {
+			proposed[i] = model.RouteRule{Match: r.Match, Outbound: r.OutboundTag}
+		}
+		if err := s.wireGuardEgressConflict(nodeID, proposed); err != nil {
+			badRequest(c, err)
+			return
 		}
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {

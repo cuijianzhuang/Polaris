@@ -146,13 +146,20 @@ func (s *Server) login(c *gin.Context) {
 	ip := clientIP(c.Request)
 	if a.ID == "" {
 		// Same cost as a real check to avoid username probing by timing.
-		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
+		_ = passwordMatches(string(dummyHash), req.Password)
 		s.recordIPFailure(ip, "用户名不存在")
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 	now := time.Now()
 	if a.LockedUntil != nil && now.Before(*a.LockedUntil) {
+		// Only the right password learns of the lock: a 429 for any guess
+		// would tell which usernames exist.
+		if !passwordMatches(a.PasswordHash, req.Password) {
+			s.recordIPFailure(ip, "用户名或密码错误")
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+			return
+		}
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录失败次数过多，请 15 分钟后再试", "lockedUntil": a.LockedUntil})
 		return
 	}

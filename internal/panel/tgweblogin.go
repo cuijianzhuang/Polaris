@@ -23,6 +23,7 @@ import (
 const (
 	tgWebLoginTTL     = 3 * time.Minute
 	tgWebLoginMax     = 64 // pending requests, bounds the public endpoint
+	tgWebLoginPerIP   = 5  // requests per client within tgWebLoginTTL
 	tgWebLoginPrefix  = "weblogin_"
 	tgWebLoginChoices = 4
 )
@@ -65,7 +66,9 @@ func (s *Server) tgWebLoginStart(c *gin.Context) {
 // startWebLogin opens a sign-in request in w; the bot is reached with
 // /start <prefix><id>. Shared by the admin login page and the user center.
 func (s *Server) startWebLogin(c *gin.Context, w *tgWebLogins, prefix string) {
-	if w.eph.count(w.name+":") >= tgWebLoginMax {
+	// Per IP first: one client alone must not fill the shared cap and lock
+	// everyone else out of Telegram sign-in.
+	if w.eph.count(w.name+":") >= tgWebLoginMax || !s.countWindow(w.name+"-ip:"+clientIP(c.Request), tgWebLoginPerIP, tgWebLoginTTL) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录请求过多，请稍后再试"})
 		return
 	}

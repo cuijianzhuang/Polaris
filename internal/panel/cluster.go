@@ -59,9 +59,7 @@ func (s *Server) updateLease() {
 
 // onLeader runs once each time this instance becomes the leader.
 func (s *Server) onLeader() {
-	// A webhook delivery cut off when the previous leader stopped is sent
-	// again.
-	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ?", "sending").Update("status", "pending")
+	s.requeueStaleWebhooks()
 }
 
 // runLease keeps the lease renewed until ctx ends, then releases it so

@@ -226,6 +226,10 @@ func (s *Server) newOrderFor(b shopBuyer, planID, method, chain string) (*store.
 	if b.UserID == "" && !s.shopAutoCreate() {
 		return nil, errors.New("请先绑定账号再购买")
 	}
+	if b.UserID == "" && s.userCapFull() {
+		// Checked before payment: a paid order is never refused afterwards.
+		return nil, errUserCap
+	}
 	var p store.Group
 	if s.st.DB.First(&p, "id = ? AND plan = ? AND sale = ?", planID, true, true).Error != nil {
 		return nil, errors.New("这个套餐已下架")
@@ -515,6 +519,9 @@ func (s *Server) redeemFor(b shopBuyer, code string) (*store.Order, *store.User,
 	}
 	if userID == "" && !s.shopAutoCreate() {
 		return nil, nil, errors.New("请先绑定账号再兑换")
+	}
+	if userID == "" && s.userCapFull() {
+		return nil, nil, errUserCap
 	}
 	var rc store.RedeemCode
 	if s.st.DB.First(&rc, "code = ?", code).Error != nil {

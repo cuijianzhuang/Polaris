@@ -389,8 +389,17 @@ func (a *Agent) applyCore(ctx context.Context, m *managed, prev, next *model.Nod
 		if prev != nil {
 			_, _ = m.adapter.Render(prev) // restore adapter state for hot updates
 		}
-		if rerr := m.adapter.Reload(ctx); rerr != nil {
-			_ = m.adapter.Start(ctx)
+		rerr := m.adapter.Reload(ctx)
+		if rerr != nil {
+			rerr = m.adapter.Start(ctx)
+		}
+		if rerr == nil {
+			rerr = waitHealthy(ctx, m.adapter)
+		}
+		if rerr != nil {
+			// The old config did not come back either: say so, not "rolled back".
+			a.log.Error("rollback failed", "core", t, "err", rerr)
+			return "reload", false, fmt.Errorf("%w；回滚到上一版配置也失败：%v", err, rerr)
 		}
 		return "reload", true, err
 	}

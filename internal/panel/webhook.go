@@ -169,7 +169,21 @@ func (s *Server) runWebhooks(ctx context.Context, events <-chan Event) {
 }
 
 // retryWebhooks re-sends deliveries whose next attempt is due.
+// webhookStale: a delivery "sending" for longer than this was cut off (one
+// attempt times out after 10 s).
+const webhookStale = 2 * time.Minute
+
+// requeueStaleWebhooks sends again a delivery cut off when its sender (say
+// the previous leader) stopped. Only stale ones: the old leader may still
+// be sending (a lost lease does not stop the process), and requeueing that
+// at once would deliver it twice.
+func (s *Server) requeueStaleWebhooks() {
+	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ? AND (last_at IS NULL OR last_at < ?)", "sending", time.Now().Add(-webhookStale)).
+		Update("status", "pending")
+}
+
 func (s *Server) retryWebhooks() {
+	s.requeueStaleWebhooks()
 	var ds []store.WebhookDelivery
 	s.st.DB.Select("id").Where("status = ? AND next_at <= ?", "pending", time.Now()).Order("next_at").Limit(50).Find(&ds)
 	for _, d := range ds {
@@ -184,7 +198,7 @@ func (s *Server) deliverWebhook(id string) {
 	webhookSem <- struct{}{}
 	defer func() { <-webhookSem }()
 	// Claim the row so a retry sweep and the first attempt don't both send.
-	claim := s.st.DB.Model(&store.WebhookDelivery{}).Where("id = ? AND status = ?", id, "pending").Update("status", "sending")
+	claim := s.st.DB.Model(&store.WebhookDelivery{}).Where("id = ? AND status = ?", id, "pending").Updates(map[string]any{"status": "sending", "last_at": time.Now()})
 	if claim.RowsAffected == 0 {
 		return
 	}

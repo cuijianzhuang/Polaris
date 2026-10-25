@@ -363,7 +363,9 @@ func (s *Server) agentServer() (*http.Server, error) {
 			MinVersion:   tls.VersionTLS12,
 		},
 	}
-	if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+	// Ping an idle agent stream: a node that vanished without closing its
+	// connection is noticed in about 45 s instead of hanging on.
+	if err := http2.ConfigureServer(srv, &http2.Server{ReadIdleTimeout: 30 * time.Second, PingTimeout: 15 * time.Second}); err != nil {
 		return nil, err
 	}
 	return srv, nil

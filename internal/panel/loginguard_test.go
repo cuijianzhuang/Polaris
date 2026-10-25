@@ -221,3 +221,18 @@ func TestLoginFailureCountConcurrent(t *testing.T) {
 		t.Fatalf("not locked after %d concurrent failures (count %d)", maxLoginFailures, a.FailedAttempts)
 	}
 }
+
+// A locked account answers a wrong password like any other (401); only the
+// right password learns of the lock, so 429s do not reveal usernames.
+func TestLockedAccountNoProbe(t *testing.T) {
+	s, _, admin := newAdminClient(t)
+	anon := &apiClient{t: t, base: admin.base}
+	until := time.Now().Add(time.Hour)
+	s.st.DB.Model(&store.Admin{}).Where("username = ?", "root").Update("locked_until", until)
+	if code, _ := from(t, anon, "198.51.100.20", "POST", "/auth/login", map[string]string{"username": "root", "password": "wrong"}); code != 401 {
+		t.Fatalf("locked + wrong password: %d", code)
+	}
+	if code, _ := from(t, anon, "198.51.100.21", "POST", "/auth/login", map[string]string{"username": "root", "password": "old-password"}); code != 429 {
+		t.Fatalf("locked + right password: %d", code)
+	}
+}

@@ -219,3 +219,31 @@ func TestWeakSecretRejected(t *testing.T) {
 	}
 	os.Unsetenv("POLARIS_SECRET_KEY")
 }
+
+// A user removed from a node stays allowed for a while after the node
+// applies the spec without them: the agent reports their final traffic then.
+func TestNodeUsersGraceAfterRemoval(t *testing.T) {
+	s := newTestServer(t)
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "n1", DesiredRev: 1, AppliedRev: 1})
+	with, _ := json.Marshal(model.NodeSpec{Inbounds: []model.Inbound{{Tag: "a", Users: []model.User{{ID: "gone"}, {ID: "stay"}}}}})
+	without, _ := json.Marshal(model.NodeSpec{Inbounds: []model.Inbound{{Tag: "a", Users: []model.User{{ID: "stay"}}}}})
+	s.st.DB.Create(&store.ConfigRevision{NodeID: "n1", Rev: 1, Spec: s.st.Box.Seal(string(with)), Status: "applied"})
+	s.st.DB.Create(&store.ConfigRevision{NodeID: "n1", Rev: 2, Spec: s.st.Box.Seal(string(without)), Status: "pending"})
+	s.st.DB.Create(&store.ConfigRevision{NodeID: "n1", Rev: 3, Spec: s.st.Box.Seal(string(without)), Status: "pending"})
+	if !s.nodeUsers("n1")["gone"] {
+		t.Fatal("served user not allowed")
+	}
+	// The node jumps straight to rev 3 (rev 2 skipped).
+	s.st.DB.Model(&store.Node{}).Where("id = ?", "n1").Updates(map[string]any{"desired_rev": 3, "applied_rev": 3})
+	if set := s.nodeUsers("n1"); !set["gone"] || !set["stay"] {
+		t.Fatalf("final traffic of a removed user would be dropped: %v", set)
+	}
+	s.nodeUserSets.mu.Lock()
+	e := s.nodeUserSets.m["n1"]
+	e.graceUntil = time.Now().Add(-time.Second)
+	s.nodeUserSets.m["n1"] = e
+	s.nodeUserSets.mu.Unlock()
+	if set := s.nodeUsers("n1"); set["gone"] || !set["stay"] {
+		t.Fatalf("after the grace: %v", set)
+	}
+}

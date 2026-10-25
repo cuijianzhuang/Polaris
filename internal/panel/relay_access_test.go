@@ -255,3 +255,59 @@ func TestRelayAccessTunnelReceiverPorts(t *testing.T) {
 		}
 	}
 }
+
+// Revoking a relay node stops its chain but must not break the specs of the
+// other nodes; the landing guard then admits no sources from that chain.
+func TestRelayAccessRevokedHopKeepsSpecs(t *testing.T) {
+	s, c, _ := relayAccessFixture(t)
+	if code, out := c.do("PUT", "/inbounds/in/relay-access", map[string]any{"enabled": true}); code != 200 {
+		t.Fatal(code, out)
+	}
+	if code, _ := c.do("POST", "/nodes/middle/revoke", nil); code != 204 {
+		t.Fatal("revoke", code)
+	}
+	for _, nodeID := range []string{"relay", "land"} {
+		spec, e := s.BuildSpec(nodeID)
+		if e != nil {
+			t.Fatalf("%s spec after revoking a hop: %v", nodeID, e)
+		}
+		if nodeID == "land" && (len(spec.AccessRules) != 1 || len(spec.AccessRules[0].Sources) != 0) {
+			t.Fatalf("landing guard after revoke: %+v", spec.AccessRules)
+		}
+		if nodeID == "relay" && len(spec.Forwards) != 0 {
+			t.Fatalf("entry still forwards into a revoked hop: %+v", spec.Forwards)
+		}
+	}
+}
+
+// No inbound may join a guarded port, even on the other L4 network.
+func TestRelayAccessPortHasNoSibling(t *testing.T) {
+	s, c, _ := relayAccessFixture(t)
+	if code, out := c.do("PUT", "/inbounds/in/relay-access", map[string]any{"enabled": true}); code != 200 {
+		t.Fatal(code, out)
+	}
+	var in store.Inbound
+	s.st.DB.First(&in, "id = ?", "in")
+	udp := &model.Inbound{Port: in.Port, Protocol: model.ProtocolSpec{Type: model.ProtoHysteria2}}
+	udp.Normalize()
+	if e := s.portConflict(in.NodeID, udp, ""); e == nil {
+		t.Fatal("UDP sibling accepted on a guarded port")
+	}
+	if _, e := s.BuildSpec(in.NodeID); e != nil {
+		t.Fatal(e)
+	}
+}
+
+// A fallback child is reached through its master: relaying to it directly is
+// refused with a pointer to the master.
+func TestRelayRefusesFallbackChild(t *testing.T) {
+	s, c := relayFixture(t)
+	var in store.Inbound
+	s.st.DB.First(&in, "id = ?", "in")
+	s.st.DB.Create(&store.Inbound{ID: "master", NodeID: in.NodeID, Tag: "master", Port: 24443, Enabled: true,
+		Protocol: store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS, Fallbacks: []model.Fallback{{InboundID: in.ID}}})})
+	code, out := c.do("POST", "/inbounds/in/relays/preview", map[string]any{"relays": []any{map[string]any{"nodeId": "relay"}}})
+	if code != 400 || !strings.Contains(toJSONString(out), "master") {
+		t.Fatalf("relay to a fallback child: %d %v", code, out)
+	}
+}

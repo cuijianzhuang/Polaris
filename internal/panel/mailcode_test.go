@@ -56,6 +56,10 @@ func TestMailLogin(t *testing.T) {
 	if st, body := browser.req("POST", portalPath+"/email/code", map[string]any{"email": "dave@example.com"}, true); st != 429 || !strings.Contains(body, "秒后") {
 		t.Fatalf("cooldown %d %s", st, body)
 	}
+	// The unknown address waits the same way: a 429 must not reveal an account.
+	if st, body := browser.req("POST", portalPath+"/email/code", map[string]any{"email": "nobody@example.com"}, true); st != 429 || !strings.Contains(body, "秒后") {
+		t.Fatalf("unknown address cooldown %d %s", st, body)
+	}
 	// A wrong code counts; the right one signs in once.
 	wrong := "000000"
 	if code == wrong {

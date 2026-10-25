@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -306,6 +307,9 @@ func (s *Server) buildAccessRules(nodeID string) ([]model.AccessRule, error) {
 				continue
 			}
 			perNode, e := checkRelayAccessChain(s.st.DB, in, &ch)
+			if errors.Is(e, errRelayNodeGone) {
+				continue // the chain no longer forwards: its sources are not allowed
+			}
 			if e != nil {
 				return nil, e
 			}

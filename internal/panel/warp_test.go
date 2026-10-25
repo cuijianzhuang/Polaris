@@ -71,4 +71,19 @@ func TestAddWARP(t *testing.T) {
 	if st != 200 || out["ruleAdded"] != false {
 		t.Fatalf("no rules: %d %v", st, out)
 	}
+
+	// An inbound with an outbound IP strategy cannot be routed through
+	// WireGuard: refused before registering, and in the routing editor.
+	s.st.DB.Create(&store.Inbound{ID: "i4", NodeID: "n1", Tag: "v4only", Port: 4443, Core: model.CoreXray, OutboundIPStrategy: model.OutboundIPv4Only})
+	before := regs
+	if st, out := admin.do("POST", "/nodes/n1/warp", map[string]any{"tag": "warp3", "rules": map[string]any{"geosite": []string{"openai"}}}); st != 400 || regs != before || !strings.Contains(out["error"].(string), "出站 IP 策略") {
+		t.Fatalf("strict inbound + WARP rule: %d %v regs=%d", st, out, regs-before)
+	}
+	if st, out := admin.do("PUT", "/nodes/n1/routing", []map[string]any{{"match": map[string]any{"geosite": []string{"netflix"}}, "outboundTag": "warp2"}}); st != 400 {
+		t.Fatalf("routing to WireGuard for a strict inbound: %d %v", st, out)
+	}
+	// Scoped to another inbound it is fine.
+	if st, out := admin.do("PUT", "/nodes/n1/routing", []map[string]any{{"match": map[string]any{"inbound": []string{"other"}, "geosite": []string{"netflix"}}, "outboundTag": "warp2"}}); st != 200 {
+		t.Fatalf("scoped rule: %d %v", st, out)
+	}
 }
