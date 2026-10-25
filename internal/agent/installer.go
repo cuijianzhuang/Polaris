@@ -66,7 +66,10 @@ type release struct {
 	marker   string // file written next to the binary on success
 }
 
-func goarch() string { return runtime.GOARCH }
+// goarchFn is swapped in tests.
+var goarchFn = func() string { return runtime.GOARCH }
+
+func goarch() string { return goarchFn() }
 
 func releaseFor(t model.CoreType, ver string) (*release, error) {
 	v := strings.TrimPrefix(ver, "v")
@@ -166,10 +169,27 @@ func releaseFor(t model.CoreType, ver string) (*release, error) {
 		asset := "realm-" + a + "-unknown-linux-gnu.tar.gz"
 		return &release{
 			url: "https://github.com/zhboner/realm/releases/download/v" + v + "/" + asset, binary: "realm",
-			repo: "zhboner/realm", tag: "v" + v, digest: githubDigest,
+			repo: "zhboner/realm", tag: "v" + v, digest: pinnedOrGitHubDigest,
 		}, nil
 	}
 	return nil, fmt.Errorf("no installer for core %s", t)
+}
+
+// pinnedDigests are SHA-256 sums for release assets that GitHub publishes no
+// digest for (assets uploaded before mid-2025). realm 2.7.0 is the default
+// forwarder; its assets were hashed from the official release.
+var pinnedDigests = map[string]string{
+	"https://github.com/zhboner/realm/releases/download/v2.7.0/realm-x86_64-unknown-linux-gnu.tar.gz":  "af391e6f5e236c109695d0dabd2ebd29e97a8f26790d1ed3bc2efb0d334f1a21",
+	"https://github.com/zhboner/realm/releases/download/v2.7.0/realm-aarch64-unknown-linux-gnu.tar.gz": "b3d9146956fceb702cf942e958d27b75d852f1ef246491cb5495605f98eac8d3",
+}
+
+// pinnedOrGitHubDigest uses a pinned sum when there is one, else the GitHub
+// releases API.
+func pinnedOrGitHubDigest(ctx context.Context, i *Installer, assetURL string) (string, error) {
+	if d, ok := pinnedDigests[assetURL]; ok {
+		return d, nil
+	}
+	return githubDigest(ctx, i, assetURL)
 }
 
 // githubDigest reads the asset's "digest" field from the GitHub releases API.

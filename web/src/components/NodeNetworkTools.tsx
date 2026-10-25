@@ -86,7 +86,7 @@ function RouteTools({ nodeId }: { nodeId: string }) {
   usePoll(history.reload, 15000)
   const [detail, setDetail] = useState<Trace>()
   const { busy, run } = useAction()
-  useEffect(() => { if (schedule.data) { setTargets({ ipv4: schedule.data.policy.targets.ipv4 ?? '', ipv6: schedule.data.policy.targets.ipv6 ?? '' }); setEnabled(schedule.data.policy.enabled); setInterval(schedule.data.policy.intervalMinutes) } }, [schedule.data])
+  useEffect(() => { if (schedule.data) { const v4 = schedule.data.policy.targets.ipv4 ?? '', v6 = schedule.data.policy.targets.ipv6 ?? ''; setTargets(v4 || v6 ? { ipv4: v4, ipv6: v6 } : { ipv4: '1.1.1.1', ipv6: '' }); setEnabled(schedule.data.policy.enabled); setInterval(schedule.data.policy.intervalMinutes) } }, [schedule.data])
   const [tool, setTool] = useState<RouteToolStatus>()
   const [latest, setLatest] = useState<TraceResult[]>([])
   const [traceError, setTraceError] = useState('')
@@ -106,6 +106,8 @@ function RouteTools({ nodeId }: { nodeId: string }) {
     {schedule.data && !capable && <div className="note warn">{t('节点 Agent 不支持回程检测，请先升级')}</div>}
     <div className="form-grid"><Field label={t('IPv4 检测目标')}><input className="input mono" aria-label={t('IPv4 检测目标')} value={targets.ipv4} placeholder="1.1.1.1" onChange={(e) => setTargets({ ...targets, ipv4: e.target.value.trim() })} /></Field><Field label={t('IPv6 检测目标')}><input className="input mono" aria-label={t('IPv6 检测目标')} value={targets.ipv6} placeholder="2606:4700:4700::1111" onChange={(e) => setTargets({ ...targets, ipv6: e.target.value.trim() })} /></Field></div>
     <div className="row"><button className="btn" disabled={busy || !!toolBlocked || !capable || !schedule.data?.online || (!targets.ipv4 && !targets.ipv6)} onClick={traceNow}>{busy ? t('检测中…') : t('立即检测回程')}</button><button className="btn" disabled={busy} onClick={refresh}>{t('刷新')}</button></div>
+    {schedule.data && !targets.ipv4 && !targets.ipv6 && <div className="small sub">{t('请至少填写一个检测目标')}</div>}
+    {schedule.data && !schedule.data.online && <div className="small sub">{t('节点离线，暂时无法检测')}</div>}
     {traceError && <div className="note warn" role="alert">{traceError}</div>}
     {latest.map((r, i) => <div className={'note' + (r.state === 'reached' ? ' ok-note' : ' warn')} key={i}><b>{r.family?.toUpperCase()} · {r.target} · {stateText(r.state)}</b>{r.issue && <div>{routeIssueText(r.issue)}</div>}{r.raw && <details><summary>{t('原始检测输出')}</summary><pre className="code ops-raw">{r.raw}</pre></details>}</div>)}
     <div className="toggle"><span>{t('定时回程检测')}</span><Switch label={t('定时回程检测')} on={enabled} onChange={setEnabled} /></div>

@@ -471,6 +471,8 @@ const operations: Record<string, string> = {
   "诊断测试目标（可选）": "Diagnostic targets (optional)",
   "TCP 测试 URL": "TCP test URL",
   "UDP DNS 测试地址": "UDP DNS test address",
-  "留空使用标准目标；自定义目标的结果不覆盖概览中的标准业务检查记录。": "Leave blank for standard targets. Custom target results do not replace the standard service checks in the overview."
+  "留空使用标准目标；自定义目标的结果不覆盖概览中的标准业务检查记录。": "Leave blank for standard targets. Custom target results do not replace the standard service checks in the overview.",
+  "请至少填写一个检测目标": "Enter at least one target",
+  "节点离线，暂时无法检测": "The node is offline; checks are unavailable"
 }
 export default operations
