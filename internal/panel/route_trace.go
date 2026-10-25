@@ -82,10 +82,10 @@ func (s *Server) executeRouteTrace(parent context.Context, nodeID string, req mo
 		}
 		return nil, nil, errRouteTraceCommand
 	}
-	ctx, cancel := context.WithTimeout(parent, 15*time.Second)
+	ctx, cancel := context.WithTimeout(parent, model.RouteTraceRequestTimeout)
 	defer cancel()
 	raw, _ := json.Marshal(req)
-	res, err := s.hub.Command(ctx, nodeID, model.RouteTraceFeature, map[string]string{"request": string(raw)}, 14*time.Second)
+	res, err := s.hub.Command(ctx, nodeID, model.RouteTraceFeature, map[string]string{"request": string(raw)}, model.RouteTraceRequestTimeout-time.Second)
 	if err != nil || !res.Ok {
 		state := "failed"
 		if parent.Err() != nil {
@@ -125,7 +125,7 @@ func validRouteTraceResults(req model.RouteTraceRequest, results []model.RouteTr
 		return false
 	}
 	for _, r := range results {
-		if targets[r.Family] == "" || targets[r.Family] != r.Target || r.CheckedAt.IsZero() || len(r.Raw) > 32*1024 || len(r.Hops) > 20 {
+		if targets[r.Family] == "" || targets[r.Family] != r.Target || r.CheckedAt.IsZero() || len(r.Raw) > 32*1024 || len(r.Issue) > 64 || len(r.Hops) > 20 {
 			return false
 		}
 		switch r.State {

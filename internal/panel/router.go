@@ -193,6 +193,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/tools/route-asn/database/fetch", s.fetchRouteASN)
 	p.GET("/nodes/:id/route-schedule", s.getNodeRouteSchedule)
 	p.PUT("/nodes/:id/route-schedule", s.putNodeRouteSchedule)
+	p.GET("/nodes/:id/route-tool", s.getNodeRouteTool)
+	p.POST("/nodes/:id/route-tool/install", s.requireSudo, s.installNodeRouteTool)
 	p.POST("/nodes/:id/route-trace", s.traceNodeRoute)
 	p.GET("/nodes/:id/route-traces", s.nodeRouteHistory)
 	p.GET("/nodes/:id/route-traces/:traceId", s.nodeRouteDetail)

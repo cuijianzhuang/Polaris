@@ -162,7 +162,7 @@ func (s *Server) runScheduledRouteTraces() {
 		return
 	}
 	defer s.routeScheduleBusy.Store(false)
-	ctx, cancel := context.WithTimeout(s.ctxBG(), 25*time.Second)
+	ctx, cancel := context.WithTimeout(s.ctxBG(), model.RouteTraceRequestTimeout+time.Second)
 	defer cancel()
 	s.runDueRouteTraces(ctx, time.Now().UTC())
 }
@@ -193,7 +193,7 @@ func (s *Server) runDueRouteTraces(ctx context.Context, now time.Time) {
 		wg.Add(1)
 		go func(id string) {
 			defer func() { <-sem; wg.Done() }()
-			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < 15*time.Second {
+			if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < model.RouteTraceRequestTimeout {
 				return
 			}
 			req, rows, err := s.claimScheduledRouteContext(ctx, id, now)
@@ -287,7 +287,7 @@ func (s *Server) claimScheduledRouteContext(ctx context.Context, nodeID string, 
 			state.LastState = "offline"
 		default:
 			var active int64
-			if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at >= ?", nodeID, "running", now.Add(-30*time.Second)).Count(&active).Error; err != nil {
+			if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at >= ?", nodeID, "running", now.Add(-model.RouteTraceStaleAfter)).Count(&active).Error; err != nil {
 				return err
 			}
 			if active > 0 {

@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { get, post, put } from '../api'
 import { geoLocationText, geoStateText, type GeoLocation } from '../geoip'
-import { datetime } from '../format'
+import { datetime, errMsg } from '../format'
 import { t } from '../i18n'
 import type { Node } from '../types'
 import ProbePresetPicker from './ProbePresetPicker'
+import RouteToolSetup, { routeIssueText, type RouteToolStatus } from './RouteToolSetup'
 import { Empty, Field, Modal, Switch, useAction, useLoad, usePoll } from './ui'
 
 export type ProbeTarget = { name: string; carrier: string; addr: string }
@@ -13,7 +14,7 @@ type ProbePolicy = { mode: 'inherit' | 'custom' | 'off'; targets: ProbeTarget[];
 type Targets = { ipv4: string; ipv6: string }
 type Schedule = { policy: { enabled: boolean; targets: Partial<Targets>; intervalMinutes: number; revision: number }; runtime?: { nextAt: string; lastStartedAt?: string; lastState: string }; agentSupported: boolean; online: boolean; pausedByGlobalProbeSwitch: boolean }
 type TraceMetadata = { state: string; reason?: string; databaseSha256?: string; databaseType?: string; buildEpoch?: number; limited?: boolean }
-type TraceResult = { state: string; raw: string; asn?: TraceMetadata; geo?: TraceMetadata; hops: { ttl: number; addresses: string[]; asn?: { ip: string; state: string; asn?: number; organization?: string }[]; geo?: GeoLocation[] }[] }
+type TraceResult = { state: string; issue?: string; family?: string; target?: string; raw: string; asn?: TraceMetadata; geo?: TraceMetadata; hops: { ttl: number; addresses: string[]; asn?: { ip: string; state: string; asn?: number; organization?: string }[]; geo?: GeoLocation[] }[] }
 type Trace = { id: number; family: string; target: string; source: string; state: string; startedAt: string; result: TraceResult; comparison: { state: string; reason?: string; previousId?: number; changedTtls: number[] } }
 const stateText = (v: string) => ({ reached: t('已到达'), partial: t('部分结果'), timeout: t('超时'), unavailable: t('不可用'), failed: t('失败'), running: t('运行中'), completed: t('已完成'), interrupted: t('已中断'), baseline: t('首次基线'), same: t('路径相同'), changed: t('路径变化'), not_comparable: t('不可比较'), scheduled: t('定时'), manual: t('手动'), disabled: t('已关闭'), ready: t('就绪') }[v] ?? v)
 
@@ -56,6 +57,7 @@ function TraceDetail({ trace, nodeId, onClose }: { trace: Trace; nodeId: string;
   return <Modal title={t('回程检测详情')} onClose={onClose} wide>
     <div className="ops-stack">
       <div>{trace.family.toUpperCase()} · <span className="mono">{trace.target}</span> · {stateText(r.state || trace.state)} · {datetime(trace.startedAt)}</div>
+      {r.issue && <div className="note warn">{routeIssueText(r.issue)}</div>}
       <div className="note">{stateText(trace.comparison.state)}{trace.comparison.changedTtls?.length ? ' · TTL ' + trace.comparison.changedTtls.join(', ') : ''}{trace.comparison.reason && <div className="small mono">{trace.comparison.reason}</div>}</div>
       <div className="hint">{t('路径不完整或采样条件不符时不会比较。ASN 是数据库归属注释，不代表 BGP 路径或商业线路等级。')}</div>
       {r.asn && <div className="small">ASN · {stateText(r.asn.state)} {r.asn.reason}<div className="mono ops-break">{r.asn.databaseSha256}</div>{r.asn.databaseType}{r.asn.buildEpoch ? ' · ' + datetime(new Date(r.asn.buildEpoch * 1000).toISOString()) : ''}{r.asn.limited && <div>{t('部分地址未注释')}</div>}</div>}
@@ -85,14 +87,27 @@ function RouteTools({ nodeId }: { nodeId: string }) {
   const [detail, setDetail] = useState<Trace>()
   const { busy, run } = useAction()
   useEffect(() => { if (schedule.data) { setTargets({ ipv4: schedule.data.policy.targets.ipv4 ?? '', ipv6: schedule.data.policy.targets.ipv6 ?? '' }); setEnabled(schedule.data.policy.enabled); setInterval(schedule.data.policy.intervalMinutes) } }, [schedule.data])
+  const [tool, setTool] = useState<RouteToolStatus>()
+  const [latest, setLatest] = useState<TraceResult[]>([])
+  const [traceError, setTraceError] = useState('')
   const capable = !!schedule.data?.agentSupported
+  const toolBlocked = tool && (tool.state === 'missing' || tool.state === 'unusable' || tool.installState === 'installing')
+  const traceNow = () => run(async () => {
+    setTraceError(''); setLatest([])
+    try { const result = await post<{ results?: TraceResult[] }>(`/nodes/${nodeId}/route-trace`, targets); setLatest(result.results ?? []) }
+    catch (e) { setTraceError(errMsg(e)); throw e }
+    finally { setBefore(undefined); history.reload() }
+  })
   const refresh = () => { schedule.reload(); history.reload() }
   return <div className="ops-stack">
-    <div className="note">{t('从节点向公网 IP 执行 UDP traceroute，不等同于真实代理业务。需要 Linux Agent 和系统 traceroute；不会自动安装。')}</div>
+    <div className="note">{t('从节点向公网 IP 检测 UDP 路径，不验证代理认证或业务转发。打开此页会检查工具；缺失时可由管理员一键安装。')}</div>
+    <RouteToolSetup nodeId={nodeId} onStatus={setTool} />
     {schedule.error && <div className="note warn" role="alert">{schedule.error}<button className="link" onClick={schedule.reload}>{t('重试')}</button></div>}
     {schedule.data && !capable && <div className="note warn">{t('节点 Agent 不支持回程检测，请先升级')}</div>}
     <div className="form-grid"><Field label={t('IPv4 检测目标')}><input className="input mono" aria-label={t('IPv4 检测目标')} value={targets.ipv4} placeholder="1.1.1.1" onChange={(e) => setTargets({ ...targets, ipv4: e.target.value.trim() })} /></Field><Field label={t('IPv6 检测目标')}><input className="input mono" aria-label={t('IPv6 检测目标')} value={targets.ipv6} placeholder="2606:4700:4700::1111" onChange={(e) => setTargets({ ...targets, ipv6: e.target.value.trim() })} /></Field></div>
-    <div className="row"><button className="btn" disabled={busy || !capable || !schedule.data?.online || (!targets.ipv4 && !targets.ipv6)} onClick={() => run(async () => { try { await post(`/nodes/${nodeId}/route-trace`, targets) } finally { setBefore(undefined); history.reload() } })}>{busy ? t('检测中…') : t('立即检测回程')}</button><button className="btn" disabled={busy} onClick={refresh}>{t('刷新')}</button></div>
+    <div className="row"><button className="btn" disabled={busy || !!toolBlocked || !capable || !schedule.data?.online || (!targets.ipv4 && !targets.ipv6)} onClick={traceNow}>{busy ? t('检测中…') : t('立即检测回程')}</button><button className="btn" disabled={busy} onClick={refresh}>{t('刷新')}</button></div>
+    {traceError && <div className="note warn" role="alert">{traceError}</div>}
+    {latest.map((r, i) => <div className={'note' + (r.state === 'reached' ? ' ok-note' : ' warn')} key={i}><b>{r.family?.toUpperCase()} · {r.target} · {stateText(r.state)}</b>{r.issue && <div>{routeIssueText(r.issue)}</div>}{r.raw && <details><summary>{t('原始检测输出')}</summary><pre className="code ops-raw">{r.raw}</pre></details>}</div>)}
     <div className="toggle"><span>{t('定时回程检测')}</span><Switch label={t('定时回程检测')} on={enabled} onChange={setEnabled} /></div>
     <Field label={t('检测间隔（分钟）')} hint={t('范围 5–1440 分钟；保存后等待一个间隔，不补跑遗漏任务。')}><input className="input mono" aria-label={t('检测间隔（分钟）')} type="number" min={5} max={1440} value={interval} onChange={(e) => setInterval(Number(e.target.value))} /></Field>
     {schedule.data?.pausedByGlobalProbeSwitch && <div className="note warn">{t('全局探测已关闭，定时回程暂停；手动检测仍可使用。')}</div>}
