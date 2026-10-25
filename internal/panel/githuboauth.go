@@ -81,11 +81,6 @@ func (s *Server) githubCallbackURL(r *http.Request) string {
 	return s.requestBase(r) + s.cfg.APIBase() + "/auth/github/callback"
 }
 
-// adminURL is where the browser lands after the GitHub round trip.
-func (s *Server) adminURL(r *http.Request, fragment string) string {
-	return s.adminPageURL(r, "", fragment)
-}
-
 // adminPageURL is adminURL for a page of the admin UI (e.g. "settings").
 func (s *Server) adminPageURL(r *http.Request, page, fragment string) string {
 	return s.requestBase(r) + strings.TrimRight(s.cfg.AdminPath, "/") + "/" + page + "#" + fragment

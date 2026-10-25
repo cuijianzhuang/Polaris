@@ -1,4 +1,4 @@
-import { Component, createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { Component, Suspense, createContext, lazy, useCallback, useContext, useEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
@@ -15,31 +15,45 @@ import { ConfirmProvider, ToastProvider } from './components/ui'
 import SudoPrompt from './components/SudoPrompt'
 import type { Node } from './types'
 import Login from './pages/Login'
-import PluginPage from './pages/PluginPage'
-import Dashboard from './pages/Dashboard'
-import Stats from './pages/Stats'
-import Nodes from './pages/Nodes'
-import NodeMap from './pages/NodeMap'
-import Probe from './pages/Probe'
-import Cores from './pages/Cores'
-import Forwards from './pages/Forwards'
-import Inbounds from './pages/Inbounds'
-import Chains from './pages/Chains'
-import Templates from './pages/Templates'
-import Users from './pages/Users'
-import Shop from './pages/Shop'
-import Tickets from './pages/Tickets'
-import Plans from './pages/Plans'
-import SubTemplates from './pages/SubTemplates'
-import Certificates from './pages/Certificates'
-import Settings from './pages/Settings'
-import Audit from './pages/Audit'
-import Convert from './pages/Convert'
-import Domains from './pages/Domains'
-import Telegram from './pages/Telegram'
-import Costs from './pages/Costs'
-import LicensePage from './pages/LicensePage'
-import Extensions from './pages/Extensions'
+// Pages load on demand. After a panel upgrade the old chunk names are gone:
+// a failed load reloads the page once to pick up the new build.
+function page<T extends { default: ComponentType }>(load: () => Promise<T>) {
+  return lazy(() => load().then((m) => {
+    try { sessionStorage.removeItem('polaris-chunk-reload') } catch { /* storage may be blocked */ }
+    return m
+  }, (err) => {
+    let reloaded = false
+    try { reloaded = sessionStorage.getItem('polaris-chunk-reload') === '1'; sessionStorage.setItem('polaris-chunk-reload', '1') } catch { /* ignore */ }
+    if (!reloaded) location.reload()
+    throw err
+  }))
+}
+
+const PluginPage = page(() => import('./pages/PluginPage'))
+const Dashboard = page(() => import('./pages/Dashboard'))
+const Stats = page(() => import('./pages/Stats'))
+const Nodes = page(() => import('./pages/Nodes'))
+const NodeMap = page(() => import('./pages/NodeMap'))
+const Probe = page(() => import('./pages/Probe'))
+const Cores = page(() => import('./pages/Cores'))
+const Forwards = page(() => import('./pages/Forwards'))
+const Inbounds = page(() => import('./pages/Inbounds'))
+const Chains = page(() => import('./pages/Chains'))
+const Templates = page(() => import('./pages/Templates'))
+const Users = page(() => import('./pages/Users'))
+const Shop = page(() => import('./pages/Shop'))
+const Tickets = page(() => import('./pages/Tickets'))
+const Plans = page(() => import('./pages/Plans'))
+const SubTemplates = page(() => import('./pages/SubTemplates'))
+const Certificates = page(() => import('./pages/Certificates'))
+const Settings = page(() => import('./pages/Settings'))
+const Audit = page(() => import('./pages/Audit'))
+const Convert = page(() => import('./pages/Convert'))
+const Domains = page(() => import('./pages/Domains'))
+const Telegram = page(() => import('./pages/Telegram'))
+const Costs = page(() => import('./pages/Costs'))
+const LicensePage = page(() => import('./pages/LicensePage'))
+const Extensions = page(() => import('./pages/Extensions'))
 
 // Scope of the session: Telegram node operators see only their own nodes.
 const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
@@ -307,6 +321,7 @@ export default function App() {
             <ScopeCtx.Provider value={{ scoped }}>
               <NodesProvider>
                 <Layout user={user} onLogout={logout}>
+                  <Suspense fallback={<div className="sub" style={{ padding: 16 }}>{t('加载中…')}</div>}>
                   {scoped ? (
                     <Routes>
                       <Route path="/nodes" element={<Nodes />} />
@@ -342,6 +357,7 @@ export default function App() {
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   )}
+                  </Suspense>
                 </Layout>
               </NodesProvider>
             </ScopeCtx.Provider>

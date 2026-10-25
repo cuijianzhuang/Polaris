@@ -626,11 +626,6 @@ func (s *Server) download(c *gin.Context) {
 	c.FileAttachment(p, name)
 }
 
-// openAPI describes the registered routes (generated from the router).
-func (s *Server) openAPI(r *gin.Engine) map[string]any {
-	return s.openAPIFor(r, nil)
-}
-
 func (s *Server) openAPIFor(r *gin.Engine, token *store.APIToken) map[string]any {
 	paths := map[string]map[string]any{}
 	base := s.cfg.APIBase()
