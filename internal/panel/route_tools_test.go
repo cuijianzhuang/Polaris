@@ -15,7 +15,7 @@ import (
 
 func TestRouteToolAPIAndCompatibility(t *testing.T) {
 	s, c := traceHistoryFixture(t)
-	if code, out := c.do("GET", "/nodes/trace/route-tool", nil); code != 200 || out["state"] != "unsupported" || out["issue"] != "agent_upgrade_required" {
+	if code, out := c.do("GET", "/nodes/trace/route-tool", nil); code != 409 {
 		t.Fatal(code, out)
 	}
 	if code, out := c.do("POST", "/nodes/trace/route-tool/install", nil); code != 409 {
@@ -188,5 +188,92 @@ func TestRouteTraceLongAttemptNotPrematurelyInterrupted(t *testing.T) {
 	saved, err := s.finishRouteTrace(rows, []model.RouteTraceResult{traceResult("1.1.1.1", "1.1.1.1")}, "completed")
 	if err != nil || saved[0].State != "completed" {
 		t.Fatal(saved, err)
+	}
+}
+
+func TestRouteToolLiveStatusWithoutCachedCapability(t *testing.T) {
+	for _, mode := range []string{"installed", "missing", "old-agent"} {
+		t.Run(mode, func(t *testing.T) {
+			s, c := traceHistoryFixture(t)
+			if err := s.st.DB.Model(&store.Node{}).Where("id = ?", "trace").Updates(map[string]any{"agent_version": "1.2.3", "agent_features": store.NewJSON([]string{model.RouteTraceFeature})}).Error; err != nil {
+				t.Fatal(err)
+			}
+			conn := s.hub.register("trace")
+			defer s.hub.unregister(conn)
+			stop := make(chan struct{})
+			defer close(stop)
+			var mu sync.Mutex
+			var operations []string
+			go func() {
+				for {
+					select {
+					case <-stop:
+						return
+					case msg := <-conn.out:
+						cmd := msg.GetCommand()
+						if cmd == nil {
+							continue
+						}
+						if cmd.Kind != model.RouteTraceToolFeature {
+							t.Error(cmd.Kind)
+						}
+						mu.Lock()
+						operations = append(operations, cmd.Args["operation"])
+						mu.Unlock()
+						result := &polarisv1.CommandResult{Id: cmd.Id, Ok: true}
+						if mode == "old-agent" {
+							result.Ok = false
+							result.Error = fmt.Sprintf("unknown command %q", model.RouteTraceToolFeature)
+						} else {
+							value := model.RouteTraceToolStatus{State: "ready", Path: "/usr/bin/traceroute", CheckedAt: time.Now()}
+							if mode == "missing" {
+								value.State = "missing"
+								value.Issue = "tool_missing"
+								value.CanInstall = true
+							}
+							if cmd.Args["operation"] == "install" {
+								value.State = "checking"
+								value.InstallState = "installing"
+								value.CanInstall = false
+							}
+							raw, _ := json.Marshal(value)
+							result.Output = string(raw)
+						}
+						s.hub.resolve("trace", result)
+					}
+				}
+			}()
+			code, out := c.do("GET", "/nodes/trace/route-tool", nil)
+			want := "ready"
+			if mode == "missing" {
+				want = "missing"
+			}
+			if mode == "old-agent" {
+				want = "unsupported"
+			}
+			if code != 200 || out["state"] != want || out["agentVersion"] != "1.2.3" || out["panelVersion"] != Version {
+				t.Fatal(code, out)
+			}
+			code, out = c.do("POST", "/nodes/trace/route-tool/install", nil)
+			if code != 200 {
+				t.Fatal(code, out)
+			}
+			mu.Lock()
+			got := strings.Join(operations, ",")
+			mu.Unlock()
+			expected := "status,status"
+			if mode == "missing" {
+				expected += ",install"
+			}
+			if got != expected {
+				t.Fatal(got, expected)
+			}
+			// A read-only fallback does not overwrite concurrent GetSpec feature state.
+			var node store.Node
+			s.st.DB.First(&node, "id = ?", "trace")
+			if contains(node.AgentFeatures.V, model.RouteTraceToolFeature) {
+				t.Fatal("status mutated negotiated features")
+			}
+		})
 	}
 }

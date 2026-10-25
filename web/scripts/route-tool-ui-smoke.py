@@ -71,8 +71,11 @@ with sync_playwright() as p:
    page.get_by_text(txt(lang,'环境自检输出','Environment self-test output'),exact=True).click();expect(page.get_by_text('Operation not permitted',exact=True)).to_be_visible()
    no_overflow(page);page.screenshot(path=str(OUT/f'route-tool-{lang}-{width}.png'),full_page=True,animations='disabled',style='.toasts { visibility: hidden; }')
    # The new command is optional for older Agents: existing traces still work.
-   f.tool=dict(state='unsupported',issue='agent_upgrade_required',canInstall=False,checkedAt=now)
+   f.tool=dict(state='unsupported',issue='agent_upgrade_required',agentVersion='1.2.3',panelVersion='2.0.0',canInstall=False,checkedAt=now)
    page.get_by_role('button',name=check_name,exact=True).click();expect(trace_button).to_be_enabled()
+   expect(page.get_by_text(txt(lang,'尚未检查 traceroute 安装状态','traceroute installation has not been checked'),exact=True)).to_be_visible()
+   expect(page.get_by_text('1.2.3',exact=True)).to_be_visible();expect(page.get_by_text('2.0.0',exact=True)).to_be_visible()
+   expect(page.get_by_role('button',name=install_name,exact=True)).to_have_count(0)
    f.fail_check=True;page.get_by_role('button',name=check_name,exact=True).click();expect(page.get_by_text(txt(lang,'节点离线或已撤销，无法检查回程环境','The node is offline or revoked; the route environment cannot be checked'),exact=True)).to_be_visible()
    assert not errors,errors;page.close();print(width,lang,'automatic check, explicit sudo install, recovery polling, retry, native failure evidence and legacy compatibility passed',flush=True)
  browser.close()
