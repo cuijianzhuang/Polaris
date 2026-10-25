@@ -539,7 +539,7 @@ func (s *Server) relayView(ch store.Chain, in store.Inbound) inboundRelayView {
 			continue
 		}
 		if h.NodeID == in.NodeID {
-			view.BusinessDiagnostic = relayBusinessAvailability(in, n)
+			view.BusinessDiagnostic = s.relayBusinessSupport(in, n)
 		}
 		if h.NodeID == hops[0].NodeID {
 			view.Address = nodeHost(&n)

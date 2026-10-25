@@ -58,9 +58,13 @@ type notificationWindow struct {
 }
 
 type notificationPolicy struct {
-	RepeatWindowSeconds int                        `json:"repeatWindowSeconds"`
-	Channels            map[string]map[string]bool `json:"channels"`
-	Maintenance         []notificationWindow       `json:"maintenance"`
+	RepeatWindowSeconds int `json:"repeatWindowSeconds"`
+	// Optional operational gates preserve all legacy per-event preferences.
+	// They do not affect login/security, customer or transaction notices.
+	EnabledChannels map[string]bool            `json:"enabledChannels,omitempty"`
+	NotifyRecovery  *bool                      `json:"notifyRecovery,omitempty"`
+	Channels        map[string]map[string]bool `json:"channels"`
+	Maintenance     []notificationWindow       `json:"maintenance"`
 }
 
 func defaultNotificationPolicy() notificationPolicy {
@@ -79,6 +83,11 @@ func validNotificationChannel(channel string) bool {
 func (p *notificationPolicy) validate() error {
 	if p.RepeatWindowSeconds < 0 || p.RepeatWindowSeconds > 86400 {
 		return errors.New("重复告警窗口必须为 0–86400 秒")
+	}
+	for channel := range p.EnabledChannels {
+		if !validNotificationChannel(channel) {
+			return fmt.Errorf("未知通知渠道 %q", channel)
+		}
 	}
 	for channel, kinds := range p.Channels {
 		if !validNotificationChannel(channel) {
@@ -144,6 +153,12 @@ func (s *Server) loadNotificationPolicy() (notificationPolicy, error) {
 }
 
 func (p notificationPolicy) muted(channel string, e Event, now time.Time) bool {
+	if enabled, configured := p.EnabledChannels[channel]; configured && !enabled {
+		return true
+	}
+	if kind, applies := operationalNotificationKind(e); applies && kind.Recovery && p.NotifyRecovery != nil && !*p.NotifyRecovery {
+		return true
+	}
 	enabled, exists := p.Channels[channel][e.Kind]
 	if (!exists && notificationKinds[e.Kind].DefaultOff) || (exists && !enabled) {
 		return true

@@ -110,6 +110,9 @@ func TestNotificationMaintenanceAndSwitches(t *testing.T) {
 func TestNotificationProtectedEvents(t *testing.T) {
 	s := newTestServer(t)
 	p := defaultNotificationPolicy()
+	noRecovery := false
+	p.NotifyRecovery = &noRecovery
+	p.EnabledChannels = map[string]bool{"telegram": false, "email": false, "webhook": false}
 	p.Maintenance = []notificationWindow{{ID: "global", StartsAt: time.Now().Add(-time.Hour), EndsAt: time.Now().Add(time.Hour)}}
 	saveNoticePolicy(t, s, p)
 	for _, event := range []Event{
@@ -131,6 +134,71 @@ func TestNotificationProtectedEvents(t *testing.T) {
 	s.st.DB.Model(&store.NotificationState{}).Count(&n)
 	if n != 0 {
 		t.Fatal("protected events consumed dedup state")
+	}
+}
+
+func TestNotificationRecoveryGateClosesEveryIncident(t *testing.T) {
+	for _, events := range [][2]Event{
+		{{Kind: "node_offline", NodeID: "n"}, {Kind: "node_online", NodeID: "n"}},
+		{{Kind: "inbound_down", NodeID: "n", ResourceID: "in"}, {Kind: "inbound_up", NodeID: "n", ResourceID: "in"}},
+		{{Kind: "plugin_offline", ResourceID: "plugin"}, {Kind: "plugin_online", ResourceID: "plugin"}},
+		{{Kind: "health", NodeID: "n", ResourceID: "route", Data: map[string]any{"down": true}}, {Kind: "health", NodeID: "n", ResourceID: "route", Data: map[string]any{"down": false}}},
+	} {
+		t.Run(events[0].Kind, func(t *testing.T) {
+			s := newTestServer(t)
+			p := defaultNotificationPolicy()
+			off := false
+			p.NotifyRecovery = &off
+			saveNoticePolicy(t, s, p)
+			now := time.Now()
+			for _, channel := range notificationChannels {
+				if _, ok := s.operationalNotice(channel, events[0], now); !ok {
+					t.Fatal("fault was silenced by recovery gate")
+				}
+				if _, ok := s.operationalNotice(channel, events[1], now.Add(time.Second)); ok {
+					t.Fatal("recovery ignored its global gate")
+				}
+				if _, ok := s.operationalNotice(channel, events[0], now.Add(2*time.Second)); !ok {
+					t.Fatal("muted recovery did not close the incident")
+				}
+			}
+		})
+	}
+}
+
+func TestNotificationChannelGatePreservesDetailRules(t *testing.T) {
+	s := newTestServer(t)
+	p := defaultNotificationPolicy()
+	p.Channels = map[string]map[string]bool{"email": {"backup_failed": false}, "telegram": {"route_changed": true}}
+	saveNoticePolicy(t, s, p)
+	now := time.Now()
+	down := Event{Kind: "node_offline", NodeID: "n"}
+	up := Event{Kind: "node_online", NodeID: "n"}
+	if _, ok := s.operationalNotice("email", down, now); !ok {
+		t.Fatal("initial fault not sent")
+	}
+	p.EnabledChannels = map[string]bool{"email": false}
+	saveNoticePolicy(t, s, p)
+	if _, ok := s.operationalNotice("email", up, now.Add(time.Second)); ok {
+		t.Fatal("disabled channel sent recovery")
+	}
+	if _, ok := s.operationalNotice("email", Event{Kind: "apply_failed", NodeID: "n"}, now); ok {
+		t.Fatal("disabled channel sent a new fault")
+	}
+	if _, ok := s.operationalNotice("telegram", down, now); !ok {
+		t.Fatal("channel gate leaked to another destination")
+	}
+	p.EnabledChannels["email"] = true
+	saveNoticePolicy(t, s, p)
+	if _, ok := s.operationalNotice("email", down, now.Add(2*time.Second)); !ok {
+		t.Fatal("reenabled channel lost the next fault")
+	}
+	if _, ok := s.operationalNotice("email", Event{Kind: "backup_failed"}, now); ok {
+		t.Fatal("channel enable discarded the backup override")
+	}
+	loaded, err := s.loadNotificationPolicy()
+	if err != nil || loaded.Channels["email"]["backup_failed"] || !loaded.Channels["telegram"]["route_changed"] {
+		t.Fatal("detail preferences were replaced")
 	}
 }
 
@@ -200,14 +268,24 @@ func TestNotificationPolicyAPI(t *testing.T) {
 		t.Fatalf("default %d %v", st, out)
 	}
 	p := defaultNotificationPolicy()
+	noRecovery := false
+	p.NotifyRecovery = &noRecovery
+	p.EnabledChannels = map[string]bool{"email": false}
 	p.Channels = map[string]map[string]bool{"email": {"apply_failed": false}}
 	p.Maintenance = []notificationWindow{{ID: "planned", NodeIDs: []string{"n"}, StartsAt: time.Now(), EndsAt: time.Now().Add(time.Hour)}}
 	if st, out := admin.do("PUT", "/notifications/policy", p); st != 200 {
 		t.Fatalf("save %d %v", st, out)
+	} else {
+		saved := out["policy"].(map[string]any)
+		if saved["notifyRecovery"] != false || saved["enabledChannels"].(map[string]any)["email"] != false {
+			t.Fatal("simple notification controls were not persisted", saved)
+		}
 	}
 	before := s.st.GetSetting(notificationPolicyKey, "")
 	for _, body := range []any{
 		nil, map[string]any{"unknown": true}, map[string]any{"repeatWindowSeconds": -1},
+		map[string]any{"enabledChannels": map[string]bool{"unknown": false}},
+		map[string]any{"notifyRecovery": "false"},
 		map[string]any{"channels": map[string]any{"sms": map[string]bool{}}},
 		map[string]any{"channels": map[string]any{"email": map[string]bool{"login_ban": false}}},
 		map[string]any{"maintenance": []notificationWindow{{ID: "bad", StartsAt: time.Now(), EndsAt: time.Now().Add(8 * 24 * time.Hour)}}},

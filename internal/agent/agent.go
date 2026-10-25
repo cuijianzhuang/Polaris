@@ -418,7 +418,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			features += "," + model.RouteTraceFeature + "," + model.RouteTraceToolFeature
 		}
 		if core.ParentBoundSupported() {
-			features += "," + model.RelayBusinessFeature
+			features += "," + model.RelayBusinessFeature + "," + model.SingboxRelayBusinessFeature
 		}
 		req.Header().Set("X-Polaris-Agent-Features", features)
 		resp, err := a.client.GetSpec(ctx, req)

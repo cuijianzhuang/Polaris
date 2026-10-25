@@ -94,3 +94,27 @@ func TestExpiredRelayDiagnosticNeverStarts(t *testing.T) {
 	default:
 	}
 }
+
+func TestSingboxRelayDiagnosticUsesSessionLifetime(t *testing.T) {
+	f := &cancelDiagnosticCore{fakeCore: *newFake(model.CoreSingbox, &callLog{}, false), entered: make(chan struct{})}
+	a := &Agent{cores: map[model.CoreType]*managed{model.CoreSingbox: {adapter: f}}}
+	session, disconnect := context.WithCancel(t.Context())
+	defer disconnect()
+	raw, _ := json.Marshal(model.RelayBusinessRequest{Core: model.CoreSingbox, ID: strings.Repeat("s", 32), ExpiresAt: time.Now().Add(15 * time.Second).Unix()})
+	done := make(chan error, 1)
+	go func() { _, err := a.relayBusinessProbe(session, string(raw)); done <- err }()
+	select {
+	case <-f.entered:
+	case <-time.After(time.Second):
+		t.Fatal("sing-box diagnostic was routed to the wrong core")
+	}
+	disconnect()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("diagnostic outlived its disconnected session")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("disconnected session did not revoke its diagnostic")
+	}
+}

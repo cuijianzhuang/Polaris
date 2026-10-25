@@ -290,7 +290,7 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 		return nil, nil, err
 	}
 	ad, err := core.New(cs.Type, core.Options{
-		BindToParent: cs.Type == model.CoreXray && core.ParentBoundSupported(),
+		BindToParent: (cs.Type == model.CoreXray || cs.Type == model.CoreSingbox) && core.ParentBoundSupported(),
 		Version:      cs.Version, BinPath: bin, WorkDir: work, APIListen: a.apiListen(cs.Type),
 		AuthURL: "http://" + a.cfg.AuthListen + "/auth/" + string(cs.Type), Logger: a.log,
 		Limit: a.limitWire(cs.Type),

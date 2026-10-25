@@ -50,7 +50,7 @@ func (s *Server) beginRelayBusinessStatus(ch store.Chain, in store.Inbound, req 
 func (s *Server) finishRelayBusinessStatus(chainID, runID, state string, result model.RelayBusinessResult) error {
 	// Keep only recognized check codes, never the node's arbitrary messages,
 	// target strings, temporary credentials or unknown extension fields.
-	allowed := map[string]bool{"proxy_tcp_business": true, "proxy_udp_business": true, "credential_cleanup": true, "execution": true}
+	allowed := map[string]bool{"proxy_authentication": true, "proxy_transfer": true, "core_recovery": true, "proxy_tcp_business": true, "proxy_udp_business": true, "credential_cleanup": true, "execution": true}
 	failed := []string{}
 	seen := map[string]bool{}
 	for _, check := range result.Checks {

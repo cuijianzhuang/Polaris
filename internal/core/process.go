@@ -47,6 +47,9 @@ func NewProcess(name, bin, dir string, log *slog.Logger, args ...string) *Proces
 
 // Start launches the process if it is not running.
 func (p *Process) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	p.mu.Lock()
 	if p.running() {
 		p.mu.Unlock()
@@ -107,6 +110,8 @@ func (p *Process) Start(ctx context.Context) error {
 		return fmt.Errorf("%s exited during startup: %v; last log: %s", p.Name, p.LastError(), p.logs.Tail(5))
 	case <-time.After(800 * time.Millisecond):
 	case <-ctx.Done():
+		_ = p.Stop(ctx)
+		return ctx.Err()
 	}
 	return nil
 }
