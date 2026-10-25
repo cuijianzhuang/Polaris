@@ -238,6 +238,21 @@ func (s *Server) requireFeature(c *gin.Context, f string) bool {
 }
 
 // limitOK checks a node / user / plugin cap before adding n more.
+// errUserCap: a shop order, redeem code or sign-up would create an account
+// beyond the licence's user limit.
+var errUserCap = errors.New("账号数量已达上限，暂时无法开通新账号，请联系管理员")
+
+// userCapFull reports whether the licence allows no more (non-service) users.
+func (s *Server) userCapFull() bool {
+	max := s.license().Limit(license.LimitUsers)
+	if max <= 0 {
+		return false
+	}
+	var cur int64
+	s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&cur)
+	return int(cur) >= max
+}
+
 func (s *Server) limitOK(c *gin.Context, kind string, adding int) bool {
 	max := s.license().Limit(kind)
 	if max <= 0 {

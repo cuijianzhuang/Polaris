@@ -57,6 +57,14 @@ func (s *Server) addWARP(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
 	defer cancel()
+	if !emptyMatch(req.Rules) {
+		// Checked before registering, so a refused rule wastes no device.
+		if err := s.wireGuardEgressConflict(nodeID, []model.RouteRule{{Match: req.Rules, Outbound: req.Tag}},
+			model.Outbound{Tag: req.Tag, Type: model.OutWireGuard}); err != nil {
+			badRequest(c, err)
+			return
+		}
+	}
 	dev, err := warp.Register(ctx, req.License)
 	if err != nil {
 		badRequest(c, err)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -305,16 +306,29 @@ func (s *Server) planFallback(u *store.User, now time.Time) bool {
 		return false
 	}
 	var detail string
+	applied := false
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		// Re-read locked: a renewal bought since the snapshot must not be
+		// replaced by the fallback plan.
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(u, "id = ?", u.ID).Error; err != nil {
+			return err
+		}
+		if u.PlanID != from.ID || u.Status == "disabled" || u.ExpireAt == nil || !now.After(*u.ExpireAt) {
+			return nil
+		}
 		to, err := loadPlan(tx, from.FallbackID)
 		if err != nil {
 			return err
 		}
 		detail, err = applyPlan(tx, u, to, false, now)
+		applied = err == nil
 		return err
 	})
 	if err != nil {
 		s.log.Warn("plan fallback failed", "user", u.Username, "err", err)
+		return false
+	}
+	if !applied {
 		return false
 	}
 	s.audit("system", "user.plan", u.Username, "到期降级："+from.Name+" → "+detail, "")

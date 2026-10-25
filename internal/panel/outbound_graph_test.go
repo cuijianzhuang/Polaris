@@ -112,3 +112,31 @@ func TestBalancerFallbackConcurrent(t *testing.T) {
 		}
 	})
 }
+
+// Xray selects balancer members by tag prefix: a member that prefixes
+// another outbound's tag is refused, in either order of creation.
+func TestBalancerXrayPrefixClash(t *testing.T) {
+	s, _, admin := newAdminClient(t)
+	db := s.st.DB
+	db.Create(&store.Node{ID: "n", Name: "n"})
+	db.Create(&store.Core{ID: "xray", NodeID: "n", Type: model.CoreXray, Version: "26.3.27"})
+	db.Create(&store.Outbound{ID: "a", NodeID: "n", Tag: "hk", Type: model.OutSOCKS})
+	db.Create(&store.Outbound{ID: "b", NodeID: "n", Tag: "hk2", Type: model.OutSOCKS})
+	base := "/nodes/n/outbounds"
+	group := func(members ...string) map[string]any {
+		return map[string]any{"tag": "lb", "type": "balancer", "settings": model.OutboundSettings{Members: members, Strategy: model.LBRoundRobin}}
+	}
+	if code, out := admin.do("POST", base, group("hk")); code != 400 {
+		t.Fatalf("member prefixing another tag: %d %v", code, out)
+	}
+	if code, out := admin.do("POST", base, group("hk", "hk2")); code != 200 {
+		t.Fatalf("both members: %d %v", code, out)
+	}
+	// A new outbound the group would silently take in.
+	if code, out := admin.do("POST", base, map[string]any{"tag": "hk-backup", "type": "socks"}); code != 400 {
+		t.Fatalf("new tag joining a group by prefix: %d %v", code, out)
+	}
+	if code, out := admin.do("POST", base, map[string]any{"tag": "jp", "type": "socks"}); code != 200 {
+		t.Fatalf("unrelated outbound: %d %v", code, out)
+	}
+}

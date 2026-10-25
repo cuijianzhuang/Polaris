@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -15,8 +16,15 @@ import (
 
 type nodeUsersEntry struct {
 	desired, applied int64
-	set              map[string]bool
+	set              map[string]bool // from the two revisions
+	own              map[string]bool // set without grace users
+	graceUntil       time.Time
 }
+
+// nodeUsersGrace keeps the users of the previously applied revision allowed
+// for a while: the agent reports their last traffic after it has applied a
+// spec without them (and may skip revisions, so "previous" is not rev-1).
+const nodeUsersGrace = 5 * time.Minute
 
 type nodeUsersCache struct {
 	mu sync.Mutex
@@ -33,8 +41,13 @@ func (s *Server) nodeUsers(nodeID string) map[string]bool {
 	if s.nodeUserSets.m == nil {
 		s.nodeUserSets.m = map[string]nodeUsersEntry{}
 	}
-	if e, ok := s.nodeUserSets.m[nodeID]; ok && e.desired == n.DesiredRev && e.applied == n.AppliedRev {
-		return e.set
+	prev, hadPrev := s.nodeUserSets.m[nodeID]
+	if hadPrev && prev.desired == n.DesiredRev && prev.applied == n.AppliedRev {
+		if !prev.graceUntil.IsZero() && time.Now().After(prev.graceUntil) {
+			prev.set, prev.graceUntil = prev.own, time.Time{}
+			s.nodeUserSets.m[nodeID] = prev
+		}
+		return prev.set
 	}
 	set := map[string]bool{}
 	var revs []store.ConfigRevision
@@ -54,6 +67,24 @@ func (s *Server) nodeUsers(nodeID string) map[string]bool {
 			}
 		}
 	}
-	s.nodeUserSets.m[nodeID] = nodeUsersEntry{n.DesiredRev, n.AppliedRev, set}
-	return set
+	e := nodeUsersEntry{desired: n.DesiredRev, applied: n.AppliedRev, own: set, set: set}
+	// Callers read the returned map without the lock: build a new one.
+	union := func(a, b map[string]bool) map[string]bool {
+		m := make(map[string]bool, len(a)+len(b))
+		for id := range a {
+			m[id] = true
+		}
+		for id := range b {
+			m[id] = true
+		}
+		return m
+	}
+	switch {
+	case hadPrev && prev.applied != n.AppliedRev:
+		e.set, e.graceUntil = union(prev.own, set), time.Now().Add(nodeUsersGrace)
+	case hadPrev && !prev.graceUntil.IsZero() && time.Now().Before(prev.graceUntil):
+		e.set, e.graceUntil = union(prev.set, set), prev.graceUntil // only desired moved: keep the grace
+	}
+	s.nodeUserSets.m[nodeID] = e
+	return e.set
 }

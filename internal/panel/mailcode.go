@@ -85,6 +85,12 @@ func (s *Server) registerDomainOK(addr string) bool {
 // countDaily counts one use of key within 24 hours and reports whether it
 // stays within limit.
 func (s *Server) countDaily(key string, limit int) bool {
+	return s.countWindow(key, limit, 24*time.Hour)
+}
+
+// countWindow counts one use of key in a fixed window that starts at its
+// first use; false once limit is reached.
+func (s *Server) countWindow(key string, limit int, window time.Duration) bool {
 	var n int
 	ok := false
 	if s.eph.update(key, &n, func() ephAction {
@@ -97,7 +103,7 @@ func (s *Server) countDaily(key string, limit int) bool {
 	}) {
 		return ok
 	}
-	return limit > 0 && s.eph.put(key, 1, 24*time.Hour) == nil
+	return limit > 0 && s.eph.put(key, 1, window) == nil
 }
 
 func randomCode() string {
@@ -160,13 +166,20 @@ func (s *Server) portalMailCode(c *gin.Context) {
 		send = n > 0 || (s.mailRegisterOn() && s.registerDomainOK(addr))
 	}
 	res := gin.H{"ok": true, "ttl": int(mailCodeTTL.Seconds()), "cooldown": int(mailCodeCooldown.Seconds())}
-	if !send {
-		c.JSON(http.StatusOK, res)
-		return
-	}
+	// The cooldown and the daily cap apply whether or not a mail goes out:
+	// a 429 only for real accounts would tell them apart.
 	h := sha256.Sum256([]byte(addr))
 	if !s.countDaily("maildaily:"+hex.EncodeToString(h[:16]), mailCodesPerDay) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "这个邮箱今天收到的验证码太多了，请明天再试"})
+		return
+	}
+	if !send {
+		// A placeholder no code matches, so verifying answers alike too.
+		if err := s.eph.put(key, mailCode{Hash: "none", Sent: time.Now()}, mailCodeTTL); err != nil {
+			serverError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, res)
 		return
 	}
 	code := randomCode()
@@ -338,6 +351,9 @@ func (s *Server) registerByMail(addr, ip string) (*store.User, error) {
 	}
 	if local == "" {
 		local = "user"
+	}
+	if s.userCapFull() {
+		return nil, errUserCap
 	}
 	trialID := strings.TrimSpace(s.st.GetSetting("register_trial_plan", ""))
 	now := time.Now()

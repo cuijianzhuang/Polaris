@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -344,4 +346,54 @@ func sortRules(rs []model.RouteRule) {
 func mustJSON(v any) []byte {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+// xrayPrefixClash: Xray picks balancer members by tag prefix, so a member
+// "hk" also takes in "hk2". Refuse that on nodes running Xray, for the group
+// being saved (selfTag with members) or for a new tag joining the node.
+func xrayPrefixClash(db *gorm.DB, nodeID, selfID, selfTag string, members []string) error {
+	var n int64
+	db.Model(&store.Core{}).Where("node_id = ? AND type = ?", nodeID, model.CoreXray).Count(&n)
+	if n == 0 {
+		return nil
+	}
+	var rows []store.Outbound
+	db.Where("node_id = ?", nodeID).Find(&rows)
+	groups := map[string][]string{}
+	tags := map[string]bool{selfTag: true}
+	for i := range rows {
+		if rows[i].ID == selfID || rows[i].Tag == selfTag {
+			continue // the outbound being saved (maybe under a new tag)
+		}
+		tags[rows[i].Tag] = true
+		if rows[i].Type.IsGroup() {
+			var set model.OutboundSettings
+			json.Unmarshal(rows[i].Settings, &set)
+			groups[rows[i].Tag] = set.Members
+		}
+	}
+	clash := func(g string, ms []string, t string) error {
+		for _, m := range ms {
+			if t != m && strings.HasPrefix(t, m) && !slices.Contains(ms, t) {
+				return fmt.Errorf("Xray 按标签前缀选择均衡组成员：组 %s 的成员 %q 会把出站 %q 也算进去，请改用不互为前缀的标签", g, m, t)
+			}
+		}
+		return nil
+	}
+	// Only what this save changes: a clash elsewhere on the node does not
+	// block unrelated edits.
+	if members != nil {
+		for t := range tags {
+			if err := clash(selfTag, members, t); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for g, ms := range groups {
+		if err := clash(g, ms, selfTag); err != nil {
+			return err
+		}
+	}
+	return nil
 }

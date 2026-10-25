@@ -54,7 +54,7 @@ func TestTrustedIPsExemptFromLimit(t *testing.T) {
 	n := store.Node{ID: store.NewID(), Name: "n"}
 	s.st.DB.Create(&n)
 	s.nodeUserSets.mu.Lock()
-	s.nodeUserSets.m = map[string]nodeUsersEntry{n.ID: {0, 0, map[string]bool{u.ID: true}}}
+	s.nodeUserSets.m = map[string]nodeUsersEntry{n.ID: {set: map[string]bool{u.ID: true}, own: map[string]bool{u.ID: true}}}
 	s.nodeUserSets.mu.Unlock()
 	s.handleOnlineIPs(n.ID, &polarisv1.OnlineIPs{Users: []*polarisv1.UserIPs{{UserId: u.ID, Ips: []string{"10.1.2.3", "203.0.113.7", "198.51.100.1"}}}})
 	var got store.User

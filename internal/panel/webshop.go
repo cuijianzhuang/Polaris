@@ -487,7 +487,7 @@ document.querySelectorAll('.buy').forEach(function(b){b.dataset.label=b.textCont
 var ca=document.getElementById('capply'),cn=document.getElementById('cnote');
 function note(m){cn.textContent=m;cn.hidden=!m}
 function applyQuote(j){document.querySelectorAll('[data-id]').forEach(function(card){var it=j&&j.items&&j.items[card.dataset.kind+':'+card.dataset.id];
-card.querySelectorAll('.buy').forEach(function(b){var l=b.dataset.label;if(it&&!it.error){var a=b.dataset.method==='usdt'?it.usdt:it.epay;if(a){var p=l.lastIndexOf(' ');l=l.slice(0,p+1)+(b.dataset.method==='usdt'?'':'¥')+(it.free?'免费':a)+'（原价 '+l.slice(p+1)+'）'}}b.textContent=l})})}
+card.querySelectorAll('.buy').forEach(function(b){var l=b.dataset.label;if(it&&!it.error){var a=b.dataset.method==='usdt'?it.usdt:it.epay;if(a){var p=l.lastIndexOf(' ');l=l.slice(0,p+1)+(b.dataset.method==='usdt'?'':'¥')+(a==='0'?'免费':a)+'（原价 '+l.slice(p+1)+'）'}}b.textContent=l})})}
 if(ca)ca.addEventListener('click',function(){var c=document.getElementById('coupon').value.trim();show('');
 if(!c){coupon='';applyQuote(null);note('');return}ca.disabled=true;
 fetch('` + shopWebPath + `/coupon?code='+encodeURIComponent(c),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){ca.disabled=false;

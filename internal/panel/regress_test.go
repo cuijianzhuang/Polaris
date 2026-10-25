@@ -47,7 +47,7 @@ func TestOnlineIPsIgnoreStaleNodes(t *testing.T) {
 	s.st.DB.Create(&a)
 	s.st.DB.Create(&b)
 	s.nodeUserSets.mu.Lock()
-	s.nodeUserSets.m = map[string]nodeUsersEntry{a.ID: {0, 0, map[string]bool{u.ID: true}}, b.ID: {0, 0, map[string]bool{u.ID: true}}}
+	s.nodeUserSets.m = map[string]nodeUsersEntry{a.ID: {set: map[string]bool{u.ID: true}, own: map[string]bool{u.ID: true}}, b.ID: {set: map[string]bool{u.ID: true}, own: map[string]bool{u.ID: true}}}
 	s.nodeUserSets.mu.Unlock()
 	m := memOnly(s) // seeds per-IP times directly
 	m.mu.Lock()

@@ -137,6 +137,11 @@ func relayLanding(db *gorm.DB, id string) (store.Inbound, error) {
 	return in, nil
 }
 
+// errRelayNodeGone: a hop's node was revoked or has no address. Building
+// specs skips such a chain (it stops forwarding) rather than failing every
+// node on it.
+var errRelayNodeGone = errors.New("链路节点不可用")
+
 func relayNodes(db *gorm.DB, ch *store.Chain) (map[string]store.Node, error) {
 	out := map[string]store.Node{}
 	for _, h := range ch.Hops.V {
@@ -148,7 +153,7 @@ func relayNodes(db *gorm.DB, ch *store.Chain) (map[string]store.Node, error) {
 			return nil, err
 		}
 		if n.Revoked || nodeHost(&n) == "" {
-			return nil, fmt.Errorf("节点 %s 已撤销或没有可用地址", n.Name)
+			return nil, fmt.Errorf("%w：节点 %s 已撤销或没有可用地址", errRelayNodeGone, n.Name)
 		}
 		out[n.ID] = n
 	}
@@ -182,6 +187,11 @@ func (s *Server) planInboundRelayWithPorts(c *gin.Context, req relaySetupRequest
 	in, err := relayLanding(s.st.DB, c.Param("id"))
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if m := s.referencingMaster(in.ID); m != "" {
+		// A fallback child is reached through its master's port and TLS; a
+		// relay to its own port would not match what clients are given.
+		return nil, nil, nil, fmt.Errorf("该入站是入站「%s」的回落目标，请对「%s」设置中转", m, m)
 	}
 	if req.Mode == "l4" && isLoopbackHost(in.Listen) {
 		return nil, nil, nil, fmt.Errorf("仅本机监听的入站请使用 tunnel 模式")

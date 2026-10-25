@@ -390,19 +390,38 @@ func (s *Server) enforceLimits() {
 // autoRenew extends an expired account with a renewal plan: expiry moves on
 // by RenewDays (past now) and traffic starts over. It reports a change.
 func (s *Server) autoRenew(u *store.User, now time.Time) bool {
-	if u.RenewDays <= 0 || u.ExpireAt == nil || !now.After(*u.ExpireAt) || (u.RenewMax > 0 && u.RenewCount >= u.RenewMax) {
+	due := func(u *store.User) bool {
+		return u.RenewDays > 0 && u.ExpireAt != nil && now.After(*u.ExpireAt) && (u.RenewMax <= 0 || u.RenewCount < u.RenewMax)
+	}
+	if !due(u) {
 		return false
 	}
-	exp := *u.ExpireAt
-	for !exp.After(now) {
-		exp = exp.AddDate(0, 0, u.RenewDays)
+	var exp time.Time
+	renewed := false
+	// u was read before; re-read it locked, so a purchase or an admin edit
+	// made since is neither lost nor renewed on top of.
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(u, "id = ?", u.ID).Error; err != nil {
+			return err
+		}
+		if !due(u) {
+			return nil
+		}
+		exp = *u.ExpireAt
+		for !exp.After(now) {
+			exp = exp.AddDate(0, 0, u.RenewDays)
+		}
+		u.ExpireAt, u.UsedUp, u.UsedDown, u.RenewCount, u.LastResetAt = &exp, 0, 0, u.RenewCount+1, &now
+		u.WarnedUsage, u.WarnedExpire = false, nil
+		u.TrafficLimit, u.ExtraTraffic = packLimit(u.TrafficLimit, u.ExtraTraffic), 0
+		renewed = true
+		return tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
+			"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil,
+			"traffic_limit": u.TrafficLimit, "extra_traffic": 0}).Error
+	})
+	if err != nil || !renewed {
+		return false
 	}
-	u.ExpireAt, u.UsedUp, u.UsedDown, u.RenewCount, u.LastResetAt = &exp, 0, 0, u.RenewCount+1, &now
-	u.WarnedUsage, u.WarnedExpire = false, nil
-	u.TrafficLimit, u.ExtraTraffic = packLimit(u.TrafficLimit, u.ExtraTraffic), 0
-	s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
-		"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil,
-		"traffic_limit": u.TrafficLimit, "extra_traffic": 0})
 	s.resetNodeUsage(u.ID)
 	s.audit("system", "user.renew", u.Username, fmt.Sprintf("+%d 天，至 %s（第 %d 次）", u.RenewDays, exp.Format("2006-01-02"), u.RenewCount), "")
 	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
@@ -449,7 +468,7 @@ func (s *Server) resetTrafficCycles() {
 		if u.LastResetAt != nil {
 			last = *u.LastResetAt
 		}
-		due := false
+		due, resetAt := false, now
 		switch u.ResetPolicy {
 		case "daily":
 			due = last.Before(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()))
@@ -466,11 +485,17 @@ func (s *Server) resetTrafficCycles() {
 			if days < 1 {
 				days = 30
 			}
-			due = now.Sub(last) >= time.Duration(days)*24*time.Hour
+			period := time.Duration(days) * 24 * time.Hour
+			due = now.Sub(last) >= period
+			if due {
+				// Stay on the cycle's boundary: the check runs periodically,
+				// and stamping "now" would push every later cycle back.
+				resetAt = last.Add(now.Sub(last) / period * period)
+			}
 		}
 		if due {
 			// A new period: traffic packs bought for the last one expire.
-			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": now,
+			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": resetAt,
 				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0})
 			capped, _ := s.nodeAccess(u.ID)
 			s.resetNodeUsage(u.ID)

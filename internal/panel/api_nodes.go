@@ -429,6 +429,17 @@ func (s *Server) revokeNode(c *gin.Context) {
 	}
 	s.st.DB.Model(&n).Updates(map[string]any{"revoked": true, "cert_serial": "", "status": "offline"})
 	s.hub.Kick(n.ID)
+	// Chains through this node stop forwarding: rebuild the other hops.
+	var chains []store.Chain
+	s.st.DB.Find(&chains)
+	for i := range chains {
+		for _, h := range chains[i].Hops.V {
+			if h.NodeID == n.ID {
+				s.MarkDirty("relay node revoked", chainNodes(&chains[i])...)
+				break
+			}
+		}
+	}
 	s.auditCtx(c, "node.revoke", n.Name, "")
 	c.Status(http.StatusNoContent)
 }

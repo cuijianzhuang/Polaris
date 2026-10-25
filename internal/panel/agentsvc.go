@@ -272,8 +272,10 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		s.limited = map[string][]*polarisv1.LimitedUser{}
 	}
 	s.limited[nodeID] = hb.Limited
-	s.shareHeartbeatState(nodeID, "limited", hb.Limited, false)
 	s.hbMu.Unlock()
+	// Outside hbMu: it may write to Redis, and every node's heartbeat takes
+	// that lock.
+	s.shareHeartbeatState(nodeID, "limited", hb.Limited, false)
 	if n.Status == "offline" || n.Status == "pending" {
 		if n.Status == "offline" && n.LastSeen != nil {
 			s.notify(Event{Kind: "node_online", NodeID: n.ID, Text: "🟢 节点 " + n.Name + " 已恢复在线"})
