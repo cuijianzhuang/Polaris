@@ -7,6 +7,29 @@ import (
 )
 
 const RouteTraceFeature = "route-trace-v1"
+const RouteTraceToolFeature = "route-trace-tool-v1"
+
+// Allow all 20 one-second hops to complete, including implementations that
+// send probes sequentially. The panel reserves extra time for command delivery.
+const RouteTraceProbeTimeout = 24 * time.Second
+const RouteTraceRequestTimeout = RouteTraceProbeTimeout + 4*time.Second
+const RouteTraceStaleAfter = 45 * time.Second
+
+// Tool readiness is independent of network reachability. Ready only means the
+// executable can perform a local UDP probe with our bounded arguments.
+type RouteTraceToolStatus struct {
+	State         string    `json:"state"`
+	Issue         string    `json:"issue,omitempty"`
+	Path          string    `json:"path,omitempty"`
+	CheckOutput   string    `json:"checkOutput,omitempty"`
+	Manager       string    `json:"manager,omitempty"`
+	CanInstall    bool      `json:"canInstall"`
+	ManualCommand string    `json:"manualCommand,omitempty"`
+	CheckedAt     time.Time `json:"checkedAt"`
+	InstallState  string    `json:"installState,omitempty"`
+	InstallOutput string    `json:"installOutput,omitempty"`
+	InstallIssue  string    `json:"installIssue,omitempty"`
+}
 
 type RouteTraceRequest struct {
 	IPv4 string `json:"ipv4,omitempty"`
@@ -48,6 +71,7 @@ type RouteTraceResult struct {
 	Target    string                 `json:"target"`
 	CheckedAt time.Time              `json:"checkedAt"`
 	State     string                 `json:"state"` // reached / partial / timeout / unavailable / failed
+	Issue     string                 `json:"issue,omitempty"`
 	Hops      []RouteTraceHop        `json:"hops"`
 	Raw       string                 `json:"raw"`
 }

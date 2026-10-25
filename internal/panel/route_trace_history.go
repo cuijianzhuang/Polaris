@@ -33,7 +33,7 @@ func lockRouteNode(tx *gorm.DB, nodeID string) error {
 
 func createRouteTraceRows(tx *gorm.DB, nodeID string, req model.RouteTraceRequest, now time.Time, source string, revision int64) ([]store.NodeRouteTrace, error) {
 	rows := []store.NodeRouteTrace{}
-	if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at < ?", nodeID, "running", now.Add(-30*time.Second)).Updates(map[string]any{"state": "interrupted", "finished_at": now, "comparison": store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "interrupted", ChangedTTLs: []int{}})}).Error; err != nil {
+	if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at < ?", nodeID, "running", now.Add(-model.RouteTraceStaleAfter)).Updates(map[string]any{"state": "interrupted", "finished_at": now, "comparison": store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "interrupted", ChangedTTLs: []int{}})}).Error; err != nil {
 		return nil, err
 	}
 	runID := store.NewID()
@@ -85,7 +85,7 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 				continue
 			}
 			row.State = state
-			if now.Sub(row.StartedAt) > 30*time.Second {
+			if now.Sub(row.StartedAt) > model.RouteTraceStaleAfter {
 				row.State = "interrupted"
 			}
 			row.FinishedAt = &now
@@ -211,7 +211,7 @@ func routeTraceView(row store.NodeRouteTrace, detail bool) gin.H {
 	// A process crash or lost HTTP handler cannot leave a forever-running UI.
 	state := row.State
 	comparison := row.Comparison.V
-	if state == "running" && time.Since(row.StartedAt) > 30*time.Second {
+	if state == "running" && time.Since(row.StartedAt) > model.RouteTraceStaleAfter {
 		state = "interrupted"
 		comparison = store.RouteTraceComparison{State: "not_comparable", Reason: "interrupted", ChangedTTLs: []int{}}
 	}

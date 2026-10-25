@@ -57,6 +57,7 @@ class Fixture:
     if self.schedule_conflict: status=409; result={'error':'回程定时配置已变化，请刷新后重试'}; self.schedule_conflict=False
     else: self.schedule['policy']=dict(body,revision=5)
    if status==200: result=self.schedule
+  elif path=='/nodes/n1/route-tool': result=dict(state='ready',canInstall=False,path='/usr/bin/traceroute',checkedAt=now)
   elif path=='/nodes/n1/route-traces': result=dict(items=[trace],nextBefore=20 if not parse_qs(u.query).get('before') else 0)
   elif path=='/nodes/n1/route-traces/20': result=trace
   elif path=='/nodes/n1/route-traces/19':
@@ -217,7 +218,7 @@ with sync_playwright() as p:
    def fulfill(self,**kwargs): route.fulfill(**kwargs)
   f.route(R())
  page.route('**/secret/api/v1/**',secret_route)
- page.goto(BASE_URL+'/secret/settings#network'); expect(page.get_by_role('heading',name='Route ASN database',exact=True)).to_be_visible()
+ page.goto(BASE_URL+'/secret/settings#network'); expect(page.get_by_role('heading',name='Return-route ASN attribution',exact=True)).to_be_visible()
  page.get_by_label('Upload ASN MMDB',exact=True).set_input_files(dict(name='asn.mmdb',mimeType='application/octet-stream',buffer=b'MMDB fixture bytes')); page.get_by_role('button',name='Upload database',exact=True).click()
  page.get_by_placeholder('Login password',exact=True).fill('fixture-password'); page.get_by_role('button',name='Confirm',exact=True).click(); expect(page.get_by_role('switch',name='Enable ASN annotations',exact=True)).to_be_enabled()
  assert not first[0]; assert f.last('/tools/route-asn/database')[3]['authorization']=='Bearer fixture'; no_overflow(page); assert not errors,errors; page.close(); print('English UI, secret admin prefix and binary sudo retry OK',flush=True)
