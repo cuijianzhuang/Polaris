@@ -110,6 +110,16 @@ func TestSourceReferenceBillingRouteAndRemoval(t *testing.T) {
 	if e := s.st.DB.Create(&in).Error; e != nil {
 		t.Fatal(e)
 	}
+	s.st.DB.Model(&store.Core{}).Where("id = ?", "core").Update("no_user_traffic", true)
+	if status, body := c.do("POST", "/sub-source-nodes/"+ns[0].ResourceID+"/references", map[string]any{"nodeId": "node", "tag": "unsupported-billing", "inboundId": "in"}); status != 400 {
+		t.Fatal("unmetered relay was accepted", status, body)
+	}
+	var dangling int64
+	s.st.DB.Model(&store.Outbound{}).Where("tag = ?", "unsupported-billing").Count(&dangling)
+	if dangling != 0 {
+		t.Fatal("failed relay binding left an outbound behind")
+	}
+	s.st.DB.Model(&store.Core{}).Where("id = ?", "core").Update("no_user_traffic", false)
 	code, out := c.do("POST", "/sub-source-nodes/"+ns[0].ResourceID+"/references", map[string]any{"nodeId": "node", "tag": "provider", "inboundId": "in"})
 	if code != 201 {
 		t.Fatalf("bind: %d %v", code, out)

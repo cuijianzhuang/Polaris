@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/net/proxy"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -98,7 +100,7 @@ func TestLiveSourceReferenceAuthBillingAndFailClosed(t *testing.T) {
 			port := coretest.FreePort(t)
 			in := store.Inbound{ID: "entry-in", NodeID: "entry", Core: tc.typ, Tag: "entry-in", Port: port, Listen: "127.0.0.1", Enabled: true, Protocol: store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS}), Transport: store.NewJSON(model.TransportSpec{Type: model.TransTCP}), Security: store.NewJSON(model.SecuritySpec{Type: model.SecNone}), OutboundTag: "supplier"}
 			if tc.typ == model.CoreMihomo {
-				in.Extra = json.RawMessage(`{"allow-insecure":true}`)
+				in.Protocol = store.NewJSON(model.ProtocolSpec{Type: model.ProtoSOCKS})
 			} // local plaintext client fixture only
 			s.st.DB.Create(&in)
 			user := coretest.Users()[0]
@@ -139,8 +141,29 @@ func TestLiveSourceReferenceAuthBillingAndFailClosed(t *testing.T) {
 			sampleMu.Unlock()
 			defer func() { sampleMu.Lock(); sample = nil; sampleMu.Unlock() }()
 			target := strings.TrimPrefix(backend.URL, "http://")
+			fetch := func(port int, target string) (string, error) {
+				if tc.typ != model.CoreMihomo {
+					return coretest.FetchVLESS(port, target)
+				}
+				d, e := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), &proxy.Auth{User: user.ID, Password: user.Password}, &net.Dialer{Timeout: time.Second})
+				if e != nil {
+					return "", e
+				}
+				tr := &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return d.(proxy.ContextDialer).DialContext(ctx, network, addr)
+				}, DisableKeepAlives: true}
+				defer tr.CloseIdleConnections()
+				cl := &http.Client{Transport: tr, Timeout: 3 * time.Second}
+				res, e := cl.Get("http://" + target + "/payload")
+				if e != nil {
+					return "", e
+				}
+				defer res.Body.Close()
+				body, e := io.ReadAll(res.Body)
+				return string(body), e
+			}
 			for i := 0; i < 5; i++ {
-				body, e := coretest.FetchVLESS(port, target)
+				body, e := fetch(port, target)
 				if e == nil && body == "source-resource-success" {
 					break
 				}
@@ -159,19 +182,42 @@ func TestLiveSourceReferenceAuthBillingAndFailClosed(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("no live traffic sample")
 			}
-			var up, down int64
-			for _, d := range stats {
-				if strings.HasPrefix(d.UserID, "inbound>>>") || strings.HasPrefix(d.UserID, "outbound>>>") {
-					continue
-				}
-				if d.UserID != user.ID {
-					t.Fatal("supplier identity entered user billing", d)
-				}
-				up += d.Up
-				down += d.Down
+			perUser := true
+			if counter, ok := a.(interface{ PerUserTraffic() bool }); ok {
+				perUser = counter.PerUserTraffic()
 			}
-			if up == 0 || down == 0 {
+			var up, down int64
+			add := func(ds []model.TrafficDelta) {
+				for _, d := range ds {
+					if strings.HasPrefix(d.UserID, "inbound>>>") || strings.HasPrefix(d.UserID, "outbound>>>") {
+						continue
+					}
+					if d.UserID != user.ID {
+						t.Fatal("supplier identity entered user billing", d)
+					}
+					up += d.Up
+					down += d.Down
+				}
+			}
+			add(stats)
+			// Older sing-box releases flush user counters at connection close, while
+			// mihomo needs the live sample above. Verify both supported collection paths.
+			for attempt := 0; perUser && (up == 0 || down == 0) && attempt < 20; attempt++ {
+				time.Sleep(50 * time.Millisecond)
+				ds, e := a.CollectTraffic(t.Context())
+				if e != nil {
+					t.Fatal(e)
+				}
+				add(ds)
+			}
+			if perUser && (up == 0 || down == 0) {
 				t.Fatalf("real user traffic missing: %+v", stats)
+			}
+			if !perUser {
+				if up != 0 || down != 0 {
+					t.Fatal("binary without user statistics invented user traffic")
+				}
+				t.Log("binary lacks per-user counters; authentication/blocking still verified, user billing is not claimed")
 			}
 			// Wrong upstream credentials must fail even though the HTTP target is
 			// reachable directly from the entry node.
@@ -190,7 +236,7 @@ func TestLiveSourceReferenceAuthBillingAndFailClosed(t *testing.T) {
 				}
 				t.Fatal("core exited during reload")
 			}
-			if body, e := coretest.FetchVLESS(port, target); e == nil {
+			if body, e := fetch(port, target); e == nil {
 				t.Fatal("wrong upstream credential escaped via direct", body)
 			}
 			n.UUID = "11111111-1111-4111-8111-111111111111"
@@ -209,7 +255,7 @@ func TestLiveSourceReferenceAuthBillingAndFailClosed(t *testing.T) {
 				t.Fatal("core exited during reload")
 			}
 			for attempt := 0; attempt < 20; attempt++ {
-				body, e := coretest.FetchVLESS(port, target)
+				body, e := fetch(port, target)
 				if e == nil && body == "source-resource-success" {
 					break
 				}
@@ -232,7 +278,7 @@ func TestLiveSourceReferenceAuthBillingAndFailClosed(t *testing.T) {
 				}
 				t.Fatal("core exited during reload")
 			}
-			if body, e := coretest.FetchVLESS(port, target); e == nil {
+			if body, e := fetch(port, target); e == nil {
 				t.Fatal("removed resource escaped via direct", body)
 			}
 			t.Logf("%s: authenticated relay, user traffic %d/%d, wrong credentials, rotation and removed-resource blocking verified", tc.typ, up, down)

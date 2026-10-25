@@ -331,6 +331,13 @@ func (s *Server) bindSourceNodeAPI(c *gin.Context) {
 			if e := tx.First(&in, "id = ? AND node_id = ?", req.InboundID, req.NodeID).Error; e != nil {
 				return e
 			}
+			var cr store.Core
+			if e := tx.First(&cr, "node_id = ? AND type = ?", in.NodeID, in.Core).Error; e != nil {
+				return e
+			}
+			if cr.NoUserTraffic {
+				return fmt.Errorf("当前入站内核无法按用户采集流量，请先安装带统计功能的内核")
+			}
 			if in.OutboundTag != "" {
 				return fmt.Errorf("入站已有出站绑定，请先在入站中解除绑定")
 			}
