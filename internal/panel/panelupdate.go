@@ -249,14 +249,13 @@ func (s *Server) upgradeAgentsAfterUpdate() {
 	case <-s.ctxBG().Done():
 		return
 	}
-	ctx, cancel := context.WithTimeout(s.ctxBG(), 10*time.Minute)
-	defer cancel()
-	res := s.upgradeOutdatedAgents(ctx)
-	if len(res) == 0 {
-		s.notify(Event{Kind: "panel_update", Text: "✅ 所有在线节点的 Agent 已是 " + Version})
+	// In stages: a canary node first, the rest only once it runs healthy.
+	r, err := s.startAgentRollout("system")
+	if err != nil {
+		s.notify(Event{Kind: "panel_update", Text: "ℹ️ 节点 Agent 未自动升级：" + err.Error()})
 		return
 	}
-	s.notify(Event{Kind: "panel_update", Text: agentUpgradeSummary(res)})
+	s.notify(Event{Kind: "panel_update", Text: fmt.Sprintf("⬆️ 开始小批升级 %d 个节点的 Agent 到 %s（先升级 %d 个，确认正常后再继续）", len(r.NodeIDs.V), Version, r.Canary)})
 }
 
 type agentUpgradeResult struct {
@@ -265,6 +264,7 @@ type agentUpgradeResult struct {
 	Error string `json:"error,omitempty"`
 }
 
+// agentUpgradeSummary is also used by the Telegram /upgrade command (pro).
 func agentUpgradeSummary(res []agentUpgradeResult) string {
 	ok := 0
 	var failed []string

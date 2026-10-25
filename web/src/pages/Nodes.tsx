@@ -13,6 +13,7 @@ import { ProTag, useFeature } from '../components/License'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed, coreInstalling } from '../format'
 import VersionPicker from '../components/VersionPicker'
+import RolloutPanel, { defaultStaged, StagedFields, startRollout, type StagedOpts } from '../components/Rollouts'
 import { t } from '../i18n'
 import type { CapSet, Core, CoreType, Node, NodeTraffic, Revision, User } from '../types'
 
@@ -56,6 +57,7 @@ export function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: No
   const withCore = nodes.filter((n) => n.cores.some((c) => c.type === type))
   const [ids, setIds] = useState<string[]>(withCore.map((n) => n.id))
   const { busy, run } = useAction()
+  const [staged, setStaged] = useState<StagedOpts>(defaultStaged)
   const pick = (t: CoreType) => {
     setType(t); setVersion(latest[t] ?? '')
     setIds(nodes.filter((n) => n.cores.some((c) => c.type === t)).map((n) => n.id))
@@ -64,11 +66,16 @@ export function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: No
     <Modal title={t('批量升级内核')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !version || !ids.length} onClick={() => run(async () => {
+        if (staged.staged) {
+          await startRollout({ kind: 'core', coreType: type, version, nodeIds: ids }, staged)
+          onDone()
+          return
+        }
         const r = await post<{ results: { nodeId: string; ok: boolean; error?: string }[] }>('/cores/upgrade', { type, version, nodeIds: ids })
         const bad = r.results.filter((x) => !x.ok)
         if (bad.length) throw new Error(bad.map((x) => `${nodes.find((n) => n.id === x.nodeId)?.name}${t('：')}${x.error}`).join(t('；')))
         onDone()
-      }, t('已下发：{n} 个节点切换到 v{v}', { n: ids.length, v: version }))}>{t('升级 {n} 个节点', { n: ids.length })}</button>
+      }, staged.staged ? t('已开始小批升级，进度见页面顶部') : t('已下发：{n} 个节点切换到 v{v}', { n: ids.length, v: version }))}>{t('升级 {n} 个节点', { n: ids.length })}</button>
     </>}>
       <div className="sub" style={{ margin: 0 }}>{t('旧版本保留在节点上；新版本启动失败时 Agent 会自动回退，之后也可一键回退。')}</div>
       <Field label={t('内核')}>
@@ -90,6 +97,31 @@ export function BatchCoreUpgrade({ nodes, latest, onClose, onDone }: { nodes: No
           })}
         </div>
       </Field>
+      <StagedFields value={staged} onChange={setStaged} />
+    </Modal>
+  )
+}
+
+/** Upgrade every outdated agent, staged by default. */
+function UpgradeAgentsModal({ count, version, onClose, onDone }: { count: number; version: string; onClose: () => void; onDone: () => void }) {
+  const [staged, setStaged] = useState<StagedOpts>(defaultStaged)
+  const { busy, run } = useAction()
+  return (
+    <Modal title={t('升级全部 Agent')} onClose={onClose} footer={<>
+      <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
+      <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
+        if (staged.staged) {
+          await startRollout({ kind: 'agent' }, staged)
+        } else {
+          const r = await post<{ results: { node: string; ok: boolean; error?: string }[] }>('/nodes/upgrade-agents')
+          const bad = r.results.filter((x) => !x.ok)
+          if (bad.length) throw new Error(t('{n} 个成功，失败：', { n: r.results.length - bad.length }) + bad.map((x) => `${x.node}（${x.error}）`).join(t('；')))
+        }
+        onDone()
+      }, staged.staged ? t('已开始小批升级，进度见页面顶部') : t('全部节点已升级'))}>{t('升级 {n} 个节点', { n: count })}</button>
+    </>}>
+      <div className="sub" style={{ margin: 0 }}>{t('把 {n} 个节点的 Agent 升级到 v{v}。每个节点的内核会重启，连接会中断几秒。', { n: count, v: version })}</div>
+      <StagedFields value={staged} onChange={setStaged} />
     </Modal>
   )
 }
@@ -397,16 +429,8 @@ export default function Nodes() {
     await run(() => post(`/nodes/${n.id}/upgrade-agent`), t('{node} 已升级，正在重新连接', { node: n.name }))
     setUpgrading((x) => ({ ...x, [n.id]: false }))
   }
-  const upgradeAll = async () => {
-    if (!(await confirm(t('升级 {n} 个节点的 Agent 到 v{v}？', { n: outdatedNodes.length, v: vnorm(panelVer) }) + '\n' + t('每个节点的内核会重启，连接会中断几秒。')))) return
-    setUpgrading(Object.fromEntries(outdatedNodes.map((n) => [n.id, true])))
-    await run(async () => {
-      const r = await post<{ results: { node: string; ok: boolean; error?: string }[] }>('/nodes/upgrade-agents')
-      const bad = r.results.filter((x) => !x.ok)
-      if (bad.length) throw new Error(t('{n} 个成功，失败：', { n: r.results.length - bad.length }) + bad.map((x) => `${x.node}（${x.error}）`).join(t('；')))
-    }, t('全部节点已升级'))
-    setUpgrading({})
-  }
+  const [upgradeAll, setUpgradeAll] = useState(false)
+  const [rolloutTick, setRolloutTick] = useState(0)
 
   const showInstall = (n: Node) => run(async () => {
     const r = await post<{ command: string }>(`/nodes/${n.id}/install-token`)
@@ -419,7 +443,7 @@ export default function Nodes() {
         <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{scoped ? t('通过 Telegram 登录：仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('每个节点运行一个 Agent，Agent 托管一个或多个内核子进程')}</div></div>
         {!scoped && <div className="row">
           {outdatedNodes.length > 0 && (
-            <button className="btn" type="button" disabled={busy} onClick={upgradeAll}>
+            <button className="btn" type="button" disabled={busy} onClick={() => setUpgradeAll(true)}>
               <span className="badge-dot" />{t('升级全部 Agent（{n}）', { n: outdatedNodes.length })}
             </button>
           )}
@@ -427,6 +451,7 @@ export default function Nodes() {
           <button className="btn pri" type="button" onClick={() => setEditing('new')}>+ {t('添加节点')}</button>
         </div>}
       </div>
+      {!scoped && <RolloutPanel nodes={nodes} refresh={rolloutTick} />}
       {nodes.length === 0 ? <div className="card"><Empty>{scoped ? t('没有分配给你的节点，请联系超级管理员。') : t('还没有节点。')}{scoped ? null : t('点击「添加节点」生成一行安装命令，在服务器上执行即可接入。')}</Empty></div> : (
         <>
           <div className="nodes" role="group" aria-label={t('选择节点')}>
@@ -586,7 +611,8 @@ export default function Nodes() {
       )}
       {editing && <NodeForm node={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={(i) => { setEditing(null); refresh(); if (i) setInstall(i) }} />}
       {coreForm && sel && <CoreForm node={sel} core={coreForm.core} onClose={() => setCoreForm(null)} onSaved={() => { setCoreForm(null); refresh() }} />}
-      {batchCore && <BatchCoreUpgrade nodes={nodes} latest={latest.data ?? {}} onClose={() => setBatchCore(false)} onDone={() => { setBatchCore(false); refresh() }} />}
+      {batchCore && <BatchCoreUpgrade nodes={nodes} latest={latest.data ?? {}} onClose={() => setBatchCore(false)} onDone={() => { setBatchCore(false); setRolloutTick((x) => x + 1); refresh() }} />}
+      {upgradeAll && <UpgradeAgentsModal count={outdatedNodes.length} version={vnorm(panelVer)} onClose={() => setUpgradeAll(false)} onDone={() => { setUpgradeAll(false); setRolloutTick((x) => x + 1); refresh() }} />}
       {install && <InstallModal install={install} node={nodes.find((n) => n.id === install.nodeId)} onClose={() => setInstall(null)} />}
       {preview && (
         <Modal title={preview.title} onClose={() => setPreview(null)} wide footer={<button className="btn" type="button" onClick={() => { copyText(preview.text).then(() => toast(t('已复制')), () => toast(t('复制失败，请手动选择'), true)) }}>{t('复制')}</button>}>
