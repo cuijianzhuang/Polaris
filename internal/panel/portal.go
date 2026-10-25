@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -180,6 +181,9 @@ func (s *Server) portalPage(c *gin.Context) {
 	info.Rename = u.SelfService && s.selfRenameOn()
 	if s.webShopOn() {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
+	}
+	if u.FwdMax > 0 && s.license().Allow(license.FeaturePlanAddons) {
+		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🔀 我的转发", URL: portalPath + "/forwards"})
 	}
 	if s.ticketsOn() {
 		title := "🎫 工单"

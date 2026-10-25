@@ -225,6 +225,8 @@ func (s *Server) settleTraffic() error {
 		}
 	}
 	var quotaNodes []string // nodes where a user hit a cap or ran out of a pack
+	fwdOwners := s.forwardOwners(data)
+	fwdAdd := map[string]int64{} // user -> forwarded bytes charged
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := takeInbox(tx, data); err != nil {
 			return err
@@ -253,6 +255,10 @@ func (s *Server) settleTraffic() error {
 						}),
 					}).Create(&store.TagTrafficDaily{NodeID: nodeID, Kind: kind, Tag: tag, Day: day, Up: v[0], Down: v[1]}).Error; err != nil {
 						return err
+					}
+					if o, ok := fwdOwners[tag]; ok && kind == "inbound" {
+						// A self-service forward: its own allowance, node rate x plan rate.
+						fwdAdd[o.user] += int64(math.Round(float64(v[0]+v[1]) * rate * o.rate))
 					}
 					continue
 				}
@@ -317,6 +323,14 @@ func (s *Server) settleTraffic() error {
 			}
 		}
 		// Start "valid N days from first use" periods.
+		for uid, b := range fwdAdd {
+			if b <= 0 {
+				continue
+			}
+			if err := tx.Model(&store.User{}).Where("id = ?", uid).Update("fwd_used", gorm.Expr("fwd_used + ?", b)).Error; err != nil {
+				return err
+			}
+		}
 		if len(perUser) > 0 {
 			ids := make([]string, 0, len(perUser))
 			for uid := range perUser {
@@ -342,8 +356,75 @@ func (s *Server) settleTraffic() error {
 	if len(quotaNodes) > 0 {
 		s.MarkDirty("node quota reached", quotaNodes...)
 	}
+	if len(fwdAdd) > 0 {
+		s.capForwards(fwdAdd)
+	}
 	s.enforceLimits()
 	return nil
+}
+
+type fwdOwner struct {
+	user string
+	rate float64
+}
+
+// forwardOwners maps the traffic tags of self-service forwards in data
+// ("fwd-<rule id>") to their owner and plan rate.
+func (s *Server) forwardOwners(data map[string]map[string][2]int64) map[string]fwdOwner {
+	var ids []string
+	for _, users := range data {
+		for uid := range users {
+			if kind, tag, ok := strings.Cut(uid, ">>>"); ok && kind == "inbound" && strings.HasPrefix(tag, "fwd-") {
+				ids = append(ids, strings.TrimPrefix(tag, "fwd-"))
+			}
+		}
+	}
+	out := map[string]fwdOwner{}
+	if len(ids) == 0 {
+		return out
+	}
+	var rs []store.ForwardRule
+	s.st.DB.Select("id", "user_id").Where("id IN ? AND user_id <> ''", ids).Find(&rs)
+	if len(rs) == 0 {
+		return out
+	}
+	uids := make([]string, 0, len(rs))
+	for _, r := range rs {
+		uids = append(uids, r.UserID)
+	}
+	var us []store.User
+	s.st.DB.Select("id", "fwd_rate").Where("id IN ?", uids).Find(&us)
+	rates := map[string]float64{}
+	for _, u := range us {
+		rates[u.ID] = fwdRate(u.ForwardEntitlement)
+	}
+	for _, r := range rs {
+		if rt, ok := rates[r.UserID]; ok {
+			out["fwd-"+r.ID] = fwdOwner{user: r.UserID, rate: rt}
+		}
+	}
+	return out
+}
+
+// capForwards withholds the forwards of users who just used up their
+// forwarding allowance.
+func (s *Server) capForwards(charged map[string]int64) {
+	ids := make([]string, 0, len(charged))
+	for id := range charged {
+		ids = append(ids, id)
+	}
+	var us []store.User
+	s.st.DB.Select("id", "username").Where("id IN ? AND fwd_traffic > 0 AND fwd_used >= fwd_traffic AND fwd_capped = ?", ids, false).Find(&us)
+	var capped []string
+	for _, u := range us {
+		if s.st.DB.Model(&store.User{}).Where("id = ? AND fwd_capped = ?", u.ID, false).Update("fwd_capped", true).RowsAffected == 1 {
+			capped = append(capped, u.ID)
+			s.notify(Event{Kind: "user_forward_capped", UserID: u.ID, Text: "⛔ 用户 " + u.Username + " 的转发流量已用尽，转发已暂停"})
+		}
+	}
+	if len(capped) > 0 {
+		s.MarkDirty("forward allowance used up", s.userForwardNodes(capped...)...)
+	}
 }
 
 // enforceLimits moves users between active / limited / expired and lifts
@@ -417,7 +498,7 @@ func (s *Server) autoRenew(u *store.User, now time.Time) bool {
 		renewed = true
 		return tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
 			"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil,
-			"traffic_limit": u.TrafficLimit, "extra_traffic": 0}).Error
+			"traffic_limit": u.TrafficLimit, "extra_traffic": 0, "fwd_used": 0, "fwd_capped": false}).Error
 	})
 	if err != nil || !renewed {
 		return false
@@ -496,7 +577,10 @@ func (s *Server) resetTrafficCycles() {
 		if due {
 			// A new period: traffic packs bought for the last one expire.
 			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": resetAt,
-				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0})
+				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0, "fwd_used": 0, "fwd_capped": false})
+			if u.FwdCapped {
+				cappedNodes = append(cappedNodes, s.userForwardNodes(u.ID)...) // their forwards come back
+			}
 			capped, _ := s.nodeAccess(u.ID)
 			s.resetNodeUsage(u.ID)
 			for nodeID := range capped { // the cap lifts: those nodes take the user back

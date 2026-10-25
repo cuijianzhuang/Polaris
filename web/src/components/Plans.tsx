@@ -20,6 +20,7 @@ export function planSummary(p: Group) {
     p.days ? t('{n} 天', { n: p.days }) : t('不限期'),
     p.deviceLimit ? t('{n} 台设备', { n: p.deviceLimit }) : '',
     p.speedUpMbps || p.speedDownMbps ? `↑${p.speedUpMbps || '∞'} ↓${p.speedDownMbps || '∞'} Mbps` : '',
+    p.fwdMax ? t('{n} 条转发', { n: p.fwdMax }) : '',
   ].filter(Boolean).join(' · ')
 }
 
@@ -32,9 +33,10 @@ type Edit = {
   resetPolicy: string; resetDay: string; deviceLimit: string; ipLimit: string; speedUp: string; speedDown: string; fallbackId: string
   sale: boolean; priceStars: string; priceCny: string; priceUsdt: string
   nodeRates: Record<string, string>
+  fwdMax: string; fwdPortLo: string; fwdPortHi: string; fwdGB: string; fwdRate: string; fwdSpeed: string
 }
 
-const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {} }
+const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {}, fwdMax: '', fwdPortLo: '', fwdPortHi: '', fwdGB: '', fwdRate: '', fwdSpeed: '' }
 
 function toEdit(p: Group): Edit {
   return {
@@ -44,6 +46,8 @@ function toEdit(p: Group): Edit {
     speedUp: p.speedUpMbps ? String(p.speedUpMbps) : '', speedDown: p.speedDownMbps ? String(p.speedDownMbps) : '', fallbackId: p.fallbackId ?? '',
     sale: !!p.sale, priceStars: p.priceStars ? String(p.priceStars) : '', priceCny: p.priceCny ? String(p.priceCny) : '', priceUsdt: p.priceUsdt ? String(p.priceUsdt) : '',
     nodeRates: Object.fromEntries(Object.entries(p.nodeRates ?? {}).map(([k, v]) => [k, String(v)])),
+    fwdMax: p.fwdMax ? String(p.fwdMax) : '', fwdPortLo: p.fwdPortLo ? String(p.fwdPortLo) : '', fwdPortHi: p.fwdPortHi ? String(p.fwdPortHi) : '',
+    fwdGB: p.fwdTraffic ? String(+(p.fwdTraffic / GB).toFixed(2)) : '', fwdRate: p.fwdRate ? String(p.fwdRate) : '', fwdSpeed: p.fwdSpeedMbps ? String(p.fwdSpeedMbps) : '',
   }
 }
 
@@ -69,6 +73,8 @@ function planBody(e: Edit) {
     speedUpMbps: Number(e.speedUp) || 0, speedDownMbps: Number(e.speedDown) || 0, fallbackId: e.fallbackId,
     sale: e.sale, priceStars: Math.round(Number(e.priceStars) || 0), priceCny: Number(e.priceCny) || 0, priceUsdt: Number(e.priceUsdt) || 0,
     nodeRates: Object.fromEntries(Object.entries(e.nodeRates).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => (v as number) > 0)),
+    fwdMax: Math.round(Number(e.fwdMax) || 0), fwdPortLo: Math.round(Number(e.fwdPortLo) || 0), fwdPortHi: Math.round(Number(e.fwdPortHi) || 0),
+    fwdTraffic: Math.round(Number(e.fwdGB || 0) * GB), fwdRate: Number(e.fwdRate) || 0, fwdSpeedMbps: Math.round(Number(e.fwdSpeed) || 0),
   }
 }
 
@@ -199,6 +205,21 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
             </div>
           </Field>
         )}
+        <Field label={<>{t('端口转发')}<ProTag on={addonsOK} /></>} hint={t('用户可在用户中心自助添加端口转发（GOST），只能用在上面这些可用节点上；转发流量单独计算，用完后转发暂停、代理不受影响。条数为 0 = 不开放。')}>
+          <div className="form-grid">
+            <Field label={t('最多条数')} htmlFor="p-fwd-max"><input id="p-fwd-max" className="input mono" inputMode="numeric" disabled={!addonsOK} placeholder="0" value={edit.fwdMax} onChange={(e) => set('fwdMax', e.target.value)} /></Field>
+            <Field label={t('每周期转发流量 (GB)')} htmlFor="p-fwd-gb" hint={t('留空为不限')}><input id="p-fwd-gb" className="input mono" inputMode="decimal" disabled={!addonsOK} value={edit.fwdGB} onChange={(e) => set('fwdGB', e.target.value)} /></Field>
+            <Field label={t('端口范围')} hint={t('留空为 10000–60000')}>
+              <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+                <input className="input mono" inputMode="numeric" aria-label={t('起始端口')} disabled={!addonsOK} placeholder="10000" value={edit.fwdPortLo} onChange={(e) => set('fwdPortLo', e.target.value)} />
+                <span className="mute">–</span>
+                <input className="input mono" inputMode="numeric" aria-label={t('结束端口')} disabled={!addonsOK} placeholder="60000" value={edit.fwdPortHi} onChange={(e) => set('fwdPortHi', e.target.value)} />
+              </div>
+            </Field>
+            <Field label={t('转发倍率')} htmlFor="p-fwd-rate" hint={t('在节点倍率之上再乘；留空为 1')}><input id="p-fwd-rate" className="input mono" inputMode="decimal" disabled={!addonsOK} placeholder="1" value={edit.fwdRate} onChange={(e) => set('fwdRate', e.target.value)} /></Field>
+            <Field label={t('每条限速 (Mbps)')} htmlFor="p-fwd-speed" hint={t('上下行各自限速；留空为不限')}><input id="p-fwd-speed" className="input mono" inputMode="numeric" disabled={!addonsOK} value={edit.fwdSpeed} onChange={(e) => set('fwdSpeed', e.target.value)} /></Field>
+          </div>
+        </Field>
         {edit.id && <div className="sub">{t('修改后：已开通的用户立即按新的节点和限速生效；流量、到期时间在下次开通或续费时更新。')}</div>}
       </Modal>
     )

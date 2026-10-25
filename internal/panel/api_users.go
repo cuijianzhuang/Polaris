@@ -413,6 +413,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 				affected = append(affected, u.ID)
 			}
 		case "delete":
+			tx.Where("user_id IN ?", req.IDs).Delete(&store.ForwardRule{})
 			tx.Where("user_id IN ?", req.IDs).Delete(&store.UserGroup{})
 			tx.Where("user_id IN ?", req.IDs).Delete(&store.UserAccess{})
 			if err := tx.Where("id IN ? AND is_service = ?", req.IDs, false).Delete(&store.User{}).Error; err != nil {
@@ -669,6 +670,7 @@ func (s *Server) deleteUser(c *gin.Context) {
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserGroup{})
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserAccess{})
 	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserNodeQuota{})
+	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.ForwardRule{}) // nodes listed above already
 	s.st.DB.Delete(&u)
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")

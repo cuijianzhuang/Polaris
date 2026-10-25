@@ -615,6 +615,7 @@ func (s *Server) nodesForUsers(userIDs ...string) []string {
 	s.st.DB.Table("inbounds").
 		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
 		Where("grants.user_id IN ?", userIDs).Distinct().Pluck("inbounds.node_id", &ids)
+	ids = append(ids, s.userForwardNodes(userIDs...)...) // their self-service forwards follow the account
 	// Routing rules may reference groups the users belong to.
 	var gids []string
 	s.st.DB.Model(&store.UserGroup{}).Where("user_id IN ?", userIDs).Pluck("group_id", &gids)
