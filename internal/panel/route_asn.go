@@ -7,10 +7,12 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/asn"
@@ -123,6 +125,34 @@ func (s *Server) getRouteASN(c *gin.Context) {
 		metadata = &value
 	}
 	c.JSON(http.StatusOK, gin.H{"policy": p, "databaseState": state, "database": metadata, "effectiveEnabled": p.Enabled && db != nil})
+}
+
+// Preview the installed snapshot even while annotations are disabled. This
+// endpoint never resolves names, performs network requests, or changes policy.
+func (s *Server) lookupRouteASN(c *gin.Context) {
+	var req struct {
+		IP string `json:"ip"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, errors.New("请输入有效的 IPv4 或 IPv6 地址"))
+		return
+	}
+	ip, err := netip.ParseAddr(strings.TrimSpace(req.IP))
+	if err != nil || ip.Zone() != "" {
+		badRequest(c, errors.New("请输入有效的 IPv4 或 IPv6 地址"))
+		return
+	}
+	p, err := readRouteASNPolicy(s.st.DB)
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	db, state := s.loadRouteASN(p.SHA256)
+	if db == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": errRouteASNMissing.Error(), "databaseState": state})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"match": db.Lookup(ip.String()), "databaseSHA256": p.SHA256, "effectiveEnabled": p.Enabled})
 }
 
 func (s *Server) putRouteASN(c *gin.Context) {

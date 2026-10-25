@@ -946,3 +946,35 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
   .ops-stack .ctitle { flex-wrap: wrap; gap: 10px; }
   .ops-stack .ctitle .row { flex-wrap: wrap; }
 }
+
+/* Offline ASN settings: keep status, installation and verification distinct. */
+.asn-settings .card { min-width: 0; }
+.asn-description { margin: 0; }
+.asn-enable { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft-2); }
+.asn-enable-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-weight: 600; margin-bottom: 6px; }
+.asn-status { padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 500; background: var(--soft); color: var(--mute); }
+.asn-status.active { background: color-mix(in srgb, var(--pri) 12%, transparent); color: var(--pri); }
+.asn-status.warning { color: var(--ink); border: 1px solid var(--line); }
+.asn-metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 24px; margin: 4px 0 0; }
+.asn-metadata dt { font-size: 12px; color: var(--mute); margin-bottom: 6px; }
+.asn-metadata dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.asn-hash { grid-column: 1 / -1; }
+.asn-metadata .asn-hash dd { font-size: 12px; }
+.asn-source-links { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; }
+.asn-source-links > span { color: var(--mute); }
+.asn-source-links a { color: var(--pri); text-decoration: underline; text-underline-offset: 3px; }
+.asn-file { height: auto; padding: 8px; font-size: 12px; }
+.asn-file::file-selector-button { border: 1px solid var(--line); border-radius: 6px; background: var(--soft); color: var(--ink); padding: 7px 12px; margin-right: 12px; cursor: pointer; font: inherit; }
+.asn-selected { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; }
+.asn-details { border-top: 1px solid var(--line); padding-top: 14px; }
+.asn-details summary { cursor: pointer; font-size: 12px; color: var(--ink-2); }
+.asn-details p { margin: 10px 0 0; }
+.asn-lookup-form { display: flex; align-items: flex-end; gap: 12px; }
+.asn-lookup-form > .field { flex: 1; min-width: 0; margin: 0; }
+.asn-lookup-form > .btn { flex: none; }
+.asn-lookup-result { display: grid; gap: 8px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft-2); font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .asn-enable { padding: 12px; gap: 12px; }
+  .asn-lookup-form { flex-direction: column; align-items: stretch; }
+  .asn-settings .ops-stack > .btn { align-self: stretch; }
+}

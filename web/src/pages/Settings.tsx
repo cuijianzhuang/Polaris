@@ -1,7 +1,7 @@
 import Passkeys from '../components/Passkeys'
 import { NotificationSettings, RouteASNSettings } from '../components/NetworkSettings'
 import { ProTag, useFeature } from '../components/License'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
@@ -207,7 +207,7 @@ const settingTabs = [
   { id: 'security', label: t('账号安全'), hint: t('密码、二次验证、登录设备、登录防护'), icon: <Icon.Lock /> },
   { id: 'update', label: t('版本与更新'), hint: t('在线升级、自动更新'), icon: <Icon.Refresh /> },
   { id: 'backup', label: t('备份与恢复'), hint: t('自动备份、恢复'), icon: <Icon.Download /> },
-  { id: 'network', label: t('网络检测'), hint: t('回程 ASN 数据库'), icon: <Icon.Server /> },
+  { id: 'network', label: t('网络检测'), hint: t('ASN 数据源、归属验证'), icon: <Icon.Globe /> },
   { id: 'notifications', label: t('通知策略'), hint: t('事件渠道、维护静默、告警合并'), icon: <Icon.Mail /> },
   { id: 'mail', label: t('邮件'), hint: t('SMTP、邮件提醒'), icon: <Icon.Mail /> },
   { id: 'appearance', label: t('外观'), hint: t('主题与配色'), icon: <Icon.Sun /> },
@@ -619,12 +619,21 @@ export default function Settings() {
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const [tab, setTab] = useState<string>(() => settingTabs.some((t) => '#' + t.id === location.hash) ? location.hash.slice(1) : 'general')
   const go = (id: string) => { setTab(id); history.replaceState(null, '', '#' + id) }
+  const settingsNav = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const nav = settingsNav.current
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (nav && active && nav.scrollWidth > nav.clientWidth) {
+      nav.scrollTo({ left: nav.scrollLeft + active.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - active.clientWidth) / 2 })
+    }
+  }, [tab])
+
 
   return (
     <>
       <div className="top"><div><h1>{t('设置')}</h1><div className="sub">{t('面板、证书、账号安全、备份与外观')}</div></div></div>
       <div className="settings">
-        <nav className="snav" aria-label={t('设置分区')}>
+        <nav ref={settingsNav} className="snav" aria-label={t('设置分区')}>
           {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
         </nav>
         <div className="spane" key={tab}>

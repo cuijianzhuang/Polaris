@@ -182,6 +182,7 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/probe/nodes/:id", s.setNodeStatusHidden)
 	p.GET("/nodes/:id/latency", s.nodeLatency)
 	p.GET("/tools/route-asn", s.getRouteASN)
+	p.POST("/tools/route-asn/lookup", s.lookupRouteASN)
 	p.PUT("/tools/route-asn", s.putRouteASN)
 	p.PUT("/tools/route-asn/database", s.uploadRouteASN)
 	p.GET("/nodes/:id/route-schedule", s.getNodeRouteSchedule)
