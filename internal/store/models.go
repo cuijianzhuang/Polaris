@@ -193,11 +193,17 @@ type User struct {
 	WarnedUsage  bool       `json:"-"` // 80% traffic warning sent this cycle
 	WarnedExpire *time.Time `json:"-"`
 	Remark       string     `gorm:"size:255" json:"remark"`
-	GroupIDs     []string   `gorm:"-" json:"groupIds"`
-	NodeIDs      []string   `gorm:"-" json:"nodeIds"`    // direct node bindings
-	InboundIDs   []string   `gorm:"-" json:"inboundIds"` // direct inbound bindings
-	CreatedAt    time.Time  `json:"createdAt"`
-	UpdatedAt    time.Time  `json:"updatedAt"`
+	// Self-service port forwarding, set from the plan (professional
+	// edition): FwdUsed counts this period's forwarded traffic, FwdCapped
+	// records that FwdTraffic was reached (the rules are then withheld).
+	ForwardEntitlement
+	FwdUsed    int64     `json:"fwdUsed"`
+	FwdCapped  bool      `json:"fwdCapped"`
+	GroupIDs   []string  `gorm:"-" json:"groupIds"`
+	NodeIDs    []string  `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs []string  `gorm:"-" json:"inboundIds"` // direct inbound bindings
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // Used returns total used bytes.
@@ -242,11 +248,12 @@ type Group struct {
 	PriceUSDT  float64 `json:"priceUsdt"`  // USDT on TRON (TRC20)
 	// NodeRates overrides node traffic multipliers for the plan's users
 	// (professional edition), filled per request.
-	NodeRates  map[string]float64 `gorm:"-" json:"nodeRates,omitempty"`
-	NodeIDs    []string           `gorm:"-" json:"nodeIds"`
-	InboundIDs []string           `gorm:"-" json:"inboundIds"`
-	UserCount  int64              `gorm:"-" json:"userCount"`
-	CreatedAt  time.Time          `json:"createdAt"`
+	NodeRates map[string]float64 `gorm:"-" json:"nodeRates,omitempty"`
+	ForwardEntitlement
+	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
+	InboundIDs []string  `gorm:"-" json:"inboundIds"`
+	UserCount  int64     `gorm:"-" json:"userCount"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 // NodeNetBoot remembers accepted host boots even after the node moves to a
@@ -583,11 +590,23 @@ type ForwardRemote struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// ForwardEntitlement is what a plan grants for self-service forwarding;
+// FwdMax 0 = none. Users hold a copy, applied with the plan.
+type ForwardEntitlement struct {
+	FwdMax       int     `json:"fwdMax"`    // rules
+	FwdPortLo    int     `json:"fwdPortLo"` // listen port range (0 = 10000–60000)
+	FwdPortHi    int     `json:"fwdPortHi"`
+	FwdTraffic   int64   `json:"fwdTraffic"`   // bytes per period, 0 = unlimited
+	FwdRate      float64 `json:"fwdRate"`      // multiplier on top of the node's (0 = 1)
+	FwdSpeedMbps int     `json:"fwdSpeedMbps"` // per rule, each direction; 0 = unlimited
+}
+
 // ForwardRule is a standalone L4 port forward on a node (realm).
 type ForwardRule struct {
 	ID         string                `gorm:"primaryKey;size:32" json:"id"`
 	NodeID     string                `gorm:"size:32;index" json:"nodeId"`
-	Engine     string                `gorm:"size:8" json:"engine"` // "" realm / gost
+	UserID     string                `gorm:"size:32;index" json:"userId,omitempty"` // owner of a self-service rule ("" = admin's)
+	Engine     string                `gorm:"size:8" json:"engine"`                  // "" realm / gost
 	Name       string                `gorm:"size:64" json:"name"`
 	ListenIP   string                `gorm:"size:64" json:"listenIp"`
 	ListenPort int                   `json:"listenPort"`

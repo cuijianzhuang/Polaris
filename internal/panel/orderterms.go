@@ -20,7 +20,8 @@ type orderTerms struct {
 
 func freezePlan(p *store.Group) string {
 	b, _ := json.Marshal(orderTerms{Version: 1, Plan: &store.Group{ID: p.ID, Name: p.Name, Plan: true,
-		Days: p.Days, TrafficLimit: p.TrafficLimit, ResetPolicy: p.ResetPolicy, ResetDay: p.ResetDay, DeviceLimit: p.DeviceLimit, IPLimit: p.IPLimit}})
+		Days: p.Days, TrafficLimit: p.TrafficLimit, ResetPolicy: p.ResetPolicy, ResetDay: p.ResetDay, DeviceLimit: p.DeviceLimit, IPLimit: p.IPLimit,
+		ForwardEntitlement: p.ForwardEntitlement}})
 	return string(b)
 }
 func freezePack(p *store.TrafficPack) string {

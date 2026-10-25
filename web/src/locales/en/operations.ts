@@ -539,6 +539,19 @@ const operations: Record<string, string> = {
   "UDP DNS 测试地址": "UDP DNS test address",
   "留空使用标准目标；自定义目标的结果不覆盖概览中的标准业务检查记录。": "Leave blank for standard targets. Custom target results do not replace the standard service checks in the overview.",
   "请至少填写一个检测目标": "Enter at least one target",
-  "节点离线，暂时无法检测": "The node is offline; checks are unavailable"
+  "节点离线，暂时无法检测": "The node is offline; checks are unavailable",
+  "{n} 条转发": "{n} forwards",
+  "上下行各自限速；留空为不限": "Each direction; leave blank for unlimited",
+  "在节点倍率之上再乘；留空为 1": "Applied on top of the node multiplier; blank = 1",
+  "最多条数": "Max rules",
+  "每周期转发流量 (GB)": "Forward traffic per period (GB)",
+  "每条限速 (Mbps)": "Speed limit per rule (Mbps)",
+  "用户 {name}": "User {name}",
+  "用户可在用户中心自助添加端口转发（GOST），只能用在上面这些可用节点上；转发流量单独计算，用完后转发暂停、代理不受影响。条数为 0 = 不开放。": "Users can add their own port forwards (GOST) in the user center, on the nodes above only. Forward traffic has its own allowance: once used up, forwards pause while proxies keep working. 0 rules = not offered.",
+  "用户在用户中心自助添加的转发，按套餐的转发额度计量": "Added by the user in the user center; metered against the plan's forwarding allowance",
+  "留空为 10000–60000": "Blank = 10000–60000",
+  "端口范围": "Port range",
+  "结束端口": "End port",
+  "转发倍率": "Forward multiplier"
 }
 export default operations

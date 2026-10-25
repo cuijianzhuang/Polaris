@@ -14,6 +14,7 @@ interface Rule {
   remotes: Remote[]; balance: string; failover: boolean; through: string
   tunnelRole: string; tunnelType: string; tunnelHost: string; tunnelPath: string; tunnelSni: string
   sendProxy: number; acceptProxy: boolean; enabled: boolean; health?: Record<string, boolean>; remark: string
+  userId?: string; username?: string // a user's self-service rule
 }
 
 const netLabel: Record<string, string> = { tcp: 'TCP', udp: 'UDP', 'tcp,udp': 'TCP + UDP' }
@@ -190,7 +191,7 @@ export default function Forwards() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className="clickable" onClick={() => setDrawer(r)}>
-                  <td style={{ fontWeight: 500 }}>{r.name}{r.remark && <div className="small mute">{r.remark}</div>}</td>
+                  <td style={{ fontWeight: 500 }}>{r.name}{r.userId && <span className="tag info-tag" style={{ marginLeft: 6 }} title={t('用户在用户中心自助添加的转发，按套餐的转发额度计量')}>{t('用户 {name}', { name: r.username || r.userId })}</span>}{r.remark && <div className="small mute">{r.remark}</div>}</td>
                   <td>{r.nodeName || '—'}</td>
                   <td><span className={r.engine === 'gost' ? 'tag singbox' : 'tag'}>{r.engine === 'gost' ? 'GOST' : 'realm'}</span></td>
                   <td className="mono">{r.listenIp ? r.listenIp + ':' : ':'}{r.listenPort}</td>

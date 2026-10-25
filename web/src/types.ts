@@ -84,6 +84,8 @@ export interface Group {
   id: string; name: string; remark: string; inboundIds: string[]; nodeIds: string[]; level: number; userCount: number; isDefault?: boolean; speedUpMbps?: number; speedDownMbps?: number
   // A plan is a group sold as a package.
   plan?: boolean; trafficLimit?: number; days?: number; resetPolicy?: string; resetDay?: number; deviceLimit?: number; ipLimit?: number
+  // Self-service port forwarding (professional edition).
+  fwdMax?: number; fwdPortLo?: number; fwdPortHi?: number; fwdTraffic?: number; fwdRate?: number; fwdSpeedMbps?: number
   price?: string; fallbackId?: string; fallbackName?: string; sort?: number
   sale?: boolean; priceStars?: number; priceCny?: number; priceUsdt?: number
   nodeRates?: Record<string, number>

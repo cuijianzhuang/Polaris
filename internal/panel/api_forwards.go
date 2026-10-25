@@ -22,6 +22,7 @@ import (
 type forwardView struct {
 	store.ForwardRule
 	NodeName string `json:"nodeName"`
+	Username string `json:"username,omitempty"` // owner of a self-service rule
 }
 
 func (s *Server) listForwards(c *gin.Context) {
@@ -30,11 +31,28 @@ func (s *Server) listForwards(c *gin.Context) {
 	if n := c.Query("node"); n != "" {
 		q = q.Where("node_id = ?", n)
 	}
+	if u := c.Query("user"); u != "" {
+		q = q.Where("user_id = ?", u)
+	}
 	q.Find(&rs)
 	names := s.nodeNames()
+	owners := map[string]string{}
+	var uids []string
+	for _, r := range rs {
+		if r.UserID != "" {
+			uids = append(uids, r.UserID)
+		}
+	}
+	if len(uids) > 0 {
+		var us []store.User
+		s.st.DB.Select("id", "username").Where("id IN ?", uids).Find(&us)
+		for _, u := range us {
+			owners[u.ID] = u.Username
+		}
+	}
 	out := make([]forwardView, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, forwardView{r, names[r.NodeID]})
+		out = append(out, forwardView{r, names[r.NodeID], owners[r.UserID]})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -316,6 +334,7 @@ func tunnelString(r *store.ForwardRule) string {
 func (s *Server) standaloneForwards(nodeID string) []model.ForwardRule {
 	var rs []store.ForwardRule
 	s.st.DB.Where("node_id = ? AND enabled = ?", nodeID, true).Order("listen_port").Find(&rs)
+	rs, userKBps := s.userForwardAllowed(rs)
 	var out []model.ForwardRule
 	for i := range rs {
 		r := &rs[i]
@@ -350,6 +369,9 @@ func (s *Server) standaloneForwards(nodeID string) []model.ForwardRule {
 			f.Engine, f.Failover, f.TunnelRole, f.TunnelType = model.EngineGost, r.Failover, r.TunnelRole, r.TunnelType
 			f.TunnelHost, f.TunnelPath, f.TunnelSNI, f.TunnelAuth = r.TunnelHost, r.TunnelPath, r.TunnelSNI, r.TunnelAuth
 			f.RateIn, f.RateOut, f.MaxConns = r.RateIn, r.RateOut, r.MaxConns
+			if r.UserID != "" {
+				f.RateIn, f.RateOut = userKBps[r.ID], userKBps[r.ID] // the plan's cap, as it is now
+			}
 			out = append(out, f)
 			continue
 		}

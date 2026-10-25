@@ -97,9 +97,11 @@ func applyPlan(tx *gorm.DB, u *store.User, p *store.Group, renew bool, now time.
 	}
 	upd := map[string]any{"plan_id": p.ID, "traffic_limit": limit, "extra_traffic": extra, "expire_at": exp, "expire_after_days": 0,
 		"reset_policy": orDefault(p.ResetPolicy, "none"), "reset_day": p.ResetDay, "device_limit": p.DeviceLimit, "ip_limit": p.IPLimit,
-		"speed_up_mbps": 0, "speed_down_mbps": 0, "warned_expire": nil}
+		"speed_up_mbps": 0, "speed_down_mbps": 0, "warned_expire": nil,
+		"fwd_max": p.FwdMax, "fwd_port_lo": p.FwdPortLo, "fwd_port_hi": p.FwdPortHi, "fwd_traffic": p.FwdTraffic, "fwd_rate": p.FwdRate, "fwd_speed_mbps": p.FwdSpeedMbps}
 	if reset {
 		upd["used_up"], upd["used_down"], upd["last_reset_at"], upd["warned_usage"] = 0, 0, now, false
+		upd["fwd_used"], upd["fwd_capped"] = 0, false
 		if err := tx.Model(&store.UserNodeQuota{}).Where("user_id = ?", u.ID).Update("used", 0).Error; err != nil {
 			return "", err
 		}
@@ -113,8 +115,10 @@ func applyPlan(tx *gorm.DB, u *store.User, p *store.Group, renew bool, now time.
 	u.PlanID, u.TrafficLimit, u.ExtraTraffic, u.ExpireAt, u.ExpireAfterDays = p.ID, limit, extra, exp, 0
 	u.ResetPolicy, u.ResetDay, u.DeviceLimit, u.IPLimit = orDefault(p.ResetPolicy, "none"), p.ResetDay, p.DeviceLimit, p.IPLimit
 	u.SpeedUpMbps, u.SpeedDownMbps = 0, 0
+	u.ForwardEntitlement = p.ForwardEntitlement
 	if reset {
 		u.UsedUp, u.UsedDown, u.LastResetAt = 0, 0, &now
+		u.FwdUsed, u.FwdCapped = 0, false
 	}
 	verb := "开通"
 	if renew {
@@ -179,6 +183,7 @@ type planReq struct {
 	// NodeRates replaces node multipliers for the plan's users (nil =
 	// unchanged; professional edition).
 	NodeRates map[string]float64 `json:"nodeRates"`
+	store.ForwardEntitlement
 }
 
 func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
@@ -202,6 +207,13 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 		return
 	case req.FallbackID != "" && req.FallbackID == g.ID:
 		badRequest(c, errors.New("到期降级不能指向套餐自己"))
+		return
+	}
+	if err := validFwdEntitlement(&req.ForwardEntitlement); err != nil {
+		badRequest(c, err)
+		return
+	}
+	if req.ForwardEntitlement != g.ForwardEntitlement && req.FwdMax > 0 && !s.requireFeature(c, license.FeaturePlanAddons) {
 		return
 	}
 	for _, r := range req.NodeRates {
@@ -240,6 +252,7 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 	g.TrafficLimit, g.Days, g.ResetPolicy, g.ResetDay = req.TrafficLimit, req.Days, req.ResetPolicy, req.ResetDay
 	g.DeviceLimit, g.IPLimit, g.Price, g.FallbackID, g.Sort = req.DeviceLimit, req.IPLimit, req.Price, req.FallbackID, req.Sort
 	g.Sale, g.PriceStars = req.Sale, req.PriceStars
+	g.ForwardEntitlement = req.ForwardEntitlement
 	g.PriceCNY, g.PriceUSDT = math.Round(req.PriceCNY*100)/100, math.Round(req.PriceUSDT*100)/100
 	s.saveGroup(c, g, &req.groupReq, create)
 }
