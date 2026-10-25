@@ -65,7 +65,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   let data: any = undefined
   try { data = text ? JSON.parse(text) : undefined } catch { data = text }
   if (!resp.ok) {
-    if (resp.status === 401 && !path.startsWith('/auth/login')) onUnauthorized()
+    if (resp.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/passkeys/login/') && path !== '/auth/account-recovery') onUnauthorized()
     throw new ApiError(resp.status, (data && data.error) || resp.statusText, data)
   }
   return data as T

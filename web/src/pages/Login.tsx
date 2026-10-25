@@ -1,3 +1,4 @@
+import { passkeysSupported, usePasskey } from '../passkeys'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError, get, post, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
@@ -14,17 +15,32 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const [needTotp, setNeedTotp] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
+  const [passkey, setPasskey] = useState(false)
+  const [accountRecovery,setAccountRecovery] = useState(false)
+  const [accountCode,setAccountCode] = useState('')
+  const [newPassword,setNewPassword] = useState('')
+  const [newPasswordAgain,setNewPasswordAgain] = useState('')
+  const [recovered,setRecovered] = useState(false)
   const [github, setGithub] = useState(false)
   const [ticket, setTicket] = useState('') // GitHub verified, 2FA code still needed
   const [telegram, setTelegram] = useState(false)
   const [sso, setSso] = useState<{ id: string; name: string }[]>([])
   const [tg, setTg] = useState<TGRequest | null>(null)
   useEffect(() => {
-    get<{ githubLogin?: boolean; telegramLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setSso(i.sso ?? []) }).catch(() => {})
+    get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
   }, [])
+  const passkeyLogin = async () => {
+    setBusy(true);setErr('')
+    try {
+      const begin=await post<{challengeId:string;options:any}>('/auth/passkeys/login/begin')
+      const credential=await usePasskey(begin.options)
+      const r=await post<{token:string;username:string}>('/auth/passkeys/login/finish',{challengeId:begin.challengeId,credential})
+      setToken(r.token);onLogin(r.username)
+    } catch(e) {setErr(e instanceof DOMException && e.name==='NotAllowedError' ? t('设备验证已取消或超时，请重试。') : e instanceof Error ? e.message : String(e))} finally {setBusy(false)}
+  }
   const githubLogin = async () => {
     setBusy(true); setErr('')
     try { location.href = (await post<{ url: string }>('/auth/github/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
@@ -72,6 +88,22 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     }
   }
 
+  if (accountRecovery) return <div className="login"><form className="card" onSubmit={async(e)=>{
+    e.preventDefault();setBusy(true);setErr('')
+    try {await post('/auth/account-recovery',{username,code:accountCode,password:newPassword});setRecovered(true);setAccountCode('');setPassword('');setNewPassword('');setNewPasswordAgain('');setAccountRecovery(false)} catch(e){setErr(e instanceof Error?e.message:String(e))} finally {setBusy(false)}
+  }}>
+    <h1>{t('恢复管理员账号')}</h1>
+    <div className="note warn">{t('使用离线账号恢复码重置密码。这将关闭 TOTP、撤销全部通行密钥和登录会话，整组旧恢复码随即失效。')}</div>
+    <label className="lbl" htmlFor="recover-user">{t('用户名')}</label><input id="recover-user" className="input" value={username} onChange={(e)=>setUsername(e.target.value)} autoComplete="username" required />
+    <label className="lbl" htmlFor="recover-code">{t('账号恢复码')}</label><input id="recover-code" className="input mono" value={accountCode} onChange={(e)=>setAccountCode(e.target.value)} autoComplete="off" autoCapitalize="none" spellCheck={false} required />
+    <label className="lbl" htmlFor="recover-password">{t('新密码')}</label><input id="recover-password" className="input" type="password" value={newPassword} onChange={(e)=>setNewPassword(e.target.value)} autoComplete="new-password" minLength={8} required />
+    <label className="lbl" htmlFor="recover-password-again">{t('确认新密码')}</label><input id="recover-password-again" className="input" type="password" value={newPasswordAgain} onChange={(e)=>setNewPasswordAgain(e.target.value)} autoComplete="new-password" minLength={8} required />
+    {newPasswordAgain && newPasswordAgain!==newPassword && <div className="hint">{t('两次输入的新密码不一致')}</div>}
+    {err&&<div className="note bad">{err}</div>}
+    <button className="btn pri" disabled={busy || newPassword.length<8 || newPassword!==newPasswordAgain || !username || !accountCode} type="submit">{t('重置并撤销旧登录凭据')}</button>
+    <button className="btn" disabled={busy} type="button" onClick={()=>{setAccountRecovery(false);setErr('');setAccountCode('');setNewPassword('');setNewPasswordAgain('')}}>{t('返回登录')}</button>
+  </form></div>
+
   if (tg) {
     return <TelegramWait req={tg} onDone={(user, error) => { setTg(null); if (user) onLogin(user); else if (error) setErr(error) }} />
   }
@@ -97,6 +129,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   return (
     <div className="login">
       <form className="card" onSubmit={submit}>
+ {recovered && <div className="note">{t('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。')}</div>}
         <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.Brand size={40} />{brand.title}<span className="spacer" /><LangToggle /></div>
         <div className="field">
           <label className="lbl" htmlFor="u">{t('用户名')}</label>
@@ -115,7 +148,9 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         )}
         {err && <div className="note bad">{err}</div>}
         <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : t('登录')}</button>
-        {(github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
+        {(passkey || github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
+        {passkey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
+        {passkey && <button className="link small" type="button" disabled={busy} onClick={()=>{setAccountRecovery(true);setErr('')}}>{t('无法使用通行密钥？恢复账号')}</button>}
         {github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         {telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
         {sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}

@@ -123,6 +123,13 @@ func (s *Server) newIdempotencyRequest(c *gin.Context, key string) (*idempotency
 }
 
 func (s *Server) idempotency(c *gin.Context) {
+	// Authentication responses can contain tokens/recovery secrets. They must
+	// never enter the plaintext response cache or bypass single-use ceremonies.
+	if strings.HasPrefix(strings.TrimPrefix(c.FullPath(), s.cfg.APIBase()), "/auth/") {
+		c.Next()
+		return
+	}
+
 	key := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
 	if key == "" || c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
 		c.Next()

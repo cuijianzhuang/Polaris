@@ -717,6 +717,18 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupArchive, box *se
 		if e := importAll(tx, arc.Tables, reseal); e != nil {
 			return e
 		}
+		// Authentication challenges must never be revived from a backup.
+		if e := tx.Where("name LIKE ?", "passkey:%").Delete(&store.EphemeralKV{}).Error; e != nil {
+			return e
+		}
+		// A database rollback must not revive spent account recovery secrets or
+		// sessions established with a passkey. Administrators regenerate codes after restore.
+		if e := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.AccountRecoveryCode{}).Error; e != nil {
+			return e
+		}
+		if e := tx.Model(&store.AdminSession{}).Where("via = ?", "passkey").Update("revoked", true).Error; e != nil {
+			return e
+		}
 		if e := store.SealLegacySubSources(tx, box); e != nil {
 			return e
 		}

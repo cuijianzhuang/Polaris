@@ -250,3 +250,36 @@ func AdminLicense(cfg *Config, action, file string) (string, error) {
 	b, _ := json.MarshalIndent(s.licenseView(), "", "  ")
 	return string(b), nil
 }
+
+// AdminResetPasskeys is the server operator's recovery path when every device
+// and offline recovery code is lost. Password and TOTP have separate commands.
+func AdminResetPasskeys(cfg *Config, username string) (string, error) {
+	st, e := openStore(cfg)
+	if e != nil {
+		return "", e
+	}
+	defer st.Close()
+	a, e := findAdmin(st, username)
+	if e != nil {
+		return "", e
+	}
+	e = st.DB.Transaction(func(tx *gorm.DB) error {
+		if e := reservePasskeys(tx); e != nil {
+			return e
+		}
+		if e := tx.Delete(&store.Passkey{}, "admin_id = ?", a.ID).Error; e != nil {
+			return e
+		}
+		if e := tx.Delete(&store.AccountRecoveryCode{}, "admin_id = ?", a.ID).Error; e != nil {
+			return e
+		}
+		if e := tx.Model(&store.AdminSession{}).Where("admin_id = ?", a.ID).Update("revoked", true).Error; e != nil {
+			return e
+		}
+		if e := tx.Model(&store.Admin{}).Where("id = ?", a.ID).UpdateColumn("token_version", gorm.Expr("token_version + 1")).Error; e != nil {
+			return e
+		}
+		return tx.Create(&store.AuditLog{Admin: "cli", Action: "admin.passkeys_reset", Target: a.Username}).Error
+	})
+	return a.Username, e
+}

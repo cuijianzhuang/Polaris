@@ -70,9 +70,10 @@ var tokenRoutes = map[string]string{
 	"PUT /users/:id/node-quotas/:node":    ScopeUsersWrite,
 	"DELETE /users/:id/node-quotas/:node": ScopeUsersWrite,
 
-	"GET /nodes":     ScopeNodesRead,
-	"GET /nodes/:id": ScopeNodesRead,
-	"GET /inbounds":  ScopeNodesRead,
+	"GET /nodes":                     ScopeNodesRead,
+	"GET /nodes/:id/snell-readiness": ScopeNodesRead,
+	"GET /nodes/:id":                 ScopeNodesRead,
+	"GET /inbounds":                  ScopeNodesRead,
 
 	"GET /stats/overview": ScopeTrafficRead,
 	"GET /stats/traffic":  ScopeTrafficRead,

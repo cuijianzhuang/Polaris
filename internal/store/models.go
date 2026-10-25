@@ -432,6 +432,7 @@ type Admin struct {
 // the settings, revocable one by one. Sudo marks a recent re-verification
 // that unlocks sensitive actions for a few minutes.
 type AdminSession struct {
+	PasskeyID string     `gorm:"size:32;index" json:"-"`
 	ID        string     `gorm:"primaryKey;size:32" json:"id"`
 	AdminID   string     `gorm:"size:40;index" json:"-"` // admin id, or "tg:" + Telegram admin id
 	Username  string     `gorm:"size:64" json:"username"`
@@ -845,7 +846,7 @@ type TGAdmin struct {
 func AllModels() []any {
 	return []any{
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
-		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
+		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &Passkey{}, &AccountRecoveryCode{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},

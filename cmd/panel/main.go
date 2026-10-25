@@ -60,6 +60,7 @@ const usage = `usage:
                                             set a new password (random if -p is empty), unlock
                                             the account and sign out every session
   polaris admin reset-2fa [-u NAME]         turn off two-factor authentication
+  polaris admin reset-passkeys [-u NAME]    revoke passkeys, account recovery codes and sessions
   polaris admin license [show|install FILE|deactivate]
                                             show, install or release this panel's license
   polaris backup FILE [-passphrase P]       backup archive (SQLite or PostgreSQL); encrypted with a
@@ -181,6 +182,12 @@ func maintenance(cmd string, args []string) int {
 			return fail(err)
 		}
 		fmt.Println(out)
+	case sub == "reset-passkeys":
+		name, err := panel.AdminResetPasskeys(cfg, *user)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("passkeys, account recovery codes and sessions revoked for %s\n", name)
 	case sub == "reset-2fa":
 		name, err := panel.AdminDisable2FA(cfg, *user)
 		if err != nil {

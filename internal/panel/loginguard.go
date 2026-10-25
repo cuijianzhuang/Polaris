@@ -174,6 +174,9 @@ func (s *Server) sessionAlive(sid string) (*store.AdminSession, bool) {
 	if sid == "" || s.st.DB.First(&sess, "id = ?", sid).Error != nil || sess.Revoked || time.Now().After(sess.ExpiresAt) {
 		return nil, false
 	}
+	if sess.Via == "passkey" && sess.PasskeyID == "" {
+		return nil, false
+	}
 	if time.Since(sess.LastSeen) > time.Minute {
 		s.st.DB.Model(&store.AdminSession{}).Where("id = ?", sid).Update("last_seen", time.Now())
 	}

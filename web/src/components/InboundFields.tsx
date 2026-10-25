@@ -100,7 +100,7 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
             return (
               <button key={x} type="button" disabled={!ok} className={'opt' + (p.type === x ? ' on' : '')} aria-pressed={p.type === x}
                 onClick={() => set({ protocol: { type: x, flow: x === 'vless' ? 'xtls-rprx-vision' : undefined } })}>
-                {protoLabel[x]}{!ok && <small>{onlyOn(allCaps, x)}</small>}
+                {protoLabel[x]}{!ok && <small>{x === 'snell' ? t('需要 sing-box 1.14+ 统计版') : onlyOn(allCaps, x)}</small>}
               </button>
             )
           })}

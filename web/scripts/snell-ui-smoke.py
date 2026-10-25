@@ -52,5 +52,5 @@ with sync_playwright() as p:
  # An old kernel must keep the protocol disabled.
  caps[0]['version']='1.13.5';caps[0]['combos']=[dict(protocol='vless',transport='tcp',security='none')]
  page,f,errors=open_page(browser,'/inbounds',390);page.locator('td.rt-head').click()
- expect(page.get_by_role('button',name='Snell',exact=False)).to_be_disabled()
+ expect(page.locator('button.opt').filter(has_text='Snell')).to_be_disabled()
  assert not errors,errors;page.close();browser.close();print('old core disables Snell option OK',flush=True)
