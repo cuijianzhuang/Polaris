@@ -71,3 +71,13 @@ ASN 数据是地址网段的归属注释，不证明真实 BGP AS path、实际�
 验证区在数据库就绪时可用，本地查询支持匹配、私网/特殊地址、未收录等结果；更换数据库或编辑输入后清除旧预览。IPv6 数据库按其格式支持 IPv4/IPv6 查询，具体覆盖依赖文件记录。
 
 UI 回归：`POLARIS_WEB_TEST_URL=http://127.0.0.1:5193 python3 web/scripts/asn-settings-ui-smoke.py`，使用固定模拟接口验证中英文、390/1440 宽度、上传、查询、启停与实例缺文件恢复。真实离线 MMDB 查询及管理员权限由 Go 测试覆盖。
+
+### 可选数据源
+
+| 来源 | 可用于当前 ASN 注释的文件 | 说明 |
+| --- | --- | --- |
+| Loyalsoldier/geoip | `release/GeoLite2-ASN.mmdb` | 提供 GitHub/CDN 链接及 SHA-256 文件；`Country-asn.mmdb` 不含 ASN 编号 |
+| lwpk110/free-geoip-databases | `GeoLite2-ASN-日期.mmdb` | 使用 GeoLite2 Releases 筛选入口，文件名含日期，避免固定过期版本或误选 City/Country |
+| wp-statistics/GeoLite2-City | 无 | 提供城市级库，适用于独立的国家/省市归属功能，不可作为 ASN 数据库上传；其 `.mmdb.gz` 也不是直接上传格式 |
+
+来源选择只提供浏览器下载入口，数据库按管理员选择上传。已使用 Polaris 解析器验证 lwpk110 来源的真实 GeoLite2-ASN 文件及 IPv4/IPv6 归属；数据文件未加入仓库。以上是第三方分发来源，底层数据库的使用条款以原始提供者说明为准。

@@ -1,4 +1,6 @@
 const operations: Record<string, string> = {
+  "备用 ASN 数据源": "Alternate ASN source",
+  "备用来源请选择 GeoLite2-ASN-日期.mmdb；不要选择 City 或 Country 文件。": "For the alternate source, select GeoLite2-ASN-<date>.mmdb rather than a City or Country file.",
   "ASN 数据源、归属验证": "ASN data and lookup verification",
   "CDN 镜像": "CDN mirror",
   "SHA-256 校验文件": "SHA-256 checksum file",

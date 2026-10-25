@@ -29,6 +29,7 @@ with sync_playwright() as p:
    lookup=page.get_by_role('button',name='查询归属' if lang=='zh' else 'Look up ASN',exact=True)
    expect(lookup).to_be_disabled()
    expect(page.get_by_role('link',name='GeoLite2-ASN.mmdb · GitHub ↗',exact=True)).to_have_attribute('href','https://raw.githubusercontent.com/Loyalsoldier/geoip/release/GeoLite2-ASN.mmdb')
+   expect(page.get_by_role('link',name='free-geoip-databases ↗',exact=True)).to_have_attribute('href','https://github.com/lwpk110/free-geoip-databases/releases?q=geolite2&expanded=true')
    page.locator('#asn-database-file').set_input_files(dict(name='wrong.txt',mimeType='text/plain',buffer=b'wrong'))
    expect(upload).to_be_disabled(); expect(page.get_by_role('alert')).to_be_visible()
    page.locator('#asn-database-file').set_input_files(dict(name='empty.mmdb',mimeType='application/octet-stream',buffer=b''))
