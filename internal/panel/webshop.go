@@ -457,7 +457,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:6px 4px;bord
 
 var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" type="image/png" href="/favicon.ico?v=7622f7a54f03"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
 <title>{{.Title}} · 购买套餐</title>` + webShopStyle + `</head><body><main>
 <header><h1>购买套餐</h1><span><a href="#lookup">查询订单</a> · <a href="/u">用户中心 →</a></span></header>
 {{if not .Open}}<div class="card"><p class="mute">商店暂未开放。</p></div>{{else}}
@@ -506,7 +506,7 @@ post('redeem',{code:c}).then(function(j){location.href=j.url}).catch(function(e)
 
 var webShopOrderTpl = template.Must(template.New("order").Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" type="image/png" href="/favicon.ico?v=7622f7a54f03"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
 <title>{{.Title}} · 订单</title>` + webShopStyle + `</head><body><main>
 <header><h1>订单</h1><a href="` + shopWebPath + `">← 返回商店</a></header>
 <div class="card"><h2>{{.O.PlanName}}</h2><div class="mono mute">{{.O.ID}}</div><div>金额：<span class="price">{{.Amount}}</span></div><div>状态：<b id="st" class="{{if .Paid}}ok{{end}}">{{.Status}}</b></div>

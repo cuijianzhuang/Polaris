@@ -608,11 +608,6 @@ func botBuyer(id tgIdentity) shopBuyer {
 	return b
 }
 
-// usdtButtons is one USDT button per network that takes orders, two to a row.
-func (s *Server) usdtButtons(prefix string, price float64) [][]button {
-	return s.usdtButtonsLabel(prefix, strconv.FormatFloat(price, 'f', -1, 64))
-}
-
 func (s *Server) usdtButtonsLabel(prefix, price string) [][]button {
 	var rows [][]button
 	var row []button

@@ -140,8 +140,8 @@ func (s *Server) login(c *gin.Context) {
 	// case and accept a password whose only difference is outer whitespace.
 	req.Username = strings.TrimSpace(req.Username)
 	var a store.Admin
-	if err := s.st.DB.First(&a, "username = ?", req.Username).Error; err != nil {
-		err = s.st.DB.First(&a, "LOWER(username) = LOWER(?)", req.Username).Error
+	if s.st.DB.First(&a, "username = ?", req.Username).Error != nil {
+		s.st.DB.First(&a, "LOWER(username) = LOWER(?)", req.Username)
 	}
 	ip := clientIP(c.Request)
 	if a.ID == "" {

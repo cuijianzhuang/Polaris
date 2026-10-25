@@ -240,19 +240,6 @@ func hasAny(have, want []string) bool {
 	return false
 }
 
-// plan computes, without writing, what applying a template would do.
-func (s *Server) plan(t *store.InboundTemplate, opt *planOptions, issueCerts bool) ([]nodePlan, error) {
-	nodes, err := s.selectNodes(opt)
-	if err != nil {
-		return nil, err
-	}
-	var out []nodePlan
-	for i := range nodes {
-		out = append(out, s.planNode(t, &nodes[i], opt, issueCerts))
-	}
-	return out, nil
-}
-
 func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planOptions, issueCerts bool) nodePlan {
 	np := nodePlan{NodeID: node.ID, NodeName: node.Name}
 	cores, _ := s.nodeCores(node.ID)
@@ -904,12 +891,6 @@ func matchItem(items map[string]store.TemplateItem, in *store.Inbound) (store.Te
 		return store.TemplateItem{}, false
 	}
 	return found[0], true
-}
-
-func jsonEq(a, b any) bool {
-	x, _ := json.Marshal(a)
-	y, _ := json.Marshal(b)
-	return string(x) == string(y)
 }
 
 // bulkTemplateInbounds enables, disables or deletes every generated inbound.
