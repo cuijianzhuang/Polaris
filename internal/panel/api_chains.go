@@ -539,11 +539,6 @@ func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, 
 	return nil
 }
 
-// checkDetour rejects detour loops within the node's outbounds.
-func (s *Server) checkDetour(nodeID, selfID, selfTag, detour string) error {
-	return s.checkDetourOn(s.st.DB, nodeID, selfID, selfTag, detour)
-}
-
 func (s *Server) checkDetourOn(db *gorm.DB, nodeID, selfID, selfTag, detour string) error {
 	var obs []store.Outbound
 	db.Where("node_id = ? AND id <> ?", nodeID, selfID).Find(&obs)

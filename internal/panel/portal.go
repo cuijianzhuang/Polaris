@@ -335,7 +335,7 @@ func (b *tgBot) portalLoginAnswer(chat, msg int64, reqID, pick string, id tgIden
 
 var portalLoginTpl = template.Must(template.New("login").Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" type="image/png" href="/favicon.ico?v=7622f7a54f03"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=7622f7a54f03">
+<link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
 <title>{{.Title}} · 用户中心</title>
 <style>

@@ -406,6 +406,7 @@ func (s *Server) startJobs() func() {
 	add("20 * * * * *", "orders", s.expireOrders)
 	add("*/10 * * * * *", "payment-recovery", s.retryPayments)
 	add("*/15 * * * * *", "refund-recovery", s.retryRefunds)
+	add("*/15 * * * * *", "rollouts", s.runRollouts)
 	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
 	add("*/30 * * * * *", "usdt", s.pollUSDT)

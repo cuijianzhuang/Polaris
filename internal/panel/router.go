@@ -228,6 +228,10 @@ func (s *Server) Router() http.Handler {
 	p.GET("/nodes/:id/users", s.nodeUsersAPI)
 	p.POST("/nodes/:id/users", s.bindNodeUsers)
 	p.POST("/nodes/upgrade-agents", s.upgradeAllAgents)
+	p.GET("/rollouts", s.listRollouts)
+	p.POST("/rollouts", s.createRollout)
+	p.GET("/rollouts/:id", s.getRollout)
+	p.POST("/rollouts/:id/:action", s.rolloutAction)
 	p.POST("/nodes/:id/rollback", s.rollbackNode)
 	p.POST("/nodes/:id/revoke", s.revokeNode)
 	p.GET("/nodes/:id/revisions", s.listRevisions)
@@ -627,11 +631,6 @@ func (s *Server) download(c *gin.Context) {
 		return
 	}
 	c.FileAttachment(p, name)
-}
-
-// openAPI describes the registered routes (generated from the router).
-func (s *Server) openAPI(r *gin.Engine) map[string]any {
-	return s.openAPIFor(r, nil)
 }
 
 func (s *Server) openAPIFor(r *gin.Engine, token *store.APIToken) map[string]any {
