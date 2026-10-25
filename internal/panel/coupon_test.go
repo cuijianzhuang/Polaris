@@ -2,6 +2,7 @@ package panel
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -124,5 +125,52 @@ func TestCouponRules(t *testing.T) {
 	s.st.DB.First(&o2, "id = ?", o.ID)
 	if o2.CouponCode != "SAVE20" || o2.OrigAmount != "15.00" {
 		t.Fatalf("order lost its coupon: %+v", o2)
+	}
+}
+
+// Free (100% off) orders skip payment, so their limits must hold under
+// concurrent claims that all passed the up-front check.
+func TestFreeCouponConcurrent(t *testing.T) {
+	s, _, _ := newAdminClient(t)
+	p := store.Group{ID: "pf", Name: "免费月", Plan: true, Sale: true, PriceCNY: 15}
+	s.st.DB.Create(&p)
+	s.st.SetSetting("shop_auto_create", "true")
+	s.st.DB.Create(&store.Coupon{Code: "FREE2", Percent: 100, Plans: true, MaxUses: 2, PerUser: 1, Enabled: true, CreatedAt: time.Now()})
+	s.st.DB.Create(&store.Coupon{Code: "FREE1PP", Percent: 100, Plans: true, PerUser: 1, Enabled: true, CreatedAt: time.Now()})
+	claim := func(code string, tg int64) error {
+		now := time.Now()
+		o := &store.Order{ID: store.NewID(), TelegramID: tg, PlanID: p.ID, PlanName: p.Name, Currency: "CNY", Status: "pending",
+			CreatedAt: now, ExpiresAt: now.Add(time.Hour), CouponCode: code, OrigAmount: "15.00", Entitlements: freezePlan(&p)}
+		_, err := s.openCouponOrder(o, 0, true)
+		return err
+	}
+	run := func(code string, tg func(i int) int64) int {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		ok := 0
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if claim(code, tg(i)) == nil {
+					mu.Lock()
+					ok++
+					mu.Unlock()
+				}
+			}()
+		}
+		wg.Wait()
+		return ok
+	}
+	if n := run("FREE2", func(i int) int64 { return int64(100 + i) }); n != 2 {
+		t.Fatalf("max 2 uses, %d free orders went through", n)
+	}
+	if n := run("FREE1PP", func(int) int64 { return 7 }); n != 1 {
+		t.Fatalf("one per buyer, %d free orders went through", n)
+	}
+	var paid int64
+	s.st.DB.Model(&store.Order{}).Where("status = ?", "paid").Count(&paid)
+	if paid != 3 {
+		t.Fatalf("paid orders %d", paid)
 	}
 }

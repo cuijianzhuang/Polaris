@@ -406,6 +406,12 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		if rev != 0 && rev == a.appliedRev() {
 			continue
 		}
+		if rev != 0 && rev < a.appliedRev() {
+			// A late notice (or a retry) for an older revision: ask for the
+			// panel's current one instead of rolling the node back. Still
+			// asked, not dropped: a panel restored from backup can be behind.
+			rev = 0
+		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
 		features := model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature + "," + model.SnellPSKFeature
 		if runtime.GOOS == "linux" {
@@ -450,10 +456,11 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 				if retry != nil {
 					retry.Stop()
 				}
-				rev := spec.Rev
+				// The retry asks for the current revision (0): a newer one may
+				// have been applied by the time it fires.
 				retry = time.AfterFunc(d, func() {
 					select {
-					case a.wantRev <- rev:
+					case a.wantRev <- 0:
 					default:
 					}
 				})

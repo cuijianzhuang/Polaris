@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"google.golang.org/protobuf/encoding/protowire"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -593,7 +595,7 @@ func renderOutbounds(obs []model.Outbound, legacyKCP bool) (outs []map[string]an
 			ob = map[string]any{"protocol": "trojan", "settings": map[string]any{"servers": []any{
 				map[string]any{"address": s.Server, "port": s.Port, "password": s.Password}}}}
 		case model.OutWireGuard:
-			peer := map[string]any{"publicKey": s.PeerPublicKey, "endpoint": fmt.Sprintf("%s:%d", s.Server, s.Port)}
+			peer := map[string]any{"publicKey": s.PeerPublicKey, "endpoint": net.JoinHostPort(strings.Trim(s.Server, "[]"), strconv.Itoa(s.Port))}
 			if s.PreSharedKey != "" {
 				peer["preSharedKey"] = s.PreSharedKey
 			}

@@ -111,3 +111,14 @@ func TestNodeQuota(t *testing.T) {
 		t.Fatalf("delete %d", code)
 	}
 }
+
+// Large counters must split without int64 overflow, and the split must add up.
+func TestChargeNodeQuotaLarge(t *testing.T) {
+	const tb = int64(1) << 40
+	q := &store.UserNodeQuota{Extra: 8 * tb}
+	up, down := 5*tb, 4*tb
+	cu, cd, _ := chargeNodeQuota(q, up, down)
+	if cu < 0 || cd < 0 || cu > up || cd > down || (up-cu)+(down-cd) != 8*tb {
+		t.Fatalf("split: cu=%d cd=%d", cu, cd)
+	}
+}

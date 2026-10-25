@@ -106,7 +106,8 @@ var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "g
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
-var sudoSettings = map[string]bool{"login_allowlist": true, "login_ban_failures": true, "github_client_id": true, "audit_changes": true,
+var sudoSettings = map[string]bool{"login_allowlist": true, "tg_api_base": true, // the bot token is sent there, and its replies act as admin commands
+	"login_ban_failures": true, "github_client_id": true, "audit_changes": true,
 	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_from": true, "mail_admin_to": true, "backup_store": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,

@@ -268,9 +268,12 @@ func (s *Server) settleTraffic() error {
 				cu, cd := up, down // charged to the account quota
 				if q := quotas[uid+"|"+nodeID]; q != nil {
 					var flipped bool
+					used0, extra0 := q.Used, q.ExtraUsed
 					cu, cd, flipped = chargeNodeQuota(q, up, down)
+					// Add the deltas: q was read before this transaction, and a
+					// reset made since then must not be overwritten.
 					if err := tx.Model(&store.UserNodeQuota{}).Where("user_id = ? AND node_id = ?", uid, nodeID).
-						Updates(map[string]any{"used": q.Used, "extra_used": q.ExtraUsed, "updated_at": now}).Error; err != nil {
+						Updates(map[string]any{"used": gorm.Expr("used + ?", q.Used-used0), "extra_used": gorm.Expr("extra_used + ?", q.ExtraUsed-extra0), "updated_at": now}).Error; err != nil {
 						return err
 					}
 					if flipped {
@@ -356,7 +359,11 @@ func (s *Server) enforceLimits() {
 		}
 		want := computeStatus(&u, now)
 		if want != u.Status {
-			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Update("status", want)
+			// Only from the status we read: an admin may have disabled the
+			// user (or a purchase reactivated it) since.
+			if s.st.DB.Model(&store.User{}).Where("id = ? AND status = ?", u.ID, u.Status).Update("status", want).RowsAffected == 0 {
+				continue
+			}
 			changed = append(changed, u.ID)
 			s.audit("system", "user.status", u.Username, u.Status+" -> "+want, "")
 			switch want {
@@ -436,7 +443,7 @@ func (s *Server) resetTrafficCycles() {
 	now := time.Now()
 	var users []store.User
 	s.st.DB.Where("reset_policy IN ?", []string{"daily", "weekly", "monthly", "cycle"}).Find(&users)
-	var changed []string
+	var changed, cappedNodes []string
 	for _, u := range users {
 		last := u.CreatedAt
 		if u.LastResetAt != nil {
@@ -465,12 +472,19 @@ func (s *Server) resetTrafficCycles() {
 			// A new period: traffic packs bought for the last one expire.
 			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": now,
 				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0})
+			capped, _ := s.nodeAccess(u.ID)
 			s.resetNodeUsage(u.ID)
+			for nodeID := range capped { // the cap lifts: those nodes take the user back
+				cappedNodes = append(cappedNodes, nodeID)
+			}
 			s.audit("system", "user.reset_traffic", u.Username, u.ResetPolicy, "")
 			if u.Status == "limited" {
 				changed = append(changed, u.ID)
 			}
 		}
+	}
+	if len(cappedNodes) > 0 {
+		s.MarkDirty("node quota reset", cappedNodes...)
 	}
 	if len(changed) > 0 {
 		s.enforceLimits()
