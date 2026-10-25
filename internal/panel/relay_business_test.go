@@ -165,3 +165,35 @@ func TestRelayBusinessUnsupportedProtocolDoesNotSuggestAgentUpgrade(t *testing.T
 		t.Fatal(message)
 	}
 }
+
+func TestRelayBusinessCapabilityMatchesActualSupport(t *testing.T) {
+	s, c := relayFixture(t)
+	id := createRelayTest(t, c, previewRelayTest(t, c, map[string]any{"relays": []map[string]any{{"nodeId": "relay"}}}))
+	markRelayApplied(t, s, id)
+	for _, tc := range []struct {
+		core      model.CoreType
+		features  []string
+		supported bool
+	}{
+		{model.CoreSingbox, []string{model.RelayBusinessFeature}, false},
+		{model.CoreXray, nil, false},
+		{model.CoreXray, []string{model.RelayBusinessFeature}, true},
+	} {
+		if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Update("core", tc.core).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := s.st.DB.Model(&store.Node{}).Where("id = ?", "land").Update("agent_features", store.NewJSON(tc.features)).Error; err != nil {
+			t.Fatal(err)
+		}
+		list := inboundRelaysTest(t, c)
+		if len(list) != 1 || list[0].BusinessDiagnostic.Supported != tc.supported {
+			t.Fatal(list)
+		}
+		if !tc.supported {
+			code, out := c.do("POST", "/inbounds/in/relays/"+id+"/diagnose/business", nil)
+			if code != 200 || out["kind"] != "business" || out["state"] != "unsupported" || out["message"] != list[0].BusinessDiagnostic.Reason {
+				t.Fatal(code, out, list)
+			}
+		}
+	}
+}

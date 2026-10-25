@@ -2,18 +2,33 @@ import { createPortal } from 'react-dom'
 import { useEffect, useState } from 'react'
 import { api, get, post, put } from '../api'
 import { datetime, errMsg } from '../format'
-import { t } from '../i18n'
+import { t, tr } from '../i18n'
 import type { Inbound, Node } from '../types'
 import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll } from './ui'
 
 type Hop = { nodeId: string; port?: number; tunnelPort?: number }
-type Relay = { id: string; name: string; remark: string; mode: string; tunnelType?: string; disabled: boolean; batchId?: string; address: string; port: number; shareAddress?: string; sharePort?: number; shareName?: string; state: string; hops: Hop[]; nodes: { nodeId: string; name: string; state: string; desiredRev: number; appliedRev: number; error?: string }[] }
+type Relay = { businessDiagnostic?: { supported: boolean; reason?: string }; id: string; name: string; remark: string; mode: string; tunnelType?: string; disabled: boolean; batchId?: string; address: string; port: number; shareAddress?: string; sharePort?: number; shareName?: string; state: string; hops: Hop[]; nodes: { nodeId: string; name: string; state: string; desiredRev: number; appliedRev: number; error?: string }[] }
 type Port = { nodeId: string; port: number; network: string; public: boolean; role?: string; engine?: string }
 type Plan = { planToken: string; batchId: string; expiresAt: string; warnings: string[]; entries: { chain: { id: string; name: string; hops: Hop[] }; address: string; port: number; ports: Port[] }[] }
 type Impact = { action: string; etag: string; blocked: boolean; chainIds: string[]; changedPaths: number; remainingRelayPaths: number; remainingEnabledRelayPaths: number; nodes: { id: string; name: string; status: string; otherPaths: number }[]; ports: Port[]; references: { kind: string; resourceId: string; nodeId?: string; targetTag?: string }[]; warnings: string[]; endpointIds: string[]; outboundIds: string[]; routingRuleIds: string[]; serviceUserIds: string[] }
-type Diagnostic = { state: string; businessVerified: boolean; cleanupVerified?: boolean; message?: string; checkedAt?: string; checks?: { kind: string; state: string; nodeId?: string; target?: string; message?: string; latencyMs?: number }[] }
+type Diagnostic = { kind?: 'network' | 'business'; state: string; businessVerified: boolean; cleanupVerified?: boolean; message?: string; checkedAt?: string; checks?: { kind: string; state: string; nodeId?: string; target?: string; message?: string; latencyMs?: number }[] }
 const relayState = (s: string) => ({ online: t('在线'), error: t('错误'), applied: t('已应用'), pending: t('待下发'), syncing: t('同步中'), offline: t('离线'), failed: t('失败'), blocked: t('入站已停用'), disabled: t('已停用'), mixed: t('部分生效') }[s] ?? s)
 const checkState = (s: string) => ({ passed: t('通过'), failed: t('失败'), skipped: t('跳过'), not_tested: t('未测试'), not_ready: t('尚未就绪'), unsupported: t('暂不支持'), partial: t('部分结果') }[s] ?? s)
+
+const checkKind = (kind: string) => ({ deployment: t('配置应用'), entry_tcp: t('入口 TCP 连接'), entry_tls_handshake: t('入口 TLS 握手'), hop_tcp: t('逐跳 TCP 连接'), landing_egress_http: t('落地节点 HTTP 出口'), proxy_business: t('代理业务验证'), proxy_tcp_business: t('代理 TCP 业务'), proxy_udp_business: t('代理 UDP 业务'), credential_cleanup: t('临时授权清理'), execution: t('诊断执行') }[kind] ?? kind)
+
+function diagnosticSummary(d: Diagnostic) {
+  if (d.kind === 'network') {
+    if (d.state === 'not_ready') return { text: t('网络诊断尚未就绪'), tone: '' }
+    if (d.state === 'failed' || d.checks?.some((c) => c.state === 'failed')) return { text: t('网络诊断发现异常'), tone: ' warn' }
+    if (d.checks?.some((c) => c.kind !== 'proxy_business' && c.state === 'passed')) return { text: t('已执行的网络检查通过'), tone: ' ok-note' }
+    return { text: t('网络诊断未完成'), tone: '' }
+  }
+  if (d.state === 'unsupported') return { text: t('当前入站暂不支持真实业务诊断'), tone: '' }
+  if (d.state === 'not_ready') return { text: t('真实业务诊断尚未就绪'), tone: '' }
+  if (d.businessVerified) return { text: t('真实业务已验证'), tone: ' ok-note' }
+  return { text: t('真实业务诊断未通过'), tone: ' warn' }
+}
 
 const hostPort = (host: string, port: number) => `${host.includes(':') && !host.startsWith('[') ? '[' + host + ']' : host}:${port}`
 
@@ -82,8 +97,11 @@ export default function RelayManager({ inbound, nodes, onClose, onChanged }: { i
   const diagnose = async (r: Relay, business: boolean) => {
     if (business && !await confirm(t('运行真实业务诊断？正常情况下会回收临时身份；若身份清理失败，将重启落地 Xray，现有连接会中断。'))) return
     setDiagnostic(undefined)
-    await run(async () => { setDiagnostic(await post<Diagnostic>(`${base}/relays/${r.id}/diagnose${business ? '/business' : ''}`, business ? { tcpUrl: diagnosticTargets.tcpUrl.trim(), udpAddress: diagnosticTargets.udpAddress.trim() } : undefined)); refresh() })
+    await run(async () => { setDiagnostic({ ...await post<Diagnostic>(`${base}/relays/${r.id}/diagnose${business ? '/business' : ''}`, business ? { tcpUrl: diagnosticTargets.tcpUrl.trim(), udpAddress: diagnosticTargets.udpAddress.trim() } : undefined), kind: business ? 'business' : 'network' }); refresh() })
   }
+  const protocolSupported = inbound.core === 'xray' && inbound.protocol.type === 'vless'
+  const protocolReason = t('真实业务诊断目前仅支持 Xray VLESS；此限制不影响当前协议的中转创建和转发')
+  const summary = diagnostic ? diagnosticSummary(diagnostic) : undefined
   const groups = [...new Set((list.data ?? []).map((r) => r.batchId).filter((id): id is string => !!id))]
   return createPortal(<Drawer title={t('中转管理 · {tag}', { tag: inbound.tag })} onClose={onClose} footer={<button className="btn" onClick={onClose}>{t('关闭')}</button>}>
     <div className="ops-stack"><div className="row"><button className="btn pri" disabled={busy || !inbound.enabled} onClick={() => setCreating(true)}>+ {t('一键配置中转')}</button><button className="btn" disabled={busy} onClick={list.reload}>{t('刷新')}</button></div>
@@ -95,7 +113,8 @@ export default function RelayManager({ inbound, nodes, onClose, onChanged }: { i
         <CopyBox text={hostPort(r.shareAddress || r.address, r.sharePort || r.port)} />
         <div className="small">{r.hops.map((h) => nodes.find((n) => n.id === h.nodeId)?.name ?? h.nodeId).join(' → ')}</div>
         {r.nodes.map((n) => <div className="small" key={n.nodeId}>{n.name} · {relayState(n.state)} · rev {n.appliedRev}/{n.desiredRev}{n.error && <div className="note warn ops-break">{n.error}</div>}</div>)}
-        <div className="row"><button className="btn sm" disabled={busy} onClick={() => setEditing(r)}>{t('编辑')}</button><button className="btn sm" disabled={busy} onClick={() => diagnose(r, false)}>{t('网络诊断')}</button><button className="btn sm" disabled={busy || r.disabled} onClick={() => diagnose(r, true)}>{t('真实业务诊断')}</button><button className="btn sm" disabled={busy} onClick={() => actionPreview(`${base}/relays/${r.id}`, r.disabled ? 'enable' : 'disable')}>{r.disabled ? t('启用') : t('停用')}</button><button className="btn sm danger" disabled={busy} onClick={() => actionPreview(`${base}/relays/${r.id}`, 'delete')}>{t('删除')}</button></div>
+        <div className="row"><button className="btn sm" disabled={busy} onClick={() => setEditing(r)}>{t('编辑')}</button><button className="btn sm" disabled={busy} onClick={() => diagnose(r, false)}>{t('网络诊断')}</button><button className="btn sm" disabled={busy || r.disabled || r.state !== 'applied' || !(r.businessDiagnostic?.supported ?? protocolSupported)} title={r.businessDiagnostic?.reason ? tr(r.businessDiagnostic.reason) : (!protocolSupported ? protocolReason : r.state !== 'applied' ? t('等待线路在所有节点应用后再进行真实业务诊断') : undefined)} onClick={() => diagnose(r, true)}>{t('真实业务诊断')}</button><button className="btn sm" disabled={busy} onClick={() => actionPreview(`${base}/relays/${r.id}`, r.disabled ? 'enable' : 'disable')}>{r.disabled ? t('启用') : t('停用')}</button><button className="btn sm danger" disabled={busy} onClick={() => actionPreview(`${base}/relays/${r.id}`, 'delete')}>{t('删除')}</button></div>
+        {(!(r.businessDiagnostic?.supported ?? protocolSupported) || r.state !== 'applied') && <div className="hint">{tr(r.businessDiagnostic?.reason || (!protocolSupported ? protocolReason : t('等待线路在所有节点应用后再进行真实业务诊断')))}</div>}
       </div>)}
       {!list.loading && !list.error && !list.data?.length && <Empty>{t('还没有受管中转线路')}</Empty>}
       <div className="hint">{t('一键中转按入站的 TCP/UDP 网络转发；真实业务诊断目前仅支持 Linux + Xray VLESS，此限制不影响其他协议创建中转。保存成功与节点应用成功分别展示。')}</div>
@@ -112,7 +131,7 @@ export default function RelayManager({ inbound, nodes, onClose, onChanged }: { i
       {impact.preview.references.map((r, i) => <div key={i} className="small mono ops-break">{r.kind} · {r.resourceId} · {r.targetTag}</div>)}
       <Ports ports={impact.preview.ports} nodes={nodes} /><div className="hint">{t('确认时会重新校验预览；配置已变化时需重新预览。')}</div>
     </div></Modal>}
-    {diagnostic && <Modal title={t('线路诊断结果')} onClose={() => setDiagnostic(undefined)} wide><div className="ops-stack"><div className={'note' + (diagnostic.businessVerified ? ' ok-note' : ' warn')}>{diagnostic.businessVerified ? t('真实业务已验证') : t('真实业务未通过验证')} · {checkState(diagnostic.state)}</div>{diagnostic.message && <div>{diagnostic.message}</div>}{diagnostic.checkedAt && <div className="small mute">{datetime(diagnostic.checkedAt)}</div>}{diagnostic.checks?.map((c, i) => <div className="ops-summary" key={i}><b>{c.kind}</b> · {checkState(c.state)}{c.latencyMs !== undefined && ' · ' + c.latencyMs + ' ms'}<div className="small ops-break">{c.target} {c.message}</div></div>)}</div></Modal>}
+    {diagnostic && <Modal title={t('线路诊断结果')} onClose={() => setDiagnostic(undefined)} wide><div className="ops-stack"><div className={'note' + (summary?.tone ?? '')}>{summary?.text}</div>{diagnostic.kind === 'network' && <div className="hint">{t('本次仅检查网络，代理业务未测试；未测试不代表业务失败。')}</div>}{diagnostic.message && <div>{tr(diagnostic.message)}</div>}{diagnostic.checkedAt && <div className="small mute">{datetime(diagnostic.checkedAt)}</div>}{diagnostic.checks?.map((c, i) => <div className="ops-summary" key={i}><b>{checkKind(c.kind)}</b> · {checkState(c.state)}{c.latencyMs !== undefined && ' · ' + c.latencyMs + ' ms'}<div className="small ops-break">{c.target} {c.message && tr(c.message)}</div></div>)}</div></Modal>}
   </Drawer>, document.body)
 }
 

@@ -24,6 +24,9 @@ func diagnoseRelayTest(t *testing.T, c *apiClient, id string) relayDiagnostic {
 	if err := json.Unmarshal(b, &report); err != nil {
 		t.Fatal(err)
 	}
+	if report.Kind != "network" {
+		t.Fatal("missing network diagnostic kind", report)
+	}
 	if report.BusinessVerified {
 		t.Fatal("transport checks claimed proxy authentication")
 	}

@@ -13,6 +13,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type relayBusinessSupport struct {
+	Supported bool   `json:"supported"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+func relayBusinessAvailability(in store.Inbound, landing store.Node) relayBusinessSupport {
+	if in.Core != model.CoreXray || in.Protocol.V.Type != model.ProtoVLESS {
+		return relayBusinessSupport{Reason: "真实业务诊断目前仅支持 Xray VLESS；此限制不影响当前协议的中转创建和转发"}
+	}
+	if !contains(landing.AgentFeatures.V, model.RelayBusinessFeature) {
+		return relayBusinessSupport{Reason: "落地 Agent 尚未声明真实业务诊断能力，请更新或同步 Agent 后重试"}
+	}
+	return relayBusinessSupport{Supported: true}
+}
+
 func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 	var targets struct {
 		TCPURL     string `json:"tcpUrl"`
@@ -36,7 +51,7 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 	}
 	view := s.relayView(ch, in)
 	if view.State != "applied" {
-		c.JSON(http.StatusOK, gin.H{"state": "not_ready", "businessVerified": false, "deployment": view})
+		c.JSON(http.StatusOK, gin.H{"kind": "business", "state": "not_ready", "businessVerified": false, "deployment": view})
 		return
 	}
 	var landing store.Node
@@ -44,12 +59,8 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	if in.Core != model.CoreXray || in.Protocol.V.Type != model.ProtoVLESS {
-		c.JSON(http.StatusOK, gin.H{"state": "unsupported", "businessVerified": false, "message": "真实业务诊断目前仅支持 Xray VLESS；此限制不影响当前协议的中转创建和转发"})
-		return
-	}
-	if !contains(landing.AgentFeatures.V, model.RelayBusinessFeature) {
-		c.JSON(http.StatusOK, gin.H{"state": "unsupported", "businessVerified": false, "message": "当前支持升级后的 Linux Agent 与 Xray VLESS；请先升级落地 Agent"})
+	if support := relayBusinessAvailability(in, landing); !support.Supported {
+		c.JSON(http.StatusOK, gin.H{"kind": "business", "state": "unsupported", "businessVerified": false, "message": support.Reason})
 		return
 	}
 	req := model.RelayBusinessRequest{ID: store.NewID() + store.NewID(), ExpiresAt: time.Now().Add(15 * time.Second).Unix(), InboundTag: in.Tag, ServerName: orDefault(in.Security.V.ServerName, landing.Domain), EntryAddress: view.Address, EntryPort: view.Port, TCPURL: orDefault(targets.TCPURL, relayBusinessTCP), UDPAddress: orDefault(targets.UDPAddress, relayBusinessUDP)}
@@ -85,12 +96,12 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 		cancelCtx, cancelDone := context.WithTimeout(context.Background(), 5*time.Second)
 		_, _ = s.hub.Command(cancelCtx, in.NodeID, model.RelayBusinessFeature+"/cancel", map[string]string{"id": req.ID}, 4*time.Second)
 		cancelDone()
-		c.JSON(http.StatusOK, gin.H{"state": "failed", "businessVerified": false, "message": "诊断中断或节点未返回结果，不能确认业务或清理成功"})
+		c.JSON(http.StatusOK, gin.H{"kind": "business", "state": "failed", "businessVerified": false, "message": "诊断中断或节点未返回结果，不能确认业务或清理成功"})
 		return
 	}
 	if json.Unmarshal([]byte(res.Output), &result) != nil {
 		outcome = "failed"
-		c.JSON(http.StatusOK, gin.H{"state": "failed", "businessVerified": false, "message": "节点返回无效诊断结果"})
+		c.JSON(http.StatusOK, gin.H{"kind": "business", "state": "failed", "businessVerified": false, "message": "节点返回无效诊断结果"})
 		return
 	}
 	// Do not trust a positive flag alone. Require both real data checks and
@@ -120,5 +131,8 @@ func (s *Server) diagnoseInboundRelayBusiness(c *gin.Context) {
 	}
 	result.CheckedAt = time.Now().UTC()
 	outcome = result.State
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusOK, struct {
+		Kind string `json:"kind"`
+		model.RelayBusinessResult
+	}{"business", result})
 }

@@ -83,7 +83,7 @@ class Fixture:
   elif path.endswith('/metadata'): result=dict(relay,**body)
   elif path=='/inbounds/i1/relay-batches/b1': result=dict(batchId='b1',state='applied',chains=[relay])
   elif path.endswith('/diagnose/business'): result=dict(state='passed',businessVerified=True,cleanupVerified=True,checks=[dict(kind='credential_cleanup',state='passed')])
-  elif path.endswith('/diagnose'): result=dict(state='partial',businessVerified=False,checks=[dict(kind='proxy_business',state='not_tested')])
+  elif path.endswith('/diagnose'): result=dict(state='partial',businessVerified=False,checks=[dict(kind='deployment',state='passed'),dict(kind='proxy_business',state='not_tested')])
   elif path=='/stats/overview': result=dict(operational=operational,nodes=dict(online=2,total=2,timeout=0),users=dict(online=0,active=0,total=0),today={},month={},rate={},trend=[],topUsers=[],attention=dict(warnDays=7,expiring=0,limited=0,expired=0,near=0),cores={})
   route.fulfill(status=status,content_type='application/json',body=json.dumps(result))
  def last(self,path): return next(w for w in reversed(self.writes) if w[1]==path)
@@ -146,7 +146,7 @@ with sync_playwright() as p:
   page.get_by_role('button',name='整组停用',exact=True).click(); expect(page.get_by_role('button',name='确认执行',exact=True)).to_be_enabled(); page.get_by_role('button',name='确认执行',exact=True).click()
   expect(page.get_by_role('button',name='确认执行',exact=True)).to_have_count(0); assert f.last('/inbounds/i1/relay-batches/b1/state')[3]['if-match']==impact['etag']
   f.blocked=True; page.get_by_role('button',name='整组删除',exact=True).click(); expect(page.get_by_role('button',name='确认执行',exact=True)).to_be_disabled(); expect(page.get_by_text('outbound · referenced-resource',exact=False)).to_be_visible(); page.keyboard.press('Escape'); f.blocked=False
-  page.get_by_role('button',name='网络诊断',exact=True).click(); expect(page.get_by_text('真实业务未通过验证',exact=False)).to_be_visible(); page.keyboard.press('Escape')
+  page.get_by_role('button',name='网络诊断',exact=True).click(); expect(page.get_by_text('已执行的网络检查通过',exact=True)).to_be_visible(); page.keyboard.press('Escape')
   page.get_by_role('button',name='真实业务诊断',exact=True).click(); page.get_by_role('button',name='确定',exact=True).click(); expect(page.get_by_text('真实业务已验证',exact=False)).to_be_visible(); page.keyboard.press('Escape')
   page.get_by_role('button',name='一键配置中转',exact=False).click(); page.get_by_text('Tokyo · 在线',exact=False).click()
   page.get_by_role('button',name='预览配置',exact=True).click(); expect(page.get_by_role('button',name='确认创建并下发',exact=True)).to_be_enabled(); assert f.last('/inbounds/i1/relays/batch/preview')[2]['entries']==[dict(nodeId='n2')]
