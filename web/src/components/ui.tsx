@@ -241,7 +241,7 @@ export function Modal({ title, onClose, children, footer, wide, xwide }: { title
   // (the drawer's animation transform would clip a fixed overlay).
   return createPortal(
     <div className={'overlay center' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
-      <div className={'modal' + (xwide ? ' xwide' : wide ? ' wide' : '')} role="dialog" aria-modal="true">
+      <div className={'modal' + (xwide ? ' xwide' : wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
         <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} onClick={close}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}

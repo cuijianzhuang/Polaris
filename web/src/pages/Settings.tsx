@@ -1,3 +1,4 @@
+import Passkeys from '../components/Passkeys'
 import { NotificationSettings, RouteASNSettings } from '../components/NetworkSettings'
 import { ProTag, useFeature } from '../components/License'
 import { useEffect, useState } from 'react'
@@ -670,6 +671,7 @@ export default function Settings() {
         {tab === 'backup' && <Backups />}
         {tab === 'mail' && <MailSettings />}
         {tab === 'security' && <>
+ <Passkeys />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('修改密码')} · {me.data?.username}</h2>
           <Field label={t('原密码')}><input className="input" type={showPw ? 'text' : 'password'} autoComplete="current-password" autoCapitalize="none" spellCheck={false} value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>

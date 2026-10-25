@@ -66,3 +66,11 @@ POLARIS_SNELL_BIN=/path/to/sing-box go test -tags pro -count=1 -v ./internal/age
 UI：启动 Vite 后运行 `POLARIS_WEB_TEST_URL=http://127.0.0.1:5187 python3 web/scripts/snell-ui-smoke.py`，覆盖手机/桌面授权模式、用户选择、选项联动与保存。脚本使用模拟 API。
 
 **当前环境无法运行 Surge iOS/Mac App。** 已验证官方文档规定的配置格式和不携带 userkey 的同协议流量链路，不能据此声称两个 Surge App 已实测通过。实际 App 还需分别验收订阅导入、TCP 下载/上传、UDP/QUIC、切换网络、重置凭据与停用后的连接失效；建议先用默认 v5/v4 配置，再验证双方匹配的 v6 版本。
+
+## 可发现入口与能力检查（2026-10-25）
+
+入站页提供独立「Snell 入站」按钮，不需要先找到协议网格。选择节点后，后台 `/nodes/:id/snell-readiness` 检查 Agent 的用户授权及独立 PSK 特征、实际运行的 sing-box 稳定版（至少 1.14.0）、运行状态及用户计数能力。就绪后打开已选择 sing-box / Snell / 独立 PSK 的新建表单，指定专属用户后才允许保存；仍沿用后台已有的用户授权、停用及计费校验。
+
+未就绪时分别提示升级 Agent、安装/运行支持版本或补齐 with_v2ray_api 统计构建，提供节点与内核管理入口及重新检查。仅修改期望版本不视为就绪，须等待节点上报实际版本。无需额外安装官方 snell-server。
+
+面板的 Agent 安装器会优先下载本仓库发布的统计版。如果对应版本尚未发布，可使用仓库已有的 sing-box builds 流程构建发布，或等待其计划任务；上游不含统计功能的构建不能用来启用 Snell 用户计费。

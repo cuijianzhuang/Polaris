@@ -1,3 +1,4 @@
+import SnellSetup from '../components/SnellSetup'
 import OutboundIPField from '../components/OutboundIPField'
 import RelayManager, { RelayAccessFields } from '../components/RelayManager'
 import { useEffect, useMemo, useState } from 'react'
@@ -178,8 +179,8 @@ function HealthDot({ h }: { h?: InboundHealth }) {
   return <span title={tip} style={{ marginLeft: 6, whiteSpace: 'nowrap', fontSize: 12, color: h.ok ? 'var(--ok)' : 'var(--bad)' }}>● {h.ok ? `${h.latencyMs}ms` : t('不通')}</span>
 }
 
-function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
-  const [nodeId, setNodeId] = useState(editing?.nodeId ?? nodes[0]?.id ?? '')
+function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; snellNode?: string; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
+  const [nodeId, setNodeId] = useState(editing?.nodeId ?? snellNode ?? nodes[0]?.id ?? '')
   const node = nodes.find((n) => n.id === nodeId)
   const caps = useLoad(() => (nodeId ? get<CapSet[]>('/capabilities?node=' + nodeId) : Promise.resolve([])), [nodeId])
   const certs = useLoad(() => get<Certificate[]>('/certificates'))
@@ -187,7 +188,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
   const nodeInbounds = useLoad(() => (nodeId ? get<Inbound[]>('/inbounds?node=' + nodeId) : Promise.resolve([])), [nodeId])
   const [draft, setDraft] = useState<InboundDraft>(() => editing ? {
     core: editing.core, protocol: editing.protocol, transport: editing.transport, security: editing.security, sniffing: editing.sniffing,
-  } : emptyDraft())
+  } : snellNode ? { ...emptyDraft(),core: 'singbox', protocol: {type:'snell',snellVersion:5,snellAuth:'psk'},transport:{type:'tcp'},security:{type:'none'} } : emptyDraft())
   const [tag, setTag] = useState(editing?.tag ?? '')
   const [port, setPort] = useState(String(editing?.port ?? 443))
   const [listen, setListen] = useState(editing?.listen && editing.listen !== '::' ? editing.listen : '')
@@ -254,7 +255,7 @@ function InboundDrawer({ nodes, editing, onClose, onSaved, onDelete }: { nodes: 
         const r = await post<{ config: string }>('/inbounds/preview' + (editing ? '?id=' + editing.id : ''), body())
         setPreview(r.config)
       })}>{t('预览内核配置')}</button>
-      <button className="btn pri" type="button" disabled={busy || !tag || !nodeId} onClick={save}>{t('保存并下发')}</button>
+      <button className="btn pri" type="button" disabled={busy || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
     </>}>
       <Section step={1} title={t('基础')} summary={[node?.name, tag, port && ':' + port, enabled ? '' : t('已停用')].filter(Boolean).join(' · ')}>
         <Field label={t('节点')} htmlFor="ib-node">
@@ -350,6 +351,8 @@ export default function Inbounds() {
     return m
   }, [tagStats.data])
   const [drawer, setDrawer] = useState<Inbound | 'new' | null>(null)
+  const [snellSetup,setSnellSetup] = useState(false)
+  const [snellNode,setSnellNode] = useState<string>()
   const [relayInbound, setRelayInbound] = useState<Inbound>()
   const [cloning, setCloning] = useState<Inbound | null>(null)
   const [importing, setImporting] = useState(false)
@@ -411,7 +414,8 @@ export default function Inbounds() {
               <button type="button" onClick={() => resetTraffic()}>{t('清零全部入站流量')}</button>
             </div>
           </details>
-          <button className="btn pri" type="button" disabled={!nodes.length} onClick={() => setDrawer('new')}>{t('+ 新建入站')}</button>
+          <button className="btn" type="button" disabled={!nodes.length} onClick={() => setSnellSetup(true)}>{t('Snell 入站')}</button>
+          <button className="btn pri" type="button" disabled={!nodes.length} onClick={() => {setSnellNode(undefined);setDrawer('new')}}>{t('+ 新建入站')}</button>
         </div>
       </div>
       <div className="row" role="group" aria-label={t('筛选')}>
@@ -472,7 +476,8 @@ export default function Inbounds() {
       {bulk && <BulkModal kind={bulk} ids={[...sel]} onClose={() => setBulk(null)} onDone={() => list.reload()} />}
       {cloning && <CloneModal inbound={cloning} nodes={nodes} onClose={() => setCloning(null)} onDone={() => { setCloning(null); list.reload() }} />}
       {importing && <ImportInboundModal nodes={nodes} onClose={() => setImporting(false)} onDone={() => { setImporting(false); list.reload() }} />}
-      {drawer && <InboundDrawer nodes={nodes} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} onDelete={removeInbound} />}
+      {snellSetup && <SnellSetup nodes={nodes} initialNode={filter.node} onClose={() => setSnellSetup(false)} onCreate={(id) => {setSnellNode(id);setSnellSetup(false);setDrawer('new')}} />}
+      {drawer && <InboundDrawer nodes={nodes} snellNode={drawer === 'new' ? snellNode : undefined} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} onDelete={removeInbound} />}
     </>
   )
 }

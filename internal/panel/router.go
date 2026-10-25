@@ -119,6 +119,9 @@ func (s *Server) Router() http.Handler {
 	}
 	api := r.Group(s.cfg.APIBase())
 	api.POST("/auth/login", s.loginGuard, s.login)
+	api.POST("/auth/passkeys/login/begin", s.loginGuard, s.beginPasskeyLogin)
+	api.POST("/auth/passkeys/login/finish", s.loginGuard, s.finishPasskeyLogin)
+	api.POST("/auth/account-recovery", s.loginGuard, s.recoverPasskeyAccount)
 	api.POST("/auth/github/login-url", s.loginGuard, s.githubLoginURL)
 	api.GET("/auth/github/callback", s.githubCallback)
 	api.POST("/auth/github/totp", s.loginGuard, s.githubTOTP)
@@ -137,6 +140,11 @@ func (s *Server) Router() http.Handler {
 	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPIFor(r, apiTokenOf(c))) })
 	p.GET("/auth/me", s.me)
 	p.POST("/auth/password", s.changePassword)
+	p.GET("/auth/passkeys", s.listPasskeys)
+	p.POST("/auth/passkeys/register/begin", s.requireSudo, s.beginPasskeyRegistration)
+	p.POST("/auth/passkeys/register/finish", s.requireSudo, s.finishPasskeyRegistration)
+	p.DELETE("/auth/passkeys/:pid", s.requireSudo, s.revokePasskey)
+	p.POST("/auth/account-recovery-codes", s.requireSudo, s.regenerateAccountRecovery)
 	p.POST("/auth/totp/setup", s.requireSudo, s.totpSetup)
 	p.POST("/auth/totp/enable", s.totpEnable)
 	p.POST("/auth/totp/recovery-codes", s.requireSudo, s.regenRecoveryCodes)
@@ -214,6 +222,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/nodes/:id/spec", s.nodeSpec)
 	p.GET("/nodes/:id/render", s.renderNodeCore)
 	p.GET("/nodes/:id/cores", s.listCores)
+	p.GET("/nodes/:id/snell-readiness", s.getSnellReadiness)
 	p.POST("/nodes/:id/cores", s.upsertCore)
 	p.DELETE("/cores/:id", s.deleteCore)
 	p.POST("/cores/:id/restart", s.restartCore)
@@ -558,7 +567,7 @@ func (s *Server) decoy() gin.HandlerFunc {
 
 func (s *Server) publicInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "logo": s.brandLogoVersion(), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
-		"sso": s.publicSSOProviders()})
+		"passkeyLogin": s.passkeysAvailable(), "sso": s.publicSSOProviders()})
 }
 
 // download serves agent binaries placed in <data_dir>/downloads.
