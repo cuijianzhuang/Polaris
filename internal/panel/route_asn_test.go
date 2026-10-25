@@ -176,6 +176,9 @@ func TestRouteASNReplicaMissingAndHashMismatch(t *testing.T) {
 	if st, out := second.do("GET", "/tools/route-asn", nil); st != 200 || out["effectiveEnabled"] != false || out["databaseState"] != "local_database_missing" {
 		t.Fatal(st, out)
 	}
+	if st, out := second.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": "1.0.0.1"}); st != 409 || out["databaseState"] != "local_database_missing" {
+		t.Fatal(st, out)
+	}
 	results := []model.RouteTraceResult{traceResult("1.0.0.1", "1.0.0.1")}
 	other.enrichRouteASN(results)
 	if results[0].State != "reached" || results[0].ASN.State != "unavailable" {
@@ -185,6 +188,9 @@ func TestRouteASNReplicaMissingAndHashMismatch(t *testing.T) {
 	os.MkdirAll(dir, 0700)
 	os.WriteFile(filepath.Join(dir, hash+".mmdb"), []byte("not the pinned database"), 0600)
 	if st, out := second.do("GET", "/tools/route-asn", nil); st != 200 || out["databaseState"] != "hash_mismatch" {
+		t.Fatal(st, out)
+	}
+	if st, out := second.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": "1.0.0.1"}); st != 409 || out["databaseState"] != "hash_mismatch" {
 		t.Fatal(st, out)
 	}
 	if st, out := uploadASN(t, second, asnFixture(t), "?expectedRevision=2"); st != 200 || out["effectiveEnabled"] != true || out["policy"].(map[string]any)["revision"].(float64) != 2 {
@@ -267,6 +273,9 @@ func TestRouteASNToolAuthorization(t *testing.T) {
 				t.Fatal(st, out)
 			}
 		}
+		if st, out := client.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": "1.0.0.1"}); st != want {
+			t.Fatal(st, out)
+		}
 		if st, out := uploadASN(t, client, asnFixture(t), ""); st != want {
 			t.Fatal(st, out)
 		}
@@ -282,5 +291,54 @@ func TestRouteASNRejectsOversizedUpload(t *testing.T) {
 	s.Router().ServeHTTP(recorder, request)
 	if recorder.Code != 413 {
 		t.Fatal(recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestRouteASNLookupPreview(t *testing.T) {
+	s, c := routeScheduleFixture(t)
+	if st, out := c.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": "1.0.0.1"}); st != 409 || out["databaseState"] != "not_configured" {
+		t.Fatal(st, out)
+	}
+	if st, out := uploadASN(t, c, asnFixture(t), "?expectedRevision=0"); st != 200 {
+		t.Fatal(st, out)
+	}
+	prior, err := readRouteASNPolicy(s.st.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		ip, state string
+		number    float64
+	}{
+		{" 1.0.0.1 ", "matched", 15169},
+		{"2001:1700::1", "matched", 6730},
+		{"::ffff:1.0.0.1", "matched", 15169},
+		{"10.0.0.1", "private", 0},
+		{"::1", "private", 0},
+		{"203.0.113.1", "not_found", 0},
+	} {
+		st, out := c.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": tc.ip})
+		if st != 200 || out["effectiveEnabled"] != false || out["databaseSHA256"] != prior.SHA256 {
+			t.Fatal(st, out)
+		}
+		match := out["match"].(map[string]any)
+		if match["state"] != tc.state || (tc.number > 0 && (match["asn"] != tc.number || match["organization"] == "" || match["network"] == "")) {
+			t.Fatal(tc, match)
+		}
+	}
+	for _, ip := range []string{"", "example.com", "https://example.com/", "1.0.0.1:443", "1.0.0.1/24", "fe80::1%eth0"} {
+		if st, out := c.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": ip}); st != 400 {
+			t.Fatal(st, out)
+		}
+	}
+	after, err := readRouteASNPolicy(s.st.DB)
+	if err != nil || after != prior {
+		t.Fatal("preview modified policy", after, err)
+	}
+	if st, out := c.do("PUT", "/tools/route-asn", map[string]any{"enabled": true, "expectedRevision": prior.Revision}); st != 200 {
+		t.Fatal(st, out)
+	}
+	if st, out := c.do("POST", "/tools/route-asn/lookup", map[string]any{"ip": "1.0.0.1"}); st != 200 || out["effectiveEnabled"] != true {
+		t.Fatal(st, out)
 	}
 }

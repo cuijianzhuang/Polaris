@@ -1,8 +1,8 @@
 # 回程检测的本地 ASN 归属
 
-> 管理界面入口现已补齐，见[界面接入说明](operations-ui.md)；文中“仅后端/API”是首版交付范围。
+管理入口：**设置 → 网络检测**，包含启用状态、数据库信息、安装与更新、本地 IP 归属验证。参见[界面接入说明](operations-ui.md)。
 
-本轮仅后端/API，不改 UI。ASN 数据来自管理员上传的本地 MMDB；不自动下载数据库、不发起外部 IP 查询、不做反向 DNS、不使用 Shodan 密钥。初始默认关闭且不包含生产数据库。
+ASN 数据来自管理员上传的本地 MMDB；不自动下载数据库、不发起外部 IP 查询、不做反向 DNS、不使用 Shodan 密钥。初始默认关闭且不包含生产数据库。
 
 ## 安装和启用
 
@@ -10,6 +10,7 @@
 
 - `GET /tools/route-asn`：desired policy、当前实例的数据库状态、类型/构建时间/IP 版本，以及 `effectiveEnabled`。
 - `PUT /tools/route-asn/database?expectedRevision=0`：请求体为原始 MMDB 二进制，最多 64 MiB。上传仅安装/替换数据；首次上传不自动启用，更新已经启用的数据源则保留开关状态。
+- `POST /tools/route-asn/lookup`：`{"ip":"1.1.1.1"}`，使用当前实例快照预览单个 IPv4/IPv6 的归属，返回 `match`、`databaseSHA256` 和 `effectiveEnabled`；允许在注释开关关闭时验证已安装数据库，不改变策略、历史或开关。仅接受 IP 字面量，不解析域名，拒绝带端口、CIDR 或 zone 的输入。缺少有效数据库返回 409 和当前 `databaseState`。
 - `PUT /tools/route-asn`：`{"enabled":true,"expectedRevision":1}`。开启前要求当前实例已安装该策略引用的有效数据库。
 
 `expectedRevision` 可省略；建议先 GET 再使用其 policy.revision，冲突返回 409。重复上传相同数据或重复保存相同开关不递增版本。上传接口不接受 URL、服务器文件路径或自定义文件名，不通过通用 settings 接口修改策略。
@@ -60,3 +61,13 @@ ASN 数据是地址网段的归属注释，不证明真实 BGP AS path、实际�
 使用固定版本、MIT 许可的 MaxMind 合成测试库（来源和许可在 internal/asn/testdata），不将其当成真实互联网归属。
 
 覆盖 IPv4/IPv6、私网与不命中、损坏和不兼容数据库、默认关闭/显式开启、上传大小与版本检查、存储回滚、数据更新后的历史冻结、Agent 归属清除、地址数量限制、配置损坏恢复、多实例缺文件/哈希不符、相同文件部署及权限。实际查询准确度仍取决于部署时提供的数据。
+
+## 管理界面
+
+状态区分别显示策略开关和当前实例是否实际生效，提供数据库类型、构建时间、地址支持及 SHA-256。缺少文件或校验失败不会显示为就绪；已开启但当前实例不可用时仍可关闭策略。
+
+安装区提供 Loyalsoldier/geoip `release` 分支的 `GeoLite2-ASN.mmdb` GitHub/CDN 下载和 SHA-256 文件，同时保留 MaxMind 官方获取说明（GeoLite2 需要免费账号）和字段格式文档。`Country.mmdb`、`Country-asn.mmdb` 属于规则分类库，不能替代含 ASN 编号和组织字段的数据库。下载在用户浏览器中发起，不引入服务器自动更新或远程 IP 查询。管理员下载并解压 `.mmdb` 后上传；前端检查扩展名、空文件和 64 MiB 大小，后端继续执行完整的内容验证。首次上传仍需显式开启，替换数据库保留开关。配置冲突后刷新状态，不覆盖其他管理员修改。
+
+验证区在数据库就绪时可用，本地查询支持匹配、私网/特殊地址、未收录等结果；更换数据库或编辑输入后清除旧预览。IPv6 数据库按其格式支持 IPv4/IPv6 查询，具体覆盖依赖文件记录。
+
+UI 回归：`POLARIS_WEB_TEST_URL=http://127.0.0.1:5193 python3 web/scripts/asn-settings-ui-smoke.py`，使用固定模拟接口验证中英文、390/1440 宽度、上传、查询、启停与实例缺文件恢复。真实离线 MMDB 查询及管理员权限由 Go 测试覆盖。

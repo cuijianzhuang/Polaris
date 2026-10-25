@@ -1,29 +1,10 @@
 import { useEffect, useState } from 'react'
-import { api, get, put } from '../api'
+import { get, put } from '../api'
 import { useNodes } from '../App'
-import { datetime } from '../format'
 import { t } from '../i18n'
 import { Field, Switch, useAction, useLoad } from './ui'
 
-type ASNInfo = { policy: { enabled: boolean; sha256: string; revision: number }; databaseState: string; database?: { databaseType: string; buildEpoch: number; ipVersion: number }; effectiveEnabled: boolean }
-export function RouteASNSettings() {
-  const info = useLoad(() => get<ASNInfo>('/tools/route-asn'))
-  const [file, setFile] = useState<File>()
-  const [fileVersion, setFileVersion] = useState(0)
-  const { busy, run } = useAction()
-  const d = info.data
-  const upload = () => run(async () => { if (!file || !d) return; try { await api('PUT', `/tools/route-asn/database?expectedRevision=${d.policy.revision}`, file); setFile(undefined); setFileVersion((v) => v + 1); info.reload() } catch (e) { info.reload(); throw e } }, t('ASN 数据库已上传'))
-  return <section className="card ops-stack">
-    <div className="ctitle"><h2>{t('回程 ASN 数据库')}</h2><button className="btn sm" disabled={busy} onClick={info.reload}>{t('刷新')}</button></div>
-    {info.error && <div className="note warn" role="alert">{info.error}</div>}
-    <div className="hint">{t('上传 ASN MMDB 后可为新回程结果注释归属；不会追溯修改历史，也不自动下载或外查 IP。')}</div>
-    <div className="toggle"><span>{t('启用 ASN 注释')}</span><Switch label={t('启用 ASN 注释')} on={!!d?.policy.enabled} onChange={(enabled) => run(async () => { try { await put('/tools/route-asn', { enabled, expectedRevision: d!.policy.revision }); info.reload() } catch (e) { info.reload(); throw e } }, t('已保存'))} disabled={busy || !d || (!d.policy.enabled && d.databaseState !== 'ready')} /></div>
-    {d && <><div>{t('当前实例数据库')}：<b>{({ ready: t('就绪'), not_configured: t('未配置'), local_database_missing: t('缺少文件'), local_database_unreadable: t('无法读取'), hash_mismatch: t('哈希不符'), invalid_database: t('数据库无效') }[d.databaseState] ?? d.databaseState)}</b> · {d.effectiveEnabled ? t('已生效') : t('未生效')}</div><div className="small mono ops-break">SHA-256: {d.policy.sha256 || '—'}</div>{d.database && <div className="small">{d.database.databaseType} · IPv{d.database.ipVersion} · {datetime(new Date(d.database.buildEpoch * 1000).toISOString())}</div>}</>}
-    <Field label={t('上传 ASN MMDB')} hint={t('最多 64 MiB；首次上传后需手动启用。多实例部署须逐个实例安装同一文件，配置备份不包含数据库文件。')}><input key={fileVersion} className="input" type="file" accept=".mmdb" aria-label={t('上传 ASN MMDB')} disabled={busy || !d} onChange={(e) => setFile(e.target.files?.[0])} /></Field>
-    {file && file.size > 64 * 1024 * 1024 && <div className="note warn">{t('文件超过 64 MiB')}</div>}
-    <button className="btn pri" disabled={busy || !d || !file || file.size === 0 || file.size > 64 * 1024 * 1024} onClick={upload}>{t('上传数据库')}</button>
-  </section>
-}
+export { RouteASNSettings } from './RouteASNSettings'
 
 type Window = { id: string; nodeIds: string[]; channels: string[]; startsAt: string; endsAt: string }
 type Policy = { repeatWindowSeconds: number; channels: Record<string, Record<string, boolean>>; maintenance: Window[] }
