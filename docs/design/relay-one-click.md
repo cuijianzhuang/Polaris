@@ -284,3 +284,9 @@ POLARIS_NFT_DOCKER_TEST=1 go test ./internal/agent -run TestLiveAccessFirewall -
 每条链路保存共同的 `batchId`，仍由原来的线路列表、状态和诊断接口管理。可独立停用或删除某个入口；其他路径及其来源保护保持有效。整批创建遵循现有 `relayOnly` 发布策略，不会为仅中转入站补建直连入口；客户端刷新订阅后可选择多个入口。`batchId` 同时用于上文的整组查询、启停和删除接口；整组改路径尚未提供。
 
 验证覆盖原样转发/认证隧道、公共节点端口冲突、事务回滚、跨实例并发重放、订阅和来源保护。设置 `POLARIS_GOST_BIN` 后运行 `TestLiveRelayBatch`，验证 TCP/WS 认证隧道下两个入口的 TCP 与 UDP 转发、跨线路密钥隔离，以及关闭一个入口后另一入口仍可使用。
+
+### 诊断结果的展示边界
+
+网络诊断响应包含 `kind: network`，真实业务诊断响应包含 `kind: business`。网络检查通过时，界面只显示“已执行的网络检查通过”，同时明确代理业务未测试；`proxy_business: not_tested` 不再显示为业务失败。真实业务的 `unsupported`、`not_ready` 以中性状态展示；实际执行未通过仍保留警告，只有服务端确认业务与临时凭据清理证据后才显示业务已验证。
+
+线路列表新增 `businessDiagnostic: {supported, reason}`，由与真实业务诊断入口相同的校验函数生成。当前只支持 Xray VLESS 且落地 Agent 已声明所需能力；sing-box VLESS 也不属于支持范围。前端在不支持或线路未应用时禁用业务诊断按钮并展示原因，网络诊断和中转创建继续可用。列表后的配置/能力变化仍由执行接口再次校验，过期的可用状态不会绕过服务端限制。

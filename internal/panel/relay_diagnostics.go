@@ -24,6 +24,7 @@ type relayDiagnosticCheck struct {
 }
 
 type relayDiagnostic struct {
+	Kind             string                 `json:"kind"`
 	ChainID          string                 `json:"chainId"`
 	CheckedAt        time.Time              `json:"checkedAt"`
 	State            string                 `json:"state"` // not_ready / failed / partial
@@ -49,7 +50,7 @@ func (s *Server) diagnoseInboundRelay(c *gin.Context) {
 	m := s.toModelInbound(&in)
 	m.Normalize()
 	view := s.relayView(ch, in)
-	report := relayDiagnostic{ChainID: ch.ID, CheckedAt: time.Now(), State: "not_ready", Network: m.Network(), Deployment: view,
+	report := relayDiagnostic{Kind: "network", ChainID: ch.ID, CheckedAt: time.Now(), State: "not_ready", Network: m.Network(), Deployment: view,
 		Checks: []relayDiagnosticCheck{{Kind: "deployment", State: "skipped", Message: "配置未在所有节点应用：" + view.State}}}
 	if view.State != "applied" {
 		report.Checks = append(report.Checks, relayDiagnosticCheck{Kind: "transport", State: "skipped", Message: "线路停用、离线或配置未就绪，未发起网络探测"}, relayBusinessUnchecked())
@@ -156,5 +157,5 @@ func (s *Server) diagnoseInboundRelay(c *gin.Context) {
 }
 
 func relayBusinessUnchecked() relayDiagnosticCheck {
-	return relayDiagnosticCheck{Kind: "proxy_business", State: "not_tested", Message: "未使用用户凭据进行代理登录、上下行或 UDP 端到端验证；请使用真实订阅验证业务"}
+	return relayDiagnosticCheck{Kind: "proxy_business", State: "not_tested", Message: "网络诊断未执行代理认证、上下行或 UDP 端到端测试；请运行支持的真实业务诊断，或使用真实订阅验证业务"}
 }

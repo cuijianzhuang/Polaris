@@ -52,6 +52,7 @@ type relaySetupNode struct {
 }
 
 type inboundRelayView struct {
+	BusinessDiagnostic relayBusinessSupport `json:"businessDiagnostic"`
 	store.Chain
 	ShareAddress string           `json:"shareAddress,omitempty"`
 	SharePort    int              `json:"sharePort,omitempty"`
@@ -526,7 +527,7 @@ func (s *Server) listInboundRelays(c *gin.Context) {
 
 func (s *Server) relayView(ch store.Chain, in store.Inbound) inboundRelayView {
 	hops := ch.Hops.V
-	view := inboundRelayView{Chain: ch, Port: hops[0].Port, State: "applied", Nodes: []relaySetupNode{}}
+	view := inboundRelayView{Chain: ch, Port: hops[0].Port, State: "applied", Nodes: []relaySetupNode{}, BusinessDiagnostic: relayBusinessAvailability(in, store.Node{})}
 	var endpoint store.Endpoint
 	if s.st.DB.Where("relay_chain_id = ? AND inbound_id = ? AND kind = ?", ch.ID, in.ID, "relay").Order("created_at, id").First(&endpoint).Error == nil {
 		view.ShareAddress, view.SharePort, view.ShareName = endpoint.Address, endpoint.Port, endpoint.ShareName
@@ -536,6 +537,9 @@ func (s *Server) relayView(ch store.Chain, in store.Inbound) inboundRelayView {
 		if err := s.st.DB.First(&n, "id = ?", h.NodeID).Error; err != nil {
 			view.State = "failed"
 			continue
+		}
+		if h.NodeID == in.NodeID {
+			view.BusinessDiagnostic = relayBusinessAvailability(in, n)
 		}
 		if h.NodeID == hops[0].NodeID {
 			view.Address = nodeHost(&n)
