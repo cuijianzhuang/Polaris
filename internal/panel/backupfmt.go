@@ -717,6 +717,9 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupArchive, box *se
 		if e := importAll(tx, arc.Tables, reseal); e != nil {
 			return e
 		}
+		if e := store.SealLegacySubSources(tx, box); e != nil {
+			return e
+		}
 		if tx.Dialector.Name() == "postgres" {
 			now := time.Now()
 			_, e := saveClusterOperation(tx, store.ClusterOperation{ID: store.NewID(), Kind: "restore", CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}, memberID, "", false)

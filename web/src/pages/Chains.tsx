@@ -6,7 +6,7 @@ import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t } from '../i18n'
 import GeoPicker from '../components/GeoPicker'
 import WarpDialog from '../components/WarpDialog'
-import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet } from '../types'
+import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet, SourceNode } from '../types'
 import { DNSSettings, RuleSets } from './DNSRules'
 
 type Tab = 'chains' | 'cdn' | 'routing' | 'rulesets' | 'dns'
@@ -235,7 +235,7 @@ function fallbackPath(tag: string, fallback: string, outbounds: Outbound[]): str
 function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved }: { node: Node; outbound?: Outbound; inbounds: Inbound[]; outbounds: Outbound[]; onClose: () => void; onSaved: () => void }) {
   const s = outbound?.settings ?? {}
   const [f, setF] = useState({
-    tag: outbound?.tag ?? '', type: outbound?.type ?? 'socks', nodeRefInboundId: outbound?.nodeRefInboundId ?? '', detour: outbound?.detour ?? '', remark: outbound?.remark ?? '',
+    tag: outbound?.tag ?? '', type: outbound?.type ?? 'socks', sourceNodeId: outbound?.sourceNodeId ?? '', nodeRefInboundId: outbound?.nodeRefInboundId ?? '', detour: outbound?.detour ?? '', remark: outbound?.remark ?? '',
     server: s.server ?? '', port: String(s.port ?? ''), username: s.username ?? '', password: s.password ?? '', uuid: s.uuid ?? '', method: s.method ?? '2022-blake3-aes-128-gcm',
     privateKey: s.privateKey ?? '', peerPublicKey: s.peerPublicKey ?? '', localAddress: (s.localAddress ?? []).join(', '), reserved: (s.reserved ?? []).join(','),
     members: (s.members ?? []) as string[], sni: s.security?.serverName ?? '', tls: !!s.security,
@@ -257,6 +257,7 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
     }
   }
   const remote = inbounds.filter((i) => i.nodeId !== node.id)
+  const sourceNodes = useLoad(() => get<SourceNode[]>('/sub-source-nodes'))
   const caps = useLoad(() => get<CapSet[]>('/capabilities?node=' + node.id), [node.id]).data ?? []
   const hasSingbox = node.cores.some((c) => c.type === 'singbox')
   const hasMihomo = node.cores.some((c) => c.type === 'mihomo')
@@ -268,7 +269,7 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
     <Drawer title={outbound ? t('编辑出站 · {tag}', { tag: outbound.tag }) : t('新建出站')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !f.tag || fallbackUnsupported} onClick={() => run(async () => {
-        const body = { tag: f.tag, type: f.type, nodeRefInboundId: f.type === 'node_ref' ? f.nodeRefInboundId : '', detour: f.detour, remark: f.remark, settings: f.type === 'node_ref' ? undefined : settings() }
+        const body = { tag: f.tag, type: f.type, sourceNodeId: f.type === 'source_ref' ? f.sourceNodeId : '', nodeRefInboundId: f.type === 'node_ref' ? f.nodeRefInboundId : '', detour: f.detour, remark: f.remark, settings: f.type === 'node_ref' || f.type === 'source_ref' ? undefined : settings() }
         if (outbound) await put(`/nodes/${node.id}/outbounds/${outbound.id}`, body)
         else await post(`/nodes/${node.id}/outbounds`, body)
         onSaved()
@@ -280,12 +281,12 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
           <select className="input" value={f.type} onChange={(e) => set('type', e.target.value)}>
             <option value="socks">{t('SOCKS5（住宅代理等）')}</option><option value="http">HTTP</option><option value="wireguard">WireGuard（WARP）</option>
             <option value="shadowsocks">Shadowsocks</option><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option>
-            <option value="hysteria2">{t('Hysteria2（仅 sing-box）')}</option><option value="node_ref">{t('面板内另一节点')}</option>
+            <option value="hysteria2">{t('Hysteria2（仅 sing-box）')}</option><option value="node_ref">{t('面板内另一节点')}</option><option value="source_ref">{t('外部订阅节点')}</option>
             <option value="balancer">{t('负载均衡组')}</option><option value="urltest">{t('自动选择组（延迟最低）')}</option><option value="selector">{t('手动选择组')}</option><option value="direct">{t('直连')}</option>
           </select>
         </Field>
       </div>
-      {f.type === 'node_ref' ? (
+      {f.type === 'source_ref' ? <Field label={t('来源节点')} hint={t('凭据跟随来源刷新，不复制到出站；已移除或停用时阻断连接。')}><select className="input" value={f.sourceNodeId} onChange={(e) => set('sourceNodeId', e.target.value)}><option value="">{t('选择来源节点')}</option>{(sourceNodes.data ?? []).filter((n) => (n.available && n.supported) || n.id === f.sourceNodeId).map((n) => <option key={n.id} value={n.id}>{n.source} · {n.name} · {n.protocol}{!n.available ? ' · ' + t('不可用') : ''}</option>)}</select>{sourceNodes.error && <div className="hint">{sourceNodes.error}</div>}</Field> : f.type === 'node_ref' ? (
         <Field label={t('目标入站')} hint={t('地址与服务账号由主控自动填写')}>
           <select className="input" value={f.nodeRefInboundId} onChange={(e) => set('nodeRefInboundId', e.target.value)}>
             <option value="">{t('选择其他节点的入站')}</option>
@@ -437,7 +438,7 @@ function Routing({ nodes }: { nodes: Node[] }) {
               <tr key={o.id}>
                 <td className="mono">{o.tag}{o.chainId && <span className="tag" style={{ marginLeft: 6 }}>{t('链路')}</span>}</td>
                 <td>{o.type}</td>
-                <td className="mono small">{o.type === 'node_ref' ? (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.nodeName ?? '') + ' · ' + (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.tag ?? '') : o.settings?.server ? `${o.settings.server}:${o.settings.port}` : o.settings?.members?.join(', ') ?? '—'}{o.settings?.fallback && <div className="hint">{t('兜底：{tag}', { tag: o.settings.fallback })}</div>}</td>
+                <td className="mono small">{o.type === 'source_ref' ? t('来源节点 · {id}', { id: o.sourceNodeId }) : o.type === 'node_ref' ? (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.nodeName ?? '') + ' · ' + (inbounds.data?.find((i) => i.id === o.nodeRefInboundId)?.tag ?? '') : o.settings?.server ? `${o.settings.server}:${o.settings.port}` : o.settings?.members?.join(', ') ?? '—'}{o.settings?.fallback && <div className="hint">{t('兜底：{tag}', { tag: o.settings.fallback })}</div>}</td>
                 <td className="mono">{o.detour || '—'}</td>
                 <td style={{ textAlign: 'right' }}>{!o.chainId && <>
                   <button className="link" type="button" onClick={() => setDrawer(o)}>{t('编辑')}</button>

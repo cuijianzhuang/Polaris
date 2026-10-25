@@ -1,3 +1,4 @@
+import SourceResources from '../components/SourceResources'
 import OpChain from '../components/OperatorChain'
 import ProcessingGroups, { ProcessingGroupPicker } from '../components/ProcessingGroups'
 import { useEffect, useState } from 'react'
@@ -41,11 +42,11 @@ export default function Convert() {
 
 // --- sources ---
 
-type SrcForm = { id?: string; name: string; kind: 'url' | 'manual'; url: string; content: string; userAgent: string; group: string; enabled: boolean; refreshMin: number; remark: string }
+type SrcForm = { id?: string; name: string; kind: 'url' | 'manual'; url: string; content: string; userAgent: string; group: string; enabled: boolean; refreshMin: number; remark: string; hasUrl?: boolean; hasContent?: boolean }
 
 function Sources({ list }: { list: ReturnType<typeof useLoad<SubSource[]>> }) {
   const [form, setForm] = useState<SrcForm | null>(null)
-  const [nodes, setNodes] = useState<{ title: string; rows: NodeRow[] } | null>(null)
+  const [nodes, setNodes] = useState<{ id: string; title: string } | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const toast = useToast()
@@ -65,7 +66,7 @@ function Sources({ list }: { list: ReturnType<typeof useLoad<SubSource[]>> }) {
                 return (
                   <tr key={s.id}>
                     <td style={{ fontWeight: 500 }}>{s.name}{s.group && <span className="tag" style={{ marginLeft: 6 }}>{s.group}</span>}
-                      <div className="small mute mono" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.kind === 'url' ? s.url.replace(/(token|key|sub)=[^&]+/gi, '$1=***') : t('手动节点')}</div></td>
+                      <div className="small mute mono" style={{ maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.kind === 'url' ? s.urlHost || t('已保存订阅地址') : t('手动节点')}</div></td>
                     <td><span className="tag">{s.kind === 'url' ? t('订阅链接') : t('手动')}</span></td>
                     <td className="mono">{s.nodeCount}</td>
                     <td className="small">{ui?.total ? `${bytes(ui.upload + ui.download)} / ${bytes(ui.total)}` : '—'}{ui?.expire ? <div className="mute">{t('{date} 到期', { date: datetime(new Date(ui.expire * 1000).toISOString()).slice(0, 10) })}</div> : null}</td>
@@ -73,13 +74,13 @@ function Sources({ list }: { list: ReturnType<typeof useLoad<SubSource[]>> }) {
                       {s.lastError && <div style={{ color: 'var(--bad)', maxWidth: 240 }} title={s.lastError}>{s.lastError.slice(0, 60)}</div>}</td>
                     <td><Switch label={t('启用')} on={s.enabled} onChange={(v) => run(async () => { await put('/sub-sources/' + s.id, { ...s, enabled: v }); list.reload() })} /></td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button className="link" type="button" onClick={() => run(async () => setNodes({ title: s.name, rows: await get<NodeRow[]>(`/sub-sources/${s.id}/nodes`) }))}>{t('节点')}</button>
+                      <button className="link" type="button" onClick={() => setNodes({ id: s.id, title: s.name })}>{t('节点')}</button>
                       {s.kind === 'url' && <button className="link" type="button" style={{ marginLeft: 12 }} disabled={busy} onClick={() => run(async () => {
                         const r = await post<{ nodeCount: number }>(`/sub-sources/${s.id}/refresh`); list.reload(); toast(t('已更新，{n} 个节点', { n: r.nodeCount }))
                       })}>{t('更新')}</button>}
-                      <button className="link" type="button" style={{ marginLeft: 12 }} onClick={() => setForm({ ...s })}>{t('编辑')}</button>
+                      <button className="link" type="button" style={{ marginLeft: 12 }} onClick={() => setForm({ ...s, url: '', content: '' })}>{t('编辑')}</button>
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
-                        if (await confirm(t('删除订阅源 {name}？引用它的订阅组将不再包含这些节点。', { name: s.name }), { danger: true })) run(async () => { await del('/sub-sources/' + s.id); list.reload() })
+                        if (await confirm(t('删除订阅源 {name}？仍有订阅、出站或中转引用时无法删除。', { name: s.name }), { danger: true })) run(async () => { await del('/sub-sources/' + s.id); list.reload() })
                       }}>{t('删除')}</button>
                     </td>
                   </tr>
@@ -92,7 +93,7 @@ function Sources({ list }: { list: ReturnType<typeof useLoad<SubSource[]>> }) {
       {form && (
         <Drawer title={form.id ? t('编辑订阅源') : t('添加订阅源')} onClose={() => setForm(null)} footer={<>
           <button className="btn" type="button" onClick={() => setForm(null)}>{t('取消')}</button>
-          <button className="btn pri" type="button" disabled={busy || !form.name || (form.kind === 'url' ? !form.url : !form.content)} onClick={() => run(async () => {
+          <button className="btn pri" type="button" disabled={busy || !form.name || (form.kind === 'url' ? !form.url && !form.hasUrl : !form.content && !form.hasContent)} onClick={() => run(async () => {
             const r = await (form.id ? put('/sub-sources/' + form.id, form) : post('/sub-sources', form))
             setForm(null); list.reload()
             if (r?.warning) toast(t('已保存，但拉取失败：{error}', { error: r.warning }), true)
@@ -109,19 +110,20 @@ function Sources({ list }: { list: ReturnType<typeof useLoad<SubSource[]>> }) {
               <button type="button" className={'opt' + (form.kind === 'manual' ? ' on' : '')} onClick={() => setForm({ ...form, kind: 'manual' })}>{t('手动节点')}<small>{t('粘贴分享链接、YAML 或 JSON')}</small></button>
             </div>
           </Field>
+          {form.id && <div className="note">{t('已保存的订阅地址和节点凭据不回显；留空保留，填写新内容后替换。')}</div>}
           {form.kind === 'url' ? <>
-            <Field label={t('订阅地址')} hint={t('只允许公网地址（可在转换设置中放开内网）')}><input className="input mono" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://example.com/api/v1/client/subscribe?token=…" /></Field>
+            <Field label={t('订阅地址')} htmlFor="source-url" hint={t('只允许公网地址（可在转换设置中放开内网）')}><input id="source-url" className="input mono" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://example.com/api/v1/client/subscribe?token=…" /></Field>
             <div className="form-grid">
               <Field label="User-Agent" hint={t('部分机场按 UA 返回不同格式')}><input className="input mono" value={form.userAgent} onChange={(e) => setForm({ ...form, userAgent: e.target.value })} placeholder="clash.meta" /></Field>
               <Field label={t('自动更新（分钟）')} hint={t('0 为仅手动更新')}><input className="input mono" inputMode="numeric" value={form.refreshMin} onChange={(e) => setForm({ ...form, refreshMin: Number(e.target.value) || 0 })} /></Field>
             </div>
           </> : (
-            <Field label={t('节点内容')}><textarea className="input mono" style={{ minHeight: 240 }} spellCheck={false} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder={'vless://…\nhysteria2://…\nss://…'} /></Field>
+            <Field label={t('节点内容')} htmlFor="source-content"><textarea id="source-content" className="input mono" style={{ minHeight: 240 }} spellCheck={false} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} placeholder={'vless://…\nhysteria2://…\nss://…'} /></Field>
           )}
           <Field label={t('备注')}><input className="input" value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></Field>
         </Drawer>
       )}
-      {nodes && <NodesModal title={`${nodes.title} · ${t('{n} 个节点', { n: nodes.rows.length })}`} rows={nodes.rows} onClose={() => setNodes(null)} />}
+      {nodes && <SourceResources id={nodes.id} name={nodes.title} onClose={() => setNodes(null)} />}
     </>
   )
 }

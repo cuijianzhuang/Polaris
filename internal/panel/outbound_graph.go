@@ -72,6 +72,9 @@ func (s *Server) mutateOutbounds(nodeID string, fn func(*gorm.DB) error) error {
 	s.outboundMu.Lock()
 	defer s.outboundMu.Unlock()
 	return s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if e := store.ReserveSourceResources(tx); e != nil {
+			return e
+		}
 		if tx.Dialector.Name() == "postgres" {
 			if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "polaris-outbounds:"+nodeID).Error; err != nil {
 				return err

@@ -16,10 +16,11 @@ const (
 	OutTrojan      OutboundType = "trojan"
 	OutHysteria2   OutboundType = "hysteria2"
 	OutWireGuard   OutboundType = "wireguard"
-	OutNodeRef     OutboundType = "node_ref" // resolved by the panel before reaching a core
-	OutURLTest     OutboundType = "urltest"  // auto-select group (xray: balancer + observatory)
-	OutSelector    OutboundType = "selector" // manual group
-	OutBalancer    OutboundType = "balancer" // load balancing group with a strategy
+	OutSourceRef   OutboundType = "source_ref" // resolved from a stable subscription node by the panel
+	OutNodeRef     OutboundType = "node_ref"   // resolved by the panel before reaching a core
+	OutURLTest     OutboundType = "urltest"    // auto-select group (xray: balancer + observatory)
+	OutSelector    OutboundType = "selector"   // manual group
+	OutBalancer    OutboundType = "balancer"   // load balancing group with a strategy
 )
 
 // Load-balancing strategies for OutBalancer.
