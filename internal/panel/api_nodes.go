@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -241,6 +242,10 @@ func (s *Server) updateNode(c *gin.Context) {
 	c.JSON(http.StatusOK, n)
 }
 
+type nodeInUseError struct{ refs int64 }
+
+func (e *nodeInUseError) Error() string { return "node inbounds still referenced" }
+
 func (s *Server) deleteNode(c *gin.Context) {
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
@@ -259,6 +264,17 @@ func (s *Server) deleteNode(c *gin.Context) {
 			return e
 		}
 		upstream = append(upstream, extra...)
+		if len(inIDs) > 0 {
+			// Outbounds elsewhere pointing at this node's inbounds would leave
+			// those nodes unable to render (as deleting an inbound refuses).
+			var refs int64
+			if err := tx.Model(&store.Outbound{}).Where("node_ref_inbound_id IN ? AND node_id <> ?", inIDs, id).Count(&refs).Error; err != nil {
+				return err
+			}
+			if refs > 0 {
+				return &nodeInUseError{refs}
+			}
+		}
 
 		for _, m := range []any{&store.Core{}, &store.Inbound{}, &store.Outbound{}, &store.RoutingRule{}, &store.ConfigRevision{}, &store.ForwardRule{}, &store.NodeNetBoot{}, &store.NotificationState{}, &store.NodeRouteTrace{}, &store.NodeRouteSchedule{}, &store.NodeRouteScheduleState{}} {
 			if err := tx.Where("node_id = ?", id).Delete(m).Error; err != nil {
@@ -283,6 +299,11 @@ func (s *Server) deleteNode(c *gin.Context) {
 		}
 		return tx.Delete(&store.Node{}, "id = ?", id).Error
 	})
+	var inUse *nodeInUseError
+	if errors.As(err, &inUse) {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("其他节点有 %d 个出站 / 链路引用该节点的入站，请先删除", inUse.refs)})
+		return
+	}
 	if err != nil {
 		serverError(c, err)
 		return

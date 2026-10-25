@@ -75,15 +75,16 @@ func (s *Server) couponFor(code, kind, productID string, b shopBuyer) (*store.Co
 		}
 	}
 	if c.PerUser > 0 {
-		if n := s.couponUsesBy(code, b); n >= int64(c.PerUser) {
+		if n := couponUsesBy(s.st.DB, code, b); n >= int64(c.PerUser) {
 			return nil, errors.New("你已经用过这个优惠码")
 		}
 	}
 	return &c, nil
 }
 
-// couponUsesBy counts the paid orders of buyer b with the coupon.
-func (s *Server) couponUsesBy(code string, b shopBuyer) int64 {
+// couponUsesBy counts buyer b's paid orders with the coupon. Pending ones
+// are not counted: a repeated Stars tap reuses the buyer's open order.
+func couponUsesBy(db *gorm.DB, code string, b shopBuyer) int64 {
 	var conds []string
 	var args []any
 	if b.UserID != "" {
@@ -99,9 +100,11 @@ func (s *Server) couponUsesBy(code string, b shopBuyer) int64 {
 		return 0
 	}
 	var n int64
-	s.st.DB.Model(&store.CouponUse{}).Where("code = ?", code).Where("("+strings.Join(conds, " OR ")+")", args...).Count(&n)
+	db.Model(&store.CouponUse{}).Where("code = ?", code).Where("("+strings.Join(conds, " OR ")+")", args...).Count(&n)
 	return n
 }
+
+var errCouponGone = errors.New("优惠码已被领完或你已用过")
 
 // discounted applies coupon c to a product's prices.
 func discounted(c *store.Coupon, stars int, cny, usdt float64) (int, float64, float64) {
@@ -197,6 +200,26 @@ func recordCouponUse(tx *gorm.DB, o *store.Order, now time.Time) error {
 		return nil
 	}
 	use := store.CouponUse{ID: store.NewID(), Code: o.CouponCode, OrderID: o.ID, UserID: o.UserID, TelegramID: o.TelegramID, WebKey: o.WebKey, CreatedAt: now}
+	if o.Method == payCoupon {
+		// A free order is not paid for, so its limits are enforced here,
+		// where concurrent claims serialise: the conditional UPDATE takes the
+		// coupon row's lock before the per-buyer count runs.
+		res := tx.Model(&store.Coupon{}).Where("code = ? AND (max_uses = 0 OR used < max_uses)", o.CouponCode).UpdateColumn("used", gorm.Expr("used + 1"))
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return errCouponGone
+		}
+		var c store.Coupon
+		if err := tx.First(&c, "code = ?", o.CouponCode).Error; err != nil {
+			return err
+		}
+		if c.PerUser > 0 && couponUsesBy(tx, o.CouponCode, shopBuyer{UserID: o.UserID, TGID: o.TelegramID, WebKey: o.WebKey}) >= int64(c.PerUser) {
+			return errCouponGone
+		}
+		return tx.Create(&use).Error
+	}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&use).Error; err != nil {
 		return err
 	}

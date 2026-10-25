@@ -265,8 +265,8 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 	o.CreatedAt, o.ExpiresAt = o.CreatedAt.Truncate(time.Microsecond), o.ExpiresAt.Truncate(time.Microsecond)
 	if o.Method == payStars {
 		var existing store.Order
-		err := s.st.DB.Where("telegram_id = ? AND user_id = ? AND plan_id = ? AND pack_id = ? AND kind = ? AND method = ? AND amount = ? AND currency = ? AND status = ? AND expires_at > ?",
-			o.TelegramID, o.UserID, o.PlanID, o.PackID, o.Kind, payStars, o.Amount, o.Currency, "pending", now).Where("entitlements = ?", o.Entitlements).Order("created_at desc").First(&existing).Error
+		err := s.st.DB.Where("telegram_id = ? AND user_id = ? AND plan_id = ? AND pack_id = ? AND kind = ? AND method = ? AND amount = ? AND currency = ? AND coupon_code = ? AND status = ? AND expires_at > ?",
+			o.TelegramID, o.UserID, o.PlanID, o.PackID, o.Kind, payStars, o.Amount, o.Currency, o.CouponCode, "pending", now).Where("entitlements = ?", o.Entitlements).Order("created_at desc").First(&existing).Error
 		if err == nil {
 			return &existing, nil
 		}

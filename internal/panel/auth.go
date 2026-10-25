@@ -10,6 +10,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -299,14 +300,18 @@ func (s *Server) totpEnable(c *gin.Context) {
 
 // countLoginFailure records a failed sign-in (password, TOTP, or the TOTP step
 // of a GitHub sign-in) and locks the account after maxLoginFailures.
+// The count is incremented in the database: concurrent guesses each read the
+// same stale value, so writing a.FailedAttempts+1 would never lock.
 func (s *Server) countLoginFailure(a *store.Admin, now time.Time) {
-	a.FailedAttempts++
-	upd := map[string]any{"failed_attempts": a.FailedAttempts}
-	if a.FailedAttempts >= maxLoginFailures {
-		upd["locked_until"] = now.Add(lockDuration)
-		upd["failed_attempts"] = 0
+	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Update("failed_attempts", gorm.Expr("failed_attempts + 1"))
+	var n int
+	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Select("failed_attempts").Scan(&n)
+	a.FailedAttempts = n
+	if n >= maxLoginFailures {
+		s.st.DB.Model(&store.Admin{}).Where("id = ? AND failed_attempts >= ?", a.ID, maxLoginFailures).
+			Updates(map[string]any{"locked_until": now.Add(lockDuration), "failed_attempts": 0})
+		a.FailedAttempts = 0
 	}
-	s.st.DB.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(upd)
 }
 
 func lockedOut(a *store.Admin, now time.Time) bool {

@@ -39,3 +39,26 @@ func TestWARPOutbound(t *testing.T) {
 		}
 	}
 }
+
+// An IPv6 WireGuard server must be bracketed in the endpoint.
+func TestWireGuardIPv6Endpoint(t *testing.T) {
+	in := coretest.Inbound(model.CoreXray, "vless", 2102, model.ProtocolSpec{Type: model.ProtoVLESS},
+		model.TransportSpec{Type: model.TransTCP}, model.SecuritySpec{})
+	set, _ := json.Marshal(model.OutboundSettings{Server: "2606:4700:d0::a29f:c001", Port: 2408,
+		PrivateKey: "aGVsbG9oZWxsb2hlbGxvaGVsbG9oZWxsb2hlbGxvMDE=", PeerPublicKey: "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+		LocalAddress: []string{"172.16.0.2/32"}})
+	sp := &model.NodeSpec{Inbounds: []model.Inbound{in}, Outbounds: []model.Outbound{{ID: "o1", Tag: "wg", Type: model.OutWireGuard, Settings: set}}}
+	a := New(core.Options{Version: "26.3.27", WorkDir: t.TempDir(), BinPath: os.Getenv("POLARIS_XRAY_BIN")})
+	cfg, err := a.Render(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), `"endpoint": "[2606:4700:d0::a29f:c001]:2408"`) {
+		t.Fatalf("endpoint not bracketed:\n%s", cfg)
+	}
+	if os.Getenv("POLARIS_XRAY_BIN") != "" {
+		if err := a.Validate(cfg); err != nil {
+			t.Fatalf("xray rejected: %v", err)
+		}
+	}
+}

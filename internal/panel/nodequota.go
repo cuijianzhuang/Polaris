@@ -43,7 +43,11 @@ func chargeNodeQuota(q *store.UserNodeQuota, up, down int64) (cu, cd int64, flip
 	fromPack := min(q.PackLeft(), total)
 	q.ExtraUsed += fromPack
 	if fromPack > 0 && total > 0 {
-		upPack := fromPack * up / total
+		// float: fromPack*up overflows int64 for large counters.
+		upPack := min(int64(float64(fromPack)*(float64(up)/float64(total))), up, fromPack)
+		if fromPack-upPack > down {
+			upPack = fromPack - down
+		}
 		cu, cd = up-upPack, down-(fromPack-upPack)
 	} else {
 		cu, cd = up, down

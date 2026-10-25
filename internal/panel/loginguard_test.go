@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -197,5 +198,26 @@ func TestRecoveryCodes(t *testing.T) {
 	}
 	if st, out := fresh.do("POST", "/auth/totp/recovery-codes", nil); st != 200 || len(out["recoveryCodes"].([]any)) != recoveryCount {
 		t.Fatalf("regenerate %d %v", st, out)
+	}
+}
+
+// Concurrent wrong passwords each start from the same stale count; the
+// account must still lock.
+func TestLoginFailureCountConcurrent(t *testing.T) {
+	s, _, _ := newAdminClient(t)
+	var a store.Admin
+	if err := s.st.DB.First(&a, "username = ?", "root").Error; err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < maxLoginFailures; i++ {
+		wg.Add(1)
+		stale := a
+		go func() { defer wg.Done(); s.countLoginFailure(&stale, time.Now()) }()
+	}
+	wg.Wait()
+	s.st.DB.First(&a, "id = ?", a.ID)
+	if !lockedOut(&a, time.Now()) {
+		t.Fatalf("not locked after %d concurrent failures (count %d)", maxLoginFailures, a.FailedAttempts)
 	}
 }

@@ -203,6 +203,9 @@ func (s *Server) portalPage(c *gin.Context) {
 
 // portalLoginStart: POST /u/login.
 func (s *Server) portalLoginStart(c *gin.Context) {
+	if !portalWrite(c) {
+		return
+	}
 	if !s.tgWebLoginEnabled() {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Telegram 机器人未运行，请联系管理员"})
 		return
@@ -213,6 +216,11 @@ func (s *Server) portalLoginStart(c *gin.Context) {
 // portalLoginPoll: POST /u/poll {id, secret}; sets the session cookie once
 // the user taps the right number.
 func (s *Server) portalLoginPoll(c *gin.Context) {
+	// The header stops a cross-site form from planting someone else's
+	// session (login CSRF).
+	if !portalWrite(c) {
+		return
+	}
 	userID, chat, ok := s.pollWebLogin(c, &s.portalWeb)
 	if !ok {
 		return

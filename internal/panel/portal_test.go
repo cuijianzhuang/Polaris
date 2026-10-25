@@ -50,6 +50,15 @@ func (p *portalClient) json(method, path string, body any) map[string]any {
 	return out
 }
 
+// jsonW is json with the portal's CSRF header.
+func (p *portalClient) jsonW(method, path string, body any) map[string]any {
+	p.t.Helper()
+	_, b := p.req(method, path, body, true)
+	var out map[string]any
+	json.Unmarshal([]byte(b), &out)
+	return out
+}
+
 // TestPortal: a user signs in to the user center through the bot, sees their
 // own page, can reset the link; the session never opens the admin API and
 // ends when the user unbinds Telegram.
@@ -86,7 +95,10 @@ func TestPortal(t *testing.T) {
 	}
 
 	start := func() (id, secret string, code int) {
-		out := page.json("POST", "/u/login", nil)
+		if code, _ := page.req("POST", "/u/login", nil, false); code != http.StatusForbidden {
+			t.Fatalf("login without CSRF header: %d", code)
+		}
+		out := page.jsonW("POST", "/u/login", nil)
 		if !strings.HasPrefix(fmt.Sprint(out["url"]), "https://t.me/polaris_bot?start="+portalLoginPrefix) {
 			t.Fatalf("start: %v", out)
 		}
@@ -101,7 +113,10 @@ func TestPortal(t *testing.T) {
 		fake.push(cb(chat, "ul:"+id+":"+pick))
 		var out map[string]any
 		waitUntil(t, "answer", func() bool {
-			out = page.json("POST", "/u/poll", map[string]string{"id": id, "secret": secret})
+			if code, _ := page.req("POST", "/u/poll", map[string]string{"id": id, "secret": secret}, false); code != http.StatusForbidden {
+				t.Fatalf("poll without CSRF header: %d", code)
+			}
+			out = page.jsonW("POST", "/u/poll", map[string]string{"id": id, "secret": secret})
 			return out["status"] != "pending"
 		})
 		return out

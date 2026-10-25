@@ -81,12 +81,23 @@ func (s *Server) broadcastNodes() {
 }
 
 // sessionCheck reports, when called later, whether the request's session is
-// still valid: a password change, a deleted admin or a removed Telegram admin
-// ends it.
+// still valid: a revoked or expired session, a password change, a deleted
+// admin or a removed Telegram admin ends it.
 func (s *Server) sessionCheck(c *gin.Context) func() bool {
+	sid := c.GetString("sid") // empty for API tokens
+	alive := func() bool {
+		if sid == "" {
+			return true
+		}
+		_, ok := s.sessionAlive(sid)
+		return ok
+	}
 	if v, ok := c.Get("tgAdmin"); ok {
 		id := v.(*store.TGAdmin).ID
 		return func() bool {
+			if !alive() {
+				return false
+			}
 			var n int64
 			s.st.DB.Model(&store.TGAdmin{}).Where("id = ?", id).Count(&n)
 			return n > 0
@@ -95,7 +106,7 @@ func (s *Server) sessionCheck(c *gin.Context) func() bool {
 	adminID, version := c.GetString("adminID"), c.GetInt("tokenVersion")
 	return func() bool {
 		var a store.Admin
-		return s.st.DB.Select("id", "token_version").First(&a, "id = ?", adminID).Error == nil && a.TokenVersion == version
+		return alive() && s.st.DB.Select("id", "token_version").First(&a, "id = ?", adminID).Error == nil && a.TokenVersion == version
 	}
 }
 
