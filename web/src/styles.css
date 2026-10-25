@@ -932,6 +932,10 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
 
 /* Operational controls share the existing cards, tables and modal surfaces. */
 .ops-stack { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.notification-form { border: 0; padding: 0; margin: 0; min-inline-size: 0; }
+.notification-details { margin-top: 12px; }
+.notification-group-name { flex: 1 1 180px; }
+.notification-mode { width: auto; min-width: 140px; }
 .ops-stack > .btn { align-self: flex-start; }
 .ops-summary { border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-width: 0; overflow-wrap: anywhere; }
 .ops-summary > b { display: block; margin-bottom: 8px; }

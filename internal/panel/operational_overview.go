@@ -130,6 +130,10 @@ func (s *Server) loadOperationalOverview(now time.Time) (operationalOverview, er
 		if err := tx.Find(&records).Error; err != nil {
 			return err
 		}
+		var installed []store.Core
+		if err := tx.Find(&installed).Error; err != nil {
+			return err
+		}
 		byChain := map[string]store.RelayBusinessStatus{}
 		for _, record := range records {
 			byChain[record.ChainID] = record
@@ -140,7 +144,7 @@ func (s *Server) loadOperationalOverview(now time.Time) (operationalOverview, er
 			if len(ch.Hops.V) > 0 {
 				inboundID = ch.Hops.V[len(ch.Hops.V)-1].InboundID
 			}
-			state, code, checked, nodeID := relayOverviewState(ch, byNode, byIn, byEndpoint[endpointKey{ch.ID, inboundID}], byChain[ch.ID], now)
+			state, code, checked, nodeID := relayOverviewState(ch, byNode, byIn, byEndpoint[endpointKey{ch.ID, inboundID}], byChain[ch.ID], now, installed...)
 			switch state {
 			case "passed":
 				out.Relays.Passed++
@@ -216,7 +220,7 @@ func (s *Server) loadOperationalOverview(now time.Time) (operationalOverview, er
 	return out, nil
 }
 
-func relayOverviewState(ch store.Chain, nodes map[string]store.Node, ins map[string]store.Inbound, ep store.Endpoint, record store.RelayBusinessStatus, now time.Time) (state, code string, checked *time.Time, nodeID string) {
+func relayOverviewState(ch store.Chain, nodes map[string]store.Node, ins map[string]store.Inbound, ep store.Endpoint, record store.RelayBusinessStatus, now time.Time, installed ...store.Core) (state, code string, checked *time.Time, nodeID string) {
 	checked = record.CheckedAt
 	if ch.Disabled {
 		return "inactive", "disabled", checked, ""
@@ -245,7 +249,7 @@ func relayOverviewState(ch store.Chain, nodes map[string]store.Node, ins map[str
 		}
 	}
 	landing := nodes[in.NodeID]
-	if in.Core != model.CoreXray || in.Protocol.V.Type != model.ProtoVLESS || !contains(landing.AgentFeatures.V, model.RelayBusinessFeature) {
+	if !relayBusinessAvailability(in, landing, installed...).Supported {
 		return "unavailable", "unsupported", checked, nodeID
 	}
 	if record.ChainID == "" {

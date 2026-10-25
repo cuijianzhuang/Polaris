@@ -45,10 +45,11 @@ type Adapter struct {
 	last               *model.NodeSpec
 	api                *core.APIClient
 	service            string
-	stats              bool                // binary built with with_v2ray_api
-	secret             string              // Clash API secret (builds without v2ray_api)
-	conns              map[string][2]int64 // Clash API per-connection counters at last poll
-	online             *onlineTracker      // users and source IPs read from the connection log lines
+	stats              bool                 // binary built with with_v2ray_api
+	secret             string               // Clash API secret (builds without v2ray_api)
+	conns              map[string][2]int64  // Clash API per-connection counters at last poll
+	online             *onlineTracker       // users and source IPs read from the connection log lines
+	diagnosticTraffic  []model.TrafficDelta // drained before a diagnostic process is destroyed
 }
 
 // New constructs a sing-box adapter.
@@ -61,7 +62,18 @@ func New(o core.Options) *Adapter {
 	}
 	a := &Adapter{opt: o, stats: true, conns: map[string][2]int64{}, online: newOnlineTracker()}
 	if o.BinPath != "" {
+		// Diagnostic configurations are never the stable singbox.json. An
+		// Agent killed before its defers ran may leave private artifacts only.
+		if o.BindToParent && core.ParentBoundSupported() && o.WorkDir != "" {
+			entries, _ := os.ReadDir(o.WorkDir)
+			for _, entry := range entries {
+				if entry.IsDir() && strings.HasPrefix(entry.Name(), "diagnostic-") {
+					_ = os.RemoveAll(filepath.Join(o.WorkDir, entry.Name()))
+				}
+			}
+		}
 		a.proc = core.NewProcess("sing-box", o.BinPath, o.WorkDir, o.Logger, "run", "-c", a.configPath(), "-D", o.WorkDir)
+		a.proc.BindToParent = o.BindToParent
 		a.proc.Filter = a.online.line
 		a.stats = hasBuildTag(o.BinPath, "with_v2ray_api")
 		if !a.stats {
@@ -806,6 +818,20 @@ func (a *Adapter) client() (*core.APIClient, error) {
 // Keeping the delta in the core avoids replaying lifetime totals when the
 // collector or configuration is reloaded.
 func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, error) {
+	a.mu.Lock()
+	pending := a.diagnosticTraffic
+	a.diagnosticTraffic = nil
+	a.mu.Unlock()
+	deltas, err := a.collectTraffic(ctx)
+	if len(pending) != 0 {
+		// These counters have already been atomically reset at the old core.
+		// Deliver them even if the restored API has not reconnected yet.
+		return append(pending, deltas...), nil
+	}
+	return deltas, err
+}
+
+func (a *Adapter) collectTraffic(ctx context.Context) ([]model.TrafficDelta, error) {
 	if !a.stats {
 		if a.secret == "" {
 			return nil, core.ErrNotSupported

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
+	"github.com/cuijianzhuang/polaris/internal/core/coretest"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -195,5 +196,77 @@ func TestRelayBusinessCapabilityMatchesActualSupport(t *testing.T) {
 				t.Fatal(code, out, list)
 			}
 		}
+	}
+}
+
+func TestSingboxRelayBusinessGatesAndProof(t *testing.T) {
+	for _, variant := range []string{"passed", "old-agent", "old-core", "unknown-version", "no-stats", "missing-auth", "missing-transfer", "zero-up", "zero-down", "cleanup-unconfirmed"} {
+		t.Run(variant, func(t *testing.T) {
+			s, c := relayFixture(t)
+			if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
+				"core": model.CoreSingbox, "protocol": store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS, Flow: "xtls-rprx-vision"}),
+				"security": store.NewJSON(coretest.Reality(t)),
+			}).Error; err != nil {
+				t.Fatal(err)
+			}
+			features := []string{model.RelayBusinessFeature, model.SingboxRelayBusinessFeature}
+			if variant == "old-agent" {
+				features = []string{model.RelayBusinessFeature}
+			}
+			s.st.DB.Model(&store.Node{}).Where("id = ?", "land").Update("agent_features", store.NewJSON(features))
+			version := "1.13.5"
+			if variant == "old-core" {
+				version = "1.12.0"
+			}
+			if variant == "unknown-version" {
+				version = ""
+			}
+			if err := s.st.DB.Create(&store.Core{ID: "singbox", NodeID: "land", Type: model.CoreSingbox, Version: "1.13.5", RunningVersion: version, NoUserTraffic: variant == "no-stats"}).Error; err != nil {
+				t.Fatal(err)
+			}
+			id := createRelayTest(t, c, previewRelayTest(t, c, map[string]any{"mode": "l4", "relays": []map[string]any{{"nodeId": "relay"}}}))
+			markRelayApplied(t, s, id)
+			called := make(chan model.RelayBusinessRequest, 1)
+			defer fakeBusinessRunner(t, s, func(req model.RelayBusinessRequest) model.RelayBusinessResult {
+				called <- req
+				r := passingBusinessResult()
+				if variant != "missing-auth" {
+					r.Checks = append(r.Checks, model.BusinessCheck{Kind: "proxy_authentication", State: "passed"})
+				}
+				if variant != "missing-transfer" {
+					up, down := int64(100), int64(200)
+					if variant == "zero-up" {
+						up = 0
+					}
+					if variant == "zero-down" {
+						down = 0
+					}
+					r.Checks = append(r.Checks, model.BusinessCheck{Kind: "proxy_transfer", State: "passed", UpBytes: up, DownBytes: down})
+				}
+				if variant == "cleanup-unconfirmed" {
+					r.CleanupVerified = false
+				}
+				return r
+			})()
+			blocked := variant == "old-agent" || variant == "old-core" || variant == "unknown-version" || variant == "no-stats"
+			list := inboundRelaysTest(t, c)
+			if len(list) != 1 || list[0].BusinessDiagnostic.Supported == blocked || (!blocked && !list[0].BusinessDiagnostic.RequiresRestart) {
+				t.Fatal("UI capability did not match safety prerequisites", list)
+			}
+			code, out := c.do("POST", "/inbounds/in/relays/"+id+"/diagnose/business", nil)
+			if code != 200 || out["businessVerified"] != (variant == "passed") {
+				t.Fatal(code, out)
+			}
+			select {
+			case req := <-called:
+				if blocked || req.Core != model.CoreSingbox {
+					t.Fatal("unsafe dispatch", req.Core)
+				}
+			default:
+				if !blocked || out["state"] != "unsupported" {
+					t.Fatal("supported diagnostic was not dispatched", out)
+				}
+			}
+		})
 	}
 }

@@ -41,15 +41,32 @@ func (a *Agent) relayBusinessProbe(ctx context.Context, raw string) (model.Relay
 		return unsupported, fmt.Errorf("node is applying configuration or running another diagnostic")
 	}
 	defer a.applyMu.Unlock()
-	m := a.cores[model.CoreXray]
+	typ := req.Core
+	if typ == "" { // Commands from older panels retain their Xray meaning.
+		typ = model.CoreXray
+	}
+	if typ != model.CoreXray && typ != model.CoreSingbox {
+		return unsupported, fmt.Errorf("unsupported diagnostic core")
+	}
+	m := a.cores[typ]
 	if m == nil {
-		return unsupported, fmt.Errorf("Xray is not running on this node")
+		return unsupported, fmt.Errorf("diagnostic core is not running on this node")
 	}
 	runner, ok := m.adapter.(interface {
 		RunRelayDiagnostic(context.Context, model.RelayBusinessRequest) (model.RelayBusinessResult, error)
 	})
 	if !ok {
 		return unsupported, fmt.Errorf("core does not support isolated business diagnostics")
+	}
+	// sing-box diagnostics replace the shared process briefly. Drain ordinary
+	// users first; the adapter retains the temporary process's final deltas.
+	if typ == model.CoreSingbox {
+		a.collectFrom(ctx, m)
+		defer func() {
+			collectCtx, done := context.WithTimeout(context.Background(), 2*time.Second)
+			defer done()
+			a.collectFrom(collectCtx, m)
+		}()
 	}
 	return runner.RunRelayDiagnostic(ctx, req)
 }
