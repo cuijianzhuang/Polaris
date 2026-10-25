@@ -9,8 +9,8 @@
 | 仪表盘 → 运维汇总 | 线路业务、采样和交付异常计数；展开异常明细 | `GET /stats/overview` 的 `operational` |
 | 节点 → 节点网络检测 → 测试点策略 | 继承全局、独立、关闭；省市运营商预设和自定义目标；展示生效目标 | `/nodes/:id/probe-policy` |
 | 节点 → 节点网络检测 → 回程与定时检测 | IPv4/IPv6 手动检测、定时策略、运行状态、历史分页和地址族/目标筛选 | `/nodes/:id/route-trace`、`route-schedule`、`route-traces` |
-| 回程历史 → 详情 | 路径变化摘要、上次/当前逐跳地址对照和 ASN、数据库版本、原始输出 | `/nodes/:id/route-traces/:traceId` |
-| 设置 → 网络检测 | ASN MMDB 上传、显式启用、当前实例状态、数据版本和本地 IP 归属验证 | `/tools/route-asn`、`/tools/route-asn/database`、`/tools/route-asn/lookup` |
+| 回程历史 → 详情 | 路径变化摘要、上次/当前逐跳地址对照和 ASN、国家省市、数据库版本、原始输出 | `/nodes/:id/route-traces/:traceId` |
+| 设置 → 网络检测 | ASN 与城市 MMDB 独立从仓库获取、上传/启用、实例状态、版本及本地 IP 验证；城市库支持 gzip | `/tools/route-asn/*`、`/tools/route-geo/*` |
 | 设置 → 通知策略 | 运维事件×渠道开关、合并窗口、按节点/渠道维护静默 | `/notifications/policy` |
 | 入站 → 授权与出口；入站模板编辑 | 五种出站 IP 策略，随表单保存 | 原有入站、预览及模板接口的 `outboundIPStrategy` |
 | 入站 → 中转与访问控制 | 仅中转发布、来源限制、PROXY v1/v2、按节点覆盖 NAT/专线来源 | 原有入站接口的 `relayOnly`、`relayAccess` |
@@ -44,3 +44,5 @@ POLARIS_WEB_TEST_URL=http://127.0.0.1:5187 python3 web/scripts/operations-ui-smo
 可通过 `POLARIS_CHROMIUM_BIN` 指定浏览器路径、`POLARIS_UI_ARTIFACTS` 指定截图目录。脚本覆盖 320/390/1440 像素宽度，浏览器请求由固定 API 样例拦截，不连接生产服务。
 
 浏览器测试不是公网 traceroute 或真实代理连通性验收；这些由后端已有测试和部署环境验收分别覆盖。
+
+城市归属接口、文件边界和快照语义参见[国家省市归属说明](route-geo.md)。
