@@ -1,4 +1,6 @@
 const operations: Record<string, string> = {
+ "真实业务诊断目前仅支持 Xray VLESS；此限制不影响当前协议的中转创建和转发": "Real business diagnostics currently support Xray VLESS only. This does not restrict relay creation or forwarding for the current protocol.",
+ "一键中转按入站的 TCP/UDP 网络转发；真实业务诊断目前仅支持 Linux + Xray VLESS，此限制不影响其他协议创建中转。保存成功与节点应用成功分别展示。": "One-click relays forward the inbound’s TCP/UDP traffic. Real business diagnostics currently require Linux and Xray VLESS; this does not restrict relay creation for other protocols. Saved configuration and successful deployment are shown separately.",
  "查看回程检测": "View route traces",
  "显示位置：节点 → 回程与定时检测 → 回程历史详情 → ASN 列。": "View annotations under Nodes → Route traces and schedule → History details → ASN column.",
  "开启 ASN 或地理归属后，新的回程历史详情会显示注释；旧记录不会补算。": "After enabling ASN or geographic attribution, new route history details show annotations. Existing records are not recalculated.",

@@ -305,3 +305,50 @@ func TestRelayBatchProtectedSources(t *testing.T) {
 		t.Fatal("deleting one path lost remaining source guard", spec, e)
 	}
 }
+
+// The UI starts in l4 mode. A tunnel transport in this request used to make
+// every default preview fail before a plan could be created.
+func TestRelayBatchDefaultUIContract(t *testing.T) {
+	for _, protocol := range []model.Protocol{model.ProtoAnyTLS, model.ProtoHysteria2, model.ProtoTUIC} {
+		t.Run(string(protocol), func(t *testing.T) {
+			s, c := relayBatchFixture(t)
+			var in store.Inbound
+			if err := s.st.DB.First(&in, "id = ?", "in").Error; err != nil {
+				t.Fatal(err)
+			}
+			in.Core = model.CoreSingbox
+			in.Protocol = store.NewJSON(model.ProtocolSpec{Type: protocol})
+			if err := s.st.DB.Save(&in).Error; err != nil {
+				t.Fatal(err)
+			}
+			bad := map[string]any{"mode": "l4", "transport": "tcp", "entries": []map[string]any{{"nodeId": "relay"}}, "relays": []any{}}
+			if st, out := c.do("POST", "/inbounds/in/relays/batch/preview", bad); st != 400 || !strings.Contains(out["error"].(string), "原样转发不需要隧道传输参数") {
+				t.Fatal(st, out)
+			}
+			delete(bad, "transport")
+			plan := previewRelayBatchTest(t, c, bad)
+			created := createRelayBatchTest(t, c, plan)
+			var chain store.Chain
+			if err := s.st.DB.Where("batch_id = ?", created["batchId"]).First(&chain).Error; err != nil {
+				t.Fatal(err)
+			}
+			if !chain.Managed || chain.TunnelType != "" || len(chain.Hops.V) != 2 || chain.Hops.V[1].InboundID != "in" {
+				t.Fatal(chain)
+			}
+			spec, err := s.BuildSpec("relay")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(spec.Forwards) != 1 {
+				t.Fatal(spec.Forwards)
+			}
+			want := "tcp"
+			if protocol != model.ProtoAnyTLS {
+				want = "udp"
+			}
+			if spec.Forwards[0].Network != want {
+				t.Fatal("inbound network was not preserved", spec.Forwards[0])
+			}
+		})
+	}
+}
