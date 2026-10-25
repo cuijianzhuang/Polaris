@@ -557,6 +557,7 @@ type Outbound struct {
 	Tag              string             `gorm:"size:64;uniqueIndex:idx_out_node_tag" json:"tag"`
 	Type             model.OutboundType `gorm:"size:16" json:"type"`
 	Settings         json.RawMessage    `gorm:"type:text;serializer:rawjson" json:"settings,omitempty"`
+	SourceNodeID     string             `gorm:"size:32;index" json:"sourceNodeId,omitempty"`
 	NodeRefInboundID string             `gorm:"size:32;index" json:"nodeRefInboundId"`
 	Detour           string             `gorm:"size:64" json:"detour"`
 	ChainID          string             `gorm:"size:32;index" json:"chainId"` // managed by a chain
@@ -773,11 +774,15 @@ type DomainBinding struct {
 // SubSource is an upstream subscription URL or a list of manual node links,
 // merged into subscription profiles by the conversion engine.
 type SubSource struct {
+	Revision   int64            `json:"revision"`
+	HasURL     bool             `gorm:"-" json:"hasUrl"`
+	HasContent bool             `gorm:"-" json:"hasContent"`
+	URLHost    string           `gorm:"-" json:"urlHost"`
 	ID         string           `gorm:"primaryKey;size:32" json:"id"`
 	Name       string           `gorm:"size:64" json:"name"`
 	Kind       string           `gorm:"size:8" json:"kind"` // url / manual
-	URL        string           `gorm:"size:2000" json:"url"`
-	Content    string           `gorm:"type:text" json:"content"` // manual: share links / YAML / JSON
+	URL        string           `gorm:"type:text" json:"-"`
+	Content    string           `gorm:"type:text" json:"-"` // sealed manual: share links / YAML / JSON
 	UserAgent  string           `gorm:"size:200" json:"userAgent"`
 	Group      string           `gorm:"size:64" json:"group"`
 	Enabled    bool             `json:"enabled"`
@@ -842,7 +847,7 @@ func AllModels() []any {
 		&Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
-		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubProfile{}, &TGAdmin{},
+		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},

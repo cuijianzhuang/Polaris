@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -413,12 +414,16 @@ type outboundReq struct {
 	Tag              string             `json:"tag" binding:"required"`
 	Type             model.OutboundType `json:"type" binding:"required"`
 	Settings         json.RawMessage    `json:"settings"`
+	SourceNodeID     string             `json:"sourceNodeId"`
 	NodeRefInboundID string             `json:"nodeRefInboundId"`
 	Detour           string             `json:"detour"`
 	Remark           string             `json:"remark"`
 }
 
 func (s *Server) saveOutbound(c *gin.Context, o *store.Outbound, req *outboundReq) {
+	if req.Type == model.OutSourceRef && !s.requireFeature(c, license.FeatureSubConvert) {
+		return
+	}
 	if err := s.storeOutbound(c.Param("id"), o, req); err != nil {
 		var bad badInput
 		if errors.As(err, &bad) {
@@ -459,6 +464,17 @@ func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, 
 		return badInput{fmt.Errorf("tag %q is reserved", req.Tag)}
 	}
 	t := req.Type
+	if t == model.OutSourceRef {
+		resolved, e := s.sourceOutboundOn(tx, nodeID, req.SourceNodeID)
+		if e != nil {
+			return badInput{e}
+		}
+		t = resolved.Type
+		req.Settings = nil
+		req.NodeRefInboundID = ""
+	} else {
+		req.SourceNodeID = ""
+	}
 	if t == model.OutNodeRef {
 		var in store.Inbound
 		if err := tx.First(&in, "id = ?", req.NodeRefInboundID).Error; err != nil {
@@ -497,6 +513,7 @@ func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, 
 		return badInput{err}
 	}
 
+	o.SourceNodeID = req.SourceNodeID
 	o.NodeID, o.Tag, o.Type, o.Settings, o.NodeRefInboundID, o.Detour, o.Remark =
 		nodeID, req.Tag, req.Type, req.Settings, req.NodeRefInboundID, req.Detour, req.Remark
 	err := func() error {

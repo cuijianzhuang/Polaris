@@ -101,6 +101,15 @@ jobs:
         run: go test -count=1 -v ./internal/core/singbox ./internal/panel -run Snell
         env:
           POLARIS_SNELL_BIN: /tmp/snell-core
+      - name: Verify external source references with real per-user statistics
+        run: |
+          mkdir -p /tmp/source-xray
+          curl -fsSL -o /tmp/source-xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip
+          unzip -q /tmp/source-xray.zip -d /tmp/source-xray
+          go test -count=1 -v ./internal/panel -run '^TestLiveSourceReference'
+        env:
+          POLARIS_XRAY_BIN: /tmp/source-xray/xray
+          POLARIS_SINGBOX_BIN: /tmp/snell-core
       - name: Verify Snell through the professional per-user limiter
         env:
           PRO_TOKEN: ${{ secrets.PRO_TOKEN }}

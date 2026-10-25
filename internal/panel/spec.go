@@ -249,6 +249,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	if spec.Routes, err = s.buildRoutes(node.ID); err != nil {
 		return nil, err
 	}
+	collapseBlockedSourcePaths(spec)
 	if spec.Forwards, err = s.buildForwards(node.ID); err != nil {
 		return nil, err
 	}
@@ -339,6 +340,9 @@ func (s *Server) buildOutbounds(nodeID string) ([]model.Outbound, error) {
 	var out []model.Outbound
 	for _, o := range obs {
 		m := model.Outbound{ID: o.ID, NodeID: o.NodeID, Tag: o.Tag, Type: o.Type, Settings: o.Settings, Detour: o.Detour}
+		if o.Type == model.OutSourceRef {
+			m = s.resolveSourceRef(o)
+		}
 		if o.Type == model.OutNodeRef {
 			r, err := s.resolveNodeRef(&o)
 			if err != nil {

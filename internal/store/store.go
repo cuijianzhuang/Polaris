@@ -86,6 +86,9 @@ func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 		// Accounts the shop made before the mark existed, by their remark.
 		db.Model(&User{}).Where("remark LIKE ? OR remark LIKE ?", "Telegram 购买 %", "网页购买 %").Update("self_service", true)
 	}
+	if err := SealLegacySubSources(db, box); err != nil {
+		return nil, fmt.Errorf("encrypt subscription sources: %w", err)
+	}
 	return &Store{DB: db, Box: box}, nil
 }
 

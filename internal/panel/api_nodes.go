@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net"
@@ -456,6 +457,22 @@ func (s *Server) renderNodeCore(c *gin.Context) {
 }
 
 func redactSpec(spec *model.NodeSpec) {
+	for i := range spec.Outbounds {
+		o := &spec.Outbounds[i]
+		set, e := o.ParseSettings()
+		if e != nil {
+			continue
+		}
+		for _, v := range []*string{&set.Username, &set.Password, &set.UUID, &set.PrivateKey, &set.PreSharedKey, &set.ObfsPassword, &set.Encryption} {
+			if *v != "" {
+				*v = "<redacted>"
+			}
+		}
+		if len(o.Settings) > 0 {
+			o.Settings, _ = json.Marshal(set)
+		}
+	}
+
 	for i := range spec.Inbounds {
 		in := &spec.Inbounds[i]
 		if in.Security.KeyPEM != "" {

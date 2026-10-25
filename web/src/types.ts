@@ -100,7 +100,7 @@ export interface CDNProfile {
 export interface ChainHop { nodeId: string; inboundId?: string; port?: number }
 export interface HopProbe { nodeId: string; latencyMs: number; ok: boolean; error?: string }
 export interface Chain { id: string; name: string; mode: 'l4' | 'proxy'; hops: ChainHop[]; serviceUserId: string; probe: HopProbe[]; probedAt?: string; remark: string }
-export interface Outbound { id: string; nodeId: string; tag: string; type: string; settings?: any; nodeRefInboundId: string; detour: string; chainId: string; remark: string }
+export interface Outbound { id: string; nodeId: string; tag: string; type: string; settings?: any; nodeRefInboundId: string; sourceNodeId?: string; detour: string; chainId: string; remark: string }
 export interface RouteMatch { inbound?: string[]; userGroups?: string[]; users?: string[]; domain?: string[]; domainSuffix?: string[]; domainKeyword?: string[]; geosite?: string[]; geoip?: string[]; ipCidr?: string[]; ruleSets?: string[]; port?: string[]; network?: string }
 export interface RuleSet {
   id: string; tag: string; name: string; remark: string; sourceUrl: string; domain: string[]; domainSuffix: string[]; domainKeyword: string[]; ipCidr: string[]
@@ -143,7 +143,7 @@ export interface Operator {
 }
 export interface SubTraffic { upload: number; download: number; total: number; expire: number }
 export interface SubSource {
-  id: string; name: string; kind: 'url' | 'manual'; url: string; content: string; userAgent: string; group: string; enabled: boolean
+  id: string; name: string; kind: 'url' | 'manual'; url?: string; content?: string; hasUrl?: boolean; hasContent?: boolean; urlHost?: string; revision?: number; userAgent: string; group: string; enabled: boolean
   refreshMin: number; nodeCount: number; userInfo: SubTraffic; fetchedAt?: string; lastError: string; sortOrder: number; remark: string
 }
 export interface SubProcessingRef { groupId: string; revision: number }
@@ -167,3 +167,7 @@ export interface NodeTraffic {
   rawUp: number
   rawDown: number
 }
+
+export interface SourceReference { id: string; nodeId: string; tag: string; inboundIds: string[] }
+export interface SourceNode { id: string; sourceId: string; name: string; protocol: string; server: string; port: number; network: string; security: string; missing: boolean; available: boolean; supported: boolean; reason?: string; source: string; references: SourceReference[] }
+export interface SourceRefresh { id: string; revision: number; createdAt: string; unchanged: number; changes: { id: string; name: string; kind: string; fields?: string[] }[] }
