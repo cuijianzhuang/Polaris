@@ -1,4 +1,8 @@
 const operations: Record<string, string> = {
+ "面板版本": "Panel version",
+ "当前 Agent 不支持环境检查命令，尚未检查 traceroute 安装状态。已安装工具无需重复安装，可先尝试下方回程检测。": "This Agent does not support the environment check command. traceroute installation has not been checked. An installed tool does not need reinstalling; you can try the route trace below.",
+ "尚未检查 traceroute 安装状态": "traceroute installation has not been checked",
+ "请在节点上方升级 Agent；若已更新 Agent，可强制同步后重新检查。安装系统工具与更新 Agent 是两项不同操作。": "Upgrade the Agent using the controls above. If already updated, force a sync and check again. Installing a system tool and updating the Agent are separate operations.",
  "回程检测未完成，请检查节点状态或稍后重试": "The route trace did not complete. Check the node status or try again later",
  "节点返回了无效的回程检测结果": "The node returned an invalid route trace result",
  "环境自检输出": "Environment self-test output",

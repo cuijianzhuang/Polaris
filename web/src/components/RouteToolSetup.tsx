@@ -4,7 +4,7 @@ import { datetime, errMsg } from '../format'
 import { t } from '../i18n'
 import { useAction } from './ui'
 
-export type RouteToolStatus = { state: string; issue?: string; path?: string; checkOutput?: string; manager?: string; canInstall: boolean; manualCommand?: string; checkedAt?: string; installState?: string; installOutput?: string; installIssue?: string }
+export type RouteToolStatus = { state: string; agentVersion?: string; panelVersion?: string; issue?: string; path?: string; checkOutput?: string; manager?: string; canInstall: boolean; manualCommand?: string; checkedAt?: string; installState?: string; installOutput?: string; installIssue?: string }
 
 export function routeIssueText(issue?: string): string {
   return ({
@@ -19,7 +19,7 @@ export function routeIssueText(issue?: string): string {
     no_reply: t('没有收到逐跳响应；请检查 UDP 出站及 ICMP 回包，目标也可能不响应探测。'),
     command_failed: t('traceroute 执行失败，请查看原始输出确认原因。'),
     linux_required: t('回程环境检查和安装仅支持 Linux Agent。'),
-    agent_upgrade_required: t('请升级 Linux Agent 以检查和安装 traceroute'),
+    agent_upgrade_required: t('当前 Agent 不支持环境检查命令，尚未检查 traceroute 安装状态。已安装工具无需重复安装，可先尝试下方回程检测。'),
     package_manager_unavailable: t('未找到支持的包管理器，请在 Agent 所在环境手动安装 traceroute。'),
     root_required: t('Agent 未以 root 运行，无法安装系统包；请手动安装后重新检查。'),
     install_interrupted: t('安装超时或 Agent 连接中断，请检查安装日志和包管理器状态后重试。'),
@@ -65,8 +65,10 @@ export default function RouteToolSetup({ nodeId, onStatus }: { nodeId: string; o
   })
   return <div className="ops-summary ops-stack" aria-label={t('回程检测环境')}>
     <b>{t('回程检测环境')}</b>
-    <div role="status">{installing ? t('正在节点安装 traceroute…') : status?.state === 'ready' ? t('traceroute 已就绪') : status?.state === 'missing' ? t('traceroute 未安装') : status?.state === 'unusable' ? t('traceroute 已安装但不可用') : checking ? t('正在检查节点环境…') : t('环境尚未就绪')}</div>
+    <div role="status">{installing ? t('正在节点安装 traceroute…') : status?.state === 'ready' ? t('traceroute 已就绪') : status?.state === 'missing' ? t('traceroute 未安装') : status?.state === 'unusable' ? t('traceroute 已安装但不可用') : status?.state === 'unsupported' ? t('尚未检查 traceroute 安装状态') : checking ? t('正在检查节点环境…') : t('环境尚未就绪')}</div>
     {status?.issue && !installing && <div className="hint">{routeIssueText(status.issue)}</div>}
+    {status?.state === 'unsupported' && status.issue === 'agent_upgrade_required' && <div className="hint">{t('请在节点上方升级 Agent；若已更新 Agent，可强制同步后重新检查。安装系统工具与更新 Agent 是两项不同操作。')}</div>}
+    {status?.agentVersion && <div className="small mute">Agent: <span className="mono">{status.agentVersion}</span>{status.panelVersion && <> · {t('面板版本')}：<span className="mono">{status.panelVersion}</span></>}</div>}
     {status?.state === 'ready' && <div className="hint">{t('工具已通过本机 UDP 自检；公网连通性和 IPv4/IPv6 路由仍以实际检测结果为准。')}</div>}
     {status?.path && <div className="mono small ops-break">{status.path}</div>}
     {status?.installState === 'succeeded' && <div className="note ok-note">{t('traceroute 安装并验证成功')}</div>}
