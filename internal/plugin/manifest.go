@@ -41,7 +41,14 @@ type Manifest struct {
 // Subscription lists what a plugin adds to subscriptions.
 type Subscription struct {
 	Formats []SubFormat `json:"formats,omitempty"`
+	// Transform: the plugin may filter, rename and reorder each user's nodes
+	// at /polaris/transform before any format is rendered. It sees node
+	// names and endpoints, never credentials.
+	Transform bool `json:"transform,omitempty"`
 }
+
+// Transforms reports whether the manifest asks to rewrite node lists.
+func (m *Manifest) Transforms() bool { return m.Subscription != nil && m.Subscription.Transform }
 
 // SubFormat is a client format the plugin renders at /polaris/render.
 type SubFormat struct {

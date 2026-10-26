@@ -601,5 +601,11 @@ const m: Record<string, string> = {
   "表格": "Table",
   "显示价格和到期": "Show price and expiry",
   "在公开页显示服务器价格和剩余天数（来自节点的成本设置）": "Show server prices and days left on the public page (from each node's cost settings)",
+  "改写订阅节点（筛选、改名、排序）": "rewrite subscription nodes (filter, rename, reorder)",
+  "改写订阅节点": "Rewrites subscription nodes",
+  "每次生成订阅前，插件可以筛选、改名和排序该用户的节点。它只看到节点名称、地区、协议和地址端口，看不到连接凭据，也不能增加节点。": "Before each subscription is built, the plugin may filter, rename and reorder that user's nodes. It only sees node names, regions, protocols and addresses, never credentials, and cannot add nodes.",
+  "已调整顺序": "Order updated",
+  "订阅改写顺序": "Rewrite order",
+  "按从上到下的顺序依次处理，后一个看到前一个的结果": "Applied top to bottom; each sees the previous one's result",
 }
 export default m

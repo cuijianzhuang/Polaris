@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -214,4 +215,151 @@ func (s *Server) renderPluginFormat(ctx context.Context, p *store.Plugin, f plug
 	}
 	s.renderCache.put(key, renderEntry{body: body, ctype: ctype, until: now.Add(pluginRenderTTL)}, now)
 	return body, ctype, nil
+}
+
+// --- node list rewriting ---
+
+const (
+	pluginTransformTimeout = 2 * time.Second
+	pluginTransformBudget  = 4 * time.Second
+	transformOrderSetting  = "plugin_transform_order"
+)
+
+// transformNode is what a rewriting plugin sees: no credentials.
+type transformNode struct {
+	ID       string `json:"id"` // position in the list the panel sent
+	Name     string `json:"name"`
+	Region   string `json:"region,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Protocol string `json:"protocol"`
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+}
+
+type transformRequest struct {
+	Format string          `json:"format"`
+	User   string          `json:"user"`
+	Nodes  []transformNode `json:"nodes"`
+}
+
+type transformReply struct {
+	Nodes *[]struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"nodes"`
+}
+
+// transformPlugins are the enabled rewriting plugins in the admin's order;
+// ones not yet placed come last, by id.
+func (s *Server) transformPlugins() []store.Plugin {
+	var ps []store.Plugin
+	s.st.DB.Where("enabled = ?", true).Order("id").Find(&ps)
+	var list []store.Plugin
+	for _, p := range ps {
+		if pluginManifestOf(&p).Transforms() {
+			list = append(list, p)
+		}
+	}
+	var order []string
+	_ = json.Unmarshal([]byte(s.st.GetSetting(transformOrderSetting, "[]")), &order)
+	rank := func(id string) int {
+		if i := slices.Index(order, id); i >= 0 {
+			return i
+		}
+		return len(order)
+	}
+	slices.SortStableFunc(list, func(a, b store.Plugin) int { return rank(a.ID) - rank(b.ID) })
+	return list
+}
+
+// applyTransforms runs the rewriting plugins in order. Each may only drop,
+// rename and reorder the nodes it was given; a failure, a timeout or an
+// answer that names an unknown node leaves the list as it was.
+func (s *Server) applyTransforms(ctx context.Context, nodes []sub.Node, format string, u *store.User) []sub.Node {
+	ps := s.transformPlugins()
+	if len(ps) == 0 || len(nodes) == 0 {
+		return nodes
+	}
+	ctx, cancel := context.WithTimeout(ctx, pluginTransformBudget)
+	defer cancel()
+	user := ""
+	if u != nil {
+		user = u.Username
+	}
+	for i := range ps {
+		if ctx.Err() != nil {
+			break
+		}
+		out, err := s.transformOnce(ctx, &ps[i], nodes, format, user)
+		if err != nil {
+			s.log.Warn("plugin node rewrite skipped", "plugin", ps[i].ID, "err", err)
+			continue
+		}
+		nodes = out
+	}
+	return nodes
+}
+
+func (s *Server) transformOnce(ctx context.Context, p *store.Plugin, nodes []sub.Node, format, user string) ([]sub.Node, error) {
+	req := transformRequest{Format: format, User: user}
+	for i, n := range nodes {
+		req.Nodes = append(req.Nodes, transformNode{ID: strconv.Itoa(i), Name: n.Name, Region: n.Region, Source: n.Source,
+			Protocol: string(n.Protocol), Server: n.Server, Port: n.Port})
+	}
+	raw, _ := json.Marshal(req)
+	h := sha256.New()
+	fmt.Fprintf(h, "t\x00%s\x00%s\x00%d\x00", p.ID, p.Version, p.UpdatedAt.UnixNano())
+	h.Write(raw)
+	key := hex.EncodeToString(h.Sum(nil))
+	now := time.Now()
+	var body []byte
+	if e, ok := s.renderCache.get(key, now); ok {
+		body = e.body
+	} else {
+		ctx, cancel := context.WithTimeout(ctx, pluginTransformTimeout)
+		defer cancel()
+		secret, _ := s.st.Box.Open(p.Secret)
+		ts := strconv.FormatInt(now.Unix(), 10)
+		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/polaris/transform", bytes.NewReader(raw))
+		if err != nil {
+			return nil, err
+		}
+		hr.Header.Set("Content-Type", "application/json")
+		hr.Header.Set("User-Agent", "Polaris/"+Version)
+		hr.Header.Set("X-Polaris-Signature", "t="+ts+",v1="+signWebhook(secret, ts, raw))
+		resp, err := pluginClient.Do(hr)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("plugin answered %s", resp.Status)
+		}
+		if body, err = io.ReadAll(io.LimitReader(resp.Body, 1<<20)); err != nil {
+			return nil, err
+		}
+	}
+	var rep transformReply
+	if err := json.Unmarshal(body, &rep); err != nil || rep.Nodes == nil {
+		return nil, errors.New("plugin answer is not {\"nodes\": [...]}")
+	}
+	seen := map[int]bool{}
+	out := make([]sub.Node, 0, len(*rep.Nodes))
+	for _, r := range *rep.Nodes {
+		i, err := strconv.Atoi(r.ID)
+		if err != nil || i < 0 || i >= len(nodes) || seen[i] || strconv.Itoa(i) != r.ID {
+			return nil, fmt.Errorf("plugin returned unknown or repeated node %q", r.ID)
+		}
+		seen[i] = true
+		n := nodes[i] // credentials and endpoint come from the panel, only the name may change
+		if name := strings.TrimSpace(r.Name); name != "" {
+			if len(name) > 100 || strings.ContainsFunc(name, func(c rune) bool { return c < 0x20 || c == 0x7f }) {
+				return nil, fmt.Errorf("plugin returned an invalid name for node %q", r.ID)
+			}
+			n.Name = name
+		}
+		out = append(out, n)
+	}
+	s.renderCache.put(key, renderEntry{body: body, until: now.Add(pluginRenderTTL)}, now)
+	return out, nil
 }

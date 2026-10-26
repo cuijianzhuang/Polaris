@@ -221,6 +221,7 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	}
 	// The external converter's callback (raw) is not the client: leave the
 	// auto mode's decision to the real request.
+	nodes = s.applyTransforms(c.Request.Context(), nodes, format, u)
 	nodes = applyNodeOpts(s.decorateNodes(nodes, info, raw || sub.ReadsProfileHeaders(c.GetHeader("User-Agent"))), ro)
 	if _, builtin := sub.Get(format); !builtin && !raw {
 		if p, f, ok := s.pluginFormat(format); ok {
