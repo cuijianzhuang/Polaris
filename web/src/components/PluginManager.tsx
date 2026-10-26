@@ -41,7 +41,7 @@ export default function PluginManager() {
       await post(`/plugins/${p.id}/refresh`, { approve })
     } catch (e) {
       if (e instanceof ApiError && e.data?.needApproval) {
-        const more = [...(e.data.addScopes ?? []).map((s: string) => labels[s] ?? s), ...(e.data.addEvents ?? []), ...(e.data.addFormats ?? []).map((f: string) => t('订阅格式 {f}（会收到用户节点和连接凭据）', { f }))]
+        const more = [...(e.data.addScopes ?? []).map((s: string) => labels[s] ?? s), ...(e.data.addEvents ?? []), ...(e.data.addFormats ?? []).map((f: string) => t('订阅格式 {f}（会收到用户节点和连接凭据）', { f })), ...(e.data.addTransform ? [t('改写订阅节点（筛选、改名、排序）')] : [])]
         if (await confirm(t('新版本需要更多权限：{list}。允许并更新？', { list: more.join('、') }), { ok: t('允许并更新') })) { await post(`/plugins/${p.id}/refresh`, { approve: true }) } else return
       } else throw e
     }
@@ -60,6 +60,27 @@ export default function PluginManager() {
       </div>
       {full && <div className="note warn">{t('社区版最多安装 {n} 个插件。需要更多请在许可证页面激活专业版。', { n: limit })} <Link to="/license">{t('查看许可证')}</Link></div>}
       {plugins.length === 0 && <div className="hint">{t('还没有安装插件。')}</div>}
+      {(list?.transformOrder ?? []).length > 1 && (() => {
+        const order = list!.transformOrder!
+        const name = (id: string) => plugins.find((p) => p.id === id)?.name ?? id
+        const move = (i: number, d: number) => run(async () => {
+          const next = [...order];
+          [next[i], next[i + d]] = [next[i + d], next[i]]
+          await put('/plugin-transform-order', { ids: next }); await refreshPlugins()
+        }, t('已调整顺序'))
+        return (
+          <div className="card" style={{ background: 'var(--soft)', display: 'grid', gap: 6 }}>
+            <div className="small"><b>{t('订阅改写顺序')}</b> <span className="mute">{t('按从上到下的顺序依次处理，后一个看到前一个的结果')}</span></div>
+            {order.map((id, i) => (
+              <div key={id} className="row" style={{ gap: 6 }}>
+                <span className="tag mono">{i + 1}</span><span className="small">{name(id)}</span><span className="spacer" />
+                <button className="btn sm" type="button" disabled={busy || i === 0} onClick={() => move(i, -1)} aria-label={t('上移')}>↑</button>
+                <button className="btn sm" type="button" disabled={busy || i === order.length - 1} onClick={() => move(i, 1)} aria-label={t('下移')}>↓</button>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
       {plugins.map((p) => {
         const m = p.manifest
         return (
@@ -82,6 +103,7 @@ export default function PluginManager() {
               {(m.scopes ?? []).length ? (m.scopes ?? []).map((s) => labels[s] ?? s).join('、') : t('不调用面板接口')}
               {' · '}{(m.events ?? []).length ? t('订阅 {n} 类事件', { n: m.events!.length }) : t('不接收事件')}
               {(m.subscription?.formats ?? []).length > 0 && ' · ' + t('订阅格式 {list}', { list: m.subscription!.formats!.map((f) => f.name).join('、') })}
+              {m.subscription?.transform && ' · ' + t('改写订阅节点')}
               {p.lastSeenAt ? ' · ' + t('最近应答 {when}', { when: ago(p.lastSeenAt) }) : ''}
             </div>
             {p.lastError && p.status !== 'online' && <div className="hint" style={{ color: 'var(--bad)', wordBreak: 'break-all' }}>{p.lastError}</div>}
@@ -129,6 +151,7 @@ function InstallModal({ onClose, onDone }: { onClose: () => void; onDone: (r: In
             {(m.pages ?? []).length > 0 && <div className="small"><b>{t('后台页面')}</b>：{m.pages!.map((p) => p.title).join('、')}</div>}
             {(m.portal ?? []).length > 0 && <div className="small"><b>{t('用户中心入口')}</b>：{m.portal!.map((p) => p.title).join('、')}</div>}
             {(m.subscription?.formats ?? []).length > 0 && <div className="note warn small"><b>{t('订阅格式')}</b>：{m.subscription!.formats!.map((f) => `${f.title}（?format=${f.name}）`).join('、')}<br />{t('用户使用这些格式时，面板会把该用户的节点（包括 UUID、密码等连接凭据）发给插件生成配置。请只安装可信的插件。')}</div>}
+            {m.subscription?.transform && <div className="small"><b>{t('改写订阅节点')}</b>：{t('每次生成订阅前，插件可以筛选、改名和排序该用户的节点。它只看到节点名称、地区、协议和地址端口，看不到连接凭据，也不能增加节点。')}</div>}
             <div className="hint">{t('安装后面板会为它创建专用的 API 令牌和事件 Webhook，并通过 /polaris/install 把凭据交给它。')}</div>
           </div>
         )}
