@@ -1,5 +1,3 @@
-import en from './locales/en'
-
 // UI language. Strings are written in Chinese and wrapped in t(); the
 // Chinese text is the key into the English dictionary, so a missing entry
 // falls back to Chinese instead of showing a key. Placeholders: {name}.
@@ -28,7 +26,19 @@ export function setLang(l: Lang) {
   if (l !== lang) location.reload()
 }
 
-const dict: Record<string, string> = en
+// The English dictionary is a separate chunk: Chinese users never download
+// it. loadLang must finish before any module that calls t() at load time is
+// imported (main.tsx imports the app after it).
+let dict: Record<string, string> = {}
+
+export async function loadLang(): Promise<void> {
+  if (lang !== 'en') return
+  try {
+    dict = (await import('./locales/en')).default
+  } catch {
+    lang = 'zh' // chunk failed to load: Chinese is always complete
+  }
+}
 
 // A key may carry a context after "@@" (t('关闭@@off')) when one Chinese
 // word needs two English translations; Chinese shows the part before "@@".
