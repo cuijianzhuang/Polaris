@@ -878,7 +878,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{},
 	}
 }
 
@@ -1071,6 +1071,21 @@ type NodeMetric struct {
 	TxBps  uint64    `json:"tx"`
 	Load1  float64   `json:"load"`
 	N      int       `json:"-"` // samples averaged so far
+}
+
+// NodeExternalMetric is the latest value of a custom metric an outside
+// service (a monitoring plugin) reports for a node, such as a latency seen
+// from somewhere. It is shown as reported, labelled with its source, and
+// never feeds node status, heartbeats or billing.
+type NodeExternalMetric struct {
+	NodeID    string    `gorm:"primaryKey;size:32" json:"nodeId"`
+	Source    string    `gorm:"primaryKey;size:64" json:"source"` // plugin id, or "token:<name>" / "admin"
+	Name      string    `gorm:"primaryKey;size:40" json:"name"`
+	Label     string    `gorm:"size:40" json:"label,omitempty"`
+	Unit      string    `gorm:"size:8" json:"unit"`
+	Value     float64   `json:"value"`
+	At        time.Time `gorm:"index" json:"at"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 // UserNodeQuota is a user's traffic on one node beyond the account quota:

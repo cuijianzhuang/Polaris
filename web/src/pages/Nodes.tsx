@@ -5,6 +5,7 @@ import { del, get, post, put } from '../api'
 import { useNodes, useScope } from '../App'
 import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
+import NodeExternalMetrics from '../components/NodeExternalMetrics'
 import LimitedUsers from '../components/LimitedUsers'
 import NodeCard, { NodeActivity } from '../components/NodeCard'
 import NodeProvider from '../components/NodeProvider'
@@ -497,6 +498,7 @@ export default function Nodes() {
               <NetCollectionHealth health={sel.netHealth} onRefresh={refresh} />
               <section className="card"><TrafficChart query={'node=' + sel.id} title={t('节点用户流量')} /></section>
               <section className="card"><NodeMetrics nodeId={sel.id} /></section>
+              <NodeExternalMetrics nodeId={sel.id} />
               {!scoped && <NodeNetworkTools key={sel.id} node={sel} />}
               {!scoped && <NodeProvider nodeId={sel.id} onSynced={refresh} />}
               <LimitedUsers nodeId={sel.id} />

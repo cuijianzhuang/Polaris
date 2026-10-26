@@ -608,5 +608,10 @@ const m: Record<string, string> = {
   "已调整顺序": "Order updated",
   "订阅改写顺序": "Rewrite order",
   "按从上到下的顺序依次处理，后一个看到前一个的结果": "Applied top to bottom; each sees the previous one's result",
+  "上报节点外部指标（不能修改节点）": "Report external node metrics (cannot change nodes)",
+  "外部指标": "External metrics",
+  "由插件或 API 令牌上报，仅供参考，不影响节点状态": "Reported by plugins or API tokens; for reference only, never affects node state",
+  "指标": "Metric",
+  "数值": "Value",
 }
 export default m
