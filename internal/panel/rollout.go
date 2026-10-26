@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -75,17 +77,28 @@ func (s *Server) newRollout(req rolloutReq, by string) (*store.UpgradeRollout, e
 	if len(ids) == 0 {
 		return nil, errors.New("没有需要升级的节点")
 	}
-	var running int64
-	s.st.DB.Model(&store.UpgradeRollout{}).Where("state IN ?", []string{"running", "paused"}).Count(&running)
-	if running > 0 {
-		return nil, errors.New("已有一个升级任务在进行，请等它完成或取消")
-	}
 	now := time.Now()
 	r := &store.UpgradeRollout{ID: store.NewID(), Kind: req.Kind, CoreType: req.CoreType, Version: req.Version,
 		NodeIDs: store.NewJSON(ids), Canary: req.Canary, BatchSize: req.BatchSize, SoakSeconds: req.SoakSeconds,
 		ProbeInbounds: req.ProbeInbounds, State: "running", Batch: store.NewJSON([]string{}),
 		Results: store.NewJSON(map[string]store.RolloutNode{}), CreatedBy: by, CreatedAt: now, UpdatedAt: now}
-	if err := s.st.DB.Create(r).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		// A stable row serializes admission across panel replicas and databases.
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.ClusterLease{Name: "rollout-admission"}).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE cluster_leases SET holder = holder WHERE name = ?", "rollout-admission").Error; err != nil {
+			return err
+		}
+		var running int64
+		if err := tx.Model(&store.UpgradeRollout{}).Where("state IN ?", []string{"running", "paused", "rolling_back"}).Count(&running).Error; err != nil {
+			return err
+		}
+		if running > 0 {
+			return errors.New("已有一个升级任务在进行，请等它完成或取消")
+		}
+		return tx.Create(r).Error
+	}); err != nil {
 		return nil, err
 	}
 	return r, nil
@@ -123,7 +136,7 @@ func (s *Server) rolloutNodes(req rolloutReq) ([]string, error) {
 func (s *Server) runRollouts() {
 	var rs []store.UpgradeRollout
 	now := time.Now()
-	if s.st.DB.Where("state = ? AND lease_until <= ?", "running", now).Order("created_at").Find(&rs).Error != nil {
+	if s.st.DB.Where("state IN ? AND lease_until <= ?", []string{"running", "rolling_back"}, now).Order("created_at").Find(&rs).Error != nil {
 		return
 	}
 	for _, r := range rs {
@@ -131,32 +144,78 @@ func (s *Server) runRollouts() {
 			return
 		}
 		token := store.NewID()
-		claim := s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND lease_until <= ?", r.ID, "running", now).
+		claim := s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_until <= ?", r.ID, r.State, r.ControlVersion, now).
 			Updates(map[string]any{"lease_token": token, "lease_until": now.Add(rolloutLease)})
 		if claim.Error != nil || claim.RowsAffected != 1 {
 			continue
 		}
-		r.LeaseToken = token
+		// A different tick may have completed a batch since the initial list.
+		// Never execute the stale cursor/results from that list after claiming.
+		var claimed store.UpgradeRollout
+		if err := s.st.DB.First(&claimed, "id = ? AND lease_token = ?", r.ID, token).Error; err != nil {
+			continue
+		}
+		if claimed.State != r.State || claimed.ControlVersion != r.ControlVersion {
+			// An admin action between claiming and reloading must not make this
+			// worker treat a paused/canceled task as executable work.
+			s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND lease_token = ?", r.ID, token).Updates(map[string]any{"lease_token": "", "lease_until": time.Time{}})
+			continue
+		}
+		r = claimed
 		s.stepRollout(&r)
 	}
 }
 
 // stepRollout advances r by one step and saves it (releasing the lease).
 func (s *Server) stepRollout(r *store.UpgradeRollout) {
+	original := r.State
 	now := time.Now()
-	if len(r.Batch.V) == 0 {
+	if r.State == "rolling_back" {
+		s.watchRollback(r, now)
+	} else if len(r.Batch.V) == 0 {
 		s.startBatch(r, now)
 	} else {
+		s.dispatchBatch(r)
 		s.watchBatch(r, now)
 	}
 	r.UpdatedAt = time.Now()
 	upd := map[string]any{"cursor": r.Cursor, "batch": r.Batch, "batch_started": r.BatchStarted, "healthy_since": r.HealthySince,
 		"results": r.Results, "last_error": truncate(r.LastError, 500), "updated_at": r.UpdatedAt, "lease_until": time.Time{}, "lease_token": ""}
-	// The state moves only from running: a pause or cancel made meanwhile wins.
-	if r.State != "running" {
-		upd["state"] = r.State
+	// Persist in-flight observations even after pause/cancel, but never overwrite
+	// the administrator's state or a newer worker's lease.
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("UPDATE upgrade_rollouts SET updated_at = updated_at WHERE id = ? AND lease_token = ?", r.ID, r.LeaseToken).Error; err != nil {
+			return err
+		}
+		var cur store.UpgradeRollout
+		if err := tx.First(&cur, "id = ? AND lease_token = ? AND lease_until > ?", r.ID, r.LeaseToken, time.Now()).Error; err != nil {
+			return err
+		}
+		if cur.ControlVersion == r.ControlVersion && (cur.State == original || (original == "running" && cur.State == "rolling_back")) {
+			upd["state"] = r.State
+		} else {
+			r.State = cur.State
+			upd["healthy_since"] = cur.HealthySince
+		}
+		return tx.Model(&store.UpgradeRollout{}).Where("id = ? AND lease_token = ?", r.ID, r.LeaseToken).Updates(upd).Error
+	})
+	if err != nil {
+		s.log.Warn("save rollout", "id", r.ID, "err", err)
+		return
 	}
-	s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND lease_token = ?", r.ID, r.LeaseToken).Updates(upd)
+	if r.State != original && (r.State == "done" || r.State == "failed") {
+		s.announceRollout(r)
+	}
+}
+
+func (s *Server) rolloutActive(r *store.UpgradeRollout) bool {
+	var count int64
+	return s.isLeader() && s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, r.State, r.ControlVersion, r.LeaseToken, time.Now()).Count(&count).Error == nil && count == 1
+}
+
+func (s *Server) checkpointRollout(r *store.UpgradeRollout) bool {
+	res := s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, r.State, r.ControlVersion, r.LeaseToken, time.Now()).Updates(map[string]any{"cursor": r.Cursor, "batch": r.Batch, "batch_started": r.BatchStarted, "results": r.Results, "updated_at": time.Now()})
+	return res.Error == nil && res.RowsAffected == 1
 }
 
 func (s *Server) rolloutResult(r *store.UpgradeRollout, nodeID, state, msg, prev string) {
@@ -176,60 +235,96 @@ func (s *Server) startBatch(r *store.UpgradeRollout, now time.Time) {
 	if r.Cursor == 0 {
 		size = r.Canary
 	}
-	ids := r.NodeIDs.V
-	if r.Cursor >= len(ids) {
+	if r.Cursor >= len(r.NodeIDs.V) {
 		s.finishRollout(r, "done", "")
 		return
 	}
-	end := min(r.Cursor+size, len(ids))
-	batch := ids[r.Cursor:end]
-	r.Cursor = end
-	ctx, cancel := context.WithTimeout(s.ctxBG(), 4*time.Minute)
-	defer cancel()
-	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		started []string
-	)
-	for _, id := range batch {
+	end := min(r.Cursor+size, len(r.NodeIDs.V))
+	var batch []string
+	for _, id := range r.NodeIDs.V[r.Cursor:end] {
 		var n store.Node
 		if s.st.DB.First(&n, "id = ?", id).Error != nil || n.Revoked {
 			s.rolloutResult(r, id, "skipped", "节点已删除或撤销", "")
 			continue
 		}
 		if !rolloutOnline(s, id) {
-			// An offline node cannot be upgraded; it is not a failed upgrade.
 			s.rolloutResult(r, id, "skipped", "节点不在线", "")
 			continue
 		}
+		prev := ""
+		if r.Kind == "core" {
+			var c store.Core
+			if err := s.st.DB.First(&c, "node_id = ? AND type = ?", id, r.CoreType).Error; err != nil {
+				s.rolloutResult(r, id, "failed", "读取内核失败", "")
+				batch = append(batch, id)
+				continue
+			}
+			prev = orDefault(c.RunningVersion, c.Version)
+		}
+		s.rolloutResult(r, id, "queued", "", prev)
+		batch = append(batch, id)
+	}
+	r.Cursor = end
+	r.Batch, r.BatchStarted, r.HealthySince = store.NewJSON(batch), &now, nil
+	// Save the original versions and batch BEFORE any remote side effect.
+	if !s.checkpointRollout(r) {
+		return
+	}
+	s.dispatchBatch(r)
+}
+
+func (s *Server) dispatchBatch(r *store.UpgradeRollout) {
+	if !s.rolloutActive(r) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctxBG(), 4*time.Minute)
+	defer cancel()
+	type outcome struct {
+		id, prev string
+		err      error
+	}
+	results := make(chan outcome, len(r.Batch.V))
+	var wg sync.WaitGroup
+	for _, id := range r.Batch.V {
+		if r.Results.V[id].State != "queued" {
+			continue
+		}
+		var n store.Node
+		if err := s.st.DB.First(&n, "id = ?", id).Error; err != nil {
+			s.rolloutResult(r, id, "failed", "读取节点失败", "")
+			continue
+		}
 		wg.Add(1)
-		go func() {
+		go func(n store.Node, prev string) {
 			defer wg.Done()
-			prev, err := s.upgradeOne(ctx, r, &n)
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				s.rolloutResult(r, n.ID, "failed", err.Error(), prev)
+			if !s.rolloutActive(r) {
 				return
 			}
-			s.rolloutResult(r, n.ID, "upgrading", "", prev)
-			started = append(started, n.ID)
-		}()
+			if r.Kind == "agent" && n.AgentVersion == r.Version {
+				results <- outcome{id: n.ID, prev: prev}
+				return
+			}
+			_, err := s.upgradeOne(ctx, r, &n)
+			results <- outcome{id: n.ID, prev: prev, err: err}
+		}(n, r.Results.V[id].Prev)
 	}
-	wg.Wait()
-	for _, id := range batch {
-		if r.Results.V[id].State == "failed" {
-			r.Batch = store.NewJSON(started)
-			s.failRollout(r, fmt.Sprintf("节点 %s 升级失败：%s", s.nodeName(id), r.Results.V[id].Error))
+	go func() { wg.Wait(); close(results) }()
+	for out := range results {
+		state, msg := "upgrading", ""
+		if out.err != nil {
+			state, msg = "failed", out.err.Error()
+		}
+		s.rolloutResult(r, out.id, state, msg, out.prev)
+		s.checkpointRollout(r)
+	}
+	for _, id := range r.Batch.V {
+		if res := r.Results.V[id]; res.State == "failed" {
+			if s.rolloutActive(r) {
+				s.failRollout(r, fmt.Sprintf("节点 %s 升级失败：%s", s.nodeName(id), res.Error))
+			}
 			return
 		}
 	}
-	if len(started) == 0 {
-		// Everything in the batch was skipped: go on with the next one.
-		r.Batch, r.BatchStarted, r.HealthySince = store.NewJSON([]string{}), nil, nil
-		return
-	}
-	r.Batch, r.BatchStarted, r.HealthySince = store.NewJSON(started), &now, nil
 }
 
 // upgradeOne starts the upgrade of one node; prev is the core version it
@@ -251,6 +346,9 @@ func (s *Server) upgradeOne(ctx context.Context, r *store.UpgradeRollout, n *sto
 
 // watchBatch waits for the batch to be healthy for the soak period.
 func (s *Server) watchBatch(r *store.UpgradeRollout, now time.Time) {
+	if r.State != "running" || !s.rolloutActive(r) {
+		return
+	}
 	healthy := true
 	for _, id := range r.Batch.V {
 		ok, reason, fatal := s.rolloutNodeHealthy(r, id)
@@ -339,29 +437,75 @@ func (s *Server) rolloutNodeHealthy(r *store.UpgradeRollout, nodeID string) (ok 
 
 // failRollout stops r; core upgrades of the current batch are rolled back.
 func (s *Server) failRollout(r *store.UpgradeRollout, msg string) {
-	rolled := 0
-	if r.Kind == "core" {
-		for _, id := range r.Batch.V {
-			res := r.Results.V[id]
-			if res.Prev == "" || res.Prev == r.Version {
-				continue
-			}
-			var c store.Core
-			if s.st.DB.First(&c, "node_id = ? AND type = ?", id, r.CoreType).Error != nil || c.Version == res.Prev {
-				continue // already back (the agent reverted it)
-			}
-			if _, _, err := s.setCoreVersion(id, model.CoreType(r.CoreType), res.Prev, false); err != nil {
-				s.log.Warn("rollout rollback", "node", id, "err", err)
-				continue
-			}
-			rolled++
-			if res.State != "failed" {
-				s.rolloutResult(r, id, "rolled_back", "", "")
-			}
+	if !s.rolloutActive(r) {
+		return
+	}
+	if r.Kind != "core" {
+		s.finishRollout(r, "failed", msg)
+		return
+	}
+	now := time.Now()
+	r.LastError = msg
+	for _, id := range r.Batch.V {
+		res := r.Results.V[id]
+		if res.Prev != "" && res.Prev != r.Version {
+			s.rolloutResult(r, id, "rollback_pending", res.Error, "")
 		}
 	}
-	if rolled > 0 {
-		msg += fmt.Sprintf("；已把本批 %d 个节点退回原版本", rolled)
+	// The rollback intent survives a panel restart before commands are sent.
+	changed := s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, "running", r.ControlVersion, r.LeaseToken, now).
+		Updates(map[string]any{"state": "rolling_back", "results": r.Results, "last_error": truncate(msg, 500), "batch_started": now, "healthy_since": nil})
+	if changed.Error != nil || changed.RowsAffected != 1 {
+		return
+	}
+	r.State, r.BatchStarted, r.HealthySince = "rolling_back", &now, nil
+	s.watchRollback(r, now)
+}
+
+func (s *Server) watchRollback(r *store.UpgradeRollout, now time.Time) {
+	if !s.rolloutActive(r) {
+		return
+	}
+	pending, failed := false, false
+	for _, id := range r.Batch.V {
+		res := r.Results.V[id]
+		if res.State == "rollback_pending" {
+			if !s.rolloutActive(r) {
+				return
+			}
+			if _, _, err := s.setCoreVersion(id, model.CoreType(r.CoreType), res.Prev, false); err != nil {
+				s.rolloutResult(r, id, "rollback_failed", "回滚请求失败，需人工检查", "")
+			} else {
+				s.rolloutResult(r, id, "rolling_back", res.Error, "")
+			}
+			s.checkpointRollout(r)
+			res = r.Results.V[id]
+		}
+		if res.State == "rolling_back" {
+			// Check the observed version, applied revision and optional inbound probe.
+			check := *r
+			check.Version = res.Prev
+			ok, reason, _ := s.rolloutNodeHealthy(&check, id)
+			if ok {
+				s.rolloutResult(r, id, "rolled_back", res.Error, "")
+			} else if r.BatchStarted != nil && now.Sub(*r.BatchStarted) > rolloutNodeTimeout {
+				s.rolloutResult(r, id, "rollback_failed", "回滚超时："+reason, "")
+			} else {
+				pending = true
+			}
+		}
+		if r.Results.V[id].State == "rollback_failed" {
+			failed = true
+		}
+	}
+	if pending {
+		return
+	}
+	msg := r.LastError
+	if failed {
+		msg += "；部分节点回滚未确认，请人工检查"
+	} else {
+		msg += "；本批回滚已由节点运行状态确认"
 	}
 	s.finishRollout(r, "failed", msg)
 }
@@ -369,6 +513,10 @@ func (s *Server) failRollout(r *store.UpgradeRollout, msg string) {
 func (s *Server) finishRollout(r *store.UpgradeRollout, state, msg string) {
 	r.State, r.LastError = state, msg
 	r.Batch, r.BatchStarted, r.HealthySince = store.NewJSON([]string{}), nil, nil
+}
+
+func (s *Server) announceRollout(r *store.UpgradeRollout) {
+	state, msg := r.State, r.LastError
 	what := "Agent"
 	if r.Kind == "core" {
 		what = r.CoreType
@@ -444,7 +592,7 @@ func (s *Server) rolloutAction(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	upd := map[string]any{"state": to[act], "updated_at": time.Now()}
+	upd := map[string]any{"state": to[act], "updated_at": time.Now(), "control_version": gorm.Expr("control_version + 1")}
 	if act == "resume" {
 		upd["healthy_since"] = nil // soak again from the start
 	}

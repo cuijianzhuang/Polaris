@@ -6,7 +6,7 @@ import (
 )
 
 const RelayBusinessFeature = "relay-business-v1"
-const SingboxRelayBusinessFeature = "relay-business-singbox-v1"
+const SingboxRelayBusinessFeature = "relay-business-singbox-v2"
 const SingboxRelayBusinessMinVersion = "1.13.5"
 const DiagnosticUserPrefix = "#diag:"
 

@@ -120,6 +120,7 @@ func (a *Adapter) RunRelayDiagnostic(ctx context.Context, req model.RelayBusines
 	server := core.NewProcess("sing-box-diagnostic-server", a.opt.BinPath, a.opt.WorkDir, a.opt.Logger, "run", "-c", serverPath, "-D", a.opt.WorkDir)
 	client := core.NewProcess("sing-box-diagnostic-client", a.opt.BinPath, dir, a.opt.Logger, "run", "-c", clientPath)
 	server.BindToParent, client.BindToParent = true, true
+	server.Deadline, client.Deadline = expires, expires
 	server.Filter = a.online.line
 	result.State = "failed"
 	// Stop uses an already-canceled context to SIGKILL and wait, rather than

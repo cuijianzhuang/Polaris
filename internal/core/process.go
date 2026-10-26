@@ -31,6 +31,9 @@ type Process struct {
 	// BindToParent kills the child if its owning process dies. Start and Wait
 	// stay on one locked OS thread: Linux PDEATHSIG tracks the creating thread.
 	BindToParent bool
+	// Deadline is enforced by a separate supervisor process. Unlike a context
+	// timer in the Agent it still expires while the Agent is SIGSTOP'ed.
+	Deadline time.Time
 
 	mu        sync.Mutex
 	cmd       *exec.Cmd
@@ -60,6 +63,14 @@ func (p *Process) Start(ctx context.Context) error {
 		return fmt.Errorf("%s binary: %w", p.Name, err)
 	}
 	cmd := exec.Command(p.Bin, p.Args...)
+	if !p.Deadline.IsZero() {
+		var err error
+		cmd, err = leasedCommand(p.Bin, p.Args, p.Deadline)
+		if err != nil {
+			p.mu.Unlock()
+			return err
+		}
+	}
 	cmd.Dir = p.Dir
 	if len(p.Env) > 0 {
 		cmd.Env = append(os.Environ(), p.Env...)

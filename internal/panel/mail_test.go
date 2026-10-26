@@ -72,6 +72,7 @@ func TestMailNotices(t *testing.T) {
 	s.st.DB.Create(&u)
 
 	s.remindUsers()
+	s.retryUserNotices()
 	waitFor(t, "reminder mail", func() bool { return len(m.To("carol@example.org")) == 1 })
 	got := m.To("carol@example.org")[0]
 	if got.Subject != "[极光] 流量提醒" || !strings.Contains(got.Body, "85%") || !strings.Contains(got.Body, s.subURL(u.SubToken)) || strings.Contains(got.Body, "<b>") {
@@ -80,7 +81,8 @@ func TestMailNotices(t *testing.T) {
 	if len(m.To("ops@example.com")) != 0 {
 		t.Fatal("a user reminder went to the admin")
 	}
-	s.remindUsers() // once per cycle
+	s.remindUsers()
+	s.retryUserNotices() // once per cycle
 	time.Sleep(200 * time.Millisecond)
 	if len(m.To("carol@example.org")) != 1 {
 		t.Fatal("reminder sent twice")

@@ -43,27 +43,28 @@ var Version = "dev"
 
 // Server is the panel.
 type Server struct {
-	renderCache renderCache // plugin subscription output (plugin_sub.go)
-	cfg         *Config
-	st          *store.Store
-	ca          *pki.CA
-	log         *slog.Logger
-	hub         *Hub
-	traffic     *trafficInbox
-	eph         *ephStore   // short-lived values shared by every instance (sign-in codes, OAuth states)
-	tgWeb       tgWebLogins // login-page Telegram sign-in requests
-	portalWeb   tgWebLogins // user center Telegram sign-in requests
-	hbMu        sync.Mutex
-	probeBusy   atomic.Bool                         // a probe round is running
-	statusCache atomic.Pointer[statusSnap]          // public status page data
-	restartHook func()                              // tests: replaces the re-exec after a restore
-	hbCores     map[string]hbCoreState              // last core state written per node
-	progress    map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
-	limited     map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
-	lic         atomic.Pointer[licenseState]        // license in effect (see license.go)
-	licKeys     []ed25519.PublicKey                 // overrides the built-in license keys (tests)
-	jwtKey      []byte
-	rt          *realtime
+	renderCache    renderCache // plugin subscription output (plugin_sub.go)
+	userNoticeBusy atomic.Bool
+	cfg            *Config
+	st             *store.Store
+	ca             *pki.CA
+	log            *slog.Logger
+	hub            *Hub
+	traffic        *trafficInbox
+	eph            *ephStore   // short-lived values shared by every instance (sign-in codes, OAuth states)
+	tgWeb          tgWebLogins // login-page Telegram sign-in requests
+	portalWeb      tgWebLogins // user center Telegram sign-in requests
+	hbMu           sync.Mutex
+	probeBusy      atomic.Bool                         // a probe round is running
+	statusCache    atomic.Pointer[statusSnap]          // public status page data
+	restartHook    func()                              // tests: replaces the re-exec after a restore
+	hbCores        map[string]hbCoreState              // last core state written per node
+	progress       map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
+	limited        map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
+	lic            atomic.Pointer[licenseState]        // license in effect (see license.go)
+	licKeys        []ed25519.PublicKey                 // overrides the built-in license keys (tests)
+	jwtKey         []byte
+	rt             *realtime
 
 	licenseMu              sync.Mutex           // serializes checks, installation and deactivation
 	licenseManualAvailable atomic.Int64         // nanosecond timestamp for the UI cooldown
@@ -408,6 +409,8 @@ func (s *Server) startJobs() func() {
 	add("*/10 * * * * *", "payment-recovery", s.retryPayments)
 	add("*/15 * * * * *", "refund-recovery", s.retryRefunds)
 	add("*/15 * * * * *", "rollouts", s.runRollouts)
+	add("*/15 * * * * *", "user-reminders", s.retryUserNotices)
+	addLocal("*/30 * * * * *", "plugin-cache", s.renderCache.prune)
 	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
 	add("*/30 * * * * *", "usdt", s.pollUSDT)
@@ -458,6 +461,7 @@ func (s *Server) markOfflineNodes() {
 }
 
 func (s *Server) cleanup() {
+	s.st.DB.Where("status <> ? AND updated_at < ?", "pending", time.Now().AddDate(0, 0, -30)).Delete(&store.UserNotice{})
 	s.pruneIdempotency()
 	s.st.DB.Where("started_at < ?", time.Now().Add(-routeTraceKeep)).Delete(&store.NodeRouteTrace{})
 	s.st.DB.Where("open = ? AND updated_at < ?", false, time.Now().AddDate(0, 0, -30)).Delete(&store.NotificationState{})

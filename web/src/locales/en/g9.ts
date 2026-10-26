@@ -55,5 +55,18 @@ const m: Record<string, string> = {
   'sing-box 暂不支持组间兜底；请清除兜底或使用 Xray / mihomo。': 'sing-box does not support inter-group fallback. Clear the fallback or use Xray / mihomo.',
   'mihomo 支持备用组或出站，不支持 block 兜底。': 'mihomo supports backup groups and outbounds, but not a block fallback.',
   '兜底：{tag}': 'Fallback: {tag}',
+  '用户提醒投递记录': 'User reminder deliveries',
+  '回滚中': 'Rolling back',
+  '等待回滚': 'Rollback queued',
+  '回滚未确认': 'Rollback unconfirmed',
+  '等待发送或重试': 'Pending delivery or retry',
+  '已发送': 'Sent',
+  '已失效': 'Canceled',
+  '按渠道分别重试；第三方响应丢失时可能重复发送。续费、重置或关闭渠道后，过期提醒会取消。': 'Each channel retries independently; a lost provider response may cause a duplicate. Obsolete reminders are canceled after renewal, reset, or disabling a channel.',
+  '提醒': 'Reminder',
+  '渠道': 'Channel',
+  '尝试次数': 'Attempts',
+  '天': 'days',
+
 }
 export default m

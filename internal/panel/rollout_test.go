@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ type fakeFleet struct {
 	offline  map[string]bool
 	failNode string // agent upgrade of this node errors
 	stuck    string // this node never reports the new version
+	mu       sync.Mutex
 	upgraded []string
 }
 
@@ -26,7 +28,9 @@ func (f *fakeFleet) install(t *testing.T, s *Server) {
 	rolloutOnline = func(_ *Server, id string) bool { return !f.offline[id] }
 	rolloutAgentVersion = func() string { return "2.0.0" }
 	rolloutUpgradeAgent = func(s *Server, _ context.Context, n *store.Node) error {
+		f.mu.Lock()
 		f.upgraded = append(f.upgraded, n.ID)
+		f.mu.Unlock()
 		if n.ID == f.failNode {
 			return errors.New("checksum mismatch")
 		}
@@ -150,17 +154,31 @@ func TestRolloutCoreRollback(t *testing.T) {
 	s.st.DB.Model(&store.Core{}).Where("node_id = ?", ids[0]).Update("running_version", "26.3.27")
 	s.st.DB.Model(&store.Core{}).Where("node_id = ?", ids[1]).Updates(map[string]any{"version": "26.1.1", "error": "升级到 26.3.27 失败，仍运行 26.1.1：boom"})
 	cur = stepRolloutT(t, s, r.ID)
-	if cur.State != "failed" || !strings.Contains(cur.LastError, "boom") {
+	if cur.State != "rolling_back" || !strings.Contains(cur.LastError, "boom") {
 		t.Fatalf("state %s err %q", cur.State, cur.LastError)
 	}
 	var c0, c2 store.Core
 	s.st.DB.First(&c0, "node_id = ?", ids[0])
 	s.st.DB.First(&c2, "node_id = ?", ids[2])
-	if c0.Version != "26.1.1" || cur.Results.V[ids[0]].State != "rolled_back" {
+	if c0.Version != "26.1.1" || cur.Results.V[ids[0]].State != "rolling_back" {
 		t.Fatalf("healthy node of the failed batch not rolled back: %s %+v", c0.Version, cur.Results.V[ids[0]])
 	}
 	if c2.Version != "26.1.1" {
 		t.Fatalf("node of a later batch was touched: %s", c2.Version)
+	}
+
+	// Desired version alone is insufficient: the observed core still runs new.
+	cur = stepRolloutT(t, s, r.ID)
+	if cur.State != "rolling_back" {
+		t.Fatalf("unconfirmed rollback completed: %s", cur.State)
+	}
+	s.st.DB.Model(&store.Core{}).Where("node_id IN ?", ids[:2]).Updates(map[string]any{"running_version": "26.1.1", "status": "running"})
+	for _, id := range ids[:2] {
+		s.st.DB.Model(&store.Node{}).Where("id = ?", id).Update("applied_rev", 999)
+	}
+	cur = stepRolloutT(t, s, r.ID)
+	if cur.State != "failed" || cur.Results.V[ids[0]].State != "rolled_back" {
+		t.Fatalf("rollback not confirmed: %+v", cur)
 	}
 }
 

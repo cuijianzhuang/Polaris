@@ -404,6 +404,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/system/update", s.getPanelUpdate)
 	p.GET("/cluster", s.getCluster)
 	p.GET("/operational-health", s.getOperationalHealth)
+	p.GET("/user-notices", s.listUserNotices)
 	p.GET("/ready", s.readiness)
 	p.POST("/orders/:id/retry", s.requireSudo, s.retryOrderPaymentHandler)
 	p.POST("/system/update", s.requireSudo, s.postPanelUpdate)

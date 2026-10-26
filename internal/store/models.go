@@ -196,7 +196,7 @@ type User struct {
 	// may rename it (Telegram /rename, user center) when the shop allows it.
 	SelfService  bool       `json:"selfService"`
 	RenamedAt    *time.Time `json:"-"` // last self-service rename
-	WarnedUsage  bool       `json:"-"` // 80% traffic warning sent this cycle
+	WarnedUsage  bool       `json:"-"` // traffic warning scheduled this cycle
 	WarnedExpire *time.Time `json:"-"`
 	Remark       string     `gorm:"size:255" json:"remark"`
 	// Self-service port forwarding, set from the plan (professional
@@ -877,7 +877,7 @@ func AllModels() []any {
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
-		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{},
+		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},
 		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{},
 	}
 }
@@ -1078,14 +1078,15 @@ type NodeMetric struct {
 // from somewhere. It is shown as reported, labelled with its source, and
 // never feeds node status, heartbeats or billing.
 type NodeExternalMetric struct {
-	NodeID    string    `gorm:"primaryKey;size:32" json:"nodeId"`
-	Source    string    `gorm:"primaryKey;size:64" json:"source"` // plugin id, or "token:<name>" / "admin"
-	Name      string    `gorm:"primaryKey;size:40" json:"name"`
-	Label     string    `gorm:"size:40" json:"label,omitempty"`
-	Unit      string    `gorm:"size:8" json:"unit"`
-	Value     float64   `json:"value"`
-	At        time.Time `gorm:"index" json:"at"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	NodeID      string    `gorm:"primaryKey;size:32" json:"nodeId"`
+	Source      string    `gorm:"primaryKey;size:64" json:"source"` // plugin id, or "token:<id>" / "admin"
+	SourceLabel string    `gorm:"size:64" json:"sourceLabel,omitempty"`
+	Name        string    `gorm:"primaryKey;size:40" json:"name"`
+	Label       string    `gorm:"size:40" json:"label,omitempty"`
+	Unit        string    `gorm:"size:8" json:"unit"`
+	Value       float64   `json:"value"`
+	At          time.Time `gorm:"index" json:"at"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // UserNodeQuota is a user's traffic on one node beyond the account quota:
