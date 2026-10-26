@@ -291,7 +291,6 @@ const m: Record<string, string> = {
   '流量提醒阈值（%）': 'Traffic reminder threshold (%)',
   '用到这个比例时提醒一次；0 关闭': 'Remind once when usage reaches this percentage; 0 to disable',
   '到期提前提醒（天）': 'Expiry reminder lead time (days)',
-  '到期前这几天每天提醒一次；0 关闭': 'Remind daily during these days before expiry; 0 to disable',
   '每日报告：每天向超级管理员发送节点、流量与需要关注的用户（超额 / 到期 / 将满）': 'Daily report: sends super admins nodes, traffic and users needing attention (over quota / expired / nearly full) every day',
   '每日报告': 'Daily report',
   '每日报告时间（点）': 'Daily report hour',

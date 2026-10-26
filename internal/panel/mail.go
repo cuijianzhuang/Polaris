@@ -124,6 +124,7 @@ func (s *Server) mailEvent(ctx context.Context, e Event) {
 			text = userFacing(e)
 		}
 	}
+	text += s.userRenewLines(e.Kind)
 	subject := orDefault(mailSubjects[e.Kind], "通知")
 	plain, h := s.mailBody(subject, text, &u)
 	if err := s.sendMail(ctx, u.Email, subject, plain, h); err != nil {

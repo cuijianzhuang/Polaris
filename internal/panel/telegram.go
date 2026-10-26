@@ -787,12 +787,13 @@ func (b *tgBot) runNotifications(ctx context.Context, events <-chan Event) {
 			if running && e.UserID != "" && b.s.st.GetSetting("tg_notify_users", "true") == "true" {
 				var u store.User
 				if b.s.st.DB.First(&u, "id = ?", e.UserID).Error == nil && u.TelegramID != 0 {
+					rows := b.s.userRenewButtons(e.Kind, &u)
 					if e.UserOnly { // reminders are pre-formatted HTML
-						b.send(u.TelegramID, e.Text)
+						b.send(u.TelegramID, e.Text, rows...)
 					} else if custom := b.s.customReminder(e.Kind, &u); custom != "" {
-						b.send(u.TelegramID, custom)
+						b.send(u.TelegramID, custom, rows...)
 					} else {
-						b.send(u.TelegramID, esc(userFacing(e)))
+						b.send(u.TelegramID, esc(userFacing(e)), rows...)
 					}
 				}
 			}
@@ -821,11 +822,12 @@ func (b *tgBot) isRunning() bool {
 }
 
 // remindUsers sends usage and expiry reminders to bound users (hourly):
-// once when usage crosses remind_usage_pct (default 80, 0 = off) and daily
-// within remind_expire_days of expiry (default 3, 0 = off).
+// once when usage crosses remind_usage_pct (default 80, 0 = off), and once
+// per tier of remind_expire_days before expiry (default 7, 3 and 1 days;
+// "0" = off). Each carries renewal buttons (renew_reminders.go).
 func (s *Server) remindUsers() {
 	pctAt := atoiDefault(s.st.GetSetting("remind_usage_pct", "80"), 80)
-	expDays := atoiDefault(s.st.GetSetting("remind_expire_days", "3"), 3)
+	tiers := expireTiers(s.st.GetSetting("remind_expire_days", ""))
 	var us []store.User
 	s.st.DB.Where("(telegram_id <> 0 OR email <> '') AND is_service = ? AND status = ?", false, "active").Find(&us)
 	now := time.Now()
@@ -844,8 +846,7 @@ func (s *Server) remindUsers() {
 				s.st.DB.Model(&u).Update("warned_usage", false)
 			}
 		}
-		if expDays > 0 && u.ExpireAt != nil && u.ExpireAt.Sub(now) < time.Duration(expDays)*24*time.Hour && u.ExpireAt.After(now) &&
-			(u.WarnedExpire == nil || now.Sub(*u.WarnedExpire) > 23*time.Hour) {
+		if expireReminderDue(tiers, &u, now) {
 			s.st.DB.Model(&u).Update("warned_expire", now)
 			text := s.customReminder("expire_warn", &u)
 			if text == "" {

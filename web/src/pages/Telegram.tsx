@@ -18,7 +18,7 @@ export default function Telegram() {
   const st = useLoad(() => get<Status>('/telegram'))
   const admins = useLoad(() => get<{ admins: TGAdmin[]; boundUsers: number }>('/telegram/admins'))
   const settings = useLoad(() => get<Record<string, any>>('/settings'))
-  const [f, setF] = useState({ tg_enabled: 'false', tg_token: '', tg_api_base: '', tg_notify_users: 'true', remind_usage_pct: '80', remind_expire_days: '3', tg_daily_report: 'true', tg_daily_report_hour: '9' })
+  const [f, setF] = useState({ tg_enabled: 'false', tg_token: '', tg_api_base: '', tg_notify_users: 'true', remind_usage_pct: '80', remind_expire_days: '7,3,1', tg_daily_report: 'true', tg_daily_report_hour: '9' })
   const [bind, setBind] = useState<BindReq | null>(null)
   const [code, setCode] = useState<{ command: string; bot: string } | null>(null)
   const [edit, setEdit] = useState<TGAdmin | null>(null)
@@ -27,7 +27,7 @@ export default function Telegram() {
   useEffect(() => {
     const d = settings.data
     if (d) setF({ tg_enabled: d.tg_enabled ?? 'false', tg_token: '', tg_api_base: d.tg_api_base ?? '', tg_notify_users: d.tg_notify_users ?? 'true',
-      remind_usage_pct: d.remind_usage_pct || '80', remind_expire_days: d.remind_expire_days || '3', tg_daily_report: d.tg_daily_report || 'true', tg_daily_report_hour: d.tg_daily_report_hour || '9' })
+      remind_usage_pct: d.remind_usage_pct || '80', remind_expire_days: d.remind_expire_days || '7,3,1', tg_daily_report: d.tg_daily_report || 'true', tg_daily_report_hour: d.tg_daily_report_hour || '9' })
   }, [settings.data])
   const nodeName = (id: string) => nodes.find((n) => n.id === id)?.name ?? id
 
@@ -55,7 +55,7 @@ export default function Telegram() {
           <div className="toggle"><span>{t('向绑定用户推送提醒与状态变化（流量将满、即将到期、已暂停 / 已恢复）')}</span><Switch label={t('用户提醒')} on={f.tg_notify_users === 'true'} onChange={(v) => setF({ ...f, tg_notify_users: String(v) })} /></div>
           <div className="form-grid">
             <Field label={t('流量提醒阈值（%）')} hint={t('用到这个比例时提醒一次；0 关闭')}><input className="input mono" inputMode="numeric" value={f.remind_usage_pct} onChange={(e) => setF({ ...f, remind_usage_pct: e.target.value })} /></Field>
-            <Field label={t('到期提前提醒（天）')} hint={t('到期前这几天每天提醒一次；0 关闭')}><input className="input mono" inputMode="numeric" value={f.remind_expire_days} onChange={(e) => setF({ ...f, remind_expire_days: e.target.value })} /></Field>
+            <Field label={t('到期提前提醒（天）')} hint={t('到期前第几天各提醒一次，逗号分隔，如 7,3,1；提醒附带续费按钮；0 关闭')}><input className="input mono" value={f.remind_expire_days} onChange={(e) => setF({ ...f, remind_expire_days: e.target.value })} /></Field>
           </div>
           <div className="toggle"><span>{t('每日报告：每天向超级管理员发送节点、流量与需要关注的用户（超额 / 到期 / 将满）')}</span><Switch label={t('每日报告')} on={f.tg_daily_report === 'true'} onChange={(v) => setF({ ...f, tg_daily_report: String(v) })} /></div>
           {f.tg_daily_report === 'true' && <Field label={t('每日报告时间（点）')} hint={t('服务器本地时间 0–23')}><input className="input mono" inputMode="numeric" value={f.tg_daily_report_hour} onChange={(e) => setF({ ...f, tg_daily_report_hour: e.target.value })} /></Field>}

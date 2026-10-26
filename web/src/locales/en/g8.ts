@@ -592,5 +592,6 @@ const m: Record<string, string> = {
   "订阅格式 {list}": "subscription formats {list}",
   "订阅格式": "Subscription formats",
   "用户使用这些格式时，面板会把该用户的节点（包括 UUID、密码等连接凭据）发给插件生成配置。请只安装可信的插件。": "When a user requests one of these formats, the panel sends that user's nodes (including UUIDs, passwords and other credentials) to the plugin to build the config. Only install plugins you trust.",
+  "到期前第几天各提醒一次，逗号分隔，如 7,3,1；提醒附带续费按钮；0 关闭": "Days before expiry to remind, comma-separated (e.g. 7,3,1); each reminder carries renew buttons; 0 = off",
 }
 export default m
