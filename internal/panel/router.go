@@ -172,6 +172,8 @@ func (s *Server) Router() http.Handler {
 	p.GET("/nodes", s.listNodes)
 	p.POST("/nodes", s.createNode)
 	p.GET("/nodes/:id", s.getNode)
+	p.GET("/nodes/:id/metrics/external", s.listNodeMetrics)
+	p.POST("/nodes/:id/metrics", s.postNodeMetrics)
 	p.PUT("/nodes/:id", s.updateNode)
 	p.PUT("/nodes/:id/net", s.putNodeNet)
 	p.GET("/notifications/policy", s.getNotificationPolicy)

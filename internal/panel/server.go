@@ -465,6 +465,7 @@ func (s *Server) cleanup() {
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.TrafficBatchSeen{})
 	s.st.DB.Where("at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.NodeMetric{})
 	s.st.DB.Where("at < ?", time.Now().Add(-latencyKeep)).Delete(&store.NodeLatency{})
+	s.st.DB.Where("at < ?", time.Now().Add(-extMetricsKeep)).Delete(&store.NodeExternalMetric{})
 	s.st.DB.Where("expires_at < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.AdminSession{}) // kept a while: new-address alerts compare against them
 	s.st.DB.Where("(until IS NULL OR until < ?) AND updated_at < ?", time.Now(), time.Now().AddDate(0, 0, -30)).Delete(&store.LoginBan{})
 	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -180)).Delete(&store.AuditLog{})
