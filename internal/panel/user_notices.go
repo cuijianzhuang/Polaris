@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"html"
 	"net/http"
@@ -97,7 +98,18 @@ func (s *Server) queueUserReminders(id string, now time.Time) error {
 			if u.Email != "" && mailOn {
 				recipients["email"] = u.Email
 			}
-			if len(recipients) == 0 {
+			typ := eventType(Event{Kind: kind})
+			var hooks []store.Webhook
+			if err := tx.Where("enabled = ?", true).Find(&hooks).Error; err != nil {
+				return err
+			}
+			matched := []store.Webhook{}
+			for _, hook := range hooks {
+				if matchEvent(hook.Events.V, typ) {
+					matched = append(matched, hook)
+				}
+			}
+			if len(recipients) == 0 && len(matched) == 0 {
 				continue
 			}
 			for channel, recipient := range recipients {
@@ -105,6 +117,20 @@ func (s *Server) queueUserReminders(id string, now time.Time) error {
 				key := fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%s\x00%s", id, kind, term, tier, channel, recipient)
 				j := store.UserNotice{ID: fmt.Sprintf("%x", sha256.Sum256([]byte(key))), UserID: id, Kind: kind, Channel: channel, Recipient: s.st.Box.Seal(recipient), Text: s.st.Box.Seal(text), Term: term, Tier: tier, Status: "pending", NextAt: now, CreatedAt: now, UpdatedAt: now}
 				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&j).Error; err != nil {
+					return err
+				}
+			}
+			// Plugins subscribed to reminder events keep receiving them through
+			// the existing durable webhook worker, without a lossy channel hop.
+			termKey := fmt.Sprintf("%s\x00%s\x00%s\x00%d", id, kind, noticeTerm(&u, kind), tier)
+			eventID := fmt.Sprintf("evt_%x", sha256.Sum256([]byte(termKey)))[:36]
+			for _, hook := range matched {
+				body, err := json.Marshal(map[string]any{"id": eventID, "type": typ, "created_at": now.UTC().Format(time.RFC3339), "data": map[string]any{"user_id": u.ID, "user": userBrief(&u), "message": text}})
+				if err != nil {
+					return err
+				}
+				d := store.WebhookDelivery{ID: fmt.Sprintf("%x", sha256.Sum256([]byte(termKey+"\x00"+hook.ID)))[:32], WebhookID: hook.ID, EventID: eventID, Type: typ, Payload: string(body), Status: "pending", NextAt: now, CreatedAt: now}
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d).Error; err != nil {
 					return err
 				}
 			}
@@ -157,12 +183,17 @@ func (s *Server) deliverUserNotice(id string) {
 	if s.st.DB.First(&j, "id = ? AND lease_token = ?", id, token).Error != nil {
 		return
 	}
-	j.Recipient = s.st.Box.MustOpen(j.Recipient)
-	j.Text = s.st.Box.MustOpen(j.Text)
 	finish := func(status, detail string) {
 		delay := time.Duration(1<<min(j.Attempts, 8)) * time.Minute
 		s.st.DB.Model(&store.UserNotice{}).Where("id = ? AND lease_token = ?", id, token).
 			Updates(map[string]any{"status": status, "last_error": detail, "next_at": now.Add(delay), "lease_token": "", "lease_until": time.Time{}, "updated_at": time.Now()})
+	}
+	var recipientErr, textErr error
+	j.Recipient, recipientErr = s.st.Box.Open(j.Recipient)
+	j.Text, textErr = s.st.Box.Open(j.Text)
+	if recipientErr != nil || textErr != nil {
+		finish("pending", "提醒记录无法解密，请检查面板密钥")
+		return
 	}
 	var u store.User
 	if err := s.st.DB.First(&u, "id = ?", j.UserID).Error; err != nil {

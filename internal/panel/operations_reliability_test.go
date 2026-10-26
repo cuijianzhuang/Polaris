@@ -212,6 +212,22 @@ func TestUserReminderSchedulingIsAtomic(t *testing.T) {
 	}
 }
 
+func TestUserReminderKeepsPluginWebhookEvents(t *testing.T) {
+	s := newTestServer(t)
+	s.st.SetSetting("tg_notify_users", "false")
+	s.st.SetSetting("mail_notify_users", "false")
+	expires := time.Now().Add(5 * 24 * time.Hour)
+	s.st.DB.Create(&store.User{ID: "hook-reminder", Username: "hook", Status: "active", TelegramID: 42, ExpireAt: &expires})
+	s.st.DB.Create(&store.Webhook{ID: "reminder-hook", Enabled: true, Events: store.NewJSON([]string{"user.expire_warn"})})
+	s.remindUsers()
+	s.remindUsers()
+	var deliveries []store.WebhookDelivery
+	s.st.DB.Where("webhook_id = ?", "reminder-hook").Find(&deliveries)
+	if len(deliveries) != 1 || deliveries[0].Type != "user.expire_warn" || !strings.Contains(deliveries[0].Payload, "到期提醒") {
+		t.Fatalf("plugin reminder lost or duplicated: %+v", deliveries)
+	}
+}
+
 func TestExternalMetricsRejectOlderAndEqualSamples(t *testing.T) {
 	s, _, admin := newAdminClient(t)
 	s.st.DB.Create(&store.Node{ID: "metric-node", Name: "metric"})
