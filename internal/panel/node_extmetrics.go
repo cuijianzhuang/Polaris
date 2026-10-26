@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm/clause"
@@ -54,7 +55,7 @@ func checkExtMetric(m extMetricIn, now time.Time) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("指标 %s 的数值无效", m.Name)
 	case m.Unit == "bool" && *m.Value != 0 && *m.Value != 1:
 		return time.Time{}, fmt.Errorf("指标 %s 的单位是 bool，数值只能是 0 或 1", m.Name)
-	case len(m.Label) > 40 || strings.ContainsFunc(m.Label, func(r rune) bool { return r < 0x20 || r == 0x7f }):
+	case utf8.RuneCountInString(m.Label) > 40 || strings.ContainsFunc(m.Label, func(r rune) bool { return r < 0x20 || r == 0x7f }):
 		return time.Time{}, fmt.Errorf("指标 %s 的 label 最长 40 个字符，不能有控制字符", m.Name)
 	}
 	if m.At == "" {

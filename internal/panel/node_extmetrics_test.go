@@ -3,6 +3,7 @@ package panel
 import (
 	"net/http"
 	"testing"
+	"strings"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -87,5 +88,19 @@ func TestNodeExternalMetrics(t *testing.T) {
 	s.st.DB.Model(&store.NodeExternalMetric{}).Count(&left)
 	if left != 0 {
 		t.Fatalf("%d metrics left after node deletion", left)
+	}
+}
+
+func TestExtMetricLabelCountsCharacters(t *testing.T) {
+	v := 1.0
+	now := time.Now()
+	if _, err := checkExtMetric(extMetricIn{Name: "latency.x", Unit: "ms", Value: &v, Label: strings.Repeat("电", 40)}, now); err != nil {
+		t.Fatalf("40 characters rejected: %v", err)
+	}
+	if _, err := checkExtMetric(extMetricIn{Name: "latency.x", Unit: "ms", Value: &v, Label: strings.Repeat("电", 41)}, now); err == nil {
+		t.Fatal("41 characters accepted")
+	}
+	if _, err := checkExtMetric(extMetricIn{Name: "latency.x", Value: &v}, now); err == nil {
+		t.Fatal("missing unit accepted")
 	}
 }

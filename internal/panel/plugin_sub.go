@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cuijianzhuang/polaris/internal/plugin"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -353,7 +354,7 @@ func (s *Server) transformOnce(ctx context.Context, p *store.Plugin, nodes []sub
 		seen[i] = true
 		n := nodes[i] // credentials and endpoint come from the panel, only the name may change
 		if name := strings.TrimSpace(r.Name); name != "" {
-			if len(name) > 100 || strings.ContainsFunc(name, func(c rune) bool { return c < 0x20 || c == 0x7f }) {
+			if utf8.RuneCountInString(name) > 100 || strings.ContainsFunc(name, func(c rune) bool { return c < 0x20 || c == 0x7f }) {
 				return nil, fmt.Errorf("plugin returned an invalid name for node %q", r.ID)
 			}
 			n.Name = name

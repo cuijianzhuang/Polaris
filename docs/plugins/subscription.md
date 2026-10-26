@@ -150,7 +150,7 @@ Authorization: Bearer plt_…
 | --- | --- |
 | `name` | 小写字母开头，可以有数字和 `_` `.` `-`，最长 40 个字符。`cpu`、`mem`、`online`、`status`、`traffic` 等名称保留给节点自身的数据，不能使用。 |
 | `label` | 可选，显示用，最长 40 个字符，不能有控制字符。 |
-| `unit` | 可选值：`ms`、`s`、`Mbps`、`kbps`、`%`、`count`、`bool`。单位为 `bool` 时，`value` 只能是 0 或 1。 |
+| `unit` | 必填，可选值：`ms`、`s`、`Mbps`、`kbps`、`%`、`count`、`bool`。单位为 `bool` 时，`value` 只能是 0 或 1。 |
 | `value` | 有限数字，绝对值不超过 10¹²。 |
 | `at` | 可选，RFC 3339 格式，必须是最近 24 小时内（最多比当前时间晚 5 分钟）。不填表示当前时间。 |
 
