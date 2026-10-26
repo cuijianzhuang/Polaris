@@ -2,8 +2,8 @@ package panel
 
 import (
 	"net/http"
-	"testing"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
