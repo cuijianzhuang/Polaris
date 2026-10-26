@@ -10,13 +10,20 @@ import (
 
 func TestReminderTemplates(t *testing.T) {
 	s, _, c := newAdminClient(t)
-	ch := events(s)
 	exp := time.Now().Add(50 * time.Hour)
 	s.st.DB.Create(&store.User{ID: "u1", Username: "alice", UUID: "a", SubToken: "alice-subscription-token", Status: "active",
 		TelegramID: 42, TrafficLimit: 100, UsedDown: 85, ExpireAt: &exp})
 	s.st.SetSetting("tpl_traffic_warn", "Hi {user}, {percent}% used, {left} left <b>")
 	s.remindUsers()
-	got := []string{next(t, ch), next(t, ch)}
+	var jobs []store.UserNotice
+	s.st.DB.Where("user_id = ?", "u1").Find(&jobs)
+	got := []string{}
+	for _, j := range jobs {
+		got = append(got, s.st.Box.MustOpen(j.Text))
+	}
+	if len(got) != 2 {
+		t.Fatalf("reminder tasks: %d", len(got))
+	}
 	all := strings.Join(got, "\n")
 	if !strings.Contains(all, "Hi alice, 85% used, 15 B left &lt;b&gt;") {
 		t.Fatalf("custom usage reminder (escaped): %q", got)

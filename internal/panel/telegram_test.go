@@ -179,7 +179,9 @@ func TestTelegramBot(t *testing.T) {
 	// 80% traffic reminder is sent once.
 	db.Model(&store.User{}).Where("id = ?", "u1").Updates(map[string]any{"status": "active", "used_down": 85})
 	s.remindUsers()
+	s.retryUserNotices()
 	s.remindUsers()
+	s.retryUserNotices()
 	waitUntil(t, "reminder", func() bool { return strings.Contains(fake.textsTo(200), "85%") })
 	time.Sleep(100 * time.Millisecond)
 	if strings.Count(fake.textsTo(200), "流量提醒") != 1 {

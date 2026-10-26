@@ -22,24 +22,24 @@ func TestExpireTiers(t *testing.T) {
 // carry renewal buttons and mail links.
 func TestUserExpiryRemindersByTier(t *testing.T) {
 	s, _, _ := newAdminClient(t)
-	events := make(chan Event, 50)
-	s.sinks = append(s.sinks, events)
 	now := time.Now()
 	at := func(d time.Duration) *time.Time { x := now.Add(d); return &x }
 	u := store.User{ID: "u1", Username: "alice", UUID: "x", Password: "p", Status: "active", SubToken: "alice-token-000000000", TelegramID: 42, ExpireAt: at(5 * 24 * time.Hour)}
 	s.st.DB.Create(&u)
+	seen := map[string]bool{}
 	reminders := func() int {
+		var jobs []store.UserNotice
+		if err := s.st.DB.Where("user_id = ? AND kind = ?", "u1", "expire_warn").Find(&jobs).Error; err != nil {
+			t.Fatal(err)
+		}
 		n := 0
-		for {
-			select {
-			case e := <-events:
-				if e.Kind == "expire_warn" && e.UserID == "u1" {
-					n++
-				}
-			default:
-				return n
+		for _, j := range jobs {
+			if !seen[j.ID] {
+				n++
+				seen[j.ID] = true
 			}
 		}
+		return n
 	}
 	set := func(d time.Duration) { // a renewal / admin edit: a new expiry
 		s.st.DB.Model(&store.User{}).Where("id = ?", "u1").Update("expire_at", at(d))

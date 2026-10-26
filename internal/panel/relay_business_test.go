@@ -200,7 +200,7 @@ func TestRelayBusinessCapabilityMatchesActualSupport(t *testing.T) {
 }
 
 func TestSingboxRelayBusinessGatesAndProof(t *testing.T) {
-	for _, variant := range []string{"passed", "old-agent", "old-core", "unknown-version", "no-stats", "missing-auth", "missing-transfer", "zero-up", "zero-down", "cleanup-unconfirmed"} {
+	for _, variant := range []string{"passed", "old-agent", "legacy-lease", "old-core", "unknown-version", "no-stats", "missing-auth", "missing-transfer", "zero-up", "zero-down", "cleanup-unconfirmed"} {
 		t.Run(variant, func(t *testing.T) {
 			s, c := relayFixture(t)
 			if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
@@ -212,6 +212,9 @@ func TestSingboxRelayBusinessGatesAndProof(t *testing.T) {
 			features := []string{model.RelayBusinessFeature, model.SingboxRelayBusinessFeature}
 			if variant == "old-agent" {
 				features = []string{model.RelayBusinessFeature}
+			}
+			if variant == "legacy-lease" {
+				features = []string{model.RelayBusinessFeature, "relay-business-singbox-v1"}
 			}
 			s.st.DB.Model(&store.Node{}).Where("id = ?", "land").Update("agent_features", store.NewJSON(features))
 			version := "1.13.5"
@@ -248,7 +251,7 @@ func TestSingboxRelayBusinessGatesAndProof(t *testing.T) {
 				}
 				return r
 			})()
-			blocked := variant == "old-agent" || variant == "old-core" || variant == "unknown-version" || variant == "no-stats"
+			blocked := variant == "old-agent" || variant == "legacy-lease" || variant == "old-core" || variant == "unknown-version" || variant == "no-stats"
 			list := inboundRelaysTest(t, c)
 			if len(list) != 1 || list[0].BusinessDiagnostic.Supported == blocked || (!blocked && !list[0].BusinessDiagnostic.RequiresRestart) {
 				t.Fatal("UI capability did not match safety prerequisites", list)

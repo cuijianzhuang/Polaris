@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -33,6 +34,7 @@ var (
 	extMetricUnits  = []string{"ms", "s", "Mbps", "kbps", "%", "count", "bool"}
 	// Names the agent's own figures use: an outside report must not look like one.
 	extMetricReserved = []string{"cpu", "mem", "memory", "rx", "tx", "load", "online", "status", "heartbeat", "traffic", "up", "down"}
+	errMetricLimit    = errors.New("这个节点的外部指标已达上限（100 个）")
 )
 
 type extMetricIn struct {
@@ -75,7 +77,7 @@ func metricSource(c *gin.Context) string {
 		if t.PluginID != "" {
 			return t.PluginID
 		}
-		return "token:" + truncate(t.Name, 50)
+		return "token:" + t.ID
 	}
 	return "admin"
 }
@@ -100,6 +102,10 @@ func (s *Server) postNodeMetrics(c *gin.Context) {
 	}
 	now := time.Now().UTC()
 	source := metricSource(c)
+	sourceLabel := source
+	if token := apiTokenOf(c); token != nil {
+		sourceLabel = token.Name
+	}
 	rows := make([]store.NodeExternalMetric, 0, len(req.Metrics))
 	seen := map[string]bool{}
 	for _, m := range req.Metrics {
@@ -112,20 +118,43 @@ func (s *Server) postNodeMetrics(c *gin.Context) {
 			return
 		}
 		seen[m.Name] = true
-		rows = append(rows, store.NodeExternalMetric{NodeID: n.ID, Source: source, Name: m.Name, Label: strings.TrimSpace(m.Label),
+		rows = append(rows, store.NodeExternalMetric{NodeID: n.ID, Source: source, SourceLabel: sourceLabel, Name: m.Name, Label: strings.TrimSpace(m.Label),
 			Unit: m.Unit, Value: *m.Value, At: at, UpdatedAt: now})
 	}
-	var have int64
-	s.st.DB.Model(&store.NodeExternalMetric{}).Where("node_id = ? AND NOT (source = ? AND name IN ?)", n.ID, source, mapKeys(seen)).Count(&have)
-	if int(have)+len(rows) > extMetricsPerNode {
-		badRequest(c, errors.New("这个节点的外部指标已达上限（100 个）"))
-		return
-	}
-	if err := s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&rows).Error; err != nil {
+	var stored int64
+	err := s.st.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		// Serialize quota checks for the same node on both SQLite and PostgreSQL.
+		lock := tx.Exec("UPDATE nodes SET updated_at = updated_at WHERE id = ?", n.ID)
+		if lock.Error != nil {
+			return lock.Error
+		}
+		if lock.RowsAffected != 1 {
+			return gorm.ErrRecordNotFound
+		}
+		var have int64
+		if err := tx.Model(&store.NodeExternalMetric{}).Where("node_id = ? AND NOT (source = ? AND name IN ?)", n.ID, source, mapKeys(seen)).Count(&have).Error; err != nil {
+			return err
+		}
+		if int(have)+len(rows) > extMetricsPerNode {
+			return errMetricLimit
+		}
+		r := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "node_id"}, {Name: "source"}, {Name: "name"}},
+			DoUpdates: clause.AssignmentColumns([]string{"source_label", "label", "unit", "value", "at", "updated_at"}),
+			Where:     clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "excluded.at > node_external_metrics.at"}}},
+		}).Create(&rows)
+		stored = r.RowsAffected
+		return r.Error
+	})
+	if err != nil {
+		if errors.Is(err, errMetricLimit) {
+			badRequest(c, err)
+			return
+		}
 		dbError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "stored": len(rows)})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "stored": stored, "ignored": int64(len(rows)) - stored})
 }
 
 // listNodeMetrics is GET /nodes/:id/metrics/external.

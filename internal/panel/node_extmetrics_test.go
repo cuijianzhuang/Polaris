@@ -14,7 +14,7 @@ import (
 func TestNodeExternalMetrics(t *testing.T) {
 	s, srv, admin := newAdminClient(t)
 	s.st.DB.Create(&store.Node{ID: "n1", Name: "tokyo", Address: "203.0.113.9", Status: "offline"})
-	_, w, err := s.issueAPIToken("监控", "", []string{ScopeNodesMetrics}, 0, "root")
+	writer, w, err := s.issueAPIToken("监控", "", []string{ScopeNodesMetrics}, 0, "root")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestNodeExternalMetrics(t *testing.T) {
 		t.Fatalf("list %d %v", code, out)
 	}
 	first := ms[0].(map[string]any)
-	if first["source"] != "token:监控" || first["name"] != "latency.sh-ct" || first["value"] != 41.0 || first["label"] != "上海电信" {
+	if first["source"] != "token:"+writer.ID || first["sourceLabel"] != "监控" || first["name"] != "latency.sh-ct" || first["value"] != 41.0 || first["label"] != "上海电信" {
 		t.Fatalf("row %v", first)
 	}
 

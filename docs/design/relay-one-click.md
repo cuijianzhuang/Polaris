@@ -211,11 +211,11 @@ Agent 阻止诊断用户计数进入持久上报队列及在线用户报告，�
 
 #### sing-box VLESS + TCP + REALITY/Vision
 
-此适配要求 Linux、落地 Agent 声明 `relay-business-singbox-v1`、心跳上报稳定运行版本 **1.13.5 或更新**，且二进制包含 `with_v2ray_api`。仅允许 VLESS、TCP、REALITY 和 `xtls-rprx-vision` 的组合；入站 JSON 覆盖、共享回落和 PROXY 协议不在首批范围内。面板使用实际 `runningVersion` 与逐用户计量能力校验，未知版本、旧 Agent 和普通无逐用户统计构建均不能运行。
+此适配要求 Linux、落地 Agent 声明 `relay-business-singbox-v2`、心跳上报稳定运行版本 **1.13.5 或更新**，且二进制包含 `with_v2ray_api`。仅允许 VLESS、TCP、REALITY 和 `xtls-rprx-vision` 的组合；入站 JSON 覆盖、共享回落和 PROXY 协议不在首批范围内。面板使用实际 `runningVersion` 与逐用户计量能力校验，未知版本、旧 Agent 和普通无逐用户统计构建均不能运行。
 
 **运行诊断会在开始和结束时重启该 sing-box，现有连接会中断。** sing-box 没有公开的 VLESS 动态用户接口，因此不把诊断 UUID 写入正式 `singbox.json` 再 SIGHUP。Agent 复制当前已应用配置到权限受限的 `diagnostic-*` 目录，只在这个临时副本中增加随机 `#diag:` 用户和计数项。正式用户、路由与出站保留；正式 NodeSpec、用户表和重启配置不包含诊断身份。
 
-临时服务端与固定目标客户端都受 Linux `PDEATHSIG=SIGKILL` 约束。租约绑定面板绝对截止时间和当前 Agent 会话，断线、超时和取消都会停止临时进程；停止操作等待进程退出后才确认凭据撤销。Agent 被 SIGKILL 时子进程由内核关闭；恢复时仅加载正式配置并删除遗留私有目录。与 Xray 相同，这不提供独立于 Agent 调度的原生用户 TTL，SIGSTOP 不等于进程退出。
+临时服务端与固定目标客户端都受 Linux `PDEATHSIG=SIGKILL` 约束。租约绑定面板绝对截止时间和当前 Agent 会话，断线、超时和取消都会停止临时进程；停止操作等待进程退出后才确认凭据撤销。Agent 被 SIGKILL 时子进程由内核关闭；恢复时仅加载正式配置并删除遗留私有目录。v2 Agent 在临时服务端与客户端外各启动一个独立监督进程，在启动内核前设置绝对到期时间；即使仅 Agent 被 SIGSTOP 暂停，监督进程仍会杀死到期内核并等待退出。父进程死亡信号继续作为崩溃回收保障。面板拒绝仅声明 v1 的旧 Agent，更新后需等待能力同步。该机制不依赖 Agent 调度，但不保证整机或监督进程也被暂停时的实时到期；它仍不是 sing-box 原生单用户 TTL。Xray 保持原有回收机制。
 
 测试从分享入口地址和端口出发，经真实中转完成 VLESS + REALITY/Vision 认证，然后检查 HTTP(S) 与 UDP DNS 往返；没有直连出站回退，HTTPS 证书验证保持开启。除了 `proxy_tcp_business`、`proxy_udp_business` 与 `credential_cleanup`，还必须提供 `proxy_authentication` 和 `proxy_transfer`，后者记录该临时身份独立的 `upBytes`、`downBytes`，两者均须大于零。页面分别展示认证、TCP、UDP、上下行计量、清理和恢复失败；任一证据缺失或恢复失败都不能显示业务通过。
 

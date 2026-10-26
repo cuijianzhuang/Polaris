@@ -8,6 +8,7 @@ import type { EventCatalog, GroupMode, MaintenanceWindow, NotificationPolicy } f
 
 import { RouteASNSettings } from './RouteASNSettings'
 import RouteGeoSettings from './RouteGeoSettings'
+import UserNotices from './UserNotices'
 
 export function NetworkDatabaseSettings() {
   const [tab, setTab] = useState<'asn' | 'geo'>('asn')
@@ -30,6 +31,7 @@ const toggleItem = (xs: string[], id: string) => xs.includes(id) ? xs.filter((x)
 const normalizePolicy = (p: NotificationPolicy): NotificationPolicy => ({ ...p, channels: Object.fromEntries(Object.entries(p.channels ?? {}).map(([channel, rules]) => [channel, { ...rules }])), maintenance: (p.maintenance ?? []).map((w) => ({ ...w, nodeIds: w.nodeIds ?? [], channels: w.channels ?? [] })) })
 
 export function NotificationSettings() {
+	const [showNotices, setShowNotices] = useState(false)
   const info = useLoad(() => get<PolicyInfo>('/notifications/policy'))
   const { nodes } = useNodes()
   const [f, setF] = useState<NotificationPolicy>()
@@ -104,5 +106,6 @@ export function NotificationSettings() {
       </div></details>
       <div className="row"><button type="button" className="btn pri" disabled={!dirty || invalidRepeat} onClick={save}>{t('保存通知策略')}</button><span className="hint" role="status">{dirty ? t('有尚未保存的更改') : t('设置已保存')}</span></div>
     </fieldset>}
+    <details onToggle={(e) => setShowNotices(e.currentTarget.open)}><summary>{t('用户提醒投递记录')}</summary>{showNotices && <UserNotices />}</details>
   </section>
 }

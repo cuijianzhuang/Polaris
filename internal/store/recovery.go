@@ -97,27 +97,28 @@ type RelayBusinessStatus struct {
 // A failure stops the rollout (core upgrades of the batch are rolled back).
 // The leader drives it under a lease, so it resumes after a restart.
 type UpgradeRollout struct {
-	ID            string                       `gorm:"primaryKey;size:32" json:"id"`
-	Kind          string                       `gorm:"size:8" json:"kind"` // agent / core
-	CoreType      string                       `gorm:"size:16" json:"coreType,omitempty"`
-	Version       string                       `gorm:"size:64" json:"version"`
-	NodeIDs       JSON[[]string]               `json:"nodeIds"`
-	Canary        int                          `json:"canary"`
-	BatchSize     int                          `json:"batchSize"`
-	SoakSeconds   int                          `json:"soakSeconds"`
-	ProbeInbounds bool                         `json:"probeInbounds"`
-	State         string                       `gorm:"size:12;index" json:"state"` // running / paused / done / failed / canceled
-	Cursor        int                          `json:"cursor"`                     // nodes started so far
-	Batch         JSON[[]string]               `json:"batch"`                      // nodes of the batch under watch
-	BatchStarted  *time.Time                   `json:"batchStarted,omitempty"`
-	HealthySince  *time.Time                   `json:"healthySince,omitempty"`
-	Results       JSON[map[string]RolloutNode] `json:"results"`
-	LastError     string                       `gorm:"size:512" json:"lastError,omitempty"`
-	LeaseUntil    time.Time                    `json:"-"`
-	LeaseToken    string                       `gorm:"size:32" json:"-"`
-	CreatedBy     string                       `gorm:"size:64" json:"createdBy"`
-	CreatedAt     time.Time                    `json:"createdAt"`
-	UpdatedAt     time.Time                    `json:"updatedAt"`
+	ID             string                       `gorm:"primaryKey;size:32" json:"id"`
+	Kind           string                       `gorm:"size:8" json:"kind"` // agent / core
+	CoreType       string                       `gorm:"size:16" json:"coreType,omitempty"`
+	Version        string                       `gorm:"size:64" json:"version"`
+	NodeIDs        JSON[[]string]               `json:"nodeIds"`
+	Canary         int                          `json:"canary"`
+	BatchSize      int                          `json:"batchSize"`
+	SoakSeconds    int                          `json:"soakSeconds"`
+	ProbeInbounds  bool                         `json:"probeInbounds"`
+	State          string                       `gorm:"size:16;index" json:"state"` // running / paused / rolling_back / done / failed / canceled
+	Cursor         int                          `json:"cursor"`                     // nodes started so far
+	Batch          JSON[[]string]               `json:"batch"`                      // nodes of the batch under watch
+	BatchStarted   *time.Time                   `json:"batchStarted,omitempty"`
+	HealthySince   *time.Time                   `json:"healthySince,omitempty"`
+	Results        JSON[map[string]RolloutNode] `json:"results"`
+	LastError      string                       `gorm:"size:512" json:"lastError,omitempty"`
+	LeaseUntil     time.Time                    `json:"-"`
+	LeaseToken     string                       `gorm:"size:32" json:"-"`
+	ControlVersion int64                        `gorm:"not null;default:0" json:"-"`
+	CreatedBy      string                       `gorm:"size:64" json:"createdBy"`
+	CreatedAt      time.Time                    `json:"createdAt"`
+	UpdatedAt      time.Time                    `json:"updatedAt"`
 }
 
 // RolloutNode is one node's outcome in a rollout.

@@ -35,9 +35,23 @@ const (
 	pluginRenderMax     = 4 << 20
 	pluginRenderTTL     = 60 * time.Second
 	pluginRenderEntries = 2000
+	pluginRenderBytes   = 32 << 20
 )
 
 var errPluginFormat = errors.New("插件订阅格式暂不可用")
+
+// Bound response buffers as well as retained cache bodies. Waiting consumes
+// the existing request deadline, so overloaded plugins cannot pile up work.
+var pluginSubSlots = make(chan struct{}, 8)
+
+func acquirePluginSub(ctx context.Context) (func(), error) {
+	select {
+	case pluginSubSlots <- struct{}{}:
+		return func() { <-pluginSubSlots }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
 
 // reservedFormats are names a plugin may not take.
 func reservedFormats() []string {
@@ -118,23 +132,29 @@ type renderUser struct {
 
 // renderCache keeps plugin output briefly, per user and input.
 type renderCache struct {
-	mu sync.Mutex
-	m  map[string]renderEntry
+	mu    sync.Mutex
+	m     map[string]renderEntry
+	bytes int
 }
 
 type renderEntry struct {
 	body  []byte
 	ctype string
 	until time.Time
+	used  time.Time
 }
 
 func (c *renderCache) get(key string, now time.Time) (renderEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.m[key]
-	if ok && now.After(e.until) {
-		delete(c.m, key)
+	if ok && !now.Before(e.until) {
+		c.remove(key)
 		ok = false
+	}
+	if ok {
+		e.used = now
+		c.m[key] = e
 	}
 	return e, ok
 }
@@ -145,17 +165,46 @@ func (c *renderCache) put(key string, e renderEntry, now time.Time) {
 	if c.m == nil {
 		c.m = map[string]renderEntry{}
 	}
-	if len(c.m) >= pluginRenderEntries {
+	c.expire(now)
+	c.remove(key)
+	if len(e.body) > pluginRenderBytes || !now.Before(e.until) {
+		return
+	}
+	for len(c.m) >= pluginRenderEntries || c.bytes+len(e.body) > pluginRenderBytes {
+		var oldest string
+		var at time.Time
 		for k, v := range c.m {
-			if now.After(v.until) {
-				delete(c.m, k)
+			if at.IsZero() || v.used.Before(at) {
+				oldest, at = k, v.used
 			}
 		}
-		if len(c.m) >= pluginRenderEntries {
-			c.m = map[string]renderEntry{}
+		c.remove(oldest)
+	}
+	e.used = now
+	c.m[key] = e
+	c.bytes += len(e.body)
+}
+
+// remove/expire require mu. Bodies disappear even when a key is never read again.
+func (c *renderCache) remove(key string) {
+	if e, ok := c.m[key]; ok {
+		c.bytes -= len(e.body)
+		delete(c.m, key)
+	}
+}
+
+func (c *renderCache) expire(now time.Time) {
+	for k, e := range c.m {
+		if !now.Before(e.until) {
+			c.remove(k)
 		}
 	}
-	c.m[key] = e
+}
+
+func (c *renderCache) prune() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.expire(time.Now())
 }
 
 // renderPluginFormat asks the plugin for the subscription body. The cache key
@@ -181,7 +230,15 @@ func (s *Server) renderPluginFormat(ctx context.Context, p *store.Plugin, f plug
 
 	ctx, cancel := context.WithTimeout(ctx, pluginRenderTimeout)
 	defer cancel()
+	release, err := acquirePluginSub(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	defer release()
 	raw, _ := json.Marshal(req)
+	if len(raw) > 8<<20 {
+		return nil, "", errors.New("plugin input exceeds 8 MiB")
+	}
 	secret, _ := s.st.Box.Open(p.Secret)
 	ts := strconv.FormatInt(now.Unix(), 10)
 	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/polaris/render", bytes.NewReader(raw))
@@ -308,6 +365,9 @@ func (s *Server) transformOnce(ctx context.Context, p *store.Plugin, nodes []sub
 			Protocol: string(n.Protocol), Server: n.Server, Port: n.Port})
 	}
 	raw, _ := json.Marshal(req)
+	if len(raw) > 8<<20 {
+		return nil, errors.New("plugin input exceeds 8 MiB")
+	}
 	h := sha256.New()
 	fmt.Fprintf(h, "t\x00%s\x00%s\x00%d\x00", p.ID, p.Version, p.UpdatedAt.UnixNano())
 	h.Write(raw)
@@ -319,6 +379,11 @@ func (s *Server) transformOnce(ctx context.Context, p *store.Plugin, nodes []sub
 	} else {
 		ctx, cancel := context.WithTimeout(ctx, pluginTransformTimeout)
 		defer cancel()
+		release, err := acquirePluginSub(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
 		secret, _ := s.st.Box.Open(p.Secret)
 		ts := strconv.FormatInt(now.Unix(), 10)
 		hr, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL+"/polaris/transform", bytes.NewReader(raw))

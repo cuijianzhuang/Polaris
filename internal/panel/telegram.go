@@ -821,39 +821,18 @@ func (b *tgBot) isRunning() bool {
 	return b.running
 }
 
-// remindUsers sends usage and expiry reminders to bound users (hourly):
+// remindUsers durably schedules usage and expiry reminders (hourly):
 // once when usage crosses remind_usage_pct (default 80, 0 = off), and once
 // per tier of remind_expire_days before expiry (default 7, 3 and 1 days;
 // "0" = off). Each carries renewal buttons (renew_reminders.go).
 func (s *Server) remindUsers() {
-	pctAt := atoiDefault(s.st.GetSetting("remind_usage_pct", "80"), 80)
-	tiers := expireTiers(s.st.GetSetting("remind_expire_days", ""))
-	var us []store.User
-	s.st.DB.Where("(telegram_id <> 0 OR email <> '') AND is_service = ? AND status = ?", false, "active").Find(&us)
-	now := time.Now()
-	for _, u := range us {
-		if u.TrafficLimit > 0 && pctAt > 0 {
-			pct := float64(u.Used()) * 100 / float64(u.TrafficLimit)
-			if pct >= float64(pctAt) && !u.WarnedUsage {
-				s.st.DB.Model(&u).Update("warned_usage", true)
-				text := s.customReminder("traffic_warn", &u)
-				if text == "" {
-					text = fmt.Sprintf("📊 <b>流量提醒</b>\n%s\n已使用 <b>%.0f%%</b>（%s / %s）\n剩余 <b>%s</b>\n%s",
-						tgRule, pct, sub.HumanBytes(u.Used()), sub.HumanBytes(u.TrafficLimit), sub.HumanBytes(max(u.TrafficLimit-u.Used(), 0)), resetHint(&u))
-				}
-				s.notify(Event{Kind: "traffic_warn", UserID: u.ID, UserOnly: true, Text: text})
-			} else if pct < float64(pctAt) && u.WarnedUsage {
-				s.st.DB.Model(&u).Update("warned_usage", false)
-			}
-		}
-		if expireReminderDue(tiers, &u, now) {
-			s.st.DB.Model(&u).Update("warned_expire", now)
-			text := s.customReminder("expire_warn", &u)
-			if text == "" {
-				text = fmt.Sprintf("⏰ <b>到期提醒</b>\n%s\n账号将于 <b>%s</b> 到期（%s）\n到期后服务会自动暂停，请及时续费。",
-					tgRule, u.ExpireAt.Local().Format("2006-01-02 15:04"), sub.ExpiryLeft(sub.Info{Expire: u.ExpireAt}))
-			}
-			s.notify(Event{Kind: "expire_warn", UserID: u.ID, UserOnly: true, Text: text})
+	var users []store.User
+	if err := s.st.DB.Select("id").Where("(telegram_id <> 0 OR email <> '') AND is_service = ? AND status = ?", false, "active").Find(&users).Error; err != nil {
+		return
+	}
+	for _, u := range users {
+		if err := s.queueUserReminders(u.ID, time.Now()); err != nil {
+			s.log.Error("queue user reminders", "user", u.ID, "err", err)
 		}
 	}
 }

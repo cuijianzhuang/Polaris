@@ -20,11 +20,15 @@ import (
 
 // reminderVars are the values a template can use for u.
 func (s *Server) reminderVars(u *store.User) map[string]string {
+	return reminderVarsWith(u, s.st.GetSetting("site_title", "Polaris"), s.subURL(u.SubToken), s.st.GetSetting("sub_support_url", ""))
+}
+
+func reminderVarsWith(u *store.User, site, subURL, support string) map[string]string {
 	used, total := u.Used(), u.TrafficLimit
 	v := map[string]string{
 		"user": u.Username, "used": sub.HumanBytes(used), "total": "不限", "left": "不限", "percent": "0",
-		"expire": "永久", "days": "—", "reset": "", "site": s.st.GetSetting("site_title", "Polaris"),
-		"sub_url": s.subURL(u.SubToken), "support": s.st.GetSetting("sub_support_url", ""),
+		"expire": "永久", "days": "—", "reset": "", "site": site,
+		"sub_url": subURL, "support": support,
 	}
 	if total > 0 {
 		v["total"], v["left"] = sub.HumanBytes(total), sub.HumanBytes(max(total-used, 0))

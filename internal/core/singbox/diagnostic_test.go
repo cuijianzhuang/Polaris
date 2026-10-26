@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -342,7 +343,10 @@ func TestLiveSingboxDiagnosticOwner(t *testing.T) {
 	t.Fatal("owner should have been killed with an active diagnostic")
 }
 
-func TestLiveSingboxDiagnosticCrashRevokesIdentity(t *testing.T) {
+func TestLiveSingboxDiagnosticCrashRevokesIdentity(t *testing.T)  { testSingboxOwnerLoss(t, false) }
+func TestLiveSingboxDiagnosticFreezeRevokesIdentity(t *testing.T) { testSingboxOwnerLoss(t, true) }
+
+func testSingboxOwnerLoss(t *testing.T, freeze bool) {
 	bin := diagnosticBinary(t)
 	if !core.ParentBoundSupported() {
 		t.Skip("native sing-box and Linux required")
@@ -398,15 +402,25 @@ func TestLiveSingboxDiagnosticCrashRevokesIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = owner.Process.Kill(); err != nil {
-		t.Fatal(err)
+	if freeze {
+		if err = owner.Process.Signal(syscall.SIGSTOP); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err = owner.Process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+		owner.Wait()
 	}
-	owner.Wait()
 	// Do not credit the failure of a dead relay: verify the native landing
 	// listener itself closes when the owner is SIGKILLed.
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(state.Inbound.Port))
 	closed := false
-	for until := time.Now().Add(2 * time.Second); time.Now().Before(until); {
+	wait := 2 * time.Second
+	if freeze {
+		wait = 20 * time.Second
+	}
+	for until := time.Now().Add(wait); time.Now().Before(until); {
 		c, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
 		if err != nil {
 			closed = true
@@ -416,7 +430,11 @@ func TestLiveSingboxDiagnosticCrashRevokesIdentity(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if !closed {
-		t.Fatal("diagnostic listener survived Agent SIGKILL")
+		t.Fatal("diagnostic listener survived Agent death or lease expiry while frozen")
+	}
+	if freeze {
+		owner.Process.Kill()
+		owner.Wait()
 	}
 	// Restarting an Agent must use the stable file and remove private orphans.
 	a := New(core.Options{Version: "1.13.5", BinPath: bin, WorkDir: state.WorkDir, APIListen: state.APIListen, BindToParent: true})

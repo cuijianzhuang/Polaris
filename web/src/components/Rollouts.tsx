@@ -10,10 +10,10 @@ import type { Node } from '../types'
 export type StagedOpts = { staged: boolean; canary: number; batchSize: number; soakSeconds: number; probeInbounds: boolean }
 export const defaultStaged: StagedOpts = { staged: true, canary: 1, batchSize: 4, soakSeconds: 120, probeInbounds: false }
 
-type RolloutNode = { state: 'upgrading' | 'ok' | 'failed' | 'skipped' | 'rolled_back'; error?: string; at: string }
+type RolloutNode = { state: 'upgrading' | 'ok' | 'failed' | 'skipped' | 'rolled_back' | 'rollback_pending' | 'rolling_back' | 'rollback_failed' | 'queued'; error?: string; at: string }
 export type Rollout = {
   id: string; kind: 'agent' | 'core'; coreType?: string; version: string; nodeIds: string[]; canary: number; batchSize: number
-  soakSeconds: number; state: 'running' | 'paused' | 'done' | 'failed' | 'canceled'; cursor: number; batch: string[]
+  soakSeconds: number; state: 'running' | 'paused' | 'done' | 'failed' | 'canceled' | 'rolling_back'; cursor: number; batch: string[]
   healthySince?: string; results: Record<string, RolloutNode>; lastError?: string; createdAt: string; updatedAt: string
 }
 
@@ -43,21 +43,21 @@ export function startRollout(body: Record<string, unknown>, o: StagedOpts) {
   return post<Rollout>('/rollouts', { ...body, canary: o.canary, batchSize: o.batchSize, soakSeconds: o.soakSeconds, probeInbounds: o.probeInbounds })
 }
 
-const stateText = (s: Rollout['state']) => ({ running: t('进行中'), paused: t('已暂停'), done: t('已完成'), failed: t('已停止（失败）'), canceled: t('已取消') })[s]
-const nodeText = (s: RolloutNode['state']) => ({ upgrading: t('观察中'), ok: t('成功'), failed: t('失败'), skipped: t('已跳过'), rolled_back: t('已退回') })[s]
-const nodeTone: Record<RolloutNode['state'], string> = { upgrading: 'info-tag', ok: 'ok', failed: 'bad', skipped: 'mute', rolled_back: 'warn' }
+const stateText = (s: Rollout['state']) => ({ running: t('进行中'), paused: t('已暂停'), done: t('已完成'), failed: t('已停止（失败）'), canceled: t('已取消'), rolling_back: t('回滚中') })[s]
+const nodeText = (s: RolloutNode['state']) => ({ upgrading: t('观察中'), ok: t('成功'), failed: t('失败'), skipped: t('已跳过'), rolled_back: t('已退回'), rollback_pending: t('等待回滚'), rolling_back: t('回滚中'), rollback_failed: t('回滚未确认'), queued: t('等待') })[s]
+const nodeTone: Record<RolloutNode['state'], string> = { upgrading: 'info-tag', ok: 'ok', failed: 'bad', skipped: 'mute', rolled_back: 'warn', rollback_pending: 'warn', rolling_back: 'warn', rollback_failed: 'bad', queued: 'mute' }
 
 /** The latest rollout: progress, per-node results and controls. Hidden when
  * none is active and the last one ended more than a day ago. */
 export default function RolloutPanel({ nodes, refresh }: { nodes: Node[]; refresh?: number }) {
   const list = useLoad(() => get<{ items: Rollout[] }>('/rollouts'), [refresh])
   const r = list.data?.items?.[0]
-  const active = r && (r.state === 'running' || r.state === 'paused')
+  const active = r && (r.state === 'running' || r.state === 'paused' || r.state === 'rolling_back')
   usePoll(list.reload, active ? 5000 : 60000)
   const { busy, run } = useAction()
   if (!r || (!active && Date.now() - new Date(r.updatedAt).getTime() > 86400_000)) return null
   const name = (id: string) => nodes.find((n) => n.id === id)?.name ?? id
-  const finished = Object.values(r.results ?? {}).filter((x) => x.state !== 'upgrading').length
+  const finished = Object.values(r.results ?? {}).filter((x) => !['upgrading', 'queued', 'rollback_pending', 'rolling_back'].includes(x.state)).length
   const pct = Math.round((finished / Math.max(r.nodeIds.length, 1)) * 100)
   const act = (a: string, ok: string) => run(async () => { await post(`/rollouts/${r.id}/${a}`); list.reload() }, ok)
   const what = r.kind === 'agent' ? 'Agent' : r.coreType
@@ -68,7 +68,7 @@ export default function RolloutPanel({ nodes, refresh }: { nodes: Node[]; refres
         <span className="row">
           {r.state === 'running' && <button className="btn sm" type="button" disabled={busy} onClick={() => act('pause', t('已暂停'))}>{t('暂停')}</button>}
           {r.state === 'paused' && <button className="btn sm" type="button" disabled={busy} onClick={() => act('resume', t('已继续'))}>{t('继续')}</button>}
-          {active && <button className="btn sm danger" type="button" disabled={busy} onClick={() => act('cancel', t('已取消'))}>{t('取消')}</button>}
+          {active && r.state !== 'rolling_back' && <button className="btn sm danger" type="button" disabled={busy} onClick={() => act('cancel', t('已取消'))}>{t('取消')}</button>}
         </span>
       </div>
       <div className="sub small" style={{ margin: '0 0 8px' }}>
