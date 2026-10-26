@@ -574,7 +574,9 @@ func (s *Server) applyTemplate(c *gin.Context) {
 	}
 	if opt.BindLabel != "" && !contains(t.BoundLabels.V, opt.BindLabel) {
 		t.BoundLabels.V = append(t.BoundLabels.V, opt.BindLabel)
-		s.st.DB.Model(&t).Update("bound_labels", t.BoundLabels)
+		if err := s.st.DB.Model(&t).Update("bound_labels", t.BoundLabels).Error; err != nil {
+			s.log.Warn("bind template label", "template", t.Name, "err", err)
+		}
 	}
 	s.auditCtx(c, "template.apply", t.Name, fmt.Sprintf("%v", summarize(plans)))
 	c.JSON(http.StatusOK, gin.H{"plans": plans, "summary": summarize(plans)})
@@ -914,7 +916,10 @@ func (s *Server) bulkTemplateInbounds(c *gin.Context) {
 	nodes := s.nodesForInbounds(ids...)
 	switch req.Action {
 	case "enable", "disable":
-		s.st.DB.Model(&store.Inbound{}).Where("id IN ?", ids).Update("enabled", req.Action == "enable")
+		if err := s.st.DB.Model(&store.Inbound{}).Where("id IN ?", ids).Update("enabled", req.Action == "enable").Error; err != nil {
+			dbError(c, err)
+			return
+		}
 	case "delete":
 		var refs int64
 		s.st.DB.Model(&store.Outbound{}).Where("node_ref_inbound_id IN ?", ids).Count(&refs)
@@ -922,10 +927,23 @@ func (s *Server) bulkTemplateInbounds(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{"error": "部分入站被链路 / 出站引用"})
 			return
 		}
-		s.st.DB.Where("inbound_id IN ?", ids).Delete(&store.GroupInbound{})
-		s.st.DB.Where("kind = ? AND target_id IN ?", "inbound", ids).Delete(&store.UserAccess{})
-		s.st.DB.Where("inbound_id IN ?", ids).Delete(&store.Endpoint{})
-		s.st.DB.Where("id IN ?", ids).Delete(&store.Inbound{})
+		// All four or none: a partial delete would leave grants and
+		// endpoints pointing at missing inbounds.
+		if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("inbound_id IN ?", ids).Delete(&store.GroupInbound{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("kind = ? AND target_id IN ?", "inbound", ids).Delete(&store.UserAccess{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("inbound_id IN ?", ids).Delete(&store.Endpoint{}).Error; err != nil {
+				return err
+			}
+			return tx.Where("id IN ?", ids).Delete(&store.Inbound{}).Error
+		}); err != nil {
+			dbError(c, err)
+			return
+		}
 	default:
 		badRequest(c, fmt.Errorf("unknown action"))
 		return

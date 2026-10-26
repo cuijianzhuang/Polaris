@@ -67,13 +67,6 @@ func portsOf(spec *model.NodeSpec) []portUse {
 	return out
 }
 
-func orDefault(v, d string) string {
-	if v == "" {
-		return d
-	}
-	return v
-}
-
 // portConflicts returns the ports next needs that are neither held by our
 // own cores (the specs they run) nor free to bind.
 func portConflicts(held []*model.NodeSpec, next *model.NodeSpec) []string {

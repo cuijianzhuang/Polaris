@@ -217,13 +217,3 @@ func (s *Server) addUserTraffic(c *gin.Context) {
 		return detail, tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"traffic_limit": u.TrafficLimit, "warned_usage": false}).Error
 	})
 }
-
-// userJSON answers with the user as GET /users/:id would.
-func (s *Server) userJSON(c *gin.Context, id string) {
-	var u store.User
-	if err := s.st.DB.First(&u, "id = ?", id).Error; err != nil {
-		dbError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, u)
-}

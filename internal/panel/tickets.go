@@ -314,7 +314,10 @@ func (s *Server) setTicketStatus(closeIt bool) gin.HandlerFunc {
 				return
 			}
 		} else {
-			s.st.DB.Model(t).Updates(map[string]any{"status": ticketOpen, "closed_at": nil, "updated_at": time.Now()})
+			if err := s.st.DB.Model(t).Updates(map[string]any{"status": ticketOpen, "closed_at": nil, "updated_at": time.Now()}).Error; err != nil {
+				dbError(c, err)
+				return
+			}
 			t.Status = ticketOpen
 		}
 		s.auditCtx(c, map[bool]string{true: "ticket.close", false: "ticket.reopen"}[closeIt], fmt.Sprintf("#%d", t.No), "")

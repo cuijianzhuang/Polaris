@@ -269,7 +269,10 @@ func (s *Server) setUserTraffic(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.st.DB.Model(&u).Updates(map[string]any{"used_up": max(req.UsedUp, 0), "used_down": max(req.UsedDown, 0)})
+	if err := s.st.DB.Model(&u).Updates(map[string]any{"used_up": max(req.UsedUp, 0), "used_down": max(req.UsedDown, 0)}).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("traffic set", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.set_traffic", u.Username, fmt.Sprintf("up=%d down=%d", req.UsedUp, req.UsedDown))

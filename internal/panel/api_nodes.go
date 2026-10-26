@@ -428,7 +428,10 @@ func (s *Server) revokeNode(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.st.DB.Model(&n).Updates(map[string]any{"revoked": true, "cert_serial": "", "status": "offline"})
+	if err := s.st.DB.Model(&n).Updates(map[string]any{"revoked": true, "cert_serial": "", "status": "offline"}).Error; err != nil {
+		dbError(c, err) // not revoked: keep the agent connected rather than report a revocation that did not happen
+		return
+	}
 	s.hub.Kick(n.ID)
 	// Chains through this node stop forwarding: rebuild the other hops.
 	var chains []store.Chain

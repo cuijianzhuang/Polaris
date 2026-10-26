@@ -461,19 +461,25 @@ func (s *Server) markOfflineNodes() {
 }
 
 func (s *Server) cleanup() {
-	s.st.DB.Where("status <> ? AND updated_at < ?", "pending", time.Now().AddDate(0, 0, -30)).Delete(&store.UserNotice{})
+	now := time.Now()
+	prune := func(what string, model any, where string, args ...any) {
+		if err := s.st.DB.Where(where, args...).Delete(model).Error; err != nil {
+			s.log.Warn("cleanup", "table", what, "err", err) // retried on the next run
+		}
+	}
+	prune("user notices", &store.UserNotice{}, "status <> ? AND updated_at < ?", "pending", now.AddDate(0, 0, -30))
 	s.pruneIdempotency()
-	s.st.DB.Where("started_at < ?", time.Now().Add(-routeTraceKeep)).Delete(&store.NodeRouteTrace{})
-	s.st.DB.Where("open = ? AND updated_at < ?", false, time.Now().AddDate(0, 0, -30)).Delete(&store.NotificationState{})
-	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -7)).Delete(&store.WebhookDelivery{})
-	s.st.DB.Where("hour < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.TrafficHourly{})
-	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.TrafficBatchSeen{})
-	s.st.DB.Where("at < ?", time.Now().AddDate(0, 0, -30)).Delete(&store.NodeMetric{})
-	s.st.DB.Where("at < ?", time.Now().Add(-latencyKeep)).Delete(&store.NodeLatency{})
-	s.st.DB.Where("at < ?", time.Now().Add(-extMetricsKeep)).Delete(&store.NodeExternalMetric{})
-	s.st.DB.Where("expires_at < ?", time.Now().AddDate(0, 0, -90)).Delete(&store.AdminSession{}) // kept a while: new-address alerts compare against them
-	s.st.DB.Where("(until IS NULL OR until < ?) AND updated_at < ?", time.Now(), time.Now().AddDate(0, 0, -30)).Delete(&store.LoginBan{})
-	s.st.DB.Where("created_at < ?", time.Now().AddDate(0, 0, -180)).Delete(&store.AuditLog{})
+	prune("route traces", &store.NodeRouteTrace{}, "started_at < ?", now.Add(-routeTraceKeep))
+	prune("notification states", &store.NotificationState{}, "open = ? AND updated_at < ?", false, now.AddDate(0, 0, -30))
+	prune("webhook deliveries", &store.WebhookDelivery{}, "created_at < ?", now.AddDate(0, 0, -7))
+	prune("hourly traffic", &store.TrafficHourly{}, "hour < ?", now.AddDate(0, 0, -90))
+	prune("traffic batches", &store.TrafficBatchSeen{}, "created_at < ?", now.AddDate(0, 0, -30))
+	prune("node metrics", &store.NodeMetric{}, "at < ?", now.AddDate(0, 0, -30))
+	prune("latency", &store.NodeLatency{}, "at < ?", now.Add(-latencyKeep))
+	prune("external metrics", &store.NodeExternalMetric{}, "at < ?", now.Add(-extMetricsKeep))
+	prune("admin sessions", &store.AdminSession{}, "expires_at < ?", now.AddDate(0, 0, -90)) // kept a while: new-address alerts compare against them
+	prune("login bans", &store.LoginBan{}, "(until IS NULL OR until < ?) AND updated_at < ?", now, now.AddDate(0, 0, -30))
+	prune("audit log", &store.AuditLog{}, "created_at < ?", now.AddDate(0, 0, -180))
 }
 
 // audit writes an audit log entry.
