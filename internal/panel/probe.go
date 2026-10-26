@@ -172,10 +172,12 @@ type latencyPoint struct {
 	Min    float64   `json:"min"`
 	Max    float64   `json:"max"`
 	Loss   float64   `json:"loss"` // percent
+	Sent   int       `json:"sent"`
+	Lost   int       `json:"lost"`
 }
 
 func pointOf(m *store.NodeLatency) latencyPoint {
-	p := latencyPoint{T: m.At, Target: m.TargetID, Min: m.MinMs, Max: m.MaxMs}
+	p := latencyPoint{T: m.At, Target: m.TargetID, Min: m.MinMs, Max: m.MaxMs, Sent: m.Sent, Lost: m.Lost}
 	if ok := m.Sent - m.Lost; ok > 0 {
 		v := m.SumMs / float64(ok)
 		p.Avg = &v
@@ -188,11 +190,13 @@ func pointOf(m *store.NodeLatency) latencyPoint {
 
 // latencyNow is a node's current figure for one target.
 type latencyNow struct {
-	Ms    float64    `json:"ms"`   // last probe, 0 = it failed
-	Avg   *float64   `json:"avg"`  // last hour
-	Loss  float64    `json:"loss"` // last hour, percent
-	At    time.Time  `json:"at"`
-	Spark []*float64 `json:"spark"` // 5-minute averages, oldest first, last 2 hours
+	Ms         float64    `json:"ms"`   // last probe, 0 = it failed
+	Avg        *float64   `json:"avg"`  // last hour
+	Loss       float64    `json:"loss"` // last hour, percent
+	At         time.Time  `json:"at"`
+	Spark      []*float64 `json:"spark"`     // 5-minute averages, oldest first, last 2 hours
+	SparkLoss  []*float64 `json:"sparkLoss"` // nil = no sample, 100 = every connection failed
+	SparkStart time.Time  `json:"sparkStart"`
 }
 
 // latencySummary: node id -> target id -> current figures. Probes older
@@ -233,11 +237,15 @@ func (s *Server) latencySummary(nodeIDs []string, now time.Time) map[string]map[
 		}
 		cur := out[m.NodeID][m.TargetID]
 		if cur == nil {
-			cur = &latencyNow{Spark: make([]*float64, slots)}
+			cur = &latencyNow{Spark: make([]*float64, slots), SparkLoss: make([]*float64, slots), SparkStart: from}
 			out[m.NodeID][m.TargetID] = cur
 		}
 		if i := int(m.At.Sub(from) / latencySlot); i >= 0 && i < slots {
 			cur.Spark[i] = pointOf(m).Avg
+			if m.Sent > 0 {
+				loss := pointOf(m).Loss
+				cur.SparkLoss[i] = &loss
+			}
 		}
 		if now.Sub(m.LastAt) < 3*time.Minute && m.LastAt.After(cur.At) {
 			cur.Ms, cur.At = m.LastMs, m.LastAt
@@ -268,25 +276,29 @@ func (s *Server) latencySummary(nodeIDs []string, now time.Time) map[string]map[
 
 // probeNode is one node on the probe pages.
 type probeNode struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Region   string                 `json:"region"`
-	Flag     string                 `json:"flag"`
-	Online   bool                   `json:"online"`
-	Status   string                 `json:"status"`
-	CPU      float64                `json:"cpu"`
-	Mem      float64                `json:"mem"`
-	RxBps    uint64                 `json:"rxBps"`
-	TxBps    uint64                 `json:"txBps"`
-	Uptime   uint64                 `json:"uptime"`
-	Load1    float64                `json:"load1"`
-	NetUsed  int64                  `json:"netUsed"`
-	NetLimit int64                  `json:"netLimit"`
-	LastSeen *time.Time             `json:"lastSeen"`
-	Hidden   bool                   `json:"hidden,omitempty"`
-	Address  string                 `json:"address,omitempty"`
-	Version  string                 `json:"agentVersion,omitempty"`
-	Latency  map[string]*latencyNow `json:"latency"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	Region         string                 `json:"region"`
+	Flag           string                 `json:"flag"`
+	Online         bool                   `json:"online"`
+	Status         string                 `json:"status"`
+	CPU            float64                `json:"cpu"`
+	Mem            float64                `json:"mem"`
+	RxBps          uint64                 `json:"rxBps"`
+	TxBps          uint64                 `json:"txBps"`
+	Uptime         uint64                 `json:"uptime"`
+	Load1          float64                `json:"load1"`
+	NetUsed        int64                  `json:"netUsed"`
+	NetLimit       int64                  `json:"netLimit"`
+	LastSeen       *time.Time             `json:"lastSeen"`
+	TelemetryFresh bool                   `json:"telemetryFresh"`
+	ProbeTargets   []probeTargetView      `json:"probeTargets"`
+	NetRx          int64                  `json:"netRx,omitempty"`
+	NetTx          int64                  `json:"netTx,omitempty"`
+	Hidden         bool                   `json:"hidden,omitempty"`
+	Address        string                 `json:"address,omitempty"`
+	Version        string                 `json:"agentVersion,omitempty"`
+	Latency        map[string]*latencyNow `json:"latency"`
 	// Machine facts for the probe cards (zero until the agent reports them).
 	Disk      float64 `json:"disk"`
 	MemTotal  uint64  `json:"memTotal,omitempty"`
@@ -312,19 +324,22 @@ type probeTargetView struct {
 func (s *Server) probeOverview(public bool) gin.H {
 	now := time.Now()
 	var ns []store.Node
-	q := s.st.DB.Order("sort_order, name")
+	q := s.st.DB.Where("revoked = ?", false).Order("sort_order, name")
 	if public {
 		// Nodes upgraded from the first probe release can have NULL here.
 		// Match the admin switch: only an explicit true hides the node.
 		q = q.Where("status_hidden = ? OR status_hidden IS NULL", false)
 	}
-	q.Find(&ns)
+	if err := q.Find(&ns).Error; err != nil {
+		return nil
+	}
 	ids := make([]string, len(ns))
 	for i := range ns {
 		ids[i] = ns[i].ID
 	}
 	lat := s.latencySummary(ids, now)
 	showTraffic := s.st.GetSetting("status_show_traffic", "false") == "true"
+	globalTargets := s.latencyTargets(true)
 	showCost := !public || s.st.GetSetting("status_show_cost", "false") == "true"
 	costs := map[string]store.NodeCost{}
 	if showCost {
@@ -341,6 +356,14 @@ func (s *Server) probeOverview(public bool) gin.H {
 		online := n.Status == "online" || n.Status == "syncing" || n.Status == "error"
 		p := probeNode{ID: n.ID, Name: n.Name, Region: n.Region, Flag: n.Flag, Online: online, Status: n.Status, LastSeen: n.LastSeen,
 			NetUsed: netUsed(n), NetLimit: n.NetLimit, Latency: lat[n.ID]}
+		p.TelemetryFresh = online && n.LastSeen != nil && now.Sub(*n.LastSeen) <= 90*time.Second && !n.LastSeen.After(now.Add(time.Minute))
+		p.ProbeTargets = []probeTargetView{}
+		for _, target := range nodeProbeTargets(n, globalTargets) {
+			p.ProbeTargets = append(p.ProbeTargets, probeTargetView{ID: target.ID, Name: target.Name, Carrier: target.Carrier})
+		}
+		if !public || showTraffic {
+			p.NetRx, p.NetTx = n.NetRx, n.NetTx
+		}
 		if online {
 			p.CPU, p.Mem, p.RxBps, p.TxBps, p.Uptime, p.Load1 = sys.CPU, sys.Mem, sys.RxBps, sys.TxBps, sys.Uptime, sys.Load1
 			p.Disk = sys.Disk
@@ -375,7 +398,7 @@ func (s *Server) probeOverview(public bool) gin.H {
 			}
 		}
 	}
-	return gin.H{"nodes": nodes, "targets": tv, "at": now, "probeEnabled": s.probeEnabled()}
+	return gin.H{"nodes": nodes, "targets": tv, "at": now, "probeEnabled": s.probeEnabled(), "showTraffic": !public || showTraffic}
 }
 
 // --- admin API ---
@@ -384,6 +407,10 @@ func (s *Server) probeOverview(public bool) gin.H {
 func (s *Server) probePage(c *gin.Context) {
 	s.seedProbeTargets()
 	out := s.probeOverview(false)
+	if out == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "暂时无法读取节点状态"})
+		return
+	}
 	out["statusPage"] = s.statusPageEnabled()
 	out["statusUrl"] = s.subBase() + statusPath
 	c.JSON(http.StatusOK, out)
