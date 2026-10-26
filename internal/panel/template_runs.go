@@ -292,7 +292,9 @@ func (s *Server) applyFrozenTemplate(c *gin.Context, tpl *store.InboundTemplate,
 	run.State, run.Results = "finished", b
 	if opt.BindLabel != "" && !contains(tpl.BoundLabels.V, opt.BindLabel) {
 		tpl.BoundLabels.V = append(tpl.BoundLabels.V, opt.BindLabel)
-		s.st.DB.Model(tpl).Update("bound_labels", tpl.BoundLabels)
+		if err := s.st.DB.Model(tpl).Update("bound_labels", tpl.BoundLabels).Error; err != nil {
+			s.log.Warn("bind template label", "template", tpl.Name, "err", err)
+		}
 	}
 	s.auditCtx(c, "template.apply", tpl.Name, "plan "+run.ID)
 	s.templateRunJSON(c, run, snapshot)

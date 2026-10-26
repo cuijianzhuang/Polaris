@@ -84,8 +84,14 @@ func (s *Server) setCoreVersion(nodeID string, typ model.CoreType, version strin
 		return nil, http.StatusInternalServerError, err
 	}
 	if isDefault {
-		s.st.DB.Model(&store.Core{}).Where("node_id = ?", nodeID).Update("is_default", gorm.Expr("type = ?", typ))
-		s.st.DB.Model(&n).Update("default_core", typ)
+		if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&store.Core{}).Where("node_id = ?", nodeID).Update("is_default", gorm.Expr("type = ?", typ)).Error; err != nil {
+				return err
+			}
+			return tx.Model(&n).Update("default_core", typ).Error
+		}); err != nil {
+			return nil, http.StatusInternalServerError, err
+		}
 	}
 	s.MarkDirty("core "+string(typ)+" "+version, nodeID)
 	return &cur, http.StatusOK, nil

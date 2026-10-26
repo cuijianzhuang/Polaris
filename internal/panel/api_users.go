@@ -684,7 +684,10 @@ func (s *Server) resetUserTraffic(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()})
+	if err := s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.resetNodeUsage(u.ID)
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("traffic reset", s.nodesForUsers(u.ID)...)

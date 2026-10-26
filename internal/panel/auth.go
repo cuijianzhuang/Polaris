@@ -234,10 +234,22 @@ func (s *Server) changePassword(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "新密码首尾不能有空格"})
 		return
 	}
-	h, _ := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(req.New), bcrypt.DefaultCost)
+	if err != nil { // bcrypt takes at most 72 bytes; never store an empty hash
+		c.JSON(http.StatusBadRequest, gin.H{"error": "新密码太长（最多 72 字节，约 24 个汉字）"})
+		return
+	}
 	a.TokenVersion++
-	s.st.DB.Model(&a).Updates(map[string]any{"password_hash": string(h), "token_version": a.TokenVersion})
-	s.st.DB.Model(&store.AdminSession{}).Where("admin_id = ?", a.ID).Update("revoked", true)
+	// The new password and the end of the other sessions land together.
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&a).Updates(map[string]any{"password_hash": string(h), "token_version": a.TokenVersion}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&store.AdminSession{}).Where("admin_id = ?", a.ID).Update("revoked", true).Error
+	}); err != nil {
+		dbError(c, err)
+		return
+	}
 	s.auditCtx(c, "admin.password", a.Username, "other sessions revoked")
 	tok, err := s.issueToken(&a, c, "password") // a fresh session for this browser; the rest are gone
 	if err != nil {
@@ -260,7 +272,10 @@ func (s *Server) totpSetup(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.st.DB.Model(&a).Update("totp_pending", s.st.Box.Seal(key.Secret()))
+	if err := s.st.DB.Model(&a).Update("totp_pending", s.st.Box.Seal(key.Secret())).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"secret": key.Secret(), "url": key.URL()})
 }
 
@@ -289,7 +304,10 @@ func (s *Server) totpEnable(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
 			return
 		}
-		s.st.DB.Model(&a).Updates(map[string]any{"totp_secret": a.TOTPPending, "totp_pending": "", "totp_enabled": true})
+		if err := s.st.DB.Model(&a).Updates(map[string]any{"totp_secret": a.TOTPPending, "totp_pending": "", "totp_enabled": true}).Error; err != nil {
+			dbError(c, err)
+			return
+		}
 		codes := s.issueRecoveryCodes(&a)
 		s.auditCtx(c, "admin.totp", a.Username, "enabled")
 		c.JSON(http.StatusOK, gin.H{"recoveryCodes": codes})
@@ -299,7 +317,10 @@ func (s *Server) totpEnable(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "验证码错误"})
 			return
 		}
-		s.st.DB.Model(&a).Updates(map[string]any{"totp_enabled": false, "totp_pending": "", "recovery_codes": store.NewJSON([]string{})})
+		if err := s.st.DB.Model(&a).Updates(map[string]any{"totp_enabled": false, "totp_pending": "", "recovery_codes": store.NewJSON([]string{})}).Error; err != nil {
+			dbError(c, err)
+			return
+		}
 	}
 	s.auditCtx(c, "admin.totp", a.Username, map[bool]string{true: "enabled", false: "disabled"}[req.Enable])
 	c.Status(http.StatusNoContent)

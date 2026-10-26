@@ -178,7 +178,10 @@ func (s *Server) githubCallback(c *gin.Context) {
 			fail("管理员不存在")
 			return
 		}
-		s.st.DB.Model(&a).Updates(map[string]any{"git_hub_id": gu.ID, "git_hub_login": gu.Login})
+		if err := s.st.DB.Model(&a).Updates(map[string]any{"git_hub_id": gu.ID, "git_hub_login": gu.Login}).Error; err != nil {
+			fail("绑定失败，请稍后重试")
+			return
+		}
 		s.audit(a.Username, "admin.github_bind", a.Username, gu.Login, clientIP(c.Request))
 		back("gh_bound=" + url.QueryEscape(gu.Login))
 	default:
@@ -256,7 +259,10 @@ func (s *Server) githubUnbind(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	s.st.DB.Model(&a).Updates(map[string]any{"git_hub_id": 0, "git_hub_login": ""})
+	if err := s.st.DB.Model(&a).Updates(map[string]any{"git_hub_id": 0, "git_hub_login": ""}).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.auditCtx(c, "admin.github_unbind", a.Username, a.GitHubLogin)
 	c.Status(http.StatusNoContent)
 }

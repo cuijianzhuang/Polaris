@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
@@ -394,9 +395,19 @@ func (s *Server) updatePlugin(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	s.st.DB.Model(p).Update("enabled", req.Enabled)
-	if p.WebhookID != "" {
-		s.st.DB.Model(&store.Webhook{}).Where("id = ?", p.WebhookID).Update("enabled", req.Enabled)
+	// Plugin and its webhook switch together: a disabled plugin must not
+	// keep receiving events.
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(p).Update("enabled", req.Enabled).Error; err != nil {
+			return err
+		}
+		if p.WebhookID == "" {
+			return nil
+		}
+		return tx.Model(&store.Webhook{}).Where("id = ?", p.WebhookID).Update("enabled", req.Enabled).Error
+	}); err != nil {
+		dbError(c, err)
+		return
 	}
 	p.Enabled = req.Enabled
 	s.auditCtx(c, map[bool]string{true: "plugin.enable", false: "plugin.disable"}[req.Enabled], p.ID, p.Name)
@@ -447,7 +458,10 @@ func (s *Server) updatePluginSettings(c *gin.Context) {
 		}
 	}
 	b, _ := json.Marshal(next)
-	s.st.DB.Model(p).Update("settings", string(b))
+	if err := s.st.DB.Model(p).Update("settings", string(b)).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	p.Settings = string(b)
 	s.auditCtx(c, "plugin.settings", p.ID, "")
 	_, _, plain := s.pluginSettings(p, m)
@@ -513,11 +527,22 @@ func (s *Server) refreshPlugin(c *gin.Context) {
 			"addScopes": addScopes, "addEvents": addEvents, "addFormats": addFormats, "addTransform": addTransform, "manifest": m})
 		return
 	}
-	s.st.DB.Model(&store.APIToken{}).Where("id = ?", p.TokenID).Update("scopes", store.JSON[[]string]{V: m.Scopes})
-	if p.WebhookID != "" {
-		s.st.DB.Model(&store.Webhook{}).Where("id = ?", p.WebhookID).Update("events", store.JSON[[]string]{V: m.Events})
+	// Token scopes, webhook events and the stored manifest change together,
+	// so the panel never shows one version while enforcing another.
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&store.APIToken{}).Where("id = ?", p.TokenID).Update("scopes", store.JSON[[]string]{V: m.Scopes}).Error; err != nil {
+			return err
+		}
+		if p.WebhookID != "" {
+			if err := tx.Model(&store.Webhook{}).Where("id = ?", p.WebhookID).Update("events", store.JSON[[]string]{V: m.Events}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(p).Updates(map[string]any{"name": m.Name, "version": m.Version, "manifest": string(raw)}).Error
+	}); err != nil {
+		dbError(c, err)
+		return
 	}
-	s.st.DB.Model(p).Updates(map[string]any{"name": m.Name, "version": m.Version, "manifest": string(raw)})
 	p.Name, p.Version, p.Manifest = m.Name, m.Version, string(raw)
 	s.auditCtx(c, "plugin.refresh", p.ID, old.Version+" → "+m.Version)
 	c.JSON(http.StatusOK, s.pluginView(p))

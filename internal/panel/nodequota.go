@@ -59,7 +59,9 @@ func chargeNodeQuota(q *store.UserNodeQuota, up, down int64) (cu, cd int64, flip
 // one-off and keep what they have left).
 func (s *Server) resetNodeUsage(userIDs ...string) {
 	if len(userIDs) > 0 {
-		s.st.DB.Model(&store.UserNodeQuota{}).Where("user_id IN ?", userIDs).Update("used", 0)
+		if err := s.st.DB.Model(&store.UserNodeQuota{}).Where("user_id IN ?", userIDs).Update("used", 0).Error; err != nil {
+			s.log.Warn("reset per-node usage", "users", len(userIDs), "err", err)
+		}
 	}
 }
 
