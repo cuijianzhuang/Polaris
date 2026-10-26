@@ -231,17 +231,36 @@ func (s *Server) rolloutResult(r *store.UpgradeRollout, nodeID, state, msg, prev
 
 // startBatch upgrades the next batch (the canary first).
 func (s *Server) startBatch(r *store.UpgradeRollout, now time.Time) {
+	// Only persisted, observed successes satisfy the canary gate. Advancing
+	// past unavailable nodes (including on a previous worker) does not.
+	verified := 0
+	for _, res := range r.Results.V {
+		if res.State == "ok" {
+			verified++
+		}
+	}
+	canary := verified < r.Canary
 	size := r.BatchSize
-	if r.Cursor == 0 {
-		size = r.Canary
+	if canary {
+		size = r.Canary - verified
 	}
 	if r.Cursor >= len(r.NodeIDs.V) {
-		s.finishRollout(r, "done", "")
-		return
+		if canary && verified == 0 {
+			r.Cursor = 0 // retry skipped nodes from a pre-fix worker
+		} else {
+			s.finishRollout(r, "done", "")
+			return
+		}
 	}
-	end := min(r.Cursor+size, len(r.NodeIDs.V))
+	limit := min(r.Cursor+size, len(r.NodeIDs.V))
+	if canary {
+		limit = len(r.NodeIDs.V) // fill the canary from available nodes
+	}
+	end := r.Cursor
 	var batch []string
-	for _, id := range r.NodeIDs.V[r.Cursor:end] {
+	for end < limit && len(batch) < size {
+		id := r.NodeIDs.V[end]
+		end++
 		var n store.Node
 		if s.st.DB.First(&n, "id = ?", id).Error != nil || n.Revoked {
 			s.rolloutResult(r, id, "skipped", "节点已删除或撤销", "")
@@ -264,6 +283,13 @@ func (s *Server) startBatch(r *store.UpgradeRollout, now time.Time) {
 		s.rolloutResult(r, id, "queued", "", prev)
 		batch = append(batch, id)
 	}
+	if canary && len(batch) == 0 {
+		// Keep the cursor so an explicit resume can retry recovered nodes.
+		r.State, r.LastError = "paused", "没有可用节点完成灰度验证，请检查节点状态后恢复任务"
+		r.BatchStarted, r.HealthySince = nil, nil
+		return
+	}
+	r.LastError = ""
 	r.Cursor = end
 	r.Batch, r.BatchStarted, r.HealthySince = store.NewJSON(batch), &now, nil
 	// Save the original versions and batch BEFORE any remote side effect.

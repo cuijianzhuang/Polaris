@@ -209,6 +209,11 @@ func (s *Server) deliverWebhook(id string) {
 		s.st.DB.Model(&d).Updates(map[string]any{"status": "failed", "last_error": "webhook 已删除"})
 		return
 	}
+	if !h.Enabled {
+		// Keep the original event and retry budget for an explicit re-enable.
+		s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "Webhook 已停用，等待重新启用"})
+		return
+	}
 	if s.operationalWebhookMuted(&d, time.Now()) {
 		s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "运维通知暂缓：渠道关闭或维护窗口"})
 		return
