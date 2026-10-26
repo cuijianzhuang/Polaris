@@ -450,9 +450,11 @@ func (s *Server) checkLicenseLocked(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var out struct {
-		OK      bool   `json:"ok"`
-		Revoked bool   `json:"revoked"`
-		License string `json:"license"`
+		OK       bool   `json:"ok"`
+		Revoked  bool   `json:"revoked"`
+		License  string `json:"license"`
+		RenewURL string `json:"renew_url"`
+		RenewBot string `json:"renew_bot"`
 	}
 	if err := s.licenseCall(ctx, "/v1/check", map[string]string{"license_id": l.ID, "instance": s.instanceID(), "version": Version}, &out); err != nil {
 		s.log.Warn("license check failed", "err", err)
@@ -481,6 +483,10 @@ func (s *Server) checkLicenseLocked(ctx context.Context) error {
 			}
 		}
 		if err := s.st.SetSetting("license_revoked", ""); err != nil {
+			return err
+		}
+		// Older license servers send no links; that clears stale ones too.
+		if err := s.saveLicenseRenew(cleanRenew(out.RenewURL, out.RenewBot)); err != nil {
 			return err
 		}
 	}
@@ -517,6 +523,9 @@ func (s *Server) licenseView() gin.H {
 	}
 	if t := settingTime(s, "license_check_at"); !t.IsZero() {
 		out["checkedAt"] = t
+	}
+	if r := s.licenseRenewLinks(); r.URL != "" || r.Bot != "" {
+		out["renew"] = r
 	}
 	if at := s.licenseManualAvailable.Load(); at != 0 {
 		out["checkAvailableAt"] = time.Unix(0, at)

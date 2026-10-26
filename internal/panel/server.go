@@ -420,6 +420,7 @@ func (s *Server) startJobs() func() {
 	add("*/20 * * * * *", "forward-failover", s.probeForwards)
 	add("15 * * * * *", "sub-sources", s.refreshDueSources)
 	add("0 33 * * * *", "reminders", s.remindUsers)
+	add("0 11 * * * *", "license-expiry", s.remindLicenseExpiry)
 	add("0 2 * * * *", "backup", s.scheduledBackup)
 	add("0 1 * * * *", "daily-report", s.dailyReport)
 	add("0 0 * * * *", "auto-update", s.autoUpdateTick)
