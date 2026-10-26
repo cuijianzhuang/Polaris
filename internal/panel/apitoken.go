@@ -33,9 +33,11 @@ const (
 	ScopeNodesRead    = "nodes:read"
 	ScopeTrafficRead  = "traffic:read"
 	ScopeSettingsRead = "settings:read"
+	// ScopeNodesMetrics writes custom metrics for nodes, nothing else.
+	ScopeNodesMetrics = "nodes:metrics:write"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
@@ -70,10 +72,12 @@ var tokenRoutes = map[string]string{
 	"PUT /users/:id/node-quotas/:node":    ScopeUsersWrite,
 	"DELETE /users/:id/node-quotas/:node": ScopeUsersWrite,
 
-	"GET /nodes":                     ScopeNodesRead,
-	"GET /nodes/:id/snell-readiness": ScopeNodesRead,
-	"GET /nodes/:id":                 ScopeNodesRead,
-	"GET /inbounds":                  ScopeNodesRead,
+	"GET /nodes":                      ScopeNodesRead,
+	"GET /nodes/:id/snell-readiness":  ScopeNodesRead,
+	"GET /nodes/:id":                  ScopeNodesRead,
+	"GET /nodes/:id/metrics/external": ScopeNodesRead,
+	"POST /nodes/:id/metrics":         ScopeNodesMetrics,
+	"GET /inbounds":                   ScopeNodesRead,
 
 	"GET /stats/overview": ScopeTrafficRead,
 	"GET /stats/traffic":  ScopeTrafficRead,
