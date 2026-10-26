@@ -3,10 +3,13 @@ package panel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -129,6 +132,65 @@ func TestRolloutCanaryFailureStops(t *testing.T) {
 	cur = stepRolloutT(t, s, r2.ID)
 	if cur.State != "failed" || !strings.Contains(cur.LastError, "checksum") || len(f2.upgraded) != 1 {
 		t.Fatalf("errored canary: %s %q %v", cur.State, cur.LastError, f2.upgraded)
+	}
+}
+
+func TestRolloutCanarySkipsUnavailableNodes(t *testing.T) {
+	for _, resumed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("persisted_cursor_%t", resumed), func(t *testing.T) {
+			s := newTestServer(t)
+			ids := rolloutNodesFixture(t, s, 6)
+			f := &fakeFleet{offline: map[string]bool{ids[0]: true, ids[2]: true}}
+			f.install(t, s)
+			r, err := s.newRollout(rolloutReq{Kind: "agent", Canary: 2, BatchSize: 4, SoakSeconds: 60}, "admin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resumed {
+				// A pre-fix worker persisted a skipped first canary, then stopped.
+				r.Results.V[ids[0]] = store.RolloutNode{State: "skipped"}
+				s.st.DB.Model(r).Updates(map[string]any{"cursor": 1, "results": r.Results})
+			}
+			cur := stepRolloutT(t, s, r.ID)
+			if len(f.upgraded) != 2 || cur.Cursor != 4 || len(cur.Batch.V) != 2 || cur.Results.V[ids[1]].State != "upgrading" || cur.Results.V[ids[3]].State != "upgrading" {
+				t.Fatalf("canary not filled with online nodes: %+v upgrades=%v", cur, f.upgraded)
+			}
+			// Reload on every tick: starting an upgrade is not proof of a soak.
+			cur = stepRolloutT(t, s, r.ID)
+			if len(f.upgraded) != 2 || cur.HealthySince == nil {
+				t.Fatalf("advanced before soak: %+v upgrades=%v", cur, f.upgraded)
+			}
+			stepRolloutT(t, s, r.ID) // confirm the canary after its observation period
+			stepRolloutT(t, s, r.ID) // now the ordinary batch may start
+			if len(f.upgraded) != 4 {
+				t.Fatalf("ordinary batch did not follow verified canary: %v", f.upgraded)
+			}
+		})
+	}
+}
+
+func TestRolloutUnavailableCanaryPausesUntilResume(t *testing.T) {
+	s := newTestServer(t)
+	ids := rolloutNodesFixture(t, s, 3)
+	f := &fakeFleet{offline: map[string]bool{ids[0]: true, ids[1]: true, ids[2]: true}}
+	f.install(t, s)
+	r, err := s.newRollout(rolloutReq{Kind: "agent", Canary: 1, BatchSize: 3}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur := stepRolloutT(t, s, r.ID)
+	if cur.State != "paused" || cur.Cursor != 0 || cur.LastError == "" || len(f.upgraded) != 0 {
+		t.Fatalf("unavailable canary should pause without consuming nodes: %+v", cur)
+	}
+	f.offline[ids[1]] = false
+	stepRolloutT(t, s, r.ID)
+	if len(f.upgraded) != 0 {
+		t.Fatal("paused rollout resumed without an admin action")
+	}
+	s.st.DB.Model(r).Updates(map[string]any{"state": "running", "control_version": gorm.Expr("control_version + 1")})
+	cur = stepRolloutT(t, s, r.ID)
+	if len(f.upgraded) != 1 || f.upgraded[0] != ids[1] || len(cur.Batch.V) != 1 || cur.LastError != "" {
+		t.Fatalf("resume did not retry canary selection: %+v upgrades=%v", cur, f.upgraded)
 	}
 }
 

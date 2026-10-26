@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -125,6 +126,50 @@ func TestWebhookRetry(t *testing.T) {
 	s.st.DB.First(&row, "id = ?", row.ID)
 	if row.Status != "success" || row.Attempts != 2 || len(calls()) != 3 {
 		t.Fatalf("after retry: %s attempts=%d calls=%d", row.Status, row.Attempts, len(calls()))
+	}
+}
+
+func TestDisabledWebhookDefersQueuedDeliveries(t *testing.T) {
+	for _, typ := range []string{"user.expire_warn", "node.offline"} {
+		for _, attempts := range []int{0, 2} {
+			t.Run(fmt.Sprintf("%s_attempts_%d", typ, attempts), func(t *testing.T) {
+				s, _, admin := newAdminClient(t)
+				recv, calls := hookReceiver(t, 0)
+				code, out := admin.do("POST", "/webhooks", map[string]any{"url": recv.URL})
+				if code != http.StatusCreated {
+					t.Fatalf("create webhook: %d %v", code, out)
+				}
+				id := out["webhook"].(map[string]any)["id"].(string)
+				d := store.WebhookDelivery{ID: store.NewID(), WebhookID: id, EventID: "evt-original", Type: typ,
+					Payload: `{"data":{"node_id":"n1","user_id":"u1"}}`, Status: "pending", Attempts: attempts, NextAt: time.Now()}
+				if err := s.st.DB.Create(&d).Error; err != nil {
+					t.Fatal(err)
+				}
+				setEnabled := func(enabled bool) {
+					t.Helper()
+					if code, out := admin.do("PUT", "/webhooks/"+id, map[string]any{"url": recv.URL, "format": "json", "enabled": enabled}); code != http.StatusOK {
+						t.Fatalf("update webhook: %d %v", code, out)
+					}
+				}
+				setEnabled(false)
+				s.retryWebhooks()
+				var paused store.WebhookDelivery
+				if err := s.st.DB.First(&paused, "id = ?", d.ID).Error; err != nil {
+					t.Fatal(err)
+				}
+				if len(calls()) != 0 || paused.Status != "pending" || paused.Attempts != attempts || !paused.NextAt.After(time.Now()) || paused.LastError == "" {
+					t.Fatalf("disabled webhook sent or consumed retry: %+v calls=%d", paused, len(calls()))
+				}
+				setEnabled(true)
+				s.st.DB.Model(&paused).Update("next_at", time.Now().Add(-time.Second))
+				s.retryWebhooks()
+				var delivered store.WebhookDelivery
+				s.st.DB.First(&delivered, "id = ?", d.ID)
+				if len(calls()) != 1 || delivered.Status != "success" || delivered.Attempts != attempts+1 || delivered.EventID != d.EventID || delivered.Payload != d.Payload || delivered.LastError != "" {
+					t.Fatalf("re-enable failed to deliver original event once: %+v calls=%d", delivered, len(calls()))
+				}
+			})
+		}
 	}
 }
 
