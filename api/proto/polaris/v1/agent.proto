@@ -106,6 +106,13 @@ message SystemStats {
   // Hash of the host boot ID only. Unlike net_epoch, this remains stable
   // across interface changes, so the panel can order samples across them.
   string net_boot_id = 12;
+  // Root filesystem usage and machine size, for the server probe. Older
+  // agents leave them zero.
+  double disk_percent = 13;
+  uint64 mem_total_bytes = 14;
+  uint64 disk_total_bytes = 15;
+  uint32 cpu_cores = 16;
+  string os_name = 17; // PRETTY_NAME from /etc/os-release
 }
 
 message CoreState {

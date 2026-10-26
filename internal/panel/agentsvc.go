@@ -285,6 +285,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 	if hb.System != nil {
 		sys.CPU, sys.Mem, sys.RxBps, sys.TxBps = hb.System.CpuPercent, hb.System.MemPercent, hb.System.RxBps, hb.System.TxBps
 		sys.Uptime, sys.Load1 = hb.System.UptimeSeconds, hb.System.Load1
+		sys.Disk, sys.MemTotal, sys.DiskTotal, sys.Cores, sys.OS = hb.System.DiskPercent, hb.System.MemTotalBytes, hb.System.DiskTotalBytes, hb.System.CpuCores, truncate(hb.System.OsName, 64)
 		s.recordMetric(nodeID, sys, now)
 	}
 	upd := map[string]any{

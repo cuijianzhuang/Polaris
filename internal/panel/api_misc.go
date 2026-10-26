@@ -126,7 +126,7 @@ var editableSettings = map[string]bool{
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
 	"mail_notify_users": true, "mail_notify_admin": true, "mail_admin_to": true,
 	"shodan_api_key": true,
-	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true,
+	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true, "status_show_cost": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
@@ -271,6 +271,7 @@ func (s *Server) putSettings(c *gin.Context) {
 	s.auditCtx(c, "settings.update", strings.Join(keys, ","), "")
 	s.auditChanges.Store(s.st.GetSetting("audit_changes", "false") == "true")
 	resetSubHostCache()
+	s.statusCache.Store(nil) // status page switches apply at once
 	for _, k := range keys {
 		if geodataSettings[k] { // part of every node's spec
 			var ids []string

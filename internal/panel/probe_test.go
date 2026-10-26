@@ -269,3 +269,33 @@ func TestProbeVisibilityColumnMigration(t *testing.T) {
 		}
 	})
 }
+
+func TestProbePublicCostSwitch(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	if err := s.st.DB.Create(&store.Node{ID: "n1", Name: "n1"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	exp := time.Now().Add(72 * time.Hour)
+	if err := s.st.DB.Create(&store.NodeCost{NodeID: "n1", Amount: 5, Currency: "USD", Cycle: "month", ExpireAt: &exp}).Error; err != nil {
+		t.Fatal(err)
+	}
+	priceOf := func(out map[string]any) any {
+		nodes, _ := out["nodes"].([]any)
+		if len(nodes) != 1 {
+			t.Fatalf("nodes = %v", out["nodes"])
+		}
+		return nodes[0].(map[string]any)["price"]
+	}
+	if _, out := admin.do("GET", "/probe", nil); priceOf(out) != "$5/月" {
+		t.Fatalf("admin price = %v", priceOf(out))
+	}
+	public := &apiClient{t: t, base: srv.URL}
+	admin.do("PUT", "/settings", map[string]string{"status_page": "true"})
+	if _, out := public.do("GET", "/status/data", nil); priceOf(out) != nil {
+		t.Fatalf("cost exposed without switch: %v", priceOf(out))
+	}
+	admin.do("PUT", "/settings", map[string]string{"status_show_cost": "true"})
+	if _, out := public.do("GET", "/status/data", nil); priceOf(out) != "$5/月" {
+		t.Fatalf("public price = %v", priceOf(out))
+	}
+}
