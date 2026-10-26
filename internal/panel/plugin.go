@@ -185,8 +185,43 @@ func (s *Server) listPlugins(c *gin.Context) {
 	for i := range ps {
 		out[i] = s.pluginView(&ps[i])
 	}
+	order := []string{}
+	for _, p := range s.transformPlugins() {
+		order = append(order, p.ID)
+	}
 	c.JSON(http.StatusOK, gin.H{"plugins": out, "limit": s.license().Limit(license.LimitPlugins), "used": len(ps),
-		"scopes": allScopes, "events": EventTypes})
+		"scopes": allScopes, "events": EventTypes, "transformOrder": order})
+}
+
+// setTransformOrder is PUT /plugin-transform-order {ids}: the order in which
+// rewriting plugins see each subscription.
+func (s *Server) setTransformOrder(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	known := map[string]bool{}
+	for _, p := range s.transformPlugins() {
+		known[p.ID] = true
+	}
+	seen := map[string]bool{}
+	for _, id := range req.IDs {
+		if !known[id] || seen[id] {
+			badRequest(c, fmt.Errorf("%q 不是已启用的订阅改写插件，或重复", id))
+			return
+		}
+		seen[id] = true
+	}
+	b, _ := json.Marshal(req.IDs)
+	if err := s.st.SetSetting(transformOrderSetting, string(b)); err != nil {
+		dbError(c, err)
+		return
+	}
+	s.auditCtx(c, "plugin.transform_order", "", strings.Join(req.IDs, " → "))
+	c.JSON(http.StatusOK, gin.H{"transformOrder": req.IDs})
 }
 
 // previewPlugin is POST /plugins/preview {baseUrl}: what installing would do.
@@ -472,9 +507,10 @@ func (s *Server) refreshPlugin(c *gin.Context) {
 			addFormats = append(addFormats, f)
 		}
 	}
-	if (len(addScopes) > 0 || len(addEvents) > 0 || len(addFormats) > 0) && !req.Approve {
+	addTransform := m.Transforms() && !old.Transforms()
+	if (len(addScopes) > 0 || len(addEvents) > 0 || len(addFormats) > 0 || addTransform) && !req.Approve {
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "新版本需要更多权限，请确认后再更新", "needApproval": true,
-			"addScopes": addScopes, "addEvents": addEvents, "addFormats": addFormats, "manifest": m})
+			"addScopes": addScopes, "addEvents": addEvents, "addFormats": addFormats, "addTransform": addTransform, "manifest": m})
 		return
 	}
 	s.st.DB.Model(&store.APIToken{}).Where("id = ?", p.TokenID).Update("scopes", store.JSON[[]string]{V: m.Scopes})

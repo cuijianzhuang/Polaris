@@ -592,5 +592,11 @@ const m: Record<string, string> = {
   "订阅格式 {list}": "subscription formats {list}",
   "订阅格式": "Subscription formats",
   "用户使用这些格式时，面板会把该用户的节点（包括 UUID、密码等连接凭据）发给插件生成配置。请只安装可信的插件。": "When a user requests one of these formats, the panel sends that user's nodes (including UUIDs, passwords and other credentials) to the plugin to build the config. Only install plugins you trust.",
+  "改写订阅节点（筛选、改名、排序）": "rewrite subscription nodes (filter, rename, reorder)",
+  "改写订阅节点": "Rewrites subscription nodes",
+  "每次生成订阅前，插件可以筛选、改名和排序该用户的节点。它只看到节点名称、地区、协议和地址端口，看不到连接凭据，也不能增加节点。": "Before each subscription is built, the plugin may filter, rename and reorder that user's nodes. It only sees node names, regions, protocols and addresses, never credentials, and cannot add nodes.",
+  "已调整顺序": "Order updated",
+  "订阅改写顺序": "Rewrite order",
+  "按从上到下的顺序依次处理，后一个看到前一个的结果": "Applied top to bottom; each sees the previous one's result",
 }
 export default m

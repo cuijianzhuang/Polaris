@@ -486,6 +486,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/plugins/:id/refresh", s.requireSudo, s.refreshPlugin)
 	p.DELETE("/plugins/:id", s.requireSudo, s.deletePlugin)
 	p.GET("/plugins/:id/pages/:page", s.pluginPageURL)
+	p.PUT("/plugin-transform-order", s.requireSudo, s.setTransformOrder)
 	p.GET("/plugin/config", s.pluginOwnConfig)
 	p.GET("/webhooks", s.listWebhooks)
 	p.POST("/webhooks", s.requireSudo, s.createWebhook)
