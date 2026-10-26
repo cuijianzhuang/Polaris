@@ -245,6 +245,10 @@ func (s *Server) installPlugin(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "这个插件已经安装"})
 		return
 	}
+	if err := s.checkPluginFormats(m, m.ID); err != nil {
+		badRequest(c, err)
+		return
+	}
 
 	by := c.GetString("admin")
 	tok, tokSecret, err := s.issueAPIToken("插件 "+m.Name, m.ID, m.Scopes, 0, by)
@@ -458,9 +462,19 @@ func (s *Server) refreshPlugin(c *gin.Context) {
 			addEvents = append(addEvents, e)
 		}
 	}
-	if (len(addScopes) > 0 || len(addEvents) > 0) && !req.Approve {
+	if err := s.checkPluginFormats(m, p.ID); err != nil {
+		badRequest(c, err)
+		return
+	}
+	var addFormats []string
+	for _, f := range m.FormatNames() {
+		if !slices.Contains(old.FormatNames(), f) {
+			addFormats = append(addFormats, f)
+		}
+	}
+	if (len(addScopes) > 0 || len(addEvents) > 0 || len(addFormats) > 0) && !req.Approve {
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "新版本需要更多权限，请确认后再更新", "needApproval": true,
-			"addScopes": addScopes, "addEvents": addEvents, "manifest": m})
+			"addScopes": addScopes, "addEvents": addEvents, "addFormats": addFormats, "manifest": m})
 		return
 	}
 	s.st.DB.Model(&store.APIToken{}).Where("id = ?", p.TokenID).Update("scopes", store.JSON[[]string]{V: m.Scopes})

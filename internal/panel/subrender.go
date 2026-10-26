@@ -222,6 +222,21 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	// The external converter's callback (raw) is not the client: leave the
 	// auto mode's decision to the real request.
 	nodes = applyNodeOpts(s.decorateNodes(nodes, info, raw || sub.ReadsProfileHeaders(c.GetHeader("User-Agent"))), ro)
+	if _, builtin := sub.Get(format); !builtin && !raw {
+		if p, f, ok := s.pluginFormat(format); ok {
+			body, ctype, err := s.renderPluginFormat(c.Request.Context(), p, f, nodes, info, u)
+			if err != nil {
+				s.log.Warn("plugin subscription format failed", "plugin", p.ID, "format", format, "err", err)
+				c.String(http.StatusServiceUnavailable, errPluginFormat.Error())
+				return
+			}
+			s.subHeaders(c, info)
+			c.Header("content-disposition", "attachment; filename=\""+asciiName(info.Title)+"\"; filename*=UTF-8''"+url.PathEscape(info.Title))
+			c.Header("X-Content-Type-Options", "nosniff")
+			c.Data(http.StatusOK, ctype, body)
+			return
+		}
+	}
 	var body []byte
 	ctype := ""
 	hasSnell := false
@@ -276,7 +291,7 @@ func (s *Server) subMeta(c *gin.Context) {
 	for _, r := range sub.Regions() {
 		rs = append(rs, region{r.Code, sub.Flag(r.Code) + " " + r.Zh})
 	}
-	c.JSON(http.StatusOK, gin.H{"formats": sub.Formats(), "regions": rs, "schemes": sub.Presets()})
+	c.JSON(http.StatusOK, gin.H{"formats": sub.Formats(), "pluginFormats": s.pluginFormatNames(), "regions": rs, "schemes": sub.Presets()})
 }
 
 // asciiName keeps the ASCII letters, digits and -_. of a title ("polaris"

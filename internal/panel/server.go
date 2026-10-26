@@ -43,6 +43,7 @@ var Version = "dev"
 
 // Server is the panel.
 type Server struct {
+	renderCache renderCache // plugin subscription output (plugin_sub.go)
 	cfg         *Config
 	st          *store.Store
 	ca          *pki.CA

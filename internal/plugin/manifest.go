@@ -32,6 +32,38 @@ type Manifest struct {
 	Pages       []Page    `json:"pages,omitempty"`       // admin pages shown inside the panel
 	Portal      []Link    `json:"portal,omitempty"`      // links in the user center
 	Settings    []Setting `json:"settings,omitempty"`    // fields the admin fills in
+	// Subscription asks to serve extra subscription formats. Rendering one
+	// sends the plugin the user's nodes, credentials included, so it is
+	// approved on its own.
+	Subscription *Subscription `json:"subscription,omitempty"`
+}
+
+// Subscription lists what a plugin adds to subscriptions.
+type Subscription struct {
+	Formats []SubFormat `json:"formats,omitempty"`
+}
+
+// SubFormat is a client format the plugin renders at /polaris/render.
+type SubFormat struct {
+	Name        string `json:"name"`        // ?format=<name>
+	Title       string `json:"title"`       // shown to admins
+	ContentType string `json:"contentType"` // the only type its responses may carry
+}
+
+// SubContentTypes are the response types a format may declare: text
+// configurations only, never HTML or script on the subscription origin.
+var SubContentTypes = []string{"text/plain", "text/yaml", "application/yaml", "application/x-yaml", "application/json", "application/xml", "text/xml"}
+
+// FormatNames lists the subscription formats the manifest asks for.
+func (m *Manifest) FormatNames() []string {
+	if m.Subscription == nil {
+		return nil
+	}
+	out := make([]string, 0, len(m.Subscription.Formats))
+	for _, f := range m.Subscription.Formats {
+		out = append(out, f.Name)
+	}
+	return out
 }
 
 // Page is an admin page the plugin serves; the panel embeds it.
@@ -67,6 +99,7 @@ var (
 	slugRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 	keyRe     = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 	versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+([-+][0-9A-Za-z.+-]+)?$`)
+	formatRe  = regexp.MustCompile(`^[a-z][a-z0-9-]{1,23}$`)
 )
 
 // Parse decodes and validates a manifest. scopes lists the API scopes the
@@ -150,6 +183,24 @@ func (m *Manifest) Validate(scopes []string, checkEvents func([]string) error) e
 		}
 		if err := checkPath(l.Path); err != nil {
 			return fmt.Errorf("portal %q 的 path：%w", l.Title, err)
+		}
+	}
+	if sub := m.Subscription; sub != nil {
+		if len(sub.Formats) > 5 {
+			return errors.New("subscription.formats 最多 5 个")
+		}
+		names := map[string]bool{}
+		for _, f := range sub.Formats {
+			if !formatRe.MatchString(f.Name) || names[f.Name] {
+				return fmt.Errorf("订阅格式名 %q 不合法或重复（小写字母开头，2–24 个字符）", f.Name)
+			}
+			names[f.Name] = true
+			if t := strings.TrimSpace(f.Title); t == "" || len(f.Title) > 40 {
+				return fmt.Errorf("订阅格式 %q 的 title 不能为空，最长 40 个字符", f.Name)
+			}
+			if !slices.Contains(SubContentTypes, f.ContentType) {
+				return fmt.Errorf("订阅格式 %q 的 contentType 只能是 %s", f.Name, strings.Join(SubContentTypes, "、"))
+			}
 		}
 	}
 	if len(m.Settings) > 40 {
