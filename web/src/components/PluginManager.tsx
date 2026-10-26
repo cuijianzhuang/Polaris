@@ -41,7 +41,7 @@ export default function PluginManager() {
       await post(`/plugins/${p.id}/refresh`, { approve })
     } catch (e) {
       if (e instanceof ApiError && e.data?.needApproval) {
-        const more = [...(e.data.addScopes ?? []).map((s: string) => labels[s] ?? s), ...(e.data.addEvents ?? [])]
+        const more = [...(e.data.addScopes ?? []).map((s: string) => labels[s] ?? s), ...(e.data.addEvents ?? []), ...(e.data.addFormats ?? []).map((f: string) => t('订阅格式 {f}（会收到用户节点和连接凭据）', { f }))]
         if (await confirm(t('新版本需要更多权限：{list}。允许并更新？', { list: more.join('、') }), { ok: t('允许并更新') })) { await post(`/plugins/${p.id}/refresh`, { approve: true }) } else return
       } else throw e
     }
@@ -81,6 +81,7 @@ export default function PluginManager() {
             <div className="hint">
               {(m.scopes ?? []).length ? (m.scopes ?? []).map((s) => labels[s] ?? s).join('、') : t('不调用面板接口')}
               {' · '}{(m.events ?? []).length ? t('订阅 {n} 类事件', { n: m.events!.length }) : t('不接收事件')}
+              {(m.subscription?.formats ?? []).length > 0 && ' · ' + t('订阅格式 {list}', { list: m.subscription!.formats!.map((f) => f.name).join('、') })}
               {p.lastSeenAt ? ' · ' + t('最近应答 {when}', { when: ago(p.lastSeenAt) }) : ''}
             </div>
             {p.lastError && p.status !== 'online' && <div className="hint" style={{ color: 'var(--bad)', wordBreak: 'break-all' }}>{p.lastError}</div>}
@@ -127,6 +128,7 @@ function InstallModal({ onClose, onDone }: { onClose: () => void; onDone: (r: In
             <div className="small"><b>{t('它会收到的事件')}</b>：{(m.events ?? []).length ? m.events!.join('、') : t('无')}</div>
             {(m.pages ?? []).length > 0 && <div className="small"><b>{t('后台页面')}</b>：{m.pages!.map((p) => p.title).join('、')}</div>}
             {(m.portal ?? []).length > 0 && <div className="small"><b>{t('用户中心入口')}</b>：{m.portal!.map((p) => p.title).join('、')}</div>}
+            {(m.subscription?.formats ?? []).length > 0 && <div className="note warn small"><b>{t('订阅格式')}</b>：{m.subscription!.formats!.map((f) => `${f.title}（?format=${f.name}）`).join('、')}<br />{t('用户使用这些格式时，面板会把该用户的节点（包括 UUID、密码等连接凭据）发给插件生成配置。请只安装可信的插件。')}</div>}
             <div className="hint">{t('安装后面板会为它创建专用的 API 令牌和事件 Webhook，并通过 /polaris/install 把凭据交给它。')}</div>
           </div>
         )}

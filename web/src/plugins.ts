@@ -8,6 +8,7 @@ export type PluginSetting = { key: string; label: string; type: string; required
 export type PluginManifest = {
   id: string; name: string; version: string; description?: string; author?: string; homepage?: string; minPanel?: string
   scopes?: string[]; events?: string[]; pages?: PluginPage[]; portal?: { title: string; path: string }[]; settings?: PluginSetting[]
+  subscription?: { formats?: { name: string; title: string; contentType: string }[] }
 }
 export type PluginInfo = {
   id: string; name: string; version: string; baseUrl: string; enabled: boolean; status: string; lastSeenAt?: string; lastError: string; createdAt: string
