@@ -1,160 +1,27 @@
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { Lines } from '../components/Charts'
 import ProbePresetPicker from '../components/ProbePresetPicker'
 import { probePresets, type ProbePreset } from '../probeTargets'
-import { CopyBox, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll } from '../components/ui'
-import { bps, bytes, datetime, flag, uptime } from '../format'
+import { CopyBox, Drawer, Empty, Field, Modal, RefreshPicker, Switch, useAction, useConfirm, useLoad, usePoll, useRefresh } from '../components/ui'
+import { bps, datetime, flag, uptime } from '../format'
 import { t } from '../i18n'
+import { alignedTimes, filterProbeNodes, freshTelemetry, latencyStats, validView } from '../probeMonitor'
+import type { ProbeNode, ProbeTarget, ProbeView, ProbeFilter, ProbeSort, LatencyPoint } from '../probeMonitor'
+import { NodeBadges, NodeProbeCard, ProbeSummary, ProbeTable, ProbeBadge, useProbeClock, colorOf } from '../components/ProbeMonitor'
 
 // Server probe: node state and carrier latency (TCP connect time to China
 // Telecom / Unicom / Mobile endpoints, every 30 seconds).
 
-type Now = { ms: number; avg: number | null; loss: number; at: string; spark: (number | null)[] }
-type PNode = {
-  id: string; name: string; region: string; flag: string; online: boolean; status: string
-  cpu: number; mem: number; rxBps: number; txBps: number; uptime: number; load1: number
-  netUsed: number; netLimit: number; lastSeen?: string; hidden?: boolean; address?: string; agentVersion?: string
-  latency: Record<string, Now>
-  disk: number; memTotal?: number; diskTotal?: number; cores?: number; os?: string; arch?: string; ipv4: boolean; ipv6: boolean
-  price?: string; expireAt?: string
-}
-type TargetView = { id: string; name: string; carrier: string }
+type PNode = ProbeNode
+type TargetView = ProbeTarget
 type Target = TargetView & { addr: string; sortOrder: number; enabled: boolean }
-type Overview = { nodes: PNode[]; targets: TargetView[]; at: string; probeEnabled: boolean; statusPage: boolean; statusUrl: string }
-
-export const carrierColor: Record<string, string> = { ct: '#2563EB', cu: '#DC2626', cm: '#16A34A' }
-const colorOf = (c: string) => carrierColor[c] ?? '#7C3AED'
+type Overview = { nodes: PNode[]; targets: TargetView[]; at: string; probeEnabled: boolean; statusPage: boolean; statusUrl: string; showTraffic: boolean }
 const carriers = [{ v: 'ct', l: t('电信') }, { v: 'cu', l: t('联通') }, { v: 'cm', l: t('移动') }, { v: '', l: t('其他') }]
-
-// Colours shared with the public status page: green / yellow / red by load.
-export const usageColor = (p: number) => p >= 85 ? 'var(--pv-red)' : p >= 60 ? 'var(--pv-yellow)' : 'var(--pv-green)'
-export const pingColor = (ms: number | null | undefined) => ms == null || ms <= 0 ? 'var(--pv-red)' : ms <= 80 ? 'var(--pv-green)' : ms <= 160 ? 'var(--pv-cyan)' : ms <= 260 ? 'var(--pv-yellow)' : 'var(--pv-red)'
-
-function Bar({ k, pct, val, title }: { k: string; pct: number; val: string; title?: string }) {
-  return (
-    <div className="pv-row" title={title}>
-      <span className="pv-k">{k}</span>
-      <div className="pv-track"><i style={{ width: Math.min(100, Math.max(0, pct)) + '%', background: usageColor(pct) }} /></div>
-      <span className="pv-val">{val}</span>
-    </div>
-  )
-}
-
-// Buckets: one bar per 5-minute average over the last two hours.
-function Buckets({ vs }: { vs: (number | null)[] }) {
-  const ok = vs.filter((v): v is number => v != null)
-  const max = Math.max(1, ...ok)
-  return (
-    <span className="pv-bk" aria-hidden>
-      {vs.map((v, i) => <span key={i} style={{ height: v == null ? '18%' : Math.max(15, (v / max) * 100) + '%', background: pingColor(v), opacity: v == null ? 0.5 : 0.85 }} />)}
-    </span>
-  )
-}
-
-export function LatencyRows({ n, targets }: { n: PNode; targets: TargetView[] }) {
-  if (!targets.length) return null
-  return (
-    <div className="pv-lat">
-      {targets.map((tg) => {
-        const l = n.latency[tg.id]
-        const live = l && n.online
-        return (
-          <div key={tg.id} className="pv-lr" title={l?.avg != null ? t('近 1 小时平均 {ms} ms · 丢包 {loss}%', { ms: l.avg.toFixed(0), loss: l.loss.toFixed(1) }) : undefined}>
-            <span className="pv-ln"><i style={{ background: colorOf(tg.carrier) }} />{tg.name}</span>
-            <Buckets vs={l?.spark ?? []} />
-            <b className="pv-lv" style={{ color: live ? pingColor(l.ms) : 'var(--pv-mute)' }}>{!live ? '—' : l.ms ? l.ms.toFixed(0) + 'ms' : t('超时')}</b>
-            <span className="pv-ls" style={{ color: live && l.loss >= 5 ? 'var(--pv-red)' : live && l.loss >= 1 ? 'var(--pv-yellow)' : undefined }}>{live ? l.loss.toFixed(0) + '%' : ''}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-const daysLeft = (iso?: string) => iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 864e5) : null
-
-export function NodeBadges({ n }: { n: PNode }) {
-  const d = daysLeft(n.expireAt)
-  const size = [n.cores ? n.cores + 'C' : '', n.memTotal ? bytes(n.memTotal).replace(' ', '') : '', n.diskTotal ? bytes(n.diskTotal).replace(' ', '') : ''].filter(Boolean).join(' / ')
-  return (
-    <div className="pv-meta">
-      {n.ipv4 && <span className="pv-badge v4">IPv4</span>}
-      {n.ipv6 && <span className="pv-badge v6">IPv6</span>}
-      {n.os && <span className="pv-badge" title={n.os}>{n.os.length > 18 ? n.os.slice(0, 18) + '…' : n.os}</span>}
-      {n.arch && <span className="pv-badge">{n.arch}</span>}
-      {size && <span className="pv-badge">{size}</span>}
-      {n.price && <span className="pv-badge cost">{n.price}</span>}
-      {d != null && <span className={'pv-badge exp' + (d <= 7 ? ' late' : '')}>{d >= 0 ? t('剩 {n} 天', { n: d }) : t('已过期')}</span>}
-    </div>
-  )
-}
-
-function NodeProbeCard({ n, targets, onOpen }: { n: PNode; targets: TargetView[]; onOpen: () => void }) {
-  return (
-    <button type="button" className={'pv-card' + (n.online ? '' : ' off')} onClick={onOpen}>
-      <div className="pv-hd">
-        <span className="pv-flag">{flag(n.flag)}</span>
-        <span className="pv-name">{n.name}</span>
-        {n.hidden && <span className="pv-badge">{t('不公开')}</span>}
-        <span className={'pv-st ' + (n.online ? 'on' : 'off')}>{n.online ? t('在线') : t('离线')}</span>
-      </div>
-      <NodeBadges n={n} />
-      {n.online ? <div className="pv-rows">
-        <Bar k="CPU" pct={n.cpu} val={n.cpu.toFixed(1) + '%'} />
-        <Bar k="RAM" pct={n.mem} val={n.mem.toFixed(1) + '%'} title={n.memTotal ? bytes((n.memTotal * n.mem) / 100) + ' / ' + bytes(n.memTotal) : undefined} />
-        <Bar k="DISK" pct={n.disk} val={n.disk ? n.disk.toFixed(1) + '%' : '—'} title={n.diskTotal ? bytes(n.diskTotal) : t('Agent 升级后显示')} />
-        {n.netLimit > 0 && <Bar k="TRF" pct={(100 * n.netUsed) / n.netLimit} val={bytes(n.netUsed)} title={bytes(n.netUsed) + ' / ' + bytes(n.netLimit)} />}
-        <div className="pv-row"><span className="pv-k">NET</span><span className="pv-pair"><span className="pv-dn">▼ {bps(n.rxBps)}</span><span className="pv-up">▲ {bps(n.txBps)}</span></span></div>
-        <div className="pv-row"><span className="pv-k">UP</span><span className="pv-pair"><span>{uptime(n.uptime)}</span><span style={{ color: 'var(--pv-mute)' }}>load {n.load1.toFixed(2)}</span></span></div>
-      </div> : <div className="pv-off">{t('离线')} · {n.lastSeen ? datetime(n.lastSeen) : '—'}</div>}
-      <LatencyRows n={n} targets={targets} />
-    </button>
-  )
-}
-
-// ProbeSummary: the strip of totals above the cards.
-export function ProbeSummary({ nodes }: { nodes: PNode[] }) {
-  const on = nodes.filter((n) => n.online)
-  const rx = on.reduce((a, n) => a + n.rxBps, 0), tx = on.reduce((a, n) => a + n.txBps, 0)
-  const used = nodes.reduce((a, n) => a + (n.netUsed || 0), 0)
-  const cpu = on.length ? on.reduce((a, n) => a + n.cpu, 0) / on.length : 0
-  const regions = new Set(nodes.map((n) => n.flag).filter(Boolean)).size
-  return (
-    <div className="pv-sum">
-      <div className="pv-tile"><div className="k">{t('在线')}</div><div className="v g">{on.length}<small> / {nodes.length}</small></div></div>
-      <div className="pv-tile"><div className="k">{t('总下行')}</div><div className="v">{bps(rx)}</div></div>
-      <div className="pv-tile"><div className="k">{t('总上行')}</div><div className="v b">{bps(tx)}</div></div>
-      {used > 0 && <div className="pv-tile"><div className="k">{t('本月流量')}</div><div className="v y">{bytes(used)}</div></div>}
-      <div className="pv-tile"><div className="k">{t('平均 CPU')}</div><div className="v c">{cpu.toFixed(1)}%</div></div>
-      <div className="pv-tile"><div className="k">{t('地区')}</div><div className="v">{regions}</div></div>
-    </div>
-  )
-}
-
-export function ProbeTable({ nodes, targets, onOpen }: { nodes: PNode[]; targets: TargetView[]; onOpen?: (id: string) => void }) {
-  const mini = (p: number, v: string) => <span className="pv-mini"><span className="pv-track"><i style={{ width: Math.min(100, p) + '%', background: usageColor(p) }} /></span>{v}</span>
-  return (
-    <div className="pv-scroll"><table className="pv-table">
-      <thead><tr><th>{t('节点')}</th><th>{t('状态')}</th><th>CPU</th><th>RAM</th><th>DISK</th><th>NET ▼/▲</th><th>{t('运行')}</th>{targets.map((tg) => <th key={tg.id}>{tg.name}</th>)}</tr></thead>
-      <tbody>{nodes.map((n) => (
-        <tr key={n.id} className={onOpen ? 'click' : ''} onClick={onOpen ? () => onOpen(n.id) : undefined}>
-          <td>{flag(n.flag)} <b>{n.name}</b></td>
-          <td><span className={'pv-st ' + (n.online ? 'on' : 'off')}>{n.online ? t('在线') : t('离线')}</span></td>
-          <td>{n.online ? mini(n.cpu, n.cpu.toFixed(0) + '%') : '—'}</td>
-          <td>{n.online ? mini(n.mem, n.mem.toFixed(0) + '%') : '—'}</td>
-          <td>{n.online && n.disk ? mini(n.disk, n.disk.toFixed(0) + '%') : '—'}</td>
-          <td>{n.online ? <><span className="pv-dn">{bps(n.rxBps)}</span> / <span className="pv-up">{bps(n.txBps)}</span></> : '—'}</td>
-          <td>{n.online ? uptime(n.uptime) : '—'}</td>
-          {targets.map((tg) => { const l = n.latency[tg.id]; return <td key={tg.id} style={{ color: l && n.online ? pingColor(l.ms) : 'var(--pv-mute)', fontWeight: 600 }}>{l && n.online ? (l.ms ? l.ms.toFixed(0) + 'ms' : t('超时')) : '—'}</td> })}
-        </tr>))}</tbody>
-    </table></div>
-  )
-}
 
 const ranges = [{ h: 6, label: t('6 小时') }, { h: 24, label: t('24 小时') }, { h: 72, label: t('3 天') }, { h: 168, label: t('7 天') }]
 const pad = (x: number) => String(x).padStart(2, '0')
-type Pt = { t: string; target: string; avg: number | null; min: number; max: number; loss: number }
+type Pt = LatencyPoint
 
 export function LatencyChart({ nodeId }: { nodeId: string }) {
   const [hours, setHours] = useState(24)
@@ -162,26 +29,20 @@ export function LatencyChart({ nodeId }: { nodeId: string }) {
   usePoll(data.reload, 60000)
   const pts = data.data?.points ?? []
   const targets = (data.data?.targets ?? []).filter((tg) => pts.some((p) => p.target === tg.id))
-  const times = [...new Set(pts.map((p) => p.t))].sort()
+  const times = alignedTimes(pts.map((p) => p.t))
   const idx = new Map(times.map((x, i) => [x, i]))
   const labels = times.map((x) => { const d = new Date(x); return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` })
   const series = targets.map((tg) => {
     const vs: (number | null)[] = times.map(() => null)
     const loss: (number | null)[] = times.map(() => null)
-    pts.filter((p) => p.target === tg.id).forEach((p) => { const i = idx.get(p.t)!; vs[i] = p.avg; loss[i] = p.loss })
+    pts.filter((p) => p.target === tg.id).forEach((p) => { const i = idx.get(Date.parse(p.t)); if (i != null) { vs[i] = p.avg; loss[i] = p.loss } })
     return { tg, vs, loss }
   })
-  const stat = (tg: Target) => {
-    const ps = pts.filter((p) => p.target === tg.id)
-    const ok = ps.filter((p) => p.avg != null)
-    const avg = ok.length ? ok.reduce((a, p) => a + (p.avg as number), 0) / ok.length : null
-    const loss = ps.length ? ps.reduce((a, p) => a + p.loss, 0) / ps.length : 0
-    return { avg, loss, min: ok.length ? Math.min(...ok.map((p) => p.min)) : null, max: ok.length ? Math.max(...ok.map((p) => p.max)) : null }
-  }
+  const stat = (tg: Target) => latencyStats(pts.filter((p) => p.target === tg.id))
   return (
     <div className="tchart">
       <div className="ctitle">
-        <span>{t('三网延迟')}</span>
+        <span>{t('网络延迟')}</span>
         <span className="seg-mini">{ranges.map((r) => <button key={r.h} type="button" className={hours === r.h ? 'on' : ''} onClick={() => setHours(r.h)}>{r.label}</button>)}</span>
       </div>
       {times.length < 2 ? <div className="sub" style={{ marginTop: 10 }}>{t('数据还不够：节点在线后每 30 秒测一次，每 5 分钟记录一个点')}</div> : <>
@@ -189,15 +50,15 @@ export function LatencyChart({ nodeId }: { nodeId: string }) {
           {series.map(({ tg }) => <span key={tg.id} className="legend" style={{ marginRight: 12 }}><i style={{ background: colorOf(tg.carrier) }} />{tg.name}</span>)}
         </div>
         <Lines labels={labels} fmt={(v) => `${v.toFixed(0)} ms`} height={170} series={series.map(({ tg, vs }) => ({ name: tg.name, color: colorOf(tg.carrier), values: vs }))} />
-        <div className="small mute" style={{ marginTop: 6 }}>{t('丢包率')}</div>
+        <div className="small mute" style={{ marginTop: 6 }}>{t('探测失败率')}</div>
         <Lines labels={labels} max={100} fmt={(v) => `${v.toFixed(0)}%`} height={90} series={series.map(({ tg, loss }) => ({ name: tg.name, color: colorOf(tg.carrier), values: loss }))} />
         <div className="scroll" style={{ marginTop: 8 }}>
           <table>
-            <thead><tr><th>{t('目标')}</th><th>{t('平均')}</th><th>{t('最低')}</th><th>{t('最高')}</th><th>{t('丢包')}</th></tr></thead>
+            <thead><tr><th>{t('目标')}</th><th>{t('平均')}</th><th>{t('最低')}</th><th>{t('最高')}</th><th>{t('探测失败率')}</th></tr></thead>
             <tbody>{targets.map((tg) => { const s = stat(tg); return (
               <tr key={tg.id}><td><span className="legend"><i style={{ background: colorOf(tg.carrier) }} />{tg.name}</span></td>
                 <td className="mono">{s.avg != null ? s.avg.toFixed(1) + ' ms' : '—'}</td><td className="mono">{s.min != null ? s.min.toFixed(0) : '—'}</td>
-                <td className="mono">{s.max != null ? s.max.toFixed(0) : '—'}</td><td className="mono">{s.loss.toFixed(1)}%</td></tr>) })}</tbody>
+                <td className="mono">{s.max != null ? s.max.toFixed(0) : '—'}</td><td className="mono">{s.loss == null ? '—' : s.loss.toFixed(1) + '%'}</td></tr>) })}</tbody>
           </table>
         </div>
       </>}
@@ -205,20 +66,40 @@ export function LatencyChart({ nodeId }: { nodeId: string }) {
   )
 }
 
-function NodeDrawer({ n, onClose, onChanged }: { n: PNode; onClose: () => void; onChanged: () => void }) {
+const ResourceHistory = memo(function ResourceHistory({ nodeId }: { nodeId: string }) {
+  const [hours, setHours] = useState(24)
+  const data = useLoad(() => get<{ points: { t: string; cpu: number; mem: number; rx: number; tx: number }[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`), [nodeId, hours])
+  usePoll(data.reload, 60000)
+  const points = data.data?.points ?? []
+  const times = alignedTimes(points.map((p) => p.t))
+  const byTime = new Map(points.map((p) => [Date.parse(p.t), p]))
+  const labels = times.map((at) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` })
+  return <section>
+    <div className="ctitle"><h3>{t('资源历史')}</h3><span className="seg-mini">{ranges.map((r) => <button key={r.h} className={hours === r.h ? 'on' : ''} onClick={() => setHours(r.h)}>{r.label}</button>)}</span></div>
+    {data.error && <div className="note warn">{data.error}</div>}
+    {points.length < 2 ? <div className="pv-empty">{data.loading ? t('加载中…') : t('暂无资源历史数据')}</div> : <div className="pv-history-grid">
+      <section><h3>CPU / RAM</h3><Lines labels={labels} max={100} fmt={(v) => v.toFixed(1) + '%'} height={160} series={[{ name: 'CPU', color: 'var(--pv-cyan)', values: times.map((at) => byTime.get(at)?.cpu ?? null) }, { name: 'RAM', color: 'var(--pv-purple)', values: times.map((at) => byTime.get(at)?.mem ?? null) }]} /></section>
+      <section><h3>{t('接收 / 发送')}</h3><Lines labels={labels} fmt={bps} height={160} series={[{ name: t('接收速率'), color: 'var(--pv-green)', values: times.map((at) => byTime.get(at)?.rx ?? null) }, { name: t('发送速率'), color: 'var(--pv-blue)', values: times.map((at) => byTime.get(at)?.tx ?? null) }]} /></section>
+    </div>}
+  </section>
+})
+
+function NodeDrawer({ n, now, onClose, onChanged }: { n: PNode; now: number; onClose: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
-  return (
-    <Drawer title={<>{flag(n.flag)} {n.name}</>} onClose={onClose} wide>
-      <div className="sub" style={{ margin: 0 }}>
-        {n.address && <span className="mono">{n.address}</span>}{n.agentVersion && <> · Agent {n.agentVersion}</>}
-      </div>
+  const fresh = freshTelemetry(n, now)
+  return <Drawer title={<>{flag(n.flag)} {n.name}</>} onClose={onClose} wide>
+    <div className="pv">
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 14 }}><NodeBadges n={n} now={now} /><ProbeBadge n={n} now={now} /></div>
+      <div className="pv-detail-summary"><div><small>{t('运行时间')}</small><b>{fresh ? uptime(n.uptime) : '—'}</b></div><div><small>{t('接收速率')}</small><b>{fresh ? bps(n.rxBps) : '—'}</b></div><div><small>{t('发送速率')}</small><b>{fresh ? bps(n.txBps) : '—'}</b></div></div>
+      <div className="pv-subtitle">{n.address && <span className="mono">{n.address}</span>}{n.agentVersion && <span>Agent {n.agentVersion}</span>}{n.lastSeen && <span>{t('最近上报')} · {datetime(n.lastSeen)}</span>}</div>
+      <ResourceHistory nodeId={n.id} />
       <LatencyChart nodeId={n.id} />
+      <div className="pv-footnote">{t('失败率表示 TCP 连接探测失败的比例，不是 ICMP 丢包率。')}</div>
       <Field label={t('公开状态页')} hint={t('关闭后这个节点不出现在公开状态页上，后台仍然照常探测')}>
-        <label className="row small"><Switch label={t('在公开状态页显示')} on={!n.hidden} disabled={busy}
-          onChange={(v) => run(async () => { await put(`/probe/nodes/${n.id}`, { hidden: !v }); onChanged() })} />{t('在公开状态页显示')}</label>
+        <label className="row small"><Switch label={t('在公开状态页显示')} on={!n.hidden} disabled={busy} onChange={(v) => run(async () => { await put(`/probe/nodes/${n.id}`, { hidden: !v }); onChanged() })} />{t('在公开状态页显示')}</label>
       </Field>
-    </Drawer>
-  )
+    </div>
+  </Drawer>
 }
 
 function TargetForm({ tg, nodes, onClose, onSaved }: { tg?: Target; nodes: PNode[]; onClose: () => void; onSaved: () => void }) {
@@ -338,56 +219,38 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
 
 export default function Probe() {
   const data = useLoad(() => get<Overview>('/probe'))
-  usePoll(data.reload, 15000)
+  const [refresh, setRefresh] = useRefresh(15000)
+  usePoll(data.reload, refresh)
   const [open, setOpen] = useState<string | null>(null)
   const [targets, setTargets] = useState(false)
   const [settings, setSettings] = useState(false)
   const [q, setQ] = useState('')
-  const d = data.data
   const [region, setRegion] = useState('')
-  const [view, setView] = useState<'card' | 'table'>(() => { try { return localStorage.getItem('probe-view') === 'table' ? 'table' : 'card' } catch { return 'card' } })
-  useEffect(() => { try { localStorage.setItem('probe-view', view) } catch { /* private mode */ } }, [view])
-  const nodes = (d?.nodes ?? []).filter((n) => (!q || (n.name + n.region).toLowerCase().includes(q.toLowerCase())) && (!region || n.flag === region))
+  const [state, setState] = useState<ProbeFilter>('all')
+  const [sort, setSort] = useState<ProbeSort>('default')
+  const [view, setView] = useState<ProbeView>(() => { try { return validView(localStorage.getItem('probe-view')) } catch { return 'card' } })
+  useEffect(() => { try { localStorage.setItem('probe-view', view) } catch { /* storage unavailable */ } }, [view])
+  const d = data.data, now = useProbeClock(d?.at)
+  const nodes = filterProbeNodes(d?.nodes ?? [], q, region, state, sort, now)
   const regions = [...(d?.nodes ?? []).reduce((m, n) => n.flag ? m.set(n.flag, (m.get(n.flag) ?? 0) + 1) : m, new Map<string, number>())]
-  const online = (d?.nodes ?? []).filter((n) => n.online).length
   const sel = d?.nodes.find((n) => n.id === open)
-  return (
-    <>
-      <div className="top">
-        <div>
-          <h1>{t('探针')}</h1>
-          <div className="sub">{d ? t('在线 {on} / {all} · 延迟为节点到各目标的 TCP 连接耗时', { on: online, all: d.nodes.length }) : t('加载中…')}
-            {d && !d.probeEnabled && <> · <b style={{ color: 'var(--warn)' }}>{t('延迟探测已关闭')}</b></>}</div>
-        </div>
-        <div className="row">
-          <input className="input" style={{ width: 160 }} placeholder={t('搜索节点')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索节点')} />
-          <button className="btn" type="button" onClick={() => setTargets(true)}>{t('探测目标')}</button>
-          <button className="btn" type="button" onClick={() => setSettings(true)}>{t('设置')}{d?.statusPage ? ' · ' + t('已公开') : ''}</button>
-        </div>
+  const clear = () => { setQ(''); setRegion(''); setState('all') }
+  const statuses: [ProbeFilter, string][] = [['all', t('全部')], ['online', t('在线')], ['offline', t('离线')], ['attention', t('需关注')]]
+  return <div className="pv pv-monitor">
+    <div className="pv-dashboard-head"><div><div className="pv-eyebrow">POLARIS / SERVER MONITOR</div><h1>{t('服务器探针')}</h1><div className="pv-subtitle"><span>{t('资源状态与网络质量')}</span>{d && <span className={'pv-live' + (data.error ? ' stale' : '')}><i />{t('更新于 {time}', { time: new Date(d.at).toLocaleTimeString() })}</span>}</div></div><div className="pv-head-actions"><RefreshPicker ms={refresh} onChange={setRefresh} onNow={data.reload} /><button className="btn" onClick={() => setTargets(true)}>{t('探测目标')}</button><button className="btn" onClick={() => setSettings(true)}>{t('设置')}{d?.statusPage ? ' · ' + t('已公开') : ''}</button></div></div>
+    {data.error && <div className="note warn" role="alert">{t('更新失败，已保留上次数据。')} {data.error} <button className="link" onClick={data.reload}>{t('重试')}</button></div>}
+    {d && !d.probeEnabled && <div className="note warn">{t('延迟探测已关闭')}</div>}
+    {!d ? <div className="pv-loading" role="status">{data.error ? t('暂无可显示的数据') : t('正在读取节点状态…')}</div> : <>
+      <ProbeSummary nodes={d.nodes} now={now} showTraffic={d.showTraffic !== false} />
+      <div className="pv-toolbar">
+        <div className="pv-toolbar-top"><input className="pv-search" type="search" placeholder={t('搜索名称、地区或系统')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索节点')} /><div className="pv-toolbar-controls"><select value={sort} onChange={(e) => setSort(e.target.value as ProbeSort)} aria-label={t('节点排序')}><option value="default">{t('默认排序')}</option><option value="name">{t('按名称')}</option><option value="cpu">{t('CPU 从高到低')}</option><option value="network">{t('网速从高到低')}</option><option value="latency">{t('延迟从低到高')}</option><option value="expiry">{t('到期时间从近到远')}</option></select><div className="pv-seg" aria-label={t('展示方式')}>{([['card', t('条形')], ['ring', t('环形')], ['table', t('表格')]] as [ProbeView, string][]).map(([v, label]) => <button key={v} className={view === v ? 'on' : ''} aria-pressed={view === v} onClick={() => setView(v)}>{label}</button>)}</div></div></div>
+        <div className="pv-toolbar-bottom"><div className="pv-chips"><button className={'pv-chip' + (!region ? ' on' : '')} aria-pressed={!region} onClick={() => setRegion('')}>{t('全部地区')} {d.nodes.length}</button>{regions.map(([f, count]) => <button key={f} className={'pv-chip' + (region === f ? ' on' : '')} aria-pressed={region === f} onClick={() => setRegion(region === f ? '' : f)}>{flag(f)} {f} <small>{count}</small></button>)}</div><div className="pv-seg" aria-label={t('节点状态筛选')}>{statuses.map(([v, label]) => <button key={v} className={state === v ? 'on' : ''} aria-pressed={state === v} onClick={() => setState(v)}>{label}</button>)}</div><span className="pv-count">{t('显示 {n} / {all} 个节点', { n: nodes.length, all: d.nodes.length })}</span></div>
       </div>
-      {d && d.nodes.length === 0 ? <Empty>{t('还没有节点')}</Empty> : (
-        <div className="pv">
-          <ProbeSummary nodes={d?.nodes ?? []} />
-          <div className="pv-bar-row">
-            <div className="pv-chips">
-              <button type="button" className={'pv-chip' + (region === '' ? ' on' : '')} onClick={() => setRegion('')}>{t('全部')} {d?.nodes.length ?? 0}</button>
-              {regions.map(([f, c]) => <button key={f} type="button" className={'pv-chip' + (region === f ? ' on' : '')} onClick={() => setRegion(region === f ? '' : f)}>{flag(f)} {c}</button>)}
-            </div>
-            <span className="pv-seg">
-              <button type="button" className={view === 'card' ? 'on' : ''} onClick={() => setView('card')}>{t('卡片')}</button>
-              <button type="button" className={view === 'table' ? 'on' : ''} onClick={() => setView('table')}>{t('表格')}</button>
-            </span>
-          </div>
-          {view === 'table' ? <ProbeTable nodes={nodes} targets={d?.targets ?? []} onOpen={setOpen} /> : (
-            <div className="pv-grid">
-              {nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d?.targets ?? []} onOpen={() => setOpen(n.id)} />)}
-            </div>
-          )}
-        </div>
-      )}
-      {sel && <NodeDrawer n={sel} onClose={() => setOpen(null)} onChanged={data.reload} />}
-      {targets && <Targets nodes={d?.nodes ?? []} onClose={() => setTargets(false)} onChanged={data.reload} />}
-      {settings && <StatusSettings url={d?.statusUrl ?? ''} onClose={() => setSettings(false)} onSaved={() => { setSettings(false); data.reload() }} />}
-    </>
-  )
+      {!nodes.length ? <div className="pv-empty">{d.nodes.length ? t('没有符合筛选的节点') : t('还没有节点')}<div><button className="btn sm" onClick={clear}>{t('清除筛选')}</button></div></div> : view === 'table' ? <ProbeTable nodes={nodes} targets={d.targets} onOpen={setOpen} now={now} showTraffic={d.showTraffic !== false} /> : <div className="pv-grid">{nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d.targets} onOpen={() => setOpen(n.id)} view={view} now={now} showTraffic={d.showTraffic !== false} />)}</div>}
+      <div className="pv-footnote">{t('延迟为节点到目标的 TCP 连接耗时；小图展示近 2 小时，每格 5 分钟。灰格表示无样本。')}</div>
+    </>}
+    {sel && <NodeDrawer n={sel} now={now} onClose={() => setOpen(null)} onChanged={data.reload} />}
+    {targets && <Targets nodes={d?.nodes ?? []} onClose={() => setTargets(false)} onChanged={data.reload} />}
+    {settings && <StatusSettings url={d?.statusUrl ?? ''} onClose={() => setSettings(false)} onSaved={() => { setSettings(false); data.reload() }} />}
+  </div>
 }
