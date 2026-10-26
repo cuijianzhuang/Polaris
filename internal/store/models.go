@@ -82,6 +82,12 @@ type SystemInfo struct {
 	Uptime   uint64  `json:"uptime"`
 	Load1    float64 `json:"load1"`
 	Hostname string  `json:"hostname"`
+	// Reported by agents from this release on; zero before.
+	Disk      float64 `json:"disk,omitempty"`
+	MemTotal  uint64  `json:"memTotal,omitempty"`
+	DiskTotal uint64  `json:"diskTotal,omitempty"`
+	Cores     uint32  `json:"cores,omitempty"`
+	OS        string  `json:"os,omitempty"`
 }
 
 // Core is a core instance installed (or desired) on a node.

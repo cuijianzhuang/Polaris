@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { Lines } from '../components/Charts'
 import ProbePresetPicker from '../components/ProbePresetPicker'
@@ -16,6 +16,8 @@ type PNode = {
   cpu: number; mem: number; rxBps: number; txBps: number; uptime: number; load1: number
   netUsed: number; netLimit: number; lastSeen?: string; hidden?: boolean; address?: string; agentVersion?: string
   latency: Record<string, Now>
+  disk: number; memTotal?: number; diskTotal?: number; cores?: number; os?: string; arch?: string; ipv4: boolean; ipv6: boolean
+  price?: string; expireAt?: string
 }
 type TargetView = { id: string; name: string; carrier: string }
 type Target = TargetView & { addr: string; sortOrder: number; enabled: boolean }
@@ -25,48 +27,44 @@ export const carrierColor: Record<string, string> = { ct: '#2563EB', cu: '#DC262
 const colorOf = (c: string) => carrierColor[c] ?? '#7C3AED'
 const carriers = [{ v: 'ct', l: t('电信') }, { v: 'cu', l: t('联通') }, { v: 'cm', l: t('移动') }, { v: '', l: t('其他') }]
 
-function Meter({ pct }: { pct: number }) {
-  const cls = pct >= 90 ? ' bad' : pct >= 75 ? ' warn' : ''
-  return <div className={'nc-net-bar' + cls}><span style={{ width: Math.min(100, Math.max(0, pct)) + '%' }} /></div>
+// Colours shared with the public status page: green / yellow / red by load.
+export const usageColor = (p: number) => p >= 85 ? 'var(--pv-red)' : p >= 60 ? 'var(--pv-yellow)' : 'var(--pv-green)'
+export const pingColor = (ms: number | null | undefined) => ms == null || ms <= 0 ? 'var(--pv-red)' : ms <= 80 ? 'var(--pv-green)' : ms <= 160 ? 'var(--pv-cyan)' : ms <= 260 ? 'var(--pv-yellow)' : 'var(--pv-red)'
+
+function Bar({ k, pct, val, title }: { k: string; pct: number; val: string; title?: string }) {
+  return (
+    <div className="pv-row" title={title}>
+      <span className="pv-k">{k}</span>
+      <div className="pv-track"><i style={{ width: Math.min(100, Math.max(0, pct)) + '%', background: usageColor(pct) }} /></div>
+      <span className="pv-val">{val}</span>
+    </div>
+  )
 }
 
-function Spark({ vs, color }: { vs: (number | null)[]; color: string }) {
+// Buckets: one bar per 5-minute average over the last two hours.
+function Buckets({ vs }: { vs: (number | null)[] }) {
   const ok = vs.filter((v): v is number => v != null)
-  const max = Math.max(0, ...ok)
-  if (!max) return <svg className="pr-spark" />
-  const min = Math.min(...ok)
-  const lo = Math.max(0, min - Math.max(5, (max - min) * 0.3)), hi = Math.max(max, lo + 10) // relative: shows the wobble
-  const n = vs.length
-  const segs: string[][] = []
-  let cur: string[] = []
-  vs.forEach((v, i) => {
-    if (v == null) { if (cur.length) segs.push(cur); cur = []; return }
-    cur.push(`${((i / (n - 1)) * 100).toFixed(1)},${(17 - ((v - lo) / (hi - lo)) * 15).toFixed(1)}`)
-  })
-  if (cur.length) segs.push(cur)
+  const max = Math.max(1, ...ok)
   return (
-    <svg className="pr-spark" viewBox="0 0 100 18" preserveAspectRatio="none">
-      {segs.map((p, i) => p.length === 1
-        ? <circle key={i} cx={p[0].split(',')[0]} cy={p[0].split(',')[1]} r="1" fill={color} />
-        : <polyline key={i} fill="none" stroke={color} strokeWidth="1.4" vectorEffect="non-scaling-stroke" points={p.join(' ')} />)}
-    </svg>
+    <span className="pv-bk" aria-hidden>
+      {vs.map((v, i) => <span key={i} style={{ height: v == null ? '18%' : Math.max(15, (v / max) * 100) + '%', background: pingColor(v), opacity: v == null ? 0.5 : 0.85 }} />)}
+    </span>
   )
 }
 
 export function LatencyRows({ n, targets }: { n: PNode; targets: TargetView[] }) {
   if (!targets.length) return null
   return (
-    <div className="pr-lat">
+    <div className="pv-lat">
       {targets.map((tg) => {
         const l = n.latency[tg.id]
-        const c = colorOf(tg.carrier)
-        let v = <span className="mute">—</span>
-        if (l && n.online) v = l.ms ? <>{l.ms.toFixed(0)} ms{l.loss >= 1 && <span className="pr-loss"> {l.loss.toFixed(0)}%</span>}</> : <span className="pr-dead">{t('超时')}</span>
+        const live = l && n.online
         return (
-          <div key={tg.id} className="pr-lt" title={l?.avg != null ? t('近 1 小时平均 {ms} ms · 丢包 {loss}%', { ms: l.avg.toFixed(0), loss: l.loss.toFixed(1) }) : undefined}>
-            <span className="pr-k"><i style={{ background: c }} />{tg.name}</span>
-            {l ? <Spark vs={l.spark} color={c} /> : <svg className="pr-spark" />}
-            <span className="pr-v mono">{v}</span>
+          <div key={tg.id} className="pv-lr" title={l?.avg != null ? t('近 1 小时平均 {ms} ms · 丢包 {loss}%', { ms: l.avg.toFixed(0), loss: l.loss.toFixed(1) }) : undefined}>
+            <span className="pv-ln"><i style={{ background: colorOf(tg.carrier) }} />{tg.name}</span>
+            <Buckets vs={l?.spark ?? []} />
+            <b className="pv-lv" style={{ color: live ? pingColor(l.ms) : 'var(--pv-mute)' }}>{!live ? '—' : l.ms ? l.ms.toFixed(0) + 'ms' : t('超时')}</b>
+            <span className="pv-ls" style={{ color: live && l.loss >= 5 ? 'var(--pv-red)' : live && l.loss >= 1 ? 'var(--pv-yellow)' : undefined }}>{live ? l.loss.toFixed(0) + '%' : ''}</span>
           </div>
         )
       })}
@@ -74,25 +72,83 @@ export function LatencyRows({ n, targets }: { n: PNode; targets: TargetView[] })
   )
 }
 
+const daysLeft = (iso?: string) => iso ? Math.ceil((new Date(iso).getTime() - Date.now()) / 864e5) : null
+
+export function NodeBadges({ n }: { n: PNode }) {
+  const d = daysLeft(n.expireAt)
+  const size = [n.cores ? n.cores + 'C' : '', n.memTotal ? bytes(n.memTotal).replace(' ', '') : '', n.diskTotal ? bytes(n.diskTotal).replace(' ', '') : ''].filter(Boolean).join(' / ')
+  return (
+    <div className="pv-meta">
+      {n.ipv4 && <span className="pv-badge v4">IPv4</span>}
+      {n.ipv6 && <span className="pv-badge v6">IPv6</span>}
+      {n.os && <span className="pv-badge" title={n.os}>{n.os.length > 18 ? n.os.slice(0, 18) + '…' : n.os}</span>}
+      {n.arch && <span className="pv-badge">{n.arch}</span>}
+      {size && <span className="pv-badge">{size}</span>}
+      {n.price && <span className="pv-badge cost">{n.price}</span>}
+      {d != null && <span className={'pv-badge exp' + (d <= 7 ? ' late' : '')}>{d >= 0 ? t('剩 {n} 天', { n: d }) : t('已过期')}</span>}
+    </div>
+  )
+}
+
 function NodeProbeCard({ n, targets, onOpen }: { n: PNode; targets: TargetView[]; onOpen: () => void }) {
   return (
-    <button type="button" className={'card pr-card' + (n.online ? '' : ' off')} onClick={onOpen}>
-      <div className="pr-top">
-        <span className={'pr-dot' + (n.online ? '' : ' off')} />
-        <span>{flag(n.flag)}</span>
-        <b className="pr-name">{n.name}</b>
-        {n.hidden && <span className="tag">{t('不公开')}</span>}
-        <span className="mute small">{n.region}</span>
+    <button type="button" className={'pv-card' + (n.online ? '' : ' off')} onClick={onOpen}>
+      <div className="pv-hd">
+        <span className="pv-flag">{flag(n.flag)}</span>
+        <span className="pv-name">{n.name}</span>
+        {n.hidden && <span className="pv-badge">{t('不公开')}</span>}
+        <span className={'pv-st ' + (n.online ? 'on' : 'off')}>{n.online ? t('在线') : t('离线')}</span>
       </div>
-      {n.online ? <div className="nc-net">
-        <div className="nc-net-row"><span>CPU</span><span className="mono">{n.cpu.toFixed(0)}%</span></div><Meter pct={n.cpu} />
-        <div className="nc-net-row"><span>{t('内存')}</span><span className="mono">{n.mem.toFixed(0)}%</span></div><Meter pct={n.mem} />
-        <div className="nc-net-row"><span>{t('网速')}</span><span className="mono">↓ {bps(n.rxBps)} · ↑ {bps(n.txBps)}</span></div>
-        <div className="nc-net-row"><span>{t('运行')}</span><span className="mono">{uptime(n.uptime)} · {t('负载')} {n.load1.toFixed(2)}</span></div>
-        {n.netLimit > 0 && <><div className="nc-net-row"><span>{t('本月流量')}</span><span className="mono">{bytes(n.netUsed)} / {bytes(n.netLimit)}</span></div><Meter pct={(100 * n.netUsed) / n.netLimit} /></>}
-      </div> : <div className="nc-net"><div className="nc-net-row"><span>{t('离线')}</span><span className="mono">{n.lastSeen ? datetime(n.lastSeen) : '—'}</span></div></div>}
+      <NodeBadges n={n} />
+      {n.online ? <div className="pv-rows">
+        <Bar k="CPU" pct={n.cpu} val={n.cpu.toFixed(1) + '%'} />
+        <Bar k="RAM" pct={n.mem} val={n.mem.toFixed(1) + '%'} title={n.memTotal ? bytes((n.memTotal * n.mem) / 100) + ' / ' + bytes(n.memTotal) : undefined} />
+        <Bar k="DISK" pct={n.disk} val={n.disk ? n.disk.toFixed(1) + '%' : '—'} title={n.diskTotal ? bytes(n.diskTotal) : t('Agent 升级后显示')} />
+        {n.netLimit > 0 && <Bar k="TRF" pct={(100 * n.netUsed) / n.netLimit} val={bytes(n.netUsed)} title={bytes(n.netUsed) + ' / ' + bytes(n.netLimit)} />}
+        <div className="pv-row"><span className="pv-k">NET</span><span className="pv-pair"><span className="pv-dn">▼ {bps(n.rxBps)}</span><span className="pv-up">▲ {bps(n.txBps)}</span></span></div>
+        <div className="pv-row"><span className="pv-k">UP</span><span className="pv-pair"><span>{uptime(n.uptime)}</span><span style={{ color: 'var(--pv-mute)' }}>load {n.load1.toFixed(2)}</span></span></div>
+      </div> : <div className="pv-off">{t('离线')} · {n.lastSeen ? datetime(n.lastSeen) : '—'}</div>}
       <LatencyRows n={n} targets={targets} />
     </button>
+  )
+}
+
+// ProbeSummary: the strip of totals above the cards.
+export function ProbeSummary({ nodes }: { nodes: PNode[] }) {
+  const on = nodes.filter((n) => n.online)
+  const rx = on.reduce((a, n) => a + n.rxBps, 0), tx = on.reduce((a, n) => a + n.txBps, 0)
+  const used = nodes.reduce((a, n) => a + (n.netUsed || 0), 0)
+  const cpu = on.length ? on.reduce((a, n) => a + n.cpu, 0) / on.length : 0
+  const regions = new Set(nodes.map((n) => n.flag).filter(Boolean)).size
+  return (
+    <div className="pv-sum">
+      <div className="pv-tile"><div className="k">{t('在线')}</div><div className="v g">{on.length}<small> / {nodes.length}</small></div></div>
+      <div className="pv-tile"><div className="k">{t('总下行')}</div><div className="v">{bps(rx)}</div></div>
+      <div className="pv-tile"><div className="k">{t('总上行')}</div><div className="v b">{bps(tx)}</div></div>
+      {used > 0 && <div className="pv-tile"><div className="k">{t('本月流量')}</div><div className="v y">{bytes(used)}</div></div>}
+      <div className="pv-tile"><div className="k">{t('平均 CPU')}</div><div className="v c">{cpu.toFixed(1)}%</div></div>
+      <div className="pv-tile"><div className="k">{t('地区')}</div><div className="v">{regions}</div></div>
+    </div>
+  )
+}
+
+export function ProbeTable({ nodes, targets, onOpen }: { nodes: PNode[]; targets: TargetView[]; onOpen?: (id: string) => void }) {
+  const mini = (p: number, v: string) => <span className="pv-mini"><span className="pv-track"><i style={{ width: Math.min(100, p) + '%', background: usageColor(p) }} /></span>{v}</span>
+  return (
+    <div className="pv-scroll"><table className="pv-table">
+      <thead><tr><th>{t('节点')}</th><th>{t('状态')}</th><th>CPU</th><th>RAM</th><th>DISK</th><th>NET ▼/▲</th><th>{t('运行')}</th>{targets.map((tg) => <th key={tg.id}>{tg.name}</th>)}</tr></thead>
+      <tbody>{nodes.map((n) => (
+        <tr key={n.id} className={onOpen ? 'click' : ''} onClick={onOpen ? () => onOpen(n.id) : undefined}>
+          <td>{flag(n.flag)} <b>{n.name}</b></td>
+          <td><span className={'pv-st ' + (n.online ? 'on' : 'off')}>{n.online ? t('在线') : t('离线')}</span></td>
+          <td>{n.online ? mini(n.cpu, n.cpu.toFixed(0) + '%') : '—'}</td>
+          <td>{n.online ? mini(n.mem, n.mem.toFixed(0) + '%') : '—'}</td>
+          <td>{n.online && n.disk ? mini(n.disk, n.disk.toFixed(0) + '%') : '—'}</td>
+          <td>{n.online ? <><span className="pv-dn">{bps(n.rxBps)}</span> / <span className="pv-up">{bps(n.txBps)}</span></> : '—'}</td>
+          <td>{n.online ? uptime(n.uptime) : '—'}</td>
+          {targets.map((tg) => { const l = n.latency[tg.id]; return <td key={tg.id} style={{ color: l && n.online ? pingColor(l.ms) : 'var(--pv-mute)', fontWeight: 600 }}>{l && n.online ? (l.ms ? l.ms.toFixed(0) + 'ms' : t('超时')) : '—'}</td> })}
+        </tr>))}</tbody>
+    </table></div>
   )
 }
 
@@ -257,7 +313,7 @@ function Targets({ nodes, onClose, onChanged }: { nodes: PNode[]; onClose: () =>
 function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () => void; onSaved: () => void }) {
   const s = useLoad(() => get<Record<string, string>>('/settings'))
   const [f, setF] = useState<Record<string, string> | null>(null)
-  const v = f ?? (s.data ? { probe_enabled: s.data.probe_enabled ?? 'true', status_page: s.data.status_page ?? 'false', status_title: s.data.status_title ?? '', status_note: s.data.status_note ?? '', status_show_traffic: s.data.status_show_traffic ?? 'false' } : null)
+  const v = f ?? (s.data ? { probe_enabled: s.data.probe_enabled ?? 'true', status_page: s.data.status_page ?? 'false', status_title: s.data.status_title ?? '', status_note: s.data.status_note ?? '', status_show_traffic: s.data.status_show_traffic ?? 'false', status_show_cost: s.data.status_show_cost ?? 'false' } : null)
   const set = (k: string, x: string) => setF({ ...(v ?? {}), [k]: x })
   const { busy, run } = useAction()
   return (
@@ -274,6 +330,7 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
         <Field label={t('页面标题')} htmlFor="st-title"><input id="st-title" className="input" value={v.status_title} onChange={(e) => set('status_title', e.target.value)} placeholder={t('留空则用「站点名称 · 服务器状态」')} /></Field>
         <Field label={t('公告')} htmlFor="st-note"><textarea id="st-note" className="input" rows={3} value={v.status_note} onChange={(e) => set('status_note', e.target.value)} placeholder={t('可选，显示在页面顶部')} /></Field>
         <Field label={t('显示服务器流量')}><label className="row small"><Switch label={t('显示服务器流量')} on={v.status_show_traffic === 'true'} onChange={(x) => set('status_show_traffic', String(x))} />{t('在公开页显示各节点本月流量和额度')}</label></Field>
+        <Field label={t('显示价格和到期')}><label className="row small"><Switch label={t('显示价格和到期')} on={v.status_show_cost === 'true'} onChange={(x) => set('status_show_cost', String(x))} />{t('在公开页显示服务器价格和剩余天数（来自节点的成本设置）')}</label></Field>
       </>}
     </Modal>
   )
@@ -287,7 +344,11 @@ export default function Probe() {
   const [settings, setSettings] = useState(false)
   const [q, setQ] = useState('')
   const d = data.data
-  const nodes = (d?.nodes ?? []).filter((n) => !q || (n.name + n.region).toLowerCase().includes(q.toLowerCase()))
+  const [region, setRegion] = useState('')
+  const [view, setView] = useState<'card' | 'table'>(() => { try { return localStorage.getItem('probe-view') === 'table' ? 'table' : 'card' } catch { return 'card' } })
+  useEffect(() => { try { localStorage.setItem('probe-view', view) } catch { /* private mode */ } }, [view])
+  const nodes = (d?.nodes ?? []).filter((n) => (!q || (n.name + n.region).toLowerCase().includes(q.toLowerCase())) && (!region || n.flag === region))
+  const regions = [...(d?.nodes ?? []).reduce((m, n) => n.flag ? m.set(n.flag, (m.get(n.flag) ?? 0) + 1) : m, new Map<string, number>())]
   const online = (d?.nodes ?? []).filter((n) => n.online).length
   const sel = d?.nodes.find((n) => n.id === open)
   return (
@@ -305,8 +366,23 @@ export default function Probe() {
         </div>
       </div>
       {d && d.nodes.length === 0 ? <Empty>{t('还没有节点')}</Empty> : (
-        <div className="pr-grid">
-          {nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d?.targets ?? []} onOpen={() => setOpen(n.id)} />)}
+        <div className="pv">
+          <ProbeSummary nodes={d?.nodes ?? []} />
+          <div className="pv-bar-row">
+            <div className="pv-chips">
+              <button type="button" className={'pv-chip' + (region === '' ? ' on' : '')} onClick={() => setRegion('')}>{t('全部')} {d?.nodes.length ?? 0}</button>
+              {regions.map(([f, c]) => <button key={f} type="button" className={'pv-chip' + (region === f ? ' on' : '')} onClick={() => setRegion(region === f ? '' : f)}>{flag(f)} {c}</button>)}
+            </div>
+            <span className="pv-seg">
+              <button type="button" className={view === 'card' ? 'on' : ''} onClick={() => setView('card')}>{t('卡片')}</button>
+              <button type="button" className={view === 'table' ? 'on' : ''} onClick={() => setView('table')}>{t('表格')}</button>
+            </span>
+          </div>
+          {view === 'table' ? <ProbeTable nodes={nodes} targets={d?.targets ?? []} onOpen={setOpen} /> : (
+            <div className="pv-grid">
+              {nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d?.targets ?? []} onOpen={() => setOpen(n.id)} />)}
+            </div>
+          )}
         </div>
       )}
       {sel && <NodeDrawer n={sel} onClose={() => setOpen(null)} onChanged={data.reload} />}

@@ -592,5 +592,14 @@ const m: Record<string, string> = {
   "订阅格式 {list}": "subscription formats {list}",
   "订阅格式": "Subscription formats",
   "用户使用这些格式时，面板会把该用户的节点（包括 UUID、密码等连接凭据）发给插件生成配置。请只安装可信的插件。": "When a user requests one of these formats, the panel sends that user's nodes (including UUIDs, passwords and other credentials) to the plugin to build the config. Only install plugins you trust.",
+  "剩 {n} 天": "{n} days left",
+  "Agent 升级后显示": "Shown after the agent is upgraded",
+  "总下行": "Total down",
+  "总上行": "Total up",
+  "平均 CPU": "Avg CPU",
+  "卡片": "Cards",
+  "表格": "Table",
+  "显示价格和到期": "Show price and expiry",
+  "在公开页显示服务器价格和剩余天数（来自节点的成本设置）": "Show server prices and days left on the public page (from each node's cost settings)",
 }
 export default m

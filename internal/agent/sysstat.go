@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,8 +78,46 @@ func (s *sysSampler) Sample() *polarisv1.SystemStats {
 			out.Load1, _ = strconv.ParseFloat(f[0], 64)
 		}
 	}
+	out.MemTotalBytes = readMemTotal()
+	out.DiskPercent, out.DiskTotalBytes = readDisk("/")
+	out.CpuCores = uint32(runtime.NumCPU())
+	out.OsName = osName()
 	return out
 }
+
+// readMemTotal is MemTotal from /proc/meminfo in bytes.
+func readMemTotal() uint64 {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if f := strings.Fields(l); len(f) >= 2 && f[0] == "MemTotal:" {
+			kb, _ := strconv.ParseUint(f[1], 10, 64)
+			return kb * 1024
+		}
+	}
+	return 0
+}
+
+var osNameOnce = sync.OnceValue(func() string {
+	b, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return runtime.GOOS
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(l, "PRETTY_NAME="); ok {
+			v = strings.Trim(strings.TrimSpace(v), `"'`)
+			if len(v) > 64 {
+				v = v[:64]
+			}
+			return v
+		}
+	}
+	return runtime.GOOS
+})
+
+func osName() string { return osNameOnce() }
 
 func round1(v float64) float64 { return float64(int(v*10+0.5)) / 10 }
 

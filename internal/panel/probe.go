@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net"
@@ -286,6 +287,18 @@ type probeNode struct {
 	Address  string                 `json:"address,omitempty"`
 	Version  string                 `json:"agentVersion,omitempty"`
 	Latency  map[string]*latencyNow `json:"latency"`
+	// Machine facts for the probe cards (zero until the agent reports them).
+	Disk      float64 `json:"disk"`
+	MemTotal  uint64  `json:"memTotal,omitempty"`
+	DiskTotal uint64  `json:"diskTotal,omitempty"`
+	Cores     uint32  `json:"cores,omitempty"`
+	OS        string  `json:"os,omitempty"`
+	Arch      string  `json:"arch,omitempty"`
+	IPv4      bool    `json:"ipv4"`
+	IPv6      bool    `json:"ipv6"`
+	// Hosting cost: admins always; the public page only with status_show_cost.
+	Price    string     `json:"price,omitempty"`
+	ExpireAt *time.Time `json:"expireAt,omitempty"`
 }
 
 type probeTargetView struct {
@@ -312,6 +325,15 @@ func (s *Server) probeOverview(public bool) gin.H {
 	}
 	lat := s.latencySummary(ids, now)
 	showTraffic := s.st.GetSetting("status_show_traffic", "false") == "true"
+	showCost := !public || s.st.GetSetting("status_show_cost", "false") == "true"
+	costs := map[string]store.NodeCost{}
+	if showCost {
+		var cs []store.NodeCost
+		s.st.DB.Where("node_id IN ?", ids).Find(&cs)
+		for _, c := range cs {
+			costs[c.NodeID] = c
+		}
+	}
 	nodes := make([]probeNode, 0, len(ns))
 	for i := range ns {
 		n := &ns[i]
@@ -321,6 +343,15 @@ func (s *Server) probeOverview(public bool) gin.H {
 			NetUsed: netUsed(n), NetLimit: n.NetLimit, Latency: lat[n.ID]}
 		if online {
 			p.CPU, p.Mem, p.RxBps, p.TxBps, p.Uptime, p.Load1 = sys.CPU, sys.Mem, sys.RxBps, sys.TxBps, sys.Uptime, sys.Load1
+			p.Disk = sys.Disk
+		}
+		p.MemTotal, p.DiskTotal, p.Cores, p.OS, p.Arch = sys.MemTotal, sys.DiskTotal, sys.Cores, sys.OS, n.Arch
+		p.IPv4, p.IPv6 = n.PublicIPv4 != "", n.PublicIPv6 != ""
+		if c, ok := costs[n.ID]; ok {
+			p.ExpireAt = c.ExpireAt
+			if c.Amount > 0 {
+				p.Price = strings.TrimSpace(fmt.Sprintf("%s%g/%s", currencySign(c.Currency), c.Amount, cycleLabel(c.Cycle)))
+			}
 		}
 		if p.Latency == nil {
 			p.Latency = map[string]*latencyNow{}
@@ -559,4 +590,26 @@ func (s *Server) setNodeStatusHidden(c *gin.Context) {
 	}
 	s.statusCache.Store(nil)
 	c.Status(http.StatusNoContent)
+}
+
+func currencySign(c string) string {
+	switch strings.ToUpper(c) {
+	case "CNY", "RMB":
+		return "¥"
+	case "USD":
+		return "$"
+	case "EUR":
+		return "€"
+	case "GBP":
+		return "£"
+	case "JPY":
+		return "¥"
+	case "HKD":
+		return "HK$"
+	}
+	return strings.ToUpper(c) + " "
+}
+
+func cycleLabel(c string) string {
+	return map[string]string{"month": "月", "quarter": "季", "halfyear": "半年", "year": "年", "once": "永久"}[c]
 }
