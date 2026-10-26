@@ -26,12 +26,15 @@ func (s *Server) listTemplates(c *gin.Context) {
 		Inbounds int64 `json:"inbounds"`
 		Nodes    int64 `json:"nodes"`
 	}
+	ids := make([]string, len(ts))
+	for i := range ts {
+		ids[i] = ts[i].ID
+	}
+	inbounds := countBy(s.st.DB, &store.Inbound{}, "template_id", ids)
+	nodes := countDistinctBy(s.st.DB, &store.Inbound{}, "template_id", "node_id", ids)
 	out := make([]view, 0, len(ts))
 	for _, t := range ts {
-		v := view{InboundTemplate: t}
-		s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", t.ID).Count(&v.Inbounds)
-		s.st.DB.Model(&store.Inbound{}).Where("template_id = ?", t.ID).Distinct("node_id").Count(&v.Nodes)
-		out = append(out, v)
+		out = append(out, view{InboundTemplate: t, Inbounds: inbounds[t.ID], Nodes: nodes[t.ID]})
 	}
 	c.JSON(http.StatusOK, out)
 }

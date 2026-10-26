@@ -152,13 +152,21 @@ func (s *Server) listPlans(c *gin.Context) {
 	for _, p := range ps {
 		names[p.ID] = p.Name
 	}
+	ids := make([]string, len(ps))
+	for i := range ps {
+		ids[i] = ps[i].ID
+	}
+	inbounds, nodes := groupMembers(s.st.DB, ids)
+	users := countBy(s.st.DB, &store.User{}, "plan_id", ids)
+	rates := plansNodeRates(s.st.DB, ids)
 	out := make([]planView, len(ps))
 	for i := range ps {
-		s.st.DB.Model(&store.GroupInbound{}).Where("group_id = ?", ps[i].ID).Pluck("inbound_id", &ps[i].InboundIDs)
-		s.st.DB.Model(&store.GroupNode{}).Where("group_id = ?", ps[i].ID).Pluck("node_id", &ps[i].NodeIDs)
-		ps[i].InboundIDs, ps[i].NodeIDs = nonNilStrs(ps[i].InboundIDs), nonNilStrs(ps[i].NodeIDs)
-		s.st.DB.Model(&store.User{}).Where("plan_id = ?", ps[i].ID).Count(&ps[i].UserCount)
-		ps[i].NodeRates = s.planNodeRates(ps[i].ID)
+		ps[i].InboundIDs, ps[i].NodeIDs = nonNilStrs(inbounds[ps[i].ID]), nonNilStrs(nodes[ps[i].ID])
+		ps[i].UserCount = users[ps[i].ID]
+		ps[i].NodeRates = rates[ps[i].ID]
+		if ps[i].NodeRates == nil {
+			ps[i].NodeRates = map[string]float64{}
+		}
 		out[i] = planView{Group: ps[i], FallbackName: names[ps[i].FallbackID]}
 	}
 	c.JSON(http.StatusOK, out)

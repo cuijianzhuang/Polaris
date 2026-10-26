@@ -56,17 +56,17 @@ func (s *Server) bulkInbounds(c *gin.Context) {
 			badRequest(c, err)
 			return
 		}
-		for _, in := range ins {
-			s.st.DB.Model(&store.Inbound{}).Where("id = ?", in.ID).Update("speed_limit_mbps", req.Mbps)
-			dirty[in.NodeID] = true
-			out = append(out, bulkResult{ID: in.ID, Tag: in.Tag, Node: names[in.NodeID]})
+		if err := s.bulkSet(ins, "speed_limit_mbps", req.Mbps); err != nil {
+			dbError(c, err)
+			return
 		}
+		out = bulkDone(ins, names, dirty)
 	case "enable", "disable":
-		for _, in := range ins {
-			s.st.DB.Model(&store.Inbound{}).Where("id = ?", in.ID).Update("enabled", req.Action == "enable")
-			dirty[in.NodeID] = true
-			out = append(out, bulkResult{ID: in.ID, Tag: in.Tag, Node: names[in.NodeID]})
+		if err := s.bulkSet(ins, "enabled", req.Action == "enable"); err != nil {
+			dbError(c, err)
+			return
 		}
+		out = bulkDone(ins, names, dirty)
 	case "port":
 		if req.Mode == "random" {
 			req.Min, req.Max = max(req.Min, 1024), min(orInt(req.Max, 60000), 65535)
@@ -98,6 +98,29 @@ func (s *Server) bulkInbounds(c *gin.Context) {
 	}
 	s.auditCtx(c, "inbound.bulk", req.Action, fmt.Sprintf("%d inbounds", len(out)))
 	c.JSON(http.StatusOK, out)
+}
+
+// bulkSet writes one column on every selected inbound in a single statement,
+// so the selection changes all together or not at all.
+func (s *Server) bulkSet(ins []store.Inbound, col string, v any) error {
+	if len(ins) == 0 {
+		return nil
+	}
+	ids := make([]string, len(ins))
+	for i := range ins {
+		ids[i] = ins[i].ID
+	}
+	return s.st.DB.Model(&store.Inbound{}).Where("id IN ?", ids).Update(col, v).Error
+}
+
+// bulkDone lists the changed inbounds and marks their nodes for a resync.
+func bulkDone(ins []store.Inbound, names map[string]string, dirty map[string]bool) []bulkResult {
+	out := make([]bulkResult, 0, len(ins))
+	for _, in := range ins {
+		dirty[in.NodeID] = true
+		out = append(out, bulkResult{ID: in.ID, Tag: in.Tag, Node: names[in.NodeID]})
+	}
+	return out
 }
 
 func orInt(v, d int) int {

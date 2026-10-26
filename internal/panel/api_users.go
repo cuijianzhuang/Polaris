@@ -759,16 +759,15 @@ func (s *Server) userLinks(c *gin.Context) {
 func (s *Server) listGroups(c *gin.Context) {
 	var gs []store.Group
 	s.st.DB.Order("name").Find(&gs)
+	ids := make([]string, len(gs))
 	for i := range gs {
-		s.st.DB.Model(&store.GroupInbound{}).Where("group_id = ?", gs[i].ID).Pluck("inbound_id", &gs[i].InboundIDs)
-		if gs[i].InboundIDs == nil {
-			gs[i].InboundIDs = []string{}
-		}
-		s.st.DB.Model(&store.GroupNode{}).Where("group_id = ?", gs[i].ID).Pluck("node_id", &gs[i].NodeIDs)
-		if gs[i].NodeIDs == nil {
-			gs[i].NodeIDs = []string{}
-		}
-		s.st.DB.Model(&store.UserGroup{}).Where("group_id = ?", gs[i].ID).Count(&gs[i].UserCount)
+		ids[i] = gs[i].ID
+	}
+	inbounds, nodes := groupMembers(s.st.DB, ids)
+	users := countBy(s.st.DB, &store.UserGroup{}, "group_id", ids)
+	for i := range gs {
+		gs[i].InboundIDs, gs[i].NodeIDs = nonNilStrs(inbounds[gs[i].ID]), nonNilStrs(nodes[gs[i].ID])
+		gs[i].UserCount = users[gs[i].ID]
 	}
 	c.JSON(http.StatusOK, gs)
 }
