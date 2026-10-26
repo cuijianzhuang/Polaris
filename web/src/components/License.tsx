@@ -12,7 +12,7 @@ type LicenseView = {
   state: LicenseState; instance: string; usage: { nodes: number; users: number; plugins?: number }; server: boolean; keys: boolean; edition?: 'pro' | 'community'
   serverStatus?: 'unconfigured' | 'unchecked' | 'available' | 'unavailable'; serverCheckedAt?: string; allFeatures?: string[]
   license?: { id: string; customer: string; plan: string; offline: boolean; issuedAt: string; expiresAt?: string; updatesUntil?: string; features?: string[]; allGranted?: boolean }
-  invalid?: boolean; checkedAt?: string; checkAvailableAt?: string; warning?: string
+  invalid?: boolean; checkedAt?: string; checkAvailableAt?: string; warning?: string; renew?: { url?: string; bot?: string }
 }
 
 const planLabel = (p: string) => ({ community: t('社区版'), trial: t('试用'), pro: t('专业版'), enterprise: t('企业版'), open: t('未启用授权') } as Record<string, string>)[p] ?? p
@@ -24,7 +24,7 @@ const featureInfo = (): Record<string, [string, string]> => ({
   ddns: [t('DDNS 与域名绑定'), t('节点 IP 变化时自动更新解析')],
   branding: [t('自定义 Logo'), t('侧边栏、登录页和浏览器图标换成你自己的 Logo')],
   themes: [t('专属主题'), t('黑金等专属界面风格')],
-  plan_addons: [t('套餐增值'), t('流量包加购、套餐专属节点倍率')],
+  plan_addons: [t('套餐增值'), t('流量包加购、套餐专属节点倍率、端口转发')],
   shop_payments: [t('在线收款'), t('机器人商店支持 Telegram Stars、易支付、USDT 自动收款')],
 })
 const knownFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns', 'branding', 'themes', 'plan_addons', 'shop_payments']
@@ -99,6 +99,11 @@ export default function License() {
         {d.invalid && <div className="note bad">{t('已安装的许可证对本面板无效（签名、实例或版本不符），请重新激活。')}</div>}
         {st.warnings.map((w) => <div key={w} className="note warn">{tr(w)}</div>)}
         {d.warning && <div className="note warn">{d.warning}</div>}
+        {d.renew && lic?.expiresAt && (daysUntil(lic.expiresAt) ?? 99) <= 30 && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          {d.renew.bot && <a className="btn pri" href={d.renew.bot} target="_blank" rel="noopener noreferrer"><Icon.Refresh /> {t('在 Telegram 续费')}</a>}
+          {d.renew.url && <a className="btn" href={d.renew.url} target="_blank" rel="noopener noreferrer">{t('前往授权商店')}</a>}
+          <span className="hint">{t('续费后点「立即校验」即可生效')}</span>
+        </div>}
         {lic && !lic.offline && <div className="hint">{t('连续 14 天未成功校验后，管理修改暂停；已有代理、流量上报和订阅继续运行。联网校验成功或导入有效离线许可证后恢复。')}</div>}
       </section>
 
