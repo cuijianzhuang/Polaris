@@ -186,12 +186,15 @@ func (s *Server) listCDN(c *gin.Context) {
 		store.CDNProfile
 		Inbounds int64 `json:"inbounds"`
 	}
+	ids := make([]string, len(ps))
+	for i := range ps {
+		ids[i] = ps[i].ID
+	}
+	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
 		p.HasToken = p.APIToken != ""
-		v := view{CDNProfile: p}
-		s.st.DB.Model(&store.Endpoint{}).Where("cdn_profile_id = ?", p.ID).Distinct("inbound_id").Count(&v.Inbounds)
-		out = append(out, v)
+		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID]})
 	}
 	c.JSON(http.StatusOK, out)
 }

@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"gorm.io/gorm"
+
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -33,19 +35,40 @@ func (s *Server) ensureDefaultGroup() error {
 		return s.st.DB.Model(&g).Update("is_default", true).Error
 	}
 	g := store.Group{ID: store.NewID(), Name: defaultGroupName, Remark: "新用户与新入站默认加入", IsDefault: true}
-	if err := s.st.DB.Create(&g).Error; err != nil {
+	var ins, users []string
+	// One transaction: a failure leaves no half-filled group, and the next
+	// start (still no groups) tries again.
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&g).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&store.Inbound{}).Where("service_only = ?", false).Pluck("id", &ins).Error; err != nil {
+			return err
+		}
+		gi := make([]store.GroupInbound, len(ins))
+		for i, id := range ins {
+			gi[i] = store.GroupInbound{GroupID: g.ID, InboundID: id}
+		}
+		if len(gi) > 0 {
+			if err := tx.CreateInBatches(gi, 500).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Model(&store.User{}).Where("is_service = ? AND id NOT IN (?)", false,
+			tx.Model(&store.UserAccess{}).Select("user_id")).Pluck("id", &users).Error; err != nil {
+			return err
+		}
+		ug := make([]store.UserGroup, len(users))
+		for i, id := range users {
+			ug[i] = store.UserGroup{UserID: id, GroupID: g.ID}
+		}
+		if len(ug) == 0 {
+			return nil
+		}
+		return tx.CreateInBatches(ug, 500).Error
+	})
+	if err != nil {
 		return err
-	}
-	var ins []string
-	s.st.DB.Model(&store.Inbound{}).Where("service_only = ?", false).Pluck("id", &ins)
-	for _, id := range ins {
-		s.st.DB.Create(&store.GroupInbound{GroupID: g.ID, InboundID: id})
-	}
-	var users []string
-	s.st.DB.Model(&store.User{}).Where("is_service = ? AND id NOT IN (?)", false,
-		s.st.DB.Model(&store.UserAccess{}).Select("user_id")).Pluck("id", &users)
-	for _, id := range users {
-		s.st.DB.Create(&store.UserGroup{UserID: id, GroupID: g.ID})
 	}
 	if len(ins) > 0 && len(users) > 0 {
 		s.log.Info("created the default group for existing users and inbounds", "inbounds", len(ins), "users", len(users))
