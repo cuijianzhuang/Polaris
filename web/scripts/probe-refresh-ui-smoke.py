@@ -81,7 +81,17 @@ with sync_playwright() as p:
     expect(page.locator('.pv-grid')).to_contain_text('83.0%')
     f.hold = False
     f.cpu = 27
-    page.clock.run_for(2200)
+    calls = f.probes
+    # Abort reaches fetch through the browser's network task queue. Advancing
+    # the mock clock does not guarantee that this queue or React has settled;
+    # a poll tick may therefore still see the previous request in flight.
+    # Observe a fresh request within a bounded number of polling periods.
+    for _ in range(5):
+        page.clock.run_for(2200)
+        page.wait_for_timeout(50)
+        if f.probes > calls:
+            break
+    assert f.probes > calls, 'polling never resumed after the stalled request'
     expect(page.locator('.pv-grid')).to_contain_text('27.0%')
     # The retained drawer refreshes resource and latency history independently.
     page.locator('.pv-card').click()
