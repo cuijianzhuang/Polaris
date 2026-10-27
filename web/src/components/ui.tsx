@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
 import { Icon } from './Icons'
@@ -235,15 +235,30 @@ export function Drawer({ title, onClose, children, footer, wide }: { title: Reac
   )
 }
 
-export function Modal({ title, onClose, children, footer, wide, xwide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; xwide?: boolean }) {
+export function Modal({ title, onClose, children, footer, wide, xwide, dismissDisabled = false, focusTrap = false, instantClose = false }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean; xwide?: boolean; dismissDisabled?: boolean; focusTrap?: boolean; instantClose?: boolean }) {
   const [closing, close] = useClosing(onClose)
-  useEscape(close)
+  const dismiss = () => { if (!dismissDisabled) { if (instantClose) onClose(); else close() } }
+  useEscape(dismiss)
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!focusTrap) return
+    const previous = document.activeElement
+    ref.current?.querySelector<HTMLElement>('[data-initial-focus]')?.focus()
+    return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus() }
+  }, [focusTrap])
+  const trap = (e: React.KeyboardEvent) => {
+    if (!focusTrap || e.key !== 'Tab' || !ref.current) return
+    const items = [...ref.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')].filter((el) => el.getClientRects().length)
+    if (!items.length) { e.preventDefault(); ref.current.focus(); return }
+    const next = e.shiftKey ? items[items.length - 1] : items[0]
+    if (!items.includes(document.activeElement as HTMLElement) || document.activeElement === (e.shiftKey ? items[0] : items[items.length - 1])) { e.preventDefault(); next.focus() }
+  }
   // Portalled: a modal opened from a drawer must not be laid out inside it
   // (the drawer's animation transform would clip a fixed overlay).
   return createPortal(
-    <div className={'overlay center' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
-      <div className={'modal' + (xwide ? ' xwide' : wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} onClick={close}><Icon.Close /></button></div>
+    <div className={'overlay center' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) dismiss() }}>
+      <div ref={ref} tabIndex={focusTrap ? -1 : undefined} onKeyDown={trap} className={'modal' + (xwide ? ' xwide' : wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
+        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} disabled={dismissDisabled} onClick={dismiss}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </div>

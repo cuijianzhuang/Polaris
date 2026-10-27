@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSettingsDraft } from './SettingsDrafts'
 import { Link } from 'react-router-dom'
 import { api, get, post, put } from '../api'
 import { bytes, datetime } from '../format'
@@ -25,6 +26,7 @@ export function RouteASNSettings() {
   const [ip, setIP] = useState('')
   const [lookup, setLookup] = useState<Lookup>()
   const { busy, run } = useAction()
+  useSettingsDraft({ label: t('回程 ASN 归属'), dirty: !!file, busy, discard: () => setFile(undefined) })
   const d = info.data
   const locked = busy || info.loading || !!info.error || !d
   const ready = d?.databaseState === 'ready'

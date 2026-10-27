@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from './SettingsDrafts'
 import { del, get, post, put } from '../api'
 import { ago } from '../format'
 import { copyText, Field, Modal, useAction, useConfirm, useLoad } from './ui'
@@ -67,20 +68,29 @@ export function LoginProtection() {
   const info = useLoad(() => get<Info>('/security'))
   const [f, setF] = useState({ allow: '', fails: '' })
   const { busy, run } = useAction()
+  const saver = useSettingsSave()
+  const [baseline, setBaseline] = useState('')
   const d = info.data
-  useEffect(() => { if (d) setF({ allow: d.allowlist, fails: String(d.banFailures) }) }, [d])
+  useEffect(() => { if (d) { const next = { allow: d.allowlist, fails: String(d.banFailures) }; setF(next); setBaseline(JSON.stringify(next)) } }, [d])
+  const dirty = !!baseline && JSON.stringify(f) !== baseline
+  const save = async () => {
+    if (!dirty) return true
+    if (busy || saver.busy || info.loading) return false
+    return saver.run(async () => { await put('/settings', { login_allowlist: f.allow.trim(), login_ban_failures: f.fails || '10' }); setBaseline(JSON.stringify(f)); info.reload() })
+  }
+  useSettingsDraft({ label: t('登录防护'), dirty, busy: busy || saver.busy, save, discard: () => setF(JSON.parse(baseline || '{"allow":"","fails":""}')) })
   const banned = (d?.bans ?? []).filter((b) => b.until && new Date(b.until) > new Date())
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <h2>{t('登录防护')}</h2>
       <div className="sub" style={{ margin: 0 }}>{t('同一 IP 15 分钟内登录失败达到次数即封禁，首次 15 分钟，之后每次翻倍（最长 7 天），重启不会清除；账号本身失败 5 次锁定 15 分钟。白名单内的地址永不封禁。')}</div>
       <div className="form-grid">
-        <Field label={t('封禁阈值（次）')}><input className="input mono" inputMode="numeric" value={f.fails} onChange={(e) => setF({ ...f, fails: e.target.value.replace(/\D/g, '') })} /></Field>
+        <Field label={t('封禁阈值（次）')}><input disabled={saver.busy || info.loading || !baseline} className="input mono" inputMode="numeric" value={f.fails} onChange={(e) => setF({ ...f, fails: e.target.value.replace(/\D/g, '') })} /></Field>
         <Field label={t('登录白名单')} hint={t('IP 或网段，逗号 / 换行分隔。你现在的地址：{ip}', { ip: d?.yourIp ?? '…' })}>
-          <textarea className="input mono" style={{ minHeight: 60 }} value={f.allow} placeholder={d?.yourIp} onChange={(e) => setF({ ...f, allow: e.target.value })} />
+          <textarea disabled={saver.busy || info.loading || !baseline} className="input mono" style={{ minHeight: 60 }} value={f.allow} placeholder={d?.yourIp} onChange={(e) => setF({ ...f, allow: e.target.value })} />
         </Field>
       </div>
-      <div><button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', { login_allowlist: f.allow.trim(), login_ban_failures: f.fails || '10' }); info.reload() }, t('已保存'))}>{t('保存')}</button></div>
+      <SettingsSaveBar loading={info.loading} dirty={dirty} busy={saver.busy} error={saver.error || info.error} disabled={busy || info.loading || !d} onSave={save} />
       <div className="hint">{t('真实访客 IP：只信任来自 {proxies} 的反向代理转发的 X-Forwarded-For；放在其他代理或 CDN 后面时，在 polaris.env 设置 POLARIS_TRUSTED_PROXIES。', { proxies: d?.trustedProxies.length ? d.trustedProxies.join(t('、')) : t('本机与内网地址') })}</div>
       {banned.length > 0 && <>
         <h2 style={{ fontSize: 14 }}>{t('已封禁（{n}）', { n: banned.length })}</h2>
@@ -124,6 +134,7 @@ export function SSOProviders() {
   const [edit, setEdit] = useState<ProviderForm | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
+  useSettingsDraft({ label: t('单点登录'), dirty: !!edit && (!!edit.clientSecret || JSON.stringify(edit) !== JSON.stringify(list.data?.providers?.find((p) => p.id === edit.id) ?? { kind: 'oidc', name: '' })), busy, discard: () => setEdit(null) })
   const ps = list.data?.providers ?? []
   const bound = (id: string) => (mine.data ?? []).find((b) => b.providerId === id)
   const set = (k: keyof ProviderForm, v: string | boolean) => setEdit((x) => ({ ...x, [k]: v }))

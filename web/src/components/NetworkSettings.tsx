@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
+import { SettingsSaveBar, useSettingsDraft, useSettingsLeave, useSettingsSave } from './SettingsDrafts'
 import { get, put } from '../api'
 import { useNodes } from '../App'
 import { t } from '../i18n'
-import { Field, Switch, useAction, useConfirm, useLoad } from './ui'
+import { Field, Switch, useConfirm, useLoad } from './ui'
 import { applyNotificationProfile, notificationGroupMode, notificationGroups, notificationProfile, selectedChannels, setNotificationChannel, setNotificationGroup } from '../notificationPolicy'
 import type { EventCatalog, GroupMode, MaintenanceWindow, NotificationPolicy } from '../notificationPolicy'
 
@@ -12,10 +13,12 @@ import UserNotices from './UserNotices'
 
 export function NetworkDatabaseSettings() {
   const [tab, setTab] = useState<'asn' | 'geo'>('asn')
+  const leave = useSettingsLeave()
+  const go = async (next: 'asn' | 'geo') => { if (next !== tab && await leave()) setTab(next) }
   return <div className="ops-stack">
     <nav className="tabs" aria-label={t('网络归属数据库')}>
-      <button className={'tab' + (tab === 'asn' ? ' on' : '')} type="button" aria-pressed={tab === 'asn'} onClick={() => setTab('asn')}>{t('ASN 归属')}</button>
-      <button className={'tab' + (tab === 'geo' ? ' on' : '')} type="button" aria-pressed={tab === 'geo'} onClick={() => setTab('geo')}>{t('地理归属')}</button>
+      <button className={'tab' + (tab === 'asn' ? ' on' : '')} type="button" aria-pressed={tab === 'asn'} onClick={() => go('asn')}>{t('ASN 归属')}</button>
+      <button className={'tab' + (tab === 'geo' ? ' on' : '')} type="button" aria-pressed={tab === 'geo'} onClick={() => go('geo')}>{t('地理归属')}</button>
     </nav>
     {tab === 'asn' ? <RouteASNSettings /> : <RouteGeoSettings />}
   </div>
@@ -38,7 +41,8 @@ export function NotificationSettings() {
   const [baseline, setBaseline] = useState('')
   const [repeat, setRepeat] = useState('300')
   const [custom, setCustom] = useState(false)
-  const { busy, run } = useAction()
+  const saver = useSettingsSave()
+  const { busy } = saver
   const confirm = useConfirm()
   const accept = (data: PolicyInfo) => {
     const policy = normalizePolicy(data.policy)
@@ -48,9 +52,10 @@ export function NotificationSettings() {
   const dirty = !!f && (JSON.stringify(f) !== baseline || repeat !== String(f.repeatWindowSeconds))
   const invalidRepeat = repeat.trim() === '' || !Number.isInteger(Number(repeat)) || Number(repeat) < 0 || Number(repeat) > 86400
   const changeWindow = (i: number, patch: Partial<MaintenanceWindow>) => setF((old) => old && ({ ...old, maintenance: old.maintenance.map((x, j) => i === j ? { ...x, ...patch } : x) }))
-  const save = () => {
-    if (!f || !dirty || invalidRepeat || busy || info.loading) return
-    run(async () => {
+  const save = async () => {
+    if (!dirty) return true
+    if (!f || invalidRepeat || busy || info.loading) return false
+    return saver.run(async () => {
       for (const w of f.maintenance) {
         const from = Date.parse(w.startsAt), to = Date.parse(w.endsAt)
         if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 7 * 86400000) throw new Error(t('维护窗口结束时间须晚于开始时间，且不能超过 7 天'))
@@ -58,6 +63,7 @@ export function NotificationSettings() {
       accept(await put<PolicyInfo>('/notifications/policy', f))
     }, t('已保存'))
   }
+  useSettingsDraft({ label: t('通知策略'), dirty, busy, invalid: invalidRepeat, save, discard: () => { if (info.data) accept(info.data) } })
   const reload = async () => {
     if (dirty && !await confirm(t('重新加载会丢弃尚未保存的通知设置，继续吗？'))) return
     info.reload()
@@ -104,7 +110,7 @@ export function NotificationSettings() {
           <Field label={t('静默节点')}><div className="ops-choices">{nodes.map((n) => <label className="chk" key={n.id}><input type="checkbox" checked={w.nodeIds.includes(n.id)} onChange={() => changeWindow(i, { nodeIds: toggleItem(w.nodeIds, n.id) })} />{n.name}</label>)}</div>{w.nodeIds.filter((id) => !nodes.some((n) => n.id === id)).map((id) => <button type="button" className="link" key={id} onClick={() => changeWindow(i, { nodeIds: w.nodeIds.filter((x) => x !== id) })}>{t('移除已不存在节点')} · {id}</button>)}</Field>
         </div>)}
       </div></details>
-      <div className="row"><button type="button" className="btn pri" disabled={!dirty || invalidRepeat} onClick={save}>{t('保存通知策略')}</button><span className="hint" role="status">{dirty ? t('有尚未保存的更改') : t('设置已保存')}</span></div>
+      <SettingsSaveBar loading={info.loading} dirty={dirty} busy={busy} error={saver.error} disabled={invalidRepeat} onSave={save} label={t('保存通知策略')} />
     </fieldset>}
     <details onToggle={(e) => setShowNotices(e.currentTarget.open)}><summary>{t('用户提醒投递记录')}</summary>{showNotices && <UserNotices />}</details>
   </section>
