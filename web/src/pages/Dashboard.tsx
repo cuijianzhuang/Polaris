@@ -58,11 +58,11 @@ function Trend({ data }: { data: Overview['trend'] }) {
           </g>
           <path d={area('down')} fill="url(#tr-down)" />
           <path d={line('down')} fill="none" style={{ stroke: 'var(--pri)' }} strokeWidth="2.5" strokeLinejoin="round" />
-          <path d={line('up')} fill="none" style={{ stroke: 'var(--warn)' }} strokeWidth="2" strokeDasharray="5 4" strokeLinejoin="round" />
+          <path d={line('up')} fill="none" style={{ stroke: 'var(--chart-up, var(--warn))' }} strokeWidth="2" strokeDasharray="5 4" strokeLinejoin="round" />
           {h && hover !== null && <g>
             <line x1={x(hover)} x2={x(hover)} y1={T} y2={B} style={{ stroke: 'var(--input)' }} strokeDasharray="3 3" />
             <circle cx={x(hover)} cy={y(h.down)} r="4" style={{ fill: 'var(--card)', stroke: 'var(--pri)' }} strokeWidth="2" />
-            <circle cx={x(hover)} cy={y(h.up)} r="3.5" style={{ fill: 'var(--card)', stroke: 'var(--warn)' }} strokeWidth="2" />
+            <circle cx={x(hover)} cy={y(h.up)} r="3.5" style={{ fill: 'var(--card)', stroke: 'var(--chart-up, var(--warn))' }} strokeWidth="2" />
           </g>}
           <rect x={L} y={T} width={R - L} height={B - T} fill="transparent" onPointerMove={onMove} onPointerLeave={() => setHover(null)} />
         </svg>
@@ -71,7 +71,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
         <div className="tip" style={{ left: Math.min(Math.max(x(hover), 70), W - 70), top: 4 }}>
           <div className="tip-t">{h.date} {weekday[new Date(h.date + 'T00:00:00').getDay()]}</div>
           <div><i style={{ background: 'var(--pri)' }} />{t('下行')} <b>{bytes(h.down)}</b></div>
-          <div><i style={{ background: 'var(--warn)' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
+          <div><i style={{ background: 'var(--chart-up, var(--warn))' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
         </div>
       )}
     </div>
@@ -173,7 +173,7 @@ export default function Dashboard() {
           <div className="ctitle">
             <span>{t('流量趋势')}</span>
             <span className="row" style={{ gap: 12 }}>
-              <span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />{t('下行')}<i className="dash" style={{ borderColor: 'var(--warn)' }} />{t('上行')}</span>
+              <span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />{t('下行')}<i className="dash" style={{ borderColor: 'var(--chart-up, var(--warn))' }} />{t('上行')}</span>
               <span className="seg-mini">{[7, 30].map((d) => <button key={d} type="button" className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{t('{n} 天', { n: d })}</button>)}</span>
             </span>
           </div>

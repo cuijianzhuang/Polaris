@@ -55,9 +55,20 @@ with sync_playwright() as p:
             page.goto(BASE + '/settings#appearance')
             root = page.locator('html')
             expect(page.locator('.theme-demo')).to_be_visible()
-            expect(root).to_have_attribute('data-accent','slate')
+            expect(root).to_have_attribute('data-accent','amber')
+            expect(root).to_have_attribute('data-style','warm')
+            expect(page.locator('.style-warm')).to_be_enabled()
+            expect(page.locator('.style-warm')).to_have_attribute('aria-pressed','true')
+            expect(page.locator('.style-card[aria-pressed="true"]')).to_have_count(1)
+            action=page.locator('.theme-demo-actions > .primary').evaluate('(e)=>({foreground:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor})')
+            assert contrast(action)>=4.5, action
             expect(page.locator('.style-blackgold')).to_be_disabled()
-            expect(page.locator('.style-default')).to_have_attribute('aria-pressed','true')
+            # Free surface styles switch independently of palette and license.
+            page.locator('.style-default').click()
+            assert page.evaluate("document.documentElement.dataset.style || ''") == ''
+            page.locator('.style-warm').click()
+            expect(root).to_have_attribute('data-style','warm')
+            expect(page.locator('.style-card[aria-pressed="true"]')).to_have_count(1)
             # Actual mode, OS following and labeled palette choices apply at once.
             page.locator('.appearance-controls').get_by_role('button', name='深色' if language=='zh' else 'Dark', exact=True).click()
             expect(root).to_have_attribute('data-mode','dark')
@@ -71,7 +82,7 @@ with sync_playwright() as p:
             page.get_by_role('button', name='主题色：海蓝' if language=='zh' else 'Accent color: Blue', exact=True).click()
             expect(root).to_have_attribute('data-accent','blue')
             saved = page.evaluate("JSON.parse(localStorage.getItem('polaris.theme'))")
-            assert saved['mode']=='system' and saved['accent']=='blue', saved
+            assert saved['mode']=='system' and saved['accent']=='blue' and saved['style']=='warm', saved
             page.reload()
             expect(root).to_have_attribute('data-accent','blue')
             expect(root).to_have_attribute('data-mode','dark')
@@ -138,10 +149,10 @@ with sync_playwright() as p:
     expect(dark).to_have_attribute('aria-pressed','true')
     expect(page.locator('.accent-swatch[aria-pressed="true"]')).to_have_count(0)
     page.screenshot(path=str(OUT/'appearance-blackgold.png'),full_page=True,animations='disabled')
-    page.locator('.style-default').click()
+    page.locator('.style-warm').click()
+    expect(page.locator('html')).to_have_attribute('data-style','warm')
     expect(page.locator('html')).to_have_attribute('data-mode','light')
     expect(page.get_by_role('button',name='浅色',exact=True)).to_be_enabled()
-    assert page.evaluate("document.documentElement.dataset.style || ''") == ''
     gold.click()
     page.goto(BASE+'/probe')
     expect(page.locator('.pv-card')).to_be_visible()
@@ -153,5 +164,20 @@ with sync_playwright() as p:
     expect(page.locator('.style-default')).to_have_attribute('aria-pressed','true')
     assert page.evaluate("document.documentElement.dataset.style || ''") == ''
     page.close()
+    # Existing saved choices are not migrated to the new default. A free warm
+    # style remains effective after community license data has loaded.
+    for style,accent in [('default','teal'),('warm','amber')]:
+        f=Fixture()
+        page=browser.new_page()
+        value=json.dumps(dict(mode='dark',style=style,accent=accent))
+        page.add_init_script("localStorage.setItem('polaris.token','fixture');localStorage.setItem('polaris.theme',%s)" % json.dumps(value))
+        page.route('**/api/v1/**',f.route)
+        page.goto(BASE+'/settings#appearance')
+        expect(page.locator('.style-blackgold')).to_be_disabled()
+        expect(page.locator('html')).to_have_attribute('data-mode','dark')
+        expect(page.locator('html')).to_have_attribute('data-accent',accent)
+        assert page.evaluate("document.documentElement.dataset.style || ''") == ('' if style=='default' else style)
+        assert page.evaluate("localStorage.getItem('polaris.theme')") == value
+        page.close()
     browser.close()
     print('Exclusive theme entitlement, honest forced-dark controls and base-preference restoration passed')

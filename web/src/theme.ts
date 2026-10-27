@@ -1,20 +1,22 @@
 // Panel themes: light / dark / follow-system plus an accent palette,
 // stored per browser and applied as data-mode / data-accent on <html>.
-// An exclusive style (paid feature "themes", e.g. black gold) is applied as
-// data-style and brings its own dark palette.
+// Surface styles are applied as data-style. Only black gold requires the
+// paid feature "themes" and forces its own dark palette.
 import { useEffect, useState } from 'react'
 import { t } from './i18n'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
-export type ThemeStyle = 'default' | 'blackgold'
+export type ThemeStyle = 'default' | 'warm' | 'blackgold'
 export interface Theme { mode: ThemeMode; accent: string; style: ThemeStyle }
 
 export const styles: { id: ThemeStyle; label: string; premium: boolean }[] = [
-  { id: 'default', label: t('默认'), premium: false },
+  { id: 'warm', label: t('暖灰琥珀'), premium: false },
+  { id: 'default', label: t('雾白石墨'), premium: false },
   { id: 'blackgold', label: t('黑金'), premium: true },
 ]
 
 export const accents: { id: string; label: string; color: string }[] = [
+  { id: 'amber', label: t('琥珀'), color: '#995B16' },
   { id: 'teal', label: t('青碧'), color: '#0E7490' },
   { id: 'blue', label: t('海蓝'), color: '#2563EB' },
   { id: 'violet', label: t('紫罗兰'), color: '#7C3AED' },
@@ -28,7 +30,7 @@ const KEY = 'polaris.theme'
 const media = () => window.matchMedia?.('(prefers-color-scheme: dark)')
 
 export function loadTheme(): Theme {
-  const t: Theme = { mode: 'light', accent: 'slate', style: 'default' }
+  const t: Theme = { mode: 'light', accent: 'amber', style: 'warm' }
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || '{}')
     if (v.mode === 'light' || v.mode === 'dark' || v.mode === 'system') t.mode = v.mode
@@ -43,8 +45,8 @@ export function loadTheme(): Theme {
 let premiumOK = true
 
 export function applyTheme(t: Theme) {
-  const style = t.style !== 'default' && premiumOK ? t.style : 'default'
-  const dark = style !== 'default' || t.mode === 'dark' || (t.mode === 'system' && !!media()?.matches)
+  const style = styles.find((s) => s.id === t.style && (!s.premium || premiumOK))?.id ?? 'default'
+  const dark = style === 'blackgold' || t.mode === 'dark' || (t.mode === 'system' && !!media()?.matches)
   const el = document.documentElement
   el.dataset.mode = dark ? 'dark' : 'light'
   el.dataset.accent = t.accent

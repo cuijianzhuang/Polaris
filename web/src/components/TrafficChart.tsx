@@ -60,7 +60,7 @@ export default function TrafficChart({ query, title }: { query: string; title: s
       <div className="tchart-sum">
         <div><span>{t('合计')}</span><b>{bytes(up + down)}</b></div>
         <div><span><i style={{ background: 'var(--pri)' }} />{t('下行')}</span><b>{bytes(down)}</b></div>
-        <div><span><i style={{ background: 'var(--warn)' }} />{t('上行')}</span><b>{bytes(up)}</b></div>
+        <div><span><i style={{ background: 'var(--chart-up, var(--warn))' }} />{t('上行')}</span><b>{bytes(up)}</b></div>
         <div><span>{r.hour ? t('峰值 / 小时') : t('峰值 / 天')}</span><b>{bytes(max === 1 ? 0 : max)}</b></div>
       </div>
       <div ref={ref} className="trend-wrap" style={{ marginTop: 8 }}>
@@ -76,7 +76,7 @@ export default function TrafficChart({ query, title }: { query: string; title: s
               const x = L + bw * i + bw * 0.15, w = Math.max(1, bw * 0.7)
               return <g key={i} opacity={hover === null || hover === i ? 1 : 0.45}>
                 <rect x={x} y={B - y(p.down)} width={w} height={y(p.down)} rx={Math.min(2, w / 3)} style={{ fill: 'var(--pri)' }} />
-                <rect x={x} y={B - y(p.down) - y(p.up)} width={w} height={y(p.up)} rx={Math.min(2, w / 3)} style={{ fill: 'var(--warn)' }} />
+                <rect x={x} y={B - y(p.down) - y(p.up)} width={w} height={y(p.up)} rx={Math.min(2, w / 3)} style={{ fill: 'var(--chart-up, var(--warn))' }} />
               </g>
             })}
             <rect x={L} y={T} width={R - L} height={B - T} fill="transparent"
@@ -88,7 +88,7 @@ export default function TrafficChart({ query, title }: { query: string; title: s
           <div className="tip" style={{ left: Math.min(Math.max(L + bw * (hover + 0.5), 70), W - 70), top: 0 }}>
             <div className="tip-t">{r.hour ? `${dayKey(h.d)} ${h.label}` : dayKey(h.d)}</div>
             <div><i style={{ background: 'var(--pri)' }} />{t('下行')} <b>{bytes(h.down)}</b></div>
-            <div><i style={{ background: 'var(--warn)' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
+            <div><i style={{ background: 'var(--chart-up, var(--warn))' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
           </div>
         )}
       </div>

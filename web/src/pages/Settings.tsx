@@ -267,21 +267,37 @@ function MailSettings() {
   )
 }
 
-// Appearance: mode, accent and exclusive style are per browser; the logo is
+// Appearance: mode, accent and surface style are per browser; the logo is
 // the panel's (paid features "themes" and "branding").
 function Appearance() {
   const [th, setT] = useTheme()
   const themesOK = useFeature('themes')
   const modes: { id: ThemeMode; label: string }[] = [{ id: 'light', label: t('浅色') }, { id: 'dark', label: t('深色') }, { id: 'system', label: t('跟随系统') }]
-  const special = th.style !== 'default' && themesOK
+  const special = th.style === 'blackgold' && themesOK
+  const activeStyle = th.style === 'blackgold' && !themesOK ? 'default' : th.style
   const shownMode = special ? 'dark' : th.mode
   return (
     <>
       <section className="card appearance">
         <div className="appearance-heading"><div><h2>{t('外观')}</h2><p>{t('让界面适合你的工作习惯。')}</p></div><span className="appearance-local">{t('仅保存在当前浏览器')}</span></div>
+        <Field label={t('主题风格')} hint={t('暖灰与雾白均支持明暗模式及自选配色；黑金使用固定深色配色，需要专业版。')}>
+          <div className="style-cards">
+            {styles.map((x) => {
+              const locked = x.premium && !themesOK
+              const on = activeStyle === x.id
+              return (
+                <button key={x.id} type="button" className={'style-card style-' + x.id + (on ? ' on' : '')} aria-pressed={on} disabled={locked}
+                  title={locked ? t('需要专业版许可证（许可证页面）') : x.label} onClick={() => setT({ ...th, style: x.id })}>
+                  <span className="style-preview" aria-hidden="true"><i /><i /><i /></span>
+                  <span className="style-label"><b>{x.label}{locked ? ' 🔒' : ''}</b><small>{x.id === 'warm' ? t('暖白表面 · 石色层次') : x.id === 'default' ? t('中性灰阶 · 清晰克制') : t('深色表面 · 香槟金')}</small></span>
+                </button>
+              )
+            })}
+          </div>
+        </Field>
         <div className="appearance-layout">
           <div className="appearance-controls">
-            <Field label={t('主题模式')} hint={special ? t('当前专属主题固定使用深色及专属配色，切回默认主题后可调整。') : t('跟随系统会自动匹配设备的明暗模式。')}>
+            <Field label={t('主题模式')} hint={special ? t('当前专属主题固定使用深色及专属配色，切换到基础主题后可调整。') : t('跟随系统会自动匹配设备的明暗模式。')}>
               <div className="seg c3 fixed">
                 {modes.map((m) => <button key={m.id} type="button" disabled={special} className={'opt' + (shownMode === m.id ? ' on' : '')} aria-pressed={shownMode === m.id} onClick={() => setT({ ...th, mode: m.id })}>{m.label}</button>)}
               </div>
@@ -297,21 +313,6 @@ function Appearance() {
           </div>
           <ThemePreview />
         </div>
-        <Field label={<>{t('专属主题')}<ProTag on={themesOK} /></>} hint={t('专属主题自带配色，选中后主题模式和主题色不再生效；仅保存在当前浏览器')}>
-          <div className="style-cards">
-            {styles.map((x) => {
-              const locked = x.premium && !themesOK
-              const on = (th.style === x.id && !locked) || (x.id === 'default' && !special)
-              return (
-                <button key={x.id} type="button" className={'style-card style-' + x.id + (on ? ' on' : '')} aria-pressed={on} disabled={locked}
-                  title={locked ? t('需要专业版许可证（许可证页面）') : x.label} onClick={() => setT({ ...th, style: x.id })}>
-                  <span className="style-preview" aria-hidden="true"><i /><i /><i /></span>
-                  <span>{x.label}{locked ? ' 🔒' : ''}</span>
-                </button>
-              )
-            })}
-          </div>
-        </Field>
       </section>
       <BrandLogoCard />
     </>
