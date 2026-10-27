@@ -209,7 +209,9 @@ func TestAdminConcurrentOwnerRemovalLeavesOwner(t *testing.T) {
 func TestStaffCapabilityChecksDoNotUseJWTClaimsAlone(t *testing.T) {
 	s, _, owner := newAdminClient(t)
 	c, id := staffLogin(t, owner, "unknown-role", "support", nil)
-	if err := s.st.DB.Model(&store.Admin{}).Where("id = ?", id).Update("role", "future-unknown-role").Error; err != nil {
+	// Keep the unknown role within Admin.Role's varchar(16) limit so PostgreSQL
+	// reaches the authorization check instead of rejecting the fixture write.
+	if err := s.st.DB.Model(&store.Admin{}).Where("id = ?", id).Update("role", "future-role").Error; err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := c.do("GET", "/staff/users", nil); code != 403 {
