@@ -41,6 +41,7 @@ var kindTypes = map[string]string{
 	"login_ban": "admin.login_banned", "admin_login_new_ip": "admin.login_new_ip", "admin_recovery_code": "admin.recovery_code_used",
 	"backup_failed": "system.backup_failed", "cert_failed": "system.cert_failed", "license": "system.license",
 	"operational_alert": "system.operational_alert", "panel_update": "system.panel_update", "plugin_offline": "system.plugin_offline", "plugin_online": "system.plugin_online",
+	"cdn_ips_stale": "cdn.ips_stale", "cdn_ips_fresh": "cdn.ips_fresh",
 }
 
 // EventTypes lists every type a webhook can subscribe to.
@@ -53,7 +54,7 @@ var EventTypes = []string{
 	"inbound.down", "inbound.up", "routing.health",
 	"admin.login_banned", "admin.login_new_ip", "admin.recovery_code_used",
 	"system.backup_failed", "system.cert_failed", "system.license", "system.panel_update", "system.operational_alert",
-	"system.plugin_offline", "system.plugin_online",
+	"system.plugin_offline", "system.plugin_online", "cdn.ips_stale", "cdn.ips_fresh",
 }
 
 // eventType is the dotted type of an event ("user.expired").

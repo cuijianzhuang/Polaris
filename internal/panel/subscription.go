@@ -287,7 +287,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			n.Name = name("CDN")
 			return []sub.Node{n}
 		}
-		ips := p.PreferredIPs.V
+		ips := usableCDNIPs(&p)
 		if p.IPTopN > 0 && len(ips) > p.IPTopN {
 			ips = ips[:p.IPTopN]
 		}

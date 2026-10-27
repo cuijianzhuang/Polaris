@@ -26,8 +26,8 @@ export function NetworkDatabaseSettings() {
 
 type PolicyInfo = { policy: NotificationPolicy; channels: string[]; events: EventCatalog }
 const channelName = (c: string) => ({ telegram: 'Telegram', email: t('邮件'), webhook: 'Webhook' }[c] ?? c)
-const eventName = (e: string) => ({ node_offline: t('节点离线'), node_online: t('节点恢复'), inbound_down: t('入站不可达'), inbound_up: t('入站恢复'), plugin_offline: t('插件离线'), plugin_online: t('插件恢复'), health: t('均衡落地健康变化'), apply_failed: t('配置下发失败'), backup_failed: t('备份失败'), cert_failed: t('证书续期失败'), node_traffic: t('服务器流量告警'), operational_alert: t('运行健康异常'), route_changed: t('回程路径变化') }[e] ?? e)
-const groupName = (id: string, members: string[]) => ({ node_availability: t('节点状态'), inbound_availability: t('入站状态'), plugin_availability: t('插件状态') }[id] ?? eventName(members[0]))
+const eventName = (e: string) => ({ node_offline: t('节点离线'), node_online: t('节点恢复'), inbound_down: t('入站不可达'), inbound_up: t('入站恢复'), plugin_offline: t('插件离线'), plugin_online: t('插件恢复'), health: t('均衡落地健康变化'), apply_failed: t('配置下发失败'), backup_failed: t('备份失败'), cert_failed: t('证书续期失败'), node_traffic: t('服务器流量告警'), operational_alert: t('运行健康异常'), route_changed: t('回程路径变化'), cdn_ips_stale: t('优选 IP 上报中断'), cdn_ips_fresh: t('优选 IP 上报恢复') }[e] ?? e)
+const groupName = (id: string, members: string[]) => ({ node_availability: t('节点状态'), inbound_availability: t('入站状态'), plugin_availability: t('插件状态'), cdn_ips: t('优选 IP 上报') }[id] ?? eventName(members[0]))
 const localDate = (v: string) => { const d = new Date(v); return Number.isNaN(d.getTime()) ? '' : new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
 const absoluteDate = (v: string) => { const d = new Date(v); return v && Number.isFinite(d.getTime()) ? d.toISOString() : '' }
 const toggleItem = (xs: string[], id: string) => xs.includes(id) ? xs.filter((x) => x !== id) : [...xs, id]

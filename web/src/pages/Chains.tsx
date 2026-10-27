@@ -134,6 +134,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
     name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
     ports: (profile?.ports ?? [443, 2053, 2083, 2087, 2096, 8443]).join(', '), preferredIps: toLines(profile?.preferredIps), ipSourceUrl: profile?.ipSourceUrl ?? '',
     ipTopN: String(profile?.ipTopN ?? 0), expandPerIp: profile?.expandPerIp ?? false, autoDns: profile?.autoDns ?? false, caddyFronting: profile?.caddyFronting ?? false, apiToken: '',
+    nodeCheck: profile?.nodeCheck ?? false, staleHours: String(profile?.staleHours || 24),
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -141,7 +142,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !f.name || !f.originDomain} onClick={() => run(async () => {
-        const body = { ...f, ports: f.ports.split(/[,\s]+/).map(Number).filter(Boolean), preferredIps: fromLines(f.preferredIps), ipTopN: Number(f.ipTopN) || 0 }
+        const body = { ...f, ports: f.ports.split(/[,\s]+/).map(Number).filter(Boolean), preferredIps: fromLines(f.preferredIps), ipTopN: Number(f.ipTopN) || 0, staleHours: Number(f.staleHours) || 0 }
         if (profile) await put('/cdn-profiles/' + profile.id, body)
         else await post('/cdn-profiles', body)
         onSaved()
@@ -163,7 +164,9 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
         <Field label={t('优选 IP（手填）')} full><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
         <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
+        <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；告警后继续用原有 IP')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
       </div>
+      <div className="toggle"><span>{t('节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅')}</span><Switch label={t('节点检测')} on={f.nodeCheck} onChange={(v) => set('nodeCheck', v)} /></div>
       <div className="toggle"><span>{t('订阅按优选 IP 展开（一个 IP 一个节点）')}</span><Switch label={t('展开')} on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
       <div className="toggle"><span>{t('自动同步 DNS 记录（开启代理）')}</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
       <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享 443，按路径分流）')}</span><Switch label="Caddy" on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
@@ -193,10 +196,32 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>
           <button className="btn sm" type="button" disabled={busy || !p.ipSourceUrl} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/refresh-ips`); onChanged() }, t('已刷新'))}>{t('刷新')}</button></div>
-        <div className="sub" style={{ marginBottom: 10 }}>{p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? t('订阅取前 {n} 个', { n: p.ipTopN || t('全部') }) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
+        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length ? t('由 {n} 个测速点维护', { n: p.reports.length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? t('订阅取前 {n} 个', { n: p.ipTopN || t('全部') }) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
         <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
-          {p.preferredIps.length ? p.preferredIps.map((ip) => <div key={ip}>{ip}</div>) : t('暂无')}
+          {p.preferredIps.length ? p.preferredIps.map((ip) => {
+            const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
+            return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}</div>
+          }) : t('暂无')}
         </div>
+        {p.nodeCheck && <div className="sub" style={{ marginTop: 8 }}>{p.checkedAt ? t('节点检测：{t}，{n} 个连不上', { t: ago(p.checkedAt), n: (p.badIps ?? []).length }) : t('节点检测：等待第一次检测')}</div>}
+      </section>
+      <section className="card">
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
+        {p.reports.length === 0 ? <div className="sub">{t('还没有测速点上报。用带「上报 CDN 优选 IP」权限的 API 令牌，从用户所在地区的机器调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
+          <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
+            const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
+            const best = r.ips[0]
+            return (
+              <div key={r.source} className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div><b>{r.source}</b> <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
+                  <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{best ? `${best.ip} · ${Math.round(best.latencyMs)} ms${best.loss > 0 ? ` · ${t('丢包')} ${Math.round(best.loss * 100)}%` : ''}` : '—'} <span className="sub">{t('共 {n} 个', { n: r.ips.length })}</span></div>
+                </div>
+                <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await del(`/cdn-profiles/${p.id}/ip-reports/${encodeURIComponent(r.source)}`); onChanged() }, t('已移除'))}>{t('移除')}</button>
+              </div>
+            )
+          })}</div>
+        )}
       </section>
     </>
   )

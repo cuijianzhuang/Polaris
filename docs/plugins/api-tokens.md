@@ -17,6 +17,8 @@
 | `nodes:read` | 节点、节点详情和入站读取 |
 | `traffic:read` | 汇总、用户 / 节点及标签流量统计；`GET /users/:id/traffic-sources` 查询按小时和节点的来源（不含用户凭据） |
 | `settings:read` | 现有设置读取 |
+| `nodes:metrics:write` | 仅 `POST /nodes/:id/metrics`，上报节点外部指标 |
+| `cdn:ips:write` | 仅 `POST /cdn-profiles/:id/preferred-ips`，测速点上报 CDN 优选 IP；不能读取或修改配置档 |
 
 以上范围当前为面板全局范围，不提供按客户或节点隔离的租户权限。只需处理订单的服务，优先申请 `users:renew` 和 / 或 `users:traffic:add`，不授予 `users:write` 或 `users:read`。业务服务应自行保存用户 ID 对应关系。
 
