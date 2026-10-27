@@ -10,8 +10,9 @@ import g9 from './g9'
 import core from './core'
 import operations from './operations'
 import appearance from './appearance'
+import recovery from './recovery'
 
 // English UI strings keyed by the Chinese source text, split by area so
 // files can be edited independently.
-const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8, ...g9, ...operations, ...appearance }
+const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8, ...g9, ...operations, ...appearance, ...recovery }
 export default en

@@ -199,3 +199,4 @@ jobs:
           python web/scripts/probe-refresh-ui-smoke.py
           python web/scripts/appearance-ui-smoke.py
           python web/scripts/settings-workflow-smoke.py
+          python web/scripts/restore-drill-ui-smoke.py
