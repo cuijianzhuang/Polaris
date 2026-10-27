@@ -141,13 +141,13 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []): { data: 
 
 // Refresh interval of live pages, one setting for all of them (0 = off).
 const REFRESH_KEY = 'polaris.refresh'
-export const refreshChoices = [5000, 10000, 15000, 30000, 60000, 0]
-export function useRefresh(def: number): [number, (ms: number) => void] {
+export const refreshChoices = [2000, 5000, 10000, 15000, 30000, 60000, 0]
+export function useRefresh(def: number, key = REFRESH_KEY): [number, (ms: number) => void] {
   const [ms, setMs] = useState(() => {
-    try { const v = Number(localStorage.getItem(REFRESH_KEY)); if (localStorage.getItem(REFRESH_KEY) !== null && refreshChoices.includes(v)) return v } catch { /* storage unavailable */ }
+    try { const v = Number(localStorage.getItem(key)); if (localStorage.getItem(key) !== null && refreshChoices.includes(v)) return v } catch { /* storage unavailable */ }
     return def
   })
-  return [ms, (v) => { setMs(v); try { localStorage.setItem(REFRESH_KEY, String(v)) } catch { /* private mode */ } }]
+  return [ms, (v) => { setMs(v); try { localStorage.setItem(key, String(v)) } catch { /* private mode */ } }]
 }
 
 // RefreshPicker chooses how often a live page reloads; reload now is the button next to it.

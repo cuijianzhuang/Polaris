@@ -39,7 +39,30 @@ func newIPDetector(v4, v6 []string, every time.Duration) *ipDetector {
 	return &ipDetector{v4: v4, v6: v6, every: every}
 }
 
-// Get returns cached addresses, refreshing them when stale.
+// Cached never performs network I/O: a slow echo service must not delay
+// resource telemetry, reconnects or online-IP reports on the heartbeat loop.
+func (d *ipDetector) Cached() (string, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ip4, d.ip6
+}
+
+func (d *ipDetector) Run(ctx context.Context) {
+	t := time.NewTicker(d.every)
+	defer t.Stop()
+	for {
+		refreshCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		d.Get(refreshCtx)
+		cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+// Get refreshes addresses when stale; only the background worker calls it.
 func (d *ipDetector) Get(ctx context.Context) (string, string) {
 	d.mu.Lock()
 	if time.Since(d.at) < d.every {

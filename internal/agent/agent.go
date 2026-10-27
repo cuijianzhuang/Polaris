@@ -50,7 +50,7 @@ type Config struct {
 	// APIPortBase is the first loopback port for core management APIs
 	// (xray = base, sing-box = base+1, hysteria = base+2). Default 10085.
 	APIPortBase int
-	// Intervals (defaults: 5s heartbeat, 10s traffic, 20s online IPs).
+	// Intervals (defaults: 2s heartbeat, 10s traffic, 20s online IPs).
 	Heartbeat time.Duration
 	Traffic   time.Duration
 	OnlineIPs time.Duration
@@ -130,7 +130,7 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 		cfg.APIPortBase = 10085
 	}
 	if cfg.Heartbeat == 0 {
-		cfg.Heartbeat = 5 * time.Second
+		cfg.Heartbeat = 2 * time.Second
 	}
 	if cfg.Traffic == 0 {
 		cfg.Traffic = 10 * time.Second
@@ -188,6 +188,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.serveAuth(ctx)
 	go a.trafficLoop(ctx)
 	go a.reconcileLoop(ctx)
+	if a.ips != nil {
+		go a.ips.Run(ctx)
+	}
 
 	backoff := time.Second
 	for ctx.Err() == nil {
@@ -264,8 +267,6 @@ func (a *Agent) session(ctx context.Context) error {
 	go func() {
 		t := time.NewTicker(a.cfg.Heartbeat)
 		defer t.Stop()
-		ipT := time.NewTicker(a.cfg.OnlineIPs)
-		defer ipT.Stop()
 		revT := time.NewTicker(time.Minute)
 		defer revT.Stop()
 		for {
@@ -277,13 +278,12 @@ func (a *Agent) session(ctx context.Context) error {
 					cancel()
 					return
 				}
-			case <-ipT.C:
-				a.sendOnlineIPs(ctx)
 			case <-revT.C:
 				a.requestRev(0) // safety net: converge even if a push was missed
 			}
 		}
 	}()
+	go a.onlineIPsLoop(ctx)
 	for {
 		msg, err := stream.Receive()
 		if err != nil {
@@ -312,9 +312,7 @@ func (a *Agent) appliedRev() int64 { return a.rev.Load() }
 func (a *Agent) sendHeartbeat() error {
 	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample(), Arch: runtime.GOARCH, TrafficQueue: a.trafficQueueStatus()}
 	if a.ips != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Get(ctx)
-		cancel()
+		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Cached()
 	}
 	for t, m := range a.coreSnapshot() {
 		st := m.adapter.Health(context.Background())
@@ -691,6 +689,21 @@ func (a *Agent) flushTraffic(ctx context.Context) {
 		a.queueMu.Unlock()
 		if !removed {
 			return
+		}
+	}
+}
+
+// Slow per-user core queries must not occupy the resource heartbeat loop.
+// Run them sequentially, so even a slow core cannot spawn overlapping scans.
+func (a *Agent) onlineIPsLoop(ctx context.Context) {
+	t := time.NewTicker(a.cfg.OnlineIPs)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.sendOnlineIPs(ctx)
 		}
 	}
 }

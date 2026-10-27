@@ -44,22 +44,22 @@ const listeners = new Set<(n: number) => void>()
 export function onInflight(fn: (n: number) => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
 function track(d: number) { inflight += d; listeners.forEach((l) => l(inflight)) }
 
-export async function api<T = any>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+export async function api<T = any>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   track(1)
   try {
-    try { return await request<T>(method, path, body, extraHeaders) } catch (e) {
-      if (needsSudo(e) && onSudo && await onSudo()) return await request<T>(method, path, body, extraHeaders)
+    try { return await request<T>(method, path, body, extraHeaders, signal) } catch (e) {
+      if (needsSudo(e) && onSudo && await onSudo()) return await request<T>(method, path, body, extraHeaders, signal)
       throw e
     }
   } finally { track(-1) }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, extraHeaders: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = { ...extraHeaders }
   const tok = getToken()
   if (tok) headers['Authorization'] = 'Bearer ' + tok
   if (body !== undefined) headers['Content-Type'] = body instanceof Blob ? 'application/octet-stream' : 'application/json'
-  const resp = await fetch(API + path, { method, headers, body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body) })
+  const resp = await fetch(API + path, { method, headers, signal, body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body) })
   if (resp.status === 204) return undefined as T
   const text = await resp.text()
   let data: any = undefined
@@ -71,7 +71,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   return data as T
 }
 
-export const get = <T = any>(p: string) => api<T>('GET', p)
+export const get = <T = any>(p: string, signal?: AbortSignal) => api<T>('GET', p, undefined, {}, signal)
 export const post = <T = any>(p: string, b?: unknown) => api<T>('POST', p, b ?? {})
 export const put = <T = any>(p: string, b?: unknown) => api<T>('PUT', p, b ?? {})
 export const del = <T = any>(p: string, b?: unknown) => api<T>('DELETE', p, b)
