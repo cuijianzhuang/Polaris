@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { api, del, get, post, put } from '../api'
+import { api, API, del, get, post, put } from '../api'
 import { useNodes } from '../App'
-import { Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
+import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t } from '../i18n'
 import GeoPicker from '../components/GeoPicker'
@@ -207,21 +207,22 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.reports.length === 0 ? <div className="sub">{t('还没有测速点上报。用带「上报 CDN 优选 IP」权限的 API 令牌，从用户所在地区的机器调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
+        {p.reports.length === 0 ? <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方命令），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
             const best = r.ips[0]
             return (
-              <div key={r.source} className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+              <div key={r.source} className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
                 <div style={{ minWidth: 0 }}>
                   <div><b>{r.source}</b> <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
-                  <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{best ? `${best.ip} · ${Math.round(best.latencyMs)} ms${best.loss > 0 ? ` · ${t('丢包')} ${Math.round(best.loss * 100)}%` : ''}` : '—'} <span className="sub">{t('共 {n} 个', { n: r.ips.length })}</span></div>
+                  <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{best ? `${best.ip}${best.colo ? ` · ${best.colo}` : ''} · ${Math.round(best.latencyMs)} ms${best.speed ? ` · ${best.speed.toFixed(1)} MB/s` : ''}${best.loss > 0 ? ` · ${t('丢包')} ${Math.round(best.loss * 100)}%` : ''}` : '—'} <span className="sub">{t('共 {n} 个', { n: r.ips.length })}</span></div>
                 </div>
                 <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await del(`/cdn-profiles/${p.id}/ip-reports/${encodeURIComponent(r.source)}`); onChanged() }, t('已移除'))}>{t('移除')}</button>
               </div>
             )
           })}</div>
         )}
+        <ProbeInstall profile={p} />
       </section>
     </>
   )
@@ -650,5 +651,19 @@ export default function Chains() {
       {chainDrawer && <ChainDrawer chain={chainDrawer === 'new' ? undefined : chainDrawer} nodes={nodes} inbounds={inbounds.data ?? []} onClose={() => setChainDrawer(null)} onSaved={() => { setChainDrawer(null); chains.reload() }} />}
       {cdnDrawer && <CDNDrawer profile={cdnDrawer === 'new' ? undefined : cdnDrawer} onClose={() => setCdnDrawer(null)} onSaved={() => { setCdnDrawer(null); cdn.reload() }} />}
     </>
+  )
+}
+
+// ProbeInstall shows the one-line installer for a cf-ip-probe speed-test
+// point; the admin fills in a cdn:ips:write token and the point's name.
+function ProbeInstall({ profile: p }: { profile: CDNProfile }) {
+  const apiUrl = new URL(API, window.location.href).href
+  const cmd = `curl -fsSL https://github.com/cuijianzhuang/polaris-plugins/releases/latest/download/install.sh | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}>`
+  return (
+    <details style={{ marginTop: 10 }}>
+      <summary className="sub" style={{ cursor: 'pointer' }}>{t('添加测速点（一键安装 cf-ip-probe）')}</summary>
+      <div className="sub" style={{ margin: '8px 0' }}>{t('在用户所在地区的 Linux 机器（国内 VPS、树莓派、OpenWrt 路由器）上以 root 运行。令牌在「扩展 → API 令牌」创建，只勾「上报 CDN 优选 IP」；测速点名称例如「上海电信」。OpenWrt 上去掉 sudo。')}</div>
+      <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><code className="small" style={{ flex: 1, wordBreak: 'break-all' }}>{cmd}</code><button className="btn sm" type="button" onClick={() => copyText(cmd)}>{t('复制')}</button></div>
+    </details>
   )
 }

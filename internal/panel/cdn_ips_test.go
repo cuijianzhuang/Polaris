@@ -53,7 +53,19 @@ func TestCDNIPReports(t *testing.T) {
 		t.Fatalf("ranking = %+v", r.IPs.V)
 	}
 
+	// A download test ranks ahead of latency (same loss); colo is upper-cased.
+	if code, _ := probe.do("POST", "/cdn-profiles/cf/preferred-ips", map[string]any{"source": "上海电信", "ips": []map[string]any{
+		{"ip": "104.16.9.7", "latencyMs": 30, "speed": 2.5, "colo": "sjc"}, {"ip": "104.16.9.6", "latencyMs": 80, "speed": 18.2, "colo": "HKG"}}}); code != 200 {
+		t.Fatal(code)
+	}
+	s.st.DB.First(&r, "profile_id = ? AND source = ?", "cf", "上海电信")
+	if len(r.IPs.V) != 2 || r.IPs.V[0].IP != "104.16.9.6" || r.IPs.V[1].Colo != "SJC" || r.IPs.V[0].Speed != 18.2 {
+		t.Fatalf("speed ranking = %+v", r.IPs.V)
+	}
+
 	for name, body := range map[string]map[string]any{
+		"bad speed":   {"source": "x1", "ips": []map[string]any{{"ip": "104.16.0.9", "speed": -1}}},
+		"bad colo":    {"source": "x1", "ips": []map[string]any{{"ip": "104.16.0.9", "colo": "<b>"}}},
 		"private":     {"source": "x1", "ips": []map[string]any{{"ip": "192.168.1.1"}}},
 		"not an ip":   {"source": "x1", "ips": []map[string]any{{"ip": "cf.example"}}},
 		"no source":   {"source": "", "ips": []map[string]any{{"ip": "104.16.0.9"}}},
