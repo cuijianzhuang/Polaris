@@ -3,16 +3,82 @@ package panel
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
 )
+
+func TestProbePublicRefreshSharesLatestHeartbeat(t *testing.T) {
+	s, srv, _ := newAdminClient(t)
+	if err := s.st.SetSetting("status_page", "true"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Create(&store.Node{ID: "live", Name: "live", Status: "online"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	client := &apiClient{t: t, base: srv.URL}
+	if code, _ := client.do("GET", "/status/data", nil); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	sn := s.statusCache.Load()
+	// A snapshot younger than the former 10-second TTL must no longer hide
+	// a new heartbeat. Age it without sleeping through the actual interval.
+	s.statusCache.Store(&statusSnap{at: time.Now().Add(-1500 * time.Millisecond), body: sn.body})
+	s.handleHeartbeat("live", &polarisv1.Heartbeat{System: &polarisv1.SystemStats{CpuPercent: 83, MemPercent: 42, RxBps: 123456}})
+	start := make(chan struct{})
+	results := make(chan string, 12)
+	failures := make(chan error, 12)
+	var wg sync.WaitGroup
+	for range 12 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			resp, err := http.Get(srv.URL + "/status/data")
+			if err != nil {
+				failures <- err
+				return
+			}
+			defer resp.Body.Close()
+			var out struct {
+				At    string      `json:"at"`
+				Nodes []probeNode `json:"nodes"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+				failures <- err
+				return
+			}
+			if resp.StatusCode != http.StatusOK || resp.Header.Get("Cache-Control") != "no-store" || len(out.Nodes) != 1 || out.Nodes[0].CPU != 83 || out.Nodes[0].RxBps != 123456 {
+				failures <- fmt.Errorf("new heartbeat hidden by cache: status=%d %+v", resp.StatusCode, out)
+				return
+			}
+			results <- out.At
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(failures)
+	for err := range failures {
+		t.Error(err)
+	}
+	at := ""
+	for value := range results {
+		if at != "" && value != at {
+			t.Error("concurrent public viewers rebuilt separate snapshots")
+		}
+		at = value
+	}
+}
 
 func TestProbeMonitorSamplingDistinguishesFailureAndMissing(t *testing.T) {
 	s := newTestServer(t)

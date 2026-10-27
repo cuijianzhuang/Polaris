@@ -1,9 +1,11 @@
 import { memo, useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
+import { useNodes } from '../App'
+import { useProbeFeed } from '../useProbeFeed'
 import { Lines } from '../components/Charts'
 import ProbePresetPicker from '../components/ProbePresetPicker'
 import { probePresets, type ProbePreset } from '../probeTargets'
-import { CopyBox, Drawer, Empty, Field, Modal, RefreshPicker, Switch, useAction, useConfirm, useLoad, usePoll, useRefresh } from '../components/ui'
+import { CopyBox, Drawer, Empty, Field, Modal, RefreshPicker, Switch, useAction, useConfirm, useLoad, useRefresh } from '../components/ui'
 import { bps, datetime, flag, uptime } from '../format'
 import { t } from '../i18n'
 import { alignedTimes, filterProbeNodes, freshTelemetry, latencyStats, validView } from '../probeMonitor'
@@ -11,7 +13,7 @@ import type { ProbeNode, ProbeTarget, ProbeView, ProbeFilter, ProbeSort, Latency
 import { NodeBadges, NodeProbeCard, ProbeSummary, ProbeTable, ProbeBadge, useProbeClock, colorOf } from '../components/ProbeMonitor'
 
 // Server probe: node state and carrier latency (TCP connect time to China
-// Telecom / Unicom / Mobile endpoints, every 30 seconds).
+// Telecom / Unicom / Mobile endpoints, every 10 seconds).
 
 type PNode = ProbeNode
 type TargetView = ProbeTarget
@@ -25,8 +27,7 @@ type Pt = LatencyPoint
 
 export function LatencyChart({ nodeId }: { nodeId: string }) {
   const [hours, setHours] = useState(24)
-  const data = useLoad(() => get<{ points: Pt[]; targets: Target[] }>(`/nodes/${nodeId}/latency?hours=${hours}`), [nodeId, hours])
-  usePoll(data.reload, 60000)
+  const data = useProbeFeed<{ points: Pt[]; targets: Target[] }>(`/nodes/${nodeId}/latency?hours=${hours}`, 10000)
   const pts = data.data?.points ?? []
   const targets = (data.data?.targets ?? []).filter((tg) => pts.some((p) => p.target === tg.id))
   const times = alignedTimes(pts.map((p) => p.t))
@@ -45,7 +46,7 @@ export function LatencyChart({ nodeId }: { nodeId: string }) {
         <span>{t('网络延迟')}</span>
         <span className="seg-mini">{ranges.map((r) => <button key={r.h} type="button" className={hours === r.h ? 'on' : ''} onClick={() => setHours(r.h)}>{r.label}</button>)}</span>
       </div>
-      {times.length < 2 ? <div className="sub" style={{ marginTop: 10 }}>{t('数据还不够：节点在线后每 30 秒测一次，每 5 分钟记录一个点')}</div> : <>
+      {times.length < 2 ? <div className="sub" style={{ marginTop: 10 }}>{t('数据还不够：节点在线后每 10 秒测一次，每 5 分钟记录一个点')}</div> : <>
         <div className="small mute" style={{ marginTop: 10 }}>
           {series.map(({ tg }) => <span key={tg.id} className="legend" style={{ marginRight: 12 }}><i style={{ background: colorOf(tg.carrier) }} />{tg.name}</span>)}
         </div>
@@ -68,8 +69,7 @@ export function LatencyChart({ nodeId }: { nodeId: string }) {
 
 const ResourceHistory = memo(function ResourceHistory({ nodeId }: { nodeId: string }) {
   const [hours, setHours] = useState(24)
-  const data = useLoad(() => get<{ points: { t: string; cpu: number; mem: number; rx: number; tx: number }[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`), [nodeId, hours])
-  usePoll(data.reload, 60000)
+  const data = useProbeFeed<{ points: { t: string; cpu: number; mem: number; rx: number; tx: number }[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`, 5000)
   const points = data.data?.points ?? []
   const times = alignedTimes(points.map((p) => p.t))
   const byTime = new Map(points.map((p) => [Date.parse(p.t), p]))
@@ -168,7 +168,7 @@ function Targets({ nodes, onClose, onChanged }: { nodes: PNode[]; onClose: () =>
       <button className="btn" type="button" onClick={onClose}>{t('关闭')}</button>
       <button className="btn pri" type="button" onClick={() => setEdit(null)}>+ {t('添加目标')}</button>
     </>}>
-      <div className="sub" style={{ margin: 0 }}>{t('每个在线节点每 30 秒对每个启用的目标做一次 TCP 连接，记录耗时和是否失败；按 5 分钟汇总，保留 7 天。')}</div>
+      <div className="sub" style={{ margin: 0 }}>{t('每个在线节点每 10 秒对每个启用的目标做一次 TCP 连接，记录耗时和是否失败；按 5 分钟汇总，保留 7 天。')}</div>
       {(list.data ?? []).length === 0 ? <Empty>{list.loading ? t('加载中…') : t('还没有探测目标')}</Empty> : (
         <div className="scroll"><table>
           <thead><tr><th>{t('名称')}</th><th>{t('地址')}</th><th>{t('状态')}</th><th></th></tr></thead>
@@ -203,7 +203,7 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
       <button className="btn pri" type="button" disabled={busy || !v} onClick={() => run(async () => { await put('/settings', v); onSaved() }, t('已保存'))}>{t('保存')}</button>
     </>}>
       {!v ? <div className="mute">{t('加载中…')}</div> : <>
-        <Field label={t('延迟探测')}><label className="row small"><Switch label={t('延迟探测')} on={v.probe_enabled === 'true'} onChange={(x) => set('probe_enabled', String(x))} />{t('每 30 秒从各节点测一次延迟')}</label></Field>
+        <Field label={t('延迟探测')}><label className="row small"><Switch label={t('延迟探测')} on={v.probe_enabled === 'true'} onChange={(x) => set('probe_enabled', String(x))} />{t('每 10 秒从各节点测一次延迟')}</label></Field>
         <Field label={t('公开状态页')} hint={t('任何人打开都能看到节点在线状态、资源占用和三网延迟；不显示 IP、域名和 Agent 版本，可在节点详情里单独隐藏节点')}>
           <label className="row small"><Switch label={t('公开状态页')} on={v.status_page === 'true'} onChange={(x) => set('status_page', String(x))} />{t('开启')} <span className="mono">{url}</span></label>
         </Field>
@@ -218,9 +218,9 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
 }
 
 export default function Probe() {
-  const data = useLoad(() => get<Overview>('/probe'))
-  const [refresh, setRefresh] = useRefresh(15000)
-  usePoll(data.reload, refresh)
+  const [refresh, setRefresh] = useRefresh(2000, 'polaris.probe.refresh')
+  const { nodes: liveNodes } = useNodes()
+  const data = useProbeFeed<Overview>('/probe', refresh, liveNodes)
   const [open, setOpen] = useState<string | null>(null)
   const [targets, setTargets] = useState(false)
   const [settings, setSettings] = useState(false)

@@ -16,6 +16,8 @@ import (
 
 const statusPath = "/status"
 
+const statusCacheTTL = time.Second
+
 type statusSnap struct {
 	at   time.Time
 	body []byte
@@ -40,28 +42,46 @@ func (s *Server) statusTitle() string {
 	return s.st.GetSetting("site_title", "Polaris") + " · 服务器状态"
 }
 
-// statusData: GET /status/data, cached for 10 seconds.
+// statusData: GET /status/data. Share one short-lived snapshot across viewers.
 func (s *Server) statusData(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
-	if sn := s.statusCache.Load(); sn != nil && time.Since(sn.at) < 10*time.Second {
-		c.Data(http.StatusOK, "application/json; charset=utf-8", sn.body)
+	body, status := s.statusSnapshot()
+	if status == http.StatusServiceUnavailable {
+		c.JSON(status, gin.H{"error": "暂时无法读取节点状态"})
 		return
 	}
+	if status != http.StatusOK {
+		c.Status(status)
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
+}
+
+func (s *Server) statusSnapshot() ([]byte, int) {
+	if sn := s.statusCache.Load(); sn != nil && time.Since(sn.at) < statusCacheTTL {
+		return sn.body, http.StatusOK
+	}
+	// A mutex coalesces cold/expired cache requests instead of making each
+	// public viewer repeat the fleet's history queries at the faster cadence.
+	// Release it before writing to any viewer's potentially slow connection.
+	s.statusBuildMu.Lock()
+	defer s.statusBuildMu.Unlock()
+	if sn := s.statusCache.Load(); sn != nil && time.Since(sn.at) < statusCacheTTL {
+		return sn.body, http.StatusOK
+	}
+	started := time.Now()
 	out := s.probeOverview(true)
 	if out == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "暂时无法读取节点状态"})
-		return
+		return nil, http.StatusServiceUnavailable
 	}
 	out["title"] = s.statusTitle()
 	out["note"] = s.st.GetSetting("status_note", "")
 	body, err := json.Marshal(out)
 	if err != nil {
-		c.Status(http.StatusInternalServerError)
-		return
+		return nil, http.StatusInternalServerError
 	}
-	s.statusCache.Store(&statusSnap{at: time.Now(), body: body})
-	c.Header("Cache-Control", "no-store")
-	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
+	s.statusCache.Store(&statusSnap{at: started, body: body})
+	return body, http.StatusOK
 }
 
 // statusPageHTML: GET /status.
@@ -89,7 +109,7 @@ main.pv-monitor{padding:34px 24px 48px}
 ` + statusCSS + `
 @media(prefers-color-scheme:dark){body.public-status{background:#0b1018;background-image:radial-gradient(ellipse at 12% 0,rgba(57,210,192,.035),transparent 55%)}.public-status .pv{--pv-card:#131b27;--pv-card-2:#182230;--pv-line:#253144;--pv-ink:#d3dae3;--pv-mute:#91a0b6;--pv-track:#222f41;--pv-green:#37d4ad;--pv-blue:#75aaff;--pv-yellow:#ffb870;--pv-red:#fb8491;--pv-cyan:#56d3ce;--pv-purple:#b392f0;--pv-glow:0 4px 18px -14px #000}}
 </style></head><body class="public-status"><main class="pv pv-monitor">
-<header class="pv-dashboard-head"><div><div class="pv-eyebrow">POLARIS / SERVER MONITOR</div><h1>{{.Title}}</h1><div class="pv-subtitle">资源状态与网络质量 <span class="pv-live"><i></i><span id="at">等待更新</span></span></div></div><span class="pv-count">每 15 秒更新</span></header>
+<header class="pv-dashboard-head"><div><div class="pv-eyebrow">POLARIS / SERVER MONITOR</div><h1>{{.Title}}</h1><div class="pv-subtitle">资源状态与网络质量 <span class="pv-live"><i></i><span id="at">等待更新</span></span></div></div><span class="pv-count">每 2 秒更新</span></header>
 <div id="note" class="note" hidden></div><div id="error" class="note" role="alert" hidden><span id="error-message"></span><button type="button" id="retry" class="pv-link">重试</button></div><div id="probe-disabled" class="note" hidden>延迟探测已关闭</div>
 <div id="sum"></div>
 <div class="pv-toolbar"><div class="pv-toolbar-top"><input id="search" class="pv-search" type="search" placeholder="搜索名称、地区或系统" aria-label="搜索节点"><div class="pv-toolbar-controls"><select id="sort" aria-label="节点排序"><option value="default">默认排序</option><option value="name">按名称</option><option value="cpu">CPU 从高到低</option><option value="network">网速从高到低</option><option value="latency">延迟从低到高</option><option value="expiry">到期时间从近到远</option></select><div class="pv-seg" aria-label="展示方式"><button type="button" id="v-card">条形</button><button type="button" id="v-ring">环形</button><button type="button" id="v-table">表格</button></div></div></div><div class="pv-toolbar-bottom"><div class="pv-chips" id="chips"></div><div class="pv-seg" aria-label="节点状态筛选"><button data-state="all">全部</button><button data-state="online">在线</button><button data-state="offline">离线</button><button data-state="attention">需关注</button></div><span class="pv-count" id="count"></span></div></div>

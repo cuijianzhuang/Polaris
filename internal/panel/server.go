@@ -57,6 +57,7 @@ type Server struct {
 	hbMu           sync.Mutex
 	probeBusy      atomic.Bool                         // a probe round is running
 	statusCache    atomic.Pointer[statusSnap]          // public status page data
+	statusBuildMu  sync.Mutex                          // coalesce concurrent status rebuilds
 	restartHook    func()                              // tests: replaces the re-exec after a restore
 	hbCores        map[string]hbCoreState              // last core state written per node
 	progress       map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
@@ -436,7 +437,7 @@ func (s *Server) startJobs() func() {
 	add("0 13 9 * * *", "server-renewals", s.costRenewals)
 	add("30 */15 * * * *", "providers", s.syncProviders)
 	add("0 41 5 * * *", "ticket-autoclose", s.autoCloseTickets)
-	add("*/30 * * * * *", "latency-probes", s.runLatencyProbes)
+	add("*/10 * * * * *", "latency-probes", s.runLatencyProbes)
 	add("*/30 * * * * *", "route-traces", s.runScheduledRouteTraces)
 	if s.isLeader() {
 		go s.backfillDaily()

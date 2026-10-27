@@ -20,7 +20,7 @@ import (
 )
 
 // Server probe: every node measures the TCP connect time to a few targets
-// (by default one China Telecom, Unicom and Mobile endpoint) every 30
+// (by default one China Telecom, Unicom and Mobile endpoint) every 10
 // seconds, through the agent's existing "probe" command, so older agents
 // take part too. Results are folded into 5-minute slots and kept 7 days.
 
@@ -69,7 +69,8 @@ func (s *Server) latencyTargets(enabledOnly bool) []store.ProbeTarget {
 	return nonNil(ts)
 }
 
-// runProbes is the 30-second job (leader).
+// runProbes is the 10-second job (leader). Slow rounds may span several ticks;
+// the busy guard and deadline keep those rounds from overlapping.
 func (s *Server) runLatencyProbes() {
 	if !s.probeEnabled() || !s.probeBusy.CompareAndSwap(false, true) {
 		return

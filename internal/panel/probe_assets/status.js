@@ -156,7 +156,7 @@
   }
   $('retry').onclick = load;
   document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
-  load(); setInterval(load, 15000);
+  load(); setInterval(load, 2000);
   // Only redraw between refreshes when telemetry actually changes freshness.
   let freshness = '';
   setInterval(() => { if (last && !document.hidden) { const value = last.nodes.map((n) => String(fresh(n)) + targets(n).map((tg) => String(!!liveLatency((n.latency || {})[tg.id]))).join('')).join('|'); if (value !== freshness) { freshness = value; draw(); } } }, 5000);
