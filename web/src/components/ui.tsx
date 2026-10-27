@@ -208,16 +208,17 @@ function useClosing(onClose: () => void): [boolean, () => void] {
 // Escape closes only the topmost drawer / modal (a scanner opened from the
 // inbound drawer must not take the drawer and its unsaved form with it).
 const escStack: { current: () => void }[] = []
-function useEscape(onClose: () => void) {
+export function useEscape(onClose: () => void, enabled = true) {
   const ref = useRef(onClose)
   ref.current = onClose
   useEffect(() => {
+    if (!enabled) return
     const entry = ref
     escStack.push(entry)
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape' && escStack[escStack.length - 1] === entry) entry.current() }
     window.addEventListener('keydown', h)
     return () => { window.removeEventListener('keydown', h); escStack.splice(escStack.indexOf(entry), 1) }
-  }, [])
+  }, [enabled])
 }
 
 export function Drawer({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {

@@ -16,7 +16,7 @@ node=dict(id='n1',name='Hong Kong',region='HK',labels=[],cores=[dict(id='c1',nod
 ib=dict(id='i1',nodeId='n1',nodeName='Hong Kong',tag='reality',core='xray',port=443,listen='::',protocol=dict(type='vless',flow='xtls-rprx-vision'),transport=dict(type='tcp'),security=dict(type='reality',realityDest='www.example.com:443'),sniffing=dict(enabled=True),enabled=True,userCount=1,endpoints=1,network='tcp',groupIds=[],outboundTag='',speedLimitMbps=0,remark='',outboundIPStrategy='prefer_ipv6',relayOnly=True,relayAccess=dict(enabled=False,proxyProtocol=0))
 caps=[dict(core='xray',version='26.5.9',combos=[dict(protocol='vless',transport='tcp',security='reality')],features=[],hotUsers=True)]
 trace=dict(id=20,family='ipv4',target='1.1.1.1',source='manual',state='completed',startedAt=now,result=dict(state='reached',raw='RAW fixture traceroute\n1 1.1.1.1',hops=[dict(ttl=1,addresses=['1.1.1.1'],asn=[dict(ip='1.1.1.1',state='matched',asn=13335,organization='Cloudflare')])],asn=dict(state='ready',databaseSha256='a'*64,databaseType='GeoLite2-ASN',buildEpoch=1)),comparison=dict(state='baseline',changedTtls=[]))
-relay=dict(id='r1',name='HK relay',remark='',disabled=False,batchId='b1',mode='l4',hops=[dict(nodeId='n2',port=20443),dict(nodeId='n1',inboundId='i1')],address='203.0.113.2',port=20443,shareName='',shareAddress='',sharePort=0,state='applied',nodes=[dict(nodeId='n2',name='Tokyo',state='applied',desiredRev=1,appliedRev=1)])
+relay=dict(businessDiagnostic=dict(supported=True,requiresRestart=False),id='r1',name='HK relay',remark='',disabled=False,batchId='b1',mode='l4',hops=[dict(nodeId='n2',port=20443),dict(nodeId='n1',inboundId='i1')],address='203.0.113.2',port=20443,shareName='',shareAddress='',sharePort=0,state='applied',nodes=[dict(nodeId='n2',name='Tokyo',state='applied',desiredRev=1,appliedRev=1)])
 port=dict(nodeId='n2',port=20443,network='tcp',public=True,engine='realm')
 impact=dict(action='disable',etag='"'+'d'*64+'"',blocked=False,chainIds=['r1'],changedPaths=1,remainingRelayPaths=1,remainingEnabledRelayPaths=0,nodes=[dict(id='n2',name='Tokyo',status='online',otherPaths=0)],ports=[port],references=[],warnings=[],endpointIds=['e1'],outboundIds=[],routingRuleIds=[],serviceUserIds=[])
 operational=dict(available=True,checkedAt=now,issueCount=1,truncated=False,relayBusiness=dict(total=1,passed=0,failed=0,untested=1,stale=0,running=0,interrupted=0,unavailable=0,inactive=0),sampling=dict(healthy=1,stale=0,never=1,inactive=0,pending=0,legacy=0),delivery=dict(paymentPending=0,paymentReview=1,refundPending=0,clusterPending=0),issues=[dict(kind='payment',resourceId='payment-1',label='Review fixture',state='review',code='payment_review')])
@@ -99,6 +99,13 @@ def open_page(browser,path,width=1440):
 
 def no_overflow(page): assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth+1')
 
+def route_changed_control(page):
+ page.get_by_text('按事件自定义',exact=True).click()
+ group=page.locator('.notification-details > .ops-summary').filter(has=page.get_by_role('combobox',name='回程路径变化',exact=True))
+ group.get_by_text('细分渠道',exact=True).click()
+ return page.get_by_role('combobox',name='回程路径变化 · Telegram',exact=True)
+
+
 with sync_playwright() as p:
  browser=p.chromium.launch(executable_path=CHROMIUM,headless=True,args=['--no-sandbox','--disable-dev-shm-usage'])
  for width in [390,1440]:
@@ -120,10 +127,10 @@ with sync_playwright() as p:
   print(width,'probe policy, schedule, manual trace, ASN history and pagination OK',flush=True)
 
   page,f,errors=open_page(browser,'/settings#notifications',width)
-  expect(page.get_by_role('switch',name='回程路径变化 · Telegram',exact=True)).to_have_attribute('aria-checked','false')
-  page.get_by_role('switch',name='回程路径变化 · Telegram',exact=True).click()
+  control=route_changed_control(page); expect(control).to_have_value('off'); control.select_option('all')
+  page.get_by_text('告警合并与维护静默',exact=True).click()
   page.get_by_role('button',name='添加维护窗口',exact=True).click()
-  page.get_by_role('button',name='保存通知策略',exact=True).click(); expect(page.get_by_role('button',name='保存通知策略',exact=True)).to_be_enabled()
+  page.get_by_role('button',name='保存通知策略',exact=True).first.click(); expect(page.get_by_text('设置已保存',exact=True)).to_be_visible()
   saved=f.last('/notifications/policy')[2]; assert saved['channels']['telegram']['route_changed'] is True
   assert saved['channels'].get('email',{}).get('route_changed') is None
   assert saved['maintenance'][0]['startsAt'].endswith('Z'); assert saved['maintenance'][0]['nodeIds']==[]
@@ -190,9 +197,9 @@ with sync_playwright() as p:
  page,f,errors=open_page(browser,'/settings#notifications',390)
  f.notification['policy']['channels']=None
  f.notification['policy']['maintenance']=[dict(id='api-created',nodeIds=None,channels=None,startsAt=now,endsAt=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())]
- page.get_by_role('button',name='重新加载',exact=True).click(); expect(page.get_by_role('button',name='保存通知策略',exact=True)).to_be_enabled()
- expect(page.get_by_role('switch',name='回程路径变化 · Telegram',exact=True)).to_have_attribute('aria-checked','false')
- page.get_by_role('button',name='保存通知策略',exact=True).click(); expect(page.get_by_role('button',name='保存通知策略',exact=True)).to_be_enabled()
+ page.get_by_role('button',name='重新加载',exact=True).click(); expect(page.get_by_role('button',name='保存通知策略',exact=True).first).to_be_disabled()
+ control=route_changed_control(page); expect(control).to_have_value('off'); control.select_option('all')
+ page.get_by_role('button',name='保存通知策略',exact=True).first.click(); expect(page.get_by_text('设置已保存',exact=True)).to_be_visible()
  assert f.last('/notifications/policy')[2]['maintenance'][0]['channels']==[]; assert f.last('/notifications/policy')[2]['maintenance'][0]['nodeIds']==[]
  assert not errors,errors; page.close(); print('API-created null channel and maintenance scopes render and round-trip OK',flush=True)
 

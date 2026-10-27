@@ -1,7 +1,7 @@
 import Passkeys from '../components/Passkeys'
 import { NotificationSettings, NetworkDatabaseSettings } from '../components/NetworkSettings'
 import { ProTag, useFeature } from '../components/License'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
@@ -10,6 +10,7 @@ import { logoURL, refreshBrand, useBrand } from '../brand'
 import { CopyBox, Empty, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { bytes, datetime } from '../format'
 import { t } from '../i18n'
+import ThemePreview from '../components/ThemePreview'
 
 // DefaultVersion picks the version new nodes install: "latest" follows the
 // newest stable release, or pin one of the five most recent ones.
@@ -273,10 +274,29 @@ function Appearance() {
   const themesOK = useFeature('themes')
   const modes: { id: ThemeMode; label: string }[] = [{ id: 'light', label: t('浅色') }, { id: 'dark', label: t('深色') }, { id: 'system', label: t('跟随系统') }]
   const special = th.style !== 'default' && themesOK
+  const shownMode = special ? 'dark' : th.mode
   return (
     <>
-      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <h2>{t('外观')}</h2>
+      <section className="card appearance">
+        <div className="appearance-heading"><div><h2>{t('外观')}</h2><p>{t('让界面适合你的工作习惯。')}</p></div><span className="appearance-local">{t('仅保存在当前浏览器')}</span></div>
+        <div className="appearance-layout">
+          <div className="appearance-controls">
+            <Field label={t('主题模式')} hint={special ? t('当前专属主题固定使用深色及专属配色，切回默认主题后可调整。') : t('跟随系统会自动匹配设备的明暗模式。')}>
+              <div className="seg c3 fixed">
+                {modes.map((m) => <button key={m.id} type="button" disabled={special} className={'opt' + (shownMode === m.id ? ' on' : '')} aria-pressed={shownMode === m.id} onClick={() => setT({ ...th, mode: m.id })}>{m.label}</button>)}
+              </div>
+            </Field>
+            <Field label={t('主题色')}>
+              <div className="swatches">
+                {accents.map((a) => <button key={a.id} type="button" disabled={special} className={'accent-swatch' + (!special && th.accent === a.id ? ' on' : '')}
+                  title={a.label} aria-label={t('主题色：{name}', { name: a.label })} aria-pressed={!special && th.accent === a.id} onClick={() => setT({ ...th, accent: a.id })}>
+                  <i style={{ background: a.color }} aria-hidden="true" /><span>{a.label}</span><span className="accent-selected" aria-hidden="true">{!special && th.accent === a.id ? '✓' : ''}</span>
+                </button>)}
+              </div>
+            </Field>
+          </div>
+          <ThemePreview />
+        </div>
         <Field label={<>{t('专属主题')}<ProTag on={themesOK} /></>} hint={t('专属主题自带配色，选中后主题模式和主题色不再生效；仅保存在当前浏览器')}>
           <div className="style-cards">
             {styles.map((x) => {
@@ -290,17 +310,6 @@ function Appearance() {
                 </button>
               )
             })}
-          </div>
-        </Field>
-        <Field label={t('主题模式')} hint={t('仅保存在当前浏览器')}>
-          <div className="seg c3 fixed">
-            {modes.map((m) => <button key={m.id} type="button" disabled={special} className={'opt' + (th.mode === m.id ? ' on' : '')} aria-pressed={th.mode === m.id} onClick={() => setT({ ...th, mode: m.id })}>{m.label}</button>)}
-          </div>
-        </Field>
-        <Field label={t('主题色')}>
-          <div className="swatches">
-            {accents.map((a) => <button key={a.id} type="button" disabled={special} className={'accent-swatch' + (th.accent === a.id ? ' on' : '')} style={{ background: a.color }}
-              title={a.label} aria-label={t('主题色：{name}', { name: a.label })} aria-pressed={th.accent === a.id} onClick={() => setT({ ...th, accent: a.id })} />)}
           </div>
         </Field>
       </section>
@@ -619,22 +628,15 @@ export default function Settings() {
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const [tab, setTab] = useState<string>(() => settingTabs.some((t) => '#' + t.id === location.hash) ? location.hash.slice(1) : 'general')
   const go = (id: string) => { setTab(id); history.replaceState(null, '', '#' + id) }
-  const settingsNav = useRef<HTMLElement>(null)
-  useEffect(() => {
-    const nav = settingsNav.current
-    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]')
-    if (nav && active && nav.scrollWidth > nav.clientWidth) {
-      nav.scrollTo({ left: nav.scrollLeft + active.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - active.clientWidth) / 2 })
-    }
-  }, [tab])
 
 
   return (
     <>
       <div className="top"><div><h1>{t('设置')}</h1><div className="sub">{t('面板、证书、账号安全、备份与外观')}</div></div></div>
       <div className="settings">
-        <nav ref={settingsNav} className="snav" aria-label={t('设置分区')}>
-          {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
+        <div className="settings-mobile-nav"><label htmlFor="settings-section">{t('设置分区')}</label><select id="settings-section" className="input" value={tab} onChange={(e) => go(e.target.value)}>{settingTabs.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></div>
+        <nav className="snav" aria-label={t('设置分区')}>
+          {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} title={t.hint} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
         </nav>
         <div className="spane" key={tab}>
         {tab === 'network' && <NetworkDatabaseSettings />}

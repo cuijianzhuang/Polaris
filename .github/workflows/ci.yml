@@ -190,10 +190,11 @@ jobs:
         run: |
           export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           go test -count=1 -v ./internal/panel -run '^TestLivePasskeyBrowser$'
-      - name: Probe refresh, slow responses and timeout recovery in Chromium
+      - name: Probe refresh and console appearance in Chromium
         run: |
           npm --prefix web run dev -- --host 127.0.0.1 --port 5187 > /tmp/probe-vite.log 2>&1 &
           probe_server_pid=$!
           trap 'kill "$probe_server_pid"' EXIT
           curl --retry 20 --retry-connrefused --retry-delay 1 -fsS http://127.0.0.1:5187/ > /dev/null
           python web/scripts/probe-refresh-ui-smoke.py
+          python web/scripts/appearance-ui-smoke.py

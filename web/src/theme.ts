@@ -21,14 +21,14 @@ export const accents: { id: string; label: string; color: string }[] = [
   { id: 'green', label: t('松绿'), color: '#15803D' },
   { id: 'rose', label: t('玫红'), color: '#E11D48' },
   { id: 'orange', label: t('橙'), color: '#C2410C' },
-  { id: 'slate', label: t('石墨'), color: '#475569' },
+  { id: 'slate', label: t('石墨'), color: '#27272A' },
 ]
 
 const KEY = 'polaris.theme'
 const media = () => window.matchMedia?.('(prefers-color-scheme: dark)')
 
 export function loadTheme(): Theme {
-  const t: Theme = { mode: 'light', accent: 'teal', style: 'default' }
+  const t: Theme = { mode: 'light', accent: 'slate', style: 'default' }
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || '{}')
     if (v.mode === 'light' || v.mode === 'dark' || v.mode === 'system') t.mode = v.mode

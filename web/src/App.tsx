@@ -246,6 +246,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
     : items.flatMap((n) => n.children ?? [n]).map((n) => ({ id: 'p' + n.to, label: n.label, icon: n.icon, to: n.to, group: t('页面') }))
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   const inTabs = tabs.some((tb) => (tb.end ? loc.pathname === tb.to : loc.pathname.startsWith(tb.to)))
+  const currentPage = pages.find((p) => p.to === '/' ? loc.pathname === '/' : loc.pathname === p.to || loc.pathname.startsWith(p.to + '/'))
   return (
     <div className={'app' + (folded ? ' folded' : '')}>
       <TopProgress />
@@ -258,7 +259,6 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
       <nav className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
         <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-fold" aria-label={folded ? t('展开侧栏') : t('收起侧栏')} aria-pressed={folded} title={folded ? t('展开侧栏') : t('收起侧栏')} onClick={() => fold(!folded)}><Icon.Fold /></button><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
-        <button type="button" className="side-search" title={folded ? t('搜索') : undefined} onClick={() => setPalette(true)}><Icon.Search /><span>{t('搜索')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         {scoped ? (
           <>
             <NavLink to="/nodes" className="nav" title={folded ? t('我的节点') : undefined}><Icon.Server />{t('我的节点')}</NavLink>
@@ -274,7 +274,13 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
           <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
         </div>
       </nav>
-      <main className="main" key={loc.pathname}><PageBoundary>{children}</PageBoundary></main>
+      <main className="main">
+        <header className="workspace-bar">
+          <nav className="workspace-breadcrumb" aria-label={t('当前位置')}><span>{t('控制台')}</span><span aria-hidden="true">/</span><b aria-current="page">{currentPage?.label ?? title}</b></nav>
+          <button type="button" className="workspace-search" aria-label={t('搜索')} onClick={() => setPalette(true)}><Icon.Search /><span>{scoped ? t('搜索页面、节点…') : t('搜索页面、节点、用户…')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
+        </header>
+        <div className="page-content" key={loc.pathname}><PageBoundary>{children}</PageBoundary></div>
+      </main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} pages={pages} nodes={nodes} searchUsers={!scoped} />
       {!scoped && <nav className="mtabs" aria-label={t('快捷导航')}>
         {tabs.map((tb) => <NavLink key={tb.to} to={tb.to} end={tb.end} className="mtab">{tb.icon}<span>{tb.label}</span></NavLink>)}
