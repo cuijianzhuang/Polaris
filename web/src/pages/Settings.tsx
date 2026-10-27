@@ -1,3 +1,4 @@
+import AdminAccounts from '../components/AdminAccounts'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../components/SettingsDrafts'
 import { useLocation, useNavigate } from 'react-router-dom'
 import Passkeys from '../components/Passkeys'
@@ -868,6 +869,7 @@ export default function Settings() {
             </div>
           )}
         </section>
+        <AdminAccounts />
         <SSOProviders />
         <APITokens />
         <Sessions />

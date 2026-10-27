@@ -137,7 +137,7 @@ func (s *Server) scopeGuard(c *gin.Context) {
 		return
 	}
 	route := strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
-	if !scopedRoutes[c.Request.Method+" "+route] {
+	if !scopedRoutes[c.Request.Method+" "+route] && !(c.GetString("adminID") != "" && selfAccountRoutes[c.Request.Method+" "+route]) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员无权访问此功能"})
 		return
 	}

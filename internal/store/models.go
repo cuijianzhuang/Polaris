@@ -423,18 +423,20 @@ type ConfigRevision struct {
 
 // Admin is a panel administrator.
 type Admin struct {
-	ID             string     `gorm:"primaryKey;size:32" json:"id"`
-	Username       string     `gorm:"size:64;uniqueIndex" json:"username"`
-	PasswordHash   string     `gorm:"size:100" json:"-"`
-	TOTPSecret     string     `gorm:"size:255" json:"-"` // sealed
-	TOTPEnabled    bool       `json:"totpEnabled"`
-	TOTPPending    string     `gorm:"size:255" json:"-"` // sealed; becomes TOTPSecret once a code verifies
-	TokenVersion   int        `json:"-"`                 // bumped to revoke every issued session
-	FailedAttempts int        `json:"-"`
-	LockedUntil    *time.Time `json:"-"`
-	LastLoginAt    *time.Time `json:"lastLoginAt"`
-	GitHubID       int64      `gorm:"index" json:"-"`             // bound GitHub account (sign-in)
-	GitHubLogin    string     `gorm:"size:64" json:"githubLogin"` // its username, for display
+	Role           string         `gorm:"size:16" json:"role"`
+	NodeIDs        JSON[[]string] `json:"nodeIds"`
+	ID             string         `gorm:"primaryKey;size:32" json:"id"`
+	Username       string         `gorm:"size:64;uniqueIndex" json:"username"`
+	PasswordHash   string         `gorm:"size:100" json:"-"`
+	TOTPSecret     string         `gorm:"size:255" json:"-"` // sealed
+	TOTPEnabled    bool           `json:"totpEnabled"`
+	TOTPPending    string         `gorm:"size:255" json:"-"` // sealed; becomes TOTPSecret once a code verifies
+	TokenVersion   int            `json:"-"`                 // bumped to revoke every issued session
+	FailedAttempts int            `json:"-"`
+	LockedUntil    *time.Time     `json:"-"`
+	LastLoginAt    *time.Time     `json:"lastLoginAt"`
+	GitHubID       int64          `gorm:"index" json:"-"`             // bound GitHub account (sign-in)
+	GitHubLogin    string         `gorm:"size:64" json:"githubLogin"` // its username, for display
 	// RecoveryCodes are SHA-256 hashes of one-time codes that stand in for
 	// a TOTP code when the authenticator is lost; each works once.
 	RecoveryCodes JSON[[]string] `json:"-"`

@@ -121,7 +121,7 @@ func (s *Server) licenseManagementGuard(c *gin.Context) {
 	}
 	route := strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
 	// Keep existing authentication and authorization on every recovery route.
-	if strings.HasPrefix(route, "/auth/") || route == "/license" || strings.HasPrefix(route, "/license/") ||
+	if route == "/admins" || strings.HasPrefix(route, "/admins/") || strings.HasPrefix(route, "/auth/") || route == "/license" || strings.HasPrefix(route, "/license/") ||
 		route == "/system/update" || (c.Request.Method == http.MethodDelete && route == "/tokens/:id") {
 		c.Next()
 		return
