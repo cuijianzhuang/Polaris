@@ -49,6 +49,10 @@ svg{display:block;width:100%;height:auto}
 .legend{display:flex;gap:14px;font-size:12px;color:var(--mute);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
 .node{border-top:1px solid var(--line);padding:10px 0}.node:first-of-type{border-top:0}
 details summary{cursor:pointer;list-style:none}details summary::-webkit-details-marker{display:none}
+.node-list-toggle{display:flex;align-items:center;gap:10px;min-height:44px}.node-list-toggle h2{margin:0;flex:1}.node-list-toggle:focus-visible{outline:2px solid var(--pri);outline-offset:4px;border-radius:4px}
+.node-list-toggle::after{content:"";width:8px;height:8px;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:rotate(45deg);margin:0 3px 4px}
+.node-list[open]>.node-list-toggle::after{transform:rotate(225deg);margin-bottom:-4px}
+.node-list .when-open,.node-list[open]>.node-list-toggle .when-closed{display:none}.node-list[open]>.node-list-toggle .when-open{display:inline}
 .nw{flex-wrap:nowrap}.nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tag{white-space:nowrap;font-size:11px;padding:1px 6px;border-radius:5px;background:var(--bg);color:var(--mute)}
 .who{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
@@ -82,10 +86,10 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 <section class="card"><h2>一键导入</h2><div class="grid">
 {{range .Clients}}<a class="btn{{if .Pri}} pri{{end}}" href="{{.Href}}">{{.Name}}</a>{{end}}
 </div><p class="mute" style="margin:10px 0 0">按钮无反应时，复制上方链接到客户端手动添加订阅。</p></section>
-{{if .Links}}<section class="card"><h2>节点（{{len .Links}}）</h2>
+{{if .Links}}<details class="card node-list"><summary class="node-list-toggle"><h2>节点（{{len .Links}}）</h2><span class="mute when-closed">展开</span><span class="mute when-open">收起</span></summary>
 {{range .Links}}<div class="node"><details><summary class="row nw"><span class="nm" title="{{.Name}}">{{.Name}}</span><span class="tag">{{.Protocol}}</span><button class="btn sm" type="button" data-copy="{{.Link}}">复制</button></summary>
 {{if .QR}}<img class="qr" style="margin-top:10px" src="{{.QR}}" alt="{{.Name}} 二维码">{{end}}</details></div>{{end}}
-</section>{{end}}
+</details>{{end}}
 {{if and .Portal .Extras}}<section class="card"><h2>更多服务</h2><div class="grid">
 {{range .Extras}}<a class="btn" href="{{.URL}}"{{if .External}} target="_blank" rel="noopener"{{end}}>{{.Title}}</a>{{end}}
 </div></section>{{end}}
