@@ -6,6 +6,8 @@ WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
+# The admin probe imports the styles also embedded by the public Go page.
+COPY internal/panel/probe_assets/ /src/internal/panel/probe_assets/
 RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
