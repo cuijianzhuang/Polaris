@@ -197,7 +197,7 @@ func seesAllSessions(c *gin.Context) bool {
 	if v, ok := c.Get("tgAdmin"); ok {
 		return v.(*store.TGAdmin).Role == "owner"
 	}
-	return true
+	return c.GetString("adminRole") == "owner"
 }
 
 type sessionView struct {

@@ -1,3 +1,4 @@
+import StaffWorkspace, { StaffAccount } from './pages/StaffWorkspace'
 import { Component, Suspense, createContext, lazy, useCallback, useContext, useEffect, useLayoutEffect, useState, type ComponentType, type ReactNode } from 'react'
 import { createBrowserRouter, RouterProvider, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
@@ -266,7 +267,8 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         {scoped ? (
           <>
             <NavLink to="/nodes" className="nav" title={folded ? t('我的节点') : undefined}><Icon.Server />{t('我的节点')}</NavLink>
-            <div className="navsec">{t('Telegram 节点管理员 · 仅可查看分配给你的节点')}</div>
+            <div className="navsec">{t('仅可操作分配给你的节点')}</div>
+            {!user.startsWith('tg:') && <NavLink to="/account" className="nav"><Icon.Lock />{t('我的账号')}</NavLink>}
           </>
         ) : (
           <>
@@ -302,9 +304,11 @@ function Session() {
     return getToken() ? '…' : null
   })
   const [scoped, setScoped] = useState(false)
+  const [role, setRole] = useState<string | null>(null)
+  const [accessError, setAccessError] = useState('')
   const [tgBusy, setTgBusy] = useState(() => !!takeOAuthResult().tg)
   useEffect(() => {
-    setUnauthorizedHandler(() => { setToken(null); setUser(null); setScoped(false) })
+    setUnauthorizedHandler(() => { setToken(null); setUser(null); setScoped(false); setRole(null) })
     const r = takeOAuthResult()
     if (r.tg) {
       setToken(null)
@@ -316,9 +320,9 @@ function Session() {
   }, [])
   useEffect(() => {
     if (!user || !getToken()) return
-    get<{ username: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setScoped(!!m.nodeIds) }).catch(() => {})
+    get<{ username: string; role?: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setRole(m.role || 'owner'); setScoped(m.role === 'operator' || !!m.nodeIds); setAccessError('') }).catch((e) => setAccessError(String(e)))
   }, [user === null])
-  const logout = () => { post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false) }) }
+  const logout = () => { post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false); setRole(null) }) }
   if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>{t('正在通过 Telegram 登录…')}</div></div>
   return (
     <ToastProvider>
@@ -326,7 +330,15 @@ function Session() {
         <SudoPrompt />
         <SettingsDraftProvider>
           {!user ? (
-            <Login onLogin={(u) => setUser(u)} />
+            <Login onLogin={(u) => { setRole(null); setAccessError(''); setUser(u) }} />
+          ) : role === null ? (
+            <div className="card" style={{ margin: 20 }}>
+              {accessError ? <><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={() => location.reload()}>{t('重新加载')}</button></> : t('加载中…')}
+            </div>
+          ) : !['owner', 'operator', 'viewer', 'support', 'finance'].includes(role) ? (
+            <div className="card" style={{ margin: 20 }}><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={logout}>{t('退出登录')}</button></div>
+          ) : ['viewer', 'support', 'finance'].includes(role) ? (
+            <StaffWorkspace role={role} username={user} onLogout={logout} />
           ) : (
             <ScopeCtx.Provider value={{ scoped }}>
               <NodesProvider>
@@ -335,6 +347,7 @@ function Session() {
                   {scoped ? (
                     <Routes>
                       <Route path="/nodes" element={<Nodes />} />
+                      <Route path="/account" element={<StaffAccount />} />
                       <Route path="*" element={<Navigate to="/nodes" replace />} />
                     </Routes>
                   ) : (

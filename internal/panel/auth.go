@@ -99,6 +99,7 @@ func (s *Server) authRequired(c *gin.Context) {
 		s.noteBase(c.Request)
 		c.Set("admin", "tg:"+a.Name)
 		c.Set("tgAdmin", &a)
+		c.Set("adminRole", a.Role)
 		if a.Role != "owner" {
 			sc := map[string]bool{}
 			for _, id := range a.NodeIDs.V {
@@ -111,12 +112,21 @@ func (s *Server) authRequired(c *gin.Context) {
 	}
 	// Sessions die with the admin account and on password change.
 	var a store.Admin
-	if s.st.DB.Select("id", "token_version").First(&a, "id = ?", cl.Subject).Error != nil || a.TokenVersion != cl.Version {
+	if s.st.DB.Select("id", "username", "token_version", "role", "node_ids").First(&a, "id = ?", cl.Subject).Error != nil || a.TokenVersion != cl.Version {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
 	s.noteBase(c.Request)
-	c.Set("admin", cl.Username)
+	c.Set("admin", a.Username)
+	c.Set("staffAdmin", &a)
+	c.Set("adminRole", normalizedAdminRole(a.Role))
+	if a.Role == "operator" {
+		sc := map[string]bool{}
+		for _, id := range a.NodeIDs.V {
+			sc[id] = true
+		}
+		c.Set("nodeScope", sc)
+	}
 	c.Set("adminID", cl.Subject)
 	c.Set("tokenVersion", cl.Version)
 	c.Next()
@@ -208,8 +218,8 @@ func (s *Server) me(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"id": a.ID, "username": a.Username, "totpEnabled": a.TOTPEnabled, "githubLogin": a.GitHubLogin,
-		"lastLoginAt": a.LastLoginAt, "createdAt": a.CreatedAt, "recoveryCodesLeft": len(a.RecoveryCodes.V), "sudo": s.sudoOK(c)})
+	c.JSON(http.StatusOK, gin.H{"id": a.ID, "username": a.Username, "role": normalizedAdminRole(a.Role), "totpEnabled": a.TOTPEnabled, "githubLogin": a.GitHubLogin,
+		"lastLoginAt": a.LastLoginAt, "createdAt": a.CreatedAt, "recoveryCodesLeft": len(a.RecoveryCodes.V), "sudo": s.sudoOK(c), "assignedNodeIds": a.NodeIDs.V})
 }
 
 func (s *Server) changePassword(c *gin.Context) {

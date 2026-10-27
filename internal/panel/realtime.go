@@ -128,6 +128,9 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, valid func() b
 		c.CloseNow()
 	}()
 	ctx := c.CloseRead(r.Context())
+	if !valid() {
+		return
+	}
 	if b, err := nodesMessage(s.rt.snap(), scope); err == nil {
 		_ = c.Write(ctx, websocket.MessageText, b)
 	}
@@ -138,6 +141,10 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request, valid func() b
 		case <-ctx.Done():
 			return
 		case b := <-ch:
+			if !valid() {
+				c.Close(websocket.StatusPolicyViolation, "session revoked")
+				return
+			}
 			wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			err := c.Write(wctx, websocket.MessageText, b)
 			cancel()

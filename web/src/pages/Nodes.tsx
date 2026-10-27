@@ -441,7 +441,7 @@ export default function Nodes() {
   return (
     <>
       <div className="top">
-        <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{scoped ? t('通过 Telegram 登录：仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('集中查看节点状态、资源和配置下发进度')}</div></div>
+        <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{scoped ? t('仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('集中查看节点状态、资源和配置下发进度')}</div></div>
         {!scoped && <div className="row">
           {outdatedNodes.length > 0 && (
             <button className="btn" type="button" disabled={busy} onClick={() => setUpgradeAll(true)}>
@@ -498,10 +498,10 @@ export default function Nodes() {
               <NetCollectionHealth health={sel.netHealth} onRefresh={refresh} />
               <section className="card"><TrafficChart query={'node=' + sel.id} title={t('节点用户流量')} /></section>
               <section className="card"><NodeMetrics nodeId={sel.id} /></section>
-              <NodeExternalMetrics nodeId={sel.id} />
+              {!scoped && <NodeExternalMetrics nodeId={sel.id} />}
               {!scoped && <NodeNetworkTools key={sel.id} node={sel} />}
               {!scoped && <NodeProvider nodeId={sel.id} onSynced={refresh} />}
-              <LimitedUsers nodeId={sel.id} />
+              {!scoped && <LimitedUsers nodeId={sel.id} />}
               <h2>{t('内核')}</h2>
               <div className="grid g2">
                 {sel.cores.map((c) => {

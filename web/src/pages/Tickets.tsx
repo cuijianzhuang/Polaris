@@ -36,7 +36,7 @@ function TicketSettings({ onSaved }: { onSaved: () => void }) {
   )
 }
 
-function Thread({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+function Thread({ id, onClose, onChanged, staff }: { id: string; onClose: () => void; onChanged: () => void; staff?: boolean }) {
   const d = useLoad(() => get<{ ticket: Ticket; messages: Message[] }>('/tickets/' + id), [id])
   const [body, setBody] = useState('')
   const { busy, run } = useAction()
@@ -50,7 +50,7 @@ function Thread({ id, onClose, onChanged }: { id: string; onClose: () => void; o
     <Modal title={tk ? `#${tk.no} ${tk.subject}` : '…'} onClose={onClose} footer={<>
       {tk && tk.status !== 'closed' && <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post(`/tickets/${id}/close`); d.reload(); onChanged() }, t('已关闭'))}>{t('关闭工单')}</button>}
       {tk && tk.status === 'closed' && <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post(`/tickets/${id}/reopen`); d.reload(); onChanged() }, t('已重新打开'))}>{t('重新打开')}</button>}
-      <button className="btn danger" type="button" disabled={busy} onClick={async () => { if (await confirm(t('删除这个工单和全部消息？'), { danger: true, ok: t('删除') })) run(async () => { await del('/tickets/' + id); onChanged(); onClose() }, t('已删除')) }}>{t('删除')}</button>
+      {!staff && <button className="btn danger" type="button" disabled={busy} onClick={async () => { if (await confirm(t('删除这个工单和全部消息？'), { danger: true, ok: t('删除') })) run(async () => { await del('/tickets/' + id); onChanged(); onClose() }, t('已删除')) }}>{t('删除')}</button>}
     </>}>
       {tk && <div className="sub" style={{ margin: '0 0 10px' }}>{tk.username} · <span className={'st ' + statusLabel[tk.status]?.[1]}>{statusLabel[tk.status]?.[0]}</span> · {datetime(tk.createdAt)}</div>}
       <div style={{ display: 'grid', gap: 10, maxHeight: '50vh', overflowY: 'auto' }}>
@@ -72,7 +72,7 @@ function Thread({ id, onClose, onChanged }: { id: string; onClose: () => void; o
   )
 }
 
-export default function Tickets() {
+export default function Tickets({ staff = false }: { staff?: boolean }) {
   const [status, setStatus] = useState('open')
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
@@ -84,10 +84,10 @@ export default function Tickets() {
     <>
       <div className="top">
         <div><h1>{t('工单')}</h1><div className="sub">{t('用户在用户中心或机器人里提交的问题')}</div></div>
-        <div className="row"><button className="btn" type="button" onClick={() => setSettings((v) => !v)}>{t('工单设置')}</button></div>
+        {!staff && <div className="row"><button className="btn" type="button" onClick={() => setSettings((v) => !v)}>{t('工单设置')}</button></div>}
       </div>
-      {list.data && !list.data.enabled && <div className="note warn" style={{ marginBottom: 12 }}>{t('工单未开启：在「工单设置」里打开后，用户中心和机器人才会出现工单入口。')}</div>}
-      {settings && <div style={{ marginBottom: 12 }}><TicketSettings onSaved={list.reload} /></div>}
+      {!staff && list.data && !list.data.enabled && <div className="note warn" style={{ marginBottom: 12 }}>{t('工单未开启：在「工单设置」里打开后，用户中心和机器人才会出现工单入口。')}</div>}
+      {!staff && settings && <div style={{ marginBottom: 12 }}><TicketSettings onSaved={list.reload} /></div>}
       <div className="row" style={{ marginBottom: 12 }}>
         <div className="chips">
           {([['open', t('待回复')], ['answered', t('已回复')], ['closed', t('已关闭')], ['', t('全部')]] as const).map(([k, l]) =>
@@ -110,7 +110,7 @@ export default function Tickets() {
           </table>
         )}
       </div>
-      {open && <Thread id={open} onClose={() => setOpen(null)} onChanged={list.reload} />}
+      {open && <Thread staff={staff} id={open} onClose={() => setOpen(null)} onChanged={list.reload} />}
     </>
   )
 }
