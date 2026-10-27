@@ -271,6 +271,7 @@ func (a *Adapter) ensure(ctx context.Context) error {
 	for _, in := range insts {
 		if in.proc == nil {
 			in.proc = core.NewProcess("hysteria["+in.tag+"]", a.opt.BinPath, a.opt.WorkDir, a.opt.Logger, "server", "-c", in.cfg)
+			in.proc.BindToParent = a.opt.BindToParent
 		}
 		var err error
 		switch {

@@ -42,6 +42,7 @@ func New(o core.Options) *Adapter {
 	a := &Adapter{opt: o, last: map[string][2]int64{}}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("gost", o.BinPath, o.WorkDir, o.Logger, "-C", filepath.Join(o.WorkDir, "gost.yaml"))
+		a.proc.BindToParent = o.BindToParent
 	}
 	return a
 }

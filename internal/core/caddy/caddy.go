@@ -42,6 +42,7 @@ func New(o core.Options) *Adapter {
 	a := &Adapter{opt: o}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("caddy", o.BinPath, o.WorkDir, o.Logger, "run", "--config", a.configPath(), "--adapter", "caddyfile")
+		a.proc.BindToParent = o.BindToParent
 		a.proc.Env = []string{"XDG_DATA_HOME=" + o.WorkDir, "XDG_CONFIG_HOME=" + o.WorkDir, "HOME=" + o.WorkDir}
 	}
 	return a

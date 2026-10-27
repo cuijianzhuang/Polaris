@@ -201,7 +201,7 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	features := []string{}
 	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
-		if (v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
+		if (v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
 			features = append(features, v)
 		}
 	}

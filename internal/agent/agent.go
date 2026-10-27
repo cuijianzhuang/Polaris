@@ -62,6 +62,9 @@ type Config struct {
 	// ToolPath is where the `polaris` management script is kept in step
 	// with the panel (empty: never touched). Skipped on the panel host.
 	ToolPath string
+	// Supervised enables locally confirmed upgrades under the service parent.
+	Supervised       bool
+	UpdateExecutable string
 }
 
 // Agent is the node daemon.
@@ -116,6 +119,7 @@ type Agent struct {
 	sh   *shaper   // tc bandwidth caps for the spec's limited ports
 	lim  *limiter  // per-user speed limits (cores detour limited users here)
 
+	updateMu  sync.Mutex // only one staged binary/upgrade journal at a time
 	restartMu sync.Mutex
 	restart   bool // set by a self-update: Run returns ErrRestart
 	cancel    context.CancelFunc
@@ -260,6 +264,7 @@ func (a *Agent) session(ctx context.Context) error {
 	if err := a.sendHeartbeat(); err != nil {
 		return err
 	}
+	a.reportUpgradeResult()
 	a.toolOnce.Do(func() { go a.syncTool(ctx) })
 	if p := a.progress.snapshot(); p != nil { // an activity outlived the last stream
 		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})
@@ -310,7 +315,7 @@ func (a *Agent) send(m *polarisv1.AgentMessage) error {
 func (a *Agent) appliedRev() int64 { return a.rev.Load() }
 
 func (a *Agent) sendHeartbeat() error {
-	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: Version, System: a.sys.Sample(), Arch: runtime.GOARCH, TrafficQueue: a.trafficQueueStatus()}
+	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: a.reportedVersion(), System: a.sys.Sample(), Arch: runtime.GOARCH, TrafficQueue: a.trafficQueueStatus()}
 	if a.ips != nil {
 		hb.PublicIpv4, hb.PublicIpv6 = a.ips.Cached()
 	}
@@ -401,7 +406,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			return
 		case rev = <-a.wantRev:
 		}
-		if rev != 0 && rev == a.appliedRev() {
+		if rev != 0 && rev == a.appliedRev() && !a.upgradePending() {
 			continue
 		}
 		if rev != 0 && rev < a.appliedRev() {
@@ -412,6 +417,9 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
 		features := model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature + "," + model.SnellPSKFeature
+		if a.cfg.Supervised && runtime.GOOS == "linux" {
+			features += "," + model.AgentRollbackFeature
+		}
 		if runtime.GOOS == "linux" {
 			features += "," + model.RouteTraceFeature + "," + model.RouteTraceToolFeature
 		}
@@ -431,6 +439,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		}
 		spec.Rev = resp.Msg.Rev
 		if spec.Rev == a.appliedRev() {
+			a.confirmUpgrade()
 			continue
 		}
 		if spec.Rev == failed && (retryAt.IsZero() || time.Now().Before(retryAt)) {
@@ -469,6 +478,9 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		}
 		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_ApplyResult{ApplyResult: res}})
 		_ = a.sendHeartbeat()
+		if r.ok {
+			a.confirmUpgrade()
+		}
 	}
 }
 
