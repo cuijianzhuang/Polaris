@@ -63,12 +63,19 @@ with sync_playwright() as p:
             action=page.locator('.theme-demo-actions > .primary').evaluate('(e)=>({foreground:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor})')
             assert contrast(action)>=4.5, action
             expect(page.locator('.style-blackgold')).to_be_disabled()
-            # Free surface styles switch independently of palette and license.
-            page.locator('.style-default').click()
-            assert page.evaluate("document.documentElement.dataset.style || ''") == ''
-            page.locator('.style-warm').click()
-            expect(root).to_have_attribute('data-style','warm')
-            expect(page.locator('.style-card[aria-pressed="true"]')).to_have_count(1)
+            # All free styles resolve their recommended accent without a license.
+            for style,accent in [('default','slate'),('midnight','ice'),('warm','amber')]:
+                page.locator('.style-'+style).click()
+                expect(root).to_have_attribute('data-accent',accent)
+                assert page.evaluate("document.documentElement.dataset.style || ''") == ('' if style=='default' else style)
+                expect(page.locator('.style-card[aria-pressed="true"]')).to_have_count(1)
+                for mode in ['light','dark']:
+                    label = ('浅色' if mode=='light' else '深色') if language=='zh' else mode.title()
+                    page.locator('.appearance-controls').get_by_role('button',name=label,exact=True).click()
+                    expect(root).to_have_attribute('data-mode',mode)
+                    action=page.locator('.theme-demo-actions > .primary').evaluate('(e)=>({foreground:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor})')
+                    assert contrast(action)>=4.5, (style,mode,action)
+                    no_overflow(page)
             # Actual mode, OS following and labeled palette choices apply at once.
             page.locator('.appearance-controls').get_by_role('button', name='深色' if language=='zh' else 'Dark', exact=True).click()
             expect(root).to_have_attribute('data-mode','dark')
@@ -86,6 +93,15 @@ with sync_playwright() as p:
             page.reload()
             expect(root).to_have_attribute('data-accent','blue')
             expect(root).to_have_attribute('data-mode','dark')
+            page.locator('.style-midnight').click()
+            expect(root).to_have_attribute('data-accent','blue')
+            page.get_by_role('button',name='主题色：跟随风格' if language=='zh' else 'Accent color: Match style',exact=True).click()
+            expect(root).to_have_attribute('data-accent','ice')
+            page.reload()
+            expect(root).to_have_attribute('data-accent','ice')
+            expect(root).to_have_attribute('data-style','midnight')
+            saved=page.evaluate("JSON.parse(localStorage.getItem('polaris.theme'))")
+            assert saved['accent']=='auto' and saved['style']=='midnight', saved
             # The preview uses real token values, not a fixed light mockup.
             colors = page.locator('.theme-demo').evaluate('(e)=>({preview:getComputedStyle(e.querySelector(".theme-demo-main")).backgroundColor,real:getComputedStyle(document.body).backgroundColor})')
             assert colors['preview']==colors['real'], colors
@@ -166,7 +182,7 @@ with sync_playwright() as p:
     page.close()
     # Existing saved choices are not migrated to the new default. A free warm
     # style remains effective after community license data has loaded.
-    for style,accent in [('default','teal'),('warm','amber')]:
+    for style,accent in [('default','teal'),('warm','amber'),('midnight','ice')]:
         f=Fixture()
         page=browser.new_page()
         value=json.dumps(dict(mode='dark',style=style,accent=accent))
@@ -180,4 +196,4 @@ with sync_playwright() as p:
         assert page.evaluate("localStorage.getItem('polaris.theme')") == value
         page.close()
     browser.close()
-    print('Exclusive theme entitlement, honest forced-dark controls and base-preference restoration passed')
+    print('All free palettes, automatic/custom accents, saved choices and exclusive theme entitlement passed')

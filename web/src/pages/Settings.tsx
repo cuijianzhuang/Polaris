@@ -280,7 +280,7 @@ function Appearance() {
     <>
       <section className="card appearance">
         <div className="appearance-heading"><div><h2>{t('外观')}</h2><p>{t('让界面适合你的工作习惯。')}</p></div><span className="appearance-local">{t('仅保存在当前浏览器')}</span></div>
-        <Field label={t('主题风格')} hint={t('暖灰与雾白均支持明暗模式及自选配色；黑金使用固定深色配色，需要专业版。')}>
+        <Field label={t('主题风格')} hint={t('三套基础主题均支持明暗模式；配色可跟随风格或自选。黑金需要专业版。')}>
           <div className="style-cards">
             {styles.map((x) => {
               const locked = x.premium && !themesOK
@@ -289,7 +289,7 @@ function Appearance() {
                 <button key={x.id} type="button" className={'style-card style-' + x.id + (on ? ' on' : '')} aria-pressed={on} disabled={locked}
                   title={locked ? t('需要专业版许可证（许可证页面）') : x.label} onClick={() => setT({ ...th, style: x.id })}>
                   <span className="style-preview" aria-hidden="true"><i /><i /><i /></span>
-                  <span className="style-label"><b>{x.label}{locked ? ' 🔒' : ''}</b><small>{x.id === 'warm' ? t('暖白表面 · 石色层次') : x.id === 'default' ? t('中性灰阶 · 清晰克制') : t('深色表面 · 香槟金')}</small></span>
+                  <span className="style-label"><b>{x.label}{locked ? ' 🔒' : ''}</b><small>{x.description}</small></span>
                 </button>
               )
             })}
