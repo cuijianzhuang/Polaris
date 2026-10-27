@@ -43,7 +43,10 @@ const (
 	cdnNodeCheckWorkers = 8
 )
 
-var cdnSourceRe = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,39}$`)
+var (
+	cdnSourceRe = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,39}$`)
+	cdnColoRe   = regexp.MustCompile(`^[A-Z0-9]{2,5}$`)
+)
 
 type cdnIPReportReq struct {
 	Source string              `json:"source"`
@@ -51,7 +54,8 @@ type cdnIPReportReq struct {
 }
 
 // checkCDNReport validates and ranks a report: lowest loss first, then
-// lowest latency; duplicates keep their best result.
+// fastest download (points that ran one), then lowest latency; duplicates
+// keep their best result.
 func checkCDNReport(req cdnIPReportReq) ([]store.CDNIPResult, error) {
 	if !cdnSourceRe.MatchString(req.Source) {
 		return nil, errors.New("source 为测速点名称，例如「上海电信」，最长 40 个字符")
@@ -73,15 +77,22 @@ func checkCDNReport(req cdnIPReportReq) ([]store.CDNIPResult, error) {
 		if r.LatencyMs < 0 || r.LatencyMs > 60000 || r.Loss < 0 || r.Loss > 1 {
 			return nil, fmt.Errorf("%s 的延迟或丢包率不合理（latencyMs 0–60000，loss 0–1）", addr)
 		}
+		if r.Speed < 0 || r.Speed > 100000 {
+			return nil, fmt.Errorf("%s 的下载速度不合理（speed 为 MB/s，0–100000）", addr)
+		}
+		colo := strings.ToUpper(strings.TrimSpace(r.Colo))
+		if colo != "" && !cdnColoRe.MatchString(colo) {
+			return nil, fmt.Errorf("%s 的机房代码 %q 不合理（例如 HKG）", addr, r.Colo)
+		}
 		ip := addr.String()
 		if seen[ip] {
 			continue
 		}
 		seen[ip] = true
-		out = append(out, store.CDNIPResult{IP: ip, LatencyMs: r.LatencyMs, Loss: r.Loss})
+		out = append(out, store.CDNIPResult{IP: ip, LatencyMs: r.LatencyMs, Loss: r.Loss, Speed: r.Speed, Colo: colo})
 	}
 	slices.SortStableFunc(out, func(a, b store.CDNIPResult) int {
-		return cmp.Or(cmp.Compare(a.Loss, b.Loss), cmp.Compare(a.LatencyMs, b.LatencyMs))
+		return cmp.Or(cmp.Compare(a.Loss, b.Loss), cmp.Compare(b.Speed, a.Speed), cmp.Compare(a.LatencyMs, b.LatencyMs))
 	})
 	return out, nil
 }

@@ -81,8 +81,12 @@ const m: Record<string, string> = {
   "节点检测：等待第一次检测": "Node check: waiting for the first run",
   "测速点": "Speed-test points",
   "超过 {h} 小时没上报会告警": "Alert after {h} hours without a report",
-  "还没有测速点上报。用带「上报 CDN 优选 IP」权限的 API 令牌，从用户所在地区的机器调用 POST /cdn-profiles/{id}/preferred-ips。": "No speed-test point has reported yet. From a machine where your users are, call POST /cdn-profiles/{id}/preferred-ips with an API token that has the \"Report preferred CDN IPs\" scope.",
+  "还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方命令），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。": "No speed-test point has reported yet. Install the speed-test program on a machine where your users are (command below), or call POST /cdn-profiles/{id}/preferred-ips with an API token that has the \"Report preferred CDN IPs\" scope.",
   "共 {n} 个": "{n} total",
   "由 {n} 个测速点维护": "Maintained by {n} speed-test points",
+  "令牌": "token",
+  "测速点名称": "point name",
+  "添加测速点（一键安装 cf-ip-probe）": "Add a speed-test point (one-line cf-ip-probe install)",
+  "在用户所在地区的 Linux 机器（国内 VPS、树莓派、OpenWrt 路由器）上以 root 运行。令牌在「扩展 → API 令牌」创建，只勾「上报 CDN 优选 IP」；测速点名称例如「上海电信」。OpenWrt 上去掉 sudo。": "Run as root on a Linux machine where your users are (a local VPS, a Raspberry Pi, an OpenWrt router). Create the token under Extensions → API tokens with only \"Report preferred CDN IPs\"; name the point after its location and carrier, e.g. \"Shanghai Telecom\". Drop sudo on OpenWrt.",
 }
 export default m

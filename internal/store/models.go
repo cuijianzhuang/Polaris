@@ -584,11 +584,15 @@ type CDNIPReport struct {
 	IPs       JSON[[]CDNIPResult] `json:"ips"`
 }
 
-// CDNIPResult is one tested IP: average latency and packet loss (0–1).
+// CDNIPResult is one tested IP: average latency, packet loss (0–1) and,
+// when the point ran a download test, its speed (MB/s) and the CDN data
+// centre that served it (e.g. HKG).
 type CDNIPResult struct {
 	IP        string  `json:"ip"`
 	LatencyMs float64 `json:"latencyMs"`
 	Loss      float64 `json:"loss"`
+	Speed     float64 `json:"speed,omitempty"`
+	Colo      string  `json:"colo,omitempty"`
 }
 
 // Outbound is a node egress (persisted model.Outbound).
