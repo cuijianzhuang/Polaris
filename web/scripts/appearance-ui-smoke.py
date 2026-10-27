@@ -18,6 +18,8 @@ class Fixture(BaseFixture):
         self.premium = premium
     def route(self, route):
         path = urlparse(route.request.url).path
+        if path == '/api/v1/system/access':
+            return route.fulfill(content_type='application/json',body=json.dumps(dict(adminPath='/',publicUrl='https://panel.example.com',listen='127.0.0.1:8080',updater=True)))
         if path == '/api/v1/probe':
             from datetime import datetime, timezone
             now=datetime.now(timezone.utc).isoformat()
@@ -106,12 +108,18 @@ with sync_playwright() as p:
             colors = page.locator('.theme-demo').evaluate('(e)=>({preview:getComputedStyle(e.querySelector(".theme-demo-main")).backgroundColor,real:getComputedStyle(document.body).backgroundColor})')
             assert colors['preview']==colors['real'], colors
             if width < 900:
-                chooser=page.get_by_role('combobox',name='设置分区' if language=='zh' else 'Settings sections',exact=True)
-                expect(chooser).to_be_visible()
-                chooser.select_option('notifications')
+                nav=page.get_by_role('navigation',name='设置分区' if language=='zh' else 'Settings sections',exact=True)
+                expect(nav).to_be_visible()
+                expect(page.locator('#settings-section')).to_have_count(0)
+                # Opening the last section by URL must reveal its active tab.
+                assert nav.evaluate('(nav)=>{const a=nav.querySelector("[aria-current=page]").getBoundingClientRect(),n=nav.getBoundingClientRect();return a.left>=n.left-1 && a.right<=n.right+1}')
+                nav.get_by_role('button',name=re.compile(r'^常规' if language=='zh' else r'^General')).click()
+                expect(page.get_by_role('heading',name='面板访问' if language=='zh' else 'Panel access',exact=True)).to_be_visible()
+                nav.get_by_role('button',name=re.compile(r'^通知策略' if language=='zh' else r'^Notification policy')).click()
                 expect(page).to_have_url(BASE+'/settings#notifications')
-                chooser.select_option('appearance')
+                nav.get_by_role('button',name=re.compile(r'^外观' if language=='zh' else r'^Appearance')).click()
                 expect(page.locator('.theme-demo')).to_be_visible()
+                no_overflow(page)
                 search=page.locator('.mtop').get_by_role('button',name='搜索' if language=='zh' else 'Search',exact=True)
             else:
                 expect(page.locator('.snav')).to_be_visible()

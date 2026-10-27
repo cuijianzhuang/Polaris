@@ -1006,7 +1006,6 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
 .dashboard-metrics > a.kpi:hover { background:var(--soft-2); }
 .dashboard-metrics > a.kpi:focus-visible { outline-offset:-3px; }
 .dashboard-metrics .val { letter-spacing:-.045em; }
-.settings-mobile-nav { display:none; }
 
 /* Appearance: decisions on the left, an honest live example on the right. */
 .appearance { container-type:inline-size;display:flex;flex-direction:column;gap:24px; }
@@ -1078,12 +1077,6 @@ html[data-mode] button.pv-card:hover { transform:none; }
 @media (max-width:1100px) {
   .dashboard-metrics > .kpi:nth-child(3) { border-left:0; }
   .dashboard-metrics > .kpi:nth-child(n+3) { border-top:1px solid var(--line); }
-}
-@media (max-width:900px) {
-  .settings > .snav { display:none; }
-  .settings-mobile-nav { display:flex;align-items:center;gap:12px;border:1px solid var(--line);padding:9px 12px;border-radius:8px;background:var(--card); }
-  .settings-mobile-nav label { flex:none;font-size:12px;color:var(--mute); }
-  .settings-mobile-nav select { min-width:0;border:0;box-shadow:none;background:transparent; }
 }
 @media (max-width:760px) {
   .workspace-bar { display:none; }
