@@ -84,7 +84,10 @@ func (s *Server) openTicket(u *store.User, subject, body string) (*store.Ticket,
 			if err := tx.Create(t).Error; err != nil {
 				return err
 			}
-			return tx.Create(&store.TicketMessage{ID: store.NewID(), TicketID: t.ID, Author: u.Username, Body: body, CreatedAt: now}).Error
+			if err := tx.Create(&store.TicketMessage{ID: store.NewID(), TicketID: t.ID, Author: u.Username, Body: body, CreatedAt: now}).Error; err != nil {
+				return err
+			}
+			return s.queueBusinessEvent(tx, ticketCreatedEvent(t, u, body))
 		})
 		if err2 == nil {
 			break
@@ -94,9 +97,7 @@ func (s *Server) openTicket(u *store.User, subject, body string) (*store.Ticket,
 		return nil, err2
 	}
 	s.audit("user:"+u.Username, "ticket.create", fmt.Sprintf("#%d", t.No), subject, "")
-	s.notify(Event{Kind: "ticket_new", Type: "ticket.created",
-		Text: fmt.Sprintf("🎫 新工单 #%d（%s）：%s\n%s", t.No, u.Username, subject, excerpt(body, 300)),
-		Data: map[string]any{"ticket": ticketBrief(t), "user": userBrief(u)}})
+	s.notifyCommitted(ticketCreatedEvent(t, u, body))
 	return t, nil
 }
 
@@ -127,15 +128,17 @@ func (s *Server) userReply(u *store.User, t *store.Ticket, body string) error {
 		if err := tx.Create(&store.TicketMessage{ID: store.NewID(), TicketID: t.ID, Author: u.Username, Body: body, CreatedAt: now}).Error; err != nil {
 			return err
 		}
-		return tx.Model(t).Updates(map[string]any{"status": ticketOpen, "admin_unread": true, "updated_at": now, "closed_at": nil}).Error
+		if err := tx.Model(t).Updates(map[string]any{"status": ticketOpen, "admin_unread": true, "updated_at": now, "closed_at": nil}).Error; err != nil {
+			return err
+		}
+		t.Status = ticketOpen
+		return s.queueBusinessEvent(tx, ticketUserReplyEvent(t, u, body))
 	})
 	if err != nil {
 		return err
 	}
 	t.Status = ticketOpen
-	s.notify(Event{Kind: "ticket_user_reply", Type: "ticket.replied",
-		Text: fmt.Sprintf("🎫 工单 #%d 有新消息（%s）：%s\n%s", t.No, u.Username, t.Subject, excerpt(body, 300)),
-		Data: map[string]any{"ticket": ticketBrief(t), "user": userBrief(u), "by": "user"}})
+	s.notifyCommitted(ticketUserReplyEvent(t, u, body))
 	return nil
 }
 
@@ -151,16 +154,9 @@ func (s *Server) adminReply(t *store.Ticket, admin, body string, closeIt bool) e
 	if closeIt {
 		status, closed = ticketClosed, &now
 	}
-	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(&store.TicketMessage{ID: store.NewID(), TicketID: t.ID, Admin: true, Author: admin, Body: body, CreatedAt: now}).Error; err != nil {
-			return err
-		}
-		return tx.Model(t).Updates(map[string]any{"status": status, "user_unread": true, "admin_unread": false, "updated_at": now, "closed_at": closed}).Error
-	})
-	if err != nil {
-		return err
-	}
-	t.Status = status
+	snapshot := *t
+	snapshot.Status = status
+	e := Event{Kind: "ticket_reply", Type: "ticket.replied", UserID: t.UserID, UserOnly: true, Data: map[string]any{"ticket": ticketBrief(&snapshot), "by": "admin"}}
 	var u store.User
 	if s.st.DB.First(&u, "id = ?", t.UserID).Error == nil {
 		text := fmt.Sprintf("📨 <b>工单 #%d 有新回复</b>\n%s\n%s\n\n%s", t.No, tgRule, esc(t.Subject), esc(excerpt(body, 1500)))
@@ -171,20 +167,41 @@ func (s *Server) adminReply(t *store.Ticket, admin, body string, closeIt bool) e
 		if s.portalEnabled() {
 			text += "\n或在用户中心查看：" + esc(s.portalURL()+"/tickets/"+strconv.FormatInt(t.No, 10))
 		}
-		s.notify(Event{Kind: "ticket_reply", UserID: u.ID, UserOnly: true, Type: "ticket.replied", Text: text,
-			Data: map[string]any{"ticket": ticketBrief(t), "user": userBrief(&u), "by": "admin"}})
+		e = Event{Kind: "ticket_reply", UserID: u.ID, UserOnly: true, Type: "ticket.replied", Text: text,
+			Data: map[string]any{"ticket": ticketBrief(&snapshot), "user": userBrief(&u), "by": "admin"}}
 	}
+	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&store.TicketMessage{ID: store.NewID(), TicketID: t.ID, Admin: true, Author: admin, Body: body, CreatedAt: now}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(t).Updates(map[string]any{"status": status, "user_unread": true, "admin_unread": false, "updated_at": now, "closed_at": closed}).Error; err != nil {
+			return err
+		}
+		return s.queueBusinessEvent(tx, e)
+	})
+	if err != nil {
+		return err
+	}
+	t.Status = status
+	s.notifyCommitted(e)
+
 	return nil
 }
 
 // closeTicket closes a ticket (by its user or an admin).
 func (s *Server) closeTicket(t *store.Ticket, by string) error {
 	now := time.Now()
-	if err := s.st.DB.Model(t).Updates(map[string]any{"status": ticketClosed, "closed_at": now, "updated_at": now}).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(t).Updates(map[string]any{"status": ticketClosed, "closed_at": now, "updated_at": now}).Error; err != nil {
+			return err
+		}
+		t.Status = ticketClosed
+		return s.queueBusinessEvent(tx, Event{Kind: "ticket.closed", Data: map[string]any{"ticket": ticketBrief(t), "by": by}})
+	}); err != nil {
 		return err
 	}
 	t.Status = ticketClosed
-	s.userEventless("ticket.closed", map[string]any{"ticket": ticketBrief(t), "by": by})
+	s.wakeBusinessEvents()
 	return nil
 }
 
@@ -622,3 +639,10 @@ tpost('/'+no+'/reply',{body:document.getElementById('body').value}).then(functio
 var c=document.getElementById('close');if(c)c.addEventListener('click',function(){if(!confirm('确定关闭这个工单？'))return;c.disabled=true;
 tpost('/'+no+'/close').then(function(){location.reload()}).catch(function(e){c.disabled=false;terr(e.message)})});
 </script></body></html>`))
+
+func ticketCreatedEvent(t *store.Ticket, u *store.User, body string) Event {
+	return Event{Kind: "ticket_new", Type: "ticket.created", Text: fmt.Sprintf("🎫 新工单 #%d（%s）：%s\n%s", t.No, u.Username, t.Subject, excerpt(body, 300)), Data: map[string]any{"ticket": ticketBrief(t), "user": userBrief(u)}}
+}
+func ticketUserReplyEvent(t *store.Ticket, u *store.User, body string) Event {
+	return Event{Kind: "ticket_user_reply", Type: "ticket.replied", Text: fmt.Sprintf("🎫 工单 #%d 有新消息（%s）：%s\n%s", t.No, u.Username, t.Subject, excerpt(body, 300)), Data: map[string]any{"ticket": ticketBrief(t), "user": userBrief(u), "by": "user"}}
+}

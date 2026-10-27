@@ -73,13 +73,15 @@ func (s *Server) renameSelf(u *store.User, name, via string) error {
 		if res.RowsAffected == 0 {
 			return errors.New("账号已变更，请刷新后重试")
 		}
-		return nil
+		snapshot := *u
+		snapshot.Username, snapshot.RenamedAt = name, &now
+		return s.queueUserEvent(tx, "user.updated", &snapshot, nil)
 	})
 	if err != nil {
 		return err
 	}
 	u.Username, u.RenamedAt = name, &now
 	s.audit(via+":"+old, "user.rename", name, fmt.Sprintf("%s → %s（用户自助）", old, name), "")
-	s.userEvent("user.updated", u, nil)
+	s.wakeBusinessEvents()
 	return nil
 }

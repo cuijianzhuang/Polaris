@@ -343,7 +343,10 @@ func (s *Server) planFallback(u *store.User, now time.Time) bool {
 		}
 		detail, err = applyPlan(tx, u, to, false, now)
 		applied = err == nil
-		return err
+		if err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "from_plan_id": from.ID, "reason": "expired", "detail": detail})
 	})
 	if err != nil {
 		s.log.Warn("plan fallback failed", "user", u.Username, "err", err)
@@ -353,7 +356,7 @@ func (s *Server) planFallback(u *store.User, now time.Time) bool {
 		return false
 	}
 	s.audit("system", "user.plan", u.Username, "到期降级："+from.Name+" → "+detail, "")
-	s.userEvent("user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "from_plan_id": from.ID, "reason": "expired", "detail": detail})
+	s.wakeBusinessEvents()
 	return true
 }
 
@@ -423,14 +426,17 @@ func (s *Server) planAction(actor, userID, planID string, renew bool) (string, e
 			return err
 		}
 		u.Status = computeStatus(&u, now)
-		return tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error
+		if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.plan_changed", &u, map[string]any{"plan_id": u.PlanID, "detail": detail})
 	})
 	if err != nil {
 		return "", err
 	}
 	s.MarkDirty("user.plan", append(before, s.nodesForUsers(u.ID)...)...)
 	s.audit(actor, "user.plan", u.Username, detail, "")
-	s.userEvent("user.plan_changed", &u, map[string]any{"plan_id": u.PlanID, "detail": detail})
+	s.wakeBusinessEvents()
 	return detail, nil
 }
 

@@ -44,6 +44,7 @@ var Version = "dev"
 // Server is the panel.
 type Server struct {
 	renderCache    renderCache // plugin subscription output (plugin_sub.go)
+	businessEvents chan struct{}
 	userNoticeBusy atomic.Bool
 	cfg            *Config
 	st             *store.Store
@@ -159,6 +160,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	tgEvents := make(chan Event, 256)
 	s.sinks = append(s.sinks, tgEvents)
 	s.tgEvents = tgEvents
+	s.businessEvents = make(chan struct{}, 1)
 	s.hookEvents = make(chan Event, 1024)
 	s.sinks = append(s.sinks, s.hookEvents)
 	s.mailEvents = make(chan Event, 256)
@@ -472,7 +474,7 @@ func (s *Server) cleanup() {
 	s.pruneIdempotency()
 	prune("route traces", &store.NodeRouteTrace{}, "started_at < ?", now.Add(-routeTraceKeep))
 	prune("notification states", &store.NotificationState{}, "open = ? AND updated_at < ?", false, now.AddDate(0, 0, -30))
-	prune("webhook deliveries", &store.WebhookDelivery{}, "created_at < ?", now.AddDate(0, 0, -7))
+	prune("webhook deliveries", &store.WebhookDelivery{}, "status = ? AND created_at < ?", "success", now.AddDate(0, 0, -7))
 	prune("hourly traffic", &store.TrafficHourly{}, "hour < ?", now.AddDate(0, 0, -90))
 	prune("traffic batches", &store.TrafficBatchSeen{}, "created_at < ?", now.AddDate(0, 0, -30))
 	prune("node metrics", &store.NodeMetric{}, "at < ?", now.AddDate(0, 0, -30))

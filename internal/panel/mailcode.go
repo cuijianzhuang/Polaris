@@ -308,13 +308,19 @@ func (s *Server) portalMailBind(c *gin.Context, addr, code string) {
 		return
 	}
 	viaMail := s.portalViaMail(c)
-	if err := s.st.DB.Model(u).Update("email", addr).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(u).Update("email", addr).Error; err != nil {
+			return err
+		}
+		u.Email = addr
+		return s.queueUserEvent(tx, "user.updated", u, map[string]any{"via": "portal", "email": addr})
+	}); err != nil {
 		serverError(c, err)
 		return
 	}
 	u.Email = addr
 	s.audit(portalActor(u, viaMail), "user.email_bound", u.Username, addr, clientIP(c.Request))
-	s.userEvent("user.updated", u, map[string]any{"via": "portal", "email": addr})
+	s.wakeBusinessEvents()
 	// A session made from the old address would end: renew it.
 	tok, err := s.issuePortalTokenVia(u, viaMail)
 	if err != nil {
@@ -378,20 +384,26 @@ func (s *Server) registerByMail(addr, ip string) (*store.User, error) {
 				return err
 			}
 			u.Status = computeStatus(&u, now)
-			return tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error
+			if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error; err != nil {
+				return err
+			}
+			return s.queueUserEvent(tx, "user.registered", &u, map[string]any{"via": "email", "trial": trialID})
 		}
 		// No trial: no service until a plan is bought.
 		gone := now.Add(-time.Second)
 		u.ExpireAt = &gone
 		u.Status = computeStatus(&u, now)
-		return tx.Create(&u).Error
+		if err := tx.Create(&u).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.registered", &u, map[string]any{"via": "email", "trial": trialID})
 	})
 	if err != nil {
 		return nil, err
 	}
 	s.MarkDirty("user registered", s.nodesForUsers(u.ID)...)
 	s.audit("mail:"+u.Username, "user.register", u.Username, addr, ip)
-	s.userEvent("user.registered", &u, map[string]any{"via": "email", "trial": trialID})
+	s.wakeBusinessEvents()
 	s.notify(Event{Kind: "user_registered", Text: fmt.Sprintf("🆕 新用户通过邮箱注册：%s（%s）", u.Username, addr)})
 	return &u, nil
 }
