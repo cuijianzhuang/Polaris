@@ -531,21 +531,40 @@ func (s *Server) enforceLimits() {
 		}
 		want := computeStatus(&u, now)
 		if want != u.Status {
-			// Only from the status we read: an admin may have disabled the
-			// user (or a purchase reactivated it) since.
-			if s.st.DB.Model(&store.User{}).Where("id = ? AND status = ?", u.ID, u.Status).Update("status", want).RowsAffected == 0 {
+			e := Event{UserID: u.ID}
+			switch want {
+			case "limited":
+				e.Kind, e.Text = "user_limited", "⛔ 用户 "+u.Username+" 流量已用尽，已暂停服务"
+			case "expired":
+				e.Kind, e.Text = "user_expired", "⌛ 用户 "+u.Username+" 已到期，已暂停服务"
+			case "active":
+				e.Kind, e.Text = "user_active", "✅ 用户 "+u.Username+" 已恢复服务"
+			}
+			updated := false
+			err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+				res := tx.Model(&store.User{}).Where("id = ? AND status = ?", u.ID, u.Status).Update("status", want)
+				if res.Error != nil {
+					return res.Error
+				}
+				if res.RowsAffected == 0 {
+					return nil
+				}
+				updated = true
+				snapshot := u
+				snapshot.Status = want
+				e.Data = map[string]any{"user": userBrief(&snapshot)}
+				return s.queueBusinessEvent(tx, e)
+			})
+			if err != nil {
+				s.log.Error("user status and event transaction failed", "user", u.ID, "err", err)
+				continue
+			}
+			if !updated {
 				continue
 			}
 			changed = append(changed, u.ID)
 			s.audit("system", "user.status", u.Username, u.Status+" -> "+want, "")
-			switch want {
-			case "limited":
-				s.notify(Event{Kind: "user_limited", UserID: u.ID, Text: "⛔ 用户 " + u.Username + " 流量已用尽，已暂停服务"})
-			case "expired":
-				s.notify(Event{Kind: "user_expired", UserID: u.ID, Text: "⌛ 用户 " + u.Username + " 已到期，已暂停服务"})
-			case "active":
-				s.notify(Event{Kind: "user_active", UserID: u.ID, Text: "✅ 用户 " + u.Username + " 已恢复服务"})
-			}
+			s.notifyCommitted(e)
 		}
 	}
 	var unban []store.User
@@ -587,16 +606,19 @@ func (s *Server) autoRenew(u *store.User, now time.Time) bool {
 		u.WarnedUsage, u.WarnedExpire = false, nil
 		u.TrafficLimit, u.ExtraTraffic = packLimit(u.TrafficLimit, u.ExtraTraffic), 0
 		renewed = true
-		return tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
+		if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "used_up": 0, "used_down": 0,
 			"renew_count": u.RenewCount, "last_reset_at": now, "warned_usage": false, "warned_expire": nil,
-			"traffic_limit": u.TrafficLimit, "extra_traffic": 0, "fwd_used": 0, "fwd_capped": false}).Error
+			"traffic_limit": u.TrafficLimit, "extra_traffic": 0, "fwd_used": 0, "fwd_capped": false}).Error; err != nil {
+			return err
+		}
+		return s.queueBusinessEvent(tx, Event{Kind: "user_renewed", UserID: u.ID, Data: map[string]any{"user": userBrief(u)}, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
 	})
 	if err != nil || !renewed {
 		return false
 	}
 	s.resetNodeUsage(u.ID)
 	s.audit("system", "user.renew", u.Username, fmt.Sprintf("+%d 天，至 %s（第 %d 次）", u.RenewDays, exp.Format("2006-01-02"), u.RenewCount), "")
-	s.notify(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
+	s.notifyCommitted(Event{Kind: "user_renewed", UserID: u.ID, Text: "🔄 用户 " + u.Username + " 已自动续期至 " + exp.Format("2006-01-02")})
 	return true
 }
 

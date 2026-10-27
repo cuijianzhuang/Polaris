@@ -394,7 +394,10 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 				return err
 			}
 			o.UserID, o.Detail = u.ID, truncate(detail, 255)
-			return tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error
+			if err := tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error; err != nil {
+				return err
+			}
+			return s.queueOrderBusinessEvents(tx, o, u, created, detail)
 		}
 		if err := orderPlan(tx, o, &p); err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) || errors.Is(err, errOrderTerms) {
@@ -424,16 +427,31 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 			return err
 		}
 		o.UserID, o.Detail = u.ID, truncate(detail, 255)
-		return tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error
+		if err := tx.Model(&store.Order{}).Where("id = ?", id).Updates(map[string]any{"user_id": u.ID, "detail": o.Detail}).Error; err != nil {
+			return err
+		}
+		return s.queueOrderBusinessEvents(tx, o, u, created, detail)
 	})
 	if err != nil {
 		var input commandInputError
 		if errors.As(err, &input) && o.ID != "" && pre == nil {
 			// Paid for something that cannot be delivered: keep the payment
 			// on record for the admin to settle.
-			s.st.DB.Model(&store.Order{}).Where("id = ? AND status IN ?", id, unpaidStatuses).
-				Updates(map[string]any{"status": "failed", "pay_ref": payRef, "paid_at": now, "detail": truncate(err.Error(), 255)})
-			s.notify(Event{Kind: "order.failed", Text: fmt.Sprintf("❗ 订单 %s 已付款但无法开通：%s", id, err.Error()), Data: map[string]any{"order": id}})
+			e := Event{Kind: "order.failed", Text: fmt.Sprintf("❗ 订单 %s 已付款但无法开通：%s", id, err.Error()), Data: map[string]any{"order": id}}
+			if saveErr := s.st.DB.Transaction(func(tx *gorm.DB) error {
+				res := tx.Model(&store.Order{}).Where("id = ? AND status IN ?", id, unpaidStatuses).Updates(map[string]any{"status": "failed", "pay_ref": payRef, "paid_at": now, "detail": truncate(err.Error(), 255)})
+				if res.Error != nil {
+					return res.Error
+				}
+				if res.RowsAffected == 0 {
+					return nil
+				}
+				return s.queueBusinessEvent(tx, e)
+			}); saveErr != nil {
+				err = errors.Join(err, saveErr)
+			} else {
+				s.notifyCommitted(e)
+			}
 		}
 		return o, nil, false, err
 	}
@@ -444,21 +462,8 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 		return o, u, false, nil
 	}
 	s.MarkDirty("order paid", append(before, s.nodesForUsers(u.ID)...)...)
-	who := o.TGName
-	if who == "" {
-		who = strconv.FormatInt(o.TelegramID, 10)
-	}
 	s.audit("shop", "order.paid", u.Username, fmt.Sprintf("%s %s %s · %s · %s", o.ID, o.Amount, o.Currency, o.Method, detail), "")
-	if created {
-		s.userEvent("user.created", u, map[string]any{"via": "shop"})
-	}
-	if o.Kind == kindPack {
-		s.userEvent("user.traffic_added", u, map[string]any{"pack_id": o.PackID, "order_id": o.ID, "detail": detail})
-	} else {
-		s.userEvent("user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "order_id": o.ID, "detail": detail})
-	}
-	s.notify(Event{Kind: "order.paid", Text: fmt.Sprintf("💰 新订单：%s 购买 %s（%s %s，%s）", who, o.PlanName, o.Amount, o.Currency, methodName[o.Method]),
-		Data: map[string]any{"order": orderBrief(o), "user": userBrief(u)}})
+	s.notifyCommitted(orderPaidEvent(o, u))
 	go s.tg.orderDelivered(o, u, created)
 	go s.mailOrderDelivered(o, u, created)
 	return o, u, true, nil
@@ -987,4 +992,29 @@ func newRedeemCode() string {
 		b.WriteByte(alphabet[n.Int64()])
 	}
 	return b.String()
+}
+
+func orderPaidEvent(o *store.Order, u *store.User) Event {
+	who := o.TGName
+	if who == "" {
+		who = strconv.FormatInt(o.TelegramID, 10)
+	}
+	return Event{Kind: "order.paid", Text: fmt.Sprintf("💰 新订单：%s 购买 %s（%s %s，%s）", who, o.PlanName, o.Amount, o.Currency, methodName[o.Method]), Data: map[string]any{"order": orderBrief(o), "user": userBrief(u)}}
+}
+func (s *Server) queueOrderBusinessEvents(tx *gorm.DB, o *store.Order, u *store.User, created bool, detail string) error {
+	if created {
+		if err := s.queueUserEvent(tx, "user.created", u, map[string]any{"via": "shop"}); err != nil {
+			return err
+		}
+	}
+	if o.Kind == kindPack {
+		if err := s.queueUserEvent(tx, "user.traffic_added", u, map[string]any{"pack_id": o.PackID, "order_id": o.ID, "detail": detail}); err != nil {
+			return err
+		}
+	} else {
+		if err := s.queueUserEvent(tx, "user.plan_changed", u, map[string]any{"plan_id": u.PlanID, "order_id": o.ID, "detail": detail}); err != nil {
+			return err
+		}
+	}
+	return s.queueBusinessEvent(tx, orderPaidEvent(o, u))
 }

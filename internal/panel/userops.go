@@ -66,6 +66,11 @@ func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB,
 		if err = tx.Create(&audit).Error; err != nil {
 			return err
 		}
+		if e := commandBusinessEvent(action, &user, detail); e != nil {
+			if err := s.queueBusinessEvent(tx, *e); err != nil {
+				return err
+			}
+		}
 		if info != nil {
 			result := tx.Model(&store.IdempotencyKey{}).Where("key = ?", info.Key).Updates(map[string]any{"status": http.StatusOK, "body": body})
 			if result.Error != nil {
@@ -109,17 +114,8 @@ func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB,
 		return
 	}
 	s.MarkDirty(action, append(dirty, s.nodesForUsers(user.ID)...)...)
-	if action == "user.pack" {
-		s.userEvent("user.traffic_added", &user, map[string]any{"detail": detail})
-	}
-	if action == "user.plan" {
-		s.userEvent("user.plan_changed", &user, map[string]any{"plan_id": user.PlanID, "detail": detail})
-	}
-	if action == "user.renew" {
-		s.notify(Event{Kind: "user_renewed", UserID: user.ID, Text: "🔄 用户 " + user.Username + " 已续期：" + detail})
-	}
-	if action == "user.add_traffic" {
-		s.userEvent("user.traffic_added", &user, map[string]any{"detail": detail})
+	if e := commandBusinessEvent(action, &user, detail); e != nil {
+		s.notifyCommitted(*e)
 	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", body)
 }
@@ -216,4 +212,21 @@ func (s *Server) addUserTraffic(c *gin.Context) {
 		detail := fmt.Sprintf("+%g GB，共 %.2f GB", req.GB, float64(u.TrafficLimit)/(1<<30))
 		return detail, tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"traffic_limit": u.TrafficLimit, "warned_usage": false}).Error
 	})
+}
+
+func commandBusinessEvent(action string, user *store.User, detail string) *Event {
+	e := &Event{UserID: user.ID, Data: map[string]any{"user": userBrief(user), "detail": detail}}
+	switch action {
+	case "user.pack", "user.add_traffic":
+		e.Kind = "user.traffic_added"
+	case "user.plan":
+		e.Kind = "user.plan_changed"
+		e.Data["plan_id"] = user.PlanID
+	case "user.renew":
+		e.Kind = "user_renewed"
+		e.Text = "🔄 用户 " + user.Username + " 已续期：" + detail
+	default:
+		return nil
+	}
+	return e
 }

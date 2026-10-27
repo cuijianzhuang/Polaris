@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -102,6 +103,10 @@ func (s *Server) userEvent(typ string, u *store.User, extra map[string]any) {
 
 // eventPayload builds the JSON body of an event.
 func (s *Server) eventPayload(e Event, typ string) map[string]any {
+	return s.eventPayloadDB(s.st.DB, e, typ)
+}
+
+func (s *Server) eventPayloadDB(db *gorm.DB, e Event, typ string) map[string]any {
 	data := map[string]any{}
 	if e.Text != "" {
 		data["message"] = e.Text
@@ -109,7 +114,7 @@ func (s *Server) eventPayload(e Event, typ string) map[string]any {
 	if e.NodeID != "" {
 		data["node_id"] = e.NodeID
 		var n store.Node
-		if s.st.DB.Select("id", "name").First(&n, "id = ?", e.NodeID).Error == nil {
+		if db.Select("id", "name").First(&n, "id = ?", e.NodeID).Error == nil {
 			data["node"] = map[string]any{"id": n.ID, "name": n.Name}
 		}
 	}
@@ -120,7 +125,7 @@ func (s *Server) eventPayload(e Event, typ string) map[string]any {
 	if e.UserID != "" {
 		data["user_id"] = e.UserID
 		var u store.User
-		if s.st.DB.First(&u, "id = ?", e.UserID).Error == nil {
+		if _, snapshotted := data["user"]; !snapshotted && db.First(&u, "id = ?", e.UserID).Error == nil {
 			data["user"] = userBrief(&u)
 		}
 	}
@@ -133,6 +138,8 @@ func (s *Server) runWebhooks(ctx context.Context, events <-chan Event) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.businessEvents:
+			s.retryWebhooks()
 		case e := <-events:
 			typ := eventType(e)
 			if typ == "" {

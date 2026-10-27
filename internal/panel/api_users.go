@@ -279,7 +279,10 @@ func (s *Server) createUser(c *gin.Context) {
 		if err := setAccess(tx, u.ID, "node", req.NodeIDs); err != nil {
 			return err
 		}
-		return setAccess(tx, u.ID, "inbound", req.InboundIDs)
+		if err := setAccess(tx, u.ID, "inbound", req.InboundIDs); err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.created", &u, nil)
 	})
 	if err != nil {
 		dbError(c, err)
@@ -287,7 +290,7 @@ func (s *Server) createUser(c *gin.Context) {
 	}
 	s.MarkDirty("user "+u.Username+" created", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.create", u.Username, "")
-	s.userEvent("user.created", &u, nil)
+	s.wakeBusinessEvents()
 	c.JSON(http.StatusCreated, u)
 }
 
@@ -528,7 +531,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		default:
 			return fmt.Errorf("unknown action %q", req.Action)
 		}
-		return nil
+		return s.queueBusinessEvent(tx, Event{Kind: "user.bulk", Data: map[string]any{"action": req.Action, "user_ids": req.IDs}})
 	})
 	if err != nil {
 		badRequest(c, err)
@@ -541,7 +544,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		s.MarkDirty("bulk "+req.Action, nodes...)
 	}
 	s.auditCtx(c, "user.bulk", req.Action, fmt.Sprintf("%d users", len(req.IDs)))
-	s.notify(Event{Kind: "user.bulk", Data: map[string]any{"action": req.Action, "user_ids": req.IDs}})
+	s.wakeBusinessEvents()
 	n := len(affected)
 	if req.Action == "delete" {
 		n = len(req.IDs)
@@ -648,7 +651,10 @@ func (s *Server) updateUser(c *gin.Context) {
 		if err := setAccess(tx, u.ID, "node", req.NodeIDs); err != nil {
 			return err
 		}
-		return setAccess(tx, u.ID, "inbound", req.InboundIDs)
+		if err := setAccess(tx, u.ID, "inbound", req.InboundIDs); err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.updated", &u, nil)
 	})
 	if err != nil {
 		dbError(c, err)
@@ -656,7 +662,7 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
-	s.userEvent("user.updated", &u, nil)
+	s.wakeBusinessEvents()
 	c.JSON(http.StatusOK, u)
 }
 
@@ -667,14 +673,24 @@ func (s *Server) deleteUser(c *gin.Context) {
 		return
 	}
 	nodes := s.nodesForUsers(u.ID)
-	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserGroup{})
-	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserAccess{})
-	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.UserNodeQuota{})
-	s.st.DB.Where("user_id = ?", u.ID).Delete(&store.ForwardRule{}) // nodes listed above already
-	s.st.DB.Delete(&u)
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		for _, m := range []any{&store.UserGroup{}, &store.UserAccess{}, &store.UserNodeQuota{}, &store.ForwardRule{}} {
+			if err := tx.Where("user_id = ?", u.ID).Delete(m).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Delete(&u).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.deleted", &u, nil)
+	})
+	if err != nil {
+		serverError(c, err)
+		return
+	}
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")
-	s.userEvent("user.deleted", &u, nil)
+	s.wakeBusinessEvents()
 	c.Status(http.StatusNoContent)
 }
 
@@ -684,15 +700,25 @@ func (s *Server) resetUserTraffic(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	if err := s.st.DB.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&store.UserNodeQuota{}).Where("user_id = ?", u.ID).Update("used", 0).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&u, "id = ?", u.ID).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.traffic_reset", &u, nil)
+	}); err != nil {
 		dbError(c, err)
 		return
 	}
-	s.resetNodeUsage(u.ID)
 	s.recomputeStatus(u.ID)
 	s.MarkDirty("traffic reset", s.nodesForUsers(u.ID)...)
 	s.auditCtx(c, "user.reset_traffic", u.Username, "")
-	s.userEvent("user.traffic_reset", &u, nil)
+	s.wakeBusinessEvents()
 	c.Status(http.StatusNoContent)
 }
 
@@ -709,7 +735,7 @@ func (s *Server) resetUserToken(c *gin.Context) {
 		return
 	}
 	s.auditCtx(c, "user.reset_token", u.Username, "")
-	s.userEvent("user.token_reset", &u, nil)
+	s.wakeBusinessEvents()
 	c.JSON(http.StatusOK, gin.H{"subToken": u.SubToken, "url": s.subURL(u.SubToken)})
 }
 
@@ -719,12 +745,18 @@ func (s *Server) resetUserToken(c *gin.Context) {
 // already imported from it: they still carry the old credentials.
 func (s *Server) rotateUserCredentials(u *store.User) error {
 	u.SubToken, u.UUID, u.Password, u.SSSeed = pki.Token(32), pki.UUID(), pki.Password(20), pki.Token(24)
-	err := s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{
-		"sub_token": u.SubToken, "uuid": u.UUID, "password": u.Password, "ss_seed": u.SSSeed}).Error
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{
+			"sub_token": u.SubToken, "uuid": u.UUID, "password": u.Password, "ss_seed": u.SSSeed}).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.token_reset", u, nil)
+	})
 	if err != nil {
 		return err
 	}
 	s.MarkDirty("credentials reset", s.nodesForUsers(u.ID)...)
+	s.wakeBusinessEvents()
 	return nil
 }
 
