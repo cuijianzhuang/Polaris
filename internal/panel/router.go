@@ -471,6 +471,8 @@ func (s *Server) Router() http.Handler {
 	p.POST("/telegram/broadcast", s.tgBroadcast)
 	p.POST("/telegram/template-preview", s.previewReminder)
 	p.GET("/backup", s.backupInfo)
+	p.GET("/backup/drills", s.backupDrills)
+	p.POST("/backup/files/:name/drill", s.requireSudo, s.backupDrill)
 	p.POST("/backup", s.backupCreate)
 	p.POST("/backup/restore", s.requireSudo, s.backupRestore)
 	p.GET("/backup/files/:name", s.requireSudo, s.backupDownload)

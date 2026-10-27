@@ -3,12 +3,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/panel"
 	"github.com/cuijianzhuang/polaris/web"
@@ -17,7 +19,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup", "restore", "node-token", "migrate":
+		case "admin", "backup", "restore", "restore-drill", "node-token", "migrate":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -65,6 +67,7 @@ const usage = `usage:
                                             show, install or release this panel's license
   polaris backup FILE [-passphrase P]       backup archive (SQLite or PostgreSQL); encrypted with a
                                             passphrase it carries the secret key and restores anywhere
+  polaris restore-drill FILE [-passphrase P]  validate an isolated restore and print a JSON report
   polaris restore FILE [-passphrase P]      replace the data with a backup (stop the panel first)
   polaris migrate -to DSN [-replace]       copy all data to another database (e.g. SQLite ->
                                             postgres://user:pass@host/db); stop the panel first
@@ -118,6 +121,23 @@ func maintenance(cmd string, args []string) int {
 			return fail(err)
 		}
 		fmt.Println("backup written to", pos[0])
+	case cmd == "restore-drill":
+		if len(pos) != 1 {
+			fs.Usage()
+			return 2
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		result, err := panel.DrillRestore(ctx, cfg, pos[0], *passphrase)
+		if err != nil {
+			return fail(err)
+		}
+		if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+			return fail(err)
+		}
+		if result.Status != "passed" {
+			return 1
+		}
 	case cmd == "restore":
 		if len(pos) != 1 {
 			fs.Usage()

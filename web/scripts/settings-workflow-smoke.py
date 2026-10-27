@@ -45,6 +45,8 @@ class Fixture(BaseFixture):
         }
         if path in extra:
             return route.fulfill(content_type='application/json',body=json.dumps(extra[path]))
+        if path == '/api/v1/backup/drills':
+            return route.fulfill(content_type='application/json',body='[]')
         if path == '/api/v1/backup':
             return route.fulfill(content_type='application/json',body=json.dumps(dict(supported=True,db='sqlite',dbSize=10,dir='/fixture',encrypted=False,targets=[],files=[])))
         return super().route(route)

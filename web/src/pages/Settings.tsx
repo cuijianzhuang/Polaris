@@ -36,6 +36,9 @@ function DefaultVersion({ label, type, value, onChange }: { label: string; type:
   )
 }
 
+type RestoreDrill = { needPassphrase?: boolean; id: string; source: string; status: string; startedAt: string; backupAt?: string; durationMs: number; checks: { name: string; state: string; detail?: string }[]; error?: string }
+const drillCheckNames = (): Record<string, string> => ({ archive: t('备份读取'), source_secrets: t('原密钥与备份数据'), restore: t('隔离数据库恢复'), data_and_secrets: t('数据与密钥迁移'), ca_identity: t('CA 身份'), database_restart: t('数据库重新打开'), live_acceptance: t('线上验收') })
+
 type BackupInfo = { supported: boolean; db: string; dbSize: number; dir: string; store?: string; storeError?: string; encrypted: boolean; targets: string[] | null
   files: { name: string; size: number; created: string; encrypted: boolean }[] }
 
@@ -50,6 +53,10 @@ const targetLabel: Record<string, string> = { telegram: 'Telegram', webdav: 'Web
 function Backups() {
   const pushOK = useFeature('backup_push')
   const info = useLoad(() => get<BackupInfo>('/backup'))
+  const drills = useLoad(() => get<RestoreDrill[]>('/backup/drills'))
+  const [drillAsk, setDrillAsk] = useState<string | null>(null)
+  const drillLock = useRef(false)
+  const [drillPass, setDrillPass] = useState('')
   const s = useLoad(() => get<Record<string, any>>('/settings'))
   const [f, setF] = useState<Record<string, string>>({})
   const [baseline, setBaseline] = useState('')
@@ -83,6 +90,23 @@ function Backups() {
       }
     }
     attempt('')
+  }
+  const drill = async (name: string, passphrase = '') => {
+    if (drillLock.current) return
+    drillLock.current = true
+    try {
+      await run(async () => {
+        const result = await post<RestoreDrill>(`/backup/files/${encodeURIComponent(name)}/drill`, { passphrase })
+        drills.reload()
+        if (result.status !== 'passed') {
+          if (result.needPassphrase) { setDrillAsk(name); setDrillPass('') }
+          throw new Error(result.error || t('恢复演练失败'))
+        }
+        setDrillAsk(null)
+        setDrillPass('')
+        toast(t('隔离恢复检查通过，请查看演练记录中的验证范围'))
+      })
+    } finally { drillLock.current = false }
   }
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const save = async () => {
@@ -191,6 +215,7 @@ function Backups() {
                 <td data-label={t('时间')}>{datetime(b.created)}</td>
                 <td className="rt-actions"><div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
                   <button className="btn sm" type="button" onClick={() => run(() => download('/backup/files/' + b.name, b.name))}>{t('下载')}</button>
+                  <button className="btn sm" type="button" disabled={busy} onClick={() => drill(b.name)}>{t('恢复演练')}</button>
                   <button className="btn sm" type="button" disabled={busy} onClick={() => restore(b.name, (p) => post(`/backup/files/${b.name}/restore`, p ? { passphrase: p } : {}))}>{t('恢复')}</button>
                   <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(t('删除备份 {name}？', { name: b.name }), { danger: true })) run(async () => { await del('/backup/files/' + b.name); info.reload() }) }}>{t('删除')}</button>
                 </div></td>
@@ -201,6 +226,25 @@ function Backups() {
       </div>
       <div className="hint">{t('备份包含全部数据与内部 CA 证书（迁移后已接入的节点无需重装），SQLite 与 PostgreSQL 之间可互相恢复。未加密的备份只能恢复到同一 secret_key 的面板；加密备份附带密钥，新服务器执行')} <code>{t('polaris install --restore 文件')}</code> {t('或安装后')} <code>{t('polaris restore 文件')}</code> {t('即可。')}</div>
       </fieldset>
+      <section className="card" aria-label={t('恢复演练记录')}>
+        <h3>{t('恢复演练记录')}</h3>
+        <p className="hint">{t('在临时数据库验证恢复、密钥迁移和重新打开，完成后清理。不会覆盖当前数据或连接节点；线上登录、付款、通知与授权联网检查需要另外验收。')}</p>
+        {drills.error && <div className="alert err" role="alert">{String(drills.error)} <button className="btn sm" type="button" onClick={drills.reload}>{t('重试')}</button></div>}
+        {!drills.loading && !drills.error && !drills.data?.length && <div className="hint">{t('暂无演练记录，可在备份文件旁点击恢复演练')}</div>}
+        {(drills.data ?? []).map((r) => <details key={r.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+          <summary><span className={'tag ' + (r.status === 'passed' ? 'ok' : 'bad')}>{r.status === 'passed' ? t('检查通过') : t('失败')}</span> {datetime(r.startedAt)} · {(r.durationMs / 1000).toFixed(1)} s</summary>
+          <div className="mono" style={{ overflowWrap: 'anywhere', marginTop: 8 }}>{r.source}</div>
+          {r.backupAt && <div className="hint">{t('恢复点')}：{datetime(r.backupAt)}</div>}
+          {r.error && <div className="alert err">{r.error}</div>}
+          <ul>{r.checks.map((c) => <li key={c.name}>{drillCheckNames()[c.name] || c.name} · {c.state === 'passed' ? t('通过') : c.state === 'skipped' ? t('未验证') : t('失败')}{c.detail && <div className="hint">{c.detail}</div>}</li>)}</ul>
+        </details>)}
+      </section>
+      {drillAsk && <Modal title={t('输入备份口令')} onClose={() => { if (!busy) { setDrillAsk(null); setDrillPass('') } }} footer={<button className="btn pri" type="submit" form="drill-pass" disabled={busy || !drillPass}>{t('恢复演练')}</button>}>
+        <form id="drill-pass" onSubmit={(e) => { e.preventDefault(); if (!busy) drill(drillAsk, drillPass) }}>
+          <p className="hint">{t('仅在隔离数据库中检查备份，当前数据不受影响。')}</p>
+          <input className="input" type="password" autoFocus aria-label={t('备份口令')} value={drillPass} onChange={(e) => setDrillPass(e.target.value)} disabled={busy} />
+        </form>
+      </Modal>}
       {ask && (
         <Modal title={t('输入备份口令')} onClose={() => setAsk(null)} footer={<>
           <button className="btn" type="button" onClick={() => setAsk(null)}>{t('取消')}</button>

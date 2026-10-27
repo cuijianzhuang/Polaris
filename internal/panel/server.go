@@ -470,6 +470,7 @@ func (s *Server) cleanup() {
 			s.log.Warn("cleanup", "table", what, "err", err) // retried on the next run
 		}
 	}
+	prune("restore drills", &store.RestoreDrill{}, "started_at < ?", now.AddDate(0, 0, -90))
 	prune("user notices", &store.UserNotice{}, "status <> ? AND updated_at < ?", "pending", now.AddDate(0, 0, -30))
 	s.pruneIdempotency()
 	prune("route traces", &store.NodeRouteTrace{}, "started_at < ?", now.Add(-routeTraceKeep))
