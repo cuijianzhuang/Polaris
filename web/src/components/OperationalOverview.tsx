@@ -13,7 +13,7 @@ export interface OperationalData {
 
 export default function OperationalOverview({ data }: { data?: OperationalData }) {
   const [r, s, d] = [data?.relayBusiness, data?.sampling, data?.delivery]
-  return <section className="card ops-stack" aria-label={t('运维汇总')}>
+  return <section className="card ops-stack operational-overview" aria-label={t('运维汇总')}>
     <div className="ctitle"><h2>{t('运维汇总')}</h2><span className="small mute">{data?.checkedAt ? datetime(data.checkedAt) : ''}</span></div>
     {!data?.available ? <div className="note warn">{t('运维数据暂不可用，不能据此判断系统健康。')}</div> : <>
       <div className="grid g3">

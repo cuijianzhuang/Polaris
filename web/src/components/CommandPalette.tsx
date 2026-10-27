@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { get } from '../api'
 import { Icon } from './Icons'
 import type { Node, User } from '../types'
 import { t } from '../i18n'
+import { useEscape } from './ui'
 
 export type PaletteItem = { id: string; label: string; hint?: string; icon: ReactNode; to: string; group: string }
 
@@ -17,8 +18,15 @@ export default function CommandPalette({ open, onClose, pages, nodes, searchUser
   const [users, setUsers] = useState<User[]>([])
   const [sel, setSel] = useState(0)
   const input = useRef<HTMLInputElement>(null)
+  const dialog = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => input.current?.focus(), 10) } }, [open])
+  useEscape(onClose, open)
+  useLayoutEffect(() => {
+    if (!open) return
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setQ(''); setSel(0); input.current?.focus()
+    return () => { if (previous?.isConnected) previous.focus() }
+  }, [open])
   useEffect(() => {
     if (!open || !searchUsers || !q.trim()) { setUsers([]); return }
     let live = true
@@ -43,15 +51,21 @@ export default function CommandPalette({ open, onClose, pages, nodes, searchUser
   if (!open) return null
   const go = (it?: PaletteItem) => { if (!it) return; onClose(); nav(it.to) }
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(items.length - 1, s + 1)) }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(0, s - 1)) }
-    else if (e.key === 'Enter') { e.preventDefault(); go(items[sel]) }
-    else if (e.key === 'Escape') onClose()
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(items.length - 1, s + 1)); input.current?.focus() }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(0, s - 1)); input.current?.focus() }
+    else if (e.key === 'Enter' && e.target === input.current) { e.preventDefault(); go(items[sel]) }
+    else if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+    else if (e.key === 'Tab') {
+      const controls = dialog.current?.querySelectorAll<HTMLElement>('input, button:not(:disabled)')
+      const first = controls?.[0], last = controls?.[controls.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus() }
+    }
   }
   let last = ''
   return (
     <div className="overlay center cp-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="cp" role="dialog" aria-label={t('快速跳转')} onKeyDown={onKey}>
+      <div ref={dialog} className="cp" role="dialog" aria-modal="true" aria-label={t('快速跳转')} onKeyDown={onKey}>
         <div className="cp-search"><Icon.Search />
           <input ref={input} value={q} onChange={(e) => { setQ(e.target.value); setSel(0) }} placeholder={searchUsers ? t('搜索页面、节点、用户…') : t('搜索页面、节点…')} aria-label={t('搜索')} />
           <kbd>Esc</kbd>
@@ -62,7 +76,7 @@ export default function CommandPalette({ open, onClose, pages, nodes, searchUser
             const head = it.group !== last ? <div className="cp-group">{it.group}</div> : null
             last = it.group
             return <div key={it.id}>{head}
-              <button type="button" className={'cp-item' + (i === sel ? ' on' : '')} onMouseMove={() => setSel(i)} onClick={() => go(it)}>
+              <button type="button" className={'cp-item' + (i === sel ? ' on' : '')} onFocus={() => setSel(i)} onMouseMove={() => setSel(i)} onClick={() => go(it)}>
                 <span className="cp-ico">{it.icon}</span><span className="cp-label">{it.label}</span>{it.hint && <span className="cp-hint">{it.hint}</span>}
               </button></div>
           })}

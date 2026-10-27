@@ -441,7 +441,7 @@ export default function Nodes() {
   return (
     <>
       <div className="top">
-        <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{scoped ? t('通过 Telegram 登录：仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('每个节点运行一个 Agent，Agent 托管一个或多个内核子进程')}</div></div>
+        <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{scoped ? t('通过 Telegram 登录：仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('集中查看节点状态、资源和配置下发进度')}</div></div>
         {!scoped && <div className="row">
           {outdatedNodes.length > 0 && (
             <button className="btn" type="button" disabled={busy} onClick={() => setUpgradeAll(true)}>

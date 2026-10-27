@@ -58,11 +58,11 @@ function Trend({ data }: { data: Overview['trend'] }) {
           </g>
           <path d={area('down')} fill="url(#tr-down)" />
           <path d={line('down')} fill="none" style={{ stroke: 'var(--pri)' }} strokeWidth="2.5" strokeLinejoin="round" />
-          <path d={line('up')} fill="none" style={{ stroke: 'var(--warn)' }} strokeWidth="2" strokeDasharray="5 4" strokeLinejoin="round" />
+          <path d={line('up')} fill="none" style={{ stroke: 'var(--chart-up, var(--warn))' }} strokeWidth="2" strokeDasharray="5 4" strokeLinejoin="round" />
           {h && hover !== null && <g>
             <line x1={x(hover)} x2={x(hover)} y1={T} y2={B} style={{ stroke: 'var(--input)' }} strokeDasharray="3 3" />
             <circle cx={x(hover)} cy={y(h.down)} r="4" style={{ fill: 'var(--card)', stroke: 'var(--pri)' }} strokeWidth="2" />
-            <circle cx={x(hover)} cy={y(h.up)} r="3.5" style={{ fill: 'var(--card)', stroke: 'var(--warn)' }} strokeWidth="2" />
+            <circle cx={x(hover)} cy={y(h.up)} r="3.5" style={{ fill: 'var(--card)', stroke: 'var(--chart-up, var(--warn))' }} strokeWidth="2" />
           </g>}
           <rect x={L} y={T} width={R - L} height={B - T} fill="transparent" onPointerMove={onMove} onPointerLeave={() => setHover(null)} />
         </svg>
@@ -71,7 +71,7 @@ function Trend({ data }: { data: Overview['trend'] }) {
         <div className="tip" style={{ left: Math.min(Math.max(x(hover), 70), W - 70), top: 4 }}>
           <div className="tip-t">{h.date} {weekday[new Date(h.date + 'T00:00:00').getDay()]}</div>
           <div><i style={{ background: 'var(--pri)' }} />{t('下行')} <b>{bytes(h.down)}</b></div>
-          <div><i style={{ background: 'var(--warn)' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
+          <div><i style={{ background: 'var(--chart-up, var(--warn))' }} />{t('上行')} <b>{bytes(h.up)}</b></div>
         </div>
       )}
     </div>
@@ -112,7 +112,7 @@ function Attention({ d }: { d: Overview }) {
   return (
     <div className="attn" aria-label={t('需要关注')}>
       {items.length === 0
-        ? <span className="attn-item ok">✓ {t('一切正常：节点在线，没有超额或到期的用户')}</span>
+        ? <span className="attn-item ok">✓ {t('节点在线，用户额度与有效期正常')}</span>
         : items.map((x) => <Link key={x.text} to={x.to} className={'attn-item ' + x.cls}><b>{x.n}</b>{x.text} ›</Link>)}
     </div>
   )
@@ -153,27 +153,27 @@ export default function Dashboard() {
   return (
     <>
       <div className="top">
-        <div><h1>{t('仪表盘')}</h1><div className="sub">{t('全部节点 · 实时数据随心跳刷新')}</div></div>
+        <div><h1>{t('仪表盘')}</h1><div className="sub">{t('查看节点、流量与运维状态')}</div></div>
         <div className="row">
           <RefreshPicker ms={refreshMs} onChange={setRefreshMs} onNow={reloadAll} />
           <button className="btn" type="button" onClick={() => nav('/nodes?new=1')}>{t('添加节点')}</button>
           <button className="btn pri" type="button" onClick={() => nav('/users?new=1')}>{t('新建用户')}</button>
         </div>
       </div>
-      {data && <Attention d={data} />}
-      {data && <OperationalOverview data={data.operational} />}
-      <section className="grid g4" aria-label={t('概览')}>
+      <section className="grid g4 dashboard-metrics" aria-label={t('概览')}>
         <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">{t('在线节点')}</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? t('{n} 个离线', { n: data.nodes.timeout }) : t('全部在线')}{data?.nodes.error ? ' · ' + t('{n} 个下发失败', { n: data.nodes.error }) : ''}</div></Link>
         <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">{t('在线用户')}</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">{t('有效 {active} · 共 {total} 个用户', { active: data?.users.active ?? 0, total: data?.users.total ?? 0 })}</div></Link>
         <div className="card kpi"><span className="kpi-ico violet"><Icon.Download /></span><div className="label">{t('今日流量')}</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">↑ {bytes(data?.today.Up)} · ↓ {bytes(data?.today.Down)} · {t('本月 {v}', { v: bytes((data?.month.Up ?? 0) + (data?.month.Down ?? 0)) })}</div></div>
         <div className="card kpi"><span className="kpi-ico warn"><Icon.Cpu /></span><div className="label">{t('实时速率')}</div><div className="val">{bps(rx + tx)}</div><div className="foot">↓ {bps(rx)} · ↑ {bps(tx)}{data?.rate.peakNode ? ' · ' + t('峰值 {node}', { node: data.rate.peakNode }) : ''}</div></div>
       </section>
+      {data && <Attention d={data} />}
+      {data && <OperationalOverview data={data.operational} />}
       <section className="grid g3">
         <div className="card" style={{ gridColumn: 'span 2', minWidth: 0 }}>
           <div className="ctitle">
             <span>{t('流量趋势')}</span>
             <span className="row" style={{ gap: 12 }}>
-              <span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />{t('下行')}<i className="dash" style={{ borderColor: 'var(--warn)' }} />{t('上行')}</span>
+              <span className="sub legend" style={{ margin: 0 }}><i style={{ background: 'var(--pri)' }} />{t('下行')}<i className="dash" style={{ borderColor: 'var(--chart-up, var(--warn))' }} />{t('上行')}</span>
               <span className="seg-mini">{[7, 30].map((d) => <button key={d} type="button" className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{t('{n} 天', { n: d })}</button>)}</span>
             </span>
           </div>
