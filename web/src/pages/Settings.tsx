@@ -1,7 +1,7 @@
 import Passkeys from '../components/Passkeys'
 import { NotificationSettings, NetworkDatabaseSettings } from '../components/NetworkSettings'
 import { ProTag, useFeature } from '../components/License'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, del, download, get, post, put, setToken, takeOAuthResult, upload } from '../api'
 import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
 import { Icon } from '../components/Icons'
@@ -629,14 +629,21 @@ export default function Settings() {
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const [tab, setTab] = useState<string>(() => settingTabs.some((t) => '#' + t.id === location.hash) ? location.hash.slice(1) : 'general')
   const go = (id: string) => { setTab(id); history.replaceState(null, '', '#' + id) }
+  const settingsNav = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const nav = settingsNav.current
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (nav && active && nav.scrollWidth > nav.clientWidth) {
+      nav.scrollTo({ left: nav.scrollLeft + active.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - active.clientWidth) / 2 })
+    }
+  }, [tab])
 
 
   return (
     <>
       <div className="top"><div><h1>{t('设置')}</h1><div className="sub">{t('面板、证书、账号安全、备份与外观')}</div></div></div>
       <div className="settings">
-        <div className="settings-mobile-nav"><label htmlFor="settings-section">{t('设置分区')}</label><select id="settings-section" className="input" value={tab} onChange={(e) => go(e.target.value)}>{settingTabs.map((x) => <option key={x.id} value={x.id}>{x.label}</option>)}</select></div>
-        <nav className="snav" aria-label={t('设置分区')}>
+        <nav ref={settingsNav} className="snav" aria-label={t('设置分区')}>
           {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} title={t.hint} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
         </nav>
         <div className="spane" key={tab}>
