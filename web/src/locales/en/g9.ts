@@ -68,5 +68,21 @@ const m: Record<string, string> = {
   '尝试次数': 'Attempts',
   '天': 'days',
 
+  "优选 IP 上报中断": "Preferred IP reports stopped",
+  "优选 IP 上报恢复": "Preferred IP reports resumed",
+  "优选 IP 上报": "Preferred IP reports",
+  "上报 CDN 优选 IP（测速点使用，不能修改配置档）": "Report preferred CDN IPs (for speed-test points; cannot edit profiles)",
+  "测速点多久没上报就告警（小时）": "Alert when speed-test points are silent for (hours)",
+  "只在有测速点上报过时生效；告警后继续用原有 IP": "Only applies once a speed-test point has reported; the last IPs stay in use after the alert",
+  "节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅": "Node check: every 30 minutes online nodes connect to each preferred IP; IPs no node can reach are left out of subscriptions",
+  "节点检测": "Node check",
+  "节点都连不上，订阅暂不使用": "No node can reach it; left out of subscriptions for now",
+  "节点检测：{t}，{n} 个连不上": "Node check: {t}, {n} unreachable",
+  "节点检测：等待第一次检测": "Node check: waiting for the first run",
+  "测速点": "Speed-test points",
+  "超过 {h} 小时没上报会告警": "Alert after {h} hours without a report",
+  "还没有测速点上报。用带「上报 CDN 优选 IP」权限的 API 令牌，从用户所在地区的机器调用 POST /cdn-profiles/{id}/preferred-ips。": "No speed-test point has reported yet. From a machine where your users are, call POST /cdn-profiles/{id}/preferred-ips with an API token that has the \"Report preferred CDN IPs\" scope.",
+  "共 {n} 个": "{n} total",
+  "由 {n} 个测速点维护": "Maintained by {n} speed-test points",
 }
 export default m

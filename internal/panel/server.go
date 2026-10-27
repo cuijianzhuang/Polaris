@@ -422,6 +422,8 @@ func (s *Server) startJobs() func() {
 	add("0 17 3 * * *", "cleanup", s.cleanup)
 	add("0 23 4 * * *", "certs", s.renewCertificates)
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
+	add("0 13 * * * *", "preferred-ips-stale", s.checkCDNReportsStale)
+	add("30 */30 * * * *", "preferred-ips-nodes", s.checkCDNIPsFromNodes)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)
 	add("45 * * * * *", "health", s.probeChains)
 	add("*/20 * * * * *", "forward-failover", s.probeForwards)

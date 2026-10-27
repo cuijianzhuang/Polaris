@@ -47,6 +47,8 @@ var notificationKinds = map[string]notificationKind{
 	"cert_failed":       {Group: "cert_failed"},
 	"node_traffic":      {Group: "node_traffic"},
 	"operational_alert": {Group: "operational_alert"},
+	"cdn_ips_stale":     {Group: "cdn_ips", Paired: true},
+	"cdn_ips_fresh":     {Group: "cdn_ips", Paired: true, Recovery: true},
 }
 
 type notificationWindow struct {

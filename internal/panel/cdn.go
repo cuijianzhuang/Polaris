@@ -164,6 +164,8 @@ type cdnReq struct {
 	ExpandPerIP   bool     `json:"expandPerIp"`
 	AutoDNS       bool     `json:"autoDns"`
 	CaddyFronting bool     `json:"caddyFronting"`
+	NodeCheck     bool     `json:"nodeCheck"`
+	StaleHours    int      `json:"staleHours"`
 	APIToken      string   `json:"apiToken"` // empty = unchanged
 }
 
@@ -173,6 +175,10 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		r.Ports = []int{443, 2053, 2083, 2087, 2096, 8443}
 	}
 	p.Ports, p.PreferredIPs = store.NewJSON(r.Ports), store.NewJSON(nonNilStrs(r.PreferredIPs))
+	p.NodeCheck, p.StaleHours = r.NodeCheck, min(max(r.StaleHours, 0), 24*30)
+	if !p.NodeCheck {
+		p.BadIPs = store.NewJSON([]string{})
+	}
 	p.IPSourceURL, p.IPTopN, p.ExpandPerIP, p.AutoDNS, p.CaddyFronting = r.IPSourceURL, r.IPTopN, r.ExpandPerIP, r.AutoDNS, r.CaddyFronting
 	if r.APIToken != "" {
 		p.APIToken = box(r.APIToken)
@@ -184,17 +190,19 @@ func (s *Server) listCDN(c *gin.Context) {
 	s.st.DB.Order("name").Find(&ps)
 	type view struct {
 		store.CDNProfile
-		Inbounds int64 `json:"inbounds"`
+		Inbounds int64               `json:"inbounds"`
+		Reports  []store.CDNIPReport `json:"reports"`
 	}
 	ids := make([]string, len(ps))
 	for i := range ps {
 		ids[i] = ps[i].ID
 	}
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
+	reports := s.cdnReports(ids)
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
 		p.HasToken = p.APIToken != ""
-		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID]})
+		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Reports: nonNilReports(reports[p.ID])})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -427,7 +435,11 @@ func parseIPList(r io.Reader) []string {
 func (s *Server) refreshAllPreferredIPs() {
 	var ps []store.CDNProfile
 	s.st.DB.Where("ip_source_url <> ''").Find(&ps)
+	now := time.Now()
 	for i := range ps {
+		if s.cdnFreshReport(&ps[i], now) {
+			continue // speed-test points maintain this list
+		}
 		if _, err := s.refreshPreferredIPs(context.Background(), &ps[i]); err != nil {
 			s.st.DB.Model(&ps[i]).Update("last_error", truncate(err.Error(), 1900))
 		}

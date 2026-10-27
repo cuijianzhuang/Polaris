@@ -562,8 +562,33 @@ type CDNProfile struct {
 	ZoneID        string         `gorm:"size:64" json:"zoneId"`
 	LastRefreshAt *time.Time     `json:"lastRefreshAt"`
 	LastError     string         `gorm:"size:2000" json:"lastError"`
-	CreatedAt     time.Time      `json:"createdAt"`
-	UpdatedAt     time.Time      `json:"updatedAt"`
+	// Speed-test points report their best IPs (CDNIPReport); StaleHours is
+	// how long without a report before an alert (0 = 24).
+	StaleHours   int  `json:"staleHours"`
+	StaleAlerted bool `json:"-"`
+	// NodeCheck has online nodes test each preferred IP; IPs no node can
+	// reach are listed in BadIPs and left out of subscriptions.
+	NodeCheck bool           `json:"nodeCheck"`
+	BadIPs    JSON[[]string] `json:"badIps"`
+	CheckedAt *time.Time     `json:"checkedAt"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+}
+
+// CDNIPReport is the latest result a speed-test point sent for a CDN
+// profile: its best IPs, ranked.
+type CDNIPReport struct {
+	ProfileID string              `gorm:"primaryKey;size:32" json:"profileId"`
+	Source    string              `gorm:"primaryKey;size:40" json:"source"` // e.g. "上海电信"
+	At        time.Time           `json:"at"`
+	IPs       JSON[[]CDNIPResult] `json:"ips"`
+}
+
+// CDNIPResult is one tested IP: average latency and packet loss (0–1).
+type CDNIPResult struct {
+	IP        string  `json:"ip"`
+	LatencyMs float64 `json:"latencyMs"`
+	Loss      float64 `json:"loss"`
 }
 
 // Outbound is a node egress (persisted model.Outbound).
@@ -880,7 +905,7 @@ func AllModels() []any {
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},
-		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{},
+		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{}, &CDNIPReport{},
 	}
 }
 
