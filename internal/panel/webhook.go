@@ -214,16 +214,16 @@ func (s *Server) deliverWebhook(id string) {
 	s.st.DB.First(&d, "id = ?", id)
 	var h store.Webhook
 	if s.st.DB.First(&h, "id = ?", d.WebhookID).Error != nil {
-		s.st.DB.Model(&d).Updates(map[string]any{"status": "failed", "last_error": "webhook 已删除"})
+		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "failed", "last_error": "webhook 已删除"}).Error)
 		return
 	}
 	if !h.Enabled {
 		// Keep the original event and retry budget for an explicit re-enable.
-		s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "Webhook 已停用，等待重新启用"})
+		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "Webhook 已停用，等待重新启用"}).Error)
 		return
 	}
 	if s.operationalWebhookMuted(&d, time.Now()) {
-		s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "运维通知暂缓：渠道关闭或维护窗口"})
+		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "运维通知暂缓：渠道关闭或维护窗口"}).Error)
 		return
 	}
 	code, err := s.sendWebhook(&h, &d)
@@ -237,8 +237,9 @@ func (s *Server) deliverWebhook(id string) {
 	default:
 		upd["status"], upd["last_error"] = "failed", truncate(err.Error(), 500)
 	}
-	s.st.DB.Model(&d).Updates(upd)
-	s.st.DB.Model(&store.Webhook{}).Where("id = ?", h.ID).Updates(map[string]any{"last_status": upd["status"], "last_at": now})
+	// A lost success write means the event is sent again: receivers dedupe by event id.
+	s.warnWrite("webhook delivery "+d.ID, s.st.DB.Model(&d).Updates(upd).Error)
+	s.warnWrite("webhook status", s.st.DB.Model(&store.Webhook{}).Where("id = ?", h.ID).Updates(map[string]any{"last_status": upd["status"], "last_at": now}).Error)
 }
 
 var webhookClient = &http.Client{Timeout: 10 * time.Second}
@@ -490,7 +491,10 @@ func (s *Server) updateWebhook(c *gin.Context) {
 			upd["secret"] = s.st.Box.Seal(v)
 		}
 	}
-	s.st.DB.Model(&h).Updates(upd)
+	if err := s.st.DB.Model(&h).Updates(upd).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.auditCtx(c, "webhook.update", req.Name, req.URL)
 	s.st.DB.First(&h, "id = ?", h.ID)
 	c.JSON(http.StatusOK, gin.H{"webhook": webhookView{h, h.Secret != ""}, "secret": secret})
@@ -544,7 +548,10 @@ func (s *Server) retryDelivery(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now()})
+	if err := s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now()}).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.deliverWebhook(d.ID)
 	s.st.DB.First(&d, "id = ?", d.ID)
 	c.JSON(http.StatusOK, d)

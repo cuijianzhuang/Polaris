@@ -503,7 +503,7 @@ func (s *Server) refreshRuleSet(ctx context.Context, rs *store.RuleSet) {
 	parsed, err := fetchRuleList(ctx, rs.SourceURL)
 	if err != nil {
 		rs.FetchError = err.Error()
-		s.st.DB.Model(rs).Select("FetchedAt", "FetchError").Updates(rs)
+		s.warnWrite("rule set fetch status", s.st.DB.Model(rs).Select("FetchedAt", "FetchError").Updates(rs).Error)
 		s.log.Warn("rule set fetch", "tag", rs.Tag, "err", err)
 		return
 	}

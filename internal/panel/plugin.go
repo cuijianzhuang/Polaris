@@ -327,7 +327,9 @@ func (s *Server) installPlugin(c *gin.Context) {
 	payload := gin.H{"panel_url": s.panelBase(), "api_base": creds["apiBase"], "token": tokSecret, "plugin_secret": pluginSecret,
 		"webhook_secret": hookSecret, "panel_version": Version, "settings": plain}
 	handshake, detail := s.handshake(c.Request.Context(), p, req.InstallKey, payload)
-	s.st.DB.Model(p).Updates(map[string]any{"status": p.Status, "last_error": p.LastError, "last_seen_at": p.LastSeenAt})
+	// The plugin is installed either way; a lost status write only shows a
+	// stale state until the next health check.
+	s.warnWrite("plugin status", s.st.DB.Model(p).Updates(map[string]any{"status": p.Status, "last_error": p.LastError, "last_seen_at": p.LastSeenAt}).Error)
 	s.auditCtx(c, "plugin.install", m.ID, m.Name+" "+m.Version+"; "+strings.Join(m.Scopes, ","))
 	out := gin.H{"plugin": s.pluginView(p), "handshake": handshake}
 	if handshake != "ok" {

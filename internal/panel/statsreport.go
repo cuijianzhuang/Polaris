@@ -255,8 +255,8 @@ func (s *Server) recordMetric(nodeID string, sys store.SystemInfo, now time.Time
 	at := now.UTC().Truncate(metricSlot)
 	var m store.NodeMetric
 	if s.st.DB.First(&m, "node_id = ? AND at = ?", nodeID, at).Error != nil {
-		s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.NodeMetric{NodeID: nodeID, At: at, CPU: sys.CPU, Mem: sys.Mem,
-			RxBps: sys.RxBps, TxBps: sys.TxBps, Load1: sys.Load1, N: 1})
+		s.warnWrite("node metric", s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.NodeMetric{NodeID: nodeID, At: at, CPU: sys.CPU, Mem: sys.Mem,
+			RxBps: sys.RxBps, TxBps: sys.TxBps, Load1: sys.Load1, N: 1}).Error)
 		return
 	}
 	n := float64(m.N)

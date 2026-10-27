@@ -234,7 +234,7 @@ func (s *Server) presenceUp(nodeID string) {
 	if s.hub.remote == nil {
 		return
 	}
-	s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now()})
+	s.warnWrite("agent presence", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now()}).Error)
 }
 
 // presenceTouch refreshes the row on heartbeats, at most every presenceTouch.
@@ -249,7 +249,7 @@ func (s *Server) presenceTouch(nodeID string) {
 	}
 	s.presMu.Unlock()
 	if due {
-		s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now()})
+		s.warnWrite("agent presence", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now()}).Error)
 	}
 }
 
