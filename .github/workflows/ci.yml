@@ -183,14 +183,14 @@ jobs:
       - name: Install browser test dependencies
         run: |
           python -m pip install playwright==1.56.0
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chromium webkit
       - name: Real WebAuthn registration, replay rejection, revocation and recovery
         env:
           POLARIS_PASSKEY_BROWSER_TEST: '1'
         run: |
           export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           go test -count=1 -v ./internal/panel -run '^TestLivePasskeyBrowser$'
-      - name: Probe refresh and console appearance in Chromium
+      - name: Probe, appearance and settings workflows in Chromium and WebKit
         run: |
           npm --prefix web run dev -- --host 127.0.0.1 --port 5187 > /tmp/probe-vite.log 2>&1 &
           probe_server_pid=$!
@@ -198,3 +198,4 @@ jobs:
           curl --retry 20 --retry-connrefused --retry-delay 1 -fsS http://127.0.0.1:5187/ > /dev/null
           python web/scripts/probe-refresh-ui-smoke.py
           python web/scripts/appearance-ui-smoke.py
+          python web/scripts/settings-workflow-smoke.py

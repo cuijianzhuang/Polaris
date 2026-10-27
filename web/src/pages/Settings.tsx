@@ -1,3 +1,5 @@
+import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../components/SettingsDrafts'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Passkeys from '../components/Passkeys'
 import { NotificationSettings, NetworkDatabaseSettings } from '../components/NetworkSettings'
 import { ProTag, useFeature } from '../components/License'
@@ -50,13 +52,17 @@ function Backups() {
   const info = useLoad(() => get<BackupInfo>('/backup'))
   const s = useLoad(() => get<Record<string, any>>('/settings'))
   const [f, setF] = useState<Record<string, string>>({})
+  const [baseline, setBaseline] = useState('')
+  const saver = useSettingsSave()
   const [sec, setSec] = useState<Record<string, string>>({})
   const [ask, setAsk] = useState<{ label: string; go: (pass: string) => Promise<unknown> } | null>(null)
   const [pass, setPass] = useState('')
   useEffect(() => {
-    if (s.data) setF(Object.fromEntries(backupKeys.map((k) => [k, String(s.data?.[k] ?? '')])))
+    if (s.data) { const next = Object.fromEntries(backupKeys.map((k) => [k, String(s.data?.[k] ?? '')])); setF(next); setBaseline(JSON.stringify(next)) }
   }, [s.data])
-  const { busy, run } = useAction()
+  const { busy: actionBusy, run } = useAction()
+  const busy = actionBusy || saver.busy
+  const dirty = !!baseline && (JSON.stringify(f) !== baseline || Object.values(sec).some(Boolean))
   const confirm = useConfirm()
   const toast = useToast()
   const [restoring, setRestoring] = useState(false)
@@ -79,11 +85,16 @@ function Backups() {
     attempt('')
   }
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
-  const save = () => run(async () => {
-    const body: Record<string, string> = { ...f }
-    for (const k of secretKeys) if (sec[k]) body[k] = sec[k]
-    await put('/settings', body); setSec({}); s.reload(); info.reload()
-  }, t('备份设置已保存'))
+  const save = async () => {
+    if (!dirty) return true
+    if (busy || s.loading || !s.data) return false
+    return saver.run(async () => {
+      const body: Record<string, string> = { ...f }
+      for (const k of secretKeys) if (sec[k]) body[k] = sec[k]
+      await put('/settings', body); setSec({}); setBaseline(JSON.stringify(f)); s.reload(); info.reload()
+    }, t('备份设置已保存'))
+  }
+  useSettingsDraft({ label: t('备份与恢复'), dirty, busy, save, discard: () => { setF(JSON.parse(baseline || '{}')); setSec({}) } })
   const isSet = (k: string) => !!s.data?.[k + '_set']
   const d = info.data
   const inS3 = f.backup_store === 's3'
@@ -110,6 +121,7 @@ function Backups() {
   )
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <fieldset className="settings-fields" disabled={busy || s.loading || !baseline}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>{t('备份与恢复')}</h2>
         <span className="sub" style={{ margin: 0 }}>{d?.db === 'postgres' ? 'PostgreSQL' : `SQLite ${bytes(d?.dbSize)}`} · {t('保存在')} <code>{d?.dir}</code></span>
@@ -151,8 +163,8 @@ function Backups() {
           {inS3 ? <div className="hint">{t('S3 已用作备份存储，不再重复推送到 S3。')}</div> : s3Fields}
         </div>
       </details>
+      <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={s.loading || !s.data} onSave={save} label={t('保存设置')} />
       <div className="row">
-        <button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存设置')}</button>
         <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await post('/backup'); info.reload() }, t('已创建备份'))}>{t('立即备份')}</button>
         <button className="btn" type="button" disabled={busy} onClick={() => run(async () => {
           const r = await post<{ push?: Record<string, string> }>('/backup?push=1'); info.reload()
@@ -188,6 +200,7 @@ function Backups() {
         )}
       </div>
       <div className="hint">{t('备份包含全部数据与内部 CA 证书（迁移后已接入的节点无需重装），SQLite 与 PostgreSQL 之间可互相恢复。未加密的备份只能恢复到同一 secret_key 的面板；加密备份附带密钥，新服务器执行')} <code>{t('polaris install --restore 文件')}</code> {t('或安装后')} <code>{t('polaris restore 文件')}</code> {t('即可。')}</div>
+      </fieldset>
       {ask && (
         <Modal title={t('输入备份口令')} onClose={() => setAsk(null)} footer={<>
           <button className="btn" type="button" onClick={() => setAsk(null)}>{t('取消')}</button>
@@ -220,19 +233,29 @@ const mailKeys = ['smtp_host', 'smtp_port', 'smtp_security', 'smtp_user', 'smtp_
 function MailSettings() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
   const [f, setF] = useState<Record<string, string>>({})
+  const [baseline, setBaseline] = useState('')
+  const saver = useSettingsSave()
   const [pass, setPass] = useState('')
   const [to, setTo] = useState('')
   useEffect(() => {
-    if (s.data) setF(Object.fromEntries(mailKeys.map((k) => [k, String(s.data?.[k] ?? '')])))
+    if (s.data) { const next = Object.fromEntries(mailKeys.map((k) => [k, String(s.data?.[k] ?? '')])); setF(next); setBaseline(JSON.stringify(next)) }
   }, [s.data])
-  const { busy, run } = useAction()
+  const { busy: actionBusy, run } = useAction()
+  const busy = actionBusy || saver.busy
+  const dirty = !!baseline && (JSON.stringify(f) !== baseline || !!pass)
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const security = f.smtp_security || 'starttls'
-  const save = () => run(async () => {
-    const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'false' ? 'false' : 'true', mail_notify_admin: f.mail_notify_admin === 'false' ? 'false' : 'true' }
-    if (pass) body.smtp_password = pass
-    await put('/settings', body); setPass(''); s.reload()
-  }, t('邮件设置已保存'))
+  const invalidPort = !!f.smtp_port && (Number(f.smtp_port) < 1 || Number(f.smtp_port) > 65535)
+  const save = async () => {
+    if (!dirty) return true
+    if (busy || s.loading || !s.data || invalidPort) return false
+    return saver.run(async () => {
+      const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'false' ? 'false' : 'true', mail_notify_admin: f.mail_notify_admin === 'false' ? 'false' : 'true' }
+      if (pass) body.smtp_password = pass
+      await put('/settings', body); setPass(''); setBaseline(JSON.stringify(f)); s.reload()
+    }, t('邮件设置已保存'))
+  }
+  useSettingsDraft({ label: t('邮件'), dirty, busy, invalid: invalidPort, save, discard: () => { setF(JSON.parse(baseline || '{}')); setPass('') } })
   const test = () => run(async () => {
     const r = await post<{ ok: boolean; error?: string }>('/mail/test', { to, host: f.smtp_host, port: f.smtp_port, security, user: f.smtp_user, password: pass, from: f.smtp_from, fromName: f.smtp_from_name })
     if (!r.ok) throw new Error(t('发送失败：{err}', { err: r.error ?? '' }))
@@ -241,6 +264,7 @@ function MailSettings() {
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <h2>{t('邮件（SMTP）')}</h2>
+      <fieldset className="settings-fields" disabled={busy || s.loading || !baseline}>
       <div className="hint">{t('配置后，填了邮箱的用户会收到和 Telegram 相同的提醒（流量、到期、停用、恢复），以及订单开通通知。提醒阈值在「Telegram」页设置，两边共用。')}</div>
       <div className="form-grid">
         <Field label={t('SMTP 服务器')}><input className="input mono" value={f.smtp_host || ''} placeholder="smtp.example.com" onChange={(e) => set('smtp_host', e.target.value.trim())} /></Field>
@@ -249,7 +273,7 @@ function MailSettings() {
             <option value="starttls">STARTTLS（587）</option><option value="tls">SSL/TLS（465）</option><option value="none">{t('不加密（25，仅限内网中继）')}</option>
           </select>
         </Field>
-        <Field label={t('端口')} hint={t('留空按加密方式使用默认端口')}><input className="input mono" inputMode="numeric" value={f.smtp_port || ''} placeholder={security === 'tls' ? '465' : security === 'none' ? '25' : '587'} onChange={(e) => set('smtp_port', e.target.value.replace(/[^\d]/g, ''))} /></Field>
+        <Field label={t('端口')} hint={invalidPort ? <span role="alert" className="field-error">{t('端口须为 1–65535，或留空使用默认值。')}</span> : t('留空按加密方式使用默认端口')}><input className="input mono" inputMode="numeric" aria-invalid={invalidPort} value={f.smtp_port || ''} placeholder={security === 'tls' ? '465' : security === 'none' ? '25' : '587'} onChange={(e) => set('smtp_port', e.target.value.replace(/[^\d]/g, ''))} /></Field>
         <Field label={t('用户名')} hint={t('通常是完整邮箱地址；中继不需要时留空')}><input className="input mono" autoComplete="off" value={f.smtp_user || ''} onChange={(e) => set('smtp_user', e.target.value.trim())} /></Field>
         <Field label={t('密码 / 授权码')} hint={passSet ? t('已保存（留空不修改）') : t('QQ / 163 邮箱填授权码，Gmail 填应用专用密码')}><input className="input mono" type="password" autoComplete="new-password" value={pass} placeholder={passSet ? '••••••••' : ''} onChange={(e) => setPass(e.target.value)} /></Field>
         <Field label={t('发件地址')}><input className="input mono" value={f.smtp_from || ''} placeholder="noreply@example.com" onChange={(e) => set('smtp_from', e.target.value.trim())} /></Field>
@@ -258,11 +282,12 @@ function MailSettings() {
       </div>
       <div className="toggle"><span>{t('给用户发提醒邮件')}</span><Switch label={t('给用户发提醒邮件')} on={f.mail_notify_users !== 'false'} onChange={(v) => set('mail_notify_users', String(v))} /></div>
       <div className="toggle"><span>{t('给管理员发通知邮件')}</span><Switch label={t('给管理员发通知邮件')} on={f.mail_notify_admin !== 'false'} onChange={(v) => set('mail_notify_admin', String(v))} /></div>
+      <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={s.loading || !s.data || invalidPort} onSave={save} />
       <div className="row">
-        <button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button>
         <input className="input mono" style={{ width: 'auto', minWidth: 200 }} type="email" value={to} placeholder={t('测试收件地址')} onChange={(e) => setTo(e.target.value)} aria-label={t('测试收件地址')} />
         <button className="btn" type="button" disabled={busy || !to || !f.smtp_host} onClick={test}>{t('发送测试邮件')}</button>
       </div>
+      </fieldset>
     </section>
   )
 }
@@ -366,10 +391,21 @@ function Updates() {
   const s = useLoad(() => get<Record<string, any>>('/settings'))
   const [mode, setMode] = useState<string | null>(null)
   const [hour, setHour] = useState<string | null>(null)
-  const { busy, run } = useAction()
+  const { busy: actionBusy, run } = useAction()
+  const saver = useSettingsSave()
+  const busy = actionBusy || saver.busy
+  const [baseline, setBaseline] = useState('')
+  useEffect(() => { if (s.data) { setBaseline(JSON.stringify([s.data.auto_update || 'notify', s.data.auto_update_hour || '4'])) } }, [s.data])
   const confirm = useConfirm()
   const m = mode ?? (s.data?.auto_update || 'notify')
   const h = hour ?? (s.data?.auto_update_hour || '4')
+  const dirty = !!baseline && JSON.stringify([m,h]) !== baseline
+  const save = async () => {
+    if (!dirty) return true
+    if (busy || s.loading) return false
+    return saver.run(async () => { await put('/settings', { auto_update: m, auto_update_hour: h }); setBaseline(JSON.stringify([m,h])); s.reload() })
+  }
+  useSettingsDraft({ label: t('版本与更新'), dirty, busy, save, discard: () => { setMode(null); setHour(null) } })
   const d = info.data
   const start = async (agents: boolean) => {
     if (!await confirm(t('升级面板到 {v}？', { v: d?.latest }) + (agents ? '\n' + t('完成后会接着升级所有在线节点的 Agent。') : '') + '\n' + t('升级约需 1 分钟，期间面板会重启、网页短暂断开；结果会通过 Telegram 通知并记入审计日志。'))) return
@@ -391,7 +427,7 @@ function Updates() {
       </div>
       <div className="form-grid">
         <Field label={t('自动更新')} hint={t('新版本发布后：通知会发给 Telegram 超级管理员（每个版本一次）')}>
-          <select className="input" value={m} onChange={(e) => setMode(e.target.value)}>
+          <select className="input" disabled={busy || s.loading || !baseline} value={m} onChange={(e) => setMode(e.target.value)}>
             <option value="off">{t('关闭')}</option>
             <option value="notify">{t('只通知新版本')}</option>
             <option value="panel">{t('自动升级面板')}</option>
@@ -399,14 +435,12 @@ function Updates() {
           </select>
         </Field>
         <Field label={t('自动升级时间')} hint={t('服务器本地时间；某个版本自动升级失败后不再自动重试，可手动升级')}>
-          <select className="input mono" value={h} disabled={m !== 'panel' && m !== 'all'} onChange={(e) => setHour(e.target.value)}>
+          <select className="input mono" value={h} disabled={busy || s.loading || !baseline || (m !== 'panel' && m !== 'all')} onChange={(e) => setHour(e.target.value)}>
             {Array.from({ length: 24 }, (_, i) => <option key={i} value={String(i)}>{String(i).padStart(2, '0')}:00</option>)}
           </select>
         </Field>
       </div>
-      <div><button className="btn pri" type="button" disabled={busy || (mode === null && hour === null)} onClick={() => run(async () => {
-        await put('/settings', { auto_update: m, auto_update_hour: h }); setMode(null); setHour(null); s.reload()
-      }, t('已保存'))}>{t('保存')}</button></div>
+      <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={busy || s.loading || !s.data} onSave={save} />
     </section>
   )
 }
@@ -528,6 +562,10 @@ function Access() {
     if (ok) setMoving({ to, note })
   }
 
+  const accessOriginal: Record<string, string> = { path: d?.adminPath ?? '', domain: d?.domain ?? '', sub: d?.subDomain ?? '', port, url: d?.publicUrl ?? '' }
+  const accessDirty = !moving && Object.entries(f).some(([key, value]) => value !== undefined && value !== accessOriginal[key])
+  useSettingsDraft({ label: t('面板访问'), dirty: accessDirty, busy, discard: () => setF({}) })
+
   if (moving) return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <h2><span className="spinner" style={{ marginRight: 8 }} />{t('正在应用…')}</h2>
@@ -557,7 +595,7 @@ function Access() {
                 normPath === '/' ? t('关闭后台路径后，任何人打开这个地址都能看到登录页。请确认已使用强密码并开启二次验证。') : t('后台路径改为 {path}，旧的书签将失效。', { path: normPath }))}>{t('应用')}</button>
           </div>
         </Field>
-        <Field label={t('面板域名（HTTPS）')} hint={t('先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书并放行 80 / 443。已有 Nginx / OpenResty / 宝塔等占用 443 时不要用这里：在它们里反代到本机面板端口，再改下方「公开地址」')}>
+        <Field label={t('面板域名（HTTPS）')} hint={<details className="field-help"><summary>{t('配置前请阅读')}</summary><div>{t('先把域名 A 记录解析到本服务器；会安装 Caddy 自动签发证书并放行 80 / 443。已有 Nginx / OpenResty / 宝塔等占用 443 时不要用这里：在它们里反代到本机面板端口，再改下方「公开地址」')}</div></details>}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input className="input mono" value={f.domain ?? d?.domain ?? ''} placeholder="panel.example.com" onChange={(e) => setF({ ...f, domain: e.target.value })} />
             <button className="btn" type="button" disabled={busy || !d?.updater || !f.domain?.trim() || f.domain.trim() === d?.domain}
@@ -565,7 +603,7 @@ function Access() {
                 t('面板将改用 https://{domain} 访问，订阅链接也会变成这个域名（用户需重新导入；不想变可在订阅设置里填订阅域名）。已接入的节点不受影响。', { domain: f.domain!.trim() }))}>{t('启用 HTTPS')}</button>
           </div>
         </Field>
-        <Field label={t('订阅域名（HTTPS）')} hint={t('给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变。已有 Nginx / OpenResty / 宝塔占用 80、443 时，先在它们里把域名反代到本机面板端口，再点「配置」（会检测反代是否生效，不安装 Caddy）')}>
+        <Field label={t('订阅域名（HTTPS）')} hint={<details className="field-help"><summary>{t('配置前请阅读')}</summary><div>{t('给订阅链接单独一个域名（可走 CDN）：先把域名解析到本服务器，这里会用 Caddy 签发证书，完成后订阅链接自动改用它。该域名只开放订阅和用户中心，后台地址不变。已有 Nginx / OpenResty / 宝塔占用 80、443 时，先在它们里把域名反代到本机面板端口，再点「配置」（会检测反代是否生效，不安装 Caddy）')}</div></details>}>
           <div className="row" style={{ flexWrap: 'nowrap' }}>
             <input className="input mono" value={f.sub ?? d?.subDomain ?? ''} placeholder="sub.example.com" onChange={(e) => setF({ ...f, sub: e.target.value })} />
             <button className="btn" type="button" disabled={busy || !d?.updater || !f.sub?.trim() || f.sub.trim().toLowerCase() === d?.subDomain}
@@ -614,28 +652,51 @@ export default function Settings() {
   }, [])
   useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])
   const [f, setF] = useState<Record<string, string>>({})
+  const [generalBaseline, setGeneralBaseline] = useState('')
+  const generalSaver = useSettingsSave()
   const [pw, setPw] = useState({ old: '', new: '', again: '' })
   const [showPw, setShowPw] = useState(false)
   const [totp, setTotp] = useState<{ secret: string; url: string } | null>(null)
   const [code, setCode] = useState('')
   const { busy, run } = useAction()
   useEffect(() => {
-    if (s.data) setF({
+    if (s.data) { const next = {
       site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '1', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
       acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray || 'latest', default_singbox: s.data.default_singbox || 'latest',
       ip_limit_trusted: s.data.ip_limit_trusted ?? '',
-    })
+    }; setF(next); setGeneralBaseline(JSON.stringify(next)) }
   }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
-  const [tab, setTab] = useState<string>(() => settingTabs.some((t) => '#' + t.id === location.hash) ? location.hash.slice(1) : 'general')
-  const go = (id: string) => { setTab(id); history.replaceState(null, '', '#' + id) }
+  const settingsLocation = useLocation()
+  const navigate = useNavigate()
+  const tab = settingTabs.some((item) => '#' + item.id === settingsLocation.hash) ? settingsLocation.hash.slice(1) : 'general'
+  const generalDirty = !!generalBaseline && JSON.stringify(f) !== generalBaseline
+  const saveGeneral = async () => {
+    if (!generalDirty) return true
+    if (generalSaver.busy || s.loading || !s.data) return false
+    return generalSaver.run(async () => { await put('/settings', f); setGeneralBaseline(JSON.stringify(f)); s.reload(); refreshBrand() })
+  }
+  useSettingsDraft({ label: t('常规'), dirty: tab === 'general' && generalDirty, busy: generalSaver.busy, save: saveGeneral, discard: () => setF(JSON.parse(generalBaseline || '{}')) })
+  useSettingsDraft({ label: t('账号安全'), dirty: tab === 'security' && (Object.values(pw).some(Boolean) || !!code || !!ghForm.secret || (!!gh.data && ghForm.id !== gh.data.clientId)), busy: tab === 'security' && busy,
+    discard: () => { setPw({ old: '', new: '', again: '' }); setCode(''); setGhForm({ id: gh.data?.clientId || '', secret: '' }) } })
+  const go = (id: string) => { if (id !== tab) void navigate({ hash: '#' + id }, { replace: true }) }
   const settingsNav = useRef<HTMLElement>(null)
+  const [moreTabs, setMoreTabs] = useState(false)
+  const updateTabOverflow = () => { const nav = settingsNav.current; setMoreTabs(!!nav && nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 2) }
+  useEffect(() => {
+    const nav = settingsNav.current
+    if (!nav) return
+    const observer = new ResizeObserver(updateTabOverflow)
+    observer.observe(nav); updateTabOverflow()
+    return () => observer.disconnect()
+  }, [])
   useEffect(() => {
     const nav = settingsNav.current
     const active = nav?.querySelector<HTMLElement>('[aria-current="page"]')
     if (nav && active && nav.scrollWidth > nav.clientWidth) {
       nav.scrollTo({ left: nav.scrollLeft + active.getBoundingClientRect().left - nav.getBoundingClientRect().left - (nav.clientWidth - active.clientWidth) / 2 })
     }
+    updateTabOverflow()
   }, [tab])
 
 
@@ -643,9 +704,11 @@ export default function Settings() {
     <>
       <div className="top"><div><h1>{t('设置')}</h1><div className="sub">{t('面板、证书、账号安全、备份与外观')}</div></div></div>
       <div className="settings">
-        <nav ref={settingsNav} className="snav" aria-label={t('设置分区')}>
+        <div className="settings-nav-shell" data-more={moreTabs}>
+        <nav ref={settingsNav} onScroll={updateTabOverflow} className="snav" aria-label={t('设置分区')}>
           {settingTabs.map((t) => <button key={t.id} type="button" className={'snav-item' + (tab === t.id ? ' on' : '')} aria-current={tab === t.id ? 'page' : undefined} title={t.hint} onClick={() => go(t.id)}>{t.icon}<span><b>{t.label}</b><small>{t.hint}</small></span></button>)}
         </nav>
+        </div>
         <div className="spane" key={tab}>
         {tab === 'network' && <NetworkDatabaseSettings />}
         {tab === 'notifications' && <NotificationSettings />}
@@ -653,17 +716,21 @@ export default function Settings() {
         <Access />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('常规')}</h2>
+          <fieldset className="settings-fields" disabled={generalSaver.busy || s.loading || !generalBaseline}>
           <div className="form-grid">
             <Field label={t('站点标题')} full><input className="input" value={f.site_title ?? ''} onChange={(e) => set('site_title', e.target.value)} /></Field>
             <Field label={t('订阅更新间隔（小时）')}><input className="input mono" value={f.sub_update_interval ?? ''} onChange={(e) => set('sub_update_interval', e.target.value)} /></Field>
+            <DefaultVersion label={t('默认 Xray 版本')} type="xray" value={f.default_xray ?? ''} onChange={(v) => set('default_xray', v)} />
+            <DefaultVersion label={t('默认 sing-box 版本')} type="singbox" value={f.default_singbox ?? ''} onChange={(v) => set('default_singbox', v)} />
+          </div>
+          <details className="settings-disclosure"><summary>{t('高级访问限制')}</summary><div className="form-grid">
             <Field label={t('IP 超限封禁（分钟）')} hint={t('0 为只告警不封禁')}><input className="input mono" value={f.ip_ban_minutes ?? ''} onChange={(e) => set('ip_ban_minutes', e.target.value)} /></Field>
             <Field label={t('IP 限制受信任地址')} full hint={t('每行一个 IP 或 CIDR，不计入用户的同时在线 IP 数（如家庭 / 公司出口、自己的中转节点）')}>
               <textarea className="input mono" style={{ minHeight: 56 }} value={f.ip_limit_trusted ?? ''} onChange={(e) => set('ip_limit_trusted', e.target.value)} placeholder={'203.0.113.10\n198.51.100.0/24'} />
             </Field>
-            <DefaultVersion label={t('默认 Xray 版本')} type="xray" value={f.default_xray ?? ''} onChange={(v) => set('default_xray', v)} />
-            <DefaultVersion label={t('默认 sing-box 版本')} type="singbox" value={f.default_singbox ?? ''} onChange={(v) => set('default_singbox', v)} />
-          </div>
-          <h2 style={{ marginTop: 8 }}>ACME（Let's Encrypt）</h2>
+          </div></details>
+          <details className="settings-disclosure"><summary>{t('证书申请与验证')}</summary><div className="settings-fields">
+          <b>ACME（Let's Encrypt）</b>
           <div className="hint" style={{ marginTop: -6 }}>{t('只填邮箱即可用 HTTP 验证签发（由域名指向的节点在 80 端口应答）；再填 Cloudflare Token 则改用 DNS 验证，支持泛域名、无需 80 端口。')}</div>
           <div className="form-grid">
             <Field label={t('邮箱')}><input className="input" type="email" value={f.acme_email ?? ''} onChange={(e) => set('acme_email', e.target.value)} /></Field>
@@ -671,10 +738,11 @@ export default function Settings() {
               <input className="input mono" type="password" autoComplete="off" value={f.acme_cf_token ?? ''} onChange={(e) => set('acme_cf_token', e.target.value)} />
             </Field>
           </div>
-          <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', f); s.reload(); refreshBrand() }, t('设置已保存'))}>{t('保存')}</button></div>
+          </div></details>
+          <SettingsSaveBar loading={s.loading} dirty={generalDirty} busy={generalSaver.busy} error={generalSaver.error || s.error} disabled={s.loading || !s.data} onSave={saveGeneral} />
+          </fieldset>
         </section>
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <h2>{t('部署信息')}</h2>
+        <details className="card settings-disclosure"><summary>{t('部署信息')}</summary><div className="settings-fields">
           <dl className="kv" style={{ margin: 0, gridTemplateColumns: '120px minmax(0,1fr)' }}>
             <dt>{t('版本')}</dt><dd className="mono">{s.data?.version}</dd>
             <dt>{t('后台路径')}</dt><dd className="mono">{s.data?.admin_path}</dd>
@@ -683,7 +751,7 @@ export default function Settings() {
           </dl>
           <Field label={t('CA 指纹（SHA-256）')} hint={t('安装命令携带此指纹，Agent 首次接入时校验主控身份')}><CopyBox text={s.data?.ca_sha256 ?? ''} /></Field>
           <div className="note">{t('后台路径、域名、端口和公开地址可在上方「面板访问」修改；数据库与加密密钥通过 /etc/polaris/polaris.env 设置（见 README）。使用后台路径时，其他路径一律返回 404 或伪装站点。')}</div>
-        </section>
+        </div></details>
         </>}
         {tab === 'update' && <><Updates /><Cluster /><OperationalHealth /></>}
         {tab === 'appearance' && <Appearance />}

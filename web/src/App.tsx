@@ -1,5 +1,5 @@
-import { Component, Suspense, createContext, lazy, useCallback, useContext, useEffect, useState, type ComponentType, type ReactNode } from 'react'
-import { BrowserRouter, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Component, Suspense, createContext, lazy, useCallback, useContext, useEffect, useLayoutEffect, useState, type ComponentType, type ReactNode } from 'react'
+import { createBrowserRouter, RouterProvider, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
@@ -12,7 +12,9 @@ import { useFeature } from './components/License'
 import { t } from './i18n'
 import LangToggle from './components/LangToggle'
 import { ConfirmProvider, ToastProvider } from './components/ui'
+import { useMobileKeyboard } from './components/useMobileKeyboard'
 import SudoPrompt from './components/SudoPrompt'
+import { SettingsDraftProvider, useSettingsLeave } from './components/SettingsDrafts'
 import type { Node } from './types'
 import Login from './pages/Login'
 // Pages load on demand. After a panel upgrade the old chunk names are gone:
@@ -207,6 +209,8 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: Error | n
 }
 
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
+  useMobileKeyboard()
+  const leave = useSettingsLeave()
   const { title } = useBrand()
   const [menu, setMenu] = useState(false) // the sidebar, as a drawer on phones
   // On wide screens the sidebar folds to an icon rail; remembered per browser.
@@ -234,7 +238,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
     document.addEventListener('keydown', k)
     return () => document.removeEventListener('keydown', k)
   }, [])
-  useEffect(() => { setPalette(false) }, [loc.pathname, loc.search])
+  useLayoutEffect(() => { setPalette(false) }, [loc.pathname, loc.search])
   // Installed plugins add their admin pages under 扩展.
   const plugins = usePlugins(!scoped)
   const items = nav.map((n) => {
@@ -271,7 +275,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         )}
         <div className="side-foot">
           <span className="me"><span className="avatar" title={accountName}>{(accountName[0] || '?').toUpperCase()}</span><span className="me-text"><b title={accountName}>{accountName}</b><small title={accountRole}>{accountRole}</small></span></span>
-          <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={onLogout}>{t('退出')}</button></span>
+          <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={async () => { if (await leave()) onLogout() }}>{t('退出')}</button></span>
         </div>
       </nav>
       <main className="main">
@@ -290,7 +294,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
   )
 }
 
-export default function App() {
+function Session() {
   const [user, setUser] = useState<string | null>(() => {
     const r = takeOAuthResult() // GitHub sign-in lands here with a session token
     if (r.token) { setToken(r.token); return r.user ?? '…' }
@@ -320,7 +324,7 @@ export default function App() {
     <ToastProvider>
       <ConfirmProvider>
         <SudoPrompt />
-        <BrowserRouter basename={BASE.replace(/\/$/, '') || '/'}>
+        <SettingsDraftProvider>
           {!user ? (
             <Login onLogin={(u) => setUser(u)} />
           ) : (
@@ -368,8 +372,14 @@ export default function App() {
               </NodesProvider>
             </ScopeCtx.Provider>
           )}
-        </BrowserRouter>
+        </SettingsDraftProvider>
       </ConfirmProvider>
     </ToastProvider>
   )
 }
+
+// A data router lets unsaved settings block links, command navigation and Back.
+// Consume OAuth fragments before the router takes its initial location snapshot.
+takeOAuthResult()
+const router = createBrowserRouter([{ path: '*', element: <Session /> }], { basename: BASE.replace(/\/$/, '') || '/' })
+export default function App() { return <RouterProvider router={router} /> }

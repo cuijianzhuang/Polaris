@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSettingsDraft } from './SettingsDrafts'
 import { Link } from 'react-router-dom'
 import { api, get, post, put } from '../api'
 import { bytes, datetime } from '../format'
@@ -16,6 +17,7 @@ export default function RouteGeoSettings() {
   const [ip, setIP] = useState('')
   const [lookup, setLookup] = useState<GeoLookup>()
   const { busy, run } = useAction()
+  useSettingsDraft({ label: t('回程地理归属'), dirty: !!file, busy, discard: () => setFile(undefined) })
   const d = info.data, ready = d?.databaseState === 'ready', locked = busy || info.loading || !!info.error || !d
   const compressed = !!file && /\.mmdb\.gz$/i.test(file.name)
   const fileError = !file ? '' : file.size === 0 ? t('文件不能为空') : !/\.mmdb(\.gz)?$/i.test(file.name) ? t('请选择 .mmdb 或 .mmdb.gz 城市数据库') : file.size > (compressed ? 64 : 128) * 1024 * 1024 ? t('城市库限 128 MiB；压缩文件限 64 MiB，解压后仍不能超过 128 MiB。') : ''

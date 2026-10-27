@@ -1200,3 +1200,32 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
 .appearance .style-midnight .style-preview i:first-child { background:#111B2B; }
 .appearance .style-midnight .style-preview i:last-child { background:#67D8CF; }
 @container (min-width:1000px) { .appearance .style-cards { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+
+/* Settings workflows: compact defaults, explicit save state and mobile actions. */
+.settings-fields { display:flex;flex-direction:column;gap:14px;min-width:0;margin:0;padding:0;border:0; }
+.settings-savebar { display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:14px;background:var(--card); }
+.settings-savebar .note { margin:0; }
+.field-error { color:var(--bad-ink); }
+.input[aria-invalid="true"] { border-color:var(--bad); }
+.settings-disclosure > summary, .field-help > summary { cursor:pointer;color:var(--ink-2);font-weight:550; }
+.settings-disclosure > summary { padding:8px 0;font-size:13px; }
+.settings-disclosure > div, .field-help > div { margin-top:10px; }
+.settings-disclosure.card > summary { padding:0;font-size:15px; }
+.field-help > summary { font-size:12px;color:var(--pri-ink); }
+.settings-nav-shell { position:sticky;top:24px;min-width:0; }
+.settings-nav-shell .snav { position:static; }
+@media (max-width:900px) {
+  .settings-nav-shell { position:relative;top:auto; }
+  .settings-nav-shell[data-more="true"]::after { content:'›';position:absolute;right:-12px;top:0;bottom:0;width:26px;display:grid;place-items:center;color:var(--mute);font-size:21px;background:linear-gradient(90deg,transparent,var(--bg) 60%);pointer-events:none; }
+  .snav-item { min-height:44px; }
+}
+@media (max-width:760px) {
+  .mtop-btn, .mtop .theme-btn, .side-close { width:44px;height:44px; }
+  .page-content .icon-btn { min-width:44px;min-height:44px; }
+  .page-content input, .page-content textarea, .page-content select { scroll-margin-top:76px;scroll-margin-bottom:110px; }
+  .settings-savebar { position:sticky;bottom:calc(68px + env(safe-area-inset-bottom));z-index:5;padding:12px 0 6px;box-shadow:0 -10px 16px -16px rgba(0,0,0,.35); }
+  .settings-savebar > .row { justify-content:space-between; }
+  .settings-savebar .btn { min-height:44px; }
+  html[data-keyboard] .mtabs { display:none; }
+  html[data-keyboard] .settings-savebar { bottom:calc(var(--keyboard-inset, 0px) + 8px); }
+}
