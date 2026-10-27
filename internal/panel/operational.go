@@ -115,7 +115,7 @@ func (s *Server) operationalIssues() ([]operationalIssue, error) {
 		r := s.st.DB.Where("key = ?", "backup").First(&st)
 		if r.Error != nil {
 			now := time.Now()
-			s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.OperationalStatus{Key: "backup", FirstSeen: now, UpdatedAt: now})
+			s.warnWrite("backup status", s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.OperationalStatus{Key: "backup", FirstSeen: now, UpdatedAt: now}).Error)
 		} else {
 			last := st.FirstSeen
 			if st.LastSuccess != nil {

@@ -337,20 +337,28 @@ func (s *Server) syncCDNDNS(c *gin.Context) {
 			exp, _ := pki.ParseCertExpiry([]byte(certPEM))
 			cert := store.Certificate{ID: store.NewID(), Domain: hosts[0], Provider: "cf-origin", Cert: certPEM,
 				Key: s.st.Box.Seal(keyPEM), ExpireAt: &exp}
-			if err := s.st.DB.Create(&cert).Error; err == nil {
+			if err := s.st.DB.Create(&cert).Error; err != nil {
+				certNote = "Origin 证书已签发，但保存失败：" + err.Error()
+			} else {
+				var failed []string
 				for _, id := range inboundIDs {
 					var in store.Inbound
 					if s.st.DB.First(&in, "id = ?", id).Error == nil && in.Security.V.Type == "tls" {
 						in.Security.V.CertificateID = cert.ID
-						s.st.DB.Model(&in).Update("security", in.Security)
+						if err := s.st.DB.Model(&in).Update("security", in.Security).Error; err != nil {
+							failed = append(failed, in.Tag)
+						}
 					}
 				}
 				certNote = "Origin 证书已下发"
+				if len(failed) > 0 {
+					certNote = "Origin 证书已签发，但这些入站没能换上新证书，请稍后重试：" + strings.Join(failed, "、")
+				}
 				s.MarkDirty("cloudflare origin cert", s.nodesForInbounds(inboundIDs...)...)
 			}
 		}
 	}
-	s.st.DB.Model(&p).Updates(map[string]any{"zone_id": zone, "last_error": ""})
+	s.warnWrite("cdn zone", s.st.DB.Model(&p).Updates(map[string]any{"zone_id": zone, "last_error": ""}).Error) // only a cache of the zone lookup
 	s.auditCtx(c, "cdn.sync_dns", p.Name, strings.Join(done, ", "))
 	c.JSON(http.StatusOK, gin.H{"records": done, "sslMode": mode, "cert": certNote})
 }
@@ -395,7 +403,9 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) (
 		return nil, fmt.Errorf("来源中没有可用的 IP")
 	}
 	now := time.Now()
-	s.st.DB.Model(p).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": now, "last_error": ""})
+	if err := s.st.DB.Model(p).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": now, "last_error": ""}).Error; err != nil {
+		return nil, err
+	}
 	return ips, nil
 }
 

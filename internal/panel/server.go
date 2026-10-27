@@ -463,6 +463,14 @@ func (s *Server) markOfflineNodes() {
 	}
 }
 
+// warnWrite logs a failed best-effort write. These are periodic status
+// writes the next run repeats, so a failure is reported, not retried here.
+func (s *Server) warnWrite(what string, err error) {
+	if err != nil {
+		s.log.Warn("database write failed", "what", what, "err", err)
+	}
+}
+
 func (s *Server) cleanup() {
 	now := time.Now()
 	prune := func(what string, model any, where string, args ...any) {

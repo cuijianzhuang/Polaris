@@ -398,7 +398,7 @@ func (s *Server) runChainProbe(ch *store.Chain) []store.HopProbe {
 	wg.Wait()
 	now := time.Now()
 	ch.Probe, ch.ProbedAt = store.NewJSON(probes), &now
-	s.st.DB.Model(ch).Updates(map[string]any{"probe": ch.Probe, "probed_at": now})
+	s.warnWrite("chain probe", s.st.DB.Model(ch).Updates(map[string]any{"probe": ch.Probe, "probed_at": now}).Error)
 	return probes
 }
 

@@ -241,5 +241,5 @@ func idempotencyError(c *gin.Context, err error) {
 	serverError(c, err)
 }
 func (s *Server) pruneIdempotency() {
-	s.st.DB.Where("created_at < ?", time.Now().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{})
+	s.warnWrite("idempotency keys", s.st.DB.Where("created_at < ?", time.Now().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{}).Error)
 }

@@ -446,7 +446,7 @@ func (s *Server) probeForwards() {
 		}
 		wg.Wait()
 		if changed {
-			s.st.DB.Model(r).Update("health", store.NewJSON(health))
+			s.warnWrite("forward health", s.st.DB.Model(r).Update("health", store.NewJSON(health)).Error)
 			s.MarkDirty("forward "+r.Name+" failover", r.NodeID)
 			s.log.Info("forward failover", "rule", r.Name, "down", health)
 		}
