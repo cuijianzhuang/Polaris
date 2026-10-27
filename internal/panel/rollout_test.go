@@ -287,3 +287,23 @@ func TestRolloutPauseResumeAPI(t *testing.T) {
 		t.Fatal("finished rollout canceled")
 	}
 }
+
+func TestRolloutRejectsUnconfirmedAgentTrial(t *testing.T) {
+	s, _, _ := newAdminClient(t)
+	fleet := &fakeFleet{offline: map[string]bool{}}
+	fleet.install(t, s)
+	ids := rolloutNodesFixture(t, s, 1)
+	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", ids[0]).Update("agent_version", "2.0.0-trial").Error; err != nil {
+		t.Fatal(err)
+	}
+	r := &store.UpgradeRollout{Kind: "agent", Version: "2.0.0"}
+	if ok, _, _ := s.rolloutNodeHealthy(r, ids[0]); ok {
+		t.Fatal("candidate accepted before local startup confirmation")
+	}
+	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", ids[0]).Update("agent_version", "2.0.0").Error; err != nil {
+		t.Fatal(err)
+	}
+	if ok, reason, _ := s.rolloutNodeHealthy(r, ids[0]); !ok {
+		t.Fatal("confirmed version rejected", reason)
+	}
+}

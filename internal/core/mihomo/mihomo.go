@@ -55,6 +55,7 @@ func New(o core.Options) *Adapter {
 	a := &Adapter{opt: o, secret: hex.EncodeToString(b), conns: map[string][2]int64{}}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("mihomo", o.BinPath, o.WorkDir, o.Logger, "-d", o.WorkDir, "-f", a.configPath())
+		a.proc.BindToParent = o.BindToParent
 	}
 	return a
 }

@@ -17,14 +17,16 @@ import (
 )
 
 // ErrRestart is returned by Run after a self-update: the caller re-executes
-// the (new) binary in place.
-var ErrRestart = errors.New("agent binary replaced; restart required")
+// the supervised worker.
+var ErrRestart = errors.New("agent upgrade staged; restart required")
 
 // selfUpdate downloads the agent binary for this architecture from the
 // panel's agent endpoint (same mTLS identity as the control stream),
-// verifies its SHA-256 and that it runs, and atomically replaces the running
-// executable. It does not restart; see requestRestart.
+// verifies its SHA-256 and that it runs, then stages a local startup trial.
+// The supervisor promotes it only after authenticated configuration application.
 func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (_ string, err error) {
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
 	want := strings.ToLower(args["sha256_"+runtime.GOARCH])
 	version := args["version"]
 	if version != "" && version == Version && version != "dev" {
@@ -36,13 +38,13 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (_ strin
 	if want == "" {
 		return "", fmt.Errorf("the panel has no agent binary for %s", runtime.GOARCH)
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
+	if !a.cfg.Supervised || a.cfg.UpdateExecutable == "" {
+		return "", errors.New("safe upgrade supervisor unavailable; restart the Agent service first")
 	}
-	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return "", err
+	if _, statErr := os.Stat(trialPath(a.cfg.DataDir)); !errors.Is(statErr, os.ErrNotExist) {
+		return "", errors.New("another agent upgrade is pending")
 	}
+	exe := a.cfg.UpdateExecutable
 	end := a.progress.begin(0, "下载 agent "+version)
 	defer func() { end(err) }()
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -63,11 +65,22 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (_ strin
 	if err != nil {
 		return "", fmt.Errorf("cannot write next to %s: %w", exe, err)
 	}
-	defer os.Remove(tmp.Name()) // no-op after the rename
+	staged := false
+	defer func() {
+		if !staged {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
 	h := sha256.New()
 	body := &progressReader{r: resp.Body, total: max(resp.ContentLength, 0), stage: "下载 agent " + version, p: &a.progress}
 	_, err = io.Copy(io.MultiWriter(tmp, h), io.LimitReader(body, 200<<20))
-	tmp.Close()
+	if err == nil {
+		err = tmp.Sync()
+	}
+	closeErr := tmp.Close()
+	if err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return "", fmt.Errorf("download: %w", err)
 	}
@@ -89,9 +102,16 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (_ strin
 	if version != "" && newVersion != version {
 		return "", fmt.Errorf("downloaded agent reports version %q, expected %q", newVersion, version)
 	}
-	if err := os.Rename(tmp.Name(), exe); err != nil {
-		return "", fmt.Errorf("replace %s: %w", exe, err)
+	if got, err := fileDigest(exe); err == nil && got == want {
+		return "already " + newVersion, nil
 	}
+	if err := syncDir(filepath.Dir(exe)); err != nil {
+		return "", err
+	}
+	if err := stageUpgrade(a.cfg.DataDir, exe, tmp.Name(), want, newVersion); err != nil {
+		return "", err
+	}
+	staged = true
 	return fmt.Sprintf("%s → %s", Version, newVersion), nil
 }
 

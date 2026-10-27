@@ -33,6 +33,7 @@ func New(o core.Options) *Adapter {
 	a := &Adapter{opt: o}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("realm", o.BinPath, o.WorkDir, o.Logger, "-c", filepath.Join(o.WorkDir, "realm.toml"))
+		a.proc.BindToParent = o.BindToParent
 	}
 	return a
 }

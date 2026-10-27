@@ -26,6 +26,8 @@ func main() {
 	noIP := flag.Bool("no-ip-detect", false, "disable public IP detection used by DDNS")
 	enrollOnly := flag.Bool("enroll-only", false, "enrol with --token and exit (used by install.sh)")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	worker := flag.Bool("agent-worker", false, "internal supervised worker")
+	entry := flag.String("agent-entry", "", "internal stable executable")
 	debug := flag.Bool("debug", false, "debug logging")
 	flag.Parse()
 	exe, _ := os.Executable() // before any self-update replaces the file
@@ -63,20 +65,42 @@ func main() {
 			return
 		}
 	}
-	a, err := agent.New(agent.Config{PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP, ToolPath: "/usr/local/bin/polaris"}, log)
+	if !*worker {
+		if exe == "" {
+			log.Error("cannot locate executable")
+			os.Exit(1)
+		}
+		var err error
+		exe, err = filepath.EvalSymlinks(exe)
+		if err != nil {
+			log.Error("locate executable", "err", err)
+			os.Exit(1)
+		}
+		args := []string{"--agent-worker", "--agent-entry", exe, "--panel", *panelURL, "--data", *dataDir, "--mirror", *mirror}
+		if *unverified {
+			args = append(args, "--allow-unverified")
+		}
+		if *noIP {
+			args = append(args, "--no-ip-detect")
+		}
+		if *debug {
+			args = append(args, "--debug")
+		}
+		if err := agent.Supervise(ctx, exe, *dataDir, args, log); err != nil {
+			log.Error("agent supervisor", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+	a, err := agent.New(agent.Config{Supervised: true, UpdateExecutable: *entry, PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP, ToolPath: "/usr/local/bin/polaris"}, log)
 	if err != nil {
 		log.Error("startup", "err", err)
 		os.Exit(1)
 	}
 	if err := a.Run(ctx); err != nil {
 		if errors.Is(err, agent.ErrRestart) {
-			// Replace this process with the updated binary (same PID, so
-			// systemd keeps tracking it; works without systemd too).
-			log.Info("re-executing updated agent", "path", exe)
-			if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
-				log.Error("re-exec failed; exiting so the supervisor restarts the agent", "err", err)
-			}
-			os.Exit(1)
+			log.Info("handing staged upgrade to supervisor")
+			os.Exit(agent.UpgradeRestartExit)
 		}
 		log.Error("agent", "err", err)
 		os.Exit(1)

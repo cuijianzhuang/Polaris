@@ -98,7 +98,7 @@ func TestRouteTraceCapabilityNegotiation(t *testing.T) {
 	ctx := context.WithValue(context.Background(), peerCertKey, &x509.Certificate{Subject: pkix.Name{CommonName: "trace"}, SerialNumber: big.NewInt(1)})
 	service := &agentService{s: s}
 	req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: 7})
-	req.Header().Set("X-Polaris-Agent-Features", strings.Join([]string{model.RouteTraceFeature, model.RouteTraceToolFeature, model.RelayAccessFeature, model.RouteTraceFeature, "unknown-test-feature"}, ","))
+	req.Header().Set("X-Polaris-Agent-Features", strings.Join([]string{model.RouteTraceFeature, model.RouteTraceToolFeature, model.RelayAccessFeature, model.RouteTraceFeature, model.AgentRollbackFeature, "unknown-test-feature"}, ","))
 	if _, err := service.GetSpec(ctx, req); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestRouteTraceCapabilityNegotiation(t *testing.T) {
 	if err := s.st.DB.First(&node, "id = ?", "trace").Error; err != nil {
 		t.Fatal(err)
 	}
-	if len(node.AgentFeatures.V) != 3 || !contains(node.AgentFeatures.V, model.RouteTraceToolFeature) || !contains(node.AgentFeatures.V, model.RouteTraceFeature) || !contains(node.AgentFeatures.V, model.RelayAccessFeature) {
+	if len(node.AgentFeatures.V) != 4 || !contains(node.AgentFeatures.V, model.RouteTraceToolFeature) || !contains(node.AgentFeatures.V, model.RouteTraceFeature) || !contains(node.AgentFeatures.V, model.RelayAccessFeature) || !contains(node.AgentFeatures.V, model.AgentRollbackFeature) {
 		t.Fatal(node.AgentFeatures.V)
 	}
 	if st, out := c.do("GET", "/nodes/trace/route-schedule", nil); st != 200 || out["agentSupported"] != true {
