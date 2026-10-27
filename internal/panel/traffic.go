@@ -31,20 +31,19 @@ func (b *trafficInbox) Add(nodeID string, ds []model.TrafficDelta) error {
 
 // addInbox adds traffic to the inbox inside tx.
 func addInbox(tx *gorm.DB, nodeID string, ds []model.TrafficDelta) error {
-	for _, d := range model.MergeDeltas(ds) {
+	var rows []store.TrafficInbox
+	for _, d := range model.MergeDeltas(ds) { // one row per user: "excluded" is its amount
 		if d.Up == 0 && d.Down == 0 {
 			continue
 		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "node_id"}, {Name: "user_id"}},
-			DoUpdates: clause.Assignments(map[string]any{
-				"up": gorm.Expr("traffic_inboxes.up + ?", d.Up), "down": gorm.Expr("traffic_inboxes.down + ?", d.Down),
-			}),
-		}).Create(&store.TrafficInbox{NodeID: nodeID, UserID: d.UserID, Up: d.Up, Down: d.Down}).Error; err != nil {
-			return err
-		}
+		rows = append(rows, store.TrafficInbox{NodeID: nodeID, UserID: d.UserID, Up: d.Up, Down: d.Down})
 	}
-	return nil
+	return upsertAll(tx, rows, clause.OnConflict{
+		Columns: []clause.Column{{Name: "node_id"}, {Name: "user_id"}},
+		DoUpdates: clause.Assignments(map[string]any{
+			"up": gorm.Expr("traffic_inboxes.up + excluded.up"), "down": gorm.Expr("traffic_inboxes.down + excluded.down"),
+		}),
+	})
 }
 
 // Drain reads node -> user -> [up, down] without removing anything; the
@@ -74,16 +73,21 @@ var errInboxTaken = errors.New("traffic inbox changed by another settlement")
 // snapshot amount, another panel instance settled it first: the whole
 // transaction must roll back.
 func takeInbox(tx *gorm.DB, data map[string]map[string][2]int64) error {
-	for nodeID, users := range data {
-		for uid, v := range users {
-			r := tx.Model(&store.TrafficInbox{}).
-				Where("node_id = ? AND user_id = ? AND up >= ? AND down >= ?", nodeID, uid, v[0], v[1]).
-				Updates(map[string]any{"up": gorm.Expr("up - ?", v[0]), "down": gorm.Expr("down - ?", v[1])})
+	for _, nodeID := range sortedKeys(data) {
+		users := data[nodeID]
+		ids := sortedKeys(users)
+		for len(ids) > 0 {
+			n := min(len(ids), settleBatch)
+			chunk := ids[:n]
+			ids = ids[n:]
+			vals, args := valuesList(chunk, func(id string) []int64 { v := users[id]; return v[:] })
+			r := tx.Exec("UPDATE traffic_inboxes AS t SET up = t.up - v.column2, down = t.down - v.column3 FROM (VALUES "+vals+") AS v"+
+				" WHERE t.node_id = ? AND t.user_id = v.column1 AND t.up >= v.column2 AND t.down >= v.column3", append(args, nodeID)...)
 			if r.Error != nil {
 				return r.Error
 			}
-			if r.RowsAffected == 0 {
-				return errInboxTaken
+			if r.RowsAffected != int64(len(chunk)) {
+				return errInboxTaken // some row no longer holds its snapshot amount
 			}
 		}
 	}
@@ -231,31 +235,27 @@ func (s *Server) settleTraffic() error {
 		if err := takeInbox(tx, data); err != nil {
 			return err
 		}
-		for nodeID, users := range data {
+		// Work out every row first, then write each table in a few batched
+		// statements instead of several statements per user and node.
+		var (
+			tags     []store.TagTraffic
+			tagDays  []store.TagTrafficDaily
+			hourlies []store.TrafficHourly
+			dailies  []store.TrafficDaily
+		)
+		for _, nodeID := range sortedKeys(data) {
+			users := data[nodeID]
 			rate := rates[nodeID]
 			if rate <= 0 {
 				rate = 1
 			}
-			for uid, v := range users {
+			for _, uid := range sortedKeys(users) {
+				v := users[uid]
 				if isTagCounter(uid) {
 					// Inbound / outbound totals: raw bytes, no multiplier.
 					kind, tag, _ := strings.Cut(uid, ">>>")
-					if err := tx.Clauses(clause.OnConflict{
-						Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}},
-						DoUpdates: clause.Assignments(map[string]any{
-							"up": gorm.Expr("tag_traffics.up + ?", v[0]), "down": gorm.Expr("tag_traffics.down + ?", v[1]), "updated_at": now,
-						}),
-					}).Create(&store.TagTraffic{NodeID: nodeID, Kind: kind, Tag: tag, Up: v[0], Down: v[1], UpdatedAt: now}).Error; err != nil {
-						return err
-					}
-					if err := tx.Clauses(clause.OnConflict{
-						Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}, {Name: "day"}},
-						DoUpdates: clause.Assignments(map[string]any{
-							"up": gorm.Expr("tag_traffic_dailies.up + ?", v[0]), "down": gorm.Expr("tag_traffic_dailies.down + ?", v[1]),
-						}),
-					}).Create(&store.TagTrafficDaily{NodeID: nodeID, Kind: kind, Tag: tag, Day: day, Up: v[0], Down: v[1]}).Error; err != nil {
-						return err
-					}
+					tags = append(tags, store.TagTraffic{NodeID: nodeID, Kind: kind, Tag: tag, Up: v[0], Down: v[1], UpdatedAt: now})
+					tagDays = append(tagDays, store.TagTrafficDaily{NodeID: nodeID, Kind: kind, Tag: tag, Day: day, Up: v[0], Down: v[1]})
 					if o, ok := fwdOwners[tag]; ok && kind == "inbound" {
 						// A self-service forward: its own allowance, node rate x plan rate.
 						fwdAdd[o.user] += int64(math.Round(float64(v[0]+v[1]) * rate * o.rate))
@@ -290,47 +290,68 @@ func (s *Server) settleTraffic() error {
 				cur[0] += cu
 				cur[1] += cd
 				perUser[uid] = cur
-				if err := tx.Clauses(clause.OnConflict{
-					Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "hour"}},
-					DoUpdates: clause.Assignments(map[string]any{
-						"up": gorm.Expr("traffic_hourlies.up + ?", up), "down": gorm.Expr("traffic_hourlies.down + ?", down),
-						"raw_recorded": true,
-						"raw_up":       gorm.Expr("traffic_hourlies.raw_up + ?", v[0]), "raw_down": gorm.Expr("traffic_hourlies.raw_down + ?", v[1]),
-						"recorded_up": gorm.Expr("traffic_hourlies.recorded_up + ?", up), "recorded_down": gorm.Expr("traffic_hourlies.recorded_down + ?", down),
-						"account_up": gorm.Expr("traffic_hourlies.account_up + ?", cu), "account_down": gorm.Expr("traffic_hourlies.account_down + ?", cd),
-						"rate_min": gorm.Expr("CASE WHEN traffic_hourlies.raw_recorded = ? OR traffic_hourlies.rate_min > ? THEN ? ELSE traffic_hourlies.rate_min END", false, rate, rate),
-						"rate_max": gorm.Expr("CASE WHEN traffic_hourlies.raw_recorded = ? OR traffic_hourlies.rate_max < ? THEN ? ELSE traffic_hourlies.rate_max END", false, rate, rate),
-					}),
-				}).Create(&store.TrafficHourly{UserID: uid, NodeID: nodeID, Hour: hour, Up: up, Down: down,
-					RawRecorded: true, RawUp: v[0], RawDown: v[1], RecordedUp: up, RecordedDown: down, AccountUp: cu, AccountDown: cd, RateMin: rate, RateMax: rate}).Error; err != nil {
-					return err
-				}
-				if err := tx.Clauses(clause.OnConflict{
-					Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "day"}},
-					DoUpdates: clause.Assignments(map[string]any{
-						"up": gorm.Expr("traffic_dailies.up + ?", up), "down": gorm.Expr("traffic_dailies.down + ?", down),
-					}),
-				}).Create(&store.TrafficDaily{UserID: uid, NodeID: nodeID, Day: day, Up: up, Down: down}).Error; err != nil {
-					return err
-				}
+				hourlies = append(hourlies, store.TrafficHourly{UserID: uid, NodeID: nodeID, Hour: hour, Up: up, Down: down,
+					RawRecorded: true, RawUp: v[0], RawDown: v[1], RecordedUp: up, RecordedDown: down, AccountUp: cu, AccountDown: cd, RateMin: rate, RateMax: rate})
+				dailies = append(dailies, store.TrafficDaily{UserID: uid, NodeID: nodeID, Day: day, Up: up, Down: down})
 			}
 		}
+		// Each conflict key occurs once per batch (data is keyed by node, then
+		// user or tag), so "excluded" is this round's amount for that row.
+		if err := upsertAll(tx, tags, clause.OnConflict{
+			Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"up": gorm.Expr("tag_traffics.up + excluded.up"), "down": gorm.Expr("tag_traffics.down + excluded.down"), "updated_at": now,
+			}),
+		}); err != nil {
+			return err
+		}
+		if err := upsertAll(tx, tagDays, clause.OnConflict{
+			Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}, {Name: "day"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"up": gorm.Expr("tag_traffic_dailies.up + excluded.up"), "down": gorm.Expr("tag_traffic_dailies.down + excluded.down"),
+			}),
+		}); err != nil {
+			return err
+		}
+		if err := upsertAll(tx, hourlies, clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "hour"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"up": gorm.Expr("traffic_hourlies.up + excluded.up"), "down": gorm.Expr("traffic_hourlies.down + excluded.down"),
+				"raw_recorded": true,
+				"raw_up":       gorm.Expr("traffic_hourlies.raw_up + excluded.raw_up"), "raw_down": gorm.Expr("traffic_hourlies.raw_down + excluded.raw_down"),
+				"recorded_up": gorm.Expr("traffic_hourlies.recorded_up + excluded.recorded_up"), "recorded_down": gorm.Expr("traffic_hourlies.recorded_down + excluded.recorded_down"),
+				"account_up": gorm.Expr("traffic_hourlies.account_up + excluded.account_up"), "account_down": gorm.Expr("traffic_hourlies.account_down + excluded.account_down"),
+				"rate_min": gorm.Expr("CASE WHEN traffic_hourlies.raw_recorded = ? OR traffic_hourlies.rate_min > excluded.rate_min THEN excluded.rate_min ELSE traffic_hourlies.rate_min END", false),
+				"rate_max": gorm.Expr("CASE WHEN traffic_hourlies.raw_recorded = ? OR traffic_hourlies.rate_max < excluded.rate_max THEN excluded.rate_max ELSE traffic_hourlies.rate_max END", false),
+			}),
+		}); err != nil {
+			return err
+		}
+		if err := upsertAll(tx, dailies, clause.OnConflict{
+			Columns: []clause.Column{{Name: "user_id"}, {Name: "node_id"}, {Name: "day"}},
+			DoUpdates: clause.Assignments(map[string]any{
+				"up": gorm.Expr("traffic_dailies.up + excluded.up"), "down": gorm.Expr("traffic_dailies.down + excluded.down"),
+			}),
+		}); err != nil {
+			return err
+		}
+		used := make(map[string][]int64, len(perUser))
 		for uid, v := range perUser {
-			if err := tx.Model(&store.User{}).Where("id = ?", uid).Updates(map[string]any{
-				"used_up": gorm.Expr("used_up + ?", v[0]), "used_down": gorm.Expr("used_down + ?", v[1]), "online_at": now,
-			}).Error; err != nil {
-				return err
+			used[uid] = []int64{v[0], v[1]}
+		}
+		if err := addToUsers(tx, used, []string{"used_up", "used_down"}, map[string]any{"online_at": now}); err != nil {
+			return err
+		}
+		fwd := map[string][]int64{}
+		for uid, b := range fwdAdd {
+			if b > 0 {
+				fwd[uid] = []int64{b}
 			}
+		}
+		if err := addToUsers(tx, fwd, []string{"fwd_used"}, nil); err != nil {
+			return err
 		}
 		// Start "valid N days from first use" periods.
-		for uid, b := range fwdAdd {
-			if b <= 0 {
-				continue
-			}
-			if err := tx.Model(&store.User{}).Where("id = ?", uid).Update("fwd_used", gorm.Expr("fwd_used + ?", b)).Error; err != nil {
-				return err
-			}
-		}
 		if len(perUser) > 0 {
 			ids := make([]string, 0, len(perUser))
 			for uid := range perUser {
@@ -361,6 +382,76 @@ func (s *Server) settleTraffic() error {
 	}
 	s.enforceLimits()
 	return nil
+}
+
+// settleBatch is how many rows one batched statement writes.
+const settleBatch = 500
+
+// upsertAll inserts rows in batches, merging into existing rows on conflict.
+func upsertAll[T any](tx *gorm.DB, rows []T, onConflict clause.OnConflict) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	return tx.Clauses(onConflict).CreateInBatches(rows, settleBatch).Error
+}
+
+// addToUsers adds per-user amounts to integer columns of users (vals[id][i]
+// goes to cols[i]) and sets set on the same rows, in one UPDATE per batch.
+func addToUsers(tx *gorm.DB, vals map[string][]int64, cols []string, set map[string]any) error {
+	setSQL, setArgs := "", []any{}
+	for _, k := range sortedKeys(set) {
+		setSQL += ", " + k + " = ?"
+		setArgs = append(setArgs, set[k])
+	}
+	for i, c := range cols {
+		setSQL += fmt.Sprintf(", %s = users.%s + v.column%d", c, c, i+2)
+	}
+	ids := sortedKeys(vals)
+	for len(ids) > 0 {
+		n := min(len(ids), settleBatch)
+		chunk := ids[:n]
+		ids = ids[n:]
+		list, args := valuesList(chunk, func(id string) []int64 { return vals[id] })
+		r := tx.Exec("UPDATE users SET updated_at = ?"+setSQL+" FROM (VALUES "+list+") AS v WHERE users.id = v.column1",
+			append(append([]any{time.Now()}, setArgs...), args...)...)
+		if r.Error != nil {
+			return r.Error
+		}
+	}
+	return nil
+}
+
+// valuesList builds "(?, CAST(? AS BIGINT), ...), ..." for a VALUES list of
+// (id, amounts...) rows; the columns are column1 (id), column2, column3... in
+// both SQLite and PostgreSQL. The casts keep PostgreSQL from reading the
+// amounts as text.
+func valuesList(ids []string, amounts func(string) []int64) (string, []any) {
+	var sb strings.Builder
+	var args []any
+	for i, id := range ids {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString("(?")
+		args = append(args, id)
+		for _, a := range amounts(id) {
+			sb.WriteString(", CAST(? AS BIGINT)")
+			args = append(args, a)
+		}
+		sb.WriteString(")")
+	}
+	return sb.String(), args
+}
+
+// sortedKeys returns m's keys in order, so batches are written in a stable
+// order.
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 type fwdOwner struct {
