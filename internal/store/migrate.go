@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"gorm.io/gorm"
@@ -60,6 +61,36 @@ var migrations = []Migration{
 				return nil
 			}
 			return tx.Model(&User{}).Where("remark LIKE ? OR remark LIKE ?", "Telegram 购买 %", "网页购买 %").Update("self_service", true).Error
+		},
+	},
+	{
+		Version: 2,
+		Name:    "keep typed-in CDN preferred domains",
+		// Domains already in a profile's list were typed in by hand (sources
+		// gave IPs only): pin them so automatic updates keep them.
+		Probe: func(db *gorm.DB) any {
+			return db.Migrator().HasTable(&CDNProfile{}) && !db.Migrator().HasColumn(&CDNProfile{}, "pinned_hosts")
+		},
+		Up: func(tx *gorm.DB, probe any) error {
+			if added, _ := probe.(bool); !added {
+				return nil
+			}
+			var ps []CDNProfile
+			if err := tx.Find(&ps).Error; err != nil {
+				return err
+			}
+			for _, p := range ps {
+				hosts := []string{}
+				for _, a := range p.PreferredIPs.V {
+					if net.ParseIP(a) == nil {
+						hosts = append(hosts, a)
+					}
+				}
+				if err := tx.Model(&CDNProfile{}).Where("id = ?", p.ID).Update("pinned_hosts", NewJSON(hosts)).Error; err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 	},
 }

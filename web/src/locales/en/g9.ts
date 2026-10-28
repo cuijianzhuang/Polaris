@@ -192,5 +192,7 @@ const m: Record<string, string> = {
   "添加入口": "Add entry",
   "多台节点共用了回源域名，已给这些入口换成各自的域名：{list}": "Several nodes shared the origin domain; these entries now use their own hostnames: {list}",
   "多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com": "Several nodes can share a profile: entries from the second node on get their own hostname (node-name-domain), such as oracle-sg-cdn.example.com",
+  "每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV": "Fetched every 6 hours; one IP or domain per line, ip:port and CSV work",
+  "一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后": "One IP or preferred domain (such as visa.cn) per line, without a port. Domains typed here stay: speed-test points and the source URL only update the IPs, and subscriptions list the domains after the top N IPs",
 }
 export default m

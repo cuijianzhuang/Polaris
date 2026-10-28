@@ -311,8 +311,9 @@ func TestDiagnoseOrigin(t *testing.T) {
 	port, _ = strconv.Atoi(ps)
 	r = cdnCheck{Message: "错误 521"}
 	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
-	if !strings.Contains(r.Message, "直连") || !strings.Contains(r.Message, "是通的") {
-		t.Fatalf("open port: %+v", r)
+	// 127.0.0.1 is this machine: the direct check passed through no firewall.
+	if !strings.Contains(r.Message, "同一台机器") {
+		t.Fatalf("open port on the panel's machine: %+v", r)
 	}
 }
 
@@ -327,5 +328,26 @@ func TestOriginCertResponse(t *testing.T) {
 	cert, key, err := cf.originCert(context.Background(), []string{"cdn.example.com"})
 	if err != nil || !strings.Contains(cert, "BEGIN CERTIFICATE") || key == "" {
 		t.Fatalf("origin cert: %v %q", err, cert)
+	}
+}
+
+// Source lists may carry preferred domains; typed-in domains survive
+// automatic updates and follow the top N in subscriptions.
+func TestPreferredDomains(t *testing.T) {
+	got := parseIPList(strings.NewReader("# best\n104.16.1.1:443,ok\nVisa.cn\nicook.hk:2053 # note\nIP地址,延迟\n1.2.3\n104.16.1.1\n*.bad.com\n"))
+	if strings.Join(got, " ") != "104.16.1.1 visa.cn icook.hk" {
+		t.Fatalf("parsed %v", got)
+	}
+	r := cdnReq{Name: "cf", OriginDomain: "cdn.example.com", PreferredIPs: []string{"104.16.1.1", "visa.cn"}}
+	if err := r.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	var p store.CDNProfile
+	r.apply(&p, func(s string) string { return s })
+	if strings.Join(p.PinnedHosts.V, ",") != "visa.cn" {
+		t.Fatalf("pinned %v", p.PinnedHosts.V)
+	}
+	if l := withPinned([]string{"172.64.1.1", "visa.cn"}, []string{"visa.cn", "icook.hk"}); strings.Join(l, ",") != "172.64.1.1,visa.cn,icook.hk" {
+		t.Fatalf("withPinned %v", l)
 	}
 }

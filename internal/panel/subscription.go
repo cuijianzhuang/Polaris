@@ -304,8 +304,17 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		if ips == nil {
 			ips = usableCDNIPs(&p)
 		}
-		if p.IPTopN > 0 && len(ips) > p.IPTopN {
-			ips = ips[:p.IPTopN]
+		if p.IPTopN > 0 {
+			// Top N of the measured addresses; typed-in domains always follow.
+			var measured, pinned []string
+			for _, a := range ips {
+				if slices.Contains(p.PinnedHosts.V, a) {
+					pinned = append(pinned, a)
+				} else {
+					measured = append(measured, a)
+				}
+			}
+			ips = append(measured[:min(len(measured), p.IPTopN)], pinned...)
 		}
 		var out []sub.Node
 		for i, ip := range ips {

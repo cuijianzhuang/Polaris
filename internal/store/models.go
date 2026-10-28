@@ -548,13 +548,17 @@ type Endpoint struct {
 
 // CDNProfile is a reusable CDN configuration.
 type CDNProfile struct {
-	ID            string         `gorm:"primaryKey;size:32" json:"id"`
-	Name          string         `gorm:"size:64;uniqueIndex" json:"name"`
-	Provider      string         `gorm:"size:32" json:"provider"` // cloudflare / other
-	OriginDomain  string         `gorm:"size:255" json:"originDomain"`
-	TLSMode       string         `gorm:"size:32" json:"tlsMode"` // full_strict / full / flexible
-	Ports         JSON[[]int]    `json:"ports"`
-	PreferredIPs  JSON[[]string] `json:"preferredIps"`
+	ID           string         `gorm:"primaryKey;size:32" json:"id"`
+	Name         string         `gorm:"size:64;uniqueIndex" json:"name"`
+	Provider     string         `gorm:"size:32" json:"provider"` // cloudflare / other
+	OriginDomain string         `gorm:"size:255" json:"originDomain"`
+	TLSMode      string         `gorm:"size:32" json:"tlsMode"` // full_strict / full / flexible
+	Ports        JSON[[]int]    `json:"ports"`
+	PreferredIPs JSON[[]string] `json:"preferredIps"`
+	// PinnedHosts are the preferred domains the admin typed in: automatic
+	// updates (source URL, speed-test points) replace the IPs but keep
+	// these, and subscriptions add them after the top N IPs.
+	PinnedHosts   JSON[[]string] `json:"pinnedHosts"`
 	IPSourceURL   string         `gorm:"size:500" json:"ipSourceUrl"`
 	IPTopN        int            `json:"ipTopN"`
 	ExpandPerIP   bool           `json:"expandPerIp"`

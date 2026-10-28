@@ -170,7 +170,7 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		if err := tx.Where("profile_id = ? AND at > ?", p.ID, now.Add(-cdnStaleAfter(&p))).Find(&reports).Error; err != nil {
 			return err
 		}
-		list = mergeCDNReports(reports)
+		list = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
 		recovered = p.StaleAlerted
 		return tx.Model(&p).Updates(map[string]any{"preferred_ips": store.NewJSON(list), "last_refresh_at": now,
 			"last_error": "", "stale_alerted": false}).Error

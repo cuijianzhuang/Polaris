@@ -104,7 +104,7 @@ func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string) []string {
 	if len(reports) == 0 {
 		return nil
 	}
-	list := mergeCDNReports(reports)
+	list := withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
 	if p.NodeCheck && len(p.BadIPs.V) > 0 {
 		kept := slices.DeleteFunc(slices.Clone(list), func(ip string) bool { return slices.Contains(p.BadIPs.V, ip) })
 		if len(kept) > 0 {
