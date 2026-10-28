@@ -149,7 +149,7 @@ function Backups() {
       <fieldset className="settings-fields" disabled={busy || s.loading || !baseline}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>{t('备份与恢复')}</h2>
-        <span className="sub" style={{ margin: 0 }}>{d?.db === 'postgres' ? 'PostgreSQL' : `SQLite ${bytes(d?.dbSize)}`} · {t('保存在')} <code>{d?.dir}</code></span>
+        <span className="sub" style={{ margin: 0 }}>{d?.db === 'postgres' ? 'PostgreSQL' : `SQLite ${bytes(d?.dbSize)}`} · {t('保存在')} <code style={{ overflowWrap: 'anywhere' }}>{d?.dir}</code></span>
       </div>
       {restoring && <div className="note warn"><span className="spinner" /> {t('正在应用备份并重启面板，完成后自动刷新…')}</div>}
       <div className="form-grid">
