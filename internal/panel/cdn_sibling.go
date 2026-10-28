@@ -100,6 +100,7 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 		addedPort = true
 	}
 	s.MarkDirty("inbound "+row.Tag+" created for CDN", node.ID)
+	s.autoSyncCDNProfile(p.ID)
 	s.auditCtx(c, "inbound.cdn_sibling", node.Name+"/"+row.Tag, fmt.Sprintf("from %s via %s :%d", src.Tag, p.Name, m.Port))
 	c.JSON(http.StatusCreated, gin.H{"inbound": row, "port": m.Port, "path": m.Transport.Path, "core": m.Core,
 		"addedPort": addedPort, "needSync": p.APIToken != "", "profile": p.Name})

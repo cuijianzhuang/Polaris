@@ -210,6 +210,7 @@ func (s *Server) createInbound(c *gin.Context) {
 		return
 	}
 	s.MarkDirty("inbound "+row.Tag+" created", node.ID)
+	s.autoSyncCDNProfile(req.CDNProfileID)
 	s.auditCtx(c, "inbound.create", node.Name+"/"+row.Tag, fmt.Sprintf("%s %s+%s+%s :%d", row.Core, m.Protocol.Type, m.Transport.Type, m.Security.Type, m.Port))
 	c.JSON(http.StatusCreated, gin.H{"inbound": row, "core": m.Core})
 }
@@ -241,7 +242,7 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 		endpoints = append(endpoints, store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "direct"})
 	}
 	if meta.CDNProfileID != "" {
-		if err := s.checkCDNEndpoint(m, row.RelayAccess.V.Enabled, meta.CDNProfileID, 0); err != nil {
+		if err := s.checkCDNEndpoint(m, row.ID, row.RelayAccess.V.Enabled, meta.CDNProfileID, 0); err != nil {
 			return store.Inbound{}, err
 		}
 		endpoints = append(endpoints, store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: meta.CDNProfileID})
@@ -523,9 +524,14 @@ func (s *Server) previewDraftInbound(c *gin.Context) {
 }
 
 func (s *Server) listEndpoints(c *gin.Context) {
+	var row store.Inbound
+	if err := s.st.DB.First(&row, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	var es []store.Endpoint
-	s.st.DB.Where("inbound_id = ?", c.Param("id")).Order("sort_order, created_at").Find(&es)
-	c.JSON(http.StatusOK, es)
+	s.st.DB.Where("inbound_id = ?", row.ID).Order("sort_order, created_at").Find(&es)
+	c.JSON(http.StatusOK, s.endpointViews(&row, es))
 }
 
 func (s *Server) createEndpoint(c *gin.Context) {
@@ -545,7 +551,7 @@ func (s *Server) createEndpoint(c *gin.Context) {
 	switch e.Kind {
 	case "direct":
 	case "cdn":
-		if err := s.checkCDNEndpoint(&m, row.RelayAccess.V.Enabled, e.CDNProfileID, e.Port); err != nil {
+		if err := s.checkCDNEndpoint(&m, row.ID, row.RelayAccess.V.Enabled, e.CDNProfileID, e.Port); err != nil {
 			badRequest(c, err)
 			return
 		}
@@ -569,6 +575,11 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		return
 	}
 	s.auditCtx(c, "endpoint.create", row.Tag, e.Kind)
+	if e.Kind == "cdn" {
+		// Caddy fronting is built from cdn entries.
+		s.MarkDirty("cdn entry for "+row.Tag, row.NodeID)
+		s.autoSyncCDNProfile(e.CDNProfileID)
+	}
 	c.JSON(http.StatusCreated, e)
 }
 
@@ -590,6 +601,9 @@ func (s *Server) deleteEndpoint(c *gin.Context) {
 	if res.RowsAffected == 0 {
 		notFound(c)
 		return
+	}
+	if endpoint.Kind == "cdn" {
+		s.MarkDirty("cdn entry removed", s.nodesForInbounds(endpoint.InboundID)...)
 	}
 	s.auditCtx(c, "endpoint.delete", c.Param("id"), c.Param("eid"))
 	c.Status(http.StatusNoContent)
@@ -655,7 +669,7 @@ func mergeFields(a, b []string) []string {
 
 // checkCDNEndpoint reports why the inbound cannot be published through the
 // CDN profile (nil = it can).
-func (s *Server) checkCDNEndpoint(m *model.Inbound, relayAccess bool, profileID string, port int) error {
+func (s *Server) checkCDNEndpoint(m *model.Inbound, inboundID string, relayAccess bool, profileID string, port int) error {
 	if !m.CDNCapable() {
 		return fmt.Errorf("%s+%s 不能走 CDN（仅 WS / gRPC / HTTPUpgrade / XHTTP 且非 REALITY）", m.Transport.Type, m.Security.Type)
 	}
@@ -669,7 +683,7 @@ func (s *Server) checkCDNEndpoint(m *model.Inbound, relayAccess bool, profileID 
 	if relayAccess && p.CaddyFronting {
 		return fmt.Errorf("来源限制不能与 Caddy 共用回源入口同时启用")
 	}
-	if problem := cdnPortProblem(m, &p, port); problem != "" {
+	if problem := s.cdnEndpointProblem(m, inboundID, &p, port); problem != "" {
 		return errors.New(problem)
 	}
 	return nil

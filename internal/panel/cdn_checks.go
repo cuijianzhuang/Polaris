@@ -2,6 +2,7 @@ package panel
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"gorm.io/gorm"
@@ -13,20 +14,58 @@ import (
 // Problems that make an inbound unreachable through a CDN profile even
 // though its transport can go through a CDN.
 
-// cdnPortProblem: Cloudflare proxies gRPC only on port 443. epPort is the
-// endpoint's own port override (0 = none).
-func cdnPortProblem(m *model.Inbound, p *store.CDNProfile, epPort int) string {
-	if p.Provider != "cloudflare" || m.Transport.Type != model.TransGRPC {
+// cdnProblem says why clients could not reach the inbound through the CDN
+// profile ("" = they can). epPort is the endpoint's own port override (0 =
+// none); fronted is whether Agent's Caddy fronts the inbound.
+//
+// Clients always speak TLS to the CDN (see expandEndpoint), so with
+// Cloudflare: the port must be one of its HTTPS ports, gRPC works only on
+// 443, Full / Full (strict) reach the origin over HTTPS (the inbound, or
+// Caddy, must terminate TLS) and Flexible reaches it over plain HTTP.
+func cdnProblem(m *model.Inbound, p *store.CDNProfile, epPort int, fronted bool) string {
+	tls := m.Security.Type == model.SecTLS
+	if fronted && !tls {
+		return "Caddy 统一回源需要入站开启 TLS 并配置证书"
+	}
+	if p.Provider != "cloudflare" {
 		return ""
 	}
 	port := epPort
 	if port == 0 {
-		port = cdnNodePort(p, m.Port)
+		port = cdnNodePort(p, m.Port, fronted)
 	}
-	if port == 443 {
-		return ""
+	if !slices.Contains(cloudflareHTTPSPorts, port) {
+		return fmt.Sprintf("客户端会经 Cloudflare 连 %d 端口，但 Cloudflare 只在 443、2053、2083、2087、2096、8443 上代理 HTTPS：把入站端口改成其中之一", port)
 	}
-	return fmt.Sprintf("Cloudflare 只在 443 端口代理 gRPC，当前客户端会连 %d 端口：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS", port)
+	if m.Transport.Type == model.TransGRPC && port != 443 {
+		return fmt.Sprintf("Cloudflare 只在 443 端口代理 gRPC，当前客户端会连 %d 端口：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS", port)
+	}
+	if p.TLSMode == "flexible" {
+		if tls {
+			return "SSL 模式 Flexible 下 Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上：把配置档的 SSL 模式改为 Full 或 Full (strict)"
+		}
+	} else if !tls {
+		return "SSL 模式 Full / Full (strict) 下 Cloudflare 用 HTTPS 回源，入站需要开启 TLS（或开启配置档的「Caddy 统一回源」）"
+	}
+	return ""
+}
+
+// cdnEndpointProblem is cdnProblem for an inbound stored on a node, where
+// another inbound may hold the port Caddy fronting needs.
+func (s *Server) cdnEndpointProblem(m *model.Inbound, inboundID string, p *store.CDNProfile, epPort int) string {
+	if !p.CaddyFronting {
+		return cdnProblem(m, p, epPort, false)
+	}
+	port := epPort
+	if port == 0 {
+		port = cdnNodePort(p, m.Port, true)
+	}
+	tag := s.frontBlockerOn(m.NodeID, inboundID, port)
+	problem := cdnProblem(m, p, epPort, tag == "")
+	if tag != "" && problem != "" {
+		return fmt.Sprintf("Caddy 统一回源用不了（%d 端口被入站 %s 占用），而直接回源也不行：%s", port, tag, problem)
+	}
+	return problem
 }
 
 // cdnCertWarning: under Full (strict) Cloudflare checks that the origin
@@ -73,5 +112,5 @@ func itemWantsCDN(it store.TemplateItem) bool {
 // the profile; one clients could not reach is left out (preview says why).
 func cdnEndpointUsable(db *gorm.DB, m *model.Inbound, profileID string, port int) bool {
 	var p store.CDNProfile
-	return profileID != "" && m.CDNCapable() && db.First(&p, "id = ?", profileID).Error == nil && cdnPortProblem(m, &p, port) == ""
+	return profileID != "" && m.CDNCapable() && db.First(&p, "id = ?", profileID).Error == nil && cdnProblem(m, &p, port, p.CaddyFronting) == ""
 }

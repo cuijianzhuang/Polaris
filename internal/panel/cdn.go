@@ -9,6 +9,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -170,6 +172,66 @@ type cdnReq struct {
 	APIToken      string   `json:"apiToken"` // empty = unchanged
 }
 
+var cdnHostRe = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$`)
+
+// normalize cleans what an admin typed and refuses what clients could not
+// use: a URL instead of a domain, ports outside 1–65535 or (for Cloudflare)
+// ports it does not proxy over HTTPS, malformed preferred addresses.
+func (r *cdnReq) normalize() error {
+	r.Name = strings.TrimSpace(r.Name)
+	d := strings.ToLower(strings.TrimSpace(r.OriginDomain))
+	d = strings.TrimPrefix(strings.TrimPrefix(d, "https://"), "http://")
+	if i := strings.IndexAny(d, "/:"); i >= 0 {
+		d = d[:i]
+	}
+	d = strings.TrimSuffix(d, ".")
+	if !cdnHostRe.MatchString(d) || strings.HasPrefix(d, "*.") {
+		return fmt.Errorf("回源域名应为域名，例如 cdn.example.com（填的是 %q）", r.OriginDomain)
+	}
+	r.OriginDomain = d
+	r.Provider = orDefault(r.Provider, "cloudflare")
+	if r.Provider != "cloudflare" && r.Provider != "other" {
+		return fmt.Errorf("未知的服务商 %q", r.Provider)
+	}
+	r.TLSMode = orDefault(r.TLSMode, "full_strict")
+	if !slices.Contains([]string{"full_strict", "full", "flexible"}, r.TLSMode) {
+		return fmt.Errorf("未知的 TLS 模式 %q", r.TLSMode)
+	}
+	var ports []int
+	for _, p := range r.Ports {
+		if p < 1 || p > 65535 {
+			return fmt.Errorf("端口 %d 不在 1–65535 之间", p)
+		}
+		if r.Provider == "cloudflare" && !slices.Contains(cloudflareHTTPSPorts, p) {
+			return fmt.Errorf("Cloudflare 只在 443、2053、2083、2087、2096、8443 上代理 HTTPS，客户端连不了 %d", p)
+		}
+		if !slices.Contains(ports, p) {
+			ports = append(ports, p)
+		}
+	}
+	r.Ports = ports
+	var ips []string
+	for _, ip := range r.PreferredIPs {
+		ip = strings.Trim(strings.TrimSpace(ip), "[]")
+		if ip == "" {
+			continue
+		}
+		if net.ParseIP(ip) == nil && !cdnHostRe.MatchString(strings.ToLower(ip)) {
+			return fmt.Errorf("优选地址 %q 不是 IP 或域名（不要带端口）", ip)
+		}
+		if !slices.Contains(ips, ip) {
+			ips = append(ips, ip)
+		}
+	}
+	r.PreferredIPs = ips
+	if u := strings.TrimSpace(r.IPSourceURL); u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+		return fmt.Errorf("优选 IP 来源应为 http(s):// 网址")
+	}
+	r.IPSourceURL = strings.TrimSpace(r.IPSourceURL)
+	r.IPTopN = max(r.IPTopN, 0)
+	return nil
+}
+
 func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 	p.Name, p.Provider, p.OriginDomain, p.TLSMode = r.Name, orDefault(r.Provider, "cloudflare"), r.OriginDomain, orDefault(r.TLSMode, "full_strict")
 	if len(r.Ports) == 0 {
@@ -220,6 +282,10 @@ func (s *Server) createCDN(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if err := req.normalize(); err != nil {
+		badRequest(c, err)
+		return
+	}
 	p := store.CDNProfile{ID: store.NewID()}
 	req.apply(&p, s.st.Box.Seal)
 	if err := s.st.DB.Create(&p).Error; err != nil {
@@ -243,6 +309,10 @@ func (s *Server) updateCDN(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if err := req.normalize(); err != nil {
+		badRequest(c, err)
+		return
+	}
 	if req.CaddyFronting {
 		var ins []store.Inbound
 		if err := s.st.DB.Model(&store.Inbound{}).Joins("JOIN endpoints ep ON ep.inbound_id = inbounds.id").Where("ep.cdn_profile_id = ?", p.ID).Find(&ins).Error; err != nil {
@@ -260,6 +330,12 @@ func (s *Server) updateCDN(c *gin.Context) {
 	if err := s.st.DB.Save(&p).Error; err != nil {
 		dbError(c, err)
 		return
+	}
+	// Caddy fronting (and its port) shape the nodes' configuration.
+	var inboundIDs []string
+	s.st.DB.Model(&store.Endpoint{}).Where("cdn_profile_id = ?", p.ID).Distinct().Pluck("inbound_id", &inboundIDs)
+	if len(inboundIDs) > 0 {
+		s.MarkDirty("cdn profile "+p.Name+" updated", s.nodesForInbounds(inboundIDs...)...)
 	}
 	s.auditCtx(c, "cdn.update", p.Name, "")
 	c.JSON(http.StatusOK, p)
@@ -279,27 +355,44 @@ func (s *Server) deleteCDN(c *gin.Context) {
 }
 
 // syncCDNDNS creates proxied DNS records for every node behind the profile,
-// sets SSL to Full (strict) and installs a Cloudflare Origin certificate on
-// the inbounds that serve the origin domain.
+// sets the zone's SSL mode and, under Full (strict), installs a Cloudflare
+// Origin certificate on the inbounds that serve only CDN clients.
 func (s *Server) syncCDNDNS(c *gin.Context) {
 	var p store.CDNProfile
 	if err := s.st.DB.First(&p, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
 		return
 	}
-	token := s.st.Box.MustOpen(p.APIToken)
-	if token == "" {
-		badRequest(c, fmt.Errorf("该配置档未填写 Cloudflare API Token"))
+	res, err := s.syncCDN(c.Request.Context(), &p, true)
+	if err != nil {
+		badRequest(c, err)
 		return
 	}
+	s.auditCtx(c, "cdn.sync_dns", p.Name, strings.Join(res.Records, ", "))
+	c.JSON(http.StatusOK, res)
+}
+
+type cdnSyncResult struct {
+	Records []string `json:"records"`
+	SSLMode string   `json:"sslMode,omitempty"`
+	Cert    string   `json:"cert,omitempty"`
+}
+
+// syncCDN upserts the profile's DNS records; full also sets the zone's SSL
+// mode and installs Origin certificates (the "同步 DNS" button). Without
+// full it only keeps records pointing at the nodes (自动同步).
+func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (cdnSyncResult, error) {
+	res := cdnSyncResult{Records: []string{}}
+	token := s.st.Box.MustOpen(p.APIToken)
+	if token == "" {
+		return res, fmt.Errorf("该配置档未填写 Cloudflare API Token")
+	}
 	cf := newCF(token)
-	ctx := c.Request.Context()
 	zone := p.ZoneID
 	var err error
 	if zone == "" {
 		if zone, err = cf.zoneFor(ctx, p.OriginDomain); err != nil {
-			badRequest(c, err)
-			return
+			return res, err
 		}
 	}
 	var eps []store.Endpoint
@@ -317,66 +410,119 @@ func (s *Server) syncCDNDNS(c *gin.Context) {
 		}
 		host := orDefault(ep.Host, p.OriginDomain)
 		if prev, ok := records[host]; ok && prev != nodeOrigin(&n) {
-			badRequest(c, fmt.Errorf("回源域名 %s 同时指向多个节点（%s / %s），请为入口单独设置 Host", host, prev, nodeOrigin(&n)))
-			return
+			return res, fmt.Errorf("回源域名 %s 同时指向多个节点（%s / %s），请在入口里为每台节点单独填 Host（如 sg-%s）", host, prev, nodeOrigin(&n), host)
 		}
 		records[host] = nodeOrigin(&n)
 		inboundIDs = append(inboundIDs, in.ID)
 	}
-	var done []string
 	for host, addr := range records {
 		if err := cf.upsertRecord(ctx, zone, host, addr); err != nil {
-			s.st.DB.Model(&p).Update("last_error", truncate(err.Error(), 1900))
-			badRequest(c, err)
-			return
+			s.st.DB.Model(p).Update("last_error", truncate(err.Error(), 1900))
+			return res, err
 		}
-		done = append(done, host+" → "+addr)
+		res.Records = append(res.Records, host+" → "+addr)
+	}
+	s.warnWrite("cdn zone", s.st.DB.Model(p).Updates(map[string]any{"zone_id": zone, "last_error": ""}).Error) // only a cache of the zone lookup
+	if !full {
+		return res, nil
 	}
 	mode := map[string]string{"full_strict": "strict", "full": "full", "flexible": "flexible"}[p.TLSMode]
 	if mode == "" {
 		mode = "strict"
 	}
 	if err := cf.setSSLMode(ctx, zone, mode); err != nil {
-		badRequest(c, err)
-		return
+		return res, err
 	}
-	certNote := ""
+	res.SSLMode = mode
 	if mode == "strict" && len(records) > 0 {
-		var hosts []string
-		for h := range records {
-			hosts = append(hosts, h)
+		res.Cert = s.installOriginCert(ctx, cf, records, inboundIDs)
+	}
+	return res, nil
+}
+
+// installOriginCert issues a Cloudflare Origin certificate for the hosts
+// and puts it on the TLS inbounds. Clients do not trust Origin
+// certificates, so inbounds that also serve direct clients keep theirs.
+func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records map[string]string, inboundIDs []string) string {
+	var targets, kept []string
+	for _, id := range inboundIDs {
+		var in store.Inbound
+		if s.st.DB.First(&in, "id = ?", id).Error != nil || in.Security.V.Type != "tls" || slices.Contains(targets, id) || slices.Contains(kept, in.Tag) {
+			continue
 		}
-		certPEM, keyPEM, err := cf.originCert(ctx, hosts)
-		if err != nil {
-			certNote = "Origin 证书签发失败：" + err.Error()
-		} else {
-			exp, _ := pki.ParseCertExpiry([]byte(certPEM))
-			cert := store.Certificate{ID: store.NewID(), Domain: hosts[0], Provider: "cf-origin", Cert: certPEM,
-				Key: s.st.Box.Seal(keyPEM), ExpireAt: &exp}
-			if err := s.st.DB.Create(&cert).Error; err != nil {
-				certNote = "Origin 证书已签发，但保存失败：" + err.Error()
-			} else {
-				var failed []string
-				for _, id := range inboundIDs {
-					var in store.Inbound
-					if s.st.DB.First(&in, "id = ?", id).Error == nil && in.Security.V.Type == "tls" {
-						in.Security.V.CertificateID = cert.ID
-						if err := s.st.DB.Model(&in).Update("security", in.Security).Error; err != nil {
-							failed = append(failed, in.Tag)
-						}
-					}
-				}
-				certNote = "Origin 证书已下发"
-				if len(failed) > 0 {
-					certNote = "Origin 证书已签发，但这些入站没能换上新证书，请稍后重试：" + strings.Join(failed, "、")
-				}
-				s.MarkDirty("cloudflare origin cert", s.nodesForInbounds(inboundIDs...)...)
+		var direct int64
+		s.st.DB.Model(&store.Endpoint{}).Where("inbound_id = ? AND kind = ?", id, "direct").Count(&direct)
+		if direct > 0 {
+			kept = append(kept, in.Tag)
+			continue
+		}
+		targets = append(targets, id)
+	}
+	keptNote := ""
+	if len(kept) > 0 {
+		keptNote = "；这些入站还有直连入口，客户端不认 Origin 证书，没有换：" + strings.Join(kept, "、") + "（需要它们证书包含回源域名，或把 SSL 模式改为 Full）"
+	}
+	if len(targets) == 0 {
+		return "没有入站需要换证书" + keptNote
+	}
+	var hosts []string
+	for h := range records {
+		hosts = append(hosts, h)
+	}
+	slices.Sort(hosts)
+	certPEM, keyPEM, err := cf.originCert(ctx, hosts)
+	if err != nil {
+		return "Origin 证书签发失败：" + err.Error() + keptNote
+	}
+	exp, _ := pki.ParseCertExpiry([]byte(certPEM))
+	cert := store.Certificate{ID: store.NewID(), Domain: hosts[0], Provider: "cf-origin", Cert: certPEM, Key: s.st.Box.Seal(keyPEM), ExpireAt: &exp}
+	if err := s.st.DB.Create(&cert).Error; err != nil {
+		return "Origin 证书已签发，但保存失败：" + err.Error() + keptNote
+	}
+	var failed []string
+	for _, id := range targets {
+		var in store.Inbound
+		if s.st.DB.First(&in, "id = ?", id).Error == nil {
+			in.Security.V.CertificateID = cert.ID
+			if err := s.st.DB.Model(&in).Update("security", in.Security).Error; err != nil {
+				failed = append(failed, in.Tag)
 			}
 		}
 	}
-	s.warnWrite("cdn zone", s.st.DB.Model(&p).Updates(map[string]any{"zone_id": zone, "last_error": ""}).Error) // only a cache of the zone lookup
-	s.auditCtx(c, "cdn.sync_dns", p.Name, strings.Join(done, ", "))
-	c.JSON(http.StatusOK, gin.H{"records": done, "sslMode": mode, "cert": certNote})
+	s.MarkDirty("cloudflare origin cert", s.nodesForInbounds(targets...)...)
+	if len(failed) > 0 {
+		return "Origin 证书已签发，但这些入站没能换上新证书，请稍后重试：" + strings.Join(failed, "、") + keptNote
+	}
+	return "Origin 证书已下发" + keptNote
+}
+
+// autoSyncCDNDNS keeps the DNS records of profiles with 自动同步 on.
+func (s *Server) autoSyncCDNDNS() {
+	var ps []store.CDNProfile
+	s.st.DB.Where("auto_dns = ? AND api_token <> ''", true).Find(&ps)
+	for i := range ps {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		if _, err := s.syncCDN(ctx, &ps[i], false); err != nil {
+			s.st.DB.Model(&ps[i]).Update("last_error", truncate("自动同步 DNS："+err.Error(), 1900))
+		}
+		cancel()
+	}
+}
+
+// autoSyncCDNProfile syncs one profile's DNS in the background after an
+// entry is added, when the profile asks for it.
+func (s *Server) autoSyncCDNProfile(id string) {
+	var p store.CDNProfile
+	if id == "" || s.st.DB.First(&p, "id = ?", id).Error != nil || !p.AutoDNS || p.APIToken == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if _, err := s.syncCDN(ctx, &p, false); err != nil {
+			s.st.DB.Model(&p).Update("last_error", truncate("自动同步 DNS："+err.Error(), 1900))
+		}
+	}()
 }
 
 func (s *Server) refreshCDNIPs(c *gin.Context) {

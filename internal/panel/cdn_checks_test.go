@@ -1,6 +1,12 @@
 package panel
 
 import (
+	"context"
+	"crypto/x509"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -8,27 +14,36 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
-func TestCDNPortProblem(t *testing.T) {
+func TestCDNProblem(t *testing.T) {
 	cf := &store.CDNProfile{Provider: "cloudflare", Ports: store.NewJSON([]int{443})}
-	grpc := func(port int) *model.Inbound {
-		return &model.Inbound{Port: port, Transport: model.TransportSpec{Type: model.TransGRPC}, Security: model.SecuritySpec{Type: model.SecTLS}}
+	flexible := &store.CDNProfile{Provider: "cloudflare", TLSMode: "flexible", Ports: store.NewJSON([]int{443})}
+	in := func(tr model.Transport, sec model.Security, port int) *model.Inbound {
+		return &model.Inbound{Port: port, Transport: model.TransportSpec{Type: tr}, Security: model.SecuritySpec{Type: sec}}
 	}
-	for _, c := range []struct {
-		m      *model.Inbound
-		p      *store.CDNProfile
-		epPort int
-		bad    bool
+	grpc := func(port int) *model.Inbound { return in(model.TransGRPC, model.SecTLS, port) }
+	for i, c := range []struct {
+		m       *model.Inbound
+		p       *store.CDNProfile
+		epPort  int
+		fronted bool
+		bad     bool
 	}{
-		{grpc(443), cf, 0, false},
-		{grpc(2087), cf, 0, true},    // CF keeps the client on 2087
-		{grpc(31000), cf, 0, false},  // not a CF port: clients use the profile's 443
-		{grpc(2087), cf, 443, false}, // endpoint override
-		{grpc(2087), &store.CDNProfile{Provider: "cloudflare", CaddyFronting: true, Ports: store.NewJSON([]int{443})}, 0, false},
-		{grpc(2087), &store.CDNProfile{Provider: "other", Ports: store.NewJSON([]int{443})}, 0, false},
-		{&model.Inbound{Port: 2087, Transport: model.TransportSpec{Type: model.TransWS}}, cf, 0, false},
+		{grpc(443), cf, 0, false, false},
+		{grpc(2087), cf, 0, false, true},    // CF keeps the client on 2087
+		{grpc(31000), cf, 0, false, false},  // not a CF port: clients use the profile's 443
+		{grpc(2087), cf, 443, false, false}, // endpoint override
+		{grpc(2087), cf, 0, true, false},    // Caddy on 443
+		{grpc(2087), &store.CDNProfile{Provider: "other", Ports: store.NewJSON([]int{443})}, 0, false, false},
+		{in(model.TransWS, model.SecTLS, 2087), cf, 0, false, false},
+		{in(model.TransWS, model.SecTLS, 2087), cf, 8080, false, true},    // plain-HTTP port, clients use TLS
+		{in(model.TransWS, model.SecNone, 2087), cf, 0, false, true},      // Full: CF talks HTTPS to a plain listener
+		{in(model.TransWS, model.SecNone, 2087), cf, 0, true, true},       // Caddy needs the inbound's certificate
+		{in(model.TransWS, model.SecTLS, 2087), flexible, 0, false, true}, // Flexible: CF talks HTTP to a TLS listener
+		{in(model.TransWS, model.SecNone, 2087), flexible, 0, false, false},
+		{in(model.TransWS, model.SecNone, 2087), &store.CDNProfile{Provider: "other"}, 0, false, false},
 	} {
-		if got := cdnPortProblem(c.m, c.p, c.epPort) != ""; got != c.bad {
-			t.Errorf("port %d ep %d profile %+v: problem=%v", c.m.Port, c.epPort, c.p, got)
+		if got := cdnProblem(c.m, c.p, c.epPort, c.fronted) != ""; got != c.bad {
+			t.Errorf("case %d: problem=%v (%q)", i, got, cdnProblem(c.m, c.p, c.epPort, c.fronted))
 		}
 	}
 	if !covers("*.example.com", "cdn.example.com") || covers("*.example.com", "a.b.example.com") || covers("n1.example.com", "cdn.example.com") {
@@ -180,5 +195,99 @@ func TestFindFreePortForCDN(t *testing.T) {
 	}
 	if p := s.findFreePort("n1", w, map[int]bool{}, 31000, false); p < 20000 {
 		t.Fatalf("direct: %d", p)
+	}
+}
+
+// The CDN check names the hop that fails from Cloudflare's error code.
+func TestProbeCDN(t *testing.T) {
+	status := 526
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Server", "cloudflare")
+		if r.URL.Path != "/ws" {
+			w.WriteHeader(404)
+			return
+		}
+		if status == 101 && r.Header.Get("Upgrade") == "websocket" {
+			w.Header().Set("Upgrade", "websocket")
+			w.Header().Set("Connection", "Upgrade")
+		}
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+	cdnProbeRoots = x509.NewCertPool()
+	cdnProbeRoots.AddCert(srv.Certificate())
+	defer func() { cdnProbeRoots = nil }()
+	host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	pn, _ := strconv.Atoi(port)
+	target := cdnTarget{Server: host, Port: pn, SNI: host, Host: "cdn.example.com", Path: "/ws"}
+	ctx := context.Background()
+
+	r := probeCDN(ctx, target, model.TransWS, "")
+	if r.OK || r.Status != 526 || !strings.Contains(r.Message, "Full (strict)") {
+		t.Fatalf("526: %+v", r)
+	}
+	status = 522
+	if r = probeCDN(ctx, target, model.TransWS, ""); r.OK || !strings.Contains(r.Message, "安全组") {
+		t.Fatalf("522: %+v", r)
+	}
+	status = 101
+	if r = probeCDN(ctx, target, model.TransWS, ""); !r.OK {
+		t.Fatalf("101: %+v", r)
+	}
+	bad := target
+	bad.Path = "/nope"
+	if r = probeCDN(ctx, bad, model.TransWS, ""); r.OK || !strings.Contains(r.Message, "路径") {
+		t.Fatalf("wrong path: %+v", r)
+	}
+	closed := target
+	closed.Port = 1
+	if r = probeCDN(ctx, closed, model.TransWS, ""); r.OK || !strings.Contains(r.Message, "连不上") {
+		t.Fatalf("closed port: %+v", r)
+	}
+}
+
+// The endpoint list shows where CDN clients connect and what keeps them out.
+func TestEndpointViews(t *testing.T) {
+	s, admin := cdnFixture(t)
+	code, out := admin.do("POST", "/inbounds", grpcInboundReq(2083, map[string]any{"tag": "ws", "transport": map[string]any{"type": "ws", "path": "/x"},
+		"security": map[string]any{"type": "tls", "serverName": "hk.example.com"}, "cdnProfileId": "cf", "cdnOnly": true}))
+	if code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	id := out["inbound"].(map[string]any)["id"].(string)
+	code, raw := admin.doList("GET", "/inbounds/"+id+"/endpoints")
+	if code != 200 || len(raw) != 1 {
+		t.Fatalf("list: %d %v", code, raw)
+	}
+	list := []map[string]any{raw[0].(map[string]any)}
+	tg := list[0]["target"].(map[string]any)
+	if tg["server"] != "cdn.example.com" || tg["port"] != float64(2083) || tg["path"] != "/x" {
+		t.Fatalf("target %v", tg)
+	}
+	w := list[0]["warnings"].([]any)
+	if len(w) != 1 || !strings.Contains(w[0].(string), "hk.example.com") {
+		t.Fatalf("warnings %v", w)
+	}
+	_ = s
+}
+
+func TestCDNReqNormalize(t *testing.T) {
+	r := cdnReq{Name: " cf ", OriginDomain: "https://CDN.Example.com/ws", Ports: []int{2053, 443, 2053}, PreferredIPs: []string{" 104.16.1.1 ", "", "visa.cn", "[2606:4700::1]"}}
+	if err := r.normalize(); err != nil {
+		t.Fatal(err)
+	}
+	if r.OriginDomain != "cdn.example.com" || r.TLSMode != "full_strict" || r.Provider != "cloudflare" || len(r.Ports) != 2 || len(r.PreferredIPs) != 3 {
+		t.Fatalf("%+v", r)
+	}
+	for _, bad := range []cdnReq{
+		{OriginDomain: "not a domain"},
+		{OriginDomain: "cdn.example.com", Ports: []int{8080}},
+		{OriginDomain: "cdn.example.com", Ports: []int{70000}, Provider: "other"},
+		{OriginDomain: "cdn.example.com", PreferredIPs: []string{"1.2.3.4:443"}},
+		{OriginDomain: "cdn.example.com", TLSMode: "strict"},
+	} {
+		if err := bad.normalize(); err == nil {
+			t.Errorf("accepted %+v", bad)
+		}
 	}
 }
