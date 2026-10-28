@@ -301,6 +301,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/inbounds/:id/endpoints", s.createEndpoint)
 	p.POST("/inbounds/:id/cdn-sibling", s.createCDNSibling)
 	p.DELETE("/inbounds/:id/endpoints/:eid", s.deleteEndpoint)
+	p.POST("/inbounds/:id/endpoints/:eid/check", s.checkEndpoint)
 
 	p.GET("/users", s.listUsers)
 	p.POST("/users", s.createUser)

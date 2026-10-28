@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -283,7 +284,8 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		}
 		n := base
 		n.Server = p.OriginDomain
-		n.Port = cdnNodePort(&p, m.Port)
+		_, fronted := s.frontFor(m.ID)
+		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
 		if n.TLS.Type == model.SecNone || n.TLS.Type == "" {
 			n.TLS = model.ClientTLS{Type: model.SecTLS}
 		}
@@ -430,22 +432,18 @@ func (s *Server) agentSHA(arch string) string {
 	return sum
 }
 
-// cloudflareProxiedPorts are the ports Cloudflare proxies; it connects to
-// the origin on the same port the client used.
-var cloudflareProxiedPorts = map[int]bool{443: true, 2053: true, 2083: true, 2087: true, 2096: true, 8443: true,
-	80: true, 8080: true, 8880: true, 2052: true, 2082: true, 2086: true, 2095: true}
-
 // cdnNodePort is the port clients use for an inbound behind a CDN profile.
 // With Caddy fronting, the profile's first port is Caddy's public port. Else
-// the CDN keeps the port, so an inbound listening on a port the CDN proxies
-// is reached on that same port; only an inbound on another port (relying on
-// the CDN rewriting the origin port) uses the profile's first port.
-func cdnNodePort(p *store.CDNProfile, inboundPort int) int {
+// the CDN keeps the port, so an inbound listening on an HTTPS port the CDN
+// proxies is reached on that same port (clients always use TLS to the CDN,
+// so its plain-HTTP ports are no use); an inbound on any other port relies
+// on the CDN rewriting the origin port and uses the profile's first port.
+func cdnNodePort(p *store.CDNProfile, inboundPort int, fronted bool) int {
 	first := 443
 	if len(p.Ports.V) > 0 {
 		first = p.Ports.V[0]
 	}
-	if p.CaddyFronting || !cloudflareProxiedPorts[inboundPort] {
+	if fronted || !slices.Contains(cloudflareHTTPSPorts, inboundPort) {
 		return first
 	}
 	return inboundPort

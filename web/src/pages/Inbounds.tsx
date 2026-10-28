@@ -12,8 +12,8 @@ import InboundFields, { normalizeDraft, type InboundDraft } from '../components/
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast, Section, useUndo } from '../components/ui'
 import { bytes, coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
 import type { TagTrafficRow } from '../components/TagTraffic'
-import type { CapSet, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, Node, Outbound } from '../types'
-import { t } from '../i18n'
+import type { CapSet, CDNCheck, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, Node, Outbound } from '../types'
+import { t, tr } from '../i18n'
 
 const emptyDraft = (): InboundDraft => ({
   core: 'xray',
@@ -36,6 +36,17 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
     eps.reload()
     onChanged()
   }, t('入口已添加'))
+  const [checks, setChecks] = useState<Record<string, CDNCheck>>({})
+  const [checking, setChecking] = useState('')
+  const check = async (e: Endpoint) => {
+    setChecking(e.id)
+    try {
+      const r = await post<CDNCheck>(`/inbounds/${inbound.id}/endpoints/${e.id}/check`)
+      setChecks((c) => ({ ...c, [e.id]: r }))
+    } catch (err) {
+      setChecks((c) => ({ ...c, [e.id]: { ok: false, message: String((err as Error)?.message ?? err), steps: [] } }))
+    } finally { setChecking('') }
+  }
   const label = (e: Endpoint) => e.kind === 'direct' ? t('直连') : e.kind === 'cdn' ? 'CDN · ' + (cdn.data?.find((c) => c.id === e.cdnProfileId)?.name ?? e.cdnProfileId) : t('中转') + ' · ' + (chains.data?.find((c) => c.id === e.relayChainId)?.name ?? e.relayChainId)
   return (
     <section className="field">
@@ -45,9 +56,16 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
           <tbody>
             {(eps.data ?? []).map((e) => (
               <tr key={e.id}>
-                <td>{label(e)}</td>
-                <td className="mono small">{[e.address, e.port || '', e.host].filter(Boolean).join(' · ') || t('默认')}</td>
-                <td style={{ textAlign: 'right' }}><button className="link" type="button" onClick={() => run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() })}>{t('删除')}</button></td>
+                <td style={{ whiteSpace: 'normal' }}>{label(e)}
+                  {(e.warnings ?? []).map((w, i) => <div key={i} className="hint" style={{ color: 'var(--warn)', overflowWrap: 'anywhere' }}>{tr(w)}</div>)}
+                  {checks[e.id] && <CheckResult r={checks[e.id]} />}
+                </td>
+                <td className="mono small" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{e.target
+                  ? <span title={t('客户端经 CDN 连接的地址；SNI / Host / 路径')}>{e.target.server}:{e.target.port}<br />{e.target.sni === e.target.host ? e.target.sni : `${e.target.sni} / ${e.target.host}`} {e.target.path}</span>
+                  : [e.address, e.port || '', e.host].filter(Boolean).join(' · ') || t('默认')}</td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {e.kind === 'cdn' && <button className="link" type="button" disabled={checking === e.id} onClick={() => check(e)}>{checking === e.id ? t('检测中…') : t('检测')}</button>}{' '}
+                  <button className="link" type="button" onClick={() => run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() })}>{t('删除')}</button></td>
               </tr>
             ))}
             {eps.data?.length === 0 && <tr><td className="mute">{t('无入口：订阅按直连生成')}</td></tr>}
@@ -89,13 +107,23 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
   )
 }
 
-// Cloudflare proxies these ports and reaches the origin on the same one;
-// any other port goes out on the profile's first port (see cdnNodePort).
-const cloudflarePorts = [443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095]
+// CheckResult shows what the panel saw connecting like a CDN client.
+function CheckResult({ r }: { r: CDNCheck }) {
+  return (
+    <div className={'note small ' + (r.ok ? 'ok-note' : 'bad')} style={{ marginTop: 6, overflowWrap: 'anywhere' }}>
+      <b>{r.ok ? t('检测通过') : t('检测未通过')}</b>：{tr(r.message)}
+      {r.steps.length > 0 && <div className="mono" style={{ marginTop: 4, opacity: 0.8 }}>{r.steps.map((x, i) => <div key={i}>{tr(x)}</div>)}</div>}
+    </div>
+  )
+}
+
+// Cloudflare proxies these HTTPS ports and reaches the origin on the same
+// one; any other port goes out on the profile's first port (see cdnNodePort).
+const cloudflarePorts = [443, 2053, 2083, 2087, 2096, 8443]
 const cdnClientPort = (p: CDNProfile, port: number) => (p.caddyFronting || !cloudflarePorts.includes(port)) ? (p.ports[0] ?? 443) : port
 
 // NewCDNEntry publishes a new inbound through a CDN profile as it is created.
-function NewCDNEntry({ value, onChange, grpc, port }: { value: { profileId: string; only: boolean }; onChange: (v: { profileId: string; only: boolean }) => void; grpc: boolean; port: number }) {
+function NewCDNEntry({ value, onChange, grpc, tls, port }: { value: { profileId: string; only: boolean }; onChange: (v: { profileId: string; only: boolean }) => void; grpc: boolean; tls: boolean; port: number }) {
   const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
   const p = cdn.data?.find((c) => c.id === value.profileId)
   const clientPort = p ? cdnClientPort(p, port) : 0
@@ -108,6 +136,8 @@ function NewCDNEntry({ value, onChange, grpc, port }: { value: { profileId: stri
       {cdn.data?.length === 0 && <div className="hint">{t('还没有 CDN 配置档，先在「CDN」页添加。')}</div>}
       {p && <Switch on={value.only} onChange={(v) => onChange({ ...value, only: v })} label={t('只走 CDN（订阅里不出现直连节点，不暴露节点 IP）')} />}
       {p && <div className="hint">{t('客户端经 CDN 连 {domain}:{port}', { domain: p.originDomain, port: clientPort })}</div>}
+      {p && p.provider === 'cloudflare' && p.tlsMode === 'flexible' && tls && <div className="note warn small">{t('配置档的 SSL 模式是 Flexible：Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上。把配置档改为 Full。')}</div>}
+      {p && p.provider === 'cloudflare' && p.tlsMode !== 'flexible' && !tls && <div className="note warn small">{t('配置档的 SSL 模式是 Full：Cloudflare 用 HTTPS 回源，这个入站需要开启 TLS。')}</div>}
       {p && p.provider === 'cloudflare' && grpc && clientPort !== 443 && <div className="note warn small">{t('Cloudflare 只在 443 端口代理 gRPC：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS。')}</div>}
       {p && p.provider === 'cloudflare' && (p.tlsMode || 'full_strict') === 'full_strict' && <div className="hint">{t('配置档的 SSL 模式是 Full (strict)：入站证书需要包含 {domain}，否则 Cloudflare 报 526。可在配置档点「同步 DNS」换成 Origin 证书，或改用 Full。', { domain: p.originDomain })}</div>}
     </Field>
@@ -396,7 +426,7 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         <div className="note warn">{t('该节点运行的是官方版 sing-box（不含 v2ray_api），暂时只能统计入站总流量，用户的已用流量不会增加。Polaris 会自动构建带统计功能的同版本 sing-box，发布后 Agent 下次启动时自动替换；也可以在「节点」页把 sing-box 切换到已构建的版本。')}</div>
       )}
       {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
-      {!editing && draftCDNCapable && <NewCDNEntry value={newCDN} onChange={setNewCDN} grpc={draft.transport.type === 'grpc'} port={Number(port) || 0} />}
+      {!editing && draftCDNCapable && <NewCDNEntry value={newCDN} onChange={setNewCDN} grpc={draft.transport.type === 'grpc'} tls={draft.security.type === 'tls'} port={Number(port) || 0} />}
       {editing && relaysOpen && <RelayManager inbound={editing} nodes={nodes} onClose={() => setRelaysOpen(false)} onChanged={onSaved} />}
       {preview && <Modal title={t('{core} 原生配置预览', { core: coreLabel[draft.core] })} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}
     </Drawer>

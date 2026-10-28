@@ -93,7 +93,8 @@ export interface Group {
 export interface TrafficPack {
   id: string; name: string; traffic: number; planIds: string[]; sale: boolean; priceStars: number; priceCny: number; priceUsdt: number; sort: number
 }
-export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string }
+export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string
+  target?: { server: string; port: number; sni: string; host: string; path: string }; warnings?: string[] }
 export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean
@@ -176,3 +177,4 @@ export interface NodeTraffic {
 export interface SourceReference { id: string; nodeId: string; tag: string; inboundIds: string[] }
 export interface SourceNode { id: string; sourceId: string; name: string; protocol: string; server: string; port: number; network: string; security: string; missing: boolean; available: boolean; supported: boolean; reason?: string; source: string; references: SourceReference[] }
 export interface SourceRefresh { id: string; revision: number; createdAt: string; unchanged: number; changes: { id: string; name: string; kind: string; fields?: string[] }[] }
+export interface CDNCheck { ok: boolean; status?: number; message: string; steps: string[]; warnings?: string[] }

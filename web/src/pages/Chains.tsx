@@ -3,7 +3,7 @@ import { api, API, del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
-import { t } from '../i18n'
+import { t, tr } from '../i18n'
 import GeoPicker from '../components/GeoPicker'
 import WarpDialog from '../components/WarpDialog'
 import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet, SourceNode } from '../types'
@@ -157,7 +157,12 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('TLS 模式')}>
           <select className="input" value={f.tlsMode} onChange={(e) => set('tlsMode', e.target.value)}><option value="full_strict">Full (strict)</option><option value="full">Full</option><option value="flexible">Flexible</option></select>
         </Field>
-        <Field label={t('可用端口')}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
+        {f.provider === 'cloudflare' && <div className="hint" style={{ gridColumn: '1 / -1' }}>{
+          f.tlsMode === 'full_strict' ? t('Full (strict)：Cloudflare 校验节点证书，证书必须包含回源域名（或用「同步 DNS」签发的 Origin 证书），否则报 526。')
+            : f.tlsMode === 'full' ? t('Full：Cloudflare 用 HTTPS 回源但不校验证书，节点上任意证书都行，入站必须开 TLS。')
+              : t('Flexible：Cloudflare 用明文 HTTP 回源，入站不能开 TLS，也不能用 Caddy 统一回源；一般不推荐。')}
+          {' '}{t('这里的设置要和 Cloudflare 后台「SSL/TLS」一致：点「同步 DNS」会替你改（对整个域名生效）。')}</div>}
+        <Field label={t('可用端口')} hint={f.provider === 'cloudflare' ? t('只能用 Cloudflare 的 HTTPS 端口：443、2053、2083、2087、2096、8443；第一个用于不在这些端口上的入站和 Caddy 统一回源') : undefined}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
         <Field label="Cloudflare API Token" full hint={profile?.hasToken ? t('已保存（留空不修改）· 加密存储') : t('可选：填入后可自动同步 DNS、设置 SSL、签发 Origin 证书')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
         </Field>
@@ -169,14 +174,15 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
       <div className="toggle"><span>{t('节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅')}</span><Switch label={t('节点检测')} on={f.nodeCheck} onChange={(v) => set('nodeCheck', v)} /></div>
       <div className="toggle"><span>{t('按运营商分配：电信、联通、移动用户各自拿到同运营商测速点上报的 IP；识别不出运营商时用合并后的列表')}</span><Switch label={t('按运营商分配')} on={f.carrierSplit} onChange={(v) => set('carrierSplit', v)} /></div>
       <div className="toggle"><span>{t('订阅按优选 IP 展开（一个 IP 一个节点）')}</span><Switch label={t('展开')} on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
-      <div className="toggle"><span>{t('自动同步 DNS 记录（开启代理）')}</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
-      <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享 443，按路径分流）')}</span><Switch label="Caddy" on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
+      <div className="toggle"><span>{t('自动同步 DNS 记录（开启代理）：需要 API Token；新加 CDN 入口时和每 6 小时把记录指向节点 IP，不改 SSL 模式和证书')}</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
+      <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享第一个端口，按路径分流；入站需开 TLS；该端口被其他入站占用时不生效）')}</span><Switch label="Caddy" on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
     </Drawer>
   )
 }
 
 function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
+  const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string } | null>(null)
   const confirm = useConfirm()
   const reported = new Set(p.reports.map((r) => r.source))
   const waiting = (p.probes ?? []).filter((w) => !reported.has(w.source))
@@ -199,8 +205,15 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
         {p.lastError && <div className="note bad" style={{ marginTop: 12 }}>{p.lastError}</div>}
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn sm" type="button" onClick={onEdit}>{t('编辑')}</button>
-          <button className="btn sm" type="button" disabled={busy || !p.hasToken} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/sync-dns`); onChanged() }, t('DNS 已同步'))}>{t('同步 DNS')}</button>
+          <button className="btn sm" type="button" disabled={busy || !p.hasToken} onClick={() => run(async () => {
+            setSynced(await post<{ records: string[]; sslMode?: string; cert?: string }>(`/cdn-profiles/${p.id}/sync-dns`)); onChanged()
+          }, t('DNS 已同步'))}>{t('同步 DNS')}</button>
         </div>
+        {synced && <div className="note small" style={{ marginTop: 12, overflowWrap: 'anywhere' }}>
+          {t('DNS 记录：{list}', { list: synced.records.join('；') || t('无（还没有入站用这个配置档）') })}
+          {synced.sslMode && <div>{t('Cloudflare SSL 模式已设为 {mode}（对整个域名生效）', { mode: synced.sslMode })}</div>}
+          {synced.cert && <div>{tr(synced.cert)}</div>}
+        </div>}
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>

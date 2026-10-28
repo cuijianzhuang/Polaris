@@ -3,6 +3,8 @@ package panel
 import (
 	"strconv"
 
+	"gorm.io/gorm"
+
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -18,13 +20,50 @@ type frontInfo struct {
 	Domain string
 }
 
-// frontFor reports whether an inbound is fronted by Caddy, and how.
+// frontFor reports whether an inbound is fronted by Caddy, and how. A
+// fronting whose public port another inbound on the node holds does not
+// happen (buildFronts skips it), so the inbound is not fronted then.
 func (s *Server) frontFor(inboundID string) (frontInfo, bool) {
+	fi, ok := frontProfile(s.st.DB, inboundID)
+	if !ok || s.frontBlocker(inboundID, fi.Port) != "" {
+		return frontInfo{}, false
+	}
+	return fi, true
+}
+
+// frontBlocker names the inbound that keeps Caddy off port on the node of
+// inboundID: an enabled TCP inbound there that is not fronted itself.
+func (s *Server) frontBlocker(inboundID string, port int) string {
+	var self store.Inbound
+	if s.st.DB.Select("node_id").First(&self, "id = ?", inboundID).Error != nil {
+		return ""
+	}
+	return s.frontBlockerOn(self.NodeID, inboundID, port)
+}
+
+func (s *Server) frontBlockerOn(nodeID, inboundID string, port int) string {
+	var rows []store.Inbound
+	s.st.DB.Where("node_id = ? AND port = ? AND enabled = ? AND id <> ?", nodeID, port, true, inboundID).Find(&rows)
+	for i := range rows {
+		m := s.toModelInbound(&rows[i])
+		if !m.UsesTCP() {
+			continue
+		}
+		if _, fronted := frontProfile(s.st.DB, rows[i].ID); fronted && m.CDNCapable() && m.Security.Type == model.SecTLS {
+			continue
+		}
+		return rows[i].Tag
+	}
+	return ""
+}
+
+// frontProfile is the Caddy fronting an inbound's CDN entries ask for.
+func frontProfile(db *gorm.DB, inboundID string) (frontInfo, bool) {
 	var eps []store.Endpoint
-	s.st.DB.Where("inbound_id = ? AND kind = ?", inboundID, "cdn").Find(&eps)
+	db.Where("inbound_id = ? AND kind = ?", inboundID, "cdn").Find(&eps)
 	for _, ep := range eps {
 		var p store.CDNProfile
-		if s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error != nil || !p.CaddyFronting {
+		if db.First(&p, "id = ?", ep.CDNProfileID).Error != nil || !p.CaddyFronting {
 			continue
 		}
 		port := ep.Port
