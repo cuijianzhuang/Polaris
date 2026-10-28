@@ -19,6 +19,7 @@
 | `settings:read` | 现有设置读取 |
 | `nodes:metrics:write` | 仅 `POST /nodes/:id/metrics`，上报节点外部指标 |
 | `cdn:ips:write` | 仅 `POST /cdn-profiles/:id/preferred-ips`，测速点上报 CDN 优选 IP；不能读取或修改配置档 |
+| `redeem:write` | `GET` / `POST /redeem-codes`（查询、生成兑换码），`DELETE /redeem-codes` 只能按兑换码作废未使用的；并可读取 `GET /plans`、`GET /traffic-packs`。供 Kaku 等发卡系统使用，不能读取或修改用户 |
 | `metrics:read` | 仅 `GET /metrics`，Prometheus 格式的监控指标；不含任何用户名、订阅令牌等个人数据 |
 
 以上范围当前为面板全局范围，不提供按客户或节点隔离的租户权限。只需处理订单的服务，优先申请 `users:renew` 和 / 或 `users:traffic:add`，不授予 `users:write` 或 `users:read`。业务服务应自行保存用户 ID 对应关系。

@@ -951,6 +951,11 @@ func (s *Server) deleteCodes(c *gin.Context) {
 		Used  bool     `json:"used"` // also delete the records of used codes
 	}
 	_ = c.ShouldBindJSON(&req)
+	if apiTokenOf(c) != nil && (len(req.Codes) == 0 || req.Used) {
+		// a token voids the unused codes it names, nothing more
+		c.JSON(http.StatusForbidden, gin.H{"error": "API 令牌只能按兑换码作废未使用的兑换码"})
+		return
+	}
 	var q *gorm.DB
 	switch state := c.Query("state"); {
 	case len(req.Codes) > 0:
