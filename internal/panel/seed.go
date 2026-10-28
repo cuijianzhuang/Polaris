@@ -94,7 +94,10 @@ func (s *Server) seed() error {
 			if err := s.st.DB.Create(&t).Error; err != nil {
 				return err
 			}
+			continue
 		}
+		// Keep built-in descriptions current; the items stay as the admin left them.
+		s.st.DB.Model(&store.InboundTemplate{}).Where("name = ? AND builtin = ?", t.Name, true).Update("description", t.Description)
 	}
 	return s.ensureDefaultGroup()
 }
@@ -364,7 +367,7 @@ func builtinTemplates() []store.InboundTemplate {
 		mk("Vision TLS 直连", "VLESS + TCP + XTLS Vision + TLS，需要域名与证书（ACME），随机未占用端口", visionTLS),
 		mk("VLESS TLS 直连", "VLESS + TCP + TLS（无 Vision），需要域名与证书，随机未占用端口", vlessTLS),
 		mk("Trojan TLS 直连", "Trojan + TCP + TLS，需要域名与证书，随机未占用端口", trojanTLS),
-		mk("gRPC TLS（可 CDN）", "VLESS / Trojan + gRPC + TLS，需要域名与证书，可走 CDN，端口 2087 / 2083", vlessGRPC, trojanGRPC),
+		mk("gRPC TLS（可 CDN）", "VLESS / Trojan + gRPC + TLS，需要域名与证书，端口 2087 / 2083；Cloudflare 只在 443 端口代理 gRPC，要走 CDN 请把端口改为 443 或在配置档开启 Caddy 统一回源", vlessGRPC, trojanGRPC),
 		mk("REALITY gRPC / XHTTP", "VLESS + gRPC / XHTTP + REALITY，无需域名，随机高位端口；XHTTP 仅 Xray / mihomo", grpcReality, xhttpReality),
 		mk("REALITY 防偷跑", "VLESS + Vision + REALITY，限速回落防止目标站被盗用，无需域名，固定 443，仅 Xray 生效", realityLimit),
 		mk("VLESS Encryption 直连", "VLESS + Vision + VLESS Encryption（ML-KEM-768），裸 TCP 无需域名与证书，需 Xray 25.9.11+", vlessEnc),

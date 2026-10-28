@@ -141,7 +141,7 @@ const m: Record<string, string> = {
   'Trojan TLS 直连': 'Trojan TLS direct',
   'Trojan + TCP + TLS，需要域名与证书，随机未占用端口': 'Trojan + TCP + TLS; needs a domain and certificate, random free port',
   'gRPC TLS（可 CDN）': 'gRPC TLS (CDN-capable)',
-  'VLESS / Trojan + gRPC + TLS，需要域名与证书，可走 CDN，端口 2087 / 2083': 'VLESS / Trojan + gRPC + TLS; needs a domain and certificate, works through a CDN, ports 2087 / 2083',
+  'VLESS / Trojan + gRPC + TLS，需要域名与证书，端口 2087 / 2083；Cloudflare 只在 443 端口代理 gRPC，要走 CDN 请把端口改为 443 或在配置档开启 Caddy 统一回源': 'VLESS / Trojan + gRPC + TLS; needs a domain and certificate, ports 2087 / 2083. Cloudflare proxies gRPC only on port 443: to go through the CDN, change the port to 443 or turn on Caddy fronting in the profile',
   'VLESS + gRPC / XHTTP + REALITY，无需域名，随机高位端口；XHTTP 仅 Xray / mihomo': 'VLESS + gRPC / XHTTP + REALITY; no domain needed, random high ports; XHTTP on Xray / mihomo only',
   'REALITY 防偷跑': 'REALITY anti-theft',
   'VLESS + Vision + REALITY，限速回落防止目标站被盗用，无需域名，固定 443，仅 Xray 生效': 'VLESS + Vision + REALITY with a rate-limited fallback so the target site can\'t be abused; no domain needed, fixed port 443, Xray only',

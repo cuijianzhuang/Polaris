@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -176,6 +177,7 @@ type PlannedInbound struct {
 	Entries   string         `json:"entries"`
 	Result    string         `json:"result"` // new / fix / skip
 	Reason    string         `json:"reason,omitempty"`
+	Warnings  []string       `json:"warnings,omitempty"`
 	InboundID string         `json:"inboundId,omitempty"`
 
 	inbound *model.Inbound
@@ -370,7 +372,7 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 				np.Items = append(np.Items, pi)
 				continue
 			}
-			alt := s.findFreePort(node.ID, &m, used, item.Port.Fixed)
+			alt := s.findFreePort(node.ID, &m, used, item.Port.Fixed, itemWantsCDN(item))
 			if alt == 0 {
 				pi.Result, pi.Reason = "skip", "没有可用端口"
 				np.Items = append(np.Items, pi)
@@ -440,17 +442,46 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 			pi.Cert = "—"
 		}
 		var entries []string
+		cdnWanted, cdnKept := false, false
 		for _, e := range item.Endpoints {
 			switch e.Kind {
 			case "direct":
 				entries = append(entries, "直连")
 			case "cdn":
-				if m.CDNCapable() {
-					entries = append(entries, "CDN")
+				cdnWanted = true
+				if !m.CDNCapable() {
+					entries = append(entries, "CDN（此组合不能走 CDN，不添加）")
+					continue
+				}
+				id := orDefault(e.CDNProfileID, opt.CDNProfileID)
+				var p store.CDNProfile
+				if id == "" || s.st.DB.First(&p, "id = ?", id).Error != nil {
+					entries = append(entries, "CDN（未选配置档，不添加）")
+					continue
+				}
+				if problem := cdnPortProblem(&m, &p, e.Port); problem != "" {
+					entries = append(entries, "CDN（不添加）")
+					pi.Warnings = append(pi.Warnings, problem)
+					continue
+				}
+				cdnKept = true
+				entries = append(entries, "CDN · "+p.Name)
+				if w := cdnCertWarning(&m, &p); w != "" {
+					pi.Warnings = append(pi.Warnings, w)
+				}
+				if m.Transport.Type == model.TransGRPC && p.Provider == "cloudflare" {
+					pi.Warnings = append(pi.Warnings, "Cloudflare 需要在域名的 Network 设置里打开 gRPC")
 				}
 			case "relay":
 				entries = append(entries, "中转")
 			}
+		}
+		// An item published only through a CDN must not fall back to a
+		// direct entry exposing the node's address.
+		if cdnWanted && !cdnKept && !slices.ContainsFunc(item.Endpoints, func(e store.EndpointTemplate) bool { return e.Kind != "cdn" }) {
+			pi.Result, pi.Reason = "skip", "只走 CDN，但没有可用的 CDN 入口："+strings.Join(entries, "、")
+			np.Items = append(np.Items, pi)
+			continue
 		}
 		if len(entries) == 0 {
 			entries = []string{"直连"}
@@ -478,10 +509,16 @@ func shortReason(item store.TemplateItem, cores []store.Core) string {
 	return fmt.Sprintf("%s 不受已装内核支持", item.Protocol.Type)
 }
 
-func (s *Server) findFreePort(nodeID string, m *model.Inbound, used map[int]bool, near int) int {
+// An inbound published through a CDN must stay on a port the CDN proxies:
+// 443 for gRPC (Cloudflare proxies gRPC only there), else Cloudflare's other
+// HTTPS ports first.
+func (s *Server) findFreePort(nodeID string, m *model.Inbound, used map[int]bool, near int, cdn bool) int {
 	cands := []int{}
-	if near == 443 || near == 2053 {
-		cands = append(cands, 8443, 2053, 2083, 2087, 2096, 443)
+	switch {
+	case cdn && m.Transport.Type == model.TransGRPC:
+		cands = append(cands, 443)
+	case cdn || cloudflareProxiedPorts[near]:
+		cands = append(cands, 2053, 2083, 2087, 2096, 8443, 443)
 	}
 	for p := 20000; p < 30000; p += 1 + rand.IntN(97) {
 		cands = append(cands, p)
@@ -616,7 +653,7 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 					switch e.Kind {
 					case "cdn":
 						ep.CDNProfileID = orDefault(e.CDNProfileID, opt.CDNProfileID)
-						if ep.CDNProfileID == "" || !it.inbound.CDNCapable() {
+						if !cdnEndpointUsable(tx, it.inbound, ep.CDNProfileID, ep.Port) {
 							continue
 						}
 					case "relay":
