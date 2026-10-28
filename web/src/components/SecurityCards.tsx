@@ -205,7 +205,7 @@ type APIToken = { id: string; name: string; pluginId?: string; prefix: string; s
 export const scopeLabel = (): Record<string, string> => ({
   'users:read': t('查看用户（含代理凭据）'), 'users:write': t('管理用户（创建、修改、续费、加流量）'), 'nodes:read': t('查看节点和入站'),
   'users:renew': t('仅续期用户'), 'users:traffic:add': t('仅增加用户流量'), 'subs:read': t('读取订阅链接与诊断'),
-  'traffic:read': t('查看流量统计'), 'settings:read': t('查看设置'), 'nodes:metrics:write': t('上报节点外部指标（不能修改节点）'), 'cdn:ips:write': t('上报 CDN 优选 IP（测速点使用，不能修改配置档）'),
+  'traffic:read': t('查看流量统计'), 'settings:read': t('查看设置'), 'nodes:metrics:write': t('上报节点外部指标（不能修改节点）'), 'cdn:ips:write': t('上报 CDN 优选 IP（测速点使用，不能修改配置档）'), 'metrics:read': t('读取监控指标（Prometheus 抓取 /metrics）'),
 })
 
 // APITokens: tokens for scripts and plugins to call the API without logging in.

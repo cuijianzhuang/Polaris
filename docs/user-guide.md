@@ -867,6 +867,41 @@ const ok = crypto.createHmac('sha256', SECRET).update(`${t}.${rawBody}`).digest(
 
 sing-box 按用户统计依赖其构建能力，不能仅凭“能连通”判断计费统计已经可用，详见[兼容性](#compatibility)。
 
+### Prometheus 与 Grafana
+
+面板在 `<后台路径>/api/v1/metrics` 提供 Prometheus 格式的指标，适合接入已有的监控和告警：
+
+1. 在「扩展 → API 令牌」创建一个只勾「读取监控指标」（`metrics:read`）的令牌。这个令牌不能读取或修改任何其他数据。
+2. 在 Prometheus 中添加抓取任务：
+
+```yaml
+scrape_configs:
+  - job_name: polaris
+    scheme: https
+    metrics_path: /<后台路径>/api/v1/metrics
+    authorization:
+      credentials: plt_…
+    static_configs:
+      - targets: [panel.example.com]
+```
+
+3. 在 Grafana 导入 [deploy/grafana/polaris-dashboard.json](../deploy/grafana/polaris-dashboard.json)，选择对应的 Prometheus 数据源。
+
+主要指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `polaris_nodes{status}`、`polaris_node_up{node,name}` | 各状态节点数、每个节点是否在线 |
+| `polaris_node_cpu_percent` / `memory_percent` / `disk_percent` / `load1` | 在线节点的资源占用 |
+| `polaris_node_network_receive_bytes_per_second` / `transmit_…` | 在线节点的实时网速 |
+| `polaris_node_cycle_receive_bytes` / `transmit_…` | 节点本计费周期的网卡流量 |
+| `polaris_users{status}`、`polaris_users_traffic_used_bytes{direction}`、`polaris_users_expiring_7d` | 用户数、本周期总用量、7 天内到期的用户数 |
+| `polaris_orders{status}`、`polaris_orders_paid_24h`、`polaris_tickets{status}` | 订单与工单 |
+| `polaris_certificate_expiry_seconds{domain}`、`polaris_license_expiry_seconds` | 证书和许可证到期时间 |
+| `polaris_cdn_preferred_ips{profile}`、`polaris_cdn_report_age_seconds{profile,source}` | CDN 优选 IP 数量、各测速点距上次上报的秒数 |
+
+指标在抓取时从数据库读取，多个主控实例返回相同结果；不按用户输出任何序列，也不含用户名或订阅令牌。离线节点不输出资源占用，避免把旧数据当成当前值。告警示例：`polaris_node_up == 0` 持续 5 分钟、`polaris_certificate_expiry_seconds - time() < 7*86400`、`polaris_cdn_report_age_seconds > 86400`。
+
 <a id="maintenance"></a>
 
 ## 13. 升级、备份与迁移

@@ -39,7 +39,7 @@ const (
 	ScopeCDNIPs = "cdn:ips:write"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
@@ -83,6 +83,7 @@ var tokenRoutes = map[string]string{
 	"GET /inbounds":                        ScopeNodesRead,
 
 	"GET /stats/overview": ScopeTrafficRead,
+	"GET /metrics":        ScopeMetricsRead,
 	"GET /stats/traffic":  ScopeTrafficRead,
 	"GET /stats/nodes":    ScopeTrafficRead,
 	"GET /stats/tags":     ScopeTrafficRead,
