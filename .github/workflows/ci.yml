@@ -1,11 +1,19 @@
 name: ci
 on:
+  # main is tested by the release workflow, which calls this one on every
+  # merge; listing it here too would run the whole suite twice.
   push:
-    branches: [main, 'claude/**']
+    branches: ['claude/**']
   pull_request:
   workflow_call:
 
+# A new push to a pull request cancels the run for the previous commit.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
+  # The Go suites run as parallel jobs (they took ~22 minutes back to back).
   go:
     runs-on: ubuntu-latest
     services:
@@ -56,14 +64,90 @@ jobs:
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_GOST_BIN: /tmp/cores/gost/gost
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
+      - name: Firewall test with real iptables (isolated network namespace)
+        run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
+  go-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: polaris
+          POSTGRES_PASSWORD: polaris
+          POSTGRES_DB: polaris
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U polaris" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      POLARIS_TEST_POSTGRES_DSN: postgres://polaris:polaris@127.0.0.1:5432/polaris?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - name: Panel tests on PostgreSQL
         run: go test -count=1 ./internal/panel/
         env:
           POLARIS_TEST_ALL_POSTGRES: '1'
+  go-redis:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      POLARIS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - name: Panel tests with Redis shared state
         run: go test -count=1 ./internal/panel/
         env:
           POLARIS_TEST_ALL_REDIS: '1'
+  go-pro:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: polaris
+          POSTGRES_PASSWORD: polaris
+          POSTGRES_DB: polaris
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U polaris" --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      POLARIS_TEST_POSTGRES_DSN: postgres://polaris:polaris@127.0.0.1:5432/polaris?sslmode=disable
+      POLARIS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fetch real cores for integration tests
+        run: |
+          mkdir -p /tmp/cores && cd /tmp/cores
+          curl -fsSL -o xray.zip https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip && unzip -q xray.zip -d xray
+          curl -fsSL -o xray-egress.zip https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-64.zip && unzip -q xray-egress.zip -d xray-egress
+          curl -fsSL https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz | tar xz
+          curl -fsSL https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz | gunzip > mihomo && chmod +x mihomo
+          mkdir -p gost && curl -fsSL https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz | tar xz -C gost
+          mkdir -p pebble && curl -fsSL https://github.com/letsencrypt/pebble/releases/download/v2.7.0/pebble-linux-amd64.tar.gz | tar xz -C pebble --strip-components=3
+          B=https://raw.githubusercontent.com/letsencrypt/pebble/v2.7.0/test
+          curl -fsSL -o pebble/config.json $B/config/pebble-config.json
+          curl -fsSL -o pebble/cert.pem $B/certs/localhost/cert.pem
+          curl -fsSL -o pebble/key.pem $B/certs/localhost/key.pem
+          curl -fsSL -o pebble/pebble.minica.pem $B/certs/pebble.minica.pem
+          chmod +x pebble/pebble
       - name: Professional edition (polaris-pro sources, when PRO_TOKEN is available)
         env:
           PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
@@ -82,8 +166,6 @@ jobs:
           go vet -tags pro ./...
           go test -count=1 -tags pro ./internal/panel/ ./internal/agent/ ./internal/license/
           scripts/pro.sh clean
-      - name: Firewall test with real iptables (isolated network namespace)
-        run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
   singbox-diagnostics:
     runs-on: ubuntu-latest
     steps:
