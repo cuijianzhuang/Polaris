@@ -92,5 +92,14 @@ const m: Record<string, string> = {
   "读取监控指标（Prometheus 抓取 /metrics）": "Read monitoring metrics (Prometheus scrapes /metrics)",
   "按运营商分配：电信、联通、移动用户各自拿到同运营商测速点上报的 IP；识别不出运营商时用合并后的列表": "Split by carrier: Telecom, Unicom and Mobile users each get the IPs reported by speed-test points on their own carrier; when the carrier is unknown, the merged list is used",
   "按运营商分配": "Split by carrier",
+  "{combo} 不能走 CDN": "{combo} can't use a CDN",
+  "下一步：在 Cloudflare 把回源域名解析到这个节点并开启代理（小云朵）；SSL 模式用 Full，或者给配置档填 API Token 后用「同步 DNS」换上 Origin 证书以使用 Full (strict)。": "Next: in Cloudflare, point the origin domain at this node with the proxy (orange cloud) on and use SSL mode Full; or add an API token to the profile and use Sync DNS to install an Origin certificate for Full (strict).",
+  "下一步：在「链路与路由 → CDN 配置档」点「同步 DNS」，自动建 DNS 记录并换上 Cloudflare Origin 证书。": "Next: under Chains & routing → CDN profiles, click Sync DNS to create the DNS record and install a Cloudflare Origin certificate.",
+  "已新建 CDN 入站": "CDN inbound created",
+  "已新建入站 {tag}，端口 {port}，走 CDN 配置档 {profile}，正在下发。": "Created inbound {tag} on port {port} behind CDN profile {profile}; it is being deployed.",
+  "新建 CDN 入站": "Create a CDN inbound",
+  "端口 {port} 已加入配置档的可用端口。": "Port {port} was added to the profile's ports.",
+  "还没有 CDN 配置档，先在「链路与路由 → CDN 配置档」新建一个。": "No CDN profile yet; create one under Chains & routing → CDN profiles first.",
+  "这个入站是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP 传输，而且不能用 REALITY。可以在同一节点新建一个 VLESS + WS + TLS 入站专门走 CDN：端口自动选一个没被占用、CDN 支持的端口，用户分组和本入站相同，订阅里只出现 CDN 节点；本入站不受影响。": "This inbound is {combo}, which can't go through a CDN: a CDN only carries WS, gRPC, HTTPUpgrade and XHTTP transports, and not REALITY. You can create a VLESS + WS + TLS inbound on the same node just for the CDN: it gets a free port the CDN supports and the same user groups as this inbound, and subscriptions list only its CDN node. This inbound is unchanged.",
 }
 export default m
