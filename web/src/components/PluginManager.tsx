@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ApiError, del, post, put } from '../api'
 import { ago } from '../format'
 import { t } from '../i18n'
@@ -26,7 +26,11 @@ const statusTag = (p: PluginInfo) => {
 // removes them.
 export default function PluginManager() {
   const list = usePlugins()
-  const [installing, setInstalling] = useState(false)
+  const [params, setParams] = useSearchParams()
+  // The plugin market opens the installer with ?install=<address>.
+  const prefill = params.get('install')
+  const [installing, setInstalling] = useState(prefill !== null)
+  const closeInstall = () => { setInstalling(false); if (prefill !== null) setParams({ tab: 'plugins' }, { replace: true }) }
   const [settings, setSettings] = useState<PluginInfo | null>(null)
   const [creds, setCreds] = useState<InstallResult | null>(null)
   const { busy, run } = useAction()
@@ -110,15 +114,15 @@ export default function PluginManager() {
           </div>
         )
       })}
-      {installing && <InstallModal onClose={() => setInstalling(false)} onDone={(r) => { setInstalling(false); if (r.credentials) setCreds(r) }} />}
+      {installing && <InstallModal initialUrl={prefill ?? ''} onClose={closeInstall} onDone={(r) => { closeInstall(); if (r.credentials) setCreds(r) }} />}
       {settings && <SettingsModal p={plugins.find((x) => x.id === settings.id) ?? settings} onClose={() => setSettings(null)} />}
       {creds && <CredentialsModal r={creds} onClose={() => setCreds(null)} />}
     </section>
   )
 }
 
-function InstallModal({ onClose, onDone }: { onClose: () => void; onDone: (r: InstallResult) => void }) {
-  const [url, setUrl] = useState('')
+function InstallModal({ initialUrl = '', onClose, onDone }: { initialUrl?: string; onClose: () => void; onDone: (r: InstallResult) => void }) {
+  const [url, setUrl] = useState(initialUrl === 'https://' ? '' : initialUrl)
   const [key, setKey] = useState('')
   const [pv, setPv] = useState<Preview | null>(null)
   const { busy, run } = useAction()
