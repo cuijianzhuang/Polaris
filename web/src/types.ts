@@ -98,8 +98,9 @@ export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean
   zoneId: string; lastRefreshAt?: string; lastError: string; inbounds: number
-  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; carrierSplit: boolean; reports: CDNIPReport[]
+  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; carrierSplit: boolean; reports: CDNIPReport[]; probes: CDNProbe[]
 }
+export interface CDNProbe { source: string; tokenId: string; prefix: string; createdAt: string; lastUsedAt?: string | null; lastIp: string }
 export interface CDNIPReport { source: string; carrier?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }
 export interface ChainHop { nodeId: string; inboundId?: string; port?: number }
 export interface HopProbe { nodeId: string; latencyMs: number; ok: boolean; error?: string }

@@ -923,17 +923,21 @@ func AllModels() []any {
 // APIToken lets scripts and plugins call the API without a login session.
 // Only the SHA-256 of the token is stored; Scopes limit what it may call.
 type APIToken struct {
-	ID         string         `gorm:"primaryKey;size:32" json:"id"`
-	Name       string         `gorm:"size:64" json:"name"`
-	PluginID   string         `gorm:"size:64;index" json:"pluginId,omitempty"` // set for a plugin's own token
-	Hash       string         `gorm:"size:64;uniqueIndex" json:"-"`
-	Prefix     string         `gorm:"size:16" json:"prefix"` // first characters, to recognise a token
-	Scopes     JSON[[]string] `json:"scopes"`
-	CreatedBy  string         `gorm:"size:64" json:"createdBy"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	LastUsedAt *time.Time     `json:"lastUsedAt"`
-	LastIP     string         `gorm:"size:64" json:"lastIp"`
-	ExpiresAt  *time.Time     `json:"expiresAt"`
+	ID       string `gorm:"primaryKey;size:32" json:"id"`
+	Name     string `gorm:"size:64" json:"name"`
+	PluginID string `gorm:"size:64;index" json:"pluginId,omitempty"` // set for a plugin's own token
+	// A CDN speed-test point's token may only report for this profile and
+	// under this source name (set when the panel pairs the point).
+	CDNProfileID string         `gorm:"size:32;index" json:"cdnProfileId,omitempty"`
+	CDNSource    string         `gorm:"column:cdn_source;size:40" json:"cdnSource,omitempty"`
+	Hash         string         `gorm:"size:64;uniqueIndex" json:"-"`
+	Prefix       string         `gorm:"size:16" json:"prefix"` // first characters, to recognise a token
+	Scopes       JSON[[]string] `json:"scopes"`
+	CreatedBy    string         `gorm:"size:64" json:"createdBy"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	LastUsedAt   *time.Time     `json:"lastUsedAt"`
+	LastIP       string         `gorm:"size:64" json:"lastIp"`
+	ExpiresAt    *time.Time     `json:"expiresAt"`
 }
 
 // Plugin is an installed third-party plugin: an outside service described

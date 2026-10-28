@@ -193,6 +193,7 @@ func (s *Server) listCDN(c *gin.Context) {
 		store.CDNProfile
 		Inbounds int64               `json:"inbounds"`
 		Reports  []store.CDNIPReport `json:"reports"`
+		Probes   []cdnProbeView      `json:"probes"`
 	}
 	ids := make([]string, len(ps))
 	for i := range ps {
@@ -200,10 +201,15 @@ func (s *Server) listCDN(c *gin.Context) {
 	}
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
 	reports := s.cdnReports(ids)
+	probes := s.cdnProbes(ids)
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
 		p.HasToken = p.APIToken != ""
-		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Reports: nonNilReports(reports[p.ID])})
+		pv := probes[p.ID]
+		if pv == nil {
+			pv = []cdnProbeView{}
+		}
+		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Reports: nonNilReports(reports[p.ID]), Probes: pv})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -267,6 +273,7 @@ func (s *Server) deleteCDN(c *gin.Context) {
 		return
 	}
 	s.st.DB.Delete(&store.CDNProfile{}, "id = ?", c.Param("id"))
+	s.st.DB.Where("cdn_profile_id = ?", c.Param("id")).Delete(&store.APIToken{})
 	s.auditCtx(c, "cdn.delete", c.Param("id"), "")
 	c.Status(http.StatusNoContent)
 }

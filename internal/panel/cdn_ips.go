@@ -154,6 +154,10 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if err := cdnTokenAllows(apiTokenOf(c), p.ID, req.Source); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
 	now := time.Now()
 	var list []string
 	var recovered bool
@@ -198,9 +202,16 @@ func (s *Server) cdnReports(ids []string) map[string][]store.CDNIPReport {
 }
 
 // deleteCDNIPReport is DELETE /cdn-profiles/:id/ip-reports/:source: forget
-// a speed-test point that was retired.
+// a speed-test point that was retired, and revoke its paired token.
 func (s *Server) deleteCDNIPReport(c *gin.Context) {
-	if err := s.st.DB.Where("profile_id = ? AND source = ?", c.Param("id"), c.Param("source")).Delete(&store.CDNIPReport{}).Error; err != nil {
+	// A paired point's token goes with it.
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("profile_id = ? AND source = ?", c.Param("id"), c.Param("source")).Delete(&store.CDNIPReport{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("cdn_profile_id = ? AND cdn_source = ?", c.Param("id"), c.Param("source")).Delete(&store.APIToken{}).Error
+	})
+	if err != nil {
 		dbError(c, err)
 		return
 	}
