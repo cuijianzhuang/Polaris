@@ -151,6 +151,14 @@ func (c *cfClient) deleteRecords(ctx context.Context, zone, name, typ string) er
 	return nil
 }
 
+func (c *cfClient) sslMode(ctx context.Context, zone string) (string, error) {
+	var res struct {
+		Value string `json:"value"`
+	}
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/settings/ssl", zone), nil, &res)
+	return res.Value, err
+}
+
 func (c *cfClient) setSSLMode(ctx context.Context, zone, mode string) error {
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/zones/%s/settings/ssl", zone), map[string]string{"value": mode}, nil)
 }

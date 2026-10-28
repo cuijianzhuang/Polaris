@@ -170,6 +170,16 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			zone, _ = cf.zoneFor(ctx, p.OriginDomain)
 		}
 		if zone != "" {
+			// Under Flexible (or Off) Cloudflare reaches the origin over plain
+			// HTTP on an HTTP port (80, or the HTTP twin of the client's
+			// port), where nothing listens: 521 although the TLS port answers.
+			if mode, err := cf.sslMode(ctx, zone); err == nil {
+				r.Steps = append(r.Steps, "Cloudflare SSL/TLS 模式："+mode)
+				if mode == "flexible" || mode == "off" {
+					r.Message = fmt.Sprintf("Cloudflare 的 SSL/TLS 模式是 %s：Cloudflare 用明文 HTTP 连节点的 HTTP 端口（80 或对应的 HTTP 端口，而不是 %d），那里没有程序监听，所以报 521。到 Cloudflare 后台 SSL/TLS 把模式改为 Full（或在配置档选 Full 后点「同步 DNS」）", mode, t.Port)
+					return
+				}
+			}
 			if recs, err := cf.records(ctx, zone, t.SNI); err == nil {
 				var contents []string
 				match := false
