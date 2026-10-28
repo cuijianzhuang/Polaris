@@ -282,16 +282,19 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		if err := s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error; err != nil || !m.CDNCapable() {
 			return nil
 		}
+		// The entry's own Host (one per node sharing the profile) is the
+		// hostname clients use for the address, SNI and Host alike.
+		host := orDefault(ep.Host, p.OriginDomain)
 		n := base
-		n.Server = p.OriginDomain
+		n.Server = host
 		_, fronted := s.frontFor(m.ID)
 		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
 		if n.TLS.Type == model.SecNone || n.TLS.Type == "" {
 			n.TLS = model.ClientTLS{Type: model.SecTLS}
 		}
-		n.TLS.ServerName = p.OriginDomain
+		n.TLS.ServerName = host
 		n.TLS.Insecure = false
-		n.Transport.Host = p.OriginDomain
+		n.Transport.Host = host
 		n = apply(n)
 		if !p.ExpandPerIP || len(p.PreferredIPs.V) == 0 {
 			n.Name = name("CDN")
