@@ -88,6 +88,7 @@ const m: Record<string, string> = {
   "测速点名称": "point name",
   "添加测速点（一键安装 cf-ip-probe）": "Add a speed-test point (one-line cf-ip-probe install)",
   "在用户所在地区的 Linux 机器（国内 VPS、树莓派、OpenWrt 路由器）上以 root 运行。令牌在「扩展 → API 令牌」创建，只勾「上报 CDN 优选 IP」；测速点名称例如「上海电信」。OpenWrt 上去掉 sudo。": "Run as root on a Linux machine where your users are (a local VPS, a Raspberry Pi, an OpenWrt router). Create the token under Extensions → API tokens with only \"Report preferred CDN IPs\"; name the point after its location and carrier, e.g. \"Shanghai Telecom\". Drop sudo on OpenWrt.",
+  "读取监控指标（Prometheus 抓取 /metrics）": "Read monitoring metrics (Prometheus scrapes /metrics)",
   "按运营商分配：电信、联通、移动用户各自拿到同运营商测速点上报的 IP；识别不出运营商时用合并后的列表": "Split by carrier: Telecom, Unicom and Mobile users each get the IPs reported by speed-test points on their own carrier; when the carrier is unknown, the merged list is used",
   "按运营商分配": "Split by carrier",
 }
