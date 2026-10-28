@@ -49,8 +49,9 @@ var (
 )
 
 type cdnIPReportReq struct {
-	Source string              `json:"source"`
-	IPs    []store.CDNIPResult `json:"ips"`
+	Source  string              `json:"source"`
+	Carrier string              `json:"carrier"` // ct / cu / cm; "" = infer from source
+	IPs     []store.CDNIPResult `json:"ips"`
 }
 
 // checkCDNReport validates and ranks a report: lowest loss first, then
@@ -148,12 +149,17 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	carrier, err := reportCarrier(req)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
 	now := time.Now()
 	var list []string
 	var recovered bool
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.CDNIPReport{
-			ProfileID: p.ID, Source: req.Source, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
+			ProfileID: p.ID, Source: req.Source, Carrier: carrier, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
 			return err
 		}
 		var reports []store.CDNIPReport

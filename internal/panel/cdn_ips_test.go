@@ -49,6 +49,9 @@ func TestCDNIPReports(t *testing.T) {
 	}
 	var r store.CDNIPReport
 	s.st.DB.First(&r, "profile_id = ? AND source = ?", "cf", "上海电信")
+	if r.Carrier != "ct" {
+		t.Fatalf("carrier from the source name = %q", r.Carrier)
+	}
 	if len(r.IPs.V) != 2 || r.IPs.V[0].IP != "104.16.9.8" {
 		t.Fatalf("ranking = %+v", r.IPs.V)
 	}

@@ -56,7 +56,7 @@ func (s *Server) subscription(c *gin.Context) {
 	var nodes []sub.Node
 	if s.servedUser(&u) && deviceOK {
 		var err error
-		if nodes, err = s.subNodes(&u); err != nil {
+		if nodes, err = s.subNodesFor(&u, s.subCarrier(c.Request, &u)); err != nil {
 			serverError(c, err)
 			return
 		}
@@ -78,7 +78,18 @@ func (s *Server) subscription(c *gin.Context) {
 }
 
 // subNodes expands every authorised inbound × endpoint into client nodes.
+// CDN preferred IPs follow the user's chosen carrier, if any.
 func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
+	carrier := ""
+	if u != nil {
+		carrier = u.CDNCarrier
+	}
+	return s.subNodesFor(u, carrier)
+}
+
+// subNodesFor is subNodes with the carrier whose CDN preferred IPs to use
+// ("" = the profile's merged list).
+func (s *Server) subNodesFor(u *store.User, carrier string) ([]sub.Node, error) {
 	var ins []store.Inbound
 	err := s.st.DB.Table("inbounds").Select("DISTINCT inbounds.*").
 		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
@@ -171,7 +182,7 @@ func (s *Server) subNodes(u *store.User) ([]sub.Node, error) {
 			if in.RelayOnly && ep.Kind != "relay" {
 				continue
 			}
-			out = append(out, s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m)...)
+			out = append(out, s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, carrier)...)
 		}
 	}
 	return sub.Dedupe(out), nil
@@ -227,7 +238,7 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 }
 
 func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[string]string, nameTpl string,
-	nodes map[string]*store.Node, chains []store.Chain, m *model.Inbound) []sub.Node {
+	nodes map[string]*store.Node, chains []store.Chain, m *model.Inbound, carrier string) []sub.Node {
 	name := func(kind string) string {
 		v := map[string]string{}
 		for k, x := range vars {
@@ -287,7 +298,10 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			n.Name = name("CDN")
 			return []sub.Node{n}
 		}
-		ips := usableCDNIPs(&p)
+		ips := s.carrierCDNIPs(&p, carrier)
+		if ips == nil {
+			ips = usableCDNIPs(&p)
+		}
 		if p.IPTopN > 0 && len(ips) > p.IPTopN {
 			ips = ips[:p.IPTopN]
 		}

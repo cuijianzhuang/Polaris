@@ -179,6 +179,7 @@ func (s *Server) portalPage(c *gin.Context) {
 		info.LoginVia = "邮箱"
 	}
 	info.Rename = u.SelfService && s.selfRenameOn()
+	info.CarrierPick, info.Carrier = s.cdnCarrierSplitOn(), u.CDNCarrier
 	if s.webShopOn() {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
 	}
