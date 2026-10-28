@@ -194,7 +194,10 @@ type User struct {
 	Email      string `gorm:"size:254;index" json:"email"` // lower case; "" = none
 	// SelfService marks an account the shop created for its buyer: the buyer
 	// may rename it (Telegram /rename, user center) when the shop allows it.
-	SelfService  bool       `json:"selfService"`
+	SelfService bool `json:"selfService"`
+	// CDNCarrier is the carrier the user picked for CDN preferred IPs
+	// (ct / cu / cm); "" detects it from the subscription request.
+	CDNCarrier   string     `gorm:"size:8" json:"cdnCarrier"`
 	RenamedAt    *time.Time `json:"-"` // last self-service rename
 	WarnedUsage  bool       `json:"-"` // traffic warning scheduled this cycle
 	WarnedExpire *time.Time `json:"-"`
@@ -571,8 +574,11 @@ type CDNProfile struct {
 	NodeCheck bool           `json:"nodeCheck"`
 	BadIPs    JSON[[]string] `json:"badIps"`
 	CheckedAt *time.Time     `json:"checkedAt"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
+	// CarrierSplit gives each subscriber the IPs that speed-test points on
+	// the subscriber's carrier reported (see CDNIPReport.Carrier).
+	CarrierSplit bool      `json:"carrierSplit"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // CDNIPReport is the latest result a speed-test point sent for a CDN
@@ -580,6 +586,7 @@ type CDNProfile struct {
 type CDNIPReport struct {
 	ProfileID string              `gorm:"primaryKey;size:32" json:"profileId"`
 	Source    string              `gorm:"primaryKey;size:40" json:"source"` // e.g. "上海电信"
+	Carrier   string              `gorm:"size:8" json:"carrier"`            // ct / cu / cm / "" (unknown)
 	At        time.Time           `json:"at"`
 	IPs       JSON[[]CDNIPResult] `json:"ips"`
 }
