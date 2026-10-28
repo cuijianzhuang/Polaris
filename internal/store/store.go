@@ -78,13 +78,12 @@ func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 			sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 		}
 	}
-	hadSelfService := db.Migrator().HasColumn(&User{}, "self_service")
+	probes := probeMigrations(db, migrations)
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	if !hadSelfService && db.Migrator().HasTable(&User{}) {
-		// Accounts the shop made before the mark existed, by their remark.
-		db.Model(&User{}).Where("remark LIKE ? OR remark LIKE ?", "Telegram 购买 %", "网页购买 %").Update("self_service", true)
+	if err := runMigrations(db, migrations, probes); err != nil {
+		return nil, err
 	}
 	if err := SealLegacySubSources(db, box); err != nil {
 		return nil, fmt.Errorf("encrypt subscription sources: %w", err)
