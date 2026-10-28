@@ -138,3 +138,45 @@ func TestTokenRoutesExist(t *testing.T) {
 		}
 	}
 }
+
+// TestRedeemScope: a shop token generates and voids codes and reads plans,
+// but cannot touch users, delete used codes or wipe a batch.
+func TestRedeemScope(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	db := s.st.DB
+	db.Create(&store.Group{ID: "p1", Name: "月付", Plan: true, Days: 30})
+	past := time.Now().Add(-time.Hour)
+	db.Create(&store.RedeemCode{Code: "USED-0001", PlanID: "p1", Batch: "K1", UsedBy: "u1", UsedAt: &past})
+	_, out := admin.do("POST", "/tokens", map[string]any{"name": "kaku", "scopes": []string{"redeem:write"}})
+	tc := &apiClient{t: t, base: srv.URL + s.cfg.APIBase(), tok: out["secret"].(string)}
+
+	if code, out := tc.do("GET", "/plans", nil); code != 200 {
+		t.Fatalf("plans %d %v", code, out)
+	}
+	if code, _ := tc.do("GET", "/traffic-packs", nil); code != 200 {
+		t.Fatalf("traffic packs %d", code)
+	}
+	for _, x := range []struct{ method, path string }{{"GET", "/users"}, {"POST", "/users/u1/plan"}, {"GET", "/settings"}} {
+		if code, _ := tc.do(x.method, x.path, nil); code != 403 {
+			t.Fatalf("%s %s = %d, want 403", x.method, x.path, code)
+		}
+	}
+	code, out := tc.do("POST", "/redeem-codes", map[string]any{"planId": "p1", "count": 2, "batch": "K2"})
+	codes, _ := out["codes"].([]any)
+	if code != 200 || len(codes) != 2 {
+		t.Fatalf("create %d %v", code, out)
+	}
+	if code, out := tc.do("GET", "/redeem-codes?batch=K2", nil); code != 200 || out["total"] != 2.0 {
+		t.Fatalf("list by batch %d %v", code, out)
+	}
+	// only named, unused codes can be voided with a token
+	if code, _ := tc.do("DELETE", "/redeem-codes?batch=K2", nil); code != 403 {
+		t.Fatalf("batch delete with a token: %d", code)
+	}
+	if code, _ := tc.do("DELETE", "/redeem-codes", map[string]any{"codes": []string{"USED-0001"}, "used": true}); code != 403 {
+		t.Fatalf("deleting used codes with a token: %d", code)
+	}
+	if code, out := tc.do("DELETE", "/redeem-codes", map[string]any{"codes": []string{codes[0].(string), "USED-0001"}}); code != 200 || out["deleted"] != 1.0 {
+		t.Fatalf("void %d %v", code, out)
+	}
+}

@@ -37,16 +37,24 @@ const (
 	ScopeNodesMetrics = "nodes:metrics:write"
 	// ScopeCDNIPs reports a speed-test point's best CDN IPs, nothing else.
 	ScopeCDNIPs = "cdn:ips:write"
+	// ScopeRedeemWrite generates and voids redeem codes, and reads the plan
+	// and traffic-pack lists to choose from (for a card shop such as Kaku).
+	// It cannot touch users or delete used codes.
+	ScopeRedeemWrite = "redeem:write"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead, ScopeRedeemWrite}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
 var tokenRoutes = map[string]string{
-	"GET /tokens/self":   "",
-	"GET /plugin/config": "", // a plugin's own token only; checked in the handler
-	"GET /openapi.json":  "",
+	"GET /tokens/self": "",
+
+	"GET /redeem-codes":    ScopeRedeemWrite,
+	"POST /redeem-codes":   ScopeRedeemWrite,
+	"DELETE /redeem-codes": ScopeRedeemWrite,
+	"GET /plugin/config":   "", // a plugin's own token only; checked in the handler
+	"GET /openapi.json":    "",
 
 	"GET /users":                          ScopeUsersRead,
 	"GET /users/export":                   ScopeUsersRead,
@@ -244,6 +252,9 @@ func tokenAllows(t *store.APIToken, route string) bool {
 	}
 	if (need == ScopeUsersRenew || need == ScopeTrafficAdd) && slices.Contains(t.Scopes.V, ScopeUsersWrite) {
 		return true
+	}
+	if (route == "GET /plans" || route == "GET /traffic-packs") && slices.Contains(t.Scopes.V, ScopeRedeemWrite) {
+		return true // a shop picks what its codes are for
 	}
 	return need == ScopeSubsRead && slices.Contains(t.Scopes.V, ScopeUsersRead)
 }

@@ -72,6 +72,7 @@ const m: Record<string, string> = {
   "优选 IP 上报恢复": "Preferred IP reports resumed",
   "优选 IP 上报": "Preferred IP reports",
   "上报 CDN 优选 IP（测速点使用，不能修改配置档）": "Report preferred CDN IPs (for speed-test points; cannot edit profiles)",
+  "生成和作废兑换码，读取套餐和流量包（发卡系统使用）": "Generate and void redeem codes, read plans and traffic packs (for card shops)",
   "测速点多久没上报就告警（小时）": "Alert when speed-test points are silent for (hours)",
   "只在有测速点上报过时生效；告警后继续用原有 IP": "Only applies once a speed-test point has reported; the last IPs stay in use after the alert",
   "节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅": "Node check: every 30 minutes online nodes connect to each preferred IP; IPs no node can reach are left out of subscriptions",
