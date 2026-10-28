@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
@@ -241,14 +242,14 @@ func TestRouteTraceHistoryRetentionAndRestore(t *testing.T) {
 	if st, out := admin.do("GET", fmt.Sprintf("/nodes/trace/route-traces/%d", last.ID), nil); st != 404 {
 		t.Fatal(st, out)
 	}
-	files, _, err := exportAll(s.st.DB)
+	files, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := files["node_route_traces"]; ok {
 		t.Fatal("route evidence exported")
 	}
-	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return importAll(tx, files, func(v string) string { return v }) }); err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return backupfmt.ImportAll(tx, files, func(v string) string { return v }) }); err != nil {
 		t.Fatal(err)
 	}
 	s.st.DB.Model(&store.NodeRouteTrace{}).Count(&count)

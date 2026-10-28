@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
@@ -290,14 +291,14 @@ func TestOperationalOverviewBoundedIssuesAndRestore(t *testing.T) {
 	if err := s.finishRelayBusinessStatus(ch.ID, req.ID, "passed", passingBusinessResult()); err != nil {
 		t.Fatal(err)
 	}
-	files, _, err := exportAll(s.st.DB)
+	files, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, exists := files["relay_business_statuses"]; exists {
 		t.Fatal("runtime diagnostic exported")
 	}
-	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return importAll(tx, files, func(s string) string { return s }) }); err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return backupfmt.ImportAll(tx, files, func(s string) string { return s }) }); err != nil {
 		t.Fatal(err)
 	}
 	var count int64

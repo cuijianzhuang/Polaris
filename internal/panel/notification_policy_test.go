@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
 )
@@ -376,7 +377,7 @@ func TestNotificationStateFailureAndBackup(t *testing.T) {
 	if _, ok := s.operationalNotice("email", e, time.Now()); !ok {
 		t.Fatal("failed transaction consumed attempt")
 	}
-	files, _, err := exportAll(s.st.DB)
+	files, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}

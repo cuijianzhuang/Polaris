@@ -11,6 +11,7 @@ import (
 	"time"
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
@@ -226,7 +227,7 @@ func TestRouteScheduleClaimAcrossInstances(t *testing.T) {
 func TestRouteScheduleHistoryAndRestore(t *testing.T) {
 	s, c := routeScheduleFixture(t)
 	enableRouteSchedule(t, s, c)
-	files, _, err := exportAll(s.st.DB)
+	files, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +237,7 @@ func TestRouteScheduleHistoryAndRestore(t *testing.T) {
 	if _, ok := files["node_route_schedule_states"]; ok {
 		t.Fatal("runtime cursor backed up")
 	}
-	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return importAll(tx, files, func(v string) string { return v }) }); err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return backupfmt.ImportAll(tx, files, func(v string) string { return v }) }); err != nil {
 		t.Fatal(err)
 	}
 	var policy store.NodeRouteSchedule

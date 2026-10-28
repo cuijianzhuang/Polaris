@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
@@ -197,7 +198,7 @@ func TestRelayMetadataBackupRestore(t *testing.T) {
 	if err := writeArchive(&archive, s.st, s.cfg.DataDir, s.cfg.SecretKey, ""); err != nil {
 		t.Fatal(err)
 	}
-	arc, err := readArchive(bytes.NewReader(archive.Bytes()), "", s.st.Box)
+	arc, err := backupfmt.ReadArchive(bytes.NewReader(archive.Bytes()), "", s.st.Box)
 	if err != nil {
 		t.Fatal(err)
 	}

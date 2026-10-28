@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -59,13 +60,13 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 		result.Checks.V = append(result.Checks.V, c)
 		return err == nil
 	}
-	var arc *backupArchive
+	var arc *backupfmt.Archive
 	h := sha256.New()
 	limited := &io.LimitedReader{R: r, N: maxUpload + 1}
 	if !check("archive", func() (err error) {
-		arc, err = readArchive(io.TeeReader(limited, h), pass, sourceBox)
+		arc, err = backupfmt.ReadArchive(io.TeeReader(limited, h), pass, sourceBox)
 		if err != nil {
-			result.NeedPassphrase = errors.Is(err, errNeedPassphrase) || errors.Is(err, errBadPassphrase)
+			result.NeedPassphrase = errors.Is(err, backupfmt.ErrNeedPassphrase) || errors.Is(err, backupfmt.ErrBadPassphrase)
 			return err
 		}
 		if _, err = io.Copy(h, limited); err != nil {
@@ -81,12 +82,12 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 			age := max(int64(0), int64(time.Since(t).Seconds()))
 			result.RecoveryPointAgeSeconds = &age
 		}
-		return arc.validate(sourceBox)
+		return arc.Validate(sourceBox)
 	}) {
 		return
 	}
 	if !check("source_secrets", func() error {
-		src, err := arc.sourceBox(sourceBox)
+		src, err := arc.SourceBox(sourceBox)
 		if err != nil {
 			return err
 		}
@@ -157,14 +158,14 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 	}
 	if !check("data_and_secrets", func() error {
 		for _, m := range store.AllModels() {
-			if runtimeControlModel(m) {
+			if backupfmt.RuntimeControlModel(m) {
 				continue
 			}
-			sch, err := tableSchema(isolated.DB, m)
+			sch, err := backupfmt.TableSchema(isolated.DB, m)
 			if err != nil {
 				return err
 			}
-			count, err := exportTable(isolated.DB, m, func(rows []map[string]any) error {
+			count, err := backupfmt.ExportTable(isolated.DB, m, func(rows []map[string]any) error {
 				for _, row := range rows {
 					for _, v := range row {
 						text := ""
@@ -280,7 +281,7 @@ func verifyDrillSecrets(box *secret.Box, text string) error {
 	if !strings.Contains(text, "enc:v1:") {
 		return nil
 	}
-	values := sealedRe.FindAllString(text, -1)
+	values := backupfmt.SealedValue.FindAllString(text, -1)
 	if len(values) == 0 {
 		return errors.New("invalid encrypted value")
 	}

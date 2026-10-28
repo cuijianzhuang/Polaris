@@ -3,6 +3,7 @@ package panel
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"strings"
 	"testing"
@@ -207,7 +208,7 @@ func TestSourceResourceBackupResealsCredentials(t *testing.T) {
 	restored := newTestServer(t)
 	box, _ := secret.New("different-panel-key")
 	restored.st.Box = box
-	arc, e := readArchive(bytes.NewReader(archive.Bytes()), "archive-password", box)
+	arc, e := backupfmt.ReadArchive(bytes.NewReader(archive.Bytes()), "archive-password", box)
 	if e != nil {
 		t.Fatal(e)
 	}
