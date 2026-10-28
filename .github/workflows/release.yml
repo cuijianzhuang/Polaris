@@ -51,7 +51,9 @@ jobs:
           set -euo pipefail
           sleep "$WAIT"
           tip=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
-          if [ "$tip" != "$GITHUB_SHA" ]; then
+          # A newer commit that skips its own release must not stop this one.
+          tipmsg=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tip}" --jq .commit.message)
+          if [ "$tip" != "$GITHUB_SHA" ] && ! printf '%s' "$tipmsg" | grep -qiF '[skip release]'; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::${GITHUB_REF_NAME} has moved on to ${tip::7}; its run releases that instead of ${GITHUB_SHA::7}"
           else
@@ -188,7 +190,9 @@ jobs:
           set -euo pipefail
           sleep "$WAIT"
           tip=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
-          if [ "$tip" != "$GITHUB_SHA" ]; then
+          # A newer commit that skips its own release must not stop this one.
+          tipmsg=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tip}" --jq .commit.message)
+          if [ "$tip" != "$GITHUB_SHA" ] && ! printf '%s' "$tipmsg" | grep -qiF '[skip release]'; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::${GITHUB_REF_NAME} has moved on to ${tip::7}; its run releases that instead of ${GITHUB_SHA::7}"
           else
@@ -232,7 +236,9 @@ jobs:
           set -euo pipefail
           sleep "$WAIT"
           tip=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_REF_NAME}" --jq .sha)
-          if [ "$tip" != "$GITHUB_SHA" ]; then
+          # A newer commit that skips its own release must not stop this one.
+          tipmsg=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${tip}" --jq .commit.message)
+          if [ "$tip" != "$GITHUB_SHA" ] && ! printf '%s' "$tipmsg" | grep -qiF '[skip release]'; then
             echo "stale=true" >> "$GITHUB_OUTPUT"
             echo "::notice::${GITHUB_REF_NAME} has moved on to ${tip::7}; its run releases that instead of ${GITHUB_SHA::7}"
           else
