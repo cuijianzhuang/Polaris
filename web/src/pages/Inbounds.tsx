@@ -27,7 +27,7 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
   const eps = useLoad(() => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`), [inbound.id])
   const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
   const chains = useLoad(() => get<Chain[]>('/chains'))
-  const [kind, setKind] = useState<'direct' | 'cdn' | 'relay'>('cdn')
+  const [kind, setKind] = useState<'direct' | 'cdn' | 'relay'>(inbound.cdnCapable ? 'cdn' : 'direct')
   const [form, setForm] = useState({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
   const { busy, run } = useAction()
   const add = () => run(async () => {
@@ -57,10 +57,11 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
       <div className="seg c3">
         {(['direct', 'cdn', 'relay'] as const).map((k) => (
           <button key={k} type="button" className={'opt' + (kind === k ? ' on' : '')} disabled={k === 'cdn' && !inbound.cdnCapable} onClick={() => setKind(k)}>
-            {k === 'direct' ? t('直连') : k === 'cdn' ? 'CDN' : t('中转')}{k === 'cdn' && !inbound.cdnCapable && <small>{t('此组合不能走 CDN')}</small>}
+            {k === 'direct' ? t('直连') : k === 'cdn' ? 'CDN' : t('中转')}{k === 'cdn' && !inbound.cdnCapable && <small>{t('{combo} 不能走 CDN', { combo: cdnBlocker(inbound) })}</small>}
           </button>
         ))}
       </div>
+      {!inbound.cdnCapable && <CDNSibling inbound={inbound} profiles={cdn.data ?? []} onDone={onChanged} />}
       <div className="form-grid">
         {kind === 'cdn' && (
           <Field label={t('CDN 配置档')} full>
@@ -85,6 +86,47 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
       </div>
       <div><button className="btn sm" type="button" disabled={busy} onClick={add}>{t('+ 添加入口')}</button></div>
     </section>
+  )
+}
+
+// cdnBlocker names what keeps an inbound off a CDN, e.g. "TCP + REALITY".
+const cdnBlocker = (i: Inbound) => {
+  if (i.security.type === 'reality') return `${(i.transport.type || 'tcp').toUpperCase()} + REALITY`
+  if (i.network === 'udp') return inboundSummary(i).split(' · ')[0]
+  return (i.transport.type || 'tcp').toUpperCase()
+}
+
+/** CDNSibling explains why this inbound cannot use a CDN and creates a
+ * VLESS + WS + TLS inbound on the same node that can. */
+function CDNSibling({ inbound, profiles, onDone }: { inbound: Inbound; profiles: CDNProfile[]; onDone: () => void }) {
+  const [profile, setProfile] = useState('')
+  const [made, setMade] = useState<{ tag: string; port: number; profile: string; needSync: boolean; addedPort: boolean } | null>(null)
+  const { busy, run } = useAction()
+  const pid = profile || (profiles.length === 1 ? profiles[0].id : '')
+  return (
+    <div className="note" style={{ display: 'grid', gap: 8, margin: '10px 0' }}>
+      <div>{t('这个入站是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP 传输，而且不能用 REALITY。可以在同一节点新建一个 VLESS + WS + TLS 入站专门走 CDN：端口自动选一个没被占用、CDN 支持的端口，用户分组和本入站相同，订阅里只出现 CDN 节点；本入站不受影响。', { combo: cdnBlocker(inbound) })}</div>
+      {made ? (
+        <div className="small">
+          {t('已新建入站 {tag}，端口 {port}，走 CDN 配置档 {profile}，正在下发。', { tag: made.tag, port: made.port, profile: made.profile })}
+          {made.addedPort && ' ' + t('端口 {port} 已加入配置档的可用端口。', { port: made.port })}
+          {made.needSync ? ' ' + t('下一步：在「链路与路由 → CDN 配置档」点「同步 DNS」，自动建 DNS 记录并换上 Cloudflare Origin 证书。') : ' ' + t('下一步：在 Cloudflare 把回源域名解析到这个节点并开启代理（小云朵）；SSL 模式用 Full，或者给配置档填 API Token 后用「同步 DNS」换上 Origin 证书以使用 Full (strict)。')}
+        </div>
+      ) : profiles.length === 0 ? (
+        <div className="small">{t('还没有 CDN 配置档，先在「链路与路由 → CDN 配置档」新建一个。')}</div>
+      ) : (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <select className="input" style={{ flex: '1 1 200px', minWidth: 0 }} value={pid} aria-label={t('CDN 配置档')} onChange={(e) => setProfile(e.target.value)}>
+            <option value="">{t('选择配置档')}</option>
+            {profiles.map((c) => <option key={c.id} value={c.id}>{c.name} · {c.originDomain}</option>)}
+          </select>
+          <button className="btn sm pri" type="button" disabled={busy || !pid} onClick={() => run(async () => {
+            const r = await post<{ inbound: Inbound; port: number; profile: string; needSync: boolean; addedPort: boolean }>(`/inbounds/${inbound.id}/cdn-sibling`, { cdnProfileId: pid })
+            setMade({ tag: r.inbound.tag, port: r.port, profile: r.profile, needSync: r.needSync, addedPort: r.addedPort }); onDone()
+          }, t('已新建 CDN 入站'))}>{t('新建 CDN 入站')}</button>
+        </div>
+      )}
+    </div>
   )
 }
 
