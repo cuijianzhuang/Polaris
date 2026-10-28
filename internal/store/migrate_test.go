@@ -170,3 +170,30 @@ func TestRunMigrationsPostgres(t *testing.T) {
 		t.Fatalf("recorded %d of %d", len(applied), len(steps))
 	}
 }
+
+// Domains already in a profile's preferred list were typed in: the step
+// that adds pinned_hosts pins them.
+func TestMigratePinnedHosts(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "pin.db")
+	st, err := Open(p, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.DB.Create(&CDNProfile{ID: "cf", Name: "cf", PreferredIPs: NewJSON([]string{"104.16.1.1", "visa.cn"})})
+	if err := st.DB.Migrator().DropColumn(&CDNProfile{}, "pinned_hosts"); err != nil {
+		t.Fatal(err)
+	}
+	st.DB.Where("version = ?", 2).Delete(&SchemaMigration{})
+	if sq, _ := st.DB.DB(); sq != nil {
+		sq.Close()
+	}
+	st, err = Open(p, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got CDNProfile
+	st.DB.First(&got, "id = ?", "cf")
+	if strings.Join(got.PinnedHosts.V, ",") != "visa.cn" {
+		t.Fatalf("pinned %v", got.PinnedHosts.V)
+	}
+}

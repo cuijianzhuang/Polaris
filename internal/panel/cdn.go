@@ -151,6 +151,14 @@ func (c *cfClient) deleteRecords(ctx context.Context, zone, name, typ string) er
 	return nil
 }
 
+func (c *cfClient) sslMode(ctx context.Context, zone string) (string, error) {
+	var res struct {
+		Value string `json:"value"`
+	}
+	err := c.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/settings/ssl", zone), nil, &res)
+	return res.Value, err
+}
+
 func (c *cfClient) setSSLMode(ctx context.Context, zone, mode string) error {
 	return c.do(ctx, http.MethodPatch, fmt.Sprintf("/zones/%s/settings/ssl", zone), map[string]string{"value": mode}, nil)
 }
@@ -261,6 +269,13 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		r.Ports = []int{443, 2053, 2083, 2087, 2096, 8443}
 	}
 	p.Ports, p.PreferredIPs = store.NewJSON(r.Ports), store.NewJSON(nonNilStrs(r.PreferredIPs))
+	pinned := []string{}
+	for _, a := range r.PreferredIPs {
+		if net.ParseIP(a) == nil {
+			pinned = append(pinned, a)
+		}
+	}
+	p.PinnedHosts = store.NewJSON(pinned)
 	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
 	if !p.NodeCheck {
 		p.BadIPs = store.NewJSON([]string{})
@@ -596,8 +611,9 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) (
 	}
 	ips := parseIPList(io.LimitReader(resp.Body, 1<<20))
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("来源中没有可用的 IP")
+		return nil, fmt.Errorf("来源中没有可用的 IP 或域名")
 	}
+	ips = withPinned(ips, p.PinnedHosts.V)
 	now := time.Now()
 	if err := s.st.DB.Model(p).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": now, "last_error": ""}).Error; err != nil {
 		return nil, err
@@ -605,6 +621,20 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) (
 	return ips, nil
 }
 
+// withPinned is an automatic list of preferred addresses plus the domains
+// the admin typed in, which automatic updates never drop.
+func withPinned(list, pinned []string) []string {
+	out := slices.Clone(list)
+	for _, h := range pinned {
+		if !slices.Contains(out, h) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// parseIPList reads preferred addresses: IPs or domains, one per line, the
+// first one on each line ("ip:port", CSV columns and # comments allowed).
 func parseIPList(r io.Reader) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -620,10 +650,19 @@ func parseIPList(r io.Reader) []string {
 				host = h
 			}
 			host = strings.Trim(host, "[]")
-			if ip := net.ParseIP(host); ip != nil && !seen[ip.String()] {
-				seen[ip.String()] = true
-				out = append(out, ip.String())
-				break // first IP column of the line
+			if ip := net.ParseIP(host); ip != nil {
+				if !seen[ip.String()] {
+					seen[ip.String()] = true
+					out = append(out, ip.String())
+				}
+				break // first address column of the line
+			}
+			if h := strings.ToLower(strings.TrimSuffix(host, ".")); cdnHostRe.MatchString(h) && !strings.HasPrefix(h, "*.") {
+				if !seen[h] {
+					seen[h] = true
+					out = append(out, h)
+				}
+				break
 			}
 		}
 	}

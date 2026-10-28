@@ -166,8 +166,8 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label="Cloudflare API Token" full hint={profile?.hasToken ? t('已保存（留空不修改）· 加密存储') : t('可选：填入后可自动同步 DNS、设置 SSL、签发 Origin 证书')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
         </Field>
-        <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
-        <Field label={t('优选 IP（手填）')} full><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
+        <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
+        <Field label={t('优选 IP（手填）')} full hint={t('一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后')}><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
         <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
         <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；告警后继续用原有 IP')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
       </div>

@@ -170,6 +170,16 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			zone, _ = cf.zoneFor(ctx, p.OriginDomain)
 		}
 		if zone != "" {
+			// Under Flexible (or Off) Cloudflare reaches the origin over plain
+			// HTTP on an HTTP port (80, or the HTTP twin of the client's
+			// port), where nothing listens: 521 although the TLS port answers.
+			if mode, err := cf.sslMode(ctx, zone); err == nil {
+				r.Steps = append(r.Steps, "Cloudflare SSL/TLS 模式："+mode)
+				if mode == "flexible" || mode == "off" {
+					r.Message = fmt.Sprintf("Cloudflare 的 SSL/TLS 模式是 %s：Cloudflare 用明文 HTTP 连节点的 HTTP 端口（80 或对应的 HTTP 端口，而不是 %d），那里没有程序监听，所以报 521。到 Cloudflare 后台 SSL/TLS 把模式改为 Full（或在配置档选 Full 后点「同步 DNS」）", mode, t.Port)
+					return
+				}
+			}
 			if recs, err := cf.records(ctx, zone, t.SNI); err == nil {
 				var contents []string
 				match := false
@@ -216,7 +226,11 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			return
 		}
 		r.Steps = append(r.Steps, "面板直连 "+addr+"：正常（TLS 握手成功）")
-		r.Message += fmt.Sprintf("。但面板直连 %s 是通的：节点本身没问题，多半是 DNS 记录指向了别的 IP，或防火墙只拦了 Cloudflare 的 IP 段", addr)
+		if isLocalIP(nodeIPs[0]) {
+			r.Message += fmt.Sprintf("。面板和节点在同一台机器上，面板直连 %s 走的是本机、不经过防火墙，所以不能说明外部能连：检查这台机器的防火墙（iptables / ufw / nftables）、fail2ban / CrowdSec 是否拦了 Cloudflare 的 IP，以及云服务商的安全组是否放行 %d 端口", addr, t.Port)
+		} else {
+			r.Message += fmt.Sprintf("。但面板直连 %s 是通的：节点本身没问题，多半是 DNS 记录指向了别的 IP，或防火墙（iptables / ufw、fail2ban / CrowdSec）只拦了 Cloudflare 的 IP 段", addr)
+		}
 	}
 }
 
@@ -315,4 +329,23 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		r.Message = fmt.Sprintf("已到达节点，但 WebSocket 握手失败（HTTP %d）：入站路径或 Host 和订阅不一致，或入站不是 WS", resp.StatusCode)
 	}
 	return r
+}
+
+// isLocalIP reports whether ip is an address of this machine (the panel
+// runs on the node).
+func isLocalIP(ip string) bool {
+	want := net.ParseIP(ip)
+	if want == nil {
+		return false
+	}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(want) {
+			return true
+		}
+	}
+	return false
 }
