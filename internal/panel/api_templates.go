@@ -656,6 +656,7 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 						if !cdnEndpointUsable(tx, it.inbound, ep.CDNProfileID, ep.Port) {
 							continue
 						}
+						assignCDNHost(tx, &ep, nodes[i].ID)
 					case "relay":
 						if e.RelayChainID == "" {
 							continue

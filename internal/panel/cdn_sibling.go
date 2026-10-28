@@ -89,7 +89,9 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	// Publish it only through the CDN: the direct entry would expose the
 	// origin address in subscriptions.
 	s.st.DB.Where("inbound_id = ? AND kind = ?", row.ID, "direct").Delete(&store.Endpoint{})
-	if err := s.st.DB.Create(&store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: p.ID}).Error; err != nil {
+	sib := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: p.ID}
+	assignCDNHost(s.st.DB, &sib, node.ID)
+	if err := s.st.DB.Create(&sib).Error; err != nil {
 		dbError(c, err)
 		return
 	}

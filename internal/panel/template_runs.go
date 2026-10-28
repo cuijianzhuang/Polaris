@@ -410,6 +410,7 @@ func (s *Server) applyFrozenNode(snapshot *frozenTemplate, n *frozenTemplateNode
 				if e.Kind == "relay" && ep.RelayChainID == "" {
 					continue
 				}
+				assignCDNHost(tx, &ep, node.ID)
 				if err := tx.Create(&ep).Error; err != nil {
 					return err
 				}

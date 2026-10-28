@@ -245,7 +245,9 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 		if err := s.checkCDNEndpoint(m, row.ID, row.RelayAccess.V.Enabled, meta.CDNProfileID, 0); err != nil {
 			return store.Inbound{}, err
 		}
-		endpoints = append(endpoints, store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: meta.CDNProfileID})
+		ep := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: meta.CDNProfileID}
+		assignCDNHost(s.st.DB, &ep, node.ID)
+		endpoints = append(endpoints, ep)
 	}
 	s.sealInbound(&row)
 	if groupIDs == nil {
@@ -570,6 +572,7 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		return
 	}
 	e.ID, e.InboundID = store.NewID(), row.ID
+	assignCDNHost(s.st.DB, &e, row.NodeID)
 	if err := s.st.DB.Create(&e).Error; err != nil {
 		dbError(c, err)
 		return

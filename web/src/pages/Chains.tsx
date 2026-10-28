@@ -153,7 +153,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('服务商')}>
           <select className="input" value={f.provider} onChange={(e) => set('provider', e.target.value)}><option value="cloudflare">Cloudflare</option><option value="other">{t('其他')}</option></select>
         </Field>
-        <Field label={t('回源域名')} full><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
+        <Field label={t('回源域名')} full hint={t('多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com')}><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
         <Field label={t('TLS 模式')}>
           <select className="input" value={f.tlsMode} onChange={(e) => set('tlsMode', e.target.value)}><option value="full_strict">Full (strict)</option><option value="full">Full</option><option value="flexible">Flexible</option></select>
         </Field>
@@ -182,7 +182,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
 
 function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
-  const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string } | null>(null)
+  const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string; split?: string[] } | null>(null)
   const confirm = useConfirm()
   const reported = new Set(p.reports.map((r) => r.source))
   const waiting = (p.probes ?? []).filter((w) => !reported.has(w.source))
@@ -206,11 +206,12 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn sm" type="button" onClick={onEdit}>{t('编辑')}</button>
           <button className="btn sm" type="button" disabled={busy || !p.hasToken} onClick={() => run(async () => {
-            setSynced(await post<{ records: string[]; sslMode?: string; cert?: string }>(`/cdn-profiles/${p.id}/sync-dns`)); onChanged()
+            setSynced(await post<{ records: string[]; sslMode?: string; cert?: string; split?: string[] }>(`/cdn-profiles/${p.id}/sync-dns`)); onChanged()
           }, t('DNS 已同步'))}>{t('同步 DNS')}</button>
         </div>
         {synced && <div className="note small" style={{ marginTop: 12, overflowWrap: 'anywhere' }}>
           {t('DNS 记录：{list}', { list: synced.records.join('；') || t('无（还没有入站用这个配置档）') })}
+          {(synced.split ?? []).length > 0 && <div>{t('多台节点共用了回源域名，已给这些入口换成各自的域名：{list}', { list: synced.split!.join('；') })}</div>}
           {synced.sslMode && <div>{t('Cloudflare SSL 模式已设为 {mode}（对整个域名生效）', { mode: synced.sslMode })}</div>}
           {synced.cert && <div>{tr(synced.cert)}</div>}
         </div>}

@@ -34,7 +34,8 @@ type cdnTarget struct {
 
 func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnTarget {
 	_, fronted := s.frontFor(m.ID)
-	t := cdnTarget{Server: p.OriginDomain, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: p.OriginDomain, Host: p.OriginDomain, Path: m.Transport.Path}
+	host := orDefault(ep.Host, p.OriginDomain)
+	t := cdnTarget{Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
 	if m.Transport.Type == model.TransGRPC {
 		t.Path = "/" + m.Transport.ServiceName
 	}
@@ -51,9 +52,6 @@ func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDN
 	}
 	if ep.SNI != "" {
 		t.SNI = ep.SNI
-	}
-	if ep.Host != "" {
-		t.Host = ep.Host
 	}
 	if ep.Path != "" {
 		t.Path = ep.Path

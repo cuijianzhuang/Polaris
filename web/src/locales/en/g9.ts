@@ -190,5 +190,7 @@ const m: Record<string, string> = {
   "SSL 模式 Flexible 下 Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上：把配置档的 SSL 模式改为 Full 或 Full (strict)": "Under Flexible, Cloudflare reaches the node over plain HTTP, which a TLS inbound cannot answer: set the profile's SSL mode to Full or Full (strict)",
   "SSL 模式 Full / Full (strict) 下 Cloudflare 用 HTTPS 回源，入站需要开启 TLS（或开启配置档的「Caddy 统一回源」）": "Under Full / Full (strict), Cloudflare reaches the node over HTTPS: the inbound needs TLS (or turn on Caddy fronting in the profile)",
   "添加入口": "Add entry",
+  "多台节点共用了回源域名，已给这些入口换成各自的域名：{list}": "Several nodes shared the origin domain; these entries now use their own hostnames: {list}",
+  "多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com": "Several nodes can share a profile: entries from the second node on get their own hostname (node-name-domain), such as oracle-sg-cdn.example.com",
 }
 export default m

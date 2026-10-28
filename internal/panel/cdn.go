@@ -399,6 +399,9 @@ type cdnSyncResult struct {
 	Records []string `json:"records"`
 	SSLMode string   `json:"sslMode,omitempty"`
 	Cert    string   `json:"cert,omitempty"`
+	// Split lists entries moved to their node's own hostname because
+	// several nodes shared one.
+	Split []string `json:"split,omitempty"`
 }
 
 // syncCDN upserts the profile's DNS records; full also sets the zone's SSL
@@ -418,6 +421,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 			return res, err
 		}
 	}
+	res.Split = s.splitSharedCDNHosts(p)
 	var eps []store.Endpoint
 	s.st.DB.Where("cdn_profile_id = ?", p.ID).Find(&eps)
 	records := map[string]string{} // hostname -> origin address
