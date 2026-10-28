@@ -102,6 +102,7 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/logout", s.portalGate(decoy, s.portalLogout))
 		r.POST(portalPath+"/reset", s.portalGate(decoy, s.portalReset))
 		r.POST(portalPath+"/rename", s.portalGate(decoy, s.portalRename))
+		r.POST(portalPath+"/carrier", s.portalGate(decoy, s.portalCarrier))
 		r.POST(portalPath+"/email/code", s.portalGate(decoy, s.portalMailCode))
 		r.GET(portalPath+"/forwards", s.portalGate(decoy, s.portalForwards))
 		r.POST(portalPath+"/forwards", s.portalGate(decoy, s.portalForwardCreate))
