@@ -189,5 +189,6 @@ const m: Record<string, string> = {
   "Caddy 统一回源需要入站开启 TLS 并配置证书": "Caddy fronting needs the inbound to use TLS with a certificate",
   "SSL 模式 Flexible 下 Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上：把配置档的 SSL 模式改为 Full 或 Full (strict)": "Under Flexible, Cloudflare reaches the node over plain HTTP, which a TLS inbound cannot answer: set the profile's SSL mode to Full or Full (strict)",
   "SSL 模式 Full / Full (strict) 下 Cloudflare 用 HTTPS 回源，入站需要开启 TLS（或开启配置档的「Caddy 统一回源」）": "Under Full / Full (strict), Cloudflare reaches the node over HTTPS: the inbound needs TLS (or turn on Caddy fronting in the profile)",
+  "添加入口": "Add entry",
 }
 export default m

@@ -30,9 +30,15 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
   const [kind, setKind] = useState<'direct' | 'cdn' | 'relay'>(inbound.cdnCapable ? 'cdn' : 'direct')
   const [form, setForm] = useState({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
   const { busy, run } = useAction()
+  // The form below adds another entry; existing ones are listed above it.
+  const [adding, setAdding] = useState(false)
+  useEffect(() => { if (eps.data && eps.data.length === 0) setAdding(true) }, [eps.data])
+  const firstProfile = cdn.data?.[0]?.id ?? ''
+  useEffect(() => { if (!form.cdnProfileId && firstProfile) setForm((f) => ({ ...f, cdnProfileId: firstProfile })) }, [firstProfile, form.cdnProfileId])
   const add = () => run(async () => {
     await post(`/inbounds/${inbound.id}/endpoints`, { kind, ...form, port: Number(form.port) || 0 })
-    setForm({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
+    setForm({ cdnProfileId: firstProfile, relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
+    setAdding(false)
     eps.reload()
     onChanged()
   }, t('入口已添加'))
@@ -72,6 +78,10 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
           </tbody>
         </table>
       </div>
+      {!adding && <div><button className="btn sm" type="button" onClick={() => setAdding(true)}>{t('+ 添加入口')}</button></div>}
+      {adding && <div className="card" style={{ display: 'grid', gap: 10, background: 'var(--soft)' }}>
+      <div className="row" style={{ justifyContent: 'space-between' }}><b>{t('添加入口')}</b>
+        {(eps.data?.length ?? 0) > 0 && <button className="link" type="button" onClick={() => setAdding(false)}>{t('收起')}</button>}</div>
       <div className="seg c3">
         {(['direct', 'cdn', 'relay'] as const).map((k) => (
           <button key={k} type="button" className={'opt' + (kind === k ? ' on' : '')} disabled={k === 'cdn' && !inbound.cdnCapable} onClick={() => setKind(k)}>
@@ -102,7 +112,8 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
         <Field label={t('Host（可选）')}><input className="input mono" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} /></Field>
         <Field label={t('备注')}><input className="input" value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></Field>
       </div>
-      <div><button className="btn sm" type="button" disabled={busy} onClick={add}>{t('+ 添加入口')}</button></div>
+      <div><button className="btn sm pri" type="button" disabled={busy || (kind === 'cdn' && !form.cdnProfileId) || (kind === 'relay' && !form.relayChainId)} onClick={add}>{t('添加')}</button></div>
+      </div>}
     </section>
   )
 }

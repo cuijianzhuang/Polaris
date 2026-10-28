@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -143,8 +144,82 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
 	defer cancel()
 	res := probeCDN(ctx, t, m.Transport.Type, nodeOrigin(&node))
+	if !res.OK && (res.Status == 521 || res.Status == 522 || res.Status == 523) {
+		// Cloudflare could not reach the origin: see where its record
+		// points and whether the node answers on that port at all.
+		dctx, dcancel := context.WithTimeout(context.Background(), 15*time.Second)
+		s.diagnoseOrigin(dctx, &res, &p, &node, t)
+		dcancel()
+	}
 	res.Warnings = s.cdnEndpointWarnings(&ep, &row, &p)
 	c.JSON(http.StatusOK, res)
+}
+
+// diagnoseOrigin adds what the panel sees of the hop Cloudflare failed:
+// the DNS record (with the profile's API token) and a direct connection
+// to the node's port. Cloudflare reaches the origin on the client's port.
+func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNProfile, node *store.Node, t cdnTarget) {
+	nodeIPs := []string{}
+	for _, ip := range []string{nodeOrigin(node), node.PublicIPv4, node.PublicIPv6} {
+		if ip = strings.TrimSpace(ip); ip != "" && !slices.Contains(nodeIPs, ip) {
+			nodeIPs = append(nodeIPs, ip)
+		}
+	}
+	if token := s.st.Box.MustOpen(p.APIToken); token != "" {
+		cf := newCF(token)
+		zone := p.ZoneID
+		if zone == "" {
+			zone, _ = cf.zoneFor(ctx, p.OriginDomain)
+		}
+		if zone != "" {
+			if recs, err := cf.records(ctx, zone, t.SNI); err == nil {
+				var contents []string
+				match := false
+				for _, rec := range recs {
+					contents = append(contents, rec.Type+" "+rec.Content)
+					match = match || slices.Contains(nodeIPs, rec.Content)
+				}
+				if len(recs) == 0 {
+					r.Steps = append(r.Steps, fmt.Sprintf("Cloudflare 里没有 %s 的 DNS 记录", t.SNI))
+				} else {
+					r.Steps = append(r.Steps, fmt.Sprintf("Cloudflare DNS：%s → %s", t.SNI, strings.Join(contents, ", ")))
+				}
+				if len(recs) > 0 && !match && recs[0].Type != "CNAME" {
+					r.Message = fmt.Sprintf("%s 的 DNS 记录指向 %s，不是节点 %s（%s）：Cloudflare 连到了别的机器。点配置档的「同步 DNS」，或在 Cloudflare 改记录；多台节点共用一个配置档时，给每个入口填不同的 Host（如 sg-%s）",
+						t.SNI, strings.Join(contents, ", "), node.Name, strings.Join(nodeIPs, " / "), p.OriginDomain)
+					return
+				}
+			} else {
+				r.Steps = append(r.Steps, "读取 Cloudflare DNS 记录失败："+err.Error())
+			}
+		}
+	} else {
+		r.Steps = append(r.Steps, "配置档没填 API Token，无法读出 DNS 记录指向哪里；请在 Cloudflare 后台确认它指向 "+strings.Join(nodeIPs, " / "))
+	}
+	if len(nodeIPs) == 0 {
+		return
+	}
+	addr := net.JoinHostPort(nodeIPs[0], strconv.Itoa(t.Port))
+	conn, err := (&net.Dialer{Timeout: 6 * time.Second}).DialContext(ctx, "tcp", addr)
+	switch {
+	case err != nil && strings.Contains(err.Error(), "refused"):
+		r.Steps = append(r.Steps, "面板直连 "+addr+"：连接被拒绝")
+		r.Message += fmt.Sprintf("。面板直连 %s 也被拒绝：节点上 %d 端口没有程序在监听（看节点卡片的版本号是否已应用、内核是否在运行），或系统防火墙（iptables / ufw，Oracle 镜像默认有 REJECT 规则）拒绝了这个端口", addr, t.Port)
+	case err != nil:
+		r.Steps = append(r.Steps, "面板直连 "+addr+"："+err.Error())
+		r.Message += fmt.Sprintf("。面板直连 %s 也连不上（%v）：检查云服务商安全组 / 防火墙是否放行 %d 端口", addr, err, t.Port)
+	default:
+		_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
+		tc := tls.Client(conn, &tls.Config{ServerName: t.SNI, InsecureSkipVerify: true}) // only asks whether TLS is served there
+		herr := tc.HandshakeContext(ctx)
+		conn.Close()
+		if herr != nil {
+			r.Steps = append(r.Steps, "面板直连 "+addr+"：TCP 通，TLS 握手失败："+herr.Error())
+			return
+		}
+		r.Steps = append(r.Steps, "面板直连 "+addr+"：正常（TLS 握手成功）")
+		r.Message += fmt.Sprintf("。但面板直连 %s 是通的：节点本身没问题，多半是 DNS 记录指向了别的 IP，或防火墙只拦了 Cloudflare 的 IP 段", addr)
+	}
 }
 
 type cdnCheck struct {
