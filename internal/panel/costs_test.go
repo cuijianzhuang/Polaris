@@ -73,7 +73,7 @@ func TestCosts(t *testing.T) {
 	}
 	var n1 store.NodeCost
 	s.st.DB.First(&n1, "node_id = ?", "n1")
-	if got := n1.ExpireAt.Format("2006-01-02"); got != time.Now().AddDate(0, 0, 3).AddDate(0, 1, 0).Format("2006-01-02") {
+	if got := n1.ExpireAt.Format("2006-01-02"); got != addMonthClamped(time.Now().AddDate(0, 0, 3)).Format("2006-01-02") {
 		t.Fatalf("renewed to %s", got)
 	}
 	// Base currency switch rebases nothing stored, but rates must be positive.
@@ -125,4 +125,13 @@ func TestCostsUseNodeBillingModeAndCalendarWindow(t *testing.T) {
 			t.Fatal("cost per GB uses wrong bytes", m)
 		}
 	}
+}
+
+// addMonthClamped moves t one calendar month on, keeping the day but
+// clamping it to the month's last day (Oct 31 -> Nov 30), the way renewals do.
+// time.AddDate would normalise Oct 31 + 1 month to Dec 1.
+func addMonthClamped(t time.Time) time.Time {
+	y, m, d := t.Date()
+	last := time.Date(y, m+2, 0, 0, 0, 0, 0, t.Location()).Day()
+	return time.Date(y, m+1, min(d, last), 0, 0, 0, 0, t.Location())
 }
