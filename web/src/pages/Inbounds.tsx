@@ -89,6 +89,31 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
   )
 }
 
+// Cloudflare proxies these ports and reaches the origin on the same one;
+// any other port goes out on the profile's first port (see cdnNodePort).
+const cloudflarePorts = [443, 2053, 2083, 2087, 2096, 8443, 80, 8080, 8880, 2052, 2082, 2086, 2095]
+const cdnClientPort = (p: CDNProfile, port: number) => (p.caddyFronting || !cloudflarePorts.includes(port)) ? (p.ports[0] ?? 443) : port
+
+// NewCDNEntry publishes a new inbound through a CDN profile as it is created.
+function NewCDNEntry({ value, onChange, grpc, port }: { value: { profileId: string; only: boolean }; onChange: (v: { profileId: string; only: boolean }) => void; grpc: boolean; port: number }) {
+  const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
+  const p = cdn.data?.find((c) => c.id === value.profileId)
+  const clientPort = p ? cdnClientPort(p, port) : 0
+  return (
+    <Field label={t('CDN 入口')} hint={t('可选：创建时同时加一个 CDN 入口，订阅里多出一个经 CDN 的节点。之后也可以在编辑里添加。')}>
+      <select className="input" value={value.profileId} onChange={(e) => onChange({ ...value, profileId: e.target.value })}>
+        <option value="">{t('不走 CDN')}</option>
+        {(cdn.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.originDomain}</option>)}
+      </select>
+      {cdn.data?.length === 0 && <div className="hint">{t('还没有 CDN 配置档，先在「CDN」页添加。')}</div>}
+      {p && <Switch on={value.only} onChange={(v) => onChange({ ...value, only: v })} label={t('只走 CDN（订阅里不出现直连节点，不暴露节点 IP）')} />}
+      {p && <div className="hint">{t('客户端经 CDN 连 {domain}:{port}', { domain: p.originDomain, port: clientPort })}</div>}
+      {p && p.provider === 'cloudflare' && grpc && clientPort !== 443 && <div className="note warn small">{t('Cloudflare 只在 443 端口代理 gRPC：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS。')}</div>}
+      {p && p.provider === 'cloudflare' && (p.tlsMode || 'full_strict') === 'full_strict' && <div className="hint">{t('配置档的 SSL 模式是 Full (strict)：入站证书需要包含 {domain}，否则 Cloudflare 报 526。可在配置档点「同步 DNS」换成 Origin 证书，或改用 Full。', { domain: p.originDomain })}</div>}
+    </Field>
+  )
+}
+
 // cdnBlocker names what keeps an inbound off a CDN, e.g. "TCP + REALITY".
 const cdnBlocker = (i: Inbound) => {
   if (i.security.type === 'reality') return `${(i.transport.type || 'tcp').toUpperCase()} + REALITY`
@@ -249,6 +274,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const [relaysOpen, setRelaysOpen] = useState(false)
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
   const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
+  const [newCDN, setNewCDN] = useState({ profileId: '', only: false })
+  const draftCDNCapable = draft.security.type !== 'reality' && ['ws', 'httpupgrade', 'grpc', 'xhttp'].includes(draft.transport.type)
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
@@ -276,7 +303,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
     let ex: any = undefined
     if (extra.trim()) ex = JSON.parse(extra)
     return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
-      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly, relayAccess: { ...relayAccess, sourceOverrides: Object.fromEntries(Object.entries(relayAccess.sourceOverrides ?? {}).map(([id, sources]) => [id, sources.map((x) => x.trim()).filter(Boolean)])) }, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)) }
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly, relayAccess: { ...relayAccess, sourceOverrides: Object.fromEntries(Object.entries(relayAccess.sourceOverrides ?? {}).map(([id, sources]) => [id, sources.map((x) => x.trim()).filter(Boolean)])) }, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)),
+      ...(!editing && draftCDNCapable && newCDN.profileId ? { cdnProfileId: newCDN.profileId, cdnOnly: newCDN.only } : {}) }
   }
   const save = () => run(async () => {
     if (editing) await put('/inbounds/' + editing.id, body())
@@ -368,6 +396,7 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         <div className="note warn">{t('该节点运行的是官方版 sing-box（不含 v2ray_api），暂时只能统计入站总流量，用户的已用流量不会增加。Polaris 会自动构建带统计功能的同版本 sing-box，发布后 Agent 下次启动时自动替换；也可以在「节点」页把 sing-box 切换到已构建的版本。')}</div>
       )}
       {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
+      {!editing && draftCDNCapable && <NewCDNEntry value={newCDN} onChange={setNewCDN} grpc={draft.transport.type === 'grpc'} port={Number(port) || 0} />}
       {editing && relaysOpen && <RelayManager inbound={editing} nodes={nodes} onClose={() => setRelaysOpen(false)} onChanged={onSaved} />}
       {preview && <Modal title={t('{core} 原生配置预览', { core: coreLabel[draft.core] })} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}
     </Drawer>

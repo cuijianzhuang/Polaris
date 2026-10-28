@@ -404,7 +404,7 @@ func (s *Server) applyFrozenNode(snapshot *frozenTemplate, n *frozenTemplateNode
 			}
 			for _, e := range eps {
 				ep := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: e.Kind, Address: expandVars(e.Address, &node, "", nil), Port: e.Port, CDNProfileID: orDefault(e.CDNProfileID, snapshot.Options.CDNProfileID), RelayChainID: e.RelayChainID}
-				if e.Kind == "cdn" && (ep.CDNProfileID == "" || !m.CDNCapable()) {
+				if e.Kind == "cdn" && !cdnEndpointUsable(tx, m, ep.CDNProfileID, ep.Port) {
 					continue
 				}
 				if e.Kind == "relay" && ep.RelayChainID == "" {

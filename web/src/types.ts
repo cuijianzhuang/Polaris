@@ -126,7 +126,7 @@ export interface TemplateItem {
   port: PortPolicy; tagPattern: string; cert: string; endpoints: EndpointTemplate[]
 }
 export interface InboundTemplate { id: string; name: string; builtin: boolean; description: string; items: TemplateItem[]; groups: string[]; boundLabels: string[]; inbounds: number; nodes: number }
-export interface PlannedInbound { nodeId: string; nodeName: string; itemKey: string; tag: string; core?: CoreType; port?: number; network?: string; cert: string; entries: string; result: 'new' | 'fix' | 'skip'; reason?: string }
+export interface PlannedInbound { nodeId: string; nodeName: string; itemKey: string; tag: string; core?: CoreType; port?: number; network?: string; cert: string; entries: string; result: 'new' | 'fix' | 'skip'; reason?: string; warnings?: string[] }
 export interface NodePlan { nodeId: string; nodeName: string; summary: string; items: PlannedInbound[]; error?: string; applyStatus?: 'pending' | 'applied' | 'offline' | 'error' | 'skipped'; revision?: number }
 export interface TemplateRealityCheck { ok: boolean; from: string; checkedAt: string; results: RealityScanResult[] }
 export interface TemplatePlan { planId: string; expiresAt: string; state?: string; plans: NodePlan[]; checks?: Record<string, TemplateRealityCheck>; summary: { nodes: number; create: number; adjusted: number; skipped: number } }

@@ -158,5 +158,14 @@ const m: Record<string, string> = {
   "需要面板 {need} 或更高版本（当前 {have}）": "Needs panel {need} or later (this is {have})",
   "默认监听 {port} 端口。和面板在同一台服务器上时，安装地址填 http://127.0.0.1:{port}；在其他服务器上请填它的公网地址。": "Listens on port {port} by default. On the panel's server, install it at http://127.0.0.1:{port}; on another server, use its public address.",
   "（下面是上次读取的结果）": "(showing the last list loaded)",
+  "CDN 入口": "CDN entry",
+  "可选：创建时同时加一个 CDN 入口，订阅里多出一个经 CDN 的节点。之后也可以在编辑里添加。": "Optional: add a CDN entry as the inbound is created, so subscriptions get one more node that goes through the CDN. You can also add it later when editing.",
+  "不走 CDN": "No CDN",
+  "还没有 CDN 配置档，先在「CDN」页添加。": "No CDN profiles yet. Add one on the CDN page first.",
+  "只走 CDN（订阅里不出现直连节点，不暴露节点 IP）": "CDN only (no direct node in subscriptions, so the node's IP stays hidden)",
+  "客户端经 CDN 连 {domain}:{port}": "Clients connect through the CDN to {domain}:{port}",
+  "Cloudflare 只在 443 端口代理 gRPC：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS。": "Cloudflare proxies gRPC only on port 443: change the inbound port to 443, turn on Caddy fronting in the profile, or use WS.",
+  "配置档的 SSL 模式是 Full (strict)：入站证书需要包含 {domain}，否则 Cloudflare 报 526。可在配置档点「同步 DNS」换成 Origin 证书，或改用 Full。": "The profile's SSL mode is Full (strict): the inbound certificate must cover {domain}, or Cloudflare returns error 526. Click Sync DNS in the profile to switch to an Origin certificate, or use Full.",
+  "Cloudflare 需要在域名的 Network 设置里打开 gRPC": "Turn on gRPC in the domain's Network settings on Cloudflare",
 }
 export default m

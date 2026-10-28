@@ -463,7 +463,8 @@ function PlanRows({ p, actions, check }: { p: NodePlan; actions?: React.ReactNod
           <td className="mono">{it.port ? `${it.port}${it.network === 'udp' ? '/udp' : ''}` : '—'}</td>
           <td>{it.cert || '—'}</td>
           <td>{it.entries || '—'}</td>
-          <td style={{ whiteSpace: 'normal' }}><span className={'st ' + (it.result === 'new' ? 'ok' : it.result === 'fix' ? 'warn' : 'off')} style={{ whiteSpace: 'normal' }}>{it.result === 'new' ? t('新建') : it.result === 'fix' ? it.reason : t('跳过：{reason}', { reason: it.reason })}</span></td>
+          <td style={{ whiteSpace: 'normal' }}><span className={'st ' + (it.result === 'new' ? 'ok' : it.result === 'fix' ? 'warn' : 'off')} style={{ whiteSpace: 'normal' }}>{it.result === 'new' ? t('新建') : it.result === 'fix' ? it.reason : t('跳过：{reason}', { reason: it.reason })}</span>
+            {(it.warnings ?? []).map((w, i) => <div key={i} className="hint" style={{ color: 'var(--warn)', overflowWrap: 'anywhere' }}>{tr(w)}</div>)}</td>
         </tr>
       ))}
     </>

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -35,6 +36,10 @@ type inboundReq struct {
 	OutboundTag string `json:"outboundTag"`
 	// SpeedLimitMbps caps the port's bandwidth on the node (0 = none).
 	SpeedLimitMbps int `json:"speedLimitMbps"`
+	// Create only: also publish through this CDN profile; CDNOnly drops
+	// the direct entry so the node's address stays out of subscriptions.
+	CDNProfileID string `json:"cdnProfileId,omitempty"`
+	CDNOnly      bool   `json:"cdnOnly,omitempty"`
 }
 
 // inboundMeta is what an inbound row carries besides the model.
@@ -44,10 +49,13 @@ type inboundMeta struct {
 	SpeedLimitMbps int
 	RelayOnly      bool
 	RelayAccess    store.RelayAccessPolicy
+	CDNProfileID   string
+	CDNOnly        bool
 }
 
 func (r *inboundReq) meta() inboundMeta {
-	m := inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps, RelayOnly: r.RelayOnly != nil && *r.RelayOnly}
+	m := inboundMeta{Remark: r.Remark, OutboundTag: r.OutboundTag, SpeedLimitMbps: r.SpeedLimitMbps, RelayOnly: r.RelayOnly != nil && *r.RelayOnly,
+		CDNProfileID: r.CDNProfileID, CDNOnly: r.CDNOnly && r.CDNProfileID != ""}
 	if r.RelayAccess != nil {
 		m.RelayAccess = *r.RelayAccess
 	}
@@ -228,6 +236,16 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 	if err := validateRelayAccessInbound(s.st.DB, row); err != nil {
 		return store.Inbound{}, err
 	}
+	endpoints := []store.Endpoint{}
+	if !meta.CDNOnly {
+		endpoints = append(endpoints, store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "direct"})
+	}
+	if meta.CDNProfileID != "" {
+		if err := s.checkCDNEndpoint(m, row.RelayAccess.V.Enabled, meta.CDNProfileID, 0); err != nil {
+			return store.Inbound{}, err
+		}
+		endpoints = append(endpoints, store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: meta.CDNProfileID})
+	}
 	s.sealInbound(&row)
 	if groupIDs == nil {
 		groupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
@@ -236,8 +254,10 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "direct"}).Error; err != nil {
-			return err
+		for i := range endpoints {
+			if err := tx.Create(&endpoints[i]).Error; err != nil {
+				return err
+			}
 		}
 		for _, g := range groupIDs {
 			if err := tx.Create(&store.GroupInbound{GroupID: g, InboundID: row.ID}).Error; err != nil {
@@ -525,21 +545,8 @@ func (s *Server) createEndpoint(c *gin.Context) {
 	switch e.Kind {
 	case "direct":
 	case "cdn":
-		if !m.CDNCapable() {
-			badRequest(c, fmt.Errorf("%s+%s 不能走 CDN（仅 WS / gRPC / HTTPUpgrade / XHTTP 且非 REALITY）", m.Transport.Type, m.Security.Type))
-			return
-		}
-		if e.CDNProfileID == "" {
-			badRequest(c, fmt.Errorf("cdnProfileId is required"))
-			return
-		}
-		var p store.CDNProfile
-		if err := s.st.DB.First(&p, "id = ?", e.CDNProfileID).Error; err != nil {
-			dbError(c, err)
-			return
-		}
-		if row.RelayAccess.V.Enabled && p.CaddyFronting {
-			badRequest(c, fmt.Errorf("来源限制不能与 Caddy 共用回源入口同时启用"))
+		if err := s.checkCDNEndpoint(&m, row.RelayAccess.V.Enabled, e.CDNProfileID, e.Port); err != nil {
+			badRequest(c, err)
 			return
 		}
 	case "relay":
@@ -644,4 +651,26 @@ func mergeFields(a, b []string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// checkCDNEndpoint reports why the inbound cannot be published through the
+// CDN profile (nil = it can).
+func (s *Server) checkCDNEndpoint(m *model.Inbound, relayAccess bool, profileID string, port int) error {
+	if !m.CDNCapable() {
+		return fmt.Errorf("%s+%s 不能走 CDN（仅 WS / gRPC / HTTPUpgrade / XHTTP 且非 REALITY）", m.Transport.Type, m.Security.Type)
+	}
+	if profileID == "" {
+		return fmt.Errorf("cdnProfileId is required")
+	}
+	var p store.CDNProfile
+	if err := s.st.DB.First(&p, "id = ?", profileID).Error; err != nil {
+		return fmt.Errorf("CDN 配置档不存在")
+	}
+	if relayAccess && p.CaddyFronting {
+		return fmt.Errorf("来源限制不能与 Caddy 共用回源入口同时启用")
+	}
+	if problem := cdnPortProblem(m, &p, port); problem != "" {
+		return errors.New(problem)
+	}
+	return nil
 }
