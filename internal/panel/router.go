@@ -380,6 +380,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/cdn-profiles/:id/refresh-ips", s.refreshCDNIPs)
 	p.POST("/cdn-profiles/:id/preferred-ips", s.postCDNIPReport)
 	p.DELETE("/cdn-profiles/:id/ip-reports/:source", s.deleteCDNIPReport)
+	p.POST("/cdn-profiles/:id/probes", s.requireSudo, s.pairCDNProbe)
 
 	p.GET("/chains", s.listChains)
 	p.POST("/chains", s.createChain)

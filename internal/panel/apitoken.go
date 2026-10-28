@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -190,6 +191,12 @@ func (s *Server) createToken(c *gin.Context) {
 
 // issueAPIToken stores a new token and returns it with its secret.
 func (s *Server) issueAPIToken(name, pluginID string, scopes []string, days int, by string) (*store.APIToken, string, error) {
+	return s.issueAPITokenIn(s.st.DB, name, pluginID, scopes, days, by, nil)
+}
+
+// issueAPITokenIn stores the token in db (a transaction, possibly); bind
+// may set extra fields before it is written.
+func (s *Server) issueAPITokenIn(db *gorm.DB, name, pluginID string, scopes []string, days int, by string, bind func(*store.APIToken)) (*store.APIToken, string, error) {
 	if name == "" || len(name) > 64 {
 		return nil, "", errors.New("名称不能为空，最长 64 个字符")
 	}
@@ -213,7 +220,10 @@ func (s *Server) issueAPIToken(name, pluginID string, scopes []string, days int,
 		exp := time.Now().AddDate(0, 0, days)
 		t.ExpiresAt = &exp
 	}
-	if err := s.st.DB.Create(t).Error; err != nil {
+	if bind != nil {
+		bind(t)
+	}
+	if err := db.Create(t).Error; err != nil {
 		return nil, "", err
 	}
 	return t, secret, nil

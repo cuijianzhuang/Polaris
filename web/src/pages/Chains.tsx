@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { api, API, del, get, post, put } from '../api'
 import { useNodes } from '../App'
-import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad } from '../components/ui'
+import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t } from '../i18n'
 import GeoPicker from '../components/GeoPicker'
@@ -177,6 +177,14 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
 
 function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
+  const confirm = useConfirm()
+  const reported = new Set(p.reports.map((r) => r.source))
+  const waiting = (p.probes ?? []).filter((w) => !reported.has(w.source))
+  const paired = new Set((p.probes ?? []).map((w) => w.source))
+  const remove = async (source: string) => {
+    const msg = paired.has(source) ? t('移除测速点 {name}？它上报的 IP 会从列表中去掉，专用令牌同时作废，那台机器上的程序之后会上报失败。', { name: source }) : t('移除测速点 {name}？它上报的 IP 会从列表中去掉。', { name: source })
+    if (await confirm(msg, { danger: true, ok: t('移除') })) run(async () => { await del(`/cdn-profiles/${p.id}/ip-reports/${encodeURIComponent(source)}`); onChanged() }, t('已移除'))
+  }
   return (
     <>
       <section className="card">
@@ -208,7 +216,7 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.reports.length === 0 ? <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方命令），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
+        {p.reports.length === 0 && waiting.length === 0 ? <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
             const best = r.ips[0]
@@ -218,12 +226,21 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
                   <div><b>{r.source}</b>{r.carrier && <span className="tag" style={{ marginLeft: 6 }}>{carrierLabel(r.carrier)}</span>} <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
                   <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{best ? `${best.ip}${best.colo ? ` · ${best.colo}` : ''} · ${Math.round(best.latencyMs)} ms${best.speed ? ` · ${best.speed.toFixed(1)} MB/s` : ''}${best.loss > 0 ? ` · ${t('丢包')} ${Math.round(best.loss * 100)}%` : ''}` : '—'} <span className="sub">{t('共 {n} 个', { n: r.ips.length })}</span></div>
                 </div>
-                <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await del(`/cdn-profiles/${p.id}/ip-reports/${encodeURIComponent(r.source)}`); onChanged() }, t('已移除'))}>{t('移除')}</button>
+                <button className="btn sm" type="button" disabled={busy} onClick={() => remove(r.source)}>{t('移除')}</button>
               </div>
             )
-          })}</div>
+          })}
+          {waiting.map((w) => (
+            <div key={'w-' + w.source} className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
+              <div style={{ minWidth: 0 }}>
+                <div><b>{w.source}</b> <span className="tag warn" style={{ marginLeft: 6 }}>{t('等待首次上报')}</span></div>
+                <div className="sub">{t('{when}生成安装命令', { when: ago(w.createdAt) })}{w.lastUsedAt ? ' · ' + t('最近连接 {when}', { when: ago(w.lastUsedAt) }) : ''}</div>
+              </div>
+              <button className="btn sm" type="button" disabled={busy} onClick={() => remove(w.source)}>{t('移除')}</button>
+            </div>
+          ))}</div>
         )}
-        <ProbeInstall profile={p} />
+        <ProbeInstall profile={p} onPaired={onChanged} />
       </section>
     </>
   )
@@ -655,16 +672,53 @@ export default function Chains() {
   )
 }
 
-// ProbeInstall shows the one-line installer for a cf-ip-probe speed-test
-// point; the admin fills in a cdn:ips:write token and the point's name.
-function ProbeInstall({ profile: p }: { profile: CDNProfile }) {
+// ProbeInstall pairs a cf-ip-probe speed-test point: the panel creates a
+// token that may only report for this profile under this name, and shows the
+// complete install command once.
+function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired: () => void }) {
+  const [source, setSource] = useState('')
+  const [carrier, setCarrier] = useState('')
+  const [made, setMade] = useState<{ source: string; token: string; mirror: string } | null>(null)
+  const { busy, run } = useAction()
+  const toast = useToast()
   const apiUrl = new URL(API, window.location.href).href
-  const cmd = `curl -fsSL https://github.com/cuijianzhuang/polaris-plugins/releases/latest/download/install.sh | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}>`
+  const script = 'https://github.com/cuijianzhuang/polaris-plugins/releases/latest/download/install.sh'
+  const q = (v: string) => /^[A-Za-z0-9._:/@-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`
+  const cmd = made && [
+    `curl -fsSL ${made.mirror ? made.mirror + '/' : ''}${script} | sudo sh -s --`,
+    `--api ${q(apiUrl)} --profile ${p.id} --host ${q(p.originDomain)}`,
+    `--token ${made.token} --source ${q(made.source)}`,
+    carrier ? `--carrier ${carrier}` : '',
+    made.mirror ? `--mirror ${q(made.mirror + '/')}` : '',
+  ].filter(Boolean).join(' ')
+  const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}>`
   return (
-    <details style={{ marginTop: 10 }}>
+    <details style={{ marginTop: 10 }} open={!!made}>
       <summary className="sub" style={{ cursor: 'pointer' }}>{t('添加测速点（一键安装 cf-ip-probe）')}</summary>
-      <div className="sub" style={{ margin: '8px 0' }}>{t('在用户所在地区的 Linux 机器（国内 VPS、树莓派、OpenWrt 路由器）上以 root 运行。令牌在「扩展 → API 令牌」创建，只勾「上报 CDN 优选 IP」；测速点名称例如「上海电信」。OpenWrt 上去掉 sudo。')}</div>
-      <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><code className="small" style={{ flex: 1, wordBreak: 'break-all' }}>{cmd}</code><button className="btn sm" type="button" onClick={() => copyText(cmd)}>{t('复制')}</button></div>
+      <div className="sub" style={{ margin: '8px 0' }}>{t('填写测速点名称，面板会生成一个只能给这个配置档、以这个名称上报的专用令牌，并给出完整的安装命令。在用户所在地区的 Linux 机器（国内 VPS、树莓派、OpenWrt 路由器）上以 root 运行；OpenWrt 上去掉 sudo。')}</div>
+      {!made ? (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <input className="input" style={{ flex: '1 1 160px', minWidth: 0 }} value={source} maxLength={40} placeholder={t('测速点名称，例如 上海电信')} aria-label={t('测速点名称')} onChange={(e) => setSource(e.target.value)} />
+          <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={carrier} aria-label={t('运营商')} onChange={(e) => setCarrier(e.target.value)}>
+            <option value="">{t('运营商：从名称识别')}</option>
+            <option value="ct">{t('电信')}</option><option value="cu">{t('联通')}</option><option value="cm">{t('移动')}</option>
+          </select>
+          <button className="btn sm pri" type="button" disabled={busy || !source.trim()} onClick={() => run(async () => {
+            const r = await post<{ source: string; token: string; mirror: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim() })
+            setMade(r); onPaired()
+          })}>{t('生成安装命令')}</button>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <div className="note warn small">{t('命令里含有专用令牌，只显示这一次。再次生成同名测速点会让旧令牌失效。')}</div>
+          <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><code className="small" style={{ flex: 1, wordBreak: 'break-all' }}>{cmd}</code><button className="btn sm" type="button" onClick={async () => { await copyText(cmd!); toast(t('已复制')) }}>{t('复制')}</button></div>
+          <div><button className="btn sm" type="button" onClick={() => { setMade(null); setSource(''); setCarrier('') }}>{t('再添加一个')}</button></div>
+        </div>
+      )}
+      <details style={{ marginTop: 8 }}>
+        <summary className="hint" style={{ cursor: 'pointer' }}>{t('使用已有的 API 令牌')}</summary>
+        <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start', marginTop: 6 }}><code className="small" style={{ flex: 1, wordBreak: 'break-all' }}>{manual}</code><button className="btn sm" type="button" onClick={() => copyText(manual)}>{t('复制')}</button></div>
+      </details>
     </details>
   )
 }
