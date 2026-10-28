@@ -283,10 +283,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		}
 		n := base
 		n.Server = p.OriginDomain
-		n.Port = 443
-		if len(p.Ports.V) > 0 {
-			n.Port = p.Ports.V[0]
-		}
+		n.Port = cdnNodePort(&p, m.Port)
 		if n.TLS.Type == model.SecNone || n.TLS.Type == "" {
 			n.TLS = model.ClientTLS{Type: model.SecTLS}
 		}
@@ -431,4 +428,25 @@ func (s *Server) agentSHA(arch string) string {
 	sum := hex.EncodeToString(h.Sum(nil))
 	agentSHACache.Store(p, shaEntry{fi.ModTime(), fi.Size(), sum})
 	return sum
+}
+
+// cloudflareProxiedPorts are the ports Cloudflare proxies; it connects to
+// the origin on the same port the client used.
+var cloudflareProxiedPorts = map[int]bool{443: true, 2053: true, 2083: true, 2087: true, 2096: true, 8443: true,
+	80: true, 8080: true, 8880: true, 2052: true, 2082: true, 2086: true, 2095: true}
+
+// cdnNodePort is the port clients use for an inbound behind a CDN profile.
+// With Caddy fronting, the profile's first port is Caddy's public port. Else
+// the CDN keeps the port, so an inbound listening on a port the CDN proxies
+// is reached on that same port; only an inbound on another port (relying on
+// the CDN rewriting the origin port) uses the profile's first port.
+func cdnNodePort(p *store.CDNProfile, inboundPort int) int {
+	first := 443
+	if len(p.Ports.V) > 0 {
+		first = p.Ports.V[0]
+	}
+	if p.CaddyFronting || !cloudflareProxiedPorts[inboundPort] {
+		return first
+	}
+	return inboundPort
 }
