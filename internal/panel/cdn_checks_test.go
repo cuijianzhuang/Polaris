@@ -20,9 +20,9 @@ func TestCDNPortProblem(t *testing.T) {
 		bad    bool
 	}{
 		{grpc(443), cf, 0, false},
-		{grpc(2087), cf, 0, true},                // CF keeps the client on 2087
-		{grpc(31000), cf, 0, false},              // not a CF port: clients use the profile's 443
-		{grpc(2087), cf, 443, false},             // endpoint override
+		{grpc(2087), cf, 0, true},    // CF keeps the client on 2087
+		{grpc(31000), cf, 0, false},  // not a CF port: clients use the profile's 443
+		{grpc(2087), cf, 443, false}, // endpoint override
 		{grpc(2087), &store.CDNProfile{Provider: "cloudflare", CaddyFronting: true, Ports: store.NewJSON([]int{443})}, 0, false},
 		{grpc(2087), &store.CDNProfile{Provider: "other", Ports: store.NewJSON([]int{443})}, 0, false},
 		{&model.Inbound{Port: 2087, Transport: model.TransportSpec{Type: model.TransWS}}, cf, 0, false},
