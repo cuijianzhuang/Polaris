@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
 )
@@ -231,14 +232,14 @@ func TestNodeProbePolicyRollbackAndBackup(t *testing.T) {
 	if count != 1 {
 		t.Fatal("failed policy update erased history")
 	}
-	tables, _, err := exportAll(s.st.DB)
+	tables, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", "n").Update("probe_mode", "off").Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return importAll(tx, tables, func(v string) string { return v }) }); err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error { return backupfmt.ImportAll(tx, tables, func(v string) string { return v }) }); err != nil {
 		t.Fatal(err)
 	}
 	var restored store.Node

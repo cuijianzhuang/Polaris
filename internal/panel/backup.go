@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -32,7 +34,7 @@ import (
 const (
 	backupDir  = "backups"
 	restoreDir = "restore-pending"
-	maxUpload  = 512 << 20
+	maxUpload  = backupfmt.MaxArchiveBytes
 )
 
 var backupNameRe = regexp.MustCompile(`^polaris-\d{8}-\d{6}(-[a-z]+)?\.tar\.gz(\.enc)?$`)
@@ -179,11 +181,11 @@ func stagedPath(dataDir string) string { return filepath.Join(dataDir, restoreDi
 
 // stageRestore reads and checks an archive, then stages it for the next start.
 func (s *Server) stageRestore(r io.Reader, pass string) error {
-	arc, err := readArchive(r, pass, s.st.Box)
+	arc, err := backupfmt.ReadArchive(r, pass, s.st.Box)
 	if err != nil {
 		return err
 	}
-	if err := arc.validate(s.st.Box); err != nil {
+	if err := arc.Validate(s.st.Box); err != nil {
 		return err
 	}
 	dir := filepath.Join(s.cfg.DataDir, restoreDir)
@@ -214,7 +216,7 @@ func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog
 	if err != nil {
 		return false
 	}
-	var arc backupArchive
+	var arc backupfmt.Archive
 	err = gob.NewDecoder(f).Decode(&arc)
 	f.Close()
 	defer os.RemoveAll(filepath.Dir(path))
@@ -414,7 +416,7 @@ func (s *Server) backupRestore(c *gin.Context) {
 		r, src = f, "upload: "+fh.Filename
 	}
 	if err := s.stageRestore(r, pass); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "needPassphrase": errors.Is(err, errNeedPassphrase) || errors.Is(err, errBadPassphrase)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "needPassphrase": errors.Is(err, backupfmt.ErrNeedPassphrase) || errors.Is(err, backupfmt.ErrBadPassphrase)})
 		return
 	}
 	s.auditCtx(c, "backup.restore", src, "restarting")
@@ -444,4 +446,60 @@ func (s *Server) restart() {
 		s.log.Error("re-exec failed, exiting for the supervisor to restart", "err", err)
 	}
 	os.Exit(0)
+}
+
+// restoreArchive replaces the database (and CA files in dataDir) with the
+// archive's, all or nothing for the database.
+func restoreArchive(st *store.Store, dataDir string, arc *backupfmt.Archive, box *secret.Box) error {
+	src, err := arc.SourceBox(box)
+	if err != nil {
+		return err
+	}
+	reseal := backupfmt.Resealer(src, box)
+	memberID, err := loadMemberID(dataDir)
+	if err != nil {
+		return err
+	}
+	if err := st.DB.Transaction(func(tx *gorm.DB) error {
+		if e := backupfmt.ImportAll(tx, arc.Tables, reseal); e != nil {
+			return e
+		}
+		// Authentication challenges must never be revived from a backup.
+		if e := tx.Where("name LIKE ?", "passkey:%").Delete(&store.EphemeralKV{}).Error; e != nil {
+			return e
+		}
+		// A database rollback must not revive spent account recovery secrets or
+		// sessions established with a passkey. Administrators regenerate codes after restore.
+		if e := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.AccountRecoveryCode{}).Error; e != nil {
+			return e
+		}
+		if e := tx.Model(&store.AdminSession{}).Where("via = ?", "passkey").Update("revoked", true).Error; e != nil {
+			return e
+		}
+		if e := store.SealLegacySubSources(tx, box); e != nil {
+			return e
+		}
+		if tx.Dialector.Name() == "postgres" {
+			now := time.Now()
+			_, e := saveClusterOperation(tx, store.ClusterOperation{ID: store.NewID(), Kind: "restore", CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}, memberID, "", false)
+			return e
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if arc.CACert != nil {
+		if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), arc.CACert, 0o644); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dataDir, "ca.key"), []byte(reseal(string(arc.CAKey))), 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeArchive is backupfmt.WriteArchive stamped with this panel's version.
+func writeArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass string) error {
+	return backupfmt.WriteArchive(w, st, dataDir, secretKey, pass, Version)
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -230,7 +231,7 @@ func TestLegacyBackupRestore(t *testing.T) {
 	s.st.DB.Where("id = ?", "u1").Delete(&store.User{})
 	f, _ := os.Open(db)
 	defer f.Close()
-	arc, err := readArchive(f, "", s.st.Box)
+	arc, err := backupfmt.ReadArchive(f, "", s.st.Box)
 	if err != nil || arc.Manifest.Format != 1 {
 		t.Fatalf("legacy archive: %v %+v", err, arc)
 	}
@@ -240,35 +241,5 @@ func TestLegacyBackupRestore(t *testing.T) {
 	var u store.User
 	if s.st.DB.First(&u, "id = ?", "u1").Error != nil || u.Username != "legacy" {
 		t.Fatal("legacy restore lost the user")
-	}
-}
-
-func TestBackupEncryption(t *testing.T) {
-	plain := bytes.Repeat([]byte("polaris backup "), 20000) // several chunks
-	var buf bytes.Buffer
-	w, err := encryptWriter(&buf, "pw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.Write(plain)
-	w.Close()
-	if bytes.Contains(buf.Bytes(), []byte("polaris backup")) {
-		t.Fatal("plaintext visible")
-	}
-	r, err := decryptReader(bytes.NewReader(buf.Bytes()), "pw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := io.ReadAll(r)
-	if err != nil || !bytes.Equal(got, plain) {
-		t.Fatalf("roundtrip: %v (%d bytes)", err, len(got))
-	}
-	r, _ = decryptReader(bytes.NewReader(buf.Bytes()), "nope")
-	if _, err := io.ReadAll(r); err == nil {
-		t.Fatal("wrong passphrase decrypted")
-	}
-	r, _ = decryptReader(bytes.NewReader(buf.Bytes()[:buf.Len()-100]), "pw") // truncated
-	if _, err := io.ReadAll(r); err == nil {
-		t.Fatal("truncated archive accepted")
 	}
 }

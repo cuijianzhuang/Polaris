@@ -1,4 +1,7 @@
-package panel
+// Package backupfmt reads and writes Polaris backup archives: a logical
+// export of every table, optionally encrypted with a passphrase, that
+// restores into SQLite or PostgreSQL alike.
+package backupfmt
 
 import (
 	"archive/tar"
@@ -47,16 +50,18 @@ import (
 // one. Format 1 archives (a SQLite file) are converted on restore.
 
 const (
-	backupFormat = 2
-	encMagic     = "PLRSENC1"
-	encChunk     = 64 << 10
-	exportBatch  = 1000
+	// MaxArchiveBytes bounds an archive read into memory.
+	MaxArchiveBytes = 512 << 20
+	Format          = 2
+	encMagic        = "PLRSENC1"
+	encChunk        = 64 << 10
+	exportBatch     = 1000
 )
 
 var (
-	errNeedPassphrase = errors.New("这是加密备份，请输入备份口令")
-	errBadPassphrase  = errors.New("备份口令错误，或文件已损坏")
-	sealedRe          = regexp.MustCompile(`enc:v1:[A-Za-z0-9+/]+`)
+	ErrNeedPassphrase = errors.New("这是加密备份，请输入备份口令")
+	ErrBadPassphrase  = errors.New("备份口令错误，或文件已损坏")
+	SealedValue       = regexp.MustCompile(`enc:v1:[A-Za-z0-9+/]+`)
 )
 
 func init() {
@@ -64,7 +69,7 @@ func init() {
 	gob.Register([]byte(nil))
 }
 
-type backupManifest struct {
+type Manifest struct {
 	Format  int            `json:"format"`
 	Created time.Time      `json:"created"`
 	Version string         `json:"version"`
@@ -75,7 +80,7 @@ type backupManifest struct {
 
 // --- rows ---
 
-func tableSchema(db *gorm.DB, model any) (*schema.Schema, error) {
+func TableSchema(db *gorm.DB, model any) (*schema.Schema, error) {
 	stmt := &gorm.Statement{DB: db}
 	if err := stmt.Parse(model); err != nil {
 		return nil, err
@@ -127,9 +132,9 @@ func columnValue(f *schema.Field, v any) (any, error) {
 	return nil, fmt.Errorf("%s: unsupported column type %T", f.DBName, v)
 }
 
-// exportTable streams a table as batches of column maps.
-func exportTable(db *gorm.DB, model any, emit func([]map[string]any) error) (int, error) {
-	sch, err := tableSchema(db, model)
+// ExportTable streams a table as batches of column maps.
+func ExportTable(db *gorm.DB, model any, emit func([]map[string]any) error) (int, error) {
+	sch, err := TableSchema(db, model)
 	if err != nil {
 		return 0, err
 	}
@@ -182,8 +187,8 @@ func exportTable(db *gorm.DB, model any, emit func([]map[string]any) error) (int
 	}
 }
 
-// exportAll dumps every table: name -> gob stream of row batches.
-func exportAll(db *gorm.DB) (files map[string][]byte, counts map[string]int, err error) {
+// ExportAll dumps every table: name -> gob stream of row batches.
+func ExportAll(db *gorm.DB) (files map[string][]byte, counts map[string]int, err error) {
 	// One snapshot covers every table and page. PostgreSQL's default READ
 	// COMMITTED would still permit a different snapshot for each SELECT.
 	opts := &sql.TxOptions{ReadOnly: true}
@@ -192,25 +197,25 @@ func exportAll(db *gorm.DB) (files map[string][]byte, counts map[string]int, err
 	}
 	err = db.Transaction(func(tx *gorm.DB) error {
 		var e error
-		files, counts, e = exportSnapshot(tx)
+		files, counts, e = ExportSnapshot(tx)
 		return e
 	}, opts)
 	return
 }
 
-func exportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
+func ExportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
 	files, counts := map[string][]byte{}, map[string]int{}
 	for _, m := range store.AllModels() {
-		if runtimeControlModel(m) {
+		if RuntimeControlModel(m) {
 			continue
 		}
-		sch, err := tableSchema(db, m)
+		sch, err := TableSchema(db, m)
 		if err != nil {
 			return nil, nil, err
 		}
 		var buf bytes.Buffer
 		enc := gob.NewEncoder(&buf)
-		n, err := exportTable(db, m, func(rows []map[string]any) error { return enc.Encode(rows) })
+		n, err := ExportTable(db, m, func(rows []map[string]any) error { return enc.Encode(rows) })
 		if err != nil {
 			return nil, nil, fmt.Errorf("导出 %s 失败: %w", sch.Table, err)
 		}
@@ -219,10 +224,10 @@ func exportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
 	return files, counts, nil
 }
 
-// importAll replaces every table's rows with the archive's, re-sealing
+// ImportAll replaces every table's rows with the archive's, re-sealing
 // secrets with reseal. Columns the current schema lacks are dropped; tables
 // the archive lacks end up empty.
-func importAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string) error {
+func ImportAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string) error {
 	for _, m := range store.AllModels() {
 		switch m.(type) {
 		case *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteScheduleState:
@@ -231,10 +236,10 @@ func importAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string
 			}
 			continue
 		}
-		if runtimeControlModel(m) {
+		if RuntimeControlModel(m) {
 			continue
 		}
-		sch, err := tableSchema(tx, m)
+		sch, err := TableSchema(tx, m)
 		if err != nil {
 			return err
 		}
@@ -272,21 +277,21 @@ func importAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string
 					}
 				}
 			}
-			if _, err := insertRows(tx, m, sch, rows); err != nil {
+			if _, err := InsertRows(tx, m, sch, rows); err != nil {
 				return err
 			}
 		}
-		if err := resetSequences(tx, sch); err != nil {
+		if err := ResetSequences(tx, sch); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// insertRows writes exported rows into tx. Text longer than a column's
+// InsertRows writes exported rows into tx. Text longer than a column's
 // size is cut to fit when the target enforces sizes (PostgreSQL; SQLite
 // never did); the cut columns are returned as "table.column".
-func insertRows(tx *gorm.DB, m any, sch *schema.Schema, rows []map[string]any) ([]string, error) {
+func InsertRows(tx *gorm.DB, m any, sch *schema.Schema, rows []map[string]any) ([]string, error) {
 	var cut []string
 	if tx.Dialector.Name() == "postgres" {
 		seen := map[string]bool{}
@@ -321,9 +326,9 @@ func insertRows(tx *gorm.DB, m any, sch *schema.Schema, rows []map[string]any) (
 	return cut, nil
 }
 
-// resetSequences moves PostgreSQL serial sequences past the copied ids
+// ResetSequences moves PostgreSQL serial sequences past the copied ids
 // (explicit ids leave them behind).
-func resetSequences(tx *gorm.DB, sch *schema.Schema) error {
+func ResetSequences(tx *gorm.DB, sch *schema.Schema) error {
 	if tx.Dialector.Name() != "postgres" {
 		return nil
 	}
@@ -341,8 +346,8 @@ func resetSequences(tx *gorm.DB, sch *schema.Schema) error {
 	return nil
 }
 
-// resealer re-encrypts values sealed with from so that to opens them.
-func resealer(from, to *secret.Box) func(string) string {
+// Resealer re-encrypts values sealed with from so that to opens them.
+func Resealer(from, to *secret.Box) func(string) string {
 	if from == to {
 		return func(s string) string { return s }
 	}
@@ -350,7 +355,7 @@ func resealer(from, to *secret.Box) func(string) string {
 		if !strings.Contains(s, "enc:v1:") {
 			return s
 		}
-		return sealedRe.ReplaceAllStringFunc(s, func(m string) string {
+		return SealedValue.ReplaceAllStringFunc(s, func(m string) string {
 			if pt, err := from.Open(m); err == nil {
 				return to.Seal(pt)
 			}
@@ -381,9 +386,9 @@ type encWriter struct {
 	buf    []byte
 }
 
-// encryptWriter wraps w: magic, salt, nonce prefix, then sealed chunks
+// EncryptWriter wraps w: magic, salt, nonce prefix, then sealed chunks
 // (length-prefixed; the last one is marked in its additional data).
-func encryptWriter(w io.Writer, pass string) (io.WriteCloser, error) {
+func EncryptWriter(w io.Writer, pass string) (io.WriteCloser, error) {
 	salt := make([]byte, 16)
 	e := &encWriter{w: w}
 	if _, err := rand.Read(salt); err != nil {
@@ -457,7 +462,7 @@ func (d *decReader) Read(p []byte) (int, error) {
 		}
 		n := binary.BigEndian.Uint32(l[:])
 		if n > encChunk+64 {
-			return 0, errBadPassphrase
+			return 0, ErrBadPassphrase
 		}
 		ct := make([]byte, n)
 		if _, err := io.ReadFull(d.r, ct); err != nil {
@@ -467,7 +472,7 @@ func (d *decReader) Read(p []byte) (int, error) {
 		pt, err := d.enc.aead.Open(nil, nonce, ct, []byte{0})
 		if err != nil {
 			if pt, err = d.enc.aead.Open(nil, nonce, ct, []byte{1}); err != nil {
-				return 0, errBadPassphrase
+				return 0, ErrBadPassphrase
 			}
 			d.done = true
 		}
@@ -479,14 +484,14 @@ func (d *decReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// decryptReader undoes encryptWriter; r must start at the magic.
-func decryptReader(r io.Reader, pass string) (io.Reader, error) {
+// DecryptReader undoes EncryptWriter; r must start at the magic.
+func DecryptReader(r io.Reader, pass string) (io.Reader, error) {
 	head := make([]byte, len(encMagic)+16+4)
 	if _, err := io.ReadFull(r, head); err != nil || string(head[:len(encMagic)]) != encMagic {
 		return nil, errors.New("不是加密备份")
 	}
 	if pass == "" {
-		return nil, errNeedPassphrase
+		return nil, ErrNeedPassphrase
 	}
 	aead, err := backupKey(pass, head[len(encMagic):len(encMagic)+16])
 	if err != nil {
@@ -500,25 +505,25 @@ func decryptReader(r io.Reader, pass string) (io.Reader, error) {
 
 // --- archives ---
 
-type backupArchive struct {
-	Manifest backupManifest
+type Archive struct {
+	Manifest Manifest
 	Tables   map[string][]byte
 	CACert   []byte
 	CAKey    []byte
 	Key      string // secret key of the source panel (encrypted archives)
 }
 
-// writeArchive writes a format-2 archive of st (and the CA in dataDir) to w,
+// WriteArchive writes a format-2 archive of st (and the CA in dataDir) to w,
 // encrypted when pass is set.
-func writeArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass string) error {
-	tables, counts, err := exportAll(st.DB)
+func WriteArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass, version string) error {
+	tables, counts, err := ExportAll(st.DB)
 	if err != nil {
 		return err
 	}
 	out := io.Writer(w)
 	var ew io.WriteCloser
 	if pass != "" {
-		if ew, err = encryptWriter(w, pass); err != nil {
+		if ew, err = EncryptWriter(w, pass); err != nil {
 			return err
 		}
 		out = ew
@@ -532,7 +537,7 @@ func writeArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass string)
 		_, err := tw.Write(b)
 		return err
 	}
-	man, _ := json.MarshalIndent(backupManifest{Format: backupFormat, Created: time.Now(), Version: Version,
+	man, _ := json.MarshalIndent(Manifest{Format: Format, Created: time.Now(), Version: version,
 		DB: st.DB.Dialector.Name(), Tables: counts, WithKey: pass != ""}, "", "  ")
 	if err := add("manifest.json", man); err != nil {
 		return err
@@ -566,13 +571,13 @@ func writeArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass string)
 	return nil
 }
 
-// readArchive reads a backup (encrypted or not, format 1 or 2) into memory.
-func readArchive(r io.Reader, pass string, box *secret.Box) (*backupArchive, error) {
+// ReadArchive reads a backup (encrypted or not, format 1 or 2) into memory.
+func ReadArchive(r io.Reader, pass string, box *secret.Box) (*Archive, error) {
 	head := make([]byte, 16)
 	n, _ := io.ReadFull(r, head)
-	r = io.MultiReader(bytes.NewReader(head[:n]), io.LimitReader(r, maxUpload))
+	r = io.MultiReader(bytes.NewReader(head[:n]), io.LimitReader(r, MaxArchiveBytes))
 	if n >= len(encMagic) && string(head[:len(encMagic)]) == encMagic {
-		dr, err := decryptReader(r, pass)
+		dr, err := DecryptReader(r, pass)
 		if err != nil {
 			return nil, err
 		}
@@ -601,11 +606,11 @@ func readArchive(r io.Reader, pass string, box *secret.Box) (*backupArchive, err
 			if h.Typeflag != tar.TypeReg {
 				continue
 			}
-			b, err := io.ReadAll(io.LimitReader(tr, maxUpload))
+			b, err := io.ReadAll(io.LimitReader(tr, MaxArchiveBytes))
 			if err != nil {
 				return nil, fmt.Errorf("解压失败: %w", err)
 			}
-			if total += len(b); total > maxUpload {
+			if total += len(b); total > MaxArchiveBytes {
 				return nil, errors.New("备份过大")
 			}
 			files[h.Name] = b
@@ -619,7 +624,7 @@ func readArchive(r io.Reader, pass string, box *secret.Box) (*backupArchive, err
 	default:
 		return nil, errors.New("不是 Polaris 备份文件")
 	}
-	arc := &backupArchive{CACert: files["ca.crt"], CAKey: files["ca.key"], Key: string(files["secret.key"]), Tables: map[string][]byte{}}
+	arc := &Archive{CACert: files["ca.crt"], CAKey: files["ca.key"], Key: string(files["secret.key"]), Tables: map[string][]byte{}}
 	if (arc.CACert == nil) != (arc.CAKey == nil) {
 		return nil, errors.New("备份中的 CA 证书不完整")
 	}
@@ -628,7 +633,7 @@ func readArchive(r io.Reader, pass string, box *secret.Box) (*backupArchive, err
 		if err != nil {
 			return nil, err
 		}
-		arc.Tables, arc.Manifest = tables, backupManifest{Format: 1, DB: "sqlite", Tables: counts}
+		arc.Tables, arc.Manifest = tables, Manifest{Format: 1, DB: "sqlite", Tables: counts}
 		return arc, nil
 	}
 	man, ok := files["manifest.json"]
@@ -638,7 +643,7 @@ func readArchive(r io.Reader, pass string, box *secret.Box) (*backupArchive, err
 	if err := json.Unmarshal(man, &arc.Manifest); err != nil {
 		return nil, fmt.Errorf("备份清单损坏: %w", err)
 	}
-	if arc.Manifest.Format > backupFormat {
+	if arc.Manifest.Format > Format {
 		return nil, fmt.Errorf("备份来自更新版本的面板（格式 %d），请先升级面板", arc.Manifest.Format)
 	}
 	for name, b := range files {
@@ -668,12 +673,12 @@ func convertLegacyDB(db []byte, box *secret.Box) (map[string][]byte, map[string]
 	if st.DB.Raw("PRAGMA integrity_check").Scan(&check); check != "ok" {
 		return nil, nil, fmt.Errorf("数据库已损坏: %s", check)
 	}
-	return exportAll(st.DB)
+	return ExportAll(st.DB)
 }
 
-// sourceBox is the box that opens the archive's sealed values: its own key
+// SourceBox is the box that opens the archive's sealed values: its own key
 // when it carries one, else this panel's — checked against the CA key.
-func (arc *backupArchive) sourceBox(box *secret.Box) (*secret.Box, error) {
+func (arc *Archive) SourceBox(box *secret.Box) (*secret.Box, error) {
 	src := box
 	if arc.Key != "" {
 		b, err := secret.New(arc.Key)
@@ -690,9 +695,9 @@ func (arc *backupArchive) sourceBox(box *secret.Box) (*secret.Box, error) {
 	return src, nil
 }
 
-// validate checks an archive can be restored into this panel.
-func (arc *backupArchive) validate(box *secret.Box) error {
-	if _, err := arc.sourceBox(box); err != nil {
+// Validate checks an archive can be restored into this panel.
+func (arc *Archive) Validate(box *secret.Box) error {
+	if _, err := arc.SourceBox(box); err != nil {
 		return err
 	}
 	if len(arc.Tables["admins"]) == 0 {
@@ -701,58 +706,7 @@ func (arc *backupArchive) validate(box *secret.Box) error {
 	return nil
 }
 
-// restoreArchive replaces the database (and CA files in dataDir) with the
-// archive's, all or nothing for the database.
-func restoreArchive(st *store.Store, dataDir string, arc *backupArchive, box *secret.Box) error {
-	src, err := arc.sourceBox(box)
-	if err != nil {
-		return err
-	}
-	reseal := resealer(src, box)
-	memberID, err := loadMemberID(dataDir)
-	if err != nil {
-		return err
-	}
-	if err := st.DB.Transaction(func(tx *gorm.DB) error {
-		if e := importAll(tx, arc.Tables, reseal); e != nil {
-			return e
-		}
-		// Authentication challenges must never be revived from a backup.
-		if e := tx.Where("name LIKE ?", "passkey:%").Delete(&store.EphemeralKV{}).Error; e != nil {
-			return e
-		}
-		// A database rollback must not revive spent account recovery secrets or
-		// sessions established with a passkey. Administrators regenerate codes after restore.
-		if e := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.AccountRecoveryCode{}).Error; e != nil {
-			return e
-		}
-		if e := tx.Model(&store.AdminSession{}).Where("via = ?", "passkey").Update("revoked", true).Error; e != nil {
-			return e
-		}
-		if e := store.SealLegacySubSources(tx, box); e != nil {
-			return e
-		}
-		if tx.Dialector.Name() == "postgres" {
-			now := time.Now()
-			_, e := saveClusterOperation(tx, store.ClusterOperation{ID: store.NewID(), Kind: "restore", CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}, memberID, "", false)
-			return e
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-	if arc.CACert != nil {
-		if err := os.WriteFile(filepath.Join(dataDir, "ca.crt"), arc.CACert, 0o644); err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(dataDir, "ca.key"), []byte(reseal(string(arc.CAKey))), 0o600); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func runtimeControlModel(m any) bool {
+func RuntimeControlModel(m any) bool {
 	switch m.(type) {
 	case *store.RestoreDrill, *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus, *store.NotificationState, *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteScheduleState, *store.UpgradeRollout:
 		return true

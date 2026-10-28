@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -58,7 +59,7 @@ func TestRestoreDrillIsolatedEncryptedAndRecorded(t *testing.T) {
 	}
 	// Drill history must neither travel inside a business backup nor disappear
 	// when a production restore imports older business tables.
-	files, _, err := exportAll(s.st.DB)
+	files, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestRestoreDrillIsolatedEncryptedAndRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	arc, err := readArchive(f, "synthetic backup passphrase", s.st.Box)
+	arc, err := backupfmt.ReadArchive(f, "synthetic backup passphrase", s.st.Box)
 	if err != nil {
 		t.Fatal(err)
 	}

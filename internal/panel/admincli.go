@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/secret"
@@ -154,11 +155,11 @@ func Restore(cfg *Config, path, pass string) (string, error) {
 		return "", err
 	}
 	defer st.Close()
-	arc, err := readArchive(f, pass, st.Box)
+	arc, err := backupfmt.ReadArchive(f, pass, st.Box)
 	if err != nil {
 		return "", err
 	}
-	if err := arc.validate(st.Box); err != nil {
+	if err := arc.Validate(st.Box); err != nil {
 		return "", err
 	}
 	snap := filepath.Join(cfg.DataDir, backupDir, backupName("prerestore", false))

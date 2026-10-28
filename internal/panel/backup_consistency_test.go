@@ -3,6 +3,7 @@ package panel
 import (
 	"bytes"
 	"encoding/gob"
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"io"
 	"sync"
 	"testing"
@@ -32,7 +33,7 @@ func TestBackupConsistentTrafficSnapshot(t *testing.T) {
 		if settleErr != nil {
 			t.Fatal(settleErr)
 		}
-		arc, e := readArchive(bytes.NewReader(archive.Bytes()), "", a.st.Box)
+		arc, e := backupfmt.ReadArchive(bytes.NewReader(archive.Bytes()), "", a.st.Box)
 		if e != nil {
 			t.Fatal(e)
 		}

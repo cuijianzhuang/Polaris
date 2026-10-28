@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
 )
@@ -69,7 +70,7 @@ func TestBackupDoesNotReplayRuntimeOperations(t *testing.T) {
 	if e = writeArchive(&raw, s.st, s.cfg.DataDir, s.cfg.SecretKey, ""); e != nil {
 		t.Fatal(e)
 	}
-	arc, e := readArchive(bytes.NewReader(raw.Bytes()), "", s.st.Box)
+	arc, e := backupfmt.ReadArchive(bytes.NewReader(raw.Bytes()), "", s.st.Box)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -95,7 +96,7 @@ func TestRestoreCommitsClusterOperationAtomically(t *testing.T) {
 	if e := writeArchive(&raw, a.st, a.cfg.DataDir, a.cfg.SecretKey, ""); e != nil {
 		t.Fatal(e)
 	}
-	arc, e := readArchive(bytes.NewReader(raw.Bytes()), "", a.st.Box)
+	arc, e := backupfmt.ReadArchive(bytes.NewReader(raw.Bytes()), "", a.st.Box)
 	if e != nil {
 		t.Fatal(e)
 	}

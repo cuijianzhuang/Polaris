@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -68,7 +69,7 @@ func Migrate(cfg *Config, targetDSN string, replace bool) (*MigrateResult, error
 				return nil, err
 			}
 			if n > 0 {
-				sch, _ := tableSchema(dst.DB, m)
+				sch, _ := backupfmt.TableSchema(dst.DB, m)
 				return nil, fmt.Errorf("目标数据库已有数据（%s 表 %d 行）；确认要覆盖请加 -replace", sch.Table, n)
 			}
 		}
@@ -77,15 +78,15 @@ func Migrate(cfg *Config, targetDSN string, replace bool) (*MigrateResult, error
 	res := &MigrateResult{}
 	err = dst.DB.Transaction(func(tx *gorm.DB) error {
 		for _, m := range store.AllModels() {
-			sch, err := tableSchema(tx, m)
+			sch, err := backupfmt.TableSchema(tx, m)
 			if err != nil {
 				return err
 			}
 			if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(m).Error; err != nil {
 				return fmt.Errorf("清空 %s 失败: %w", sch.Table, err)
 			}
-			n, err := exportTable(src.DB, m, func(rows []map[string]any) error {
-				cut, err := insertRows(tx, m, sch, rows)
+			n, err := backupfmt.ExportTable(src.DB, m, func(rows []map[string]any) error {
+				cut, err := backupfmt.InsertRows(tx, m, sch, rows)
 				res.Truncated = appendNew(res.Truncated, cut...)
 				return err
 			})
@@ -93,13 +94,13 @@ func Migrate(cfg *Config, targetDSN string, replace bool) (*MigrateResult, error
 				return fmt.Errorf("复制 %s 失败: %w", sch.Table, err)
 			}
 			res.Rows += n
-			if err := resetSequences(tx, sch); err != nil {
+			if err := backupfmt.ResetSequences(tx, sch); err != nil {
 				return err
 			}
 		}
 		// Verify inside the transaction: a mismatch leaves the target as it was.
 		for _, m := range store.AllModels() {
-			sch, _ := tableSchema(tx, m)
+			sch, _ := backupfmt.TableSchema(tx, m)
 			t := MigrateTable{Name: sch.Table}
 			if err := src.DB.Model(m).Count(&t.Source).Error; err != nil {
 				return err

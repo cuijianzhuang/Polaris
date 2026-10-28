@@ -3,6 +3,7 @@ package panel
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/cuijianzhuang/polaris/internal/backupfmt"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -201,7 +202,7 @@ func TestPasskeyChallengesDoNotSurviveBackupRestore(t *testing.T) {
 	if !s.eph.take("passkey:login:"+id, &consumed) {
 		t.Fatal("challenge not stored")
 	}
-	arc, e := readArchive(bytes.NewReader(archive.Bytes()), "archive-key", s.st.Box)
+	arc, e := backupfmt.ReadArchive(bytes.NewReader(archive.Bytes()), "archive-key", s.st.Box)
 	if e != nil {
 		t.Fatal(e)
 	}
