@@ -15,6 +15,8 @@
 
 第 4 阶段已实现：远程订阅格式、订阅节点改写、节点外部指标写入（`nodes:metrics:write`），接口说明见 [插件扩展订阅](../plugins/subscription.md)。
 
+插件市场：「扩展 → 插件市场」读取 polaris-plugins 的 `registry/index.json`（可改为自定义目录），`GET /plugin-registry` 在服务端拉取、校验并缓存 10 分钟，只接受 https 地址、1 MiB 以内的目录，并且不连私有地址（除非开启 `allow_private_sources`）。目录只用于浏览和预填安装地址，面板不下载、不运行任何程序；安装仍读取插件自己的清单并由管理员确认权限。只有默认目录可以把插件标记为「官方」。
+
 ## 仓库分工
 
 | 仓库 | 负责内容 |

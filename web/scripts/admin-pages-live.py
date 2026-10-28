@@ -7,12 +7,15 @@ from playwright.sync_api import sync_playwright
 
 url = os.environ['POLARIS_PAGES_TEST_URL'].rstrip('/')
 sub = os.environ.get('POLARIS_PAGES_TEST_SUB', '')
+# Optional: save a full-page screenshot of every page into this directory.
+shots = os.environ.get('POLARIS_PAGES_SHOTS', '')
 routes = ['/', '/stats', '/nodes', '/map', '/probe', '/cores', '/forwards', '/inbounds', '/chains', '/templates',
           '/users', '/shop', '/tickets', '/plans', '/sub-templates', '/certificates', '/settings', '/audit',
           '/convert', '/domains', '/telegram', '/costs', '/extensions', '/license',
           # Every settings tab, and the new-user drawer.
           '/settings#security', '/settings#update', '/settings#backup', '/settings#network', '/settings#notifications',
-          '/settings#mail', '/settings#appearance', '/settings#system', '/users?new=1']
+          '/settings#mail', '/settings#appearance', '/settings#system', '/users?new=1',
+          '/extensions?tab=market']
 # Messages that are not page faults: requests cancelled by navigation, the
 # live-update socket closing when the page changes, and 502-504 answers,
 # which the panel uses for an unreachable upstream (GitHub release lookups
@@ -50,6 +53,9 @@ with sync_playwright() as p:
                 failures.append(f'{label}: nothing rendered')
             for msg in problems:
                 failures.append(f'{label}: {msg}')
+            if shots:
+                name = re.sub(r'[^a-z0-9]+', '-', route.lower()).strip('-') or 'home'
+                page.screenshot(path=os.path.join(shots, f'{name}-{width}-{lang}.png'), full_page=True)
             overflow = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
             if width < 500 and overflow > 4:
                 culprits = page.evaluate('''() => {

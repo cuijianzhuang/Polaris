@@ -52,6 +52,15 @@ func TestLiveAdminPagesBrowser(t *testing.T) {
 	db.Create(&store.Ticket{No: 1, UserID: "u1", Subject: "无法连接", Status: "open"})
 	db.Create(&store.CDNProfile{ID: "cf", Name: "cf-main", OriginDomain: "cdn.example.com", Ports: store.NewJSON([]int{443}),
 		PreferredIPs: store.NewJSON([]string{"104.16.0.1"})})
+	// A plugin registry for the market tab, served locally.
+	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"version":1,"plugins":[
+		 {"id":"tcp-ping","name":"TCP 延迟上报","description":"定时 TCP 连接每个节点的入站端口，把延迟写成节点的外部指标。","author":"Polaris","repo":"https://github.com/cuijianzhuang/polaris-plugins","language":"Go","type":"plugin","kind":"example","category":"monitor","scopes":["nodes:read","nodes:metrics:write"],"deploy":{"command":"PORT=9300 go run .","port":9300}},
+		 {"id":"cf-ip-probe","name":"CDN 优选 IP 测速点","description":"在用户所在地区测 Cloudflare IP 并上报。","author":"Polaris","repo":"https://github.com/cuijianzhuang/polaris-plugins","language":"Go","type":"tool","kind":"official","category":"cdn","scopes":["cdn:ips:write"],"deploy":{"command":"curl -fsSL https://example.com/install.sh | sudo sh -s -- --api <面板 API 地址> --token <令牌>"}}]}`))
+	}))
+	defer registry.Close()
+	s.st.SetSetting("plugin_registry_url", registry.URL+"/index.json")
+	s.st.SetSetting("allow_private_sources", "true")
 
 	cmd := exec.CommandContext(t.Context(), "python3", "../../web/scripts/admin-pages-live.py")
 	cmd.Env = append(os.Environ(), "POLARIS_PAGES_TEST_URL="+srv.URL, "POLARIS_PAGES_TEST_SUB="+srv.URL+"/sub/alice-subscription-token")
