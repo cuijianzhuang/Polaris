@@ -166,6 +166,7 @@ type cdnReq struct {
 	CaddyFronting bool     `json:"caddyFronting"`
 	NodeCheck     bool     `json:"nodeCheck"`
 	StaleHours    int      `json:"staleHours"`
+	CarrierSplit  bool     `json:"carrierSplit"`
 	APIToken      string   `json:"apiToken"` // empty = unchanged
 }
 
@@ -175,7 +176,7 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		r.Ports = []int{443, 2053, 2083, 2087, 2096, 8443}
 	}
 	p.Ports, p.PreferredIPs = store.NewJSON(r.Ports), store.NewJSON(nonNilStrs(r.PreferredIPs))
-	p.NodeCheck, p.StaleHours = r.NodeCheck, min(max(r.StaleHours, 0), 24*30)
+	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
 	if !p.NodeCheck {
 		p.BadIPs = store.NewJSON([]string{})
 	}

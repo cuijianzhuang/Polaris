@@ -23,6 +23,7 @@
 <p align="center">
   <a href="#快速开始">快速开始</a> ·
   <a href="docs/user-guide.md">用户使用手册</a> ·
+  <a href="docs/README.md">文档索引</a> ·
   <a href="https://github.com/cuijianzhuang/Polaris/releases">版本下载</a> ·
   <a href="#开发">开发指南</a> ·
   <a href="https://github.com/cuijianzhuang/Polaris/issues">问题反馈</a>
@@ -37,14 +38,16 @@ Polaris 将节点、入站、用户和订阅集中在一个面板中管理。每
 | 场景 | 能力 |
 | --- | --- |
 | 节点与内核 | 一次性令牌接入、节点状态与资源监控、多内核共存、Agent 升级、内核版本切换与失败回退 |
-| 协议与入站 | VLESS、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC、AnyTLS 等；支持 REALITY、Vision、XHTTP、WS、gRPC 等组合，按内核版本校验兼容性 |
+| 协议与入站 | VLESS、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC、AnyTLS、Snell 等；支持 REALITY、Vision、XHTTP、WS、gRPC 等组合，按内核版本校验兼容性；入站模板批量生成、REALITY 目标检测 |
 | 用户与套餐 | 流量配额、固定 / 首次使用后到期、周期重置、自动续订、分组和等级授权、节点流量包、IP / HWID 限制、批量操作 |
+| 售卖与客服 | 套餐、Telegram 机器人商店与网页商店、兑换码与优惠券、易支付 / USDT / Telegram Stars 在线收款（专业版）、用户中心、邮箱注册登录、工单、到期与续费提醒 |
 | 订阅分发 | 通用链接、Clash / mihomo、sing-box、Surge、Loon、Quantumult X；订阅信息页、二维码、客户端导入、独立订阅域名 |
-| 路由与中转 | 入站模板、出站与负载均衡、全局 / 节点路由、realm / GOST 端口转发、链式代理、CDN 入口与 Caddy 回源 |
+| 路由与中转 | 出站与负载均衡（组间回退）、全局 / 节点路由、WARP 分流、realm / GOST 端口转发、一键中转（多入口、诊断）、链式代理、CDN 入口与 Caddy 回源、CDN 优选 IP（测速点上报 + 节点剔除） |
 | 节点地图 | 世界地图展示所有节点的位置与在线状态，纯内置矢量图，无需外部地图服务，离线可用 |
-| 日常运维 | 流量统计、节点和入站探测、Telegram 告警、本地定时备份与恢复、审计日志、服务器成本管理 |
-| 账号与安全 | 主控与 Agent 使用 mTLS；敏感字段加密；自定义后台路径、两步验证、GitHub / Telegram / OIDC / OAuth2 登录 |
-| 专业版扩展 | 客户独立限速、订阅转换、DDNS 与域名绑定、Telegram 管理菜单、备份推送、自定义 Logo、黑金专属主题 |
+| 日常运维 | 流量统计与月报、探针与公开状态页、三网延迟与回程检测、入站健康检测、通知策略（Telegram / 邮件 / Webhook）、Agent 与内核小批升级、定时备份与恢复、审计日志、服务器成本、多主控高可用 |
+| 扩展与对接 | API 令牌（按权限范围）、OpenAPI、签名 Webhook、插件（订阅格式、订阅改写、外部指标），见 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins) |
+| 账号与安全 | 主控与 Agent 使用 mTLS；敏感字段加密；自定义后台路径、两步验证、通行密钥（Passkey）、GitHub / Telegram / OIDC / OAuth2 登录、后台多角色账号 |
+| 专业版扩展 | 客户独立限速、订阅转换与处理组、DDNS 与域名绑定、Telegram 管理菜单、备份推送、在线收款、流量包 / 套餐节点倍率 / 端口转发商品、自定义 Logo、黑金专属主题 |
 
 协议、传输和客户端并非任意组合。请以界面的能力提示为准，常见限制见[使用手册 · 兼容性](docs/user-guide.md#compatibility)。
 
@@ -75,6 +78,8 @@ Copyright © 2026 Polaris contributors.
 | 面板、节点、用户、订阅、多内核等基础功能 | 支持 | 支持 |
 | 客户独立限速、订阅转换、DDNS 与域名绑定 | — | 需要相应许可证授权 |
 | Telegram 管理菜单、备份推送到 Telegram / WebDAV / S3 | — | 需要相应许可证授权 |
+| 在线收款（Telegram Stars、易支付、USDT） | 兑换码售卖 | 需要相应许可证授权 |
+| 套餐增值：流量包、套餐专属节点倍率、端口转发商品 | — | 需要相应许可证授权 |
 | 自定义 Logo、黑金专属主题 | — | 激活许可证后在「设置 → 外观」配置 |
 | 源码 | 本仓库 | 本仓库 + 私有 `polaris-pro` 代码 |
 | Docker 镜像 | `ghcr.io/cuijianzhuang/polaris:latest` | `ghcr.io/cuijianzhuang/polaris:latest-pro` |
@@ -186,6 +191,8 @@ scripts/pro.sh clean
 | `internal/sub`、`internal/license` | 订阅处理与许可证校验 |
 | `web` | React + TypeScript + Vite 后台 |
 
+贡献代码前请阅读[贡献指南](CONTRIBUTING.md)；全部文档见[文档索引](docs/README.md)。
+
 登录后的 API 文档位于 `<后台路径>/api/v1/openapi.json`，实时节点数据通过 `<后台路径>/api/v1/ws` 提供。外部服务对接见 [API 令牌与订单接口](docs/plugins/api-tokens.md)。设计资料见[客户独立限速](docs/design/per-user-speed-limit.md)、[许可证机制](docs/design/licensing.md)和[插件系统设计提案](docs/design/plugins.md)。插件开发见 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins)，管理入口在「扩展 → 插件」，使用说明见[用户手册](docs/user-guide.md#plugins)。
 
 ## 安全部署与问题反馈
@@ -195,5 +202,7 @@ scripts/pro.sh clean
 - 将订阅链接视为访问凭据。重置订阅同时更换用户 UUID 和密码，用户需要重新导入。
 - 管理员拥有高权限，配置模板、Webhook 和远程规则来源应由可信人员维护。
 - 管理会话令牌保存在浏览器 localStorage 中；使用可信浏览器环境。账号登录失败锁定也可能被知道用户名的人触发。
+
+安全漏洞请按[安全策略](SECURITY.md)私下报告，不要公开提交 Issue。
 
 遇到问题先查看[故障排查](docs/user-guide.md#troubleshooting)，再提交 [Issue](https://github.com/cuijianzhuang/Polaris/issues)。请提供版本、安装方式、相关内核与客户端版本、复现步骤及脱敏日志；不要提交订阅令牌、私钥、密码或完整备份。

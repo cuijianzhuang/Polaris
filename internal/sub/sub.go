@@ -81,6 +81,10 @@ type Info struct {
 	Portal bool
 	// Rename offers the signed-in user a username change (Portal pages only).
 	Rename bool
+	// CarrierPick offers choosing the carrier (ct / cu / cm, "" = automatic)
+	// whose CDN preferred IPs the subscription uses (Portal pages only).
+	CarrierPick bool
+	Carrier     string
 	// LoginVia says how the user signed in ("Telegram", "邮箱"); MailBind
 	// offers binding or changing Email (Portal pages only).
 	LoginVia string
