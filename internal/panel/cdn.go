@@ -23,11 +23,12 @@ import (
 // cfClient is a minimal Cloudflare API v4 client (DNS, SSL mode, Origin CA).
 type cfClient struct {
 	token string
+	base  string
 	http  *http.Client
 }
 
 func newCF(token string) *cfClient {
-	return &cfClient{token: token, http: &http.Client{Timeout: 20 * time.Second}}
+	return &cfClient{token: token, base: "https://api.cloudflare.com/client/v4", http: &http.Client{Timeout: 20 * time.Second}}
 }
 
 func (c *cfClient) do(ctx context.Context, method, path string, body, out any) error {
@@ -36,7 +37,7 @@ func (c *cfClient) do(ctx context.Context, method, path string, body, out any) e
 		b, _ := json.Marshal(body)
 		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "https://api.cloudflare.com/client/v4"+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
 	if err != nil {
 		return err
 	}
@@ -115,6 +116,27 @@ func (c *cfClient) setRecord(ctx context.Context, zone, name, typ, content strin
 	return c.do(ctx, http.MethodPost, fmt.Sprintf("/zones/%s/dns_records", zone), body, nil)
 }
 
+type cfRecord struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	Proxied bool   `json:"proxied"`
+}
+
+// records lists the A/AAAA/CNAME records of a name.
+func (c *cfClient) records(ctx context.Context, zone, name string) ([]cfRecord, error) {
+	var all []cfRecord
+	if err := c.do(ctx, http.MethodGet, fmt.Sprintf("/zones/%s/dns_records?name=%s", zone, name), nil, &all); err != nil {
+		return nil, err
+	}
+	var out []cfRecord
+	for _, r := range all {
+		if r.Type == "A" || r.Type == "AAAA" || r.Type == "CNAME" {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
 // deleteRecords removes records of a type for a name.
 func (c *cfClient) deleteRecords(ctx context.Context, zone, name, typ string) error {
 	var recs []struct{ ID string }
@@ -139,9 +161,10 @@ func (c *cfClient) originCert(ctx context.Context, hosts []string) (certPEM, key
 	if err != nil {
 		return "", "", err
 	}
+	// expires_on comes as "2041-10-24 16:58:00 +0000 UTC", not RFC 3339;
+	// the expiry is read from the certificate itself instead.
 	var res struct {
-		Certificate string    `json:"certificate"`
-		ExpiresOn   time.Time `json:"expires_on"`
+		Certificate string `json:"certificate"`
 	}
 	err = c.do(ctx, http.MethodPost, "/certificates", map[string]any{
 		"hostnames": hosts, "requested_validity": 5475, "request_type": "origin-ecc", "csr": string(csr),
@@ -430,20 +453,27 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 	if mode == "" {
 		mode = "strict"
 	}
+	// Under strict the certificates must be in place first: switching
+	// the zone before they are would break every CDN client (526).
+	if mode == "strict" && len(records) > 0 {
+		note, ok := s.installOriginCert(ctx, cf, records, inboundIDs)
+		res.Cert = note
+		if !ok {
+			res.Cert += "；SSL 模式没有改动"
+			return res, nil
+		}
+	}
 	if err := cf.setSSLMode(ctx, zone, mode); err != nil {
 		return res, err
 	}
 	res.SSLMode = mode
-	if mode == "strict" && len(records) > 0 {
-		res.Cert = s.installOriginCert(ctx, cf, records, inboundIDs)
-	}
 	return res, nil
 }
 
 // installOriginCert issues a Cloudflare Origin certificate for the hosts
 // and puts it on the TLS inbounds. Clients do not trust Origin
 // certificates, so inbounds that also serve direct clients keep theirs.
-func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records map[string]string, inboundIDs []string) string {
+func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records map[string]string, inboundIDs []string) (string, bool) {
 	var targets, kept []string
 	for _, id := range inboundIDs {
 		var in store.Inbound
@@ -463,7 +493,7 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 		keptNote = "；这些入站还有直连入口，客户端不认 Origin 证书，没有换：" + strings.Join(kept, "、") + "（需要它们证书包含回源域名，或把 SSL 模式改为 Full）"
 	}
 	if len(targets) == 0 {
-		return "没有入站需要换证书" + keptNote
+		return "没有入站需要换证书" + keptNote, true
 	}
 	var hosts []string
 	for h := range records {
@@ -472,12 +502,12 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 	slices.Sort(hosts)
 	certPEM, keyPEM, err := cf.originCert(ctx, hosts)
 	if err != nil {
-		return "Origin 证书签发失败：" + err.Error() + keptNote
+		return "Origin 证书签发失败：" + err.Error() + keptNote, false
 	}
 	exp, _ := pki.ParseCertExpiry([]byte(certPEM))
 	cert := store.Certificate{ID: store.NewID(), Domain: hosts[0], Provider: "cf-origin", Cert: certPEM, Key: s.st.Box.Seal(keyPEM), ExpireAt: &exp}
 	if err := s.st.DB.Create(&cert).Error; err != nil {
-		return "Origin 证书已签发，但保存失败：" + err.Error() + keptNote
+		return "Origin 证书已签发，但保存失败：" + err.Error() + keptNote, false
 	}
 	var failed []string
 	for _, id := range targets {
@@ -491,9 +521,9 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 	}
 	s.MarkDirty("cloudflare origin cert", s.nodesForInbounds(targets...)...)
 	if len(failed) > 0 {
-		return "Origin 证书已签发，但这些入站没能换上新证书，请稍后重试：" + strings.Join(failed, "、") + keptNote
+		return "Origin 证书已签发，但这些入站没能换上新证书，请稍后重试：" + strings.Join(failed, "、") + keptNote, false
 	}
-	return "Origin 证书已下发" + keptNote
+	return "Origin 证书已下发" + keptNote, true
 }
 
 // autoSyncCDNDNS keeps the DNS records of profiles with 自动同步 on.

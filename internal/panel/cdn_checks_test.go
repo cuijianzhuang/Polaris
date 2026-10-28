@@ -291,3 +291,41 @@ func TestCDNReqNormalize(t *testing.T) {
 		}
 	}
 }
+
+// When Cloudflare cannot reach the node, the panel tries the node's port
+// itself to tell "nothing listens / firewall" from "DNS points elsewhere".
+func TestDiagnoseOrigin(t *testing.T) {
+	s := newTestServer(t)
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close() // nothing listens there now
+	node := &store.Node{Name: "sg", Address: "127.0.0.1"}
+	r := cdnCheck{Message: "错误 521"}
+	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
+	if !strings.Contains(r.Message, "拒绝") || !strings.Contains(strings.Join(r.Steps, " "), "API Token") {
+		t.Fatalf("closed port: %+v", r)
+	}
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	_, ps, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	port, _ = strconv.Atoi(ps)
+	r = cdnCheck{Message: "错误 521"}
+	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
+	if !strings.Contains(r.Message, "直连") || !strings.Contains(r.Message, "是通的") {
+		t.Fatalf("open port: %+v", r)
+	}
+}
+
+// Cloudflare's Origin CA answers expires_on in a non-RFC 3339 layout.
+func TestOriginCertResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"success":true,"errors":[],"result":{"certificate":"-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----","expires_on":"2041-10-24 16:58:00 +0000 UTC"}}`))
+	}))
+	defer srv.Close()
+	cf := newCF("token")
+	cf.base = srv.URL
+	cert, key, err := cf.originCert(context.Background(), []string{"cdn.example.com"})
+	if err != nil || !strings.Contains(cert, "BEGIN CERTIFICATE") || key == "" {
+		t.Fatalf("origin cert: %v %q", err, cert)
+	}
+}
