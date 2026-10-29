@@ -435,7 +435,7 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
     <div className="grid g2">
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2>{t('商店')}</h2>
-        {!status?.botRunning && <div className="note warn">{t('Telegram 机器人未运行。请先在「系统 → Telegram 机器人」里启用。')}</div>}
+        {status && !status.botRunning && <div className="note warn">{t('Telegram 机器人未运行。请先在「系统 → Telegram 机器人」里启用。')}</div>}
         <div className="toggle"><span>{t('在机器人里开放购买')}</span><Switch label={t('开放购买')} on={sw('shop_enabled')} onChange={(v) => set('shop_enabled', String(v))} /></div>
         <div className="toggle"><span>{t('网页商店：在用户中心 /u/shop 购买套餐和流量包（登录用户中心可续费；未登录可直接购买新账号）')}</span><Switch label={t('网页商店')} on={sw('shop_web_enabled')} onChange={(v) => set('shop_web_enabled', String(v))} /></div>
         {sw('shop_web_enabled') && (status?.portal === false

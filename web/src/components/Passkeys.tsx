@@ -32,7 +32,7 @@ export default function Passkeys() {
       {(state.data?.items ?? []).map((key) => <tr key={key.id}><td>{key.name}</td><td className="mono small">{key.rpId}</td><td>{key.lastUsedAt ? ago(key.lastUsedAt) : t('从未使用')}</td><td><button className="link" type="button" disabled={busy} onClick={() => run(async () => {
         if (await confirm(t('撤销通行密钥 {name}？使用该密钥登录的会话也将失效。', { name: key.name }), { danger: true })) { await del('/auth/passkeys/' + key.id); state.reload() }
       })}>{t('撤销')}</button></td></tr>)}
-      {!state.data?.items.length && <tr><td colSpan={4} className="mute">{t('尚未注册通行密钥')}</td></tr>}
+      {state.data && !state.data.items.length && <tr><td colSpan={4} className="mute">{t('尚未注册通行密钥')}</td></tr>}
     </tbody></table></div>
     <h3>{t('账号恢复')}</h3>
     <div className="hint">{t('恢复码与 TOTP 恢复码不同。恢复账号会重置密码、关闭 TOTP、撤销全部通行密钥和登录会话，并使整组旧恢复码失效。')}</div>
