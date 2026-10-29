@@ -295,6 +295,9 @@ func (s *Server) listCDN(c *gin.Context) {
 		Inbounds int64               `json:"inbounds"`
 		Serves   []cdnServe          `json:"serves"`
 		Reports  []store.CDNIPReport `json:"reports"`
+		// Shared: speed-test points of other Cloudflare profiles whose
+		// fresh reports this profile's list is also built from.
+		Shared []string `json:"shared"`
 		Probes   []cdnProbeView      `json:"probes"`
 	}
 	ids := make([]string, len(ps))
@@ -322,7 +325,22 @@ func (s *Server) listCDN(c *gin.Context) {
 		if sv == nil {
 			sv = []cdnServe{}
 		}
-		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Serves: sv, Reports: nonNilReports(reports[p.ID]), Probes: pv})
+		shared := []string{}
+		if p.Provider == "cloudflare" {
+			since := time.Now().Add(-cdnStaleAfter(&p))
+			for _, o := range ps {
+				if o.ID == p.ID || o.Provider != "cloudflare" {
+					continue
+				}
+				for _, r := range reports[o.ID] {
+					own := slices.ContainsFunc(reports[p.ID], func(x store.CDNIPReport) bool { return x.Source == r.Source })
+					if r.At.After(since) && !own && !slices.Contains(shared, r.Source) {
+						shared = append(shared, r.Source)
+					}
+				}
+			}
+		}
+		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Serves: sv, Shared: shared, Reports: nonNilReports(reports[p.ID]), Probes: pv})
 	}
 	c.JSON(http.StatusOK, out)
 }

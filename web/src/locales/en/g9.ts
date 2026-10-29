@@ -231,5 +231,7 @@ const m: Record<string, string> = {
   "复制所选配置档的优选 IP、来源 URL、订阅取前几个和「每个 IP 一个节点」，保存后生效": "Copies the chosen profile's preferred IPs, source URL, top-N and one-node-per-IP setting; takes effect when saved",
   "选择配置档…": "Choose a profile…",
   "有来源 URL": "has a source URL",
+  "Cloudflare 配置档共用测速点：本配置档也在用其他配置档的 {list} 上报的 IP；这里的测速点上报的 IP 同样给其他配置档用": "Cloudflare profiles share speed-test points: this profile also uses the IPs reported by {list} on other profiles, and points here serve the other profiles too",
+  "Cloudflare 配置档共用测速点：任一配置档的测速点上报的 IP，所有 Cloudflare 配置档都会用（各自手填的域名保留）": "Cloudflare profiles share speed-test points: IPs reported to any profile are used by every Cloudflare profile (each keeps its own typed-in domains)",
 }
 export default m

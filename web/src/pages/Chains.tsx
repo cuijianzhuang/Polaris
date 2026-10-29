@@ -233,7 +233,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>
           <button className="btn sm" type="button" disabled={busy || !p.ipSourceUrl} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/refresh-ips`); onChanged() }, t('已刷新'))}>{t('刷新')}</button></div>
-        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length ? t('由 {n} 个测速点维护', { n: p.reports.length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
+        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length || (p.shared ?? []).length ? t('由 {n} 个测速点维护', { n: p.reports.length + (p.shared ?? []).length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
         <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
           {p.preferredIps.length ? p.preferredIps.map((ip) => {
             const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
@@ -244,7 +244,8 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.reports.length === 0 && waiting.length === 0 ? <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
+        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('Cloudflare 配置档共用测速点：本配置档也在用其他配置档的 {list} 上报的 IP；这里的测速点上报的 IP 同样给其他配置档用', { list: (p.shared ?? []).join('、') }) : t('Cloudflare 配置档共用测速点：任一配置档的测速点上报的 IP，所有 Cloudflare 配置档都会用（各自手填的域名保留）')}</div>}
+        {p.reports.length === 0 && waiting.length === 0 ? (p.shared ?? []).length > 0 ? null : <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
             const best = r.ips[0]

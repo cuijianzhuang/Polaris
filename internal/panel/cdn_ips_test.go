@@ -194,3 +194,63 @@ func TestCDNIPsNodeCheck(t *testing.T) {
 		t.Fatalf("all-unreachable check dropped IPs: %v", p.BadIPs.V)
 	}
 }
+
+// A speed-test point reporting to one Cloudflare profile updates every
+// Cloudflare profile; each keeps its own typed-in domains, and a profile
+// of another provider is left alone.
+func TestCDNIPReportsShared(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	db := s.st.DB
+	db.Create(&store.CDNProfile{ID: "hk", Name: "hk-cdn", Provider: "cloudflare", OriginDomain: "hk-cdn.example.com",
+		Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON([]string{})})
+	db.Create(&store.CDNProfile{ID: "sg", Name: "sg-cdn", Provider: "cloudflare", OriginDomain: "sg-cdn.example.com",
+		Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON([]string{"visa.cn"}), PinnedHosts: store.NewJSON([]string{"visa.cn"})})
+	db.Create(&store.CDNProfile{ID: "ot", Name: "other", Provider: "other", OriginDomain: "cdn.other.net",
+		Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON([]string{"1.1.1.1"})})
+	_, tok, err := s.issueAPIToken("测速", "", []string{ScopeCDNIPs}, 0, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &apiClient{t: t, base: srv.URL + s.cfg.APIBase(), tok: tok}
+	if code, out := probe.do("POST", "/cdn-profiles/hk/preferred-ips", map[string]any{"source": "上海电信",
+		"ips": []map[string]any{{"ip": "104.16.1.1", "latencyMs": 50, "loss": 0}, {"ip": "104.16.1.2", "latencyMs": 60, "loss": 0}}}); code != 200 {
+		t.Fatalf("report %d %v", code, out)
+	}
+	get := func(id string) store.CDNProfile {
+		var p store.CDNProfile
+		db.First(&p, "id = ?", id)
+		return p
+	}
+	if got := strings.Join(get("hk").PreferredIPs.V, " "); got != "104.16.1.1 104.16.1.2" {
+		t.Fatalf("hk = %s", got)
+	}
+	if got := strings.Join(get("sg").PreferredIPs.V, " "); got != "104.16.1.1 104.16.1.2 visa.cn" {
+		t.Fatalf("sg = %s", got)
+	}
+	if got := strings.Join(get("ot").PreferredIPs.V, " "); got != "1.1.1.1" {
+		t.Fatalf("other provider changed: %s", got)
+	}
+	// The carrier list and the URL-refresh guard see the shared point too.
+	sg := get("sg")
+	sg.CarrierSplit = true
+	if got := strings.Join(s.carrierCDNIPs(&sg, "ct"), " "); got != "104.16.1.1 104.16.1.2 visa.cn" {
+		t.Fatalf("sg carrier list = %s", got)
+	}
+	if !s.cdnFreshReport(&sg, time.Now()) {
+		t.Fatal("shared report not fresh for sg")
+	}
+	// The list says where sg's addresses come from.
+	code, list := admin.doList("GET", "/cdn-profiles")
+	if code != 200 {
+		t.Fatal(code)
+	}
+	for _, x := range list {
+		v := x.(map[string]any)
+		if v["id"] == "sg" && fmt.Sprint(v["shared"]) != "[上海电信]" {
+			t.Fatalf("sg shared = %v", v["shared"])
+		}
+		if v["id"] == "hk" && fmt.Sprint(v["shared"]) != "[]" {
+			t.Fatalf("hk shared = %v", v["shared"])
+		}
+	}
+}
