@@ -302,9 +302,10 @@ func (s *Server) listCDN(c *gin.Context) {
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
 	reports := s.cdnReports(ids)
 	probes := s.cdnProbes(ids)
+	global := s.st.GetSetting("acme_cf_token", "") != "" // read once: list queries stay flat
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
-		p.HasToken = p.APIToken != ""
+		p.HasToken, p.GlobalToken = p.APIToken != "" || global, p.APIToken == "" && global
 		pv := probes[p.ID]
 		if pv == nil {
 			pv = []cdnProbeView{}
@@ -424,9 +425,9 @@ type cdnSyncResult struct {
 // full it only keeps records pointing at the nodes (自动同步).
 func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (cdnSyncResult, error) {
 	res := cdnSyncResult{Records: []string{}}
-	token := s.st.Box.MustOpen(p.APIToken)
+	token := s.cfToken(p)
 	if token == "" {
-		return res, fmt.Errorf("该配置档未填写 Cloudflare API Token")
+		return res, fmt.Errorf("没有 Cloudflare API Token：在配置档里填写，或在「系统设置」填写 Cloudflare Token（所有配置档共用）")
 	}
 	cf := newCF(token)
 	zone := p.ZoneID
@@ -545,11 +546,23 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 	return "Origin 证书已下发" + keptNote, true
 }
 
+// cfToken is the Cloudflare API token for a profile: its own, else the
+// panel-wide one (系统设置 → Cloudflare Token, also used for ACME).
+func (s *Server) cfToken(p *store.CDNProfile) string {
+	if t := s.st.Box.MustOpen(p.APIToken); t != "" {
+		return t
+	}
+	return s.st.Box.MustOpen(s.st.GetSetting("acme_cf_token", ""))
+}
+
 // autoSyncCDNDNS keeps the DNS records of profiles with 自动同步 on.
 func (s *Server) autoSyncCDNDNS() {
 	var ps []store.CDNProfile
-	s.st.DB.Where("auto_dns = ? AND api_token <> ''", true).Find(&ps)
+	s.st.DB.Where("auto_dns = ?", true).Find(&ps)
 	for i := range ps {
+		if s.cfToken(&ps[i]) == "" {
+			continue
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		if _, err := s.syncCDN(ctx, &ps[i], false); err != nil {
 			s.st.DB.Model(&ps[i]).Update("last_error", truncate("自动同步 DNS："+err.Error(), 1900))
@@ -562,7 +575,7 @@ func (s *Server) autoSyncCDNDNS() {
 // entry is added, when the profile asks for it.
 func (s *Server) autoSyncCDNProfile(id string) {
 	var p store.CDNProfile
-	if id == "" || s.st.DB.First(&p, "id = ?", id).Error != nil || !p.AutoDNS || p.APIToken == "" {
+	if id == "" || s.st.DB.First(&p, "id = ?", id).Error != nil || !p.AutoDNS || s.cfToken(&p) == "" {
 		return
 	}
 	go func() {

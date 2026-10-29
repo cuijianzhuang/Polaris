@@ -72,6 +72,7 @@ func TestListPagesQueryCountIsFlat(t *testing.T) {
 		return out
 	}
 	addRows(0, 2)
+	measure() // warm caches (settings are cached for a while): count per-row queries only
 	few := measure()
 	addRows(2, 12)
 	many := measure()

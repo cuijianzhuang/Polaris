@@ -105,7 +105,7 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	s.autoSyncCDNProfile(p.ID)
 	s.auditCtx(c, "inbound.cdn_sibling", node.Name+"/"+row.Tag, fmt.Sprintf("from %s via %s :%d", src.Tag, p.Name, m.Port))
 	c.JSON(http.StatusCreated, gin.H{"inbound": row, "port": m.Port, "path": m.Transport.Path, "core": m.Core,
-		"addedPort": addedPort, "needSync": p.APIToken != "", "profile": p.Name})
+		"addedPort": addedPort, "needSync": s.cfToken(&p) != "", "profile": p.Name})
 }
 
 // freeInboundTag returns base, or base-2, base-3 … when the tag is taken.

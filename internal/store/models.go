@@ -566,9 +566,11 @@ type CDNProfile struct {
 	CaddyFronting bool           `json:"caddyFronting"`
 	APIToken      string         `gorm:"size:500" json:"-"` // sealed
 	HasToken      bool           `gorm:"-" json:"hasToken"`
-	ZoneID        string         `gorm:"size:64" json:"zoneId"`
-	LastRefreshAt *time.Time     `json:"lastRefreshAt"`
-	LastError     string         `gorm:"size:2000" json:"lastError"`
+	// GlobalToken: no token of its own, the panel-wide one is used.
+	GlobalToken   bool       `gorm:"-" json:"globalToken"`
+	ZoneID        string     `gorm:"size:64" json:"zoneId"`
+	LastRefreshAt *time.Time `json:"lastRefreshAt"`
+	LastError     string     `gorm:"size:2000" json:"lastError"`
 	// Speed-test points report their best IPs (CDNIPReport); StaleHours is
 	// how long without a report before an alert (0 = 24).
 	StaleHours   int  `json:"staleHours"`

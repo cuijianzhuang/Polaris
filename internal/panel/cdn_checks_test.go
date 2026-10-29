@@ -351,3 +351,25 @@ func TestPreferredDomains(t *testing.T) {
 		t.Fatalf("withPinned %v", l)
 	}
 }
+
+// Profiles without a token of their own use the panel-wide Cloudflare token.
+func TestCFTokenFallback(t *testing.T) {
+	s, admin := cdnFixture(t)
+	var p store.CDNProfile
+	s.st.DB.First(&p, "id = ?", "cf")
+	if s.cfToken(&p) != "" {
+		t.Fatal("token without any configured")
+	}
+	s.st.SetSetting("acme_cf_token", s.st.Box.Seal("global"))
+	if s.cfToken(&p) != "global" {
+		t.Fatal("global token not used")
+	}
+	code, list := admin.doList("GET", "/cdn-profiles")
+	if v := list[0].(map[string]any); code != 200 || v["hasToken"] != true || v["globalToken"] != true {
+		t.Fatalf("list %d %v", code, list)
+	}
+	p.APIToken = s.st.Box.Seal("own")
+	if s.cfToken(&p) != "own" {
+		t.Fatal("own token not preferred")
+	}
+}
