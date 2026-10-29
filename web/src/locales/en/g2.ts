@@ -148,7 +148,7 @@ const m: Record<string, string> = {
   '还没有 CDN 配置档': 'No CDN profiles yet',
   'REALITY、Hysteria2、TUIC 不能走 CDN；添加 CDN 入口时只列出 WS / gRPC / HTTPUpgrade / XHTTP 入站。': 'REALITY, Hysteria2 and TUIC can\'t go through a CDN; only WS / gRPC / HTTPUpgrade / XHTTP inbounds are listed when adding a CDN entry.',
   '删除配置档 {name}？': 'Delete profile {name}?',
-  '给入站添加 CDN 入口：在「入站」页打开入站 → 入口 → CDN。Cloudflare 的 gRPC 需在控制台开启。经 CDN 后内核读取 CF-Connecting-IP；不支持时该入站跳过 IP 数限制。': 'To add a CDN entry to an inbound: open the inbound on the Inbounds page → Entries → CDN. Cloudflare gRPC must be enabled in its dashboard. Behind a CDN the core reads CF-Connecting-IP; where unsupported, the inbound skips the IP count limit.',
+  '给入站添加 CDN 入口：在「入站」页打开入站 → 入口 → CDN。Cloudflare 的 gRPC 需在控制台开启。经 Cloudflare 时 Xray 按 CF-Connecting-IP 识别用户真实 IP；Cloudflare 节点地址不计入 IP 数限制。': 'To add a CDN entry to an inbound: open the inbound on the Inbounds page → Entries → CDN. Cloudflare gRPC must be enabled in its dashboard. Through Cloudflare, Xray identifies users by CF-Connecting-IP; Cloudflare edge addresses never count toward the IP limit.',
   '还没有节点': 'No nodes yet',
 
   // DNSRules.tsx

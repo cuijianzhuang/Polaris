@@ -459,6 +459,14 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 		ts["acceptProxyProtocol"] = true
 		st[key] = ts
 	}
+	if server && len(t.TrustedForwardedFor) > 0 {
+		switch t.Type {
+		case model.TransWS, model.TransHTTPUpgrade, model.TransXHTTP, model.TransGRPC:
+			// Behind a CDN the connection comes from the CDN's edge; without
+			// this every edge address counts as one of the user's IPs.
+			st["sockopt"] = map[string]any{"trustedXForwardedFor": t.TrustedForwardedFor}
+		}
+	}
 	switch sec.Type {
 	case "", model.SecNone:
 	case model.SecTLS:

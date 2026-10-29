@@ -712,7 +712,7 @@ export default function Chains() {
               )}
             </div>
             {selCDN && <div className="cdn-detail"><CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onDelete={() => removeProfile(selCDN)} onChanged={cdn.reload} /></div>}
-            <div className="note">{t('给入站添加 CDN 入口：在「入站」页打开入站 → 入口 → CDN。Cloudflare 的 gRPC 需在控制台开启。经 CDN 后内核读取 CF-Connecting-IP；不支持时该入站跳过 IP 数限制。')}</div>
+            <div className="note">{t('给入站添加 CDN 入口：在「入站」页打开入站 → 入口 → CDN。Cloudflare 的 gRPC 需在控制台开启。经 Cloudflare 时 Xray 按 CF-Connecting-IP 识别用户真实 IP；Cloudflare 节点地址不计入 IP 数限制。')}</div>
         </div>
       )}
       {tab === 'routing' && (nodes.length ? <Routing nodes={nodes} /> : <div className="card"><Empty>{t('还没有节点')}</Empty></div>)}
