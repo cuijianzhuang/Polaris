@@ -261,3 +261,46 @@ func shodanGet(ctx context.Context, key, path string, v url.Values, out any) err
 	}
 	return nil
 }
+
+// ShodanIPs runs a search and returns the matching hosts' IPv4 addresses
+// (in result order, without repeats) and Shodan's total match count.
+func ShodanIPs(ctx context.Context, key, query string, pages int) ([]string, int, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, 0, errors.New("请先在设置里填写 Shodan API Key")
+	}
+	query = strings.TrimSpace(query)
+	if query == "" || len(query) > 500 {
+		return nil, 0, errors.New("Shodan 查询条件不能为空，最长 500 个字符")
+	}
+	pages = min(max(pages, 1), MaxShodanPages)
+	var ips []string
+	total := 0
+	seen := map[string]bool{}
+	for page := 1; page <= pages; page++ {
+		var body struct {
+			Total   int           `json:"total"`
+			Matches []shodanMatch `json:"matches"`
+		}
+		v := url.Values{"key": {key}, "query": {query}, "page": {strconv.Itoa(page)}, "minify": {"true"}}
+		if err := shodanGet(ctx, key, "/shodan/host/search", v, &body); err != nil {
+			if len(ips) > 0 {
+				break // keep what earlier pages found
+			}
+			return nil, 0, err
+		}
+		total = body.Total
+		for _, m := range body.Matches {
+			ip := net.ParseIP(m.IP).To4()
+			if ip == nil || seen[ip.String()] {
+				continue
+			}
+			seen[ip.String()] = true
+			ips = append(ips, ip.String())
+		}
+		if len(body.Matches) < 100 {
+			break
+		}
+	}
+	return ips, total, nil
+}

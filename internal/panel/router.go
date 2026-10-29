@@ -395,6 +395,10 @@ func (s *Server) Router() http.Handler {
 	p.POST("/cdn-profiles/:id/sync-dns", s.syncCDNDNS)
 	p.POST("/cdn-profiles/:id/refresh-ips", s.refreshCDNIPs)
 	p.POST("/cdn-profiles/:id/preferred-ips", s.postCDNIPReport)
+	p.GET("/cdn-profiles/:id/ip-candidates", s.cdnIPCandidates)
+	p.GET("/cdn-shodan", s.getCDNShodan)
+	p.PUT("/cdn-shodan", s.putCDNShodan)
+	p.POST("/cdn-shodan/refresh", s.refreshCDNShodanNow)
 	p.DELETE("/cdn-profiles/:id/ip-reports/:source", s.deleteCDNIPReport)
 	p.POST("/cdn-profiles/:id/probes", s.requireSudo, s.pairCDNProbe)
 

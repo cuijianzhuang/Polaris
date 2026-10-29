@@ -99,7 +99,7 @@ export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'
   zoneId: string; lastRefreshAt?: string; lastError: string; inbounds: number; serves?: { node: string; tag: string; host: string }[]
-  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; carrierSplit: boolean; reports: CDNIPReport[]; shared?: string[]; probes: CDNProbe[]
+  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; carrierSplit: boolean; reports: CDNIPReport[]; shared?: string[]; thirdParty?: string[]; probes: CDNProbe[]
 }
 export interface CDNProbe { source: string; tokenId: string; prefix: string; createdAt: string; lastUsedAt?: string | null; lastIp: string }
 export interface CDNIPReport { source: string; carrier?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }

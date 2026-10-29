@@ -89,6 +89,7 @@ var tokenRoutes = map[string]string{
 	"GET /nodes/:id/metrics/external":      ScopeNodesRead,
 	"POST /nodes/:id/metrics":              ScopeNodesMetrics,
 	"POST /cdn-profiles/:id/preferred-ips": ScopeCDNIPs,
+	"GET /cdn-profiles/:id/ip-candidates":  ScopeCDNIPs,
 	"GET /inbounds":                        ScopeNodesRead,
 
 	"GET /stats/overview": ScopeTrafficRead,

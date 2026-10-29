@@ -237,7 +237,8 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
         <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
           {p.preferredIps.length ? p.preferredIps.map((ip) => {
             const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
-            return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}</div>
+            const proxy = (p.thirdParty ?? []).includes(ip)
+            return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}{proxy && <span className="tag warn" style={{ marginLeft: 6, fontSize: 11 }} title={t('不在 Cloudflare 官方 IP 段：第三方反代')}>{t('反代')}</span>}</div>
           }) : <span>{t('还没有优选 IP。每个配置档单独维护：点上方「编辑」填写优选 IP / 域名或来源 URL，或在下方添加测速点自动上报')}</span>}
         </div>
         {p.nodeCheck && <div className="sub" style={{ marginTop: 8 }}>{p.checkedAt ? t('节点检测：{t}，{n} 个连不上', { t: ago(p.checkedAt), n: (p.badIps ?? []).length }) : t('节点检测：等待第一次检测')}</div>}
@@ -688,6 +689,7 @@ export default function Chains() {
         <div className="split">
           <div className="grow">
             <CFTokenCard onSaved={cdn.reload} />
+            <ShodanCard onSaved={cdn.reload} />
             <div className="card flush scroll">
               {cdn.data?.length === 0 ? <Empty>{t('还没有 CDN 配置档')}</Empty> : (
                 <table className="rtable">
@@ -804,6 +806,58 @@ function CFTokenCard({ onSaved }: { onSaved: () => void }) {
             <button className="btn sm pri" type="button" disabled={busy || !token.trim()} onClick={save}>{t('保存')}</button>
             <button className="btn sm" type="button" onClick={() => { setEditing(false); setToken('') }}>{t('取消')}</button>
           </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+type ShodanView = { enabled: boolean; query: string; defaultQuery: string; pages: number; keySet: boolean; count: number; total: number; at: string; error: string; sample: string[] }
+
+// ShodanCard turns on third-party reverse proxies found with Shodan as extra
+// candidates for the speed-test points (they test and report the good ones).
+function ShodanCard({ onSaved }: { onSaved: () => void }) {
+  const v = useLoad(() => get<ShodanView>('/cdn-shodan'))
+  const { busy, run } = useAction()
+  const [open, setOpen] = useState(false)
+  const [f, setF] = useState<{ query: string; pages: number } | null>(null)
+  const d = v.data
+  if (!d) return null
+  const save = (enabled: boolean) => run(async () => {
+    await put('/cdn-shodan', { enabled, query: f?.query ?? d.query, pages: f?.pages ?? d.pages })
+    setOpen(false); setF(null); v.reload(); onSaved()
+  }, enabled ? t('已开启，已搜索一次') : t('已关闭'))
+  const at = d.at && !d.at.startsWith('0001') ? ago(d.at) : ''
+  return (
+    <section className="card cdn-token">
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ minWidth: 0, flex: '1 1 260px' }}>
+          <b>{t('第三方反代 IP（Shodan）')}</b> <span className="tag" style={{ marginLeft: 4 }}>{t('可选')}</span>
+          <div className="sub small">{d.enabled
+            ? t('已开启：搜到 {n} 个候选{at}，测速点会和官方 IP 一起测，只上报能用且更快的', { n: d.count, at: at ? ' · ' + at : '' })
+            : t('用 Shodan 搜第三方架设、转发到 Cloudflare 的服务器，交给测速点一起测。国内常比官方 IP 快，但流量会经过陌生人的机器（TLS 仍直达 Cloudflare，对方能看到域名和流量大小），也可能随时失效')}</div>
+          {d.error && <div className="note bad small" style={{ marginTop: 8 }}>{t('上次搜索失败：{err}', { err: d.error })}</div>}
+          {!d.keySet && <div className="sub small" style={{ marginTop: 4 }}>{t('需要先在「系统设置」填写 Shodan API Key（每天搜索一次，每页消耗 1 个查询额度）')}</div>}
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          {d.enabled && <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await post('/cdn-shodan/refresh'); v.reload() }, t('已搜索'))}>{t('立即搜索')}</button>}
+          <button className="btn sm" type="button" onClick={() => setOpen(!open)}>{t('设置')}</button>
+          <Switch label={t('第三方反代 IP')} on={d.enabled} onChange={(on) => { if (!busy && (d.keySet || !on)) save(on) }} />
+        </div>
+      </div>
+      {open && (
+        <div className="form-grid" style={{ marginTop: 12 }}>
+          <Field label={t('Shodan 查询条件')} full hint={t('默认：{q}。官方 Cloudflare IP 会自动排除', { q: d.defaultQuery })}>
+            <input className="input mono" value={f?.query ?? d.query} onChange={(e) => setF({ query: e.target.value, pages: f?.pages ?? d.pages })} />
+          </Field>
+          <Field label={t('每次搜索页数')} hint={t('每页 100 个结果、消耗 1 个查询额度')}>
+            <select className="input" value={f?.pages ?? d.pages} onChange={(e) => setF({ query: f?.query ?? d.query, pages: Number(e.target.value) })}>{[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+          </Field>
+          <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+            <button className="btn sm pri" type="button" disabled={busy || !d.keySet} onClick={() => save(true)}>{t('保存并搜索')}</button>
+            <button className="btn sm" type="button" onClick={() => { setOpen(false); setF(null) }}>{t('取消')}</button>
+          </div>
+          {d.sample.length > 0 && <div className="sub small mono" style={{ gridColumn: '1 / -1' }}>{t('候选示例：')}{d.sample.join('  ')}</div>}
         </div>
       )}
     </section>
