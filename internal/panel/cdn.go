@@ -269,10 +269,14 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 	if len(r.Ports) == 0 {
 		r.Ports = []int{443, 2053, 2083, 2087, 2096, 8443}
 	}
+	// A domain is typed in (kept across refreshes) when it already was, or
+	// is new in the form: domains a source URL put in the list come back
+	// with the form unchanged and must not become permanent by a save.
+	oldList, oldPinned := p.PreferredIPs.V, p.PinnedHosts.V
 	p.Ports, p.PreferredIPs = store.NewJSON(r.Ports), store.NewJSON(nonNilStrs(r.PreferredIPs))
 	pinned := []string{}
 	for _, a := range r.PreferredIPs {
-		if net.ParseIP(a) == nil {
+		if net.ParseIP(a) == nil && (slices.Contains(oldPinned, a) || !slices.Contains(oldList, a)) {
 			pinned = append(pinned, a)
 		}
 	}
@@ -500,10 +504,25 @@ func (s *Server) deleteCDN(c *gin.Context) {
 		if err := tx.Where("cdn_profile_id = ?", p.ID).Delete(&store.APIToken{}).Error; err != nil {
 			return err
 		}
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		var gone []store.CDNIPReport
+		if err := tx.Where("profile_id = ?", p.ID).Find(&gone).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("profile_id = ?", p.ID).Delete(&store.CDNIPReport{}).Error; err != nil {
 			return err
 		}
-		return tx.Delete(&store.CDNProfile{}, "id = ?", p.ID).Error
+		if err := tx.Delete(&store.CDNProfile{}, "id = ?", p.ID).Error; err != nil {
+			return err
+		}
+		// Its points also fed the other Cloudflare profiles.
+		if len(gone) == 0 {
+			return nil
+		}
+		_, _, err := rebuildCDNLists(tx, &p, time.Now(), reportIPs(gone))
+		return err
 	})
 	if err != nil {
 		serverError(c, err)

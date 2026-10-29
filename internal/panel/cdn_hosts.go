@@ -77,6 +77,9 @@ func (s *Server) splitSharedCDNHosts(p *store.CDNProfile) []string {
 		host := orDefault(ep.Host, p.OriginDomain)
 		if prev, ok := owner[host]; !ok || prev == in.NodeID {
 			owner[host] = in.NodeID
+			if s.alignInboundHost(ep.InboundID, p.OriginDomain, host) {
+				notes = append(notes, in.Tag+" 的 Host → "+host)
+			}
 			continue
 		}
 		var node store.Node
@@ -90,12 +93,35 @@ func (s *Server) splitSharedCDNHosts(p *store.CDNProfile) []string {
 		if s.st.DB.Model(&store.Endpoint{}).Where("id = ?", ep.ID).Update("host", newHost).Error == nil {
 			owner[newHost] = in.NodeID
 			notes = append(notes, in.Tag+" → "+newHost)
+			s.alignInboundHost(ep.InboundID, host, newHost)
 		}
 	}
 	if len(notes) > 0 {
 		s.MarkDirty("cdn hosts split", s.nodesForCDNProfile(p.ID)...)
 	}
 	return notes
+}
+
+// alignInboundHost moves an inbound's WS / HTTPUpgrade / XHTTP Host from
+// the hostname its CDN entry used to have to the one it has now: the server
+// answers 404 to any other Host, and clients send the entry's. Inbounds
+// with no Host, or one set to something else on purpose, are left alone.
+func (s *Server) alignInboundHost(inboundID, oldHost, newHost string) bool {
+	if oldHost == "" || strings.EqualFold(oldHost, newHost) {
+		return false
+	}
+	var in store.Inbound
+	if s.st.DB.First(&in, "id = ?", inboundID).Error != nil || !strings.EqualFold(in.Transport.V.Host, oldHost) {
+		return false
+	}
+	t := in.Transport.V
+	t.Host = newHost
+	if err := s.st.DB.Model(&in).Update("transport", store.NewJSON(t)).Error; err != nil {
+		s.warnWrite("cdn inbound host", err)
+		return false
+	}
+	s.MarkDirty("cdn inbound host", in.NodeID)
+	return true
 }
 
 func (s *Server) nodesForCDNProfile(id string) []string {

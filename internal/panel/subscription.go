@@ -296,7 +296,8 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n.TLS.Insecure = false
 		n.Transport.Host = host
 		n = apply(n)
-		if !p.ExpandPerIP || len(p.PreferredIPs.V) == 0 {
+		// An entry with its own address uses it, not the preferred IPs.
+		if !p.ExpandPerIP || len(p.PreferredIPs.V) == 0 || ep.Address != "" {
 			n.Name = name("CDN")
 			return []sub.Node{n}
 		}

@@ -142,7 +142,9 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
   const sources = others.filter((o) => o.id !== profile?.id && (o.preferredIps.length > 0 || o.ipSourceUrl))
   const copyFrom = (id: string) => {
     const o = sources.find((x) => x.id === id)
-    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
+    // Its IPs and typed-in domains; domains its source URL put in the list come again from that URL.
+    const isIP = (a: string) => /^[\d.]+$/.test(a) || a.includes(':')
+    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps.filter((a) => isIP(a) || (o.pinnedHosts ?? []).includes(a))), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
   }
   return (
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
@@ -179,7 +181,7 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
           </select>
         </Field>}
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
-        <Field label={t('优选 IP（手填）')} full hint={t('一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后')}><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
+        <Field label={t('优选 IP（手填）')} full hint={t('一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留，订阅里排在前 N 个 IP 之后；手填的 IP 会被测速点上报（Cloudflare 配置档共用测速点）或来源 URL 替换')}><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
         <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
         <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；告警后继续用原有 IP')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
       </div>

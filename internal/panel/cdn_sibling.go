@@ -44,12 +44,15 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	// The hostname clients will use for this node's entry: the WS server
+	// checks the Host header, so the inbound must expect the same one.
+	host := orDefault(cdnHostFor(s.st.DB, &p, node.ID), p.OriginDomain)
 	m := model.Inbound{
 		NodeID:    node.ID,
 		Tag:       s.freeInboundTag(node.ID, src.Tag+"-cdn"),
 		Protocol:  model.ProtocolSpec{Type: model.ProtoVLESS},
-		Transport: model.TransportSpec{Type: model.TransWS, Path: "/" + randomHex(6), Host: p.OriginDomain},
-		Security:  model.SecuritySpec{Type: model.SecTLS, ServerName: p.OriginDomain},
+		Transport: model.TransportSpec{Type: model.TransWS, Path: "/" + randomHex(6), Host: host},
+		Security:  model.SecuritySpec{Type: model.SecTLS, ServerName: host},
 		Sniffing:  src.Sniffing.V,
 		Enabled:   true,
 	}
