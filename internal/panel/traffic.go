@@ -726,7 +726,9 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		sort.Strings(list)
 		counted := 0
 		for _, ip := range list {
-			if !trusted.contains(ip) {
+			// A Cloudflare edge address is the CDN, not a device: cores that
+			// cannot read the visitor's address report one per connection.
+			if cf, _ := cloudflareOwned(ip); !trusted.contains(ip) && !cf {
 				counted++
 			}
 		}

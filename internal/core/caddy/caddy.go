@@ -94,7 +94,11 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	fmt.Fprintf(&b, "{\n\tadmin %s\n\tauto_https off\n\tpersist_config off\n\tlog {\n\t\tlevel WARN\n\t}\n}\n", a.opt.APIListen)
+	// Requests relayed by Cloudflare keep their X-Forwarded-For, so the
+	// inbound behind sees the visitor rather than the edge address; anyone
+	// else's is replaced by the connection's own address.
+	fmt.Fprintf(&b, "{\n\tadmin %s\n\tauto_https off\n\tpersist_config off\n\tservers {\n\t\ttrusted_proxies static %s\n\t}\n\tlog {\n\t\tlevel WARN\n\t}\n}\n",
+		a.opt.APIListen, strings.Join(model.CloudflareRanges, " "))
 	for _, k := range keys {
 		st := sites[k]
 		fmt.Fprintf(&b, "\nhttps://%s:%d {\n", st.domain, st.port)

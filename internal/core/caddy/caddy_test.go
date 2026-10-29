@@ -119,3 +119,24 @@ func TestRenderChangesWithCert(t *testing.T) {
 		t.Fatalf("config unchanged after a certificate change:\n%s", first)
 	}
 }
+
+// Cloudflare's edges are trusted proxies, so the inbound behind sees the
+// visitor in X-Forwarded-For instead of the edge address.
+func TestRenderTrustsCloudflare(t *testing.T) {
+	sec := coretest.TLS(t, "cdn.example.com")
+	a := New(core.Options{BinPath: os.Getenv("POLARIS_CADDY_BIN"), WorkDir: t.TempDir(), APIListen: "127.0.0.1:2019"})
+	cfg, err := a.Render(&model.NodeSpec{Fronts: []model.FrontRule{
+		{Domain: "cdn.example.com", Port: 443, Path: "/ws", Upstream: "127.0.0.1:1", CertPEM: sec.CertPEM, KeyPEM: sec.KeyPEM}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfg), "trusted_proxies static 173.245.48.0/20 ") || !strings.Contains(string(cfg), " 2c0f:f248::/32\n") {
+		t.Fatalf("Cloudflare ranges not trusted:\n%s", cfg)
+	}
+	if a.opt.BinPath == "" {
+		t.Skip("POLARIS_CADDY_BIN not set")
+	}
+	if err := a.Validate(cfg); err != nil {
+		t.Fatalf("caddy rejected config: %v\n%s", err, cfg)
+	}
+}
