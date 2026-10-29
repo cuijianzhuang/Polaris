@@ -686,8 +686,7 @@ export default function Chains() {
         </div>
       )}
       {tab === 'cdn' && (
-        <div className="split">
-          <div className="grow">
+        <div className="cdn-page">
             <CFTokenCard onSaved={cdn.reload} />
             <ShodanCard onSaved={cdn.reload} />
             <div className="card flush scroll">
@@ -696,7 +695,7 @@ export default function Chains() {
                   <thead><tr><th>{t('名称')}</th><th>{t('服务商')}</th><th>{t('回源域名')}</th><th>{t('优选 IP')}</th><th>{t('服务节点')}</th><th></th></tr></thead>
                   <tbody>
                     {(cdn.data ?? []).map((p) => (
-                      <tr key={p.id} className="clickable" onClick={() => setCdnSel(p.id)}>
+                      <tr key={p.id} className={'clickable' + (p.id === selCDN?.id ? ' sel' : '')} onClick={() => setCdnSel(p.id)} aria-selected={p.id === selCDN?.id}>
                         <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
                         <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('服务节点')} className="small">{(p.serves ?? []).length === 0 ? <span className="sub">{t('未使用')}</span> : <div>{(p.serves ?? []).map((x) => <div key={x.node + x.tag}>{x.node} → <span className="mono">{x.host}</span></div>)}</div>}</td>
                         <td className="rt-actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
@@ -709,9 +708,8 @@ export default function Chains() {
                 </table>
               )}
             </div>
+            {selCDN && <div className="cdn-detail"><CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onDelete={() => removeProfile(selCDN)} onChanged={cdn.reload} /></div>}
             <div className="note">{t('给入站添加 CDN 入口：在「入站」页打开入站 → 入口 → CDN。Cloudflare 的 gRPC 需在控制台开启。经 CDN 后内核读取 CF-Connecting-IP；不支持时该入站跳过 IP 数限制。')}</div>
-          </div>
-          <aside className="aside">{selCDN && <CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onDelete={() => removeProfile(selCDN)} onChanged={cdn.reload} />}</aside>
         </div>
       )}
       {tab === 'routing' && (nodes.length ? <Routing nodes={nodes} /> : <div className="card"><Empty>{t('还没有节点')}</Empty></div>)}
@@ -790,7 +788,7 @@ function CFTokenCard({ onSaved }: { onSaved: () => void }) {
     setToken(''); setEditing(false); settings.reload(); onSaved()
   }, t('已保存'))
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card cdn-token">
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
           <b>{t('Cloudflare CDN Token')}</b>
