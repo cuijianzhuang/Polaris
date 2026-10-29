@@ -129,7 +129,7 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
   )
 }
 
-function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClose: () => void; onSaved: () => void }) {
+function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNProfile; others?: CDNProfile[]; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
     ports: (profile?.ports ?? [443, 2053, 2083, 2087, 2096, 8443]).join(', '), preferredIps: toLines(profile?.preferredIps), ipSourceUrl: profile?.ipSourceUrl ?? '',
@@ -138,6 +138,12 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
+  // Profiles to copy preferred IPs from: those that have any.
+  const sources = others.filter((o) => o.id !== profile?.id && (o.preferredIps.length > 0 || o.ipSourceUrl))
+  const copyFrom = (id: string) => {
+    const o = sources.find((x) => x.id === id)
+    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
+  }
   return (
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
@@ -165,6 +171,12 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('可用端口')} hint={f.provider === 'cloudflare' ? t('只能用 Cloudflare 的 HTTPS 端口：443、2053、2083、2087、2096、8443；第一个用于不在这些端口上的入站和 Caddy 统一回源') : undefined}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
         {profile?.tokenSource === 'profile' && <Field label="Cloudflare API Token" full hint={t('这个配置档有单独保存的 Token（旧版本填写），留空保持不变。新配置档统一用「CDN 配置档」页的 CDN Token')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
+        </Field>}
+        {sources.length > 0 && <Field label={t('从其他配置档复制优选 IP')} full hint={t('复制所选配置档的优选 IP、来源 URL、订阅取前几个和「每个 IP 一个节点」，保存后生效')}>
+          <select className="input" value="" onChange={(e) => copyFrom(e.target.value)} aria-label={t('从其他配置档复制优选 IP')}>
+            <option value="">{t('选择配置档…')}</option>
+            {sources.map((o) => <option key={o.id} value={o.id}>{o.name}（{t('{n} 个 IP', { n: o.preferredIps.length })}{o.ipSourceUrl ? ' · ' + t('有来源 URL') : ''}）</option>)}
+          </select>
         </Field>}
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
         <Field label={t('优选 IP（手填）')} full hint={t('一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后')}><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
@@ -703,7 +715,7 @@ export default function Chains() {
       {tab === 'rulesets' && <RuleSets />}
       {tab === 'dns' && <DNSSettings nodes={nodes} />}
       {chainDrawer && <ChainDrawer chain={chainDrawer === 'new' ? undefined : chainDrawer} nodes={nodes} inbounds={inbounds.data ?? []} onClose={() => setChainDrawer(null)} onSaved={() => { setChainDrawer(null); chains.reload() }} />}
-      {cdnDrawer && <CDNDrawer profile={cdnDrawer === 'new' ? undefined : cdnDrawer} onClose={() => setCdnDrawer(null)} onSaved={() => { setCdnDrawer(null); cdn.reload() }} />}
+      {cdnDrawer && <CDNDrawer profile={cdnDrawer === 'new' ? undefined : cdnDrawer} others={cdn.data ?? []} onClose={() => setCdnDrawer(null)} onSaved={() => { setCdnDrawer(null); cdn.reload() }} />}
     </>
   )
 }

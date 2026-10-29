@@ -227,5 +227,9 @@ const m: Record<string, string> = {
   "可选 · 权限：Zone.Zone 读取 + Zone.DNS 编辑。用于 ACME 的 DNS 验证，也是「域名」页 Cloudflare DNS 服务商的默认 Token。CDN 用的 Token 权限更多，在「CDN 配置档」页单独填写": "Optional · Permissions: Zone.Zone Read + Zone.DNS Edit. Used for ACME DNS validation and as the default token of Cloudflare DNS providers on the Domains page. The CDN token needs more permissions and is set on the CDN profile page",
   "订阅全部使用": "Subscription uses all",
   "还没有优选 IP。每个配置档单独维护：点上方「编辑」填写优选 IP / 域名或来源 URL，或在下方添加测速点自动上报": "No preferred IPs yet. Each profile keeps its own: use Edit above to enter IPs / domains or a source URL, or add a speed-test point below to report them",
+  "从其他配置档复制优选 IP": "Copy preferred IPs from another profile",
+  "复制所选配置档的优选 IP、来源 URL、订阅取前几个和「每个 IP 一个节点」，保存后生效": "Copies the chosen profile's preferred IPs, source URL, top-N and one-node-per-IP setting; takes effect when saved",
+  "选择配置档…": "Choose a profile…",
+  "有来源 URL": "has a source URL",
 }
 export default m
