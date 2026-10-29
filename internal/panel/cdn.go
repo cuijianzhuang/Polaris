@@ -302,9 +302,10 @@ func (s *Server) listCDN(c *gin.Context) {
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
 	reports := s.cdnReports(ids)
 	probes := s.cdnProbes(ids)
+	global := s.st.GetSetting("acme_cf_token", "") != "" // read once: list queries stay flat
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
-		p.HasToken, p.GlobalToken = s.cfToken(&p) != "", p.APIToken == "" && s.cfToken(&p) != ""
+		p.HasToken, p.GlobalToken = p.APIToken != "" || global, p.APIToken == "" && global
 		pv := probes[p.ID]
 		if pv == nil {
 			pv = []cdnProbeView{}
