@@ -191,7 +191,6 @@ const m: Record<string, string> = {
   "SSL 模式 Full / Full (strict) 下 Cloudflare 用 HTTPS 回源，入站需要开启 TLS（或开启配置档的「Caddy 统一回源」）": "Under Full / Full (strict), Cloudflare reaches the node over HTTPS: the inbound needs TLS (or turn on Caddy fronting in the profile)",
   "添加入口": "Add entry",
   "多台节点共用了回源域名，已给这些入口换成各自的域名：{list}": "Several nodes shared the origin domain; these entries now use their own hostnames: {list}",
-  "多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com": "Several nodes can share a profile: entries from the second node on get their own hostname (node-name-domain), such as oracle-sg-cdn.example.com",
   "每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV": "Fetched every 6 hours; one IP or domain per line, ip:port and CSV work",
   "一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后": "One IP or preferred domain (such as visa.cn) per line, without a port. Domains typed here stay: speed-test points and the source URL only update the IPs, and subscriptions list the domains after the top N IPs",
   "可选：留空使用「系统设置」里的 Cloudflare Token（所有配置档共用）；用于同步 DNS、设置 SSL、签发 Origin 证书": "Optional: leave empty to use the Cloudflare token in Settings (shared by all profiles); used to sync DNS, set SSL and issue Origin certificates",
@@ -208,5 +207,9 @@ const m: Record<string, string> = {
   "已配置：{proto} + {trans} + TLS，端口 {port}，经 CDN 配置档 {name}，只走 CDN。检查无误后点「保存并下发」": "Set up: {proto} + {trans} + TLS on port {port}, through CDN profile {name}, CDN only. Check it, then Save and apply",
   "要让这个入站走 CDN（节点 IP 被墙也能用）？一键设成 VLESS / VMess / Trojan + WS + TLS，自动选 Cloudflare 端口并只发 CDN 节点。": "Serve this inbound through a CDN (works even if the node's IP is blocked)? One click sets VLESS / VMess / Trojan + WS + TLS, picks a Cloudflare port and publishes CDN nodes only.",
   "一键配置 CDN": "Set up for CDN",
+  "服务节点": "Nodes served",
+  "未使用": "Unused",
+  "还没有入站使用：在「入站」里给入站添加这个配置档的 CDN 入口": "No inbound uses it yet: add a CDN entry with this profile to an inbound on the Inbounds page",
+  "一个 Cloudflare 域名建一个配置档就够了：多台节点共用时，第二台起的入口自动用「节点名-域名」（如 oracle-sg-cdn.example.com），在下方「服务节点」里能看到每台节点用哪个域名": "One profile per Cloudflare domain is enough: when several nodes share it, entries from the second node on use \"node-name-domain\" (e.g. oracle-sg-cdn.example.com); \"Nodes served\" shows which hostname each node uses",
 }
 export default m

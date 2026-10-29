@@ -293,6 +293,7 @@ func (s *Server) listCDN(c *gin.Context) {
 	type view struct {
 		store.CDNProfile
 		Inbounds int64               `json:"inbounds"`
+		Serves   []cdnServe          `json:"serves"`
 		Reports  []store.CDNIPReport `json:"reports"`
 		Probes   []cdnProbeView      `json:"probes"`
 	}
@@ -301,6 +302,7 @@ func (s *Server) listCDN(c *gin.Context) {
 		ids[i] = ps[i].ID
 	}
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
+	serves := s.cdnServes(ids)
 	reports := s.cdnReports(ids)
 	probes := s.cdnProbes(ids)
 	global := s.st.GetSetting("acme_cf_token", "") != "" // read once: list queries stay flat
@@ -311,7 +313,14 @@ func (s *Server) listCDN(c *gin.Context) {
 		if pv == nil {
 			pv = []cdnProbeView{}
 		}
-		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Reports: nonNilReports(reports[p.ID]), Probes: pv})
+		sv := serves[p.ID]
+		for i := range sv {
+			sv[i].Host = orDefault(sv[i].Host, p.OriginDomain)
+		}
+		if sv == nil {
+			sv = []cdnServe{}
+		}
+		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Serves: sv, Reports: nonNilReports(reports[p.ID]), Probes: pv})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -379,6 +388,31 @@ func (s *Server) updateCDN(c *gin.Context) {
 	}
 	s.auditCtx(c, "cdn.update", p.Name, "")
 	c.JSON(http.StatusOK, p)
+}
+
+// cdnServe is one CDN entry of a profile: the hostname clients use and
+// the node and inbound it leads to.
+type cdnServe struct {
+	ProfileID string `json:"-"`
+	Node      string `json:"node"`
+	Tag       string `json:"tag"`
+	Host      string `json:"host"`
+}
+
+// cdnServes lists the CDN entries of the profiles in one query.
+func (s *Server) cdnServes(ids []string) map[string][]cdnServe {
+	out := map[string][]cdnServe{}
+	if len(ids) == 0 {
+		return out
+	}
+	var rows []cdnServe
+	s.st.DB.Table("endpoints").Select("endpoints.cdn_profile_id AS profile_id, nodes.name AS node, inbounds.tag AS tag, endpoints.host AS host").
+		Joins("JOIN inbounds ON inbounds.id = endpoints.inbound_id").Joins("JOIN nodes ON nodes.id = inbounds.node_id").
+		Where("endpoints.kind = ? AND endpoints.cdn_profile_id IN ?", "cdn", ids).Order("nodes.name, inbounds.tag").Scan(&rows)
+	for _, r := range rows {
+		out[r.ProfileID] = append(out[r.ProfileID], r)
+	}
+	return out
 }
 
 type cdnUse struct {

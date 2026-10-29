@@ -153,7 +153,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('服务商')}>
           <select className="input" value={f.provider} onChange={(e) => set('provider', e.target.value)}><option value="cloudflare">Cloudflare</option><option value="other">{t('其他')}</option></select>
         </Field>
-        <Field label={t('回源域名')} full hint={t('多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com')}><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
+        <Field label={t('回源域名')} full hint={t('一个 Cloudflare 域名建一个配置档就够了：多台节点共用时，第二台起的入口自动用「节点名-域名」（如 oracle-sg-cdn.example.com），在下方「服务节点」里能看到每台节点用哪个域名')}><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
         <Field label={t('TLS 模式')}>
           <select className="input" value={f.tlsMode} onChange={(e) => set('tlsMode', e.target.value)}><option value="full_strict">Full (strict)</option><option value="full">Full</option><option value="flexible">Flexible</option></select>
         </Field>
@@ -199,7 +199,8 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
           <dt>{t('回源域名')}</dt><dd className="mono">{p.originDomain}</dd>
           <dt>{t('TLS 模式')}</dt><dd>{p.tlsMode === 'full_strict' ? 'Full (strict)' : p.tlsMode}</dd>
           <dt>{t('可用端口')}</dt><dd>{p.ports.map((x) => <span key={x} className="tag">{x}</span>)}</dd>
-          <dt>{t('使用入站')}</dt><dd>{t('{n} 个', { n: p.inbounds })}</dd>
+          <dt>{t('服务节点')}</dt><dd>{(p.serves ?? []).length === 0 ? <span className="sub">{t('还没有入站使用：在「入站」里给入站添加这个配置档的 CDN 入口')}</span> : (p.serves ?? []).map((x) => (
+            <div key={x.node + x.tag} className="small"><b>{x.node}</b> · {x.tag} → <span className="mono">{x.host}</span></div>))}</dd>
           <dt>API Token</dt><dd>{p.hasToken ? (p.globalToken ? t('使用系统设置里的 Token') : t('已配置')) : t('未配置（仅生成订阅）')}</dd>
         </dl>
         {p.lastError && <div className="note bad" style={{ marginTop: 12 }}>{p.lastError}</div>}
@@ -676,12 +677,12 @@ export default function Chains() {
             <div className="card flush scroll">
               {cdn.data?.length === 0 ? <Empty>{t('还没有 CDN 配置档')}</Empty> : (
                 <table className="rtable">
-                  <thead><tr><th>{t('名称')}</th><th>{t('服务商')}</th><th>{t('回源域名')}</th><th>{t('优选 IP')}</th><th>{t('使用入站')}</th><th></th></tr></thead>
+                  <thead><tr><th>{t('名称')}</th><th>{t('服务商')}</th><th>{t('回源域名')}</th><th>{t('优选 IP')}</th><th>{t('服务节点')}</th><th></th></tr></thead>
                   <tbody>
                     {(cdn.data ?? []).map((p) => (
                       <tr key={p.id} className="clickable" onClick={() => setCdnSel(p.id)}>
                         <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
-                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('使用入站')} className="mono">{p.inbounds}</td>
+                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('服务节点')} className="small">{(p.serves ?? []).length === 0 ? <span className="sub">{t('未使用')}</span> : (p.serves ?? []).map((x) => <div key={x.node + x.tag}>{x.node} → <span className="mono">{x.host}</span></div>)}</td>
                         <td className="rt-actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <button className="link" type="button" onClick={() => setCdnDrawer(p)}>{t('编辑')}</button>
                           <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={() => removeProfile(p)}>{t('删除')}</button>

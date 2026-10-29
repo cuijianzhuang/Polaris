@@ -431,3 +431,24 @@ func TestCFStep(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The profile list says which node each hostname leads to.
+func TestListCDNServes(t *testing.T) {
+	s, admin := cdnFixture(t)
+	db := s.st.DB
+	db.Create(&store.Node{ID: "n2", Name: "sg", Address: "203.0.113.6", DefaultCore: model.CoreXray})
+	db.Create(&store.Inbound{ID: "i1", NodeID: "n1", Tag: "ws-hk", Port: 2053})
+	db.Create(&store.Inbound{ID: "i2", NodeID: "n2", Tag: "ws-sg", Port: 2053})
+	db.Create(&store.Endpoint{ID: "e1", InboundID: "i1", Kind: "cdn", CDNProfileID: "cf"})
+	db.Create(&store.Endpoint{ID: "e2", InboundID: "i2", Kind: "cdn", CDNProfileID: "cf", Host: "sg-cdn.example.com"})
+	db.Create(&store.Endpoint{ID: "e3", InboundID: "i2", Kind: "direct"})
+	code, list := admin.doList("GET", "/cdn-profiles")
+	if code != 200 || len(list) != 1 {
+		t.Fatalf("list: %d %v", code, list)
+	}
+	got := list[0].(map[string]any)["serves"].([]any)
+	row := func(i int, k string) string { return got[i].(map[string]any)[k].(string) }
+	if len(got) != 2 || row(0, "node") != "hk" || row(0, "host") != "cdn.example.com" || row(1, "node") != "sg" || row(1, "host") != "sg-cdn.example.com" || row(1, "tag") != "ws-sg" {
+		t.Fatalf("serves %+v", got)
+	}
+}
