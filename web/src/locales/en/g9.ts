@@ -225,5 +225,7 @@ const m: Record<string, string> = {
   "使用系统设置的 DNS Token": "Uses the DNS token from Settings",
   "可选：留空使用「系统设置」里的 Cloudflare DNS Token；另一个 Cloudflare 账号才需要单独填。权限：Zone.Zone 读取 + Zone.DNS 编辑": "Optional: leave empty to use the Cloudflare DNS token from Settings; only another Cloudflare account needs its own. Permissions: Zone.Zone Read + Zone.DNS Edit",
   "可选 · 权限：Zone.Zone 读取 + Zone.DNS 编辑。用于 ACME 的 DNS 验证，也是「域名」页 Cloudflare DNS 服务商的默认 Token。CDN 用的 Token 权限更多，在「CDN 配置档」页单独填写": "Optional · Permissions: Zone.Zone Read + Zone.DNS Edit. Used for ACME DNS validation and as the default token of Cloudflare DNS providers on the Domains page. The CDN token needs more permissions and is set on the CDN profile page",
+  "订阅全部使用": "Subscription uses all",
+  "还没有优选 IP。每个配置档单独维护：点上方「编辑」填写优选 IP / 域名或来源 URL，或在下方添加测速点自动上报": "No preferred IPs yet. Each profile keeps its own: use Edit above to enter IPs / domains or a source URL, or add a speed-test point below to report them",
 }
 export default m

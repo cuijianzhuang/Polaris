@@ -221,12 +221,12 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>
           <button className="btn sm" type="button" disabled={busy || !p.ipSourceUrl} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/refresh-ips`); onChanged() }, t('已刷新'))}>{t('刷新')}</button></div>
-        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length ? t('由 {n} 个测速点维护', { n: p.reports.length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? t('订阅取前 {n} 个', { n: p.ipTopN || t('全部') }) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
+        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length ? t('由 {n} 个测速点维护', { n: p.reports.length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
         <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
           {p.preferredIps.length ? p.preferredIps.map((ip) => {
             const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
             return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}</div>
-          }) : t('暂无')}
+          }) : <span>{t('还没有优选 IP。每个配置档单独维护：点上方「编辑」填写优选 IP / 域名或来源 URL，或在下方添加测速点自动上报')}</span>}
         </div>
         {p.nodeCheck && <div className="sub" style={{ marginTop: 8 }}>{p.checkedAt ? t('节点检测：{t}，{n} 个连不上', { t: ago(p.checkedAt), n: (p.badIps ?? []).length }) : t('节点检测：等待第一次检测')}</div>}
       </section>
