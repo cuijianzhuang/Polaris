@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -380,17 +381,86 @@ func (s *Server) updateCDN(c *gin.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
+type cdnUse struct {
+	InboundID string `json:"inboundId"`
+	Tag       string `json:"tag"`
+	Node      string `json:"node"`
+	// CDNOnly: the inbound has no other entry, so without this profile it
+	// would fall back to a direct entry (the node's address).
+	CDNOnly bool `json:"cdnOnly"`
+}
+
+// cdnUsage lists the inbounds whose entries use the profile.
+func (s *Server) cdnUsage(id string) []cdnUse {
+	var inboundIDs []string
+	s.st.DB.Model(&store.Endpoint{}).Where("cdn_profile_id = ?", id).Distinct().Pluck("inbound_id", &inboundIDs)
+	out := []cdnUse{}
+	for _, iid := range inboundIDs {
+		var in store.Inbound
+		if s.st.DB.Select("id", "tag", "node_id").First(&in, "id = ?", iid).Error != nil {
+			continue
+		}
+		var node store.Node
+		s.st.DB.Select("name").First(&node, "id = ?", in.NodeID)
+		var others int64
+		s.st.DB.Model(&store.Endpoint{}).Where("inbound_id = ? AND (cdn_profile_id <> ? OR kind <> ?)", iid, id, "cdn").Count(&others)
+		out = append(out, cdnUse{InboundID: iid, Tag: in.Tag, Node: node.Name, CDNOnly: others == 0})
+	}
+	return out
+}
+
+// deleteCDN is DELETE /cdn-profiles/:id[?force=1]. A profile in use is
+// refused with the list of inbounds using it; force also removes their
+// entries through it and disables the inbounds left without any entry, so
+// they do not fall back to publishing the node's address.
 func (s *Server) deleteCDN(c *gin.Context) {
-	var n int64
-	s.st.DB.Model(&store.Endpoint{}).Where("cdn_profile_id = ?", c.Param("id")).Count(&n)
-	if n > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("仍有 %d 个入口使用该配置档", n)})
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
+	var p store.CDNProfile
+	if err := s.st.DB.First(&p, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
 		return
 	}
-	s.st.DB.Delete(&store.CDNProfile{}, "id = ?", c.Param("id"))
-	s.st.DB.Where("cdn_profile_id = ?", c.Param("id")).Delete(&store.APIToken{})
-	s.auditCtx(c, "cdn.delete", c.Param("id"), "")
-	c.Status(http.StatusNoContent)
+	usage := s.cdnUsage(p.ID)
+	if len(usage) > 0 && c.Query("force") != "1" {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("仍有 %d 个入站使用该配置档", len(usage)), "usage": usage})
+		return
+	}
+	var disabled, inboundIDs []string
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		for _, u := range usage {
+			inboundIDs = append(inboundIDs, u.InboundID)
+			if u.CDNOnly {
+				if err := tx.Model(&store.Inbound{}).Where("id = ?", u.InboundID).Update("enabled", false).Error; err != nil {
+					return err
+				}
+				disabled = append(disabled, u.Tag)
+			}
+		}
+		if err := tx.Where("cdn_profile_id = ? AND kind = ?", p.ID, "cdn").Delete(&store.Endpoint{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("cdn_profile_id = ?", p.ID).Delete(&store.APIToken{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("profile_id = ?", p.ID).Delete(&store.CDNIPReport{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&store.CDNProfile{}, "id = ?", p.ID).Error
+	})
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	if len(inboundIDs) > 0 {
+		s.MarkDirty("cdn profile "+p.Name+" deleted", s.nodesForInbounds(inboundIDs...)...)
+	}
+	s.auditCtx(c, "cdn.delete", p.Name, fmt.Sprintf("%d inbounds, disabled: %s", len(usage), strings.Join(disabled, ",")))
+	if len(usage) == 0 {
+		c.Status(http.StatusNoContent)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"removed": len(usage), "disabled": disabled})
 }
 
 // syncCDNDNS creates proxied DNS records for every node behind the profile,

@@ -58,25 +58,23 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
     <section className="field">
       <span className="lbl">{t('入口（订阅里每个入口生成一个节点）')}</span>
       <div className="card flush">
-        <table>
-          <tbody>
-            {(eps.data ?? []).map((e) => (
-              <tr key={e.id}>
-                <td style={{ whiteSpace: 'normal' }}>{label(e)}
-                  {(e.warnings ?? []).map((w, i) => <div key={i} className="hint" style={{ color: 'var(--warn)', overflowWrap: 'anywhere' }}>{tr(w)}</div>)}
-                  {checks[e.id] && <CheckResult r={checks[e.id]} />}
-                </td>
-                <td className="mono small" style={{ whiteSpace: 'normal', overflowWrap: 'anywhere' }}>{e.target
-                  ? <span title={t('客户端经 CDN 连接的地址；SNI / Host / 路径')}>{e.target.server}:{e.target.port}<br />{e.target.sni === e.target.host ? e.target.sni : `${e.target.sni} / ${e.target.host}`} {e.target.path}</span>
-                  : [e.address, e.port || '', e.host].filter(Boolean).join(' · ') || t('默认')}</td>
-                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                  {e.kind === 'cdn' && <button className="link" type="button" disabled={checking === e.id} onClick={() => check(e)}>{checking === e.id ? t('检测中…') : t('检测')}</button>}{' '}
-                  <button className="link" type="button" onClick={() => run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() })}>{t('删除')}</button></td>
-              </tr>
-            ))}
-            {eps.data?.length === 0 && <tr><td className="mute">{t('无入口：订阅按直连生成')}</td></tr>}
-          </tbody>
-        </table>
+        {(eps.data ?? []).map((e, i) => (
+          <div key={e.id} style={{ padding: '12px 14px', borderTop: i ? '1px solid var(--line-2)' : undefined, display: 'grid', gap: 6, minWidth: 0 }}>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <b style={{ flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere' }}>{label(e)}</b>
+              <span className="row" style={{ gap: 6, flex: 'none' }}>
+                {e.kind === 'cdn' && <button className="btn sm" type="button" disabled={checking === e.id} onClick={() => check(e)}>{checking === e.id ? t('检测中…') : t('检测')}</button>}
+                <button className="btn sm danger" type="button" onClick={() => run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() })}>{t('删除')}</button>
+              </span>
+            </div>
+            <div className="mono small mute" style={{ overflowWrap: 'anywhere' }} title={e.target ? t('客户端经 CDN 连接的地址；SNI / Host / 路径') : undefined}>{e.target
+              ? <>{e.target.server}:{e.target.port} · {e.target.sni === e.target.host ? e.target.sni : `${e.target.sni} / ${e.target.host}`} · {e.target.path}</>
+              : [e.address, e.port || '', e.host].filter(Boolean).join(' · ') || t('默认')}</div>
+            {(e.warnings ?? []).map((w, j) => <div key={j} className="hint" style={{ color: 'var(--warn)', overflowWrap: 'anywhere' }}>{tr(w)}</div>)}
+            {checks[e.id] && <CheckResult r={checks[e.id]} />}
+          </div>
+        ))}
+        {eps.data?.length === 0 && <div className="mute" style={{ padding: '12px 14px' }}>{t('无入口：订阅按直连生成')}</div>}
       </div>
       {!adding && <div><button className="btn sm" type="button" onClick={() => setAdding(true)}>{t('+ 添加入口')}</button></div>}
       {adding && <div className="card" style={{ display: 'grid', gap: 10, background: 'var(--soft)' }}>
@@ -316,6 +314,7 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
   const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
   const [newCDN, setNewCDN] = useState({ profileId: '', only: false })
+  const cdnProfiles = useLoad(() => (editing ? Promise.resolve([] as CDNProfile[]) : get<CDNProfile[]>('/cdn-profiles')), [editing?.id])
   const draftCDNCapable = draft.security.type !== 'reality' && ['ws', 'httpupgrade', 'grpc', 'xhttp'].includes(draft.transport.type)
   const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
@@ -347,6 +346,31 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
       security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly, relayAccess: { ...relayAccess, sourceOverrides: Object.fromEntries(Object.entries(relayAccess.sourceOverrides ?? {}).map(([id, sources]) => [id, sources.map((x) => x.trim()).filter(Boolean)])) }, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)),
       ...(!editing && draftCDNCapable && newCDN.profileId ? { cdnProfileId: newCDN.profileId, cdnOnly: newCDN.only } : {}) }
   }
+  // oneClickCDN turns the new inbound into one clients reach through a CDN:
+  // a CDN-capable protocol and transport with TLS, a free port Cloudflare
+  // proxies (443 for gRPC), the profile's domain as SNI, CDN entry only.
+  const oneClickCDN = () => {
+    const profiles = cdnProfiles.data ?? []
+    const p = profiles.find((x) => x.id === newCDN.profileId) ?? profiles[0]
+    if (!p) { toast(t('还没有 CDN 配置档：先在「链路与 CDN」页添加一个'), true); return }
+    const usedTCP = new Set((nodeInbounds.data ?? []).filter((i) => i.network.includes('tcp')).map((i) => i.port))
+    const proto = ['vless', 'vmess', 'trojan'].includes(draft.protocol.type) ? draft.protocol.type : 'vless'
+    let trans = ['ws', 'httpupgrade', 'grpc', 'xhttp'].includes(draft.transport.type) ? draft.transport.type : 'ws'
+    if (p.provider === 'cloudflare' && trans === 'grpc' && usedTCP.has(443)) trans = 'ws'
+    const candidates = p.provider === 'cloudflare' && trans === 'grpc' ? [443] : [2053, 2083, 2087, 2096, 8443, 443]
+    const free = candidates.find((x) => !usedTCP.has(x))
+    if (!free) { toast(t('这台节点上 Cloudflare 支持的端口（443、2053、2083、2087、2096、8443）都被占用了'), true); return }
+    const rnd = () => Math.random().toString(36).slice(2, 10)
+    setDraft((d) => normalizeDraft({ ...d, protocol: { ...d.protocol, type: proto as typeof d.protocol.type },
+      transport: { ...d.transport, type: trans as typeof d.transport.type,
+        ...(trans === 'grpc' ? { serviceName: d.transport.serviceName || rnd() } : { path: d.transport.path || '/' + rnd() }) },
+      security: { ...d.security, type: 'tls', serverName: p.originDomain } }, coreCaps))
+    setPort(String(free))
+    setTag(`${proto}-${trans}-cdn`)
+    setNewCDN({ profileId: p.id, only: true })
+    toast(t('已配置：{proto} + {trans} + TLS，端口 {port}，经 CDN 配置档 {name}，只走 CDN。检查无误后点「保存并下发」', { proto: proto.toUpperCase(), trans: trans.toUpperCase(), port: free, name: p.name }))
+  }
+
   const save = () => run(async () => {
     if (editing) await put('/inbounds/' + editing.id, body())
     else await post('/inbounds', body())
@@ -368,6 +392,10 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
       })}>{t('预览内核配置')}</button>
       <button className="btn pri" type="button" disabled={busy || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
     </>}>
+      {!editing && <div className="note row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ flex: '1 1 200px' }}>{t('要让这个入站走 CDN（节点 IP 被墙也能用）？一键设成 VLESS / VMess / Trojan + WS + TLS，自动选 Cloudflare 端口并只发 CDN 节点。')}</span>
+        <button className="btn sm pri" type="button" onClick={oneClickCDN}>{t('一键配置 CDN')}</button>
+      </div>}
       <Section step={1} title={t('基础')} summary={[node?.name, tag, port && ':' + port, enabled ? '' : t('已停用')].filter(Boolean).join(' · ')}>
         <Field label={t('节点')} htmlFor="ib-node">
           <select id="ib-node" className="input" value={nodeId} disabled={!!editing} onChange={(e) => setNodeId(e.target.value)}>
@@ -437,7 +465,11 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         <div className="note warn">{t('该节点运行的是官方版 sing-box（不含 v2ray_api），暂时只能统计入站总流量，用户的已用流量不会增加。Polaris 会自动构建带统计功能的同版本 sing-box，发布后 Agent 下次启动时自动替换；也可以在「节点」页把 sing-box 切换到已构建的版本。')}</div>
       )}
       {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
-      {!editing && draftCDNCapable && <NewCDNEntry value={newCDN} onChange={setNewCDN} grpc={draft.transport.type === 'grpc'} tls={draft.security.type === 'tls'} port={Number(port) || 0} />}
+      {!editing && (draftCDNCapable
+        ? <NewCDNEntry value={newCDN} onChange={setNewCDN} grpc={draft.transport.type === 'grpc'} tls={draft.security.type === 'tls'} port={Number(port) || 0} />
+        : <Field label={t('CDN 入口')} hint={t('当前是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP，而且不能用 REALITY。', { combo: `${draft.transport.type.toUpperCase()} + ${draft.security.type.toUpperCase()}` })}>
+          <div><button className="btn sm" type="button" onClick={oneClickCDN}>{t('一键配置 CDN')}</button></div>
+        </Field>)}
       {editing && relaysOpen && <RelayManager inbound={editing} nodes={nodes} onClose={() => setRelaysOpen(false)} onChanged={onSaved} />}
       {preview && <Modal title={t('{core} 原生配置预览', { core: coreLabel[draft.core] })} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}
     </Drawer>

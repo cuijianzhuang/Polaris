@@ -1229,3 +1229,16 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
   html[data-keyboard] .mtabs { display:none; }
   html[data-keyboard] .settings-savebar { bottom:calc(var(--keyboard-inset, 0px) + 8px); }
 }
+
+/* Phones: a table wider than the screen scrolls sideways in its card;
+   keep its trailing actions column pinned to the right edge so 编辑 / 删除
+   stay in view while the data columns scroll under it. */
+@media (max-width: 760px) {
+  .card.flush:has(> table:not(.rtable)) { overflow-x: auto; }
+  :is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tr > :last-child {
+    position: sticky; right: 0; z-index: 1;
+    background: var(--card);
+    box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25);
+  }
+  :is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tbody tr:hover > :last-child { background: var(--soft-2); }
+}
