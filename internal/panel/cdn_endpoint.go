@@ -163,7 +163,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			nodeIPs = append(nodeIPs, ip)
 		}
 	}
-	if token := s.st.Box.MustOpen(p.APIToken); token != "" {
+	if token := s.cfToken(p); token != "" {
 		cf := newCF(token)
 		zone := p.ZoneID
 		if zone == "" {
@@ -202,7 +202,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			}
 		}
 	} else {
-		r.Steps = append(r.Steps, "配置档没填 API Token，无法读出 DNS 记录指向哪里；请在 Cloudflare 后台确认它指向 "+strings.Join(nodeIPs, " / "))
+		r.Steps = append(r.Steps, "没有 Cloudflare API Token（配置档和系统设置都没填），无法读出 DNS 记录指向哪里；请在 Cloudflare 后台确认它指向 "+strings.Join(nodeIPs, " / "))
 	}
 	if len(nodeIPs) == 0 {
 		return

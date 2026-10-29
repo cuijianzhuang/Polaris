@@ -127,7 +127,7 @@ export default function Settings() {
           <div className="hint" style={{ marginTop: -6 }}>{t('只填邮箱即可用 HTTP 验证签发（由域名指向的节点在 80 端口应答）；再填 Cloudflare Token 则改用 DNS 验证，支持泛域名、无需 80 端口。')}</div>
           <div className="form-grid">
             <Field label={t('邮箱')}><input className="input" type="email" value={f.acme_email ?? ''} onChange={(e) => set('acme_email', e.target.value)} /></Field>
-            <Field label="Cloudflare DNS Token" hint={s.data?.acme_cf_token_set ? t('已保存（留空不修改）') : t('可选 · 需要 Zone.DNS 编辑权限')}>
+            <Field label="Cloudflare DNS Token" hint={s.data?.acme_cf_token_set ? t('已保存（留空不修改）') : t('可选 · 用于 ACME 证书，也是 CDN 配置档的默认 Token。ACME 只需 Zone.DNS 编辑；CDN「同步 DNS」还需 Zone Settings 和 SSL and Certificates 编辑权限')}>
               <input className="input mono" type="password" autoComplete="off" value={f.acme_cf_token ?? ''} onChange={(e) => set('acme_cf_token', e.target.value)} />
             </Field>
           </div>

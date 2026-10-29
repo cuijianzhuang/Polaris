@@ -163,7 +163,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
               : t('Flexible：Cloudflare 用明文 HTTP 回源，入站不能开 TLS，也不能用 Caddy 统一回源；一般不推荐。')}
           {' '}{t('这里的设置要和 Cloudflare 后台「SSL/TLS」一致：点「同步 DNS」会替你改（对整个域名生效）。')}</div>}
         <Field label={t('可用端口')} hint={f.provider === 'cloudflare' ? t('只能用 Cloudflare 的 HTTPS 端口：443、2053、2083、2087、2096、8443；第一个用于不在这些端口上的入站和 Caddy 统一回源') : undefined}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
-        <Field label="Cloudflare API Token" full hint={profile?.hasToken ? t('已保存（留空不修改）· 加密存储') : t('可选：填入后可自动同步 DNS、设置 SSL、签发 Origin 证书')}>
+        <Field label="Cloudflare API Token" full hint={profile?.hasToken && !profile.globalToken ? t('已保存（留空不修改）· 加密存储') : t('可选：留空使用「系统设置」里的 Cloudflare Token（所有配置档共用）；用于同步 DNS、设置 SSL、签发 Origin 证书')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
         </Field>
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
@@ -200,7 +200,7 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
           <dt>{t('TLS 模式')}</dt><dd>{p.tlsMode === 'full_strict' ? 'Full (strict)' : p.tlsMode}</dd>
           <dt>{t('可用端口')}</dt><dd>{p.ports.map((x) => <span key={x} className="tag">{x}</span>)}</dd>
           <dt>{t('使用入站')}</dt><dd>{t('{n} 个', { n: p.inbounds })}</dd>
-          <dt>API Token</dt><dd>{p.hasToken ? t('已配置') : t('未配置（仅生成订阅）')}</dd>
+          <dt>API Token</dt><dd>{p.hasToken ? (p.globalToken ? t('使用系统设置里的 Token') : t('已配置')) : t('未配置（仅生成订阅）')}</dd>
         </dl>
         {p.lastError && <div className="note bad" style={{ marginTop: 12 }}>{p.lastError}</div>}
         <div className="row" style={{ marginTop: 16 }}>

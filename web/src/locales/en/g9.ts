@@ -194,5 +194,8 @@ const m: Record<string, string> = {
   "多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com": "Several nodes can share a profile: entries from the second node on get their own hostname (node-name-domain), such as oracle-sg-cdn.example.com",
   "每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV": "Fetched every 6 hours; one IP or domain per line, ip:port and CSV work",
   "一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后": "One IP or preferred domain (such as visa.cn) per line, without a port. Domains typed here stay: speed-test points and the source URL only update the IPs, and subscriptions list the domains after the top N IPs",
+  "可选：留空使用「系统设置」里的 Cloudflare Token（所有配置档共用）；用于同步 DNS、设置 SSL、签发 Origin 证书": "Optional: leave empty to use the Cloudflare token in Settings (shared by all profiles); used to sync DNS, set SSL and issue Origin certificates",
+  "使用系统设置里的 Token": "Uses the token from Settings",
+  "可选 · 用于 ACME 证书，也是 CDN 配置档的默认 Token。ACME 只需 Zone.DNS 编辑；CDN「同步 DNS」还需 Zone Settings 和 SSL and Certificates 编辑权限": "Optional · used for ACME certificates and as the default token of CDN profiles. ACME needs Zone.DNS edit; CDN Sync DNS also needs Zone Settings and SSL and Certificates edit",
 }
 export default m
