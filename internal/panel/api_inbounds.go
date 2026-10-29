@@ -227,6 +227,11 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 	if err := checkSpeedLimit(meta.SpeedLimitMbps); err != nil {
 		return store.Inbound{}, err
 	}
+	var taken int64
+	s.st.DB.Model(&store.Inbound{}).Where("node_id = ? AND tag = ?", node.ID, m.Tag).Count(&taken)
+	if taken > 0 {
+		return store.Inbound{}, fmt.Errorf("节点 %s 上已有标签为 %s 的入站，请换一个标签", node.Name, m.Tag)
+	}
 	row := store.Inbound{ID: store.NewID(), Remark: meta.Remark, OutboundTag: meta.OutboundTag, SpeedLimitMbps: meta.SpeedLimitMbps, RelayOnly: meta.RelayOnly,
 		OverriddenFields: store.NewJSON([]string{})}
 	fromModel(m, &row)

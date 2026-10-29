@@ -100,7 +100,7 @@ func (s *Server) renewCert(c *gin.Context) {
 
 // --- settings ---
 
-var secretSettings = map[string]bool{"acme_cf_token": true, "tg_token": true, "github_client_secret": true,
+var secretSettings = map[string]bool{"acme_cf_token": true, "cdn_cf_token": true, "tg_token": true, "github_client_secret": true,
 	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true,
 	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true, "shodan_api_key": true}
 
@@ -115,7 +115,7 @@ var sudoSettings = map[string]bool{"login_allowlist": true, "tg_api_base": true,
 
 var editableSettings = map[string]bool{
 	"site_title": true, "reality_scan_candidates": true, "expire_warn_days": true, "sub_name_template": true, "sub_update_interval": true, "ip_ban_minutes": true,
-	"acme_email": true, "acme_cf_token": true, "acme_directory": true, "acme_http_port": true, "github_client_id": true, "github_client_secret": true, "default_xray": true, "default_singbox": true,
+	"acme_email": true, "acme_cf_token": true, "cdn_cf_token": true, "acme_directory": true, "acme_http_port": true, "github_client_id": true, "github_client_secret": true, "default_xray": true, "default_singbox": true,
 	"converter_mode": true, "converter_backend": true, "converter_config": true, "converter_params": true,
 	"converter_for_users": true, "sub_operators": true, "sub_apply_ops_users": true, "allow_private_sources": true,
 	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,

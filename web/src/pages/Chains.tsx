@@ -153,7 +153,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('服务商')}>
           <select className="input" value={f.provider} onChange={(e) => set('provider', e.target.value)}><option value="cloudflare">Cloudflare</option><option value="other">{t('其他')}</option></select>
         </Field>
-        <Field label={t('回源域名')} full hint={t('多台节点可以共用一个配置档：第二台起的入口自动用「节点名-域名」，如 oracle-sg-cdn.example.com')}><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
+        <Field label={t('回源域名')} full hint={t('一个 Cloudflare 域名建一个配置档就够了：多台节点共用时，第二台起的入口自动用「节点名-域名」（如 oracle-sg-cdn.example.com），在下方「服务节点」里能看到每台节点用哪个域名')}><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
         <Field label={t('TLS 模式')}>
           <select className="input" value={f.tlsMode} onChange={(e) => set('tlsMode', e.target.value)}><option value="full_strict">Full (strict)</option><option value="full">Full</option><option value="flexible">Flexible</option></select>
         </Field>
@@ -163,9 +163,9 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
               : t('Flexible：Cloudflare 用明文 HTTP 回源，入站不能开 TLS，也不能用 Caddy 统一回源；一般不推荐。')}
           {' '}{t('这里的设置要和 Cloudflare 后台「SSL/TLS」一致：点「同步 DNS」会替你改（对整个域名生效）。')}</div>}
         <Field label={t('可用端口')} hint={f.provider === 'cloudflare' ? t('只能用 Cloudflare 的 HTTPS 端口：443、2053、2083、2087、2096、8443；第一个用于不在这些端口上的入站和 Caddy 统一回源') : undefined}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
-        <Field label="Cloudflare API Token" full hint={profile?.hasToken && !profile.globalToken ? t('已保存（留空不修改）· 加密存储') : t('可选：留空使用「系统设置」里的 Cloudflare Token（所有配置档共用）；用于同步 DNS、设置 SSL、签发 Origin 证书')}>
+        {profile?.tokenSource === 'profile' && <Field label="Cloudflare API Token" full hint={t('这个配置档有单独保存的 Token（旧版本填写），留空保持不变。新配置档统一用「CDN 配置档」页的 CDN Token')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
-        </Field>
+        </Field>}
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
         <Field label={t('优选 IP（手填）')} full hint={t('一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后')}><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
         <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
@@ -199,8 +199,9 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
           <dt>{t('回源域名')}</dt><dd className="mono">{p.originDomain}</dd>
           <dt>{t('TLS 模式')}</dt><dd>{p.tlsMode === 'full_strict' ? 'Full (strict)' : p.tlsMode}</dd>
           <dt>{t('可用端口')}</dt><dd>{p.ports.map((x) => <span key={x} className="tag">{x}</span>)}</dd>
-          <dt>{t('使用入站')}</dt><dd>{t('{n} 个', { n: p.inbounds })}</dd>
-          <dt>API Token</dt><dd>{p.hasToken ? (p.globalToken ? t('使用系统设置里的 Token') : t('已配置')) : t('未配置（仅生成订阅）')}</dd>
+          <dt>{t('服务节点')}</dt><dd>{(p.serves ?? []).length === 0 ? <span className="sub">{t('还没有入站使用：在「入站」里给入站添加这个配置档的 CDN 入口')}</span> : (p.serves ?? []).map((x) => (
+            <div key={x.node + x.tag} className="small"><b>{x.node}</b> · {x.tag} → <span className="mono">{x.host}</span></div>))}</dd>
+          <dt>API Token</dt><dd>{({ profile: t('配置档单独的 Token'), cdn: t('CDN Token'), dns: t('系统设置的 DNS Token（只能写 DNS 记录，同步 DNS 改 SSL、签证书需要 CDN Token）') } as Record<string, string>)[p.tokenSource] ?? t('未配置（仅生成订阅）')}</dd>
         </dl>
         {p.lastError && <div className="note bad" style={{ marginTop: 12 }}>{p.lastError}</div>}
         <div className="row" style={{ marginTop: 16 }}>
@@ -673,15 +674,16 @@ export default function Chains() {
       {tab === 'cdn' && (
         <div className="split">
           <div className="grow">
+            <CFTokenCard onSaved={cdn.reload} />
             <div className="card flush scroll">
               {cdn.data?.length === 0 ? <Empty>{t('还没有 CDN 配置档')}</Empty> : (
                 <table className="rtable">
-                  <thead><tr><th>{t('名称')}</th><th>{t('服务商')}</th><th>{t('回源域名')}</th><th>{t('优选 IP')}</th><th>{t('使用入站')}</th><th></th></tr></thead>
+                  <thead><tr><th>{t('名称')}</th><th>{t('服务商')}</th><th>{t('回源域名')}</th><th>{t('优选 IP')}</th><th>{t('服务节点')}</th><th></th></tr></thead>
                   <tbody>
                     {(cdn.data ?? []).map((p) => (
                       <tr key={p.id} className="clickable" onClick={() => setCdnSel(p.id)}>
                         <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
-                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('使用入站')} className="mono">{p.inbounds}</td>
+                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('服务节点')} className="small">{(p.serves ?? []).length === 0 ? <span className="sub">{t('未使用')}</span> : <div>{(p.serves ?? []).map((x) => <div key={x.node + x.tag}>{x.node} → <span className="mono">{x.host}</span></div>)}</div>}</td>
                         <td className="rt-actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <button className="link" type="button" onClick={() => setCdnDrawer(p)}>{t('编辑')}</button>
                           <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={() => removeProfile(p)}>{t('删除')}</button>
@@ -758,3 +760,39 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
 }
 
 const carrierLabel = (c: string) => ({ ct: t('电信'), cu: t('联通'), cm: t('移动') } as Record<string, string>)[c] ?? c
+
+// CFTokenCard sets the CDN token (cdn_cf_token): the Cloudflare token every
+// CDN profile uses. It needs more permissions than the DNS token in 系统设置.
+function CFTokenCard({ onSaved }: { onSaved: () => void }) {
+  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const { busy, run } = useAction()
+  const [editing, setEditing] = useState(false)
+  const [token, setToken] = useState('')
+  const set = !!settings.data?.cdn_cf_token_set
+  const dnsOnly = !set && !!settings.data?.acme_cf_token_set
+  const save = () => run(async () => {
+    await put('/settings', { cdn_cf_token: token.trim() })
+    setToken(''); setEditing(false); settings.reload(); onSaved()
+  }, t('已保存'))
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <b>{t('Cloudflare CDN Token')}</b>
+          <div className="sub small">{set ? t('已配置：所有 CDN 配置档共用') : dnsOnly ? t('未配置：暂用「系统设置」的 DNS Token，只能写 DNS 记录；同步 DNS 改 SSL 模式、签 Origin 证书需要在这里填 CDN Token') : t('未配置：填一次，所有 CDN 配置档共用')}</div>
+        </div>
+        {!editing && <button className="btn sm" type="button" onClick={() => setEditing(true)}>{set ? t('更换') : t('填写')}</button>}
+      </div>
+      {editing && (
+        <div style={{ marginTop: 12 }}>
+          <input className="input mono" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('粘贴 Cloudflare API Token')} aria-label="Cloudflare API Token" />
+          <div className="sub small" style={{ marginTop: 6 }}>{t('权限：Zone.Zone 读取、Zone.DNS 编辑、Zone.Zone Settings 编辑、Zone.SSL and Certificates 编辑。用于同步 DNS 记录、设置 SSL 模式、签发 Origin 证书')}</div>
+          <div className="row" style={{ marginTop: 10, gap: 8 }}>
+            <button className="btn sm pri" type="button" disabled={busy || !token.trim()} onClick={save}>{t('保存')}</button>
+            <button className="btn sm" type="button" onClick={() => { setEditing(false); setToken('') }}>{t('取消')}</button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}

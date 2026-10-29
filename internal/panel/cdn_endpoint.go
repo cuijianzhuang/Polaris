@@ -202,7 +202,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			}
 		}
 	} else {
-		r.Steps = append(r.Steps, "没有 Cloudflare API Token（配置档和系统设置都没填），无法读出 DNS 记录指向哪里；请在 Cloudflare 后台确认它指向 "+strings.Join(nodeIPs, " / "))
+		r.Steps = append(r.Steps, "没有 Cloudflare Token（「CDN 配置档」页的 CDN Token 和「系统设置」的 DNS Token 都没填），无法读出 DNS 记录指向哪里；请在 Cloudflare 后台确认它指向 "+strings.Join(nodeIPs, " / "))
 	}
 	if len(nodeIPs) == 0 {
 		return

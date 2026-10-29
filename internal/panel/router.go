@@ -26,11 +26,25 @@ import (
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("polaris-timing-guard"), bcrypt.DefaultCost)
 
 func badRequest(c *gin.Context, err error) {
+	if store.IsDuplicate(err) {
+		duplicate(c)
+		return
+	}
 	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 func serverError(c *gin.Context, err error) {
+	if store.IsDuplicate(err) {
+		duplicate(c)
+		return
+	}
 	c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
+
+// duplicate answers a unique-constraint violation in words people read
+// instead of the driver's "duplicated key not allowed".
+func duplicate(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "名称或标签已存在"})
 }
 
 func notFound(c *gin.Context) {
@@ -44,7 +58,7 @@ func dbError(c *gin.Context, err error) {
 	case errors.As(err, new(commandInputError)):
 		badRequest(c, err)
 	case store.IsDuplicate(err):
-		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "名称或标签已存在"})
+		duplicate(c)
 	default:
 		serverError(c, err)
 	}

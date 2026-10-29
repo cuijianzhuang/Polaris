@@ -84,7 +84,7 @@ export default function Domains() {
                 <tr key={p.id}>
                   <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td>
                   <td data-label={t('类型')}><span className="tag">{p.kind === 'cloudflare' ? 'Cloudflare' : 'Webhook'}</span></td>
-                  <td data-label={t('凭据 / 地址')} className="mono small">{p.kind === 'webhook' ? p.endpoint : p.hasToken ? t('Token 已保存') : t('未设置 Token')}</td>
+                  <td data-label={t('凭据 / 地址')} className="mono small">{p.kind === 'webhook' ? p.endpoint : p.hasToken ? t('Token 已保存') : t('使用系统设置的 DNS Token')}</td>
                   <td className="rt-actions" style={{ textAlign: 'right' }}>
                     <button className="link" type="button" onClick={() => setPf({ id: p.id, name: p.name, kind: p.kind, token: '', endpoint: p.endpoint, hasToken: p.hasToken })}>{t('编辑')}</button>
                     <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
@@ -204,7 +204,7 @@ export default function Domains() {
             </div>
           </Field>
           {pf.kind === 'cloudflare' ? (
-            <Field label="API Token" hint={pf.hasToken ? t('已保存（留空不修改）') : t('需要 Zone.Zone 读取 + Zone.DNS 编辑权限；加密存储')}>
+            <Field label="API Token" hint={pf.hasToken ? t('已保存（留空不修改）') : t('可选：留空使用「系统设置」里的 Cloudflare DNS Token；另一个 Cloudflare 账号才需要单独填。权限：Zone.Zone 读取 + Zone.DNS 编辑')}>
               <input className="input mono" type="password" autoComplete="off" value={pf.token} onChange={(e) => setPf({ ...pf, token: e.target.value })} />
             </Field>
           ) : <>

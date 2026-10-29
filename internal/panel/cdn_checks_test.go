@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -117,6 +118,19 @@ func TestCreateInboundWithCDN(t *testing.T) {
 	}
 	if code, out := admin.do("POST", "/inbounds/"+gid+"/endpoints", map[string]any{"kind": "cdn", "cdnProfileId": "cf", "port": 443}); code != 201 && code != 200 {
 		t.Fatalf("cdn endpoint with port 443 override: %d %v", code, out)
+	}
+}
+
+// A tag already used on the node is refused in words, not with the
+// database's "duplicated key not allowed".
+func TestCreateInboundDuplicateTag(t *testing.T) {
+	_, admin := cdnFixture(t)
+	if code, out := admin.do("POST", "/inbounds", grpcInboundReq(2083, map[string]any{"tag": "dup"})); code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	code, out := admin.do("POST", "/inbounds", grpcInboundReq(2087, map[string]any{"tag": "dup"}))
+	if code != 400 || !strings.Contains(out["error"].(string), "已有标签为 dup") {
+		t.Fatalf("duplicate tag: %d %v", code, out)
 	}
 }
 
@@ -302,7 +316,7 @@ func TestDiagnoseOrigin(t *testing.T) {
 	node := &store.Node{Name: "sg", Address: "127.0.0.1"}
 	r := cdnCheck{Message: "错误 521"}
 	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
-	if !strings.Contains(r.Message, "拒绝") || !strings.Contains(strings.Join(r.Steps, " "), "API Token") {
+	if !strings.Contains(r.Message, "拒绝") || !strings.Contains(strings.Join(r.Steps, " "), "没有 Cloudflare Token") {
 		t.Fatalf("closed port: %+v", r)
 	}
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
@@ -357,17 +371,27 @@ func TestCFTokenFallback(t *testing.T) {
 	s, admin := cdnFixture(t)
 	var p store.CDNProfile
 	s.st.DB.First(&p, "id = ?", "cf")
-	if s.cfToken(&p) != "" {
+	source := func() string {
+		code, list := admin.doList("GET", "/cdn-profiles")
+		if code != 200 {
+			t.Fatalf("list %d", code)
+		}
+		return list[0].(map[string]any)["tokenSource"].(string)
+	}
+	if s.cfToken(&p) != "" || source() != "" {
 		t.Fatal("token without any configured")
 	}
-	s.st.SetSetting("acme_cf_token", s.st.Box.Seal("global"))
-	if s.cfToken(&p) != "global" {
-		t.Fatal("global token not used")
+	// The DNS token (系统设置) is the last fallback.
+	s.st.SetSetting("acme_cf_token", s.st.Box.Seal("dns"))
+	if s.cfToken(&p) != "dns" || source() != "dns" {
+		t.Fatal("DNS token not used")
 	}
-	code, list := admin.doList("GET", "/cdn-profiles")
-	if v := list[0].(map[string]any); code != 200 || v["hasToken"] != true || v["globalToken"] != true {
-		t.Fatalf("list %d %v", code, list)
+	// The CDN token wins over it.
+	s.st.SetSetting("cdn_cf_token", s.st.Box.Seal("cdn"))
+	if s.cfToken(&p) != "cdn" || source() != "cdn" {
+		t.Fatal("CDN token not preferred")
 	}
+	// A profile's own token (older versions) wins over both.
 	p.APIToken = s.st.Box.Seal("own")
 	if s.cfToken(&p) != "own" {
 		t.Fatal("own token not preferred")
@@ -405,5 +429,36 @@ func TestDeleteCDNProfileInUse(t *testing.T) {
 	db.Where("inbound_id = ?", both).Find(&eps)
 	if n != 0 || a.Enabled || !b.Enabled || len(eps) != 1 || eps[0].Kind != "direct" {
 		t.Fatalf("after: profile %d, only.enabled %v, both.enabled %v, eps %+v", n, a.Enabled, b.Enabled, eps)
+	}
+}
+
+func TestCFStep(t *testing.T) {
+	err := cfStep("设置 SSL 模式", "Zone.Zone Settings 编辑", errors.New("cloudflare: Unauthorized to access requested resource"))
+	if !strings.Contains(err.Error(), "Zone.Zone Settings 编辑") || !strings.Contains(err.Error(), "设置 SSL 模式失败") {
+		t.Fatal(err)
+	}
+	if err := cfStep("写 DNS 记录", "Zone.DNS 编辑", errors.New("cloudflare: bad content")); strings.Contains(err.Error(), "没有权限") {
+		t.Fatal(err)
+	}
+}
+
+// The profile list says which node each hostname leads to.
+func TestListCDNServes(t *testing.T) {
+	s, admin := cdnFixture(t)
+	db := s.st.DB
+	db.Create(&store.Node{ID: "n2", Name: "sg", Address: "203.0.113.6", DefaultCore: model.CoreXray})
+	db.Create(&store.Inbound{ID: "i1", NodeID: "n1", Tag: "ws-hk", Port: 2053})
+	db.Create(&store.Inbound{ID: "i2", NodeID: "n2", Tag: "ws-sg", Port: 2053})
+	db.Create(&store.Endpoint{ID: "e1", InboundID: "i1", Kind: "cdn", CDNProfileID: "cf"})
+	db.Create(&store.Endpoint{ID: "e2", InboundID: "i2", Kind: "cdn", CDNProfileID: "cf", Host: "sg-cdn.example.com"})
+	db.Create(&store.Endpoint{ID: "e3", InboundID: "i2", Kind: "direct"})
+	code, list := admin.doList("GET", "/cdn-profiles")
+	if code != 200 || len(list) != 1 {
+		t.Fatalf("list: %d %v", code, list)
+	}
+	got := list[0].(map[string]any)["serves"].([]any)
+	row := func(i int, k string) string { return got[i].(map[string]any)[k].(string) }
+	if len(got) != 2 || row(0, "node") != "hk" || row(0, "host") != "cdn.example.com" || row(1, "node") != "sg" || row(1, "host") != "sg-cdn.example.com" || row(1, "tag") != "ws-sg" {
+		t.Fatalf("serves %+v", got)
 	}
 }
