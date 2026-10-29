@@ -240,7 +240,6 @@ const m: Record<string, string> = {
   "已开启：搜到 {n} 个候选{at}，测速点会和官方 IP 一起测，只上报能用且更快的": "On: {n} candidates found{at}; speed-test points test them with Cloudflare's own IPs and report only the working, faster ones",
   "用 Shodan 搜第三方架设、转发到 Cloudflare 的服务器，交给测速点一起测。国内常比官方 IP 快，但流量会经过陌生人的机器（TLS 仍直达 Cloudflare，对方能看到域名和流量大小），也可能随时失效": "Find third-party servers that forward to Cloudflare with Shodan and let the speed-test points test them too. Often faster than Cloudflare's own IPs in China, but traffic passes a stranger's machine (TLS still ends at Cloudflare; the operator sees the domain and volume) and they can disappear any time",
   "上次搜索失败：{err}": "Last search failed: {err}",
-  "需要先在「系统设置」填写 Shodan API Key（每天搜索一次，每页消耗 1 个查询额度）": "Needs a Shodan API key in Settings first (one search a day, 1 query credit per page)",
   "已搜索": "Searched",
   "立即搜索": "Search now",
   "第三方反代 IP": "Third-party reverse proxies",
@@ -251,5 +250,11 @@ const m: Record<string, string> = {
   "保存并搜索": "Save and search",
   "候选示例：": "Sample candidates: ",
   "一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留，订阅里排在前 N 个 IP 之后；手填的 IP 会被测速点上报（Cloudflare 配置档共用测速点）或来源 URL 替换": "One IP or preferred domain (e.g. visa.cn) per line, no port. Typed-in domains are always kept and follow the top N IPs in subscriptions; typed-in IPs are replaced by speed-test reports (shared by Cloudflare profiles) or the source URL",
+  "还没有 Shodan API Key：": "No Shodan API key yet: ",
+  "在「系统设置 → 常规 → Shodan」填写": "set it in Settings → General → Shodan",
+  "在系统设置中更换": "Change it in Settings",
+  "需要先在「系统设置 → 常规 → Shodan」填写 Shodan API Key（每天搜索一次，每页消耗 1 个查询额度）": "Needs a Shodan API key in Settings → General → Shodan first (one search a day, 1 query credit per page)",
+  "去设置": "Go to Settings",
+  "可选 · 用于 REALITY 目标扫描的「从 Shodan 发现」和 CDN 配置档的「第三方反代 IP」。每页搜索结果消耗 1 个查询额度": "Optional · Used by \"Discover with Shodan\" in the REALITY target scan and by \"Third-party reverse proxies\" on CDN profiles. Each page of results costs 1 query credit",
 }
 export default m

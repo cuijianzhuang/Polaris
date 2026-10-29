@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api, API, ApiError, del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad, useToast } from '../components/ui'
@@ -837,7 +838,7 @@ function ShodanCard({ onSaved }: { onSaved: () => void }) {
             ? t('已开启：搜到 {n} 个候选{at}，测速点会和官方 IP 一起测，只上报能用且更快的', { n: d.count, at: at ? ' · ' + at : '' })
             : t('用 Shodan 搜第三方架设、转发到 Cloudflare 的服务器，交给测速点一起测。国内常比官方 IP 快，但流量会经过陌生人的机器（TLS 仍直达 Cloudflare，对方能看到域名和流量大小），也可能随时失效')}</div>
           {d.error && <div className="note bad small" style={{ marginTop: 8 }}>{t('上次搜索失败：{err}', { err: d.error })}</div>}
-          {!d.keySet && <div className="sub small" style={{ marginTop: 4 }}>{t('需要先在「系统设置」填写 Shodan API Key（每天搜索一次，每页消耗 1 个查询额度）')}</div>}
+          {!d.keySet && <div className="sub small" style={{ marginTop: 4 }}>{t('需要先在「系统设置 → 常规 → Shodan」填写 Shodan API Key（每天搜索一次，每页消耗 1 个查询额度）')} <Link to="/settings#general" className="link">{t('去设置')}</Link></div>}
         </div>
         <div className="row" style={{ gap: 8 }}>
           {d.enabled && <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await post('/cdn-shodan/refresh'); v.reload() }, t('已搜索'))}>{t('立即搜索')}</button>}

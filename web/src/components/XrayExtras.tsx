@@ -1,6 +1,7 @@
 // Newer Xray inbound options: VLESS Encryption, Vision testseed, REALITY
 // limits / ML-DSA-65 signatures, and the REALITY target scanner.
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { get, post, put } from '../api'
 import type { CapSet, LimitFallback, ProtocolSpec, RealityScanResult, SecuritySpec, SniffSpec } from '../types'
 import { Field, Modal, Switch, fromLines, toLines, useAction } from './ui'
@@ -237,19 +238,11 @@ function ShodanPanel({ info, nodeId, busy, run, onInfo, onResult }: {
   run: <T>(fn: () => Promise<T>, ok?: string) => Promise<T | undefined>
   onInfo: (i: ShodanInfo) => void; onResult: (r: DiscoverResult, ms: number) => void
 }) {
-  const [key, setKey] = useState('')
-  const [replacing, setReplacing] = useState(false)
   const [country, setCountry] = useState('')
   const [query, setQuery] = useState('')
   const [pages, setPages] = useState(1)
   const [asn, setAsn] = useState('')
   const [network, setNetwork] = useState('')
-  const saveKey = () => run(async () => {
-    await put('/settings', { shodan_api_key: key.trim() })
-    setKey('')
-    setReplacing(false)
-    onInfo(await get<ShodanInfo>('/tools/shodan'))
-  }, t('Shodan API Key 已保存'))
   const discover = () => run(async () => {
     const t0 = performance.now()
     const r = await post<DiscoverResult>('/tools/reality-discover', { query: query.trim(), country: country.trim(), asn: asn.trim(), network: network.trim(), pages, nodeId })
@@ -259,16 +252,12 @@ function ShodanPanel({ info, nodeId, busy, run, onInfo, onResult }: {
   return (
     <div className="card" style={{ marginTop: 12, display: 'grid', gap: 10, padding: 14 }}>
       <div className="small">{t('从 Shodan 获取候选 IP 和证书域名，保留原始地址并使用候选 SNI 实测。ASN、组织和国家信息来自 Shodan 索引。')}</div>
-      {!info.configured || replacing ? (
-        <div className="joined">
-          <input className="input mono" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
-            placeholder={info.configured ? t('输入新的 Key 以替换') : t('Shodan API Key（加密保存）')} aria-label="Shodan API Key" />
-          <button className="btn pri" type="button" disabled={busy || !key.trim()} onClick={saveKey}>{t('保存 Key')}</button>
-        </div>
+      {!info.configured ? (
+        <div className="note small">{t('还没有 Shodan API Key：')}<Link to="/settings#general" className="link">{t('在「系统设置 → 常规 → Shodan」填写')}</Link></div>
       ) : (
         <div className="row small" style={{ justifyContent: 'space-between' }}>
           <span>{info.error ? <span style={{ color: 'var(--bad)' }}>{info.error}</span> : t('已配置 Key · 套餐 {plan} · 剩余查询额度 {n}', { plan: info.plan || '—', n: info.credits ?? 0 })}</span>
-          <button className="btn sm link" type="button" onClick={() => setReplacing(true)}>{t('更换 Key')}</button>
+          <Link to="/settings#general" className="link small">{t('在系统设置中更换')}</Link>
         </div>
       )}
       {info.configured && <>
