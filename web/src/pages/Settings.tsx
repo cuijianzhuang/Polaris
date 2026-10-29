@@ -57,7 +57,7 @@ export default function Settings() {
     if (s.data) { const next = {
       site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '1', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
       acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray || 'latest', default_singbox: s.data.default_singbox || 'latest',
-      ip_limit_trusted: s.data.ip_limit_trusted ?? '',
+      ip_limit_trusted: s.data.ip_limit_trusted ?? '', shodan_api_key: '',
     }; setF(next); setGeneralBaseline(JSON.stringify(next)) }
   }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
@@ -131,6 +131,11 @@ export default function Settings() {
               <input className="input mono" type="password" autoComplete="off" value={f.acme_cf_token ?? ''} onChange={(e) => set('acme_cf_token', e.target.value)} />
             </Field>
           </div>
+          </div></details>
+          <details className="settings-disclosure" id="shodan"><summary>{t('Shodan')}</summary><div className="form-grid">
+            <Field label="Shodan API Key" full hint={s.data?.shodan_api_key_set ? t('已保存（留空不修改）') : t('可选 · 用于 REALITY 目标扫描的「从 Shodan 发现」和 CDN 配置档的「第三方反代 IP」。每页搜索结果消耗 1 个查询额度')}>
+              <input className="input mono" type="password" autoComplete="off" value={f.shodan_api_key ?? ''} onChange={(e) => set('shodan_api_key', e.target.value)} />
+            </Field>
           </div></details>
           <SettingsSaveBar loading={s.loading} dirty={generalDirty} busy={generalSaver.busy} error={generalSaver.error || s.error} disabled={s.loading || !s.data} onSave={saveGeneral} />
           </fieldset>
