@@ -120,6 +120,19 @@ func TestCreateInboundWithCDN(t *testing.T) {
 	}
 }
 
+// A tag already used on the node is refused in words, not with the
+// database's "duplicated key not allowed".
+func TestCreateInboundDuplicateTag(t *testing.T) {
+	_, admin := cdnFixture(t)
+	if code, out := admin.do("POST", "/inbounds", grpcInboundReq(2083, map[string]any{"tag": "dup"})); code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	code, out := admin.do("POST", "/inbounds", grpcInboundReq(2087, map[string]any{"tag": "dup"}))
+	if code != 400 || !strings.Contains(out["error"].(string), "已有标签为 dup") {
+		t.Fatalf("duplicate tag: %d %v", code, out)
+	}
+}
+
 // Template preview says which CDN entries are added, skips a CDN-only item
 // that would otherwise be published as direct, and warns about gRPC ports
 // and Full (strict) certificates.

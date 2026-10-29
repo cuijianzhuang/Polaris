@@ -366,7 +366,10 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         ...(trans === 'grpc' ? { serviceName: d.transport.serviceName || rnd() } : { path: d.transport.path || '/' + rnd() }) },
       security: { ...d.security, type: 'tls', serverName: p.originDomain } }, coreCaps))
     setPort(String(free))
-    setTag(`${proto}-${trans}-cdn`)
+    const tags = new Set((nodeInbounds.data ?? []).map((i) => i.tag))
+    let newTag = `${proto}-${trans}-cdn`
+    for (let i = 2; tags.has(newTag); i++) newTag = `${proto}-${trans}-cdn-${i}`
+    setTag(newTag)
     setNewCDN({ profileId: p.id, only: true })
     toast(t('已配置：{proto} + {trans} + TLS，端口 {port}，经 CDN 配置档 {name}，只走 CDN。检查无误后点「保存并下发」', { proto: proto.toUpperCase(), trans: trans.toUpperCase(), port: free, name: p.name }))
   }
