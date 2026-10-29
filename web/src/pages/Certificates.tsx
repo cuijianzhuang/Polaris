@@ -26,7 +26,7 @@ export default function Certificates() {
         <div><h1>{t('证书')}</h1><div className="sub">{t('ACME 证书由主控签发（HTTP 验证由节点应答，或 Cloudflare DNS 验证）并下发给节点；到期前自动续期')}</div></div>
         <button className="btn pri" type="button" onClick={() => setForm({ domain: '', provider: acmeReady ? 'acme' : 'selfsigned', cert: '', key: '', challenge: '', nodeId: '' })}>{t('+ 证书')}</button>
       </div>
-      {!acmeReady && <div className="note warn">{t('尚未配置 ACME：在「设置」填写邮箱即可通过 HTTP 验证签发（域名需解析到节点、节点 80 端口空闲）；再填 Cloudflare Token 可签泛域名。未配置时 TLS 入站使用自签证书（客户端跳过校验）。')}</div>}
+      {settings.data && !acmeReady && <div className="note warn">{t('尚未配置 ACME：在「设置」填写邮箱即可通过 HTTP 验证签发（域名需解析到节点、节点 80 端口空闲）；再填 Cloudflare Token 可签泛域名。未配置时 TLS 入站使用自签证书（客户端跳过校验）。')}</div>}
       <div className="card flush scroll">
         {list.data?.length === 0 ? <Empty>{t('还没有证书。创建 TLS 入站时会自动为 SNI 生成自签证书。')}</Empty> : (
           <table>

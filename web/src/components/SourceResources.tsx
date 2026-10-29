@@ -37,7 +37,7 @@ export default function SourceResources({ id, name, onClose }: { id: string; nam
               {n.missing && !n.references.length && <button className="link" disabled={busy} onClick={() => run(async () => { if (await confirm(t('清理已移除节点 {name}？稳定 ID 将不再保留。', { name: n.name }), { danger: true })) { await del('/sub-source-nodes/' + n.id); nodes.reload() } })}>{t('清理')}</button>}
             </td>
           </tr>)}</tbody>
-        </table>{!nodes.data?.length && <Empty>{t('没有节点')}</Empty>}</div>
+        </table>{nodes.data && !nodes.data.length && <Empty>{t('没有节点')}</Empty>}</div>
       </> : <>
         <div className="hint">{t('保留最近 100 次成功刷新；只展示变化字段，不展示凭据内容。')}</div>
         {(history.data ?? []).map((h) => <article className="card" key={h.id} style={{ marginTop: 12 }}>
@@ -45,7 +45,7 @@ export default function SourceResources({ id, name, onClose }: { id: string; nam
           <ul>{h.changes.map((c) => <li key={c.id}><span className="tag">{changes[c.kind] ?? c.kind}</span> {c.name} <span className="small mono mute">{c.id}</span>{c.fields?.length ? ' · ' + c.fields.map((f) => fields[f] ?? f).join(' / ') : ''}</li>)}</ul>
           {!h.changes.length && <div className="hint">{t('没有节点变化')}</div>}
         </article>)}
-        {!history.data?.length && <Empty>{t('尚无刷新记录')}</Empty>}
+        {history.data && !history.data.length && <Empty>{t('尚无刷新记录')}</Empty>}
       </>}
     </Drawer>
     {binding && <SourceReference node={binding} onClose={() => setBinding(null)} onSaved={() => { setBinding(null); nodes.reload() }} />}
