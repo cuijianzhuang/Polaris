@@ -16,7 +16,7 @@
 | 入站、模板、证书、Snell | [入站、模板与证书](user-guide.md#inbounds) |
 | 用户、套餐、商店、优惠券、端口转发商品 | [用户、授权与套餐](user-guide.md#users) |
 | 订阅设置、订阅转换、处理组 | [订阅设置与订阅转换](user-guide.md#subscriptions) |
-| CDN、CDN 优选 IP、中转、路由、WARP | [域名、CDN、中转与路由](user-guide.md#networking) |
+| CDN、CDN 优选 IP、中转、路由、WARP | [域名、CDN、中转与路由](user-guide.md#networking)、[CDN 配置与排查](user-guide.md#cdn-setup) |
 | Telegram、邮件、登录、通行密钥、通知策略、API 令牌、Webhook | [Telegram、登录与审计](user-guide.md#security) |
 | 升级（含小批升级）、备份、迁移、高可用 | [升级、备份与迁移](user-guide.md#maintenance) |
 | 专业版与许可证 | [专业版与许可证](user-guide.md#license) |
