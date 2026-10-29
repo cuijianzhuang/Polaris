@@ -73,8 +73,12 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 	if problem := s.cdnEndpointProblem(&m, row.ID, p, ep.Port); problem != "" {
 		out = append(out, problem)
 	}
-	if w := s.cdnCertProblem(&m, p, orDefault(ep.Host, p.OriginDomain)); w != "" {
+	host := orDefault(ep.Host, p.OriginDomain)
+	if w := s.cdnCertProblem(&m, p, host); w != "" {
 		out = append(out, w)
+	}
+	if m.Transport.Host != "" && !strings.EqualFold(m.Transport.Host, host) {
+		out = append(out, fmt.Sprintf("入站的 Host 是 %s，但客户端经 CDN 会发 Host: %s，内核会拒绝（HTTP 404）：把入站的 Host 清空或改成 %s；如果是多节点自动分配子域名造成的，点配置档的「同步 DNS」会自动改正", m.Transport.Host, host, host))
 	}
 	return out
 }

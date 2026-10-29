@@ -159,46 +159,96 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		return
 	}
 	now := time.Now()
-	var list []string
-	var recovered bool
+	var lists map[string][]string
+	var recovered []store.CDNProfile
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.CDNIPReport{
 			ProfileID: p.ID, Source: req.Source, Carrier: carrier, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
 			return err
 		}
-		// Cloudflare addresses are anycast: a point's report serves every
-		// Cloudflare profile, not only the one it reports to.
-		targets := []store.CDNProfile{p}
-		if p.Provider == "cloudflare" {
-			if err := tx.Where("provider = ? AND id <> ?", "cloudflare", p.ID).Find(&targets).Error; err != nil {
-				return err
-			}
-			targets = append([]store.CDNProfile{p}, targets...)
-		}
-		for i := range targets {
-			t := &targets[i]
-			merged := withPinned(mergeCDNReports(sharedCDNReports(tx, t, now.Add(-cdnStaleAfter(t)), "")), t.PinnedHosts.V)
-			upd := map[string]any{"preferred_ips": store.NewJSON(merged), "last_refresh_at": now, "last_error": ""}
-			if t.ID == p.ID {
-				list, recovered = merged, p.StaleAlerted
-				upd["stale_alerted"] = false
-			}
-			if err := tx.Model(t).Updates(upd).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		var err error
+		lists, recovered, err = rebuildCDNLists(tx, &p, now, nil)
+		return err
 	})
 	if err != nil {
 		dbError(c, err)
 		return
 	}
-	if recovered {
-		s.notify(Event{Kind: "cdn_ips_fresh", ResourceID: p.ID, Text: "✅ CDN 配置档 " + p.Name + " 的优选 IP 恢复上报（" + req.Source + "）",
-			Data: map[string]any{"profile": p.ID, "source": req.Source}})
+	list := lists[p.ID]
+	for _, r := range recovered {
+		s.notify(Event{Kind: "cdn_ips_fresh", ResourceID: r.ID, Text: "✅ CDN 配置档 " + r.Name + " 的优选 IP 恢复上报（" + req.Source + "）",
+			Data: map[string]any{"profile": r.ID, "source": req.Source}})
 	}
 	s.auditCtx(c, "cdn.ip_report", p.Name, fmt.Sprintf("%s: %d IPs", req.Source, len(ips)))
 	c.JSON(http.StatusOK, gin.H{"stored": len(ips), "preferredIps": list})
+}
+
+// lockCDNReports serializes report writes on PostgreSQL: each rebuild reads
+// every point's report, so two concurrent ones would each miss the other's
+// and the last to commit would drop a point. SQLite already serializes
+// writers.
+func lockCDNReports(tx *gorm.DB) error {
+	if tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "polaris-cdn-reports").Error
+}
+
+// rebuildCDNLists rebuilds the preferred lists that origin's reports feed:
+// every Cloudflare profile (Cloudflare addresses are anycast, so a point
+// serves them all), or origin alone for another provider. A profile with
+// fresh reports gets them merged, plus its typed-in domains; one with none
+// keeps its list without the removed addresses (a retired point's). It
+// returns the new lists and the profiles whose stale alert it cleared.
+func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, removed []string) (map[string][]string, []store.CDNProfile, error) {
+	var targets []store.CDNProfile
+	q := tx.Where("id = ?", origin.ID)
+	if origin.Provider == "cloudflare" {
+		q = tx.Where("provider = ?", "cloudflare")
+	}
+	if err := q.Find(&targets).Error; err != nil {
+		return nil, nil, err
+	}
+	lists := map[string][]string{}
+	var recovered []store.CDNProfile
+	for i := range targets {
+		t := &targets[i]
+		var upd map[string]any
+		if reports := sharedCDNReports(tx, t, now.Add(-cdnStaleAfter(t)), ""); len(reports) > 0 {
+			list := withPinned(mergeCDNReports(reports), t.PinnedHosts.V)
+			upd = map[string]any{"preferred_ips": store.NewJSON(list), "last_refresh_at": now, "last_error": "", "stale_alerted": false}
+			lists[t.ID] = list
+			if t.StaleAlerted {
+				recovered = append(recovered, *t)
+			}
+		} else if len(removed) > 0 {
+			kept := slices.DeleteFunc(slices.Clone(t.PreferredIPs.V), func(ip string) bool {
+				return slices.Contains(removed, ip) && !slices.Contains(t.PinnedHosts.V, ip)
+			})
+			upd = map[string]any{"preferred_ips": store.NewJSON(nonNilStrs(kept))}
+			lists[t.ID] = kept
+		} else {
+			continue
+		}
+		if err := tx.Model(t).Updates(upd).Error; err != nil {
+			return nil, nil, err
+		}
+	}
+	return lists, recovered, nil
+}
+
+// reportIPs lists the addresses of reports.
+func reportIPs(rs []store.CDNIPReport) []string {
+	var out []string
+	for _, r := range rs {
+		for _, x := range r.IPs.V {
+			out = append(out, x.IP)
+		}
+	}
+	return out
 }
 
 // sharedCDNReports is the reports a profile's list is built from since a
@@ -244,12 +294,32 @@ func (s *Server) cdnReports(ids []string) map[string][]store.CDNIPReport {
 // deleteCDNIPReport is DELETE /cdn-profiles/:id/ip-reports/:source: forget
 // a speed-test point that was retired, and revoke its paired token.
 func (s *Server) deleteCDNIPReport(c *gin.Context) {
-	// A paired point's token goes with it.
+	var p store.CDNProfile
+	if err := s.st.DB.First(&p, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	// A paired point's token goes with it, and so do the addresses it
+	// reported: the lists it fed are rebuilt from the points left.
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("profile_id = ? AND source = ?", c.Param("id"), c.Param("source")).Delete(&store.CDNIPReport{}).Error; err != nil {
+		if err := lockCDNReports(tx); err != nil {
 			return err
 		}
-		return tx.Where("cdn_profile_id = ? AND cdn_source = ?", c.Param("id"), c.Param("source")).Delete(&store.APIToken{}).Error
+		var gone []store.CDNIPReport
+		if err := tx.Where("profile_id = ? AND source = ?", p.ID, c.Param("source")).Find(&gone).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("profile_id = ? AND source = ?", p.ID, c.Param("source")).Delete(&store.CDNIPReport{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ?", p.ID, c.Param("source")).Delete(&store.APIToken{}).Error; err != nil {
+			return err
+		}
+		if len(gone) == 0 {
+			return nil
+		}
+		_, _, err := rebuildCDNLists(tx, &p, time.Now(), reportIPs(gone))
+		return err
 	})
 	if err != nil {
 		dbError(c, err)
@@ -273,10 +343,13 @@ func (s *Server) checkCDNReportsStale() {
 	s.st.DB.Where("stale_alerted = ?", false).Find(&ps)
 	for i := range ps {
 		p := &ps[i]
-		var last store.CDNIPReport
-		if s.st.DB.Where("profile_id = ?", p.ID).Order("at DESC").First(&last).Error != nil {
+		// The newest report this profile's list is built from: its own or,
+		// for a Cloudflare profile, any Cloudflare profile's.
+		rs := sharedCDNReports(s.st.DB, p, time.Time{}, "")
+		if len(rs) == 0 {
 			continue // no speed-test point: nothing to watch
 		}
+		last := rs[0]
 		if now.Sub(last.At) < cdnStaleAfter(p) {
 			continue
 		}

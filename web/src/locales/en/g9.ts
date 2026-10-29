@@ -192,7 +192,6 @@ const m: Record<string, string> = {
   "添加入口": "Add entry",
   "多台节点共用了回源域名，已给这些入口换成各自的域名：{list}": "Several nodes shared the origin domain; these entries now use their own hostnames: {list}",
   "每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV": "Fetched every 6 hours; one IP or domain per line, ip:port and CSV work",
-  "一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后": "One IP or preferred domain (such as visa.cn) per line, without a port. Domains typed here stay: speed-test points and the source URL only update the IPs, and subscriptions list the domains after the top N IPs",
   "可选：留空使用「系统设置」里的 Cloudflare Token（所有配置档共用）；用于同步 DNS、设置 SSL、签发 Origin 证书": "Optional: leave empty to use the Cloudflare token in Settings (shared by all profiles); used to sync DNS, set SSL and issue Origin certificates",
   "使用系统设置里的 Token": "Uses the token from Settings",
   "可选 · 用于 ACME 证书，也是 CDN 配置档的默认 Token。ACME 只需 Zone.DNS 编辑；CDN「同步 DNS」还需 Zone Settings 和 SSL and Certificates 编辑权限": "Optional · used for ACME certificates and as the default token of CDN profiles. ACME needs Zone.DNS edit; CDN Sync DNS also needs Zone Settings and SSL and Certificates edit",
@@ -251,5 +250,6 @@ const m: Record<string, string> = {
   "每页 100 个结果、消耗 1 个查询额度": "100 results and 1 query credit per page",
   "保存并搜索": "Save and search",
   "候选示例：": "Sample candidates: ",
+  "一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留，订阅里排在前 N 个 IP 之后；手填的 IP 会被测速点上报（Cloudflare 配置档共用测速点）或来源 URL 替换": "One IP or preferred domain (e.g. visa.cn) per line, no port. Typed-in domains are always kept and follow the top N IPs in subscriptions; typed-in IPs are replaced by speed-test reports (shared by Cloudflare profiles) or the source URL",
 }
 export default m

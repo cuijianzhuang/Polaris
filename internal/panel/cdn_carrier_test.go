@@ -63,6 +63,12 @@ func TestCDNIPsByCarrier(t *testing.T) {
 	if got := servers("cm"); !slices.Equal(got, []string{"104.16.0.9", "104.16.0.2"}) {
 		t.Fatalf("mobile = %v", got)
 	}
+	// An entry with its own address keeps it: one node, not one per IP.
+	db.Model(&store.Endpoint{}).Where("id = ?", "ep").Update("address", "1.2.3.4")
+	if got := servers("cm"); !slices.Equal(got, []string{"1.2.3.4"}) {
+		t.Fatalf("address override = %v", got)
+	}
+	db.Model(&store.Endpoint{}).Where("id = ?", "ep").Update("address", "")
 	if got := servers("ct"); !slices.Equal(got, []string{"104.16.0.1"}) {
 		t.Fatalf("telecom = %v", got)
 	}
