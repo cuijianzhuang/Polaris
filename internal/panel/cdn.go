@@ -297,8 +297,8 @@ func (s *Server) listCDN(c *gin.Context) {
 		Reports  []store.CDNIPReport `json:"reports"`
 		// Shared: speed-test points of other Cloudflare profiles whose
 		// fresh reports this profile's list is also built from.
-		Shared []string `json:"shared"`
-		Probes   []cdnProbeView      `json:"probes"`
+		Shared []string       `json:"shared"`
+		Probes []cdnProbeView `json:"probes"`
 	}
 	ids := make([]string, len(ps))
 	for i := range ps {
