@@ -297,8 +297,11 @@ func (s *Server) listCDN(c *gin.Context) {
 		Reports  []store.CDNIPReport `json:"reports"`
 		// Shared: speed-test points of other Cloudflare profiles whose
 		// fresh reports this profile's list is also built from.
-		Shared []string       `json:"shared"`
-		Probes []cdnProbeView `json:"probes"`
+		Shared []string `json:"shared"`
+		// ThirdParty: preferred addresses outside Cloudflare's ranges
+		// (reverse proxies from the Shodan source, or typed in).
+		ThirdParty []string       `json:"thirdParty"`
+		Probes     []cdnProbeView `json:"probes"`
 	}
 	ids := make([]string, len(ps))
 	for i := range ps {
@@ -340,7 +343,7 @@ func (s *Server) listCDN(c *gin.Context) {
 				}
 			}
 		}
-		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Serves: sv, Shared: shared, Reports: nonNilReports(reports[p.ID]), Probes: pv})
+		out = append(out, view{CDNProfile: p, Inbounds: inbounds[p.ID], Serves: sv, Shared: shared, ThirdParty: thirdPartyIPs(p.PreferredIPs.V), Reports: nonNilReports(reports[p.ID]), Probes: pv})
 	}
 	c.JSON(http.StatusOK, out)
 }
