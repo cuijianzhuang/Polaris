@@ -112,6 +112,13 @@ th { text-align: left; color: var(--mute); font-weight: 500; font-size: 12px; pa
 td { padding: 13px 16px; border-bottom: 1px solid var(--line-2); white-space: nowrap; vertical-align: middle; font-variant-numeric: tabular-nums; }
 tr:last-child td { border-bottom: none; }
 tr.clickable { cursor: pointer; }
+tr.sel td { background: var(--soft); }
+tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--pri); }
+/* CDN profiles: list on top, the selected profile's cards side by side below */
+.cdn-page { display: flex; flex-direction: column; gap: 16px; }
+.cdn-page .cdn-token { padding: 14px 18px; }
+.cdn-detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; align-items: start; }
+.cdn-detail > .card { margin: 0; min-width: 0; }
 td { transition: background-color var(--dur) var(--ease); }
 tr.clickable:hover td, tbody tr:hover td { background: var(--soft-2); }
 tr.group td { background: var(--soft); font-weight: 600; font-size: 12px; color: var(--ink-2); padding: 8px 16px; }
