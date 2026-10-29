@@ -180,7 +180,7 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
   )
 }
 
-function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void; onChanged: () => void }) {
+function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: () => void; onDelete: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
   const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string; split?: string[] } | null>(null)
   const confirm = useConfirm()
@@ -208,6 +208,7 @@ function CDNAside({ p, onEdit, onChanged }: { p: CDNProfile; onEdit: () => void;
           <button className="btn sm" type="button" disabled={busy || !p.hasToken} onClick={() => run(async () => {
             setSynced(await post<{ records: string[]; sslMode?: string; cert?: string; split?: string[] }>(`/cdn-profiles/${p.id}/sync-dns`)); onChanged()
           }, t('DNS 已同步'))}>{t('同步 DNS')}</button>
+          <button className="btn sm danger" type="button" style={{ marginLeft: 'auto' }} disabled={busy} onClick={onDelete}>{t('删除')}</button>
         </div>
         {synced && <div className="note small" style={{ marginTop: 12, overflowWrap: 'anywhere' }}>
           {t('DNS 记录：{list}', { list: synced.records.join('；') || t('无（还没有入站用这个配置档）') })}
@@ -621,6 +622,26 @@ export default function Chains() {
   const confirm = useConfirm()
   const toast = useToast()
   const { run } = useAction()
+  // removeProfile deletes a profile; one in use is confirmed again with
+  // the inbounds it would change.
+  const removeProfile = async (prof: CDNProfile) => {
+    if (!await confirm(t('删除配置档 {name}？', { name: prof.name }), { danger: true })) return
+    try {
+      await del('/cdn-profiles/' + prof.id)
+      cdn.reload()
+    } catch (e) {
+      const usage = (e instanceof ApiError && e.status === 409 ? e.data?.usage : null) as { tag: string; node: string; cdnOnly: boolean }[] | null
+      if (!usage) { toast(String((e as Error).message), true); return }
+      const only = usage.filter((u) => u.cdnOnly).map((u) => `${u.node} / ${u.tag}`)
+      const msg = t('{n} 个入站在用这个配置档：{list}。继续删除会同时删掉它们的 CDN 入口。', { n: usage.length, list: usage.map((u) => `${u.node} / ${u.tag}`).join('、') })
+        + (only.length ? ' ' + t('其中这些入站只有 CDN 入口，会被停用（以免订阅改为直连、暴露节点 IP）：{list}', { list: only.join('、') }) : '')
+      if (await confirm(msg, { danger: true, ok: t('仍然删除') })) run(async () => {
+        const r = await del<{ disabled: string[] }>('/cdn-profiles/' + prof.id + '?force=1')
+        cdn.reload()
+        if (r.disabled?.length) toast(t('已删除，停用了 {n} 个入站', { n: r.disabled.length }))
+      }, t('已删除'))
+    }
+  }
   const selCDN = useMemo(() => cdn.data?.find((c) => c.id === cdnSel) ?? cdn.data?.[0], [cdn.data, cdnSel])
 
   return (
@@ -644,7 +665,7 @@ export default function Chains() {
             {chains.data?.length === 0 && <div className="card"><Empty>{t('还没有链路。L4 转发适合线路优化；协议中转可在中转节点分流或换协议。')}</Empty></div>}
           </div>
           <aside className="aside">
-            {selCDN ? <CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onChanged={cdn.reload} /> : <div className="card"><Empty>{t('还没有 CDN 配置档')}</Empty></div>}
+            {selCDN ? <CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onDelete={() => removeProfile(selCDN)} onChanged={cdn.reload} /> : <div className="card"><Empty>{t('还没有 CDN 配置档')}</Empty></div>}
             <section className="note">{t('REALITY、Hysteria2、TUIC 不能走 CDN；添加 CDN 入口时只列出 WS / gRPC / HTTPUpgrade / XHTTP 入站。')}</section>
           </aside>
         </div>
@@ -654,33 +675,16 @@ export default function Chains() {
           <div className="grow">
             <div className="card flush scroll">
               {cdn.data?.length === 0 ? <Empty>{t('还没有 CDN 配置档')}</Empty> : (
-                <table>
+                <table className="rtable">
                   <thead><tr><th>{t('名称')}</th><th>{t('服务商')}</th><th>{t('回源域名')}</th><th>{t('优选 IP')}</th><th>{t('使用入站')}</th><th></th></tr></thead>
                   <tbody>
                     {(cdn.data ?? []).map((p) => (
                       <tr key={p.id} className="clickable" onClick={() => setCdnSel(p.id)}>
-                        <td style={{ fontWeight: 500 }}>{p.name}</td><td>{p.provider}</td><td className="mono">{p.originDomain}</td>
-                        <td className="mono">{p.preferredIps.length}</td><td className="mono">{p.inbounds}</td>
-                        <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                        <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
+                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('使用入站')} className="mono">{p.inbounds}</td>
+                        <td className="rt-actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <button className="link" type="button" onClick={() => setCdnDrawer(p)}>{t('编辑')}</button>
-                          <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
-                            if (!await confirm(t('删除配置档 {name}？', { name: p.name }), { danger: true })) return
-                            try {
-                              await del('/cdn-profiles/' + p.id)
-                              cdn.reload()
-                            } catch (e) {
-                              const usage = (e instanceof ApiError && e.status === 409 ? e.data?.usage : null) as { tag: string; node: string; cdnOnly: boolean }[] | null
-                              if (!usage) { toast(String((e as Error).message), true); return }
-                              const only = usage.filter((u) => u.cdnOnly).map((u) => `${u.node} / ${u.tag}`)
-                              const msg = t('{n} 个入站在用这个配置档：{list}。继续删除会同时删掉它们的 CDN 入口。', { n: usage.length, list: usage.map((u) => `${u.node} / ${u.tag}`).join('、') })
-                                + (only.length ? ' ' + t('其中这些入站只有 CDN 入口，会被停用（以免订阅改为直连、暴露节点 IP）：{list}', { list: only.join('、') }) : '')
-                              if (await confirm(msg, { danger: true, ok: t('仍然删除') })) run(async () => {
-                                const r = await del<{ disabled: string[] }>('/cdn-profiles/' + p.id + '?force=1')
-                                cdn.reload()
-                                if (r.disabled?.length) toast(t('已删除，停用了 {n} 个入站', { n: r.disabled.length }))
-                              }, t('已删除'))
-                            }
-                          }}>{t('删除')}</button>
+                          <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={() => removeProfile(p)}>{t('删除')}</button>
                         </td>
                       </tr>
                     ))}
@@ -690,7 +694,7 @@ export default function Chains() {
             </div>
             <div className="note">{t('给入站添加 CDN 入口：在「入站」页打开入站 → 入口 → CDN。Cloudflare 的 gRPC 需在控制台开启。经 CDN 后内核读取 CF-Connecting-IP；不支持时该入站跳过 IP 数限制。')}</div>
           </div>
-          <aside className="aside">{selCDN && <CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onChanged={cdn.reload} />}</aside>
+          <aside className="aside">{selCDN && <CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onDelete={() => removeProfile(selCDN)} onChanged={cdn.reload} />}</aside>
         </div>
       )}
       {tab === 'routing' && (nodes.length ? <Routing nodes={nodes} /> : <div className="card"><Empty>{t('还没有节点')}</Empty></div>)}

@@ -202,5 +202,7 @@ const m: Record<string, string> = {
   "仍然删除": "Delete anyway",
   "已删除，停用了 {n} 个入站": "Deleted; {n} inbounds disabled",
   "仍有 {n} 个入站使用该配置档": "{n} inbounds still use this profile",
+  "当前是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP，而且不能用 REALITY。": "This is {combo}, which cannot go through a CDN: a CDN forwards only WS, gRPC, HTTPUpgrade and XHTTP, and not REALITY.",
+  "改为 VLESS + WS + TLS（可走 CDN）": "Switch to VLESS + WS + TLS (CDN-capable)",
 }
 export default m
