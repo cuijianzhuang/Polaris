@@ -203,6 +203,10 @@ const m: Record<string, string> = {
   "已删除，停用了 {n} 个入站": "Deleted; {n} inbounds disabled",
   "仍有 {n} 个入站使用该配置档": "{n} inbounds still use this profile",
   "当前是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP，而且不能用 REALITY。": "This is {combo}, which cannot go through a CDN: a CDN forwards only WS, gRPC, HTTPUpgrade and XHTTP, and not REALITY.",
-  "改为 VLESS + WS + TLS（可走 CDN）": "Switch to VLESS + WS + TLS (CDN-capable)",
+  "还没有 CDN 配置档：先在「链路与 CDN」页添加一个": "No CDN profile yet: add one on the Chains & CDN page first",
+  "这台节点上 Cloudflare 支持的端口（443、2053、2083、2087、2096、8443）都被占用了": "Every port Cloudflare proxies (443, 2053, 2083, 2087, 2096, 8443) is taken on this node",
+  "已配置：{proto} + {trans} + TLS，端口 {port}，经 CDN 配置档 {name}，只走 CDN。检查无误后点「保存并下发」": "Set up: {proto} + {trans} + TLS on port {port}, through CDN profile {name}, CDN only. Check it, then Save and apply",
+  "要让这个入站走 CDN（节点 IP 被墙也能用）？一键设成 VLESS / VMess / Trojan + WS + TLS，自动选 Cloudflare 端口并只发 CDN 节点。": "Serve this inbound through a CDN (works even if the node's IP is blocked)? One click sets VLESS / VMess / Trojan + WS + TLS, picks a Cloudflare port and publishes CDN nodes only.",
+  "一键配置 CDN": "Set up for CDN",
 }
 export default m
