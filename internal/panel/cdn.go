@@ -305,10 +305,12 @@ func (s *Server) listCDN(c *gin.Context) {
 	serves := s.cdnServes(ids)
 	reports := s.cdnReports(ids)
 	probes := s.cdnProbes(ids)
-	global := s.st.GetSetting("acme_cf_token", "") != "" // read once: list queries stay flat
+	// Read once: list queries stay flat.
+	cdnTok, dnsTok := s.st.GetSetting("cdn_cf_token", "") != "", s.st.GetSetting("acme_cf_token", "") != ""
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
-		p.HasToken, p.GlobalToken = p.APIToken != "" || global, p.APIToken == "" && global
+		p.TokenSource = tokenSource(p.APIToken != "", cdnTok, dnsTok)
+		p.HasToken = p.TokenSource != ""
 		pv := probes[p.ID]
 		if pv == nil {
 			pv = []cdnProbeView{}
@@ -531,7 +533,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 	res := cdnSyncResult{Records: []string{}}
 	token := s.cfToken(p)
 	if token == "" {
-		return res, fmt.Errorf("没有 Cloudflare API Token：在配置档里填写，或在「系统设置」填写 Cloudflare Token（所有配置档共用）")
+		return res, fmt.Errorf("没有 Cloudflare Token：在「CDN 配置档」页填写 CDN Token（所有配置档共用）")
 	}
 	cf := newCF(token)
 	zone := p.ZoneID
@@ -661,18 +663,38 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 func cfStep(step, perm string, err error) error {
 	msg := strings.ToLower(err.Error())
 	if strings.Contains(msg, "unauthorized") || strings.Contains(msg, "authentication error") || strings.Contains(msg, "403") {
-		return fmt.Errorf("%s失败：Cloudflare Token 没有权限，需要给 Token 加上「%s」（%v）", step, perm, err)
+		return fmt.Errorf("%s失败：Cloudflare Token 没有权限，需要「%s」：在「CDN 配置档」页填一个带这项权限的 CDN Token（%v）", step, perm, err)
 	}
 	return fmt.Errorf("%s失败：%w", step, err)
 }
 
-// cfToken is the Cloudflare API token for a profile: its own, else the
-// panel-wide one (系统设置 → Cloudflare Token, also used for ACME).
+// Cloudflare tokens by what they may do:
+//   - DNS token (系统设置, acme_cf_token): Zone read + DNS edit, for ACME DNS
+//     validation and Cloudflare DNS providers without a token of their own.
+//   - CDN token (CDN 配置档 page, cdn_cf_token): also Zone Settings and SSL
+//     and Certificates edit, which 同步 DNS needs; shared by all profiles.
+//
+// cfToken is the token for a profile: its own (set by older versions),
+// else the CDN token, else the DNS token (enough for DNS records only).
 func (s *Server) cfToken(p *store.CDNProfile) string {
-	if t := s.st.Box.MustOpen(p.APIToken); t != "" {
-		return t
+	for _, sealed := range []string{p.APIToken, s.st.GetSetting("cdn_cf_token", ""), s.st.GetSetting("acme_cf_token", "")} {
+		if t := s.st.Box.MustOpen(sealed); t != "" {
+			return t
+		}
 	}
-	return s.st.Box.MustOpen(s.st.GetSetting("acme_cf_token", ""))
+	return ""
+}
+
+func tokenSource(own, cdn, dns bool) string {
+	switch {
+	case own:
+		return "profile"
+	case cdn:
+		return "cdn"
+	case dns:
+		return "dns"
+	}
+	return ""
 }
 
 // autoSyncCDNDNS keeps the DNS records of profiles with 自动同步 on.

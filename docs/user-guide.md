@@ -702,7 +702,7 @@ Snell 入站由**带用户统计的 sing-box 1.14.0+** 提供，不需要安装�
 
 | 功能 | 入口与操作要点 |
 | --- | --- |
-| DNS 服务商 | 「域名与证书 → 域名与 DDNS」添加 Cloudflare 或自定义 Webhook 服务商；凭据按所需范围授权 |
+| DNS 服务商 | 「域名与证书 → 域名与 DDNS」添加 Cloudflare 或自定义 Webhook 服务商。Cloudflare 服务商的 Token 可以留空，默认使用「系统设置」里的 Cloudflare DNS Token；只有另一个 Cloudflare 账号才需要单独填 |
 | 域名绑定与 DDNS（专业版） | 绑定域名和节点，选择 A / AAAA 等记录；启用节点 DDNS 后，公网 IP 变化会触发更新 |
 | CDN 入口 | 为支持 CDN 的协议组合添加 CDN 配置档和入口；新建入站可「一键配置 CDN」，入口旁的「检测」会指出卡在哪一步，见下文 [CDN 配置与排查](#cdn-setup) |
 | 端口转发 | 「入站与转发 → 端口转发」配置来源、目标和转发方式，检查两端网络和端口 |
@@ -719,6 +719,17 @@ DNS 服务商管理属于基础功能，自动域名绑定和 DDNS 需要专业�
 入站支持 `relayOnly` 发布策略：开启后订阅和分享只使用中转入口，即使线路停用或删除也不会回退发布直连；开关不修改防火墙。在「中转管理」中，网络诊断检查下发、入口和逐跳网络，真实业务诊断另外验证代理认证及 TCP / UDP 往返。sing-box 首批支持 Linux + VLESS + TCP + REALITY/Vision，需要新 Agent、稳定内核版本不低于 1.13.5 及逐用户统计构建；诊断开始和结束时会重启该 sing-box，现有连接会中断。临时身份不写入正式配置，超时、断线或 Agent 崩溃时撤销，诊断计数不扣普通用户配额。支持条件及安全回收机制见[一键中转配置说明](design/relay-one-click.md)。
 
 <a id="cdn-setup"></a>
+### Cloudflare Token 一览
+
+面板按权限分两个 Token，各填一次：
+
+| Token | 填写位置 | 权限 | 用途 |
+|---|---|---|---|
+| DNS Token | 「系统设置 → 证书申请与验证」 | Zone.Zone 读取、Zone.DNS 编辑 | ACME DNS 验证（泛域名证书）；「域名」页 Cloudflare DNS 服务商的默认 Token（DDNS、域名绑定） |
+| CDN Token | 「链路与 CDN → CDN 配置档」页顶部 | 以上两项，加 Zone.Zone Settings 编辑、Zone.SSL and Certificates 编辑 | CDN 配置档的「同步 DNS」：写 DNS 记录、设置 SSL 模式、签发 Origin 证书 |
+
+用同一个 Token 也可以，只要它有 CDN Token 的全部权限，两处都填上即可。旧版本在单个 CDN 配置档里填过的 Token 会继续使用。
+
 ### CDN 配置与排查
 
 CDN 入口让客户端经 Cloudflare 等 CDN 连接节点，节点 IP 被封锁时也能使用：CDN 从境外回源，客户端只连 CDN 的 IP。
@@ -738,7 +749,7 @@ CDN 入口让客户端经 Cloudflare 等 CDN 连接节点，节点 IP 被封锁�
 #### 第一次配置
 
 1. **建配置档**：「链路与 CDN → CDN 配置档」新建，填回源域名（如 `cdn.example.com`）、TLS 模式和可用端口。保存时会规范化输入：去掉 `https://` 和路径，拒绝 Cloudflare 不代理的端口。
-2. **API Token（可选，推荐）**：配置档里可以单独填；留空时使用「系统设置」里的 Cloudflare Token（ACME 也用它），所有配置档共用。「同步 DNS」需要的权限：Zone → DNS → Edit、Zone → Zone Settings → Edit、Zone → SSL and Certificates → Edit。
+2. **CDN Token（可选，推荐）**：在「CDN 配置档」页顶部的「Cloudflare CDN Token」卡片填写一次，所有配置档共用。权限：Zone → Zone → Read、Zone → DNS → Edit、Zone → Zone Settings → Edit、Zone → SSL and Certificates → Edit。没填时暂用「系统设置」里的 DNS Token，只能写 DNS 记录，改 SSL 模式和签发 Origin 证书会提示缺少权限。
 3. **建入站**：新建入站时点顶部的「一键配置 CDN」。面板会自动设置：协议保留 VLESS / VMess / Trojan（其他改为 VLESS）；传输已能走 CDN 的保留，否则改为 WS 并生成随机路径；开启 TLS，SNI 用回源域名；选节点上第一个空闲的 Cloudflare 端口（gRPC 只用 443）；选第一个配置档，并打开「只走 CDN」。保存前仍可修改。已有入站可在编辑页的「入口」里添加 CDN 入口；REALITY 等不能走 CDN 的入站，可以用「一键创建 CDN 入站」生成一个同节点、同分组的 VLESS + WS + TLS 入站。
 4. **同步 DNS**：在配置档点「同步 DNS」。面板会为每个回源域名建立开启代理（橙色云朵）的记录并指向节点；TLS 模式为 Full (strict) 时，先签发 Cloudflare Origin 证书并装到只走 CDN 的入站上，成功后才把域名切到 strict，签发失败时不改 SSL 模式。同时还有直连入口的入站不会换证书，因为客户端不信任 Origin 证书。
 5. **检测**：在入站编辑页的 CDN 入口上点「检测」。

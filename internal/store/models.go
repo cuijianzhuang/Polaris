@@ -566,8 +566,10 @@ type CDNProfile struct {
 	CaddyFronting bool           `json:"caddyFronting"`
 	APIToken      string         `gorm:"size:500" json:"-"` // sealed
 	HasToken      bool           `gorm:"-" json:"hasToken"`
-	// GlobalToken: no token of its own, the panel-wide one is used.
-	GlobalToken   bool       `gorm:"-" json:"globalToken"`
+	// TokenSource: which Cloudflare token the profile uses — "profile"
+	// (its own, from older versions), "cdn" (the CDN token set on the CDN
+	// page), "dns" (falling back to the DNS token in 系统设置) or "".
+	TokenSource   string     `gorm:"-" json:"tokenSource"`
 	ZoneID        string     `gorm:"size:64" json:"zoneId"`
 	LastRefreshAt *time.Time `json:"lastRefreshAt"`
 	LastError     string     `gorm:"size:2000" json:"lastError"`

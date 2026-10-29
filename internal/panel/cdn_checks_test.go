@@ -371,17 +371,27 @@ func TestCFTokenFallback(t *testing.T) {
 	s, admin := cdnFixture(t)
 	var p store.CDNProfile
 	s.st.DB.First(&p, "id = ?", "cf")
-	if s.cfToken(&p) != "" {
+	source := func() string {
+		code, list := admin.doList("GET", "/cdn-profiles")
+		if code != 200 {
+			t.Fatalf("list %d", code)
+		}
+		return list[0].(map[string]any)["tokenSource"].(string)
+	}
+	if s.cfToken(&p) != "" || source() != "" {
 		t.Fatal("token without any configured")
 	}
-	s.st.SetSetting("acme_cf_token", s.st.Box.Seal("global"))
-	if s.cfToken(&p) != "global" {
-		t.Fatal("global token not used")
+	// The DNS token (系统设置) is the last fallback.
+	s.st.SetSetting("acme_cf_token", s.st.Box.Seal("dns"))
+	if s.cfToken(&p) != "dns" || source() != "dns" {
+		t.Fatal("DNS token not used")
 	}
-	code, list := admin.doList("GET", "/cdn-profiles")
-	if v := list[0].(map[string]any); code != 200 || v["hasToken"] != true || v["globalToken"] != true {
-		t.Fatalf("list %d %v", code, list)
+	// The CDN token wins over it.
+	s.st.SetSetting("cdn_cf_token", s.st.Box.Seal("cdn"))
+	if s.cfToken(&p) != "cdn" || source() != "cdn" {
+		t.Fatal("CDN token not preferred")
 	}
+	// A profile's own token (older versions) wins over both.
 	p.APIToken = s.st.Box.Seal("own")
 	if s.cfToken(&p) != "own" {
 		t.Fatal("own token not preferred")
