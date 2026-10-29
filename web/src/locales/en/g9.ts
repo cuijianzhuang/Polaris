@@ -225,5 +225,13 @@ const m: Record<string, string> = {
   "使用系统设置的 DNS Token": "Uses the DNS token from Settings",
   "可选：留空使用「系统设置」里的 Cloudflare DNS Token；另一个 Cloudflare 账号才需要单独填。权限：Zone.Zone 读取 + Zone.DNS 编辑": "Optional: leave empty to use the Cloudflare DNS token from Settings; only another Cloudflare account needs its own. Permissions: Zone.Zone Read + Zone.DNS Edit",
   "可选 · 权限：Zone.Zone 读取 + Zone.DNS 编辑。用于 ACME 的 DNS 验证，也是「域名」页 Cloudflare DNS 服务商的默认 Token。CDN 用的 Token 权限更多，在「CDN 配置档」页单独填写": "Optional · Permissions: Zone.Zone Read + Zone.DNS Edit. Used for ACME DNS validation and as the default token of Cloudflare DNS providers on the Domains page. The CDN token needs more permissions and is set on the CDN profile page",
+  "订阅全部使用": "Subscription uses all",
+  "还没有优选 IP。每个配置档单独维护：点上方「编辑」填写优选 IP / 域名或来源 URL，或在下方添加测速点自动上报": "No preferred IPs yet. Each profile keeps its own: use Edit above to enter IPs / domains or a source URL, or add a speed-test point below to report them",
+  "从其他配置档复制优选 IP": "Copy preferred IPs from another profile",
+  "复制所选配置档的优选 IP、来源 URL、订阅取前几个和「每个 IP 一个节点」，保存后生效": "Copies the chosen profile's preferred IPs, source URL, top-N and one-node-per-IP setting; takes effect when saved",
+  "选择配置档…": "Choose a profile…",
+  "有来源 URL": "has a source URL",
+  "Cloudflare 配置档共用测速点：本配置档也在用其他配置档的 {list} 上报的 IP；这里的测速点上报的 IP 同样给其他配置档用": "Cloudflare profiles share speed-test points: this profile also uses the IPs reported by {list} on other profiles, and points here serve the other profiles too",
+  "Cloudflare 配置档共用测速点：任一配置档的测速点上报的 IP，所有 Cloudflare 配置档都会用（各自手填的域名保留）": "Cloudflare profiles share speed-test points: IPs reported to any profile are used by every Cloudflare profile (each keeps its own typed-in domains)",
 }
 export default m

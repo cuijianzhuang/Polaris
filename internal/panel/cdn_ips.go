@@ -166,14 +166,28 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 			ProfileID: p.ID, Source: req.Source, Carrier: carrier, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
 			return err
 		}
-		var reports []store.CDNIPReport
-		if err := tx.Where("profile_id = ? AND at > ?", p.ID, now.Add(-cdnStaleAfter(&p))).Find(&reports).Error; err != nil {
-			return err
+		// Cloudflare addresses are anycast: a point's report serves every
+		// Cloudflare profile, not only the one it reports to.
+		targets := []store.CDNProfile{p}
+		if p.Provider == "cloudflare" {
+			if err := tx.Where("provider = ? AND id <> ?", "cloudflare", p.ID).Find(&targets).Error; err != nil {
+				return err
+			}
+			targets = append([]store.CDNProfile{p}, targets...)
 		}
-		list = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
-		recovered = p.StaleAlerted
-		return tx.Model(&p).Updates(map[string]any{"preferred_ips": store.NewJSON(list), "last_refresh_at": now,
-			"last_error": "", "stale_alerted": false}).Error
+		for i := range targets {
+			t := &targets[i]
+			merged := withPinned(mergeCDNReports(sharedCDNReports(tx, t, now.Add(-cdnStaleAfter(t)), "")), t.PinnedHosts.V)
+			upd := map[string]any{"preferred_ips": store.NewJSON(merged), "last_refresh_at": now, "last_error": ""}
+			if t.ID == p.ID {
+				list, recovered = merged, p.StaleAlerted
+				upd["stale_alerted"] = false
+			}
+			if err := tx.Model(t).Updates(upd).Error; err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		dbError(c, err)
@@ -185,6 +199,32 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 	}
 	s.auditCtx(c, "cdn.ip_report", p.Name, fmt.Sprintf("%s: %d IPs", req.Source, len(ips)))
 	c.JSON(http.StatusOK, gin.H{"stored": len(ips), "preferredIps": list})
+}
+
+// sharedCDNReports is the reports a profile's list is built from since a
+// time: those of every Cloudflare profile for a Cloudflare one (its own
+// otherwise), the newest per speed-test point, optionally of one carrier.
+func sharedCDNReports(db *gorm.DB, p *store.CDNProfile, since time.Time, carrier string) []store.CDNIPReport {
+	q := db.Model(&store.CDNIPReport{}).Where("at > ?", since)
+	if p.Provider == "cloudflare" {
+		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare"))
+	} else {
+		q = q.Where("profile_id = ?", p.ID)
+	}
+	if carrier != "" {
+		q = q.Where("carrier = ?", carrier)
+	}
+	var rs []store.CDNIPReport
+	q.Order("at DESC").Find(&rs)
+	seen := map[string]bool{}
+	out := rs[:0]
+	for _, r := range rs {
+		if !seen[r.Source] {
+			seen[r.Source] = true
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // cdnReports returns the reports of the given profiles, newest first.
@@ -222,9 +262,7 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 // cdnFreshReport reports whether a speed-test point reported within the
 // stale window: the scheduled URL refresh then leaves the list alone.
 func (s *Server) cdnFreshReport(p *store.CDNProfile, now time.Time) bool {
-	var n int64
-	s.st.DB.Model(&store.CDNIPReport{}).Where("profile_id = ? AND at > ?", p.ID, now.Add(-cdnStaleAfter(p))).Count(&n)
-	return n > 0
+	return len(sharedCDNReports(s.st.DB, p, now.Add(-cdnStaleAfter(p)), "")) > 0
 }
 
 // checkCDNReportsStale alerts once per profile whose speed-test points all

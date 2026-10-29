@@ -129,7 +129,7 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
   )
 }
 
-function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClose: () => void; onSaved: () => void }) {
+function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNProfile; others?: CDNProfile[]; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
     name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
     ports: (profile?.ports ?? [443, 2053, 2083, 2087, 2096, 8443]).join(', '), preferredIps: toLines(profile?.preferredIps), ipSourceUrl: profile?.ipSourceUrl ?? '',
@@ -138,6 +138,12 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
+  // Profiles to copy preferred IPs from: those that have any.
+  const sources = others.filter((o) => o.id !== profile?.id && (o.preferredIps.length > 0 || o.ipSourceUrl))
+  const copyFrom = (id: string) => {
+    const o = sources.find((x) => x.id === id)
+    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
+  }
   return (
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
@@ -165,6 +171,12 @@ function CDNDrawer({ profile, onClose, onSaved }: { profile?: CDNProfile; onClos
         <Field label={t('可用端口')} hint={f.provider === 'cloudflare' ? t('只能用 Cloudflare 的 HTTPS 端口：443、2053、2083、2087、2096、8443；第一个用于不在这些端口上的入站和 Caddy 统一回源') : undefined}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
         {profile?.tokenSource === 'profile' && <Field label="Cloudflare API Token" full hint={t('这个配置档有单独保存的 Token（旧版本填写），留空保持不变。新配置档统一用「CDN 配置档」页的 CDN Token')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
+        </Field>}
+        {sources.length > 0 && <Field label={t('从其他配置档复制优选 IP')} full hint={t('复制所选配置档的优选 IP、来源 URL、订阅取前几个和「每个 IP 一个节点」，保存后生效')}>
+          <select className="input" value="" onChange={(e) => copyFrom(e.target.value)} aria-label={t('从其他配置档复制优选 IP')}>
+            <option value="">{t('选择配置档…')}</option>
+            {sources.map((o) => <option key={o.id} value={o.id}>{o.name}（{t('{n} 个 IP', { n: o.preferredIps.length })}{o.ipSourceUrl ? ' · ' + t('有来源 URL') : ''}）</option>)}
+          </select>
         </Field>}
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
         <Field label={t('优选 IP（手填）')} full hint={t('一行一个 IP 或优选域名（如 visa.cn），不带端口。手填的域名会一直保留：测速点和来源 URL 只更新 IP，订阅里域名排在前 N 个 IP 之后')}><textarea className="input" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
@@ -221,18 +233,19 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>
           <button className="btn sm" type="button" disabled={busy || !p.ipSourceUrl} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/refresh-ips`); onChanged() }, t('已刷新'))}>{t('刷新')}</button></div>
-        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length ? t('由 {n} 个测速点维护', { n: p.reports.length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? t('订阅取前 {n} 个', { n: p.ipTopN || t('全部') }) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
+        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length || (p.shared ?? []).length ? t('由 {n} 个测速点维护', { n: p.reports.length + (p.shared ?? []).length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
         <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
           {p.preferredIps.length ? p.preferredIps.map((ip) => {
             const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
             return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}</div>
-          }) : t('暂无')}
+          }) : <span>{t('还没有优选 IP。每个配置档单独维护：点上方「编辑」填写优选 IP / 域名或来源 URL，或在下方添加测速点自动上报')}</span>}
         </div>
         {p.nodeCheck && <div className="sub" style={{ marginTop: 8 }}>{p.checkedAt ? t('节点检测：{t}，{n} 个连不上', { t: ago(p.checkedAt), n: (p.badIps ?? []).length }) : t('节点检测：等待第一次检测')}</div>}
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.reports.length === 0 && waiting.length === 0 ? <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
+        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('Cloudflare 配置档共用测速点：本配置档也在用其他配置档的 {list} 上报的 IP；这里的测速点上报的 IP 同样给其他配置档用', { list: (p.shared ?? []).join('、') }) : t('Cloudflare 配置档共用测速点：任一配置档的测速点上报的 IP，所有 Cloudflare 配置档都会用（各自手填的域名保留）')}</div>}
+        {p.reports.length === 0 && waiting.length === 0 ? (p.shared ?? []).length > 0 ? null : <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
             const best = r.ips[0]
@@ -703,7 +716,7 @@ export default function Chains() {
       {tab === 'rulesets' && <RuleSets />}
       {tab === 'dns' && <DNSSettings nodes={nodes} />}
       {chainDrawer && <ChainDrawer chain={chainDrawer === 'new' ? undefined : chainDrawer} nodes={nodes} inbounds={inbounds.data ?? []} onClose={() => setChainDrawer(null)} onSaved={() => { setChainDrawer(null); chains.reload() }} />}
-      {cdnDrawer && <CDNDrawer profile={cdnDrawer === 'new' ? undefined : cdnDrawer} onClose={() => setCdnDrawer(null)} onSaved={() => { setCdnDrawer(null); cdn.reload() }} />}
+      {cdnDrawer && <CDNDrawer profile={cdnDrawer === 'new' ? undefined : cdnDrawer} others={cdn.data ?? []} onClose={() => setCdnDrawer(null)} onSaved={() => { setCdnDrawer(null); cdn.reload() }} />}
     </>
   )
 }

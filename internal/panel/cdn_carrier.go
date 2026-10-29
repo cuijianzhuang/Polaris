@@ -99,8 +99,7 @@ func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string) []string {
 	if !p.CarrierSplit || carrier == "" {
 		return nil
 	}
-	var reports []store.CDNIPReport
-	s.st.DB.Where("profile_id = ? AND carrier = ? AND at > ?", p.ID, carrier, time.Now().Add(-cdnStaleAfter(p))).Find(&reports)
+	reports := sharedCDNReports(s.st.DB, p, time.Now().Add(-cdnStaleAfter(p)), carrier)
 	if len(reports) == 0 {
 		return nil
 	}
