@@ -18,7 +18,7 @@
 | `traffic:read` | 汇总、用户 / 节点及标签流量统计；`GET /users/:id/traffic-sources` 查询按小时和节点的来源（不含用户凭据） |
 | `settings:read` | 现有设置读取 |
 | `nodes:metrics:write` | 仅 `POST /nodes/:id/metrics`，上报节点外部指标 |
-| `cdn:ips:write` | 仅 `POST /cdn-profiles/:id/preferred-ips`，测速点上报 CDN 优选 IP；不能读取或修改配置档 |
+| `cdn:ips:write` | 仅 `POST /cdn-profiles/:id/preferred-ips`（测速点上报 CDN 优选 IP）和 `GET /cdn-profiles/:id/ip-candidates`（读取面板提供的额外候选 IP，例如 Shodan 找到的第三方反代）；不能读取或修改配置档 |
 | `redeem:write` | `GET` / `POST /redeem-codes`（查询、生成兑换码），`DELETE /redeem-codes` 只能按兑换码作废未使用的；并可读取 `GET /plans`、`GET /traffic-packs`。供 Kaku 等发卡系统使用，不能读取或修改用户 |
 | `metrics:read` | 仅 `GET /metrics`，Prometheus 格式的监控指标；不含任何用户名、订阅令牌等个人数据 |
 

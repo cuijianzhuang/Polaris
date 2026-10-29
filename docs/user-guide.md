@@ -817,7 +817,7 @@ CDN 配置档开启「订阅按优选 IP 展开」后，订阅里每个优选地
 **测速点上报**：优选 IP 要从用户那一侧测才准；面板和节点通常在海外，测出来的结果对国内用户没有意义。
 
 1. 打开配置档详情的「测速点」卡片，展开「添加测速点」，填写测速点名称（例如「上海电信」），需要时选择运营商，点「生成安装命令」（需要二次验证）。面板会创建一个**专用令牌**：只有「上报 CDN 优选 IP」权限，而且只能给这个配置档、以这个名称上报，不能读取或修改任何配置。命令里已经填好面板地址、配置档 ID、域名、令牌、名称和 GitHub 加速前缀（如有设置），**只显示这一次**。
-2. 在国内的一台机器（家里的路由器、树莓派、国内 VPS 都可以，按运营商各放一台更好）以 root 运行这条命令（OpenWrt 上去掉 `sudo`），装的是 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins) 里的 `cf-ip-probe`，支持 systemd、OpenWrt 和 Alpine，每天自动更新。卡片里会先出现「等待首次上报」，第一轮测完（约 1–3 分钟）后显示结果。它参考 CloudflareSpeedTest：每个 /24 测一个 IP 的延迟和丢包，HTTPS 验证并识别机房，再对最好的几个做下载测速；已经在用 CloudflareSpeedTest 的，可以让它直接上报 `result.csv`（`-csv`）。
+2. 在国内的一台机器（家里的路由器、树莓派、国内 VPS 都可以，按运营商各放一台更好）以 root 运行这条命令（OpenWrt 上去掉 `sudo`），装的是 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins) 里的 `cf-ip-probe`，支持 systemd、OpenWrt 和 Alpine，每天自动更新。macOS、Windows 没有一键脚本：在 [Releases](https://github.com/cuijianzhuang/polaris-plugins/releases) 下载对应压缩包，把命令里的 `--api`、`--profile`、`--host`、`--token`、`--source` 改成 `-api` 等同名参数直接运行；macOS 开机自启见 [cf-ip-probe 说明](https://github.com/cuijianzhuang/polaris-plugins/tree/main/examples/cf-ip-probe#macos)。测速机器要走直连（代理软件里让 Cloudflare IP 段直连），否则测的是代理线路。卡片里会先出现「等待首次上报」，第一轮测完（约 1–3 分钟）后显示结果。它参考 CloudflareSpeedTest：每个 /24 测一个 IP 的延迟和丢包，HTTPS 验证并识别机房，再对最好的几个做下载测速；已经在用 CloudflareSpeedTest 的，可以让它直接上报 `result.csv`（`-csv`）。
 3. 在卡片里「移除」测速点时，它的专用令牌一起作废；对同一个名称再生成一次命令，旧令牌也会失效（用于换机器或令牌泄露）。删除配置档时，所有测速点的令牌都会作废。也可以展开「使用已有的 API 令牌」，用自己在「扩展 → API 令牌」创建的 `cdn:ips:write` 令牌，这种令牌不限配置档和名称。
 
    也可以用自己写的脚本调用：
@@ -826,6 +826,10 @@ CDN 配置档开启「订阅按优选 IP 展开」后，订阅里每个优选地
 curl -X POST "$API/cdn-profiles/<配置档 ID>/preferred-ips" -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"source":"上海电信","ips":[{"ip":"104.16.1.1","latencyMs":38,"loss":0},{"ip":"172.64.1.9","latencyMs":52,"loss":0.02}]}'
+
+# 开启「第三方反代 IP」时，额外候选（同一个令牌即可读取）
+curl "$API/cdn-profiles/<配置档 ID>/ip-candidates" -H "Authorization: Bearer $TOKEN"
+# {"ips":["47.242.1.2","8.210.3.4"]}
 ```
 
 - `source` 是测速点名称，每个测速点保留最新一次上报；`ips` 每次 1–200 个公网 IP，`loss` 为 0–1 的丢包率。
