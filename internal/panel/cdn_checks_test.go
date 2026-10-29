@@ -316,7 +316,7 @@ func TestDiagnoseOrigin(t *testing.T) {
 	node := &store.Node{Name: "sg", Address: "127.0.0.1"}
 	r := cdnCheck{Message: "错误 521"}
 	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
-	if !strings.Contains(r.Message, "拒绝") || !strings.Contains(strings.Join(r.Steps, " "), "API Token") {
+	if !strings.Contains(r.Message, "拒绝") || !strings.Contains(strings.Join(r.Steps, " "), "没有 Cloudflare Token") {
 		t.Fatalf("closed port: %+v", r)
 	}
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
