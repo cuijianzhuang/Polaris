@@ -211,5 +211,12 @@ const m: Record<string, string> = {
   "未使用": "Unused",
   "还没有入站使用：在「入站」里给入站添加这个配置档的 CDN 入口": "No inbound uses it yet: add a CDN entry with this profile to an inbound on the Inbounds page",
   "一个 Cloudflare 域名建一个配置档就够了：多台节点共用时，第二台起的入口自动用「节点名-域名」（如 oracle-sg-cdn.example.com），在下方「服务节点」里能看到每台节点用哪个域名": "One profile per Cloudflare domain is enough: when several nodes share it, entries from the second node on use \"node-name-domain\" (e.g. oracle-sg-cdn.example.com); \"Nodes served\" shows which hostname each node uses",
+  "Cloudflare 全局 Token": "Cloudflare global token",
+  "已配置：没有单独填 Token 的配置档都用它（同一个域名的多个配置档只需填这一次）": "Set: every profile without its own token uses it (several profiles on one domain need it only once)",
+  "未配置：填一次，所有配置档共用，用于同步 DNS、设置 SSL、签发 Origin 证书": "Not set: enter it once for all profiles; used to sync DNS, set SSL and issue Origin certificates",
+  "更换": "Replace",
+  "填写": "Set",
+  "粘贴 Cloudflare API Token": "Paste a Cloudflare API token",
+  "需要的权限：Zone.Zone 读取、Zone.DNS 编辑、Zone.Zone Settings 编辑、Zone.SSL and Certificates 编辑。和「系统设置」里的 Cloudflare Token 是同一个，ACME 证书也用它": "Permissions: Zone.Zone Read, Zone.DNS Edit, Zone.Zone Settings Edit, Zone.SSL and Certificates Edit. It is the same Cloudflare token as in Settings, also used for ACME certificates",
 }
 export default m

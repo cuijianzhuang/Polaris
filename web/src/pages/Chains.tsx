@@ -674,6 +674,7 @@ export default function Chains() {
       {tab === 'cdn' && (
         <div className="split">
           <div className="grow">
+            <CFTokenCard onSaved={cdn.reload} />
             <div className="card flush scroll">
               {cdn.data?.length === 0 ? <Empty>{t('还没有 CDN 配置档')}</Empty> : (
                 <table className="rtable">
@@ -682,7 +683,7 @@ export default function Chains() {
                     {(cdn.data ?? []).map((p) => (
                       <tr key={p.id} className="clickable" onClick={() => setCdnSel(p.id)}>
                         <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
-                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('服务节点')} className="small">{(p.serves ?? []).length === 0 ? <span className="sub">{t('未使用')}</span> : (p.serves ?? []).map((x) => <div key={x.node + x.tag}>{x.node} → <span className="mono">{x.host}</span></div>)}</td>
+                        <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('服务节点')} className="small">{(p.serves ?? []).length === 0 ? <span className="sub">{t('未使用')}</span> : <div>{(p.serves ?? []).map((x) => <div key={x.node + x.tag}>{x.node} → <span className="mono">{x.host}</span></div>)}</div>}</td>
                         <td className="rt-actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <button className="link" type="button" onClick={() => setCdnDrawer(p)}>{t('编辑')}</button>
                           <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={() => removeProfile(p)}>{t('删除')}</button>
@@ -759,3 +760,38 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
 }
 
 const carrierLabel = (c: string) => ({ ct: t('电信'), cu: t('联通'), cm: t('移动') } as Record<string, string>)[c] ?? c
+
+// CFTokenCard sets the panel-wide Cloudflare token (系统设置 → Cloudflare
+// Token) from the CDN page: every profile without its own token uses it.
+function CFTokenCard({ onSaved }: { onSaved: () => void }) {
+  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const { busy, run } = useAction()
+  const [editing, setEditing] = useState(false)
+  const [token, setToken] = useState('')
+  const set = !!settings.data?.acme_cf_token_set
+  const save = () => run(async () => {
+    await put('/settings', { acme_cf_token: token.trim() })
+    setToken(''); setEditing(false); settings.reload(); onSaved()
+  }, t('已保存'))
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <b>{t('Cloudflare 全局 Token')}</b>
+          <div className="sub small">{set ? t('已配置：没有单独填 Token 的配置档都用它（同一个域名的多个配置档只需填这一次）') : t('未配置：填一次，所有配置档共用，用于同步 DNS、设置 SSL、签发 Origin 证书')}</div>
+        </div>
+        {!editing && <button className="btn sm" type="button" onClick={() => setEditing(true)}>{set ? t('更换') : t('填写')}</button>}
+      </div>
+      {editing && (
+        <div style={{ marginTop: 12 }}>
+          <input className="input mono" type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('粘贴 Cloudflare API Token')} aria-label="Cloudflare API Token" />
+          <div className="sub small" style={{ marginTop: 6 }}>{t('需要的权限：Zone.Zone 读取、Zone.DNS 编辑、Zone.Zone Settings 编辑、Zone.SSL and Certificates 编辑。和「系统设置」里的 Cloudflare Token 是同一个，ACME 证书也用它')}</div>
+          <div className="row" style={{ marginTop: 10, gap: 8 }}>
+            <button className="btn sm pri" type="button" disabled={busy || !token.trim()} onClick={save}>{t('保存')}</button>
+            <button className="btn sm" type="button" onClick={() => { setEditing(false); setToken('') }}>{t('取消')}</button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
