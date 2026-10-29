@@ -373,3 +373,37 @@ func TestCFTokenFallback(t *testing.T) {
 		t.Fatal("own token not preferred")
 	}
 }
+
+// Deleting a profile in use lists the inbounds; force removes their CDN
+// entries and disables those left with no entry at all.
+func TestDeleteCDNProfileInUse(t *testing.T) {
+	s, admin := cdnFixture(t)
+	db := s.st.DB
+	mk := func(tag string, port int, only bool) string {
+		code, out := admin.do("POST", "/inbounds", map[string]any{"nodeId": "n1", "core": "xray", "tag": tag, "port": port,
+			"protocol": map[string]any{"type": "vless"}, "transport": map[string]any{"type": "ws", "path": "/" + tag},
+			"security": map[string]any{"type": "tls", "serverName": "cdn.example.com"}, "cdnProfileId": "cf", "cdnOnly": only})
+		if code != 201 {
+			t.Fatalf("create %s: %d %v", tag, code, out)
+		}
+		return out["inbound"].(map[string]any)["id"].(string)
+	}
+	only, both := mk("only", 2053, true), mk("both", 2083, false)
+	code, out := admin.do("DELETE", "/cdn-profiles/cf", nil)
+	if code != 409 || len(out["usage"].([]any)) != 2 {
+		t.Fatalf("in use: %d %v", code, out)
+	}
+	if code, out = admin.do("DELETE", "/cdn-profiles/cf?force=1", nil); code != 200 || len(out["disabled"].([]any)) != 1 {
+		t.Fatalf("force: %d %v", code, out)
+	}
+	var n int64
+	db.Model(&store.CDNProfile{}).Where("id = ?", "cf").Count(&n)
+	var a, b store.Inbound
+	db.First(&a, "id = ?", only)
+	db.First(&b, "id = ?", both)
+	var eps []store.Endpoint
+	db.Where("inbound_id = ?", both).Find(&eps)
+	if n != 0 || a.Enabled || !b.Enabled || len(eps) != 1 || eps[0].Kind != "direct" {
+		t.Fatalf("after: profile %d, only.enabled %v, both.enabled %v, eps %+v", n, a.Enabled, b.Enabled, eps)
+	}
+}

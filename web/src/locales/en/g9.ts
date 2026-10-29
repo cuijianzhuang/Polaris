@@ -197,5 +197,10 @@ const m: Record<string, string> = {
   "可选：留空使用「系统设置」里的 Cloudflare Token（所有配置档共用）；用于同步 DNS、设置 SSL、签发 Origin 证书": "Optional: leave empty to use the Cloudflare token in Settings (shared by all profiles); used to sync DNS, set SSL and issue Origin certificates",
   "使用系统设置里的 Token": "Uses the token from Settings",
   "可选 · 用于 ACME 证书，也是 CDN 配置档的默认 Token。ACME 只需 Zone.DNS 编辑；CDN「同步 DNS」还需 Zone Settings 和 SSL and Certificates 编辑权限": "Optional · used for ACME certificates and as the default token of CDN profiles. ACME needs Zone.DNS edit; CDN Sync DNS also needs Zone Settings and SSL and Certificates edit",
+  "{n} 个入站在用这个配置档：{list}。继续删除会同时删掉它们的 CDN 入口。": "{n} inbounds use this profile: {list}. Deleting it also removes their CDN entries.",
+  "其中这些入站只有 CDN 入口，会被停用（以免订阅改为直连、暴露节点 IP）：{list}": "These have only CDN entries and will be disabled (so subscriptions do not fall back to direct and expose the node's IP): {list}",
+  "仍然删除": "Delete anyway",
+  "已删除，停用了 {n} 个入站": "Deleted; {n} inbounds disabled",
+  "仍有 {n} 个入站使用该配置档": "{n} inbounds still use this profile",
 }
 export default m

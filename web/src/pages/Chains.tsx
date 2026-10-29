@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { api, API, del, get, post, put } from '../api'
+import { api, API, ApiError, del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad, useToast } from '../components/ui'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
@@ -619,6 +619,7 @@ export default function Chains() {
   const [cdnDrawer, setCdnDrawer] = useState<CDNProfile | 'new' | null>(null)
   const [cdnSel, setCdnSel] = useState<string | null>(null)
   const confirm = useConfirm()
+  const toast = useToast()
   const { run } = useAction()
   const selCDN = useMemo(() => cdn.data?.find((c) => c.id === cdnSel) ?? cdn.data?.[0], [cdn.data, cdnSel])
 
@@ -663,7 +664,22 @@ export default function Chains() {
                         <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <button className="link" type="button" onClick={() => setCdnDrawer(p)}>{t('编辑')}</button>
                           <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {
-                            if (await confirm(t('删除配置档 {name}？', { name: p.name }), { danger: true })) run(async () => { await del('/cdn-profiles/' + p.id); cdn.reload() })
+                            if (!await confirm(t('删除配置档 {name}？', { name: p.name }), { danger: true })) return
+                            try {
+                              await del('/cdn-profiles/' + p.id)
+                              cdn.reload()
+                            } catch (e) {
+                              const usage = (e instanceof ApiError && e.status === 409 ? e.data?.usage : null) as { tag: string; node: string; cdnOnly: boolean }[] | null
+                              if (!usage) { toast(String((e as Error).message), true); return }
+                              const only = usage.filter((u) => u.cdnOnly).map((u) => `${u.node} / ${u.tag}`)
+                              const msg = t('{n} 个入站在用这个配置档：{list}。继续删除会同时删掉它们的 CDN 入口。', { n: usage.length, list: usage.map((u) => `${u.node} / ${u.tag}`).join('、') })
+                                + (only.length ? ' ' + t('其中这些入站只有 CDN 入口，会被停用（以免订阅改为直连、暴露节点 IP）：{list}', { list: only.join('、') }) : '')
+                              if (await confirm(msg, { danger: true, ok: t('仍然删除') })) run(async () => {
+                                const r = await del<{ disabled: string[] }>('/cdn-profiles/' + p.id + '?force=1')
+                                cdn.reload()
+                                if (r.disabled?.length) toast(t('已删除，停用了 {n} 个入站', { n: r.disabled.length }))
+                              }, t('已删除'))
+                            }
                           }}>{t('删除')}</button>
                         </td>
                       </tr>
