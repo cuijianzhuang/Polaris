@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"crypto/x509"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -418,5 +419,15 @@ func TestDeleteCDNProfileInUse(t *testing.T) {
 	db.Where("inbound_id = ?", both).Find(&eps)
 	if n != 0 || a.Enabled || !b.Enabled || len(eps) != 1 || eps[0].Kind != "direct" {
 		t.Fatalf("after: profile %d, only.enabled %v, both.enabled %v, eps %+v", n, a.Enabled, b.Enabled, eps)
+	}
+}
+
+func TestCFStep(t *testing.T) {
+	err := cfStep("设置 SSL 模式", "Zone.Zone Settings 编辑", errors.New("cloudflare: Unauthorized to access requested resource"))
+	if !strings.Contains(err.Error(), "Zone.Zone Settings 编辑") || !strings.Contains(err.Error(), "设置 SSL 模式失败") {
+		t.Fatal(err)
+	}
+	if err := cfStep("写 DNS 记录", "Zone.DNS 编辑", errors.New("cloudflare: bad content")); strings.Contains(err.Error(), "没有权限") {
+		t.Fatal(err)
 	}
 }

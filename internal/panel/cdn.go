@@ -504,12 +504,17 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 	var err error
 	if zone == "" {
 		if zone, err = cf.zoneFor(ctx, p.OriginDomain); err != nil {
-			return res, err
+			return res, cfStep("查找 "+p.OriginDomain+" 所在的域名", "Zone.Zone 读取", err)
 		}
 	}
 	res.Split = s.splitSharedCDNHosts(p)
 	var eps []store.Endpoint
 	s.st.DB.Where("cdn_profile_id = ?", p.ID).Find(&eps)
+	if len(eps) == 0 {
+		// Nothing to point at a node; the SSL mode is zone-wide, so it is
+		// not touched for a profile no inbound uses.
+		return res, fmt.Errorf("还没有入站使用配置档 %s：先在「入站」里给入站添加这个配置档的 CDN 入口，再同步 DNS", p.Name)
+	}
 	records := map[string]string{} // hostname -> origin address
 	var inboundIDs []string
 	for _, ep := range eps {
@@ -530,6 +535,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 	}
 	for host, addr := range records {
 		if err := cf.upsertRecord(ctx, zone, host, addr); err != nil {
+			err = cfStep("写 DNS 记录 "+host, "Zone.DNS 编辑", err)
 			s.st.DB.Model(p).Update("last_error", truncate(err.Error(), 1900))
 			return res, err
 		}
@@ -554,7 +560,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 		}
 	}
 	if err := cf.setSSLMode(ctx, zone, mode); err != nil {
-		return res, err
+		return res, cfStep("设置 SSL 模式", "Zone.Zone Settings 编辑", err)
 	}
 	res.SSLMode = mode
 	return res, nil
@@ -592,7 +598,7 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 	slices.Sort(hosts)
 	certPEM, keyPEM, err := cf.originCert(ctx, hosts)
 	if err != nil {
-		return "Origin 证书签发失败：" + err.Error() + keptNote, false
+		return cfStep("签发 Origin 证书", "Zone.SSL and Certificates 编辑", err).Error() + keptNote, false
 	}
 	exp, _ := pki.ParseCertExpiry([]byte(certPEM))
 	cert := store.Certificate{ID: store.NewID(), Domain: hosts[0], Provider: "cf-origin", Cert: certPEM, Key: s.st.Box.Seal(keyPEM), ExpireAt: &exp}
@@ -614,6 +620,16 @@ func (s *Server) installOriginCert(ctx context.Context, cf *cfClient, records ma
 		return "Origin 证书已签发，但这些入站没能换上新证书，请稍后重试：" + strings.Join(failed, "、") + keptNote, false
 	}
 	return "Origin 证书已下发" + keptNote, true
+}
+
+// cfStep names the Cloudflare step that failed and, when the token was
+// refused, the permission it needs.
+func cfStep(step, perm string, err error) error {
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "unauthorized") || strings.Contains(msg, "authentication error") || strings.Contains(msg, "403") {
+		return fmt.Errorf("%s失败：Cloudflare Token 没有权限，需要给 Token 加上「%s」（%v）", step, perm, err)
+	}
+	return fmt.Errorf("%s失败：%w", step, err)
 }
 
 // cfToken is the Cloudflare API token for a profile: its own, else the
