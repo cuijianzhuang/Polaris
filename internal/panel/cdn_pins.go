@@ -2,8 +2,8 @@ package panel
 
 import (
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -20,8 +20,21 @@ func normalizeCDNPinnedHosts(input []string) ([]string, error) {
 		if host == "" {
 			continue
 		}
-		if len(host) > 253 || net.ParseIP(host) != nil || !cdnHostRe.MatchString(host) || strings.HasPrefix(host, "*.") {
-			return nil, fmt.Errorf("手动优选域名 %q 无效，请填写完整域名，不带协议、端口、路径或通配符", raw)
+		// Keep the existing pinnedHosts API/storage contract, now also accepting
+		// public IP literals. IPv4-mapped IPv6 and bracketed IPv6 normalize to
+		// the same connection address used by speed-test reports.
+		ipText := host
+		if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+			ipText = host[1 : len(host)-1]
+		}
+		if ip, err := netip.ParseAddr(ipText); err == nil {
+			ip = ip.Unmap()
+			if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.Zone() != "" {
+				return nil, fmt.Errorf("手动优选地址 %q 不是公网 IP", raw)
+			}
+			host = ip.String()
+		} else if len(host) > 253 || !cdnHostRe.MatchString(host) || strings.HasPrefix(host, "*.") {
+			return nil, fmt.Errorf("手动优选地址 %q 无效，请填写公网 IP 或完整域名，不带协议、端口、路径或通配符", raw)
 		}
 		if !slices.Contains(hosts, host) {
 			hosts = append(hosts, host)
@@ -31,7 +44,7 @@ func normalizeCDNPinnedHosts(input []string) ([]string, error) {
 }
 
 // Remove the previous manual portion, then append the explicit replacement.
-// Automatic source domains stay automatic unless the admin explicitly pins them.
+// Automatic addresses stay automatic unless the admin explicitly pins them.
 func setCDNPinnedHosts(p *store.CDNProfile, hosts, oldPinned []string) {
 	list := slices.DeleteFunc(slices.Clone(p.PreferredIPs.V), func(a string) bool { return slices.Contains(oldPinned, a) })
 	p.PinnedHosts = store.NewJSON(hosts)
@@ -49,7 +62,7 @@ func (s *Server) updateCDNPinnedHosts(c *gin.Context) {
 		return
 	}
 	if req.Hosts == nil {
-		badRequest(c, fmt.Errorf("请提供 pinnedHosts 数组，清空域名请传 []"))
+		badRequest(c, fmt.Errorf("请提供 pinnedHosts 数组，清空地址请传 []"))
 		return
 	}
 	hosts, err := normalizeCDNPinnedHosts(*req.Hosts)
@@ -72,6 +85,6 @@ func (s *Server) updateCDNPinnedHosts(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.auditCtx(c, "cdn.update_pinned_hosts", p.Name, fmt.Sprintf("%d domains", len(hosts)))
+	s.auditCtx(c, "cdn.update_pinned_hosts", p.Name, fmt.Sprintf("%d addresses", len(hosts)))
 	c.JSON(http.StatusOK, p)
 }

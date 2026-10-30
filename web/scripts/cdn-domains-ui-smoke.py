@@ -1,6 +1,6 @@
 # CDN domain editor regression with synthetic API data. Backend persistence,
 # authorization and refresh concurrency are exercised separately in Go tests.
-import copy, json, os, shutil
+import copy, ipaddress, json, os, shutil
 from pathlib import Path
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, expect
@@ -19,7 +19,7 @@ class Fixture(BaseFixture):
             preferredIps=['104.16.1.1', 'source.example.com', 'keep.example.com'], pinnedHosts=['keep.example.com'], ipSourceUrl='https://source.example.com/list',
             ipTopN=1, expandPerIp=False, autoDns=False, caddyFronting=False, hasToken=False, tokenSource='', zoneId='', lastError='', inbounds=0,
             nodeCheck=False, staleHours=24, badIps=[], carrierSplit=False, reports=[], shared=[], thirdParty=[], probes=[], serves=[])
-        self.other = dict(copy.deepcopy(self.profile), id='other', name='Other fixture', pinnedHosts=['other.example.com'], preferredIps=['104.18.1.1','other.example.com'])
+        self.other = dict(copy.deepcopy(self.profile), id='other', name='Other fixture', pinnedHosts=['104.16.9.8','2606:4700::1001','other.example.com'], preferredIps=['104.18.1.1','104.16.9.8','2606:4700::1001','other.example.com'])
     def route(self, route):
         req = route.request
         path = urlparse(req.url).path.removeprefix('/api/v1')
@@ -30,9 +30,17 @@ class Fixture(BaseFixture):
         if path == '/cdn-profiles/cf/pinned-hosts':
             body = req.post_data_json
             self.writes.append((req.method, path, body, req.headers))
-            hosts = list(dict.fromkeys(h.strip().lower().rstrip('.') for h in body['pinnedHosts'] if h.strip()))
-            if any('://' in h or ':' in h for h in hosts):
-                return route.fulfill(status=400, json={'error':'Invalid manual domain'})
+            hosts=[]
+            for raw in body['pinnedHosts']:
+                host=raw.strip().lower().rstrip('.')
+                if not host: continue
+                try:
+                    ip=ipaddress.ip_address(host.strip('[]'))
+                    host=str(ip.ipv4_mapped or ip) if isinstance(ip,ipaddress.IPv6Address) else str(ip)
+                except ValueError:
+                    if '://' in host or ':' in host:
+                        return route.fulfill(status=400,json={'error':'Invalid manual address'})
+                if host not in hosts: hosts.append(host)
             old = self.profile['pinnedHosts']
             self.profile['preferredIps'] = list(dict.fromkeys([h for h in self.profile['preferredIps'] if h not in old] + hosts))
             self.profile['pinnedHosts'] = hosts
@@ -65,21 +73,21 @@ with sync_playwright() as p:
                 page.route('**/api/v1/**', f.route)
                 page.goto(BASE + '/chains')
                 page.get_by_role('tab', name='CDN 配置档' if lang=='zh' else 'CDN profile', exact=True).click()
-                card = page.get_by_role('region', name='手动优选域名' if lang=='zh' else 'Manually maintained domains', exact=True)
+                card = page.get_by_role('region', name='固定优选地址（IP / 域名）' if lang=='zh' else 'Fixed preferred addresses (IP / domain)', exact=True)
                 expect(card).to_contain_text('keep.example.com')
                 expect(card).not_to_contain_text('source.example.com')
                 expect(card).to_contain_text('当前订阅只用回源域名' if lang=='zh' else 'Subscriptions currently use only the origin domain')
-                edit = '维护域名' if lang=='zh' else 'Edit domains'
+                edit = '维护地址' if lang=='zh' else 'Edit addresses'
                 save = '保存' if lang=='zh' else 'Save'
                 card.get_by_role('button',name=edit,exact=True).click()
                 dialog=page.get_by_role('dialog')
-                textarea=dialog.get_by_label('手动优选域名' if lang=='zh' else 'Manually maintained domains',exact=True)
+                textarea=dialog.get_by_label('固定优选地址（IP / 域名）' if lang=='zh' else 'Fixed preferred addresses (IP / domain)',exact=True)
                 expect(textarea).to_have_value('keep.example.com')
                 textarea.fill('https://bad.example.com')
                 dialog.get_by_role('button',name=save,exact=True).click()
-                expect(page.get_by_text('Invalid manual domain',exact=True)).to_be_visible()
+                expect(page.get_by_text('Invalid manual address',exact=True)).to_be_visible()
                 expect(textarea).to_have_value('https://bad.example.com')
-                textarea.fill(' Keep.Example.com.\nnew.example.com\nkeep.example.com')
+                textarea.fill(' Keep.Example.com.\nnew.example.com\nkeep.example.com\n104.16.9.9\n::ffff:104.16.9.9\n[2606:4700:0:0::1111]')
                 # Simulate a report updating the automatic list while the dialog is open.
                 f.profile['preferredIps']=['104.19.1.1','keep.example.com']
                 dialog.get_by_role('button',name=save,exact=True).click()
@@ -87,7 +95,8 @@ with sync_playwright() as p:
                 expect(card).to_contain_text('new.example.com')
                 saved=f.last('/cdn-profiles/cf/pinned-hosts')[2]
                 assert set(saved)=={'pinnedHosts'}, saved
-                assert f.profile['preferredIps']==['104.19.1.1','keep.example.com','new.example.com']
+                assert f.profile['preferredIps']==['104.19.1.1','keep.example.com','new.example.com','104.16.9.9','2606:4700::1111']
+                expect(card).to_contain_text('104.16.9.9');expect(card).to_contain_text('2606:4700::1111')
                 # Refresh modifies automatic addresses without dropping manual domains.
                 page.get_by_role('button',name='刷新' if lang=='zh' else 'Refresh',exact=True).click()
                 expect(page.get_by_text('104.17.1.1',exact=True)).to_be_visible()
@@ -97,21 +106,21 @@ with sync_playwright() as p:
                 page.screenshot(path=str(OUT/f'{engine}-{width}-{lang}.png'))
                 # Explicit empty array clears, and reopening shows the persisted empty list.
                 card.get_by_role('button',name=edit,exact=True).click()
-                dialog.get_by_label('手动优选域名' if lang=='zh' else 'Manually maintained domains',exact=True).fill('')
+                dialog.get_by_label('固定优选地址（IP / 域名）' if lang=='zh' else 'Fixed preferred addresses (IP / domain)',exact=True).fill('')
                 dialog.get_by_role('button',name=save,exact=True).click()
                 expect(dialog).to_have_count(0)
-                expect(card).to_contain_text('尚未添加手动优选域名' if lang=='zh' else 'No manually maintained domains yet')
+                expect(card).to_contain_text('尚未添加固定优选地址' if lang=='zh' else 'No fixed preferred addresses yet')
                 assert f.last('/cdn-profiles/cf/pinned-hosts')[2]=={'pinnedHosts':[]}
                 # The full editor separates persisted pins and temporary results, including copy.
                 page.get_by_role('button',name='编辑' if lang=='zh' else 'Edit',exact=True).last.click()
                 expect(page.locator('#cdn-pinned-hosts')).to_have_value('')
                 expect(page.locator('#cdn-preferred-ips')).to_have_value('104.17.1.1')
                 page.get_by_label('从其他配置档复制优选 IP' if lang=='zh' else 'Copy preferred IPs from another profile',exact=True).select_option('other')
-                expect(page.locator('#cdn-pinned-hosts')).to_have_value('other.example.com')
+                expect(page.locator('#cdn-pinned-hosts')).to_have_value('104.16.9.8\n2606:4700::1001\nother.example.com')
                 expect(page.locator('#cdn-preferred-ips')).to_have_value('104.18.1.1')
                 page.get_by_role('dialog').get_by_role('button',name=save,exact=True).click()
                 expect(page.get_by_role('dialog')).to_have_count(0)
-                assert f.last('/cdn-profiles/cf')[2]['pinnedHosts']==['other.example.com']
+                assert f.last('/cdn-profiles/cf')[2]['pinnedHosts']==['104.16.9.8','2606:4700::1001','other.example.com']
                 expect(card).to_contain_text('other.example.com')
                 assert not errors, errors
                 page.close()

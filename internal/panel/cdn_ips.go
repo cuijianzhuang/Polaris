@@ -66,7 +66,7 @@ func checkCDNReport(req cdnIPReportReq) ([]store.CDNIPResult, error) {
 	if len(req.IPs) == 0 || len(req.IPs) > cdnReportMaxIPs {
 		return nil, fmt.Errorf("每次上报 1–%d 个 IP", cdnReportMaxIPs)
 	}
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	out := make([]store.CDNIPResult, 0, len(req.IPs))
 	for _, r := range req.IPs {
 		addr, err := netip.ParseAddr(strings.TrimSpace(r.IP))
@@ -88,16 +88,24 @@ func checkCDNReport(req cdnIPReportReq) ([]store.CDNIPResult, error) {
 			return nil, fmt.Errorf("%s 的机房代码 %q 不合理（例如 HKG）", addr, r.Colo)
 		}
 		ip := addr.String()
-		if seen[ip] {
+		result := store.CDNIPResult{IP: ip, LatencyMs: r.LatencyMs, Loss: r.Loss, Speed: r.Speed, Colo: colo}
+		if i, exists := seen[ip]; exists {
+			if compareCDNIPResults(result, out[i]) < 0 {
+				out[i] = result
+			}
 			continue
 		}
-		seen[ip] = true
-		out = append(out, store.CDNIPResult{IP: ip, LatencyMs: r.LatencyMs, Loss: r.Loss, Speed: r.Speed, Colo: colo})
+		seen[ip] = len(out)
+		out = append(out, result)
 	}
-	slices.SortStableFunc(out, func(a, b store.CDNIPResult) int {
-		return cmp.Or(cmp.Compare(a.Loss, b.Loss), cmp.Compare(b.Speed, a.Speed), cmp.Compare(a.LatencyMs, b.LatencyMs))
-	})
+
+	slices.SortStableFunc(out, compareCDNIPResults)
 	return out, nil
+}
+
+// Deduplication and sorting must use the same loss/speed/latency ranking.
+func compareCDNIPResults(a, b store.CDNIPResult) int {
+	return cmp.Or(cmp.Compare(a.Loss, b.Loss), cmp.Compare(b.Speed, a.Speed), cmp.Compare(a.LatencyMs, b.LatencyMs))
 }
 
 // mergeCDNReports builds the preferred list from several points: their

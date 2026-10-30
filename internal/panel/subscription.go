@@ -317,7 +317,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			return []sub.Node{n}
 		}
 		if p.IPTopN > 0 {
-			// Top N of the measured addresses; typed-in domains always follow.
+			// Top N automatic addresses; manually retained IPs/domains always follow.
 			var measured, pinned []string
 			for _, a := range ips {
 				if slices.Contains(p.PinnedHosts.V, a) {

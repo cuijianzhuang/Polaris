@@ -100,7 +100,7 @@ func TestCDNManualDomains(t *testing.T) {
 }
 
 func TestCDNManualDomainsValidation(t *testing.T) {
-	for _, host := range []string{"1.1.1.1", "::1", "https://best.example.com", "best.example.com:443", "best.example.com/path", "*.example.com", "localhost", "bad domain.com", strings.Repeat("x", 64) + ".example.com", strings.Repeat("abcd.", 60) + "longexample.com"} {
+	for _, host := range []string{"192.168.1.1", "127.0.0.1", "::1", "fc00::1", "fe80::1%eth0", "224.0.0.1", "0.0.0.0", "[104.16.1.1", "104.16.1.1]", "[2606:4700::1]:443", "https://best.example.com", "best.example.com:443", "best.example.com/path", "*.example.com", "localhost", "bad domain.com", strings.Repeat("x", 64) + ".example.com", strings.Repeat("abcd.", 60) + "longexample.com"} {
 		if _, err := normalizeCDNPinnedHosts([]string{host}); err == nil {
 			t.Errorf("accepted %q", host)
 		}
@@ -127,7 +127,7 @@ func TestCDNManualDomainsDuringURLRefresh(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("fetch did not start")
 	}
-	code, out := admin.do("PUT", "/cdn-profiles/url/pinned-hosts", map[string]any{"pinnedHosts": []string{"new.example.com"}})
+	code, out := admin.do("PUT", "/cdn-profiles/url/pinned-hosts", map[string]any{"pinnedHosts": []string{"104.16.9.9", "2606:4700::1111", "new.example.com"}})
 	// Always release the HTTP handler before reporting a failed assertion.
 	once.Do(func() { close(release) })
 	if code != 200 {
@@ -138,7 +138,85 @@ func TestCDNManualDomainsDuringURLRefresh(t *testing.T) {
 	}
 	var current store.CDNProfile
 	s.st.DB.First(&current, "id = ?", p.ID)
-	if fmt.Sprint(current.PreferredIPs.V) != "[104.16.2.1 new.example.com]" {
+	if fmt.Sprint(current.PreferredIPs.V) != "[104.16.2.1 104.16.9.9 2606:4700::1111 new.example.com]" {
 		t.Fatalf("URL restored stale pins: %v", current.PreferredIPs.V)
+	}
+}
+
+func TestCDNFixedIPsAndDomains(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	body := map[string]any{"name": "fixed", "originDomain": "cdn.example.com", "provider": "cloudflare", "scheme": "https", "ports": []int{443, 8443},
+		"preferredIps": []string{"104.16.1.1"}, "pinnedHosts": []string{"104.16.9.9", "::ffff:104.16.9.9", "[2606:4700:0:0::1111]", "2606:4700::1111", "Keep.Example.com."},
+		"expandPerIp": true, "ipTopN": 1, "carrierSplit": true}
+	code, out := admin.do("POST", "/cdn-profiles", body)
+	if code != 201 {
+		t.Fatalf("create %d %v", code, out)
+	}
+	id := out["id"].(string)
+	get := func() store.CDNProfile {
+		t.Helper()
+		var p store.CDNProfile
+		if err := s.st.DB.First(&p, "id = ?", id).Error; err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	pins := "[104.16.9.9 2606:4700::1111 keep.example.com]"
+	if got := fmt.Sprint(get().PinnedHosts.V); got != pins {
+		t.Fatal("normalization", got)
+	}
+	_, token, err := s.issueAPIToken("fixed report", "", []string{ScopeCDNIPs}, 0, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &apiClient{t: t, base: srv.URL + s.cfg.APIBase(), tok: token}
+	report := func(port int) {
+		t.Helper()
+		code, out := probe.do("POST", "/cdn-profiles/"+id+"/preferred-ips", map[string]any{"source": fmt.Sprint("point", port), "carrier": "ct", "scheme": "https", "port": port, "ips": []map[string]any{{"ip": "104.16.9.9", "latencyMs": 1}, {"ip": "104.17.1.1", "latencyMs": 5}, {"ip": "104.17.1.2", "latencyMs": 10}}})
+		if code != 200 {
+			t.Fatalf("report %d %v", code, out)
+		}
+	}
+	report(443)
+	report(8443)
+	p := get()
+	if fmt.Sprint(p.PinnedHosts.V) != pins {
+		t.Fatal("report dropped pins", p.PinnedHosts.V)
+	}
+	for _, port := range []int{443, 8443} {
+		expanded := s.expandEndpoint(sub.Node{Port: port}, store.Endpoint{Kind: "cdn", CDNProfileID: id, Port: port}, map[string]string{}, "{kind}", nil, nil, &model.Inbound{Transport: model.TransportSpec{Type: model.TransWS}, Port: 443}, "ct")
+		if len(expanded) != 4 {
+			t.Fatalf("port %d top-N: %+v", port, expanded)
+		}
+		want := []string{"104.17.1.1", "104.16.9.9", "2606:4700::1111", "keep.example.com"}
+		for i, n := range expanded {
+			if n.Server != want[i] || n.TLS.ServerName != "cdn.example.com" || n.Transport.Host != "cdn.example.com" {
+				t.Fatalf("port %d entry %d: %+v", port, i, n)
+			}
+		}
+	}
+	// Old full-editor requests omitting pinnedHosts must retain existing fixed IPs.
+	body["preferredIps"] = p.PreferredIPs.V
+	delete(body, "pinnedHosts")
+	if code, out = admin.do("PUT", "/cdn-profiles/"+id, body); code != 200 {
+		t.Fatalf("legacy edit %d %v", code, out)
+	}
+	if fmt.Sprint(get().PinnedHosts.V) != pins {
+		t.Fatal("old editor unpinned an IP", get().PinnedHosts.V)
+	}
+	// Retiring reports removes their automatic entries, never manually retained IPs.
+	for _, port := range []int{443, 8443} {
+		if code, out = admin.do("DELETE", "/cdn-profiles/"+id+"/ip-reports/"+fmt.Sprint("point", port), nil); code != 204 {
+			t.Fatalf("retire %d %v", code, out)
+		}
+	}
+	if got := fmt.Sprint(get().PreferredIPs.V); got != pins {
+		t.Fatal("retirement removed pins", got)
+	}
+	if code, out = admin.do("PUT", "/cdn-profiles/"+id+"/pinned-hosts", map[string]any{"pinnedHosts": []string{}}); code != 200 {
+		t.Fatalf("clear %d %v", code, out)
+	}
+	if len(get().PreferredIPs.V) != 0 {
+		t.Fatal("explicit clear kept old pins", get().PreferredIPs.V)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/gob"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -83,5 +84,46 @@ func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
 	}
 	if (legacy && (len(p.PreferredIPs.V) != 2 || p.PreferredIPs.V[1] != "preferred.example.com")) || (!legacy && len(p.PreferredIPs.V) != 1) {
 		t.Fatal("refresh dropped restored pinned host", p.PreferredIPs.V)
+	}
+}
+
+func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
+	s := newTestServer(t)
+	pins := []string{"104.16.9.9", "2606:4700::1111", "keep.example.com"}
+	p := store.CDNProfile{ID: "fixed", Name: "fixed", Provider: "cloudflare", Scheme: "https", Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON(append([]string{"104.16.1.1"}, pins...)), PinnedHosts: store.NewJSON(pins)}
+	if err := s.st.DB.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+	files, _, err := backupfmt.ExportAll(s.st.DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	dst, err := store.Open(filepath.Join(dir, "restored.db"), s.st.Box, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, _ := dst.DB.DB()
+	defer db.Close()
+	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box); err != nil {
+		t.Fatal(err)
+	}
+	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.PinnedHosts.V, pins) {
+		t.Fatal("restore changed pins", p.PinnedHosts.V)
+	}
+	if err = dst.DB.Create(&store.CDNIPReport{ProfileID: p.ID, Source: "restored", Port: 443, Scheme: "https", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.17.1.1"}})}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := rebuildCDNLists(tx, &p, time.Now(), nil); return e }); err != nil {
+		t.Fatal(err)
+	}
+	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.PreferredIPs.V, append([]string{"104.17.1.1"}, pins...)) {
+		t.Fatal("report dropped restored pins", p.PreferredIPs.V)
 	}
 }
