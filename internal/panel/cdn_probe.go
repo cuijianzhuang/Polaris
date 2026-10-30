@@ -13,6 +13,8 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
+var errCDNProbeHTTP = errors.New("当前一键测速程序仅支持 HTTPS，HTTP 配置档请使用来源 URL 或自行上报")
+
 // Pairing a cf-ip-probe speed-test point: the panel creates a token that can
 // only report preferred IPs for one profile under one source name, and the
 // admin copies a ready install command. Removing the point revokes it.
@@ -49,6 +51,10 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if cdnScheme(&p) == "http" {
+		badRequest(c, errCDNProbeHTTP)
+		return
+	}
 	var req struct {
 		Source string `json:"source"`
 	}
@@ -69,6 +75,15 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 	var tok *store.APIToken
 	var secret string
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
+			return err
+		}
+		if cdnScheme(&p) == "http" {
+			return errCDNProbeHTTP
+		}
 		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ?", p.ID, source).Delete(&store.APIToken{}).Error; err != nil {
 			return err
 		}
@@ -79,7 +94,11 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		return err
 	})
 	if err != nil {
-		serverError(c, err)
+		if errors.Is(err, errCDNProbeHTTP) {
+			badRequest(c, err)
+		} else {
+			serverError(c, err)
+		}
 		return
 	}
 	s.auditCtx(c, "cdn.probe_pair", p.Name, source)

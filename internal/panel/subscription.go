@@ -289,11 +289,15 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n.Server = host
 		_, fronted := s.frontFor(m.ID)
 		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
-		if n.TLS.Type == model.SecNone || n.TLS.Type == "" {
-			n.TLS = model.ClientTLS{Type: model.SecTLS}
+		if cdnScheme(&p) == "http" {
+			n.TLS = model.ClientTLS{Type: model.SecNone}
+		} else {
+			if n.TLS.Type == model.SecNone || n.TLS.Type == "" {
+				n.TLS = model.ClientTLS{Type: model.SecTLS}
+			}
+			n.TLS.ServerName = host
+			n.TLS.Insecure = false
 		}
-		n.TLS.ServerName = host
-		n.TLS.Insecure = false
 		n.Transport.Host = host
 		n = apply(n)
 		// An entry with its own address uses it, not the preferred IPs.
@@ -445,19 +449,11 @@ func (s *Server) agentSHA(arch string) string {
 	return sum
 }
 
-// cdnNodePort is the port clients use for an inbound behind a CDN profile.
-// With Caddy fronting, the profile's first port is Caddy's public port. Else
-// the CDN keeps the port, so an inbound listening on an HTTPS port the CDN
-// proxies is reached on that same port (clients always use TLS to the CDN,
-// so its plain-HTTP ports are no use); an inbound on any other port relies
-// on the CDN rewriting the origin port and uses the profile's first port.
+// cdnNodePort keeps ports proxied for the selected client scheme; otherwise
+// it uses the profile's first port (for fronting / explicit origin rewrites).
 func cdnNodePort(p *store.CDNProfile, inboundPort int, fronted bool) int {
-	first := 443
-	if len(p.Ports.V) > 0 {
-		first = p.Ports.V[0]
-	}
-	if fronted || !slices.Contains(cloudflareHTTPSPorts, inboundPort) {
-		return first
+	if fronted || !slices.Contains(cdnClientPorts(p), inboundPort) {
+		return cdnDefaultPort(p)
 	}
 	return inboundPort
 }

@@ -94,8 +94,9 @@ export interface TrafficPack {
   id: string; name: string; traffic: number; planIds: string[]; sale: boolean; priceStars: number; priceCny: number; priceUsdt: number; sort: number
 }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string
-  target?: { server: string; port: number; sni: string; host: string; path: string }; warnings?: string[] }
+  target?: { scheme?: 'http' | 'https'; server: string; port: number; sni: string; host: string; path: string }; warnings?: string[] }
 export interface CDNProfile {
+  scheme?: 'http' | 'https'
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'
   zoneId: string; lastRefreshAt?: string; lastError: string; inbounds: number; serves?: { node: string; tag: string; host: string }[]

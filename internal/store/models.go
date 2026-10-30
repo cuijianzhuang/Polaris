@@ -548,6 +548,7 @@ type Endpoint struct {
 
 // CDNProfile is a reusable CDN configuration.
 type CDNProfile struct {
+	Scheme       string         `gorm:"size:8;not null;default:https" json:"scheme"` // client to CDN: http / https
 	ID           string         `gorm:"primaryKey;size:32" json:"id"`
 	Name         string         `gorm:"size:64;uniqueIndex" json:"name"`
 	Provider     string         `gorm:"size:32" json:"provider"` // cloudflare / other

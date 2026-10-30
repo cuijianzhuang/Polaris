@@ -165,6 +165,9 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		if err := lockCDNReports(tx); err != nil {
 			return err
 		}
+		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.CDNIPReport{
 			ProfileID: p.ID, Source: req.Source, Carrier: carrier, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
 			return err
@@ -198,8 +201,8 @@ func lockCDNReports(tx *gorm.DB) error {
 }
 
 // rebuildCDNLists rebuilds the preferred lists that origin's reports feed:
-// every Cloudflare profile (Cloudflare addresses are anycast, so a point
-// serves them all), or origin alone for another provider. A profile with
+// Cloudflare profiles using the same HTTP/HTTPS scheme, or origin alone
+// for another provider. A profile with
 // fresh reports gets them merged, plus its typed-in domains; one with none
 // keeps its list without the removed addresses (a retired point's). It
 // returns the new lists and the profiles whose stale alert it cleared.
@@ -207,7 +210,7 @@ func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, remov
 	var targets []store.CDNProfile
 	q := tx.Where("id = ?", origin.ID)
 	if origin.Provider == "cloudflare" {
-		q = tx.Where("provider = ?", "cloudflare")
+		q = tx.Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnScheme(origin))
 	}
 	if err := q.Find(&targets).Error; err != nil {
 		return nil, nil, err
@@ -252,12 +255,12 @@ func reportIPs(rs []store.CDNIPReport) []string {
 }
 
 // sharedCDNReports is the reports a profile's list is built from since a
-// time: those of every Cloudflare profile for a Cloudflare one (its own
+// time: Cloudflare profiles with the same HTTP/HTTPS scheme (its own
 // otherwise), the newest per speed-test point, optionally of one carrier.
 func sharedCDNReports(db *gorm.DB, p *store.CDNProfile, since time.Time, carrier string) []store.CDNIPReport {
 	q := db.Model(&store.CDNIPReport{}).Where("at > ?", since)
 	if p.Provider == "cloudflare" {
-		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare"))
+		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnScheme(p)))
 	} else {
 		q = q.Where("profile_id = ?", p.ID)
 	}
@@ -303,6 +306,9 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 	// reported: the lists it fed are rebuilt from the points left.
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
 		var gone []store.CDNIPReport
@@ -405,10 +411,7 @@ func (s *Server) cdnUnreachable(ctx context.Context, p *store.CDNProfile, nodes 
 	if len(ips) > cdnNodeCheckMaxIPs {
 		ips = ips[:cdnNodeCheckMaxIPs]
 	}
-	port := 443
-	if len(p.Ports.V) > 0 {
-		port = p.Ports.V[0]
-	}
+	port := cdnDefaultPort(p)
 	var mu sync.Mutex
 	ok := map[string]bool{}
 	sem := make(chan struct{}, cdnNodeCheckWorkers)

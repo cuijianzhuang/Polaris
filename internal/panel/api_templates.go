@@ -372,7 +372,17 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 				np.Items = append(np.Items, pi)
 				continue
 			}
-			alt := s.findFreePort(node.ID, &m, used, item.Port.Fixed, itemWantsCDN(item))
+			var profile *store.CDNProfile
+			for _, ep := range item.Endpoints {
+				if ep.Kind == "cdn" {
+					var p store.CDNProfile
+					if s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error == nil {
+						profile = &p
+						break
+					}
+				}
+			}
+			alt := s.findFreePort(node.ID, &m, used, item.Port.Fixed, itemWantsCDN(item), profile)
 			if alt == 0 {
 				pi.Result, pi.Reason = "skip", "没有可用端口"
 				np.Items = append(np.Items, pi)
@@ -509,14 +519,19 @@ func shortReason(item store.TemplateItem, cores []store.Core) string {
 	return fmt.Sprintf("%s 不受已装内核支持", item.Protocol.Type)
 }
 
-// An inbound published through a CDN must stay on a port the CDN proxies:
-// 443 for gRPC (Cloudflare proxies gRPC only there), else Cloudflare's other
-// HTTPS ports first.
-func (s *Server) findFreePort(nodeID string, m *model.Inbound, used map[int]bool, near int, cdn bool) int {
+// Prefer the referenced CDN scheme's ports; Cloudflare gRPC requires 443.
+// Legacy callers without a profile retain the HTTPS allocation order.
+func (s *Server) findFreePort(nodeID string, m *model.Inbound, used map[int]bool, near int, cdn bool, profiles ...*store.CDNProfile) int {
 	cands := []int{}
+	ports := cloudflareHTTPSPorts
+	if len(profiles) > 0 && profiles[0] != nil {
+		ports = cdnClientPorts(profiles[0])
+	}
 	switch {
 	case cdn && m.Transport.Type == model.TransGRPC:
 		cands = append(cands, 443)
+	case cdn && len(ports) > 0 && ports[0] == 80:
+		cands = append(cands, ports...)
 	case cdn || slices.Contains(cloudflareHTTPSPorts, near):
 		cands = append(cands, 2053, 2083, 2087, 2096, 8443, 443)
 	}

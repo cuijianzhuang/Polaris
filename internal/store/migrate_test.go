@@ -197,3 +197,32 @@ func TestMigratePinnedHosts(t *testing.T) {
 		t.Fatalf("pinned %v", got.PinnedHosts.V)
 	}
 }
+
+// Existing CDN rows gain HTTPS without changing their ports or SSL mode.
+func TestCDNClientSchemeUpgrade(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cdn-scheme.db")
+	st, err := Open(path, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB.Create(&CDNProfile{ID: "old", Name: "old", TLSMode: "flexible", Ports: NewJSON([]int{2087})}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DB.Migrator().DropColumn(&CDNProfile{}, "scheme"); err != nil {
+		t.Fatal(err)
+	}
+	db, _ := st.DB.DB()
+	db.Close()
+	st, err = Open(path, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { db, _ := st.DB.DB(); db.Close() }()
+	var p CDNProfile
+	if err := st.DB.First(&p, "id = ?", "old").Error; err != nil {
+		t.Fatal(err)
+	}
+	if p.Scheme != "https" || p.TLSMode != "flexible" || len(p.Ports.V) != 1 || p.Ports.V[0] != 2087 {
+		t.Fatalf("legacy CDN changed: %+v", p)
+	}
+}

@@ -15,9 +15,15 @@ import (
 func TestRestoreLegacyCDNPinsSurviveRefresh(t *testing.T)   { testRestoreCDNPins(t, true) }
 func TestRestoreModernEmptyCDNPinsRemainEmpty(t *testing.T) { testRestoreCDNPins(t, false) }
 
-func testRestoreCDNPins(t *testing.T, legacy bool) {
+func TestRestoreHTTPClientSchemeSurvivesRefresh(t *testing.T) { testRestoreCDNPins(t, false, "http") }
+
+func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
+	scheme := "https"
+	if len(schemes) > 0 {
+		scheme = schemes[0]
+	}
 	s := newTestServer(t)
-	if err := s.st.DB.Create(&store.CDNProfile{ID: "legacy", Name: "legacy", Provider: "cloudflare", PreferredIPs: store.NewJSON([]string{"104.16.1.1", "preferred.example.com"})}).Error; err != nil {
+	if err := s.st.DB.Create(&store.CDNProfile{Scheme: scheme, ID: "legacy", Name: "legacy", Provider: "cloudflare", PreferredIPs: store.NewJSON([]string{"104.16.1.1", "preferred.example.com"})}).Error; err != nil {
 		t.Fatal(err)
 	}
 	files, _, err := backupfmt.ExportAll(s.st.DB)
@@ -31,6 +37,7 @@ func testRestoreCDNPins(t *testing.T, legacy bool) {
 	for _, r := range rows {
 		if legacy {
 			delete(r, "pinned_hosts")
+			delete(r, "scheme")
 		} else {
 			r["pinned_hosts"] = "[]"
 		}
@@ -60,6 +67,9 @@ func testRestoreCDNPins(t *testing.T, legacy bool) {
 	var p store.CDNProfile
 	if err = dst.DB.First(&p, "id = ?", "legacy").Error; err != nil {
 		t.Fatal(err)
+	}
+	if p.Scheme != scheme {
+		t.Fatalf("restored scheme = %q, want %q", p.Scheme, scheme)
 	}
 	if (legacy && (len(p.PinnedHosts.V) != 1 || p.PinnedHosts.V[0] != "preferred.example.com")) || (!legacy && len(p.PinnedHosts.V) != 0) {
 		t.Fatal("legacy domain not pinned", p.PinnedHosts.V)
