@@ -1,7 +1,9 @@
 package panel
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -13,8 +15,6 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
-
-var errCDNProbeHTTP = errors.New("当前一键测速程序仅支持 HTTPS，HTTP 配置档请使用来源 URL 或自行上报")
 
 // Pairing a cf-ip-probe speed-test point: the panel creates a token that can
 // only report preferred IPs for one profile under one source name, and the
@@ -53,10 +53,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	if cdnScheme(&p) == "http" {
-		badRequest(c, errCDNProbeHTTP)
-		return
-	}
+
 	var req struct {
 		Port   int    `json:"port"`
 		Source string `json:"source"`
@@ -84,9 +81,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
-		if cdnScheme(&p) == "http" {
-			return errCDNProbeHTTP
-		}
+
 		if req.Port == 0 {
 			req.Port = cdnDefaultPort(&p)
 		}
@@ -103,7 +98,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		return err
 	})
 	if err != nil {
-		if _, validation := err.(cdnSchemeProblem); errors.Is(err, errCDNProbeHTTP) || validation {
+		if _, validation := err.(cdnSchemeProblem); validation {
 			badRequest(c, err)
 		} else {
 			serverError(c, err)
@@ -112,6 +107,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 	}
 	s.auditCtx(c, "cdn.probe_pair", p.Name, source)
 	c.JSON(http.StatusCreated, gin.H{"port": req.Port, "source": source, "tokenId": tok.ID, "token": secret,
+		"scheme": cdnScheme(&p), "instance": fmt.Sprintf("cdn-%x", sha256.Sum256([]byte(p.ID+"/"+source)))[:20],
 		"mirror": strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/")})
 }
 

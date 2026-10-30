@@ -90,7 +90,7 @@ func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
 func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	s := newTestServer(t)
 	pins := []string{"104.16.9.9", "2606:4700::1111", "keep.example.com"}
-	p := store.CDNProfile{ID: "fixed", Name: "fixed", Provider: "cloudflare", Scheme: "https", Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON(append([]string{"104.16.1.1"}, pins...)), PinnedHosts: store.NewJSON(pins)}
+	p := store.CDNProfile{ID: "fixed", Name: "fixed", StalePolicy: "keep", BlockedHosts: store.NewJSON([]string{"104.16.9.9"}), Provider: "cloudflare", Scheme: "https", Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON(append([]string{"104.16.1.1"}, pins...)), PinnedHosts: store.NewJSON(pins)}
 	if err := s.st.DB.Create(&p).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +111,9 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {
 		t.Fatal(err)
 	}
+	if p.StalePolicy != "keep" || !slices.Equal(p.BlockedHosts.V, []string{"104.16.9.9"}) {
+		t.Fatal("restore lost address policy", p.StalePolicy, p.BlockedHosts.V)
+	}
 	if !slices.Equal(p.PinnedHosts.V, pins) {
 		t.Fatal("restore changed pins", p.PinnedHosts.V)
 	}
@@ -125,5 +128,8 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	}
 	if !slices.Equal(p.PreferredIPs.V, append([]string{"104.17.1.1"}, pins...)) {
 		t.Fatal("report dropped restored pins", p.PreferredIPs.V)
+	}
+	if slices.Contains(usableCDNIPs(&p), "104.16.9.9") {
+		t.Fatal("restored deny rule ignored")
 	}
 }

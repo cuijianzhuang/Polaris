@@ -559,14 +559,17 @@ type CDNProfile struct {
 	// PinnedHosts are manually retained public IPs and domains. Automatic
 	// updates preserve them; subscriptions append them after the top N
 	// automatic addresses. The field name is kept for API/backup compatibility.
-	PinnedHosts   JSON[[]string] `json:"pinnedHosts"`
-	IPSourceURL   string         `gorm:"size:500" json:"ipSourceUrl"`
-	IPTopN        int            `json:"ipTopN"`
-	ExpandPerIP   bool           `json:"expandPerIp"`
-	AutoDNS       bool           `json:"autoDns"`
-	CaddyFronting bool           `json:"caddyFronting"`
-	APIToken      string         `gorm:"size:500" json:"-"` // sealed
-	HasToken      bool           `gorm:"-" json:"hasToken"`
+	PinnedHosts   JSON[[]string]                   `json:"pinnedHosts"`
+	BlockedHosts  JSON[[]string]                   `json:"blockedHosts"`
+	StalePolicy   string                           `json:"stalePolicy"` // empty/source = URL fallback, keep = retain old reports
+	AddressChecks JSON[map[string]json.RawMessage] `json:"-"`
+	IPSourceURL   string                           `gorm:"size:500" json:"ipSourceUrl"`
+	IPTopN        int                              `json:"ipTopN"`
+	ExpandPerIP   bool                             `json:"expandPerIp"`
+	AutoDNS       bool                             `json:"autoDns"`
+	CaddyFronting bool                             `json:"caddyFronting"`
+	APIToken      string                           `gorm:"size:500" json:"-"` // sealed
+	HasToken      bool                             `gorm:"-" json:"hasToken"`
 	// TokenSource: which Cloudflare token the profile uses — "profile"
 	// (its own, from older versions), "cdn" (the CDN token set on the CDN
 	// page), "dns" (falling back to the DNS token in 系统设置) or "".

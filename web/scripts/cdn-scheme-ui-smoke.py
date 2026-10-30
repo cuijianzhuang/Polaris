@@ -66,7 +66,11 @@ with sync_playwright() as p:
     saved=f.last('/cdn-profiles/cf')[2]
     assert saved['scheme']=='http' and saved['ports']==[80,8080,8880,2052,2082,2086,2095] and not saved['caddyFronting'],saved
     expect(page.get_by_text('HTTP 回源（不使用此设置）' if lang=='zh' else 'HTTP origin (this setting is unused)',exact=True)).to_be_visible()
-    expect(page.get_by_text('当前一键测速程序仅支持 HTTPS' if lang=='zh' else 'The bundled speed-test installer currently supports HTTPS only',exact=False)).to_be_visible()
+    page.get_by_text('添加测速点（一键安装 cf-ip-probe）' if lang=='zh' else 'Add a speed-test point (one-line cf-ip-probe install)',exact=True).click()
+    page.get_by_label('测速点名称' if lang=='zh' else 'point name',exact=True).fill('http80')
+    page.get_by_role('button',name='生成安装命令' if lang=='zh' else 'Generate install command',exact=True).click()
+    expect(page.get_by_text('--args',exact=False).filter(has_text='-scheme http -port 80').first).to_be_visible()
+    expect(page.get_by_text('--instance',exact=False).first).to_be_visible()
     # The one-click flow uses the profile's HTTP ports and disables origin TLS.
     page.goto(BASE+'/inbounds')
     page.get_by_role('button',name='+ 新建入站' if lang=='zh' else '+ New inbound',exact=True).click()

@@ -98,7 +98,7 @@ export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn
 export interface CDNProfile {
   scheme?: 'http' | 'https'
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
-  ipSourceUrl: string; pinnedHosts?: string[]; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'
+  ipSourceUrl: string; pinnedHosts?: string[]; blockedHosts?: string[]; stalePolicy?: 'keep' | 'source'; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'
   zoneId: string; lastRefreshAt?: string; lastError: string; inbounds: number; serves?: { node: string; tag: string; host: string }[]
   nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; portChecks?: Record<string, { badIps: string[]; allFailed: boolean; at: string }>; carrierSplit: boolean; reports: CDNIPReport[]; shared?: string[]; thirdParty?: string[]; probes: CDNProbe[]
 }

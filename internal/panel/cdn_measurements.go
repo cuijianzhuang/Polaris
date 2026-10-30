@@ -2,8 +2,10 @@ package panel
 
 import (
 	"fmt"
+	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -42,11 +44,20 @@ func (s *Server) cdnAddressesForPort(p *store.CDNProfile, port int) []string {
 		return p.PreferredIPs.V
 	}
 	list := p.PreferredIPs.V
-	reports := cdnReportsForPort(s.st.DB, p, port, time.Now().Add(-cdnStaleAfter(p)), "")
+	reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), "")
 	if len(reports) > 0 {
 		list = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
 	}
 	return list
+}
+
+// A keep policy retains the last results for each port and carrier, rather
+// than silently replacing an expired port with the default port's list.
+func cdnSelectionCutoff(p *store.CDNProfile) time.Time {
+	if p.StalePolicy == "keep" {
+		return time.Time{}
+	}
+	return time.Now().Add(-cdnStaleAfter(p))
 }
 
 func (s *Server) cdnIPsForPort(p *store.CDNProfile, port int) []string {
@@ -74,7 +85,42 @@ func (s *Server) cdnCheckPorts(p *store.CDNProfile) []int {
 	return ports
 }
 
+func cdnAddressBlocked(p *store.CDNProfile, address string) bool {
+	for _, a := range p.BlockedHosts.V {
+		ai, ae := netip.ParseAddr(a)
+		bi, be := netip.ParseAddr(address)
+		if ae == nil && be == nil && ai.Unmap() == bi.Unmap() {
+			return true
+		}
+		if strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(address, ".")) {
+			return true
+		}
+	}
+	return false
+}
+
+// This selection is shared by subscription output and the operator preview.
+func (s *Server) selectedCDNIPs(p *store.CDNProfile, port int, carrier string) []string {
+	ips := s.carrierCDNIPs(p, carrier, port)
+	if ips == nil {
+		ips = s.cdnIPsForPort(p, port)
+	}
+	if p.IPTopN > 0 {
+		var automatic, pinned []string
+		for _, a := range ips {
+			if slices.Contains(p.PinnedHosts.V, a) {
+				pinned = append(pinned, a)
+			} else {
+				automatic = append(automatic, a)
+			}
+		}
+		ips = append(automatic[:min(len(automatic), p.IPTopN)], pinned...)
+	}
+	return ips
+}
+
 func usableCDNIPsAt(p *store.CDNProfile, list []string, port int) []string {
+	list = slices.DeleteFunc(slices.Clone(list), func(a string) bool { return cdnAddressBlocked(p, a) })
 	if !p.NodeCheck {
 		return list
 	}

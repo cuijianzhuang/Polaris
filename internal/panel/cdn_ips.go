@@ -402,8 +402,17 @@ func (s *Server) checkCDNReportsStale() {
 			s.log.Warn("cdn stale flag", "profile", p.Name, "err", err)
 			continue
 		}
+		fallback := "继续使用原有 IP 列表"
+		if p.StalePolicy != "keep" && p.IPSourceURL != "" {
+			if _, err := s.refreshPreferredIPs(s.ctxBG(), p, true); err != nil {
+				s.recordCDNAutoSourceError(p, err)
+				fallback = "来源 URL 刷新失败，保留原有列表"
+			} else {
+				fallback = "已尝试来源 URL 备用列表"
+			}
+		}
 		s.notify(Event{Kind: "cdn_ips_stale", ResourceID: p.ID,
-			Text: fmt.Sprintf("⚠️ CDN 配置档 %s 已 %s 没有收到优选 IP 上报（最后一次来自 %s），继续使用原有 IP 列表", p.Name, roundAgo(now.Sub(last.At)), last.Source),
+			Text: fmt.Sprintf("⚠️ CDN 配置档 %s 已 %s 没有收到优选 IP 上报（最后一次来自 %s），%s", p.Name, roundAgo(now.Sub(last.At)), last.Source, fallback),
 			Data: map[string]any{"profile": p.ID, "lastSource": last.Source, "lastAt": last.At}})
 	}
 }

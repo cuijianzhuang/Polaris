@@ -388,6 +388,9 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/certificates/:id", s.deleteCert)
 	p.POST("/certificates/:id/renew", s.renewCert)
 
+	p.GET("/cdn-profiles/:id/address-tools", s.cdnAddressTools)
+	p.POST("/cdn-profiles/:id/check-address", s.checkCDNAddress)
+	p.PUT("/cdn-profiles/:id/address-policy", s.updateCDNAddressPolicy)
 	p.GET("/cdn-profiles", s.listCDN)
 	p.POST("/cdn-profiles", s.createCDN)
 	p.PUT("/cdn-profiles/:id", s.updateCDN)

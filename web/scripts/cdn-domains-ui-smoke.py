@@ -23,6 +23,9 @@ class Fixture(BaseFixture):
     def route(self, route):
         req = route.request
         path = urlparse(req.url).path.removeprefix('/api/v1')
+        if path == '/cdn-profiles/cf/probes' and req.method=='POST':
+            body=req.post_data_json;self.writes.append((req.method,path,body,req.headers))
+            return route.fulfill(json=dict(body,scheme=self.profile.get('scheme','https'),instance='cdn-fixture',token='plt_synthetic',mirror=''))
         if path == '/cdn-shodan':
             return route.fulfill(json=dict(enabled=False, query='', defaultQuery='', pages=1, keySet=False, count=0, total=0, at='', error='', sample=[]))
         if path == '/cdn-profiles':
@@ -70,12 +73,13 @@ with sync_playwright() as p:
                 page.add_init_script("localStorage.setItem('polaris.token','fixture');localStorage.setItem('polaris.refresh','0');localStorage.setItem('polaris.lang',%s)" % json.dumps(lang))
                 errors=[]
                 page.on('pageerror', lambda e: errors.append(str(e)))
+                page.on('console', lambda msg: errors.append(msg.text) if msg.type == 'error' and 'same key' in msg.text else None)
                 page.route('**/api/v1/**', f.route)
                 page.goto(BASE + '/chains')
                 page.get_by_role('tab', name='CDN 配置档' if lang=='zh' else 'CDN profile', exact=True).click()
-                card = page.get_by_role('region', name='固定优选地址（IP / 域名）' if lang=='zh' else 'Fixed preferred addresses (IP / domain)', exact=True)
+                card = page.get_by_role('region', name='优选地址与订阅预览' if lang=='zh' else 'Preferred addresses and subscription preview', exact=True)
                 expect(card).to_contain_text('keep.example.com')
-                expect(card).not_to_contain_text('source.example.com')
+                expect(card).to_contain_text('source.example.com')
                 expect(card).to_contain_text('当前订阅只用回源域名' if lang=='zh' else 'Subscriptions currently use only the origin domain')
                 edit = '维护地址' if lang=='zh' else 'Edit addresses'
                 save = '保存' if lang=='zh' else 'Save'
@@ -99,7 +103,7 @@ with sync_playwright() as p:
                 expect(card).to_contain_text('104.16.9.9');expect(card).to_contain_text('2606:4700::1111')
                 # Refresh modifies automatic addresses without dropping manual domains.
                 page.get_by_role('button',name='刷新' if lang=='zh' else 'Refresh',exact=True).click()
-                expect(page.get_by_text('104.17.1.1',exact=True)).to_be_visible()
+                expect(card.locator('[data-address="104.17.1.1"]')).to_be_visible()
                 expect(card).to_contain_text('new.example.com')
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
                 card.scroll_into_view_if_needed()
@@ -109,7 +113,7 @@ with sync_playwright() as p:
                 dialog.get_by_label('固定优选地址（IP / 域名）' if lang=='zh' else 'Fixed preferred addresses (IP / domain)',exact=True).fill('')
                 dialog.get_by_role('button',name=save,exact=True).click()
                 expect(dialog).to_have_count(0)
-                expect(card).to_contain_text('尚未添加固定优选地址' if lang=='zh' else 'No fixed preferred addresses yet')
+                expect(card.locator('[data-address="new.example.com"]')).to_have_count(0)
                 assert f.last('/cdn-profiles/cf/pinned-hosts')[2]=={'pinnedHosts':[]}
                 # The full editor separates persisted pins and temporary results, including copy.
                 page.get_by_role('button',name='编辑' if lang=='zh' else 'Edit',exact=True).last.click()

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -102,7 +101,7 @@ func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string, ports ...int
 	if !p.CarrierSplit || carrier == "" {
 		return nil
 	}
-	reports := cdnReportsForPort(s.st.DB, p, port, time.Now().Add(-cdnStaleAfter(p)), carrier)
+	reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), carrier)
 	if len(reports) == 0 {
 		return nil
 	}

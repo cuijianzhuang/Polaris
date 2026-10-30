@@ -195,6 +195,8 @@ type cdnReq struct {
 	Ports         []int     `json:"ports"`
 	PreferredIPs  []string  `json:"preferredIps"`
 	PinnedHosts   *[]string `json:"pinnedHosts"` // nil keeps the legacy mixed-list contract
+	BlockedHosts  *[]string `json:"blockedHosts"`
+	StalePolicy   *string   `json:"stalePolicy"` // nil preserves the current policy
 	IPSourceURL   string    `json:"ipSourceUrl"`
 	IPTopN        int       `json:"ipTopN"`
 	ExpandPerIP   bool      `json:"expandPerIp"`
@@ -273,6 +275,17 @@ func (r *cdnReq) normalize() error {
 		}
 		r.PinnedHosts = &hosts
 	}
+	if r.BlockedHosts != nil {
+		v, err := normalizeCDNBlockedHosts(*r.BlockedHosts)
+		if err != nil {
+			return err
+		}
+		r.BlockedHosts = &v
+	}
+	if r.StalePolicy != nil && *r.StalePolicy != "keep" && *r.StalePolicy != "source" {
+		return fmt.Errorf("失效策略只能是 keep 或 source")
+	}
+
 	if u := strings.TrimSpace(r.IPSourceURL); u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
 		return fmt.Errorf("优选 IP 来源应为 http(s):// 网址")
 	}
@@ -303,6 +316,13 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 	if r.PinnedHosts != nil {
 		setCDNPinnedHosts(p, *r.PinnedHosts, oldPinned)
 	}
+	if r.BlockedHosts != nil {
+		p.BlockedHosts = store.NewJSON(*r.BlockedHosts)
+	}
+	if r.StalePolicy != nil {
+		p.StalePolicy = *r.StalePolicy
+	}
+
 	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
 	if !p.NodeCheck || oldPort != cdnDefaultPort(p) || oldScheme != cdnScheme(p) {
 		p.PortChecks = store.NewJSON(map[string]store.CDNPortCheck{})
@@ -832,7 +852,7 @@ func (s *Server) refreshCDNIPs(c *gin.Context) {
 
 // refreshPreferredIPs pulls a list of IPs (one per line; ports, CSV columns and
 // comments are tolerated) from the profile's source URL.
-func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) ([]string, error) {
+func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile, automatic ...bool) ([]string, error) {
 	if p.IPSourceURL == "" {
 		return nil, fmt.Errorf("未配置优选 IP 来源 URL")
 	}
@@ -864,12 +884,47 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) (
 		if err := tx.First(&current, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
+		if len(automatic) > 0 && automatic[0] && !cdnAutoSourceNeeded(tx, p, &current) {
+			ips = current.PreferredIPs.V
+			return nil
+		}
 		ips = withPinned(ips, current.PinnedHosts.V)
 		return tx.Model(&current).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": time.Now(), "last_error": ""}).Error
 	}); err != nil {
 		return nil, err
 	}
 	return ips, nil
+}
+
+// Recheck after network IO: a report or configuration edit may have won the race.
+func cdnAutoSourceNeeded(db *gorm.DB, before, current *store.CDNProfile) bool {
+	if current.IPSourceURL != before.IPSourceURL || current.Provider != before.Provider || cdnScheme(current) != cdnScheme(before) || cdnDefaultPort(current) != cdnDefaultPort(before) {
+		return false
+	}
+	if len(sharedCDNReports(db, current, time.Now().Add(-cdnStaleAfter(current)), "")) > 0 {
+		return false
+	}
+	return current.StalePolicy != "keep" || len(sharedCDNReports(db, current, time.Time{}, "")) == 0
+}
+
+// A failed old fetch must not restore an error already cleared by a fresh report.
+func (s *Server) recordCDNAutoSourceError(p *store.CDNProfile, cause error) {
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		var current store.CDNProfile
+		if err := tx.First(&current, "id = ?", p.ID).Error; err != nil {
+			return err
+		}
+		if !cdnAutoSourceNeeded(tx, p, &current) {
+			return nil
+		}
+		return tx.Model(&current).Update("last_error", truncate(cause.Error(), 1900)).Error
+	})
+	if err != nil {
+		s.log.Warn("cdn source error state", "profile", p.Name, "err", err)
+	}
 }
 
 // withPinned is an automatic list of preferred addresses plus the domains
@@ -925,11 +980,11 @@ func (s *Server) refreshAllPreferredIPs() {
 	s.st.DB.Where("ip_source_url <> ''").Find(&ps)
 	now := time.Now()
 	for i := range ps {
-		if s.cdnFreshReport(&ps[i], now) {
+		if s.cdnFreshReport(&ps[i], now) || (ps[i].StalePolicy == "keep" && len(sharedCDNReports(s.st.DB, &ps[i], time.Time{}, "")) > 0) {
 			continue // speed-test points maintain this list
 		}
-		if _, err := s.refreshPreferredIPs(context.Background(), &ps[i]); err != nil {
-			s.st.DB.Model(&ps[i]).Update("last_error", truncate(err.Error(), 1900))
+		if _, err := s.refreshPreferredIPs(context.Background(), &ps[i], true); err != nil {
+			s.recordCDNAutoSourceError(&ps[i], err)
 		}
 	}
 }
