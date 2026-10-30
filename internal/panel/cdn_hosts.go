@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strings"
 
@@ -17,25 +19,37 @@ import (
 var nonSlug = regexp.MustCompile(`[^a-z0-9]+`)
 
 // nodeCDNHost is the hostname for a node's entries behind a profile.
-func nodeCDNHost(origin, nodeName string) string {
+func nodeCDNHost(origin, nodeName, nodeID string) string {
 	slug := strings.Trim(nonSlug.ReplaceAllString(strings.ToLower(nodeName), "-"), "-")
 	if slug == "" {
 		slug = "node"
 	}
-	if len(slug) > 40 {
-		slug = strings.Trim(slug[:40], "-")
-	}
+	// Names may be identical, entirely Chinese, or become identical after
+	// normalization. A stable node suffix avoids racing name reservations.
+	sum := sha256.Sum256([]byte(nodeID))
+	tail := "-" + hex.EncodeToString(sum[:8])
 	label, rest, ok := strings.Cut(origin, ".")
-	if !ok || !strings.Contains(rest, ".") {
-		return slug + "." + origin // origin is the zone apex
+	if ok && strings.Contains(rest, ".") {
+		label = strings.TrimRight(label[:min(len(label), 63-len(tail)-2)], "-")
+		tail += "-" + label
+	} else {
+		rest = origin // origin is the zone apex
 	}
-	return slug + "-" + label + "." + rest
+	slug = strings.TrimRight(slug[:min(len(slug), min(40, 63-len(tail)))], "-")
+	return slug + tail + "." + rest
 }
 
 // cdnHostFor picks the Host for a new cdn entry on nodeID: "" (the origin
 // domain) unless another node already serves the origin domain, then the
 // node's own hostname.
 func cdnHostFor(db *gorm.DB, p *store.CDNProfile, nodeID string) string {
+	// Reuse the node's published hostname, including after a node rename.
+	var existing store.Endpoint
+	if db.Model(&store.Endpoint{}).Select("endpoints.*").Joins("JOIN inbounds ON inbounds.id = endpoints.inbound_id").
+		Where("endpoints.cdn_profile_id = ? AND endpoints.kind = ? AND inbounds.node_id = ?", p.ID, "cdn", nodeID).
+		Order("endpoints.created_at, endpoints.id").Take(&existing).Error == nil {
+		return existing.Host
+	}
 	var others int64
 	db.Model(&store.Endpoint{}).Joins("JOIN inbounds ON inbounds.id = endpoints.inbound_id").
 		Where("endpoints.cdn_profile_id = ? AND endpoints.kind = ? AND (endpoints.host = '' OR endpoints.host = ?) AND inbounds.node_id <> ?", p.ID, "cdn", p.OriginDomain, nodeID).
@@ -47,7 +61,7 @@ func cdnHostFor(db *gorm.DB, p *store.CDNProfile, nodeID string) string {
 	if db.Select("name").First(&node, "id = ?", nodeID).Error != nil {
 		return ""
 	}
-	return nodeCDNHost(p.OriginDomain, node.Name)
+	return nodeCDNHost(p.OriginDomain, node.Name, nodeID)
 }
 
 // assignCDNHost gives a new cdn entry without a Host its node's hostname
@@ -86,7 +100,7 @@ func (s *Server) splitSharedCDNHosts(p *store.CDNProfile) []string {
 		if s.st.DB.Select("name").First(&node, "id = ?", in.NodeID).Error != nil {
 			continue
 		}
-		newHost := nodeCDNHost(p.OriginDomain, node.Name)
+		newHost := nodeCDNHost(p.OriginDomain, node.Name, in.NodeID)
 		if prev, ok := owner[newHost]; ok && prev != in.NodeID {
 			continue // leave it for syncCDN to report
 		}

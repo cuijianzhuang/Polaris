@@ -94,10 +94,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	}
 	sort.Strings(keys)
 	var b strings.Builder
-	// Requests relayed by Cloudflare keep their X-Forwarded-For, so the
-	// inbound behind sees the visitor rather than the edge address; anyone
-	// else's is replaced by the connection's own address.
-	fmt.Fprintf(&b, "{\n\tadmin %s\n\tauto_https off\n\tpersist_config off\n\tservers {\n\t\ttrusted_proxies static %s\n\t}\n\tlog {\n\t\tlevel WARN\n\t}\n}\n",
+	// Trust the visitor header only from an actual Cloudflare socket peer.
+	// Ignore client-supplied XFF chains and replace forwarding metadata below.
+	fmt.Fprintf(&b, "{\n\tadmin %s\n\tauto_https off\n\tpersist_config off\n\tservers {\n\t\ttrusted_proxies static %s\n\t\ttrusted_proxies_strict\n\t\tclient_ip_headers CF-Connecting-IP\n\t}\n\tlog {\n\t\tlevel WARN\n\t}\n}\n",
 		a.opt.APIListen, strings.Join(model.CloudflareRanges, " "))
 	for _, k := range keys {
 		st := sites[k]
@@ -119,7 +118,7 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 				upstream = "h2c://" + upstream
 			}
 			fmt.Fprintf(&b, "\t@r%d path %s %s/*\n", i, p, p)
-			fmt.Fprintf(&b, "\thandle @r%d {\n\t\treverse_proxy %s {\n\t\t\tflush_interval -1\n\t\t}\n\t}\n", i, upstream)
+			fmt.Fprintf(&b, "\thandle @r%d {\n\t\treverse_proxy %s {\n\t\t\tflush_interval -1\n\t\t\theader_up -CF-Connecting-IP\n\t\t\theader_up X-Polaris-Client-IP {http.vars.client_ip}\n\t\t\theader_up X-Forwarded-For {http.vars.client_ip}\n\t\t}\n\t}\n", i, upstream)
 		}
 		b.WriteString("\thandle {\n\t\trespond 404\n\t}\n}\n")
 	}

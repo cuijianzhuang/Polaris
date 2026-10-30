@@ -305,6 +305,11 @@ func withFallbacks(settings map[string]any, in model.Inbound) map[string]any {
 }
 
 func renderInbound(in model.Inbound, legacyKCP bool) (map[string]any, error) {
+	// Header presence is not proof of a trusted peer. Only a protected
+	// loopback listener may accept forwarding metadata from its local proxy.
+	if ip := net.ParseIP(in.Listen); ip == nil || !ip.IsLoopback() {
+		in.Transport.TrustedForwardedFor = nil
+	}
 	ib := map[string]any{
 		"tag":      in.Tag,
 		"listen":   in.Listen,
@@ -459,12 +464,17 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 		ts["acceptProxyProtocol"] = true
 		st[key] = ts
 	}
-	if server && len(t.TrustedForwardedFor) > 0 {
+	if server {
 		switch t.Type {
 		case model.TransWS, model.TransHTTPUpgrade, model.TransXHTTP, model.TransGRPC:
-			// Behind a CDN the connection comes from the CDN's edge; without
-			// this every edge address counts as one of the user's IPs.
-			st["sockopt"] = map[string]any{"trustedXForwardedFor": t.TrustedForwardedFor}
+			trusted := t.TrustedForwardedFor
+			if len(trusted) == 0 {
+				// Xray treats an absent/empty list as trust ALL X-Forwarded-For.
+				// A nonempty list containing an impossible HTTP header name
+				// disables that fallback. Real-core tests cover this behavior.
+				trusted = []string{""}
+			}
+			st["sockopt"] = map[string]any{"trustedXForwardedFor": trusted}
 		}
 	}
 	switch sec.Type {

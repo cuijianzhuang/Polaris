@@ -9,9 +9,9 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
-// An inbound with a Cloudflare entry tells the core to read the visitor's
-// address from the CDN's headers; one without keeps the connection address.
-func TestCloudflareInboundTrustsForwardedFor(t *testing.T) {
+// A public listener cannot distinguish genuine CDN headers from a direct
+// client's forgery. A CDN entry alone must never enable forwarding trust.
+func TestPublicCloudflareInboundDoesNotTrustForwardedFor(t *testing.T) {
 	s, admin := cdnFixture(t)
 	code, out := admin.do("POST", "/inbounds", grpcInboundReq(8443, map[string]any{"tag": "ws", "transport": map[string]any{"type": "ws", "path": "/x"}, "cdnProfileId": "cf"}))
 	if code != 201 {
@@ -31,12 +31,12 @@ func TestCloudflareInboundTrustsForwardedFor(t *testing.T) {
 		switch in.Tag {
 		case "ws":
 			seen++
-			if in.ID != cdnID || !slices.Equal(in.Transport.TrustedForwardedFor, []string{"CF-Connecting-IP"}) {
+			if in.ID != cdnID || !slices.Equal(in.Transport.TrustedForwardedFor, []string{""}) {
 				t.Fatalf("cdn inbound: %+v", in.Transport)
 			}
 		case "plain":
 			seen++
-			if len(in.Transport.TrustedForwardedFor) != 0 {
+			if !slices.Equal(in.Transport.TrustedForwardedFor, []string{""}) {
 				t.Fatalf("direct inbound trusts headers: %+v", in.Transport)
 			}
 		}

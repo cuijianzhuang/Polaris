@@ -46,6 +46,10 @@ jobs:
           curl -fsSL -o xray-egress.zip https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-64.zip && unzip -q xray-egress.zip -d xray-egress
           curl -fsSL https://github.com/SagerNet/sing-box/releases/download/v1.13.5/sing-box-1.13.5-linux-amd64.tar.gz | tar xz
           curl -fsSL https://github.com/MetaCubeX/mihomo/releases/download/v1.19.15/mihomo-linux-amd64-v1.19.15.gz | gunzip > mihomo && chmod +x mihomo
+          mkdir -p caddy
+          curl -fsSL -o caddy.tar.gz https://github.com/caddyserver/caddy/releases/download/v2.10.2/caddy_2.10.2_linux_amd64.tar.gz
+          echo '5c218bc34c9197369263da7e9317a83acdbd80ef45d94dca5eff76e727c67cdd  caddy.tar.gz' | sha256sum -c -
+          tar xzf caddy.tar.gz -C caddy caddy
           mkdir -p gost && curl -fsSL https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz | tar xz -C gost
           mkdir -p pebble && curl -fsSL https://github.com/letsencrypt/pebble/releases/download/v2.7.0/pebble-linux-amd64.tar.gz | tar xz -C pebble --strip-components=3
           B=https://raw.githubusercontent.com/letsencrypt/pebble/v2.7.0/test
@@ -63,6 +67,7 @@ jobs:
           POLARIS_SINGBOX_BIN: /tmp/cores/sing-box-1.13.5-linux-amd64/sing-box
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_GOST_BIN: /tmp/cores/gost/gost
+          POLARIS_CADDY_BIN: /tmp/cores/caddy/caddy
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
