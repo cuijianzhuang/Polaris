@@ -256,5 +256,19 @@ const m: Record<string, string> = {
   "需要先在「系统设置 → 常规 → Shodan」填写 Shodan API Key（每天搜索一次，每页消耗 1 个查询额度）": "Needs a Shodan API key in Settings → General → Shodan first (one search a day, 1 query credit per page)",
   "去设置": "Go to Settings",
   "可选 · 用于 REALITY 目标扫描的「从 Shodan 发现」和 CDN 配置档的「第三方反代 IP」。每页搜索结果消耗 1 个查询额度": "Optional · Used by \"Discover with Shodan\" in the REALITY target scan and by \"Third-party reverse proxies\" on CDN profiles. Each page of results costs 1 query credit",
+  "复制所选配置档的优选 IP、手动优选域名、来源 URL 和订阅展开设置，保存后生效": "Copy preferred IPs, manually maintained domains, source URL and subscription expansion settings. Takes effect after saving",
+  "手动优选域名": "Manually maintained domains",
+  "一行一个完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个优选地址之后，不占用 N 的名额。": "One full domain per line, without scheme, port or path. Preserved across automatic updates; when subscription expansion is enabled, appended after the top N addresses without counting toward N.",
+  "临时优选地址": "Temporary preferred addresses",
+  "一行一个 IP 或来源域名，不带端口。测速点上报或来源 URL 刷新会替换；需要长期保留的域名请填到「手动优选域名」。": "One IP or source domain per line, without a port. Replaced by speed-test reports or source URL refreshes. Put domains to keep in Manually maintained domains.",
+  "维护手动优选域名": "Edit manually maintained domains",
+  "留空保存可清空手动列表；自动来源仍包含的域名可能在下次刷新时再次出现。": "Save an empty list to clear manual domains. Domains still included in automatic sources may reappear on the next refresh.",
+  "维护域名": "Edit domains",
+  "仅对当前配置档生效，测速点上报和来源 URL 刷新不会覆盖。": "Applies only to this profile. Speed-test reports and source URL refreshes preserve these domains.",
+  "尚未添加手动优选域名": "No manually maintained domains yet",
+  "手动域名追加到前 N 个优选地址之后，不占用 N 的名额。": "Manual domains follow the top N preferred addresses without counting toward N.",
+  "当前订阅只用回源域名；在「编辑」中开启订阅展开后，优选地址和手动域名才会用于订阅。": "Subscriptions currently use only the origin domain. Enable subscription expansion in Edit to use preferred addresses and manual domains.",
+  "还没有自动或临时优选地址。可在「编辑」中填写临时地址或来源 URL，或添加测速点自动上报。": "No automatic or temporary preferred addresses yet. Enter temporary addresses or a source URL in Edit, or add a speed-test reporter.",
+
 }
 export default m

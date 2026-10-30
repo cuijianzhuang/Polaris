@@ -186,10 +186,10 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"stored": len(ips), "preferredIps": list})
 }
 
-// lockCDNReports serializes report writes on PostgreSQL: each rebuild reads
-// every point's report, so two concurrent ones would each miss the other's
-// and the last to commit would drop a point. SQLite already serializes
-// writers.
+// lockCDNReports serializes reports, manual domain edits and source refresh
+// commits on PostgreSQL. Each writer must read the latest lists and pins after
+// taking the lock so its update cannot undo another writer. SQLite already
+// serializes writers.
 func lockCDNReports(tx *gorm.DB) error {
 	if tx.Dialector.Name() != "postgres" {
 		return nil
