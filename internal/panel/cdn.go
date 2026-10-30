@@ -187,6 +187,7 @@ func (c *cfClient) originCert(ctx context.Context, hosts []string) (certPEM, key
 // --- API ---
 
 type cdnReq struct {
+	Scheme        string    `json:"scheme"`
 	Name          string    `json:"name" binding:"required"`
 	Provider      string    `json:"provider"`
 	OriginDomain  string    `json:"originDomain" binding:"required"`
@@ -230,13 +231,21 @@ func (r *cdnReq) normalize() error {
 	if !slices.Contains([]string{"full_strict", "full", "flexible"}, r.TLSMode) {
 		return fmt.Errorf("未知的 TLS 模式 %q", r.TLSMode)
 	}
+	r.Scheme = orDefault(r.Scheme, "https")
+	if r.Scheme != "http" && r.Scheme != "https" {
+		return fmt.Errorf("CDN 连接方式只能是 HTTP 或 HTTPS")
+	}
+	if r.Scheme == "http" && r.CaddyFronting {
+		return fmt.Errorf("HTTP CDN 不支持内置 Caddy 统一回源，请关闭该选项或使用 HTTPS")
+	}
+	profile := &store.CDNProfile{Scheme: r.Scheme}
 	var ports []int
 	for _, p := range r.Ports {
 		if p < 1 || p > 65535 {
 			return fmt.Errorf("端口 %d 不在 1–65535 之间", p)
 		}
-		if r.Provider == "cloudflare" && !slices.Contains(cloudflareHTTPSPorts, p) {
-			return fmt.Errorf("Cloudflare 只在 443、2053、2083、2087、2096、8443 上代理 HTTPS，客户端连不了 %d", p)
+		if r.Provider == "cloudflare" && !slices.Contains(cdnClientPorts(profile), p) {
+			return fmt.Errorf("Cloudflare 的 %s 端口为 %s，客户端连不了 %d", strings.ToUpper(r.Scheme), cdnPortsText(profile), p)
 		}
 		if !slices.Contains(ports, p) {
 			ports = append(ports, p)
@@ -273,9 +282,10 @@ func (r *cdnReq) normalize() error {
 }
 
 func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
+	p.Scheme = orDefault(r.Scheme, "https")
 	p.Name, p.Provider, p.OriginDomain, p.TLSMode = r.Name, orDefault(r.Provider, "cloudflare"), r.OriginDomain, orDefault(r.TLSMode, "full_strict")
 	if len(r.Ports) == 0 {
-		r.Ports = []int{443, 2053, 2083, 2087, 2096, 8443}
+		r.Ports = slices.Clone(cdnClientPorts(&store.CDNProfile{Scheme: r.Scheme}))
 	}
 	// A domain is typed in (kept across refreshes) when it already was, or
 	// is new in the form: domains a source URL put in the list come back
@@ -347,7 +357,7 @@ func (s *Server) listCDN(c *gin.Context) {
 		if p.Provider == "cloudflare" {
 			since := time.Now().Add(-cdnStaleAfter(&p))
 			for _, o := range ps {
-				if o.ID == p.ID || o.Provider != "cloudflare" {
+				if o.ID == p.ID || o.Provider != "cloudflare" || cdnScheme(&o) != cdnScheme(&p) {
 					continue
 				}
 				for _, r := range reports[o.ID] {
@@ -396,6 +406,9 @@ func (s *Server) updateCDN(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if req.Scheme == "" {
+		req.Scheme = cdnScheme(&p)
+	}
 	if err := req.normalize(); err != nil {
 		badRequest(c, err)
 		return
@@ -420,10 +433,19 @@ func (s *Server) updateCDN(c *gin.Context) {
 		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
-		req.apply(&p, s.st.Box.Seal)
+		candidate := p
+		req.apply(&candidate, s.st.Box.Seal)
+		if err := validateCDNSchemeChange(tx, &p, &candidate); err != nil {
+			return err
+		}
+		p = candidate
 		return tx.Save(&p).Error
 	}); err != nil {
-		dbError(c, err)
+		if _, ok := err.(cdnSchemeProblem); ok {
+			badRequest(c, err)
+		} else {
+			dbError(c, err)
+		}
 		return
 	}
 	// Caddy fronting (and its port) shape the nodes' configuration.
@@ -637,7 +659,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 		res.Records = append(res.Records, host+" → "+addr)
 	}
 	s.warnWrite("cdn zone", s.st.DB.Model(p).Updates(map[string]any{"zone_id": zone, "last_error": ""}).Error) // only a cache of the zone lookup
-	if !full {
+	if !full || cdnScheme(p) == "http" {
 		return res, nil
 	}
 	mode := map[string]string{"full_strict": "strict", "full": "full", "flexible": "flexible"}[p.TLSMode]

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, API, ApiError, del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useAction, useConfirm, useLoad, useToast } from '../components/ui'
+import { cdnPorts, cdnScheme } from '../cdn'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t, tr } from '../i18n'
 import GeoPicker from '../components/GeoPicker'
@@ -132,8 +133,8 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
 
 function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNProfile; others?: CDNProfile[]; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({
-    name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
-    ports: (profile?.ports ?? [443, 2053, 2083, 2087, 2096, 8443]).join(', '), preferredIps: toLines(profile?.preferredIps.filter((a) => !(profile.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(profile?.pinnedHosts), ipSourceUrl: profile?.ipSourceUrl ?? '',
+    scheme: cdnScheme(profile), name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
+    ports: (profile?.ports ?? cdnPorts(cdnScheme(profile))).join(', '), preferredIps: toLines(profile?.preferredIps.filter((a) => !(profile.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(profile?.pinnedHosts), ipSourceUrl: profile?.ipSourceUrl ?? '',
     ipTopN: String(profile?.ipTopN ?? 0), expandPerIp: profile?.expandPerIp ?? false, autoDns: profile?.autoDns ?? false, caddyFronting: profile?.caddyFronting ?? false, apiToken: '',
     nodeCheck: profile?.nodeCheck ?? false, staleHours: String(profile?.staleHours || 24), carrierSplit: profile?.carrierSplit ?? false,
   })
@@ -158,20 +159,26 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
       }, t('已保存'))}>{t('保存')}</button>
     </>}>
       <div className="form-grid">
-        <Field label={t('名称')}><input className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="cf-main" /></Field>
+        <Field label={t('名称')} htmlFor="cdn-name"><input id="cdn-name" className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="cf-main" /></Field>
         <Field label={t('服务商')}>
           <select className="input" value={f.provider} onChange={(e) => set('provider', e.target.value)}><option value="cloudflare">Cloudflare</option><option value="other">{t('其他')}</option></select>
         </Field>
-        <Field label={t('回源域名')} full hint={t('一个 Cloudflare 域名建一个配置档就够了：多台节点共用时，第二台起的入口自动用「节点名-域名」（如 oracle-sg-cdn.example.com），在下方「服务节点」里能看到每台节点用哪个域名')}><input className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
-        <Field label={t('TLS 模式')}>
-          <select className="input" value={f.tlsMode} onChange={(e) => set('tlsMode', e.target.value)}><option value="full_strict">Full (strict)</option><option value="full">Full</option><option value="flexible">Flexible</option></select>
+        <Field label={t('回源域名')} htmlFor="cdn-origin" full hint={t('使用相同 CDN 协议的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。')}><input id="cdn-origin" className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
+        <Field label={t('CDN 协议')} htmlFor="cdn-scheme" full hint={t('选择客户端到 CDN 的 HTTP 或 HTTPS 协议；回源 SSL 模式单独设置。切换协议后重置可用端口，可再调整顺序。')}>
+          <select id="cdn-scheme" className="input" value={f.scheme} onChange={(e) => setF((x) => ({ ...x, scheme: e.target.value as 'http' | 'https', ports: cdnPorts(e.target.value).join(', '), caddyFronting: e.target.value === 'http' ? false : x.caddyFronting }))}>
+            <option value="https">{t('HTTPS（TLS）')}</option><option value="http">{t('HTTP（明文）')}</option>
+          </select>
         </Field>
-        {f.provider === 'cloudflare' && <div className="hint" style={{ gridColumn: '1 / -1' }}>{
+        {f.scheme === 'http' && <div className="note warn" style={{ gridColumn: '1 / -1' }}>{t('HTTP CDN 使用明文连接和 HTTP 回源，Cloudflare 入站应关闭 TLS。若站点开启强制 HTTPS 或重定向规则，HTTP 节点将无法连接。')}</div>}
+        <Field label={t('TLS 模式')} htmlFor="cdn-origin-tls">
+          <select id="cdn-origin-tls" className="input" disabled={f.scheme === 'http'} value={f.tlsMode} onChange={(e) => set('tlsMode', e.target.value)}><option value="full_strict">Full (strict)</option><option value="full">Full</option><option value="flexible">Flexible</option></select>
+        </Field>
+        {f.provider === 'cloudflare' && f.scheme === 'https' && <div className="hint" style={{ gridColumn: '1 / -1' }}>{
           f.tlsMode === 'full_strict' ? t('Full (strict)：Cloudflare 校验节点证书，证书必须包含回源域名（或用「同步 DNS」签发的 Origin 证书），否则报 526。')
             : f.tlsMode === 'full' ? t('Full：Cloudflare 用 HTTPS 回源但不校验证书，节点上任意证书都行，入站必须开 TLS。')
               : t('Flexible：Cloudflare 用明文 HTTP 回源，入站不能开 TLS，也不能用 Caddy 统一回源；一般不推荐。')}
           {' '}{t('这里的设置要和 Cloudflare 后台「SSL/TLS」一致：点「同步 DNS」会替你改（对整个域名生效）。')}</div>}
-        <Field label={t('可用端口')} hint={f.provider === 'cloudflare' ? t('只能用 Cloudflare 的 HTTPS 端口：443、2053、2083、2087、2096、8443；第一个用于不在这些端口上的入站和 Caddy 统一回源') : undefined}><input className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
+        <Field label={t('可用端口')} htmlFor="cdn-ports" hint={f.provider === 'cloudflare' ? t('Cloudflare 的 {scheme} 端口：{ports}。第一个为默认连接端口。', { scheme: f.scheme.toUpperCase(), ports: cdnPorts(f.scheme).join('、') }) : undefined}><input id="cdn-ports" className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
         {profile?.tokenSource === 'profile' && <Field label="Cloudflare API Token" full hint={t('这个配置档有单独保存的 Token（旧版本填写），留空保持不变。新配置档统一用「CDN 配置档」页的 CDN Token')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
         </Field>}
@@ -191,7 +198,7 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
       <div className="toggle"><span>{t('按运营商分配：电信、联通、移动用户各自拿到同运营商测速点上报的 IP；识别不出运营商时用合并后的列表')}</span><Switch label={t('按运营商分配')} on={f.carrierSplit} onChange={(v) => set('carrierSplit', v)} /></div>
       <div className="toggle"><span>{t('订阅按优选 IP 展开（一个 IP 一个节点）')}</span><Switch label={t('展开')} on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
       <div className="toggle"><span>{t('自动同步 DNS 记录（开启代理）：需要 API Token；新加 CDN 入口时和每 6 小时把记录指向节点 IP，不改 SSL 模式和证书')}</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
-      <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享第一个端口，按路径分流；入站需开 TLS；该端口被其他入站占用时不生效）')}</span><Switch label="Caddy" on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
+      <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享第一个端口，按路径分流；入站需开 TLS；该端口被其他入站占用时不生效）')}</span><Switch label="Caddy" disabled={f.scheme === 'http'} on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
     </Drawer>
   )
 }
@@ -229,10 +236,11 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
   return (
     <>
       <section className="card">
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('CDN 配置档 · {name}', { name: p.name })}</h2><span className="tag" style={{ margin: 0 }}>{p.provider === 'cloudflare' ? 'Cloudflare' : t('其他')}</span></div>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('CDN 配置档 · {name}', { name: p.name })}</h2><span className="tag" style={{ margin: 0 }}>{p.provider === 'cloudflare' ? 'Cloudflare' : t('其他')} · {cdnScheme(p).toUpperCase()}</span></div>
         <dl className="kv" style={{ margin: '16px 0 0' }}>
           <dt>{t('回源域名')}</dt><dd className="mono">{p.originDomain}</dd>
-          <dt>{t('TLS 模式')}</dt><dd>{p.tlsMode === 'full_strict' ? 'Full (strict)' : p.tlsMode}</dd>
+          <dt>{t('CDN 协议')}</dt><dd>{cdnScheme(p).toUpperCase()}</dd>
+          <dt>{t('TLS 模式')}</dt><dd>{cdnScheme(p) === 'http' ? t('HTTP 回源（不使用此设置）') : p.tlsMode === 'full_strict' ? 'Full (strict)' : p.tlsMode}</dd>
           <dt>{t('可用端口')}</dt><dd>{p.ports.map((x) => <span key={x} className="tag">{x}</span>)}</dd>
           <dt>{t('服务节点')}</dt><dd>{(p.serves ?? []).length === 0 ? <span className="sub">{t('还没有入站使用：在「入站」里给入站添加这个配置档的 CDN 入口')}</span> : (p.serves ?? []).map((x) => (
             <div key={x.node + x.tag} className="small"><b>{x.node}</b> · {x.tag} → <span className="mono">{x.host}</span></div>))}</dd>
@@ -276,7 +284,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('Cloudflare 配置档共用测速点：本配置档也在用其他配置档的 {list} 上报的 IP；这里的测速点上报的 IP 同样给其他配置档用', { list: (p.shared ?? []).join('、') }) : t('Cloudflare 配置档共用测速点：任一配置档的测速点上报的 IP，所有 Cloudflare 配置档都会用（各自手填的域名保留）')}</div>}
+        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点，各自手动域名保留。')}</div>}
         {p.reports.length === 0 && waiting.length === 0 ? (p.shared ?? []).length > 0 ? null : <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
@@ -727,7 +735,7 @@ export default function Chains() {
                   <tbody>
                     {(cdn.data ?? []).map((p) => (
                       <tr key={p.id} className={'clickable' + (p.id === selCDN?.id ? ' sel' : '')} onClick={() => setCdnSel(p.id)} aria-selected={p.id === selCDN?.id}>
-                        <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
+                        <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}</td><td data-label={t('服务商')}>{p.provider} · {cdnScheme(p).toUpperCase()}</td><td data-label={t('回源域名')} className="mono rt-break">{p.originDomain}</td>
                         <td data-label={t('优选 IP')} className="mono">{p.preferredIps.length}</td><td data-label={t('服务节点')} className="small">{(p.serves ?? []).length === 0 ? <span className="sub">{t('未使用')}</span> : <div>{(p.serves ?? []).map((x) => <div key={x.node + x.tag}>{x.node} → <span className="mono">{x.host}</span></div>)}</div>}</td>
                         <td className="rt-actions" style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                           <button className="link" type="button" onClick={() => setCdnDrawer(p)}>{t('编辑')}</button>
@@ -772,6 +780,7 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
     made.mirror ? `--mirror ${q(made.mirror + '/')}` : '',
   ].filter(Boolean).join(' ')
   const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}>`
+  if (cdnScheme(p) === 'http') return <div className="hint" style={{ marginTop: 10 }}>{t('当前一键测速程序仅支持 HTTPS；HTTP 配置档可维护优选地址、设置来源 URL，或自行按 HTTP 端口测速并上报。')}</div>
   return (
     <details style={{ marginTop: 10 }} open={!!made}>
       <summary className="sub" style={{ cursor: 'pointer' }}>{t('添加测速点（一键安装 cf-ip-probe）')}</summary>

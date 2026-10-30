@@ -18,11 +18,11 @@ import (
 // profile ("" = they can). epPort is the endpoint's own port override (0 =
 // none); fronted is whether Agent's Caddy fronts the inbound.
 //
-// Clients always speak TLS to the CDN (see expandEndpoint), so with
-// Cloudflare: the port must be one of its HTTPS ports, gRPC works only on
-// 443, Full / Full (strict) reach the origin over HTTPS (the inbound, or
-// Caddy, must terminate TLS) and Flexible reaches it over plain HTTP.
+// Client scheme selects the edge ports independently of origin SSL mode.
 func cdnProblem(m *model.Inbound, p *store.CDNProfile, epPort int, fronted bool) string {
+	if fronted && cdnScheme(p) == "http" {
+		return "HTTP CDN 不支持内置 Caddy 统一回源，请使用 HTTPS"
+	}
 	tls := m.Security.Type == model.SecTLS
 	if fronted && !tls {
 		return "Caddy 统一回源需要入站开启 TLS 并配置证书"
@@ -34,13 +34,20 @@ func cdnProblem(m *model.Inbound, p *store.CDNProfile, epPort int, fronted bool)
 	if port == 0 {
 		port = cdnNodePort(p, m.Port, fronted)
 	}
-	if !slices.Contains(cloudflareHTTPSPorts, port) {
-		return fmt.Sprintf("客户端会经 Cloudflare 连 %d 端口，但 Cloudflare 只在 443、2053、2083、2087、2096、8443 上代理 HTTPS：把入站端口改成其中之一", port)
+	if !slices.Contains(cdnClientPorts(p), port) {
+		return fmt.Sprintf("客户端会经 Cloudflare 连 %d 端口，但 %s 只支持 %s：请修改入口端口", port, strings.ToUpper(cdnScheme(p)), cdnPortsText(p))
+	}
+	if m.Transport.Type == model.TransGRPC && cdnScheme(p) == "http" {
+		return "Cloudflare gRPC 需要 HTTPS CDN 和 443 端口，请选择 HTTPS 配置档"
 	}
 	if m.Transport.Type == model.TransGRPC && port != 443 {
 		return fmt.Sprintf("Cloudflare 只在 443 端口代理 gRPC，当前客户端会连 %d 端口：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS", port)
 	}
-	if p.TLSMode == "flexible" {
+	if cdnScheme(p) == "http" {
+		if tls {
+			return "HTTP CDN 使用明文 HTTP 回源，入站应关闭 TLS，或改用 HTTPS CDN"
+		}
+	} else if p.TLSMode == "flexible" {
 		if tls {
 			return "SSL 模式 Flexible 下 Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上：把配置档的 SSL 模式改为 Full 或 Full (strict)"
 		}
@@ -72,7 +79,7 @@ func (s *Server) cdnEndpointProblem(m *model.Inbound, inboundID string, p *store
 // certificate covers the origin domain; a certificate for the node's own
 // domain (or a self-signed one) fails with error 526.
 func cdnCertWarning(m *model.Inbound, p *store.CDNProfile) string {
-	if p.Provider != "cloudflare" || m.Security.Type != model.SecTLS {
+	if cdnScheme(p) == "http" || p.Provider != "cloudflare" || m.Security.Type != model.SecTLS {
 		return ""
 	}
 	if p.TLSMode != "" && p.TLSMode != "full_strict" {

@@ -63,7 +63,7 @@ func frontProfile(db *gorm.DB, inboundID string) (frontInfo, bool) {
 	db.Where("inbound_id = ? AND kind = ?", inboundID, "cdn").Find(&eps)
 	for _, ep := range eps {
 		var p store.CDNProfile
-		if db.First(&p, "id = ?", ep.CDNProfileID).Error != nil || !p.CaddyFronting {
+		if db.First(&p, "id = ?", ep.CDNProfileID).Error != nil || !p.CaddyFronting || cdnScheme(&p) == "http" {
 			continue
 		}
 		port := ep.Port

@@ -25,6 +25,7 @@ import (
 // cdnTarget is where a client of a cdn endpoint connects, as the
 // subscription tells it (see expandEndpoint).
 type cdnTarget struct {
+	Scheme string `json:"scheme"`
 	Server string `json:"server"`
 	Port   int    `json:"port"`
 	SNI    string `json:"sni"`
@@ -35,7 +36,7 @@ type cdnTarget struct {
 func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnTarget {
 	_, fronted := s.frontFor(m.ID)
 	host := orDefault(ep.Host, p.OriginDomain)
-	t := cdnTarget{Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
+	t := cdnTarget{Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
 	if m.Transport.Type == model.TransGRPC {
 		t.Path = "/" + m.Transport.ServiceName
 	}
@@ -86,7 +87,7 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 // cdnCertProblem is cdnCertWarning for a stored inbound: its certificate
 // (a Cloudflare Origin one, or one for the origin host) may already fit.
 func (s *Server) cdnCertProblem(m *model.Inbound, p *store.CDNProfile, host string) string {
-	if p.Provider != "cloudflare" || m.Security.Type != model.SecTLS || (p.TLSMode != "" && p.TLSMode != "full_strict") {
+	if cdnScheme(p) == "http" || p.Provider != "cloudflare" || m.Security.Type != model.SecTLS || (p.TLSMode != "" && p.TLSMode != "full_strict") {
 		return ""
 	}
 	var c store.Certificate
@@ -179,7 +180,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			// port), where nothing listens: 521 although the TLS port answers.
 			if mode, err := cf.sslMode(ctx, zone); err == nil {
 				r.Steps = append(r.Steps, "Cloudflare SSL/TLS 模式："+mode)
-				if mode == "flexible" || mode == "off" {
+				if cdnOriginTLS(p) && (mode == "flexible" || mode == "off") {
 					r.Message = fmt.Sprintf("Cloudflare 的 SSL/TLS 模式是 %s：Cloudflare 用明文 HTTP 连节点的 HTTP 端口（80 或对应的 HTTP 端口，而不是 %d），那里没有程序监听，所以报 521。到 Cloudflare 后台 SSL/TLS 把模式改为 Full（或在配置档选 Full 后点「同步 DNS」）", mode, t.Port)
 					return
 				}
@@ -222,6 +223,12 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 		r.Message += fmt.Sprintf("。面板直连 %s 也连不上（%v）：检查云服务商安全组 / 防火墙是否放行 %d 端口", addr, err, t.Port)
 	default:
 		_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
+		if !cdnOriginTLS(p) {
+			conn.Close()
+			r.Steps = append(r.Steps, "面板直连 "+addr+"：TCP 通，配置为 HTTP 回源")
+			r.Message += "。HTTP 回源端口 TCP 可达，请检查 DNS、Cloudflare 来源 IP 的防火墙规则及 HTTP 入站日志"
+			return
+		}
 		tc := tls.Client(conn, &tls.Config{ServerName: t.SNI, InsecureSkipVerify: true}) // only asks whether TLS is served there
 		herr := tc.HandshakeContext(ctx)
 		conn.Close()
@@ -280,7 +287,7 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		}
 	}
 
-	// 2. TLS to Cloudflare on the client's port.
+	// 2. Connect using the selected client scheme.
 	addr := net.JoinHostPort(t.Server, strconv.Itoa(t.Port))
 	d := &net.Dialer{Timeout: 8 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
@@ -289,11 +296,17 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
-	tc := tls.Client(conn, &tls.Config{ServerName: t.SNI, NextProtos: []string{"http/1.1"}, RootCAs: cdnProbeRoots})
-	if err := tc.HandshakeContext(ctx); err != nil {
-		return fail("和 %s 的 TLS 握手失败（SNI %s）：%v。检查域名是否接入 Cloudflare、端口是否为 Cloudflare 的 HTTPS 端口", addr, t.SNI, err)
+	var tc net.Conn = conn
+	if t.Scheme != "http" {
+		tlsConn := tls.Client(conn, &tls.Config{ServerName: t.SNI, NextProtos: []string{"http/1.1"}, RootCAs: cdnProbeRoots})
+		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			return fail("和 %s 的 TLS 握手失败（SNI %s）：%v。检查域名是否接入 Cloudflare、端口是否为 Cloudflare 的 HTTPS 端口", addr, t.SNI, err)
+		}
+		tc = tlsConn
+		step("TLS 连上 %s（SNI %s）", addr, t.SNI)
+	} else {
+		step("HTTP 连上 %s（Host %s）", addr, t.Host)
 	}
-	step("TLS 连上 %s（SNI %s）", addr, t.SNI)
 
 	// 3. A WebSocket upgrade on the inbound's path, through to the origin.
 	key := make([]byte, 16)
@@ -319,6 +332,8 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		return fail("错误 %d：%s", resp.StatusCode, msg)
 	}
 	switch {
+	case t.Scheme == "http" && resp.StatusCode >= 300 && resp.StatusCode < 400 && strings.HasPrefix(strings.ToLower(resp.Header.Get("Location")), "https://"):
+		r.Message = "HTTP 入口被重定向到 HTTPS：请检查 Cloudflare 的 Always Use HTTPS / 重定向规则，或改用 HTTPS 配置档"
 	case resp.StatusCode == http.StatusSwitchingProtocols:
 		r.OK = true
 		r.Message = "连通：客户端 → Cloudflare → 节点入站都通了"

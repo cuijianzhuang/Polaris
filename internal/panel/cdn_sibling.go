@@ -19,7 +19,7 @@ var cloudflareHTTPSPorts = []int{443, 2053, 2083, 2087, 2096, 8443}
 
 // createCDNSibling is POST /inbounds/:id/cdn-sibling {cdnProfileId}: for an
 // inbound that cannot go through a CDN (TCP, REALITY, UDP protocols), add a
-// VLESS + WebSocket + TLS inbound on the same node, on a free port the CDN
+// VLESS + WebSocket inbound with matching origin security on a free port the CDN
 // proxies, for the same user groups, published only through the profile.
 func (s *Server) createCDNSibling(c *gin.Context) {
 	var src store.Inbound
@@ -57,8 +57,11 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 		Enabled:   true,
 	}
 	// A port the CDN proxies that nothing on the node uses: the profile's
-	// own ports first, then Cloudflare's HTTPS ports.
-	candidates := append(slices.Clone(p.Ports.V), cloudflareHTTPSPorts...)
+	// own ports first, then the ports for the selected client scheme.
+	if !cdnOriginTLS(&p) {
+		m.Security = model.SecuritySpec{Type: model.SecNone}
+	}
+	candidates := append(slices.Clone(p.Ports.V), cdnClientPorts(&p)...)
 	used, err := s.usedPorts(node.ID)
 	if err != nil {
 		dbError(c, err)
