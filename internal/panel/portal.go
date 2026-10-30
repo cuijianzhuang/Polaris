@@ -404,7 +404,7 @@ go.addEventListener('click',login);code.addEventListener('keydown',function(e){i
 (function(){
 var go=document.getElementById('go'),err=document.getElementById('err'),req=null,timer=0;
 function show(m){err.textContent=m;err.hidden=!m}
-function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):null,credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
+function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:b?JSON.stringify(b):null,credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
 function reset(m){clearTimeout(timer);req=null;document.getElementById('s1').hidden=false;document.getElementById('s2').hidden=true;go.disabled=false;show(m)}
 function poll(){if(!req)return;post('poll',{id:req.id,secret:req.secret}).then(function(j){
 if(j.status==='ok'){location.replace('/u');return}
