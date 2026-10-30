@@ -391,6 +391,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/cdn-profiles", s.listCDN)
 	p.POST("/cdn-profiles", s.createCDN)
 	p.PUT("/cdn-profiles/:id", s.updateCDN)
+	p.PUT("/cdn-profiles/:id/pinned-hosts", s.updateCDNPinnedHosts)
 	p.DELETE("/cdn-profiles/:id", s.deleteCDN)
 	p.POST("/cdn-profiles/:id/sync-dns", s.syncCDNDNS)
 	p.POST("/cdn-profiles/:id/refresh-ips", s.refreshCDNIPs)

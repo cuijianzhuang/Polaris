@@ -187,21 +187,22 @@ func (c *cfClient) originCert(ctx context.Context, hosts []string) (certPEM, key
 // --- API ---
 
 type cdnReq struct {
-	Name          string   `json:"name" binding:"required"`
-	Provider      string   `json:"provider"`
-	OriginDomain  string   `json:"originDomain" binding:"required"`
-	TLSMode       string   `json:"tlsMode"`
-	Ports         []int    `json:"ports"`
-	PreferredIPs  []string `json:"preferredIps"`
-	IPSourceURL   string   `json:"ipSourceUrl"`
-	IPTopN        int      `json:"ipTopN"`
-	ExpandPerIP   bool     `json:"expandPerIp"`
-	AutoDNS       bool     `json:"autoDns"`
-	CaddyFronting bool     `json:"caddyFronting"`
-	NodeCheck     bool     `json:"nodeCheck"`
-	StaleHours    int      `json:"staleHours"`
-	CarrierSplit  bool     `json:"carrierSplit"`
-	APIToken      string   `json:"apiToken"` // empty = unchanged
+	Name          string    `json:"name" binding:"required"`
+	Provider      string    `json:"provider"`
+	OriginDomain  string    `json:"originDomain" binding:"required"`
+	TLSMode       string    `json:"tlsMode"`
+	Ports         []int     `json:"ports"`
+	PreferredIPs  []string  `json:"preferredIps"`
+	PinnedHosts   *[]string `json:"pinnedHosts"` // nil keeps the legacy mixed-list contract
+	IPSourceURL   string    `json:"ipSourceUrl"`
+	IPTopN        int       `json:"ipTopN"`
+	ExpandPerIP   bool      `json:"expandPerIp"`
+	AutoDNS       bool      `json:"autoDns"`
+	CaddyFronting bool      `json:"caddyFronting"`
+	NodeCheck     bool      `json:"nodeCheck"`
+	StaleHours    int       `json:"staleHours"`
+	CarrierSplit  bool      `json:"carrierSplit"`
+	APIToken      string    `json:"apiToken"` // empty = unchanged
 }
 
 var cdnHostRe = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9-]{2,63}$`)
@@ -256,6 +257,13 @@ func (r *cdnReq) normalize() error {
 		}
 	}
 	r.PreferredIPs = ips
+	if r.PinnedHosts != nil {
+		hosts, err := normalizeCDNPinnedHosts(*r.PinnedHosts)
+		if err != nil {
+			return err
+		}
+		r.PinnedHosts = &hosts
+	}
 	if u := strings.TrimSpace(r.IPSourceURL); u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
 		return fmt.Errorf("优选 IP 来源应为 http(s):// 网址")
 	}
@@ -281,6 +289,9 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		}
 	}
 	p.PinnedHosts = store.NewJSON(pinned)
+	if r.PinnedHosts != nil {
+		setCDNPinnedHosts(p, *r.PinnedHosts, oldPinned)
+	}
 	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
 	if !p.NodeCheck {
 		p.BadIPs = store.NewJSON([]string{})
@@ -402,8 +413,16 @@ func (s *Server) updateCDN(c *gin.Context) {
 			}
 		}
 	}
-	req.apply(&p, s.st.Box.Seal)
-	if err := s.st.DB.Save(&p).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
+			return err
+		}
+		req.apply(&p, s.st.Box.Seal)
+		return tx.Save(&p).Error
+	}); err != nil {
 		dbError(c, err)
 		return
 	}
@@ -808,9 +827,19 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile) (
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("来源中没有可用的 IP 或域名")
 	}
-	ips = withPinned(ips, p.PinnedHosts.V)
-	now := time.Now()
-	if err := s.st.DB.Model(p).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": now, "last_error": ""}).Error; err != nil {
+	// The HTTP fetch can overlap a manual edit. Read the current pins only
+	// after acquiring the same transaction lock used by report rebuilds.
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		var current store.CDNProfile
+		if err := tx.First(&current, "id = ?", p.ID).Error; err != nil {
+			return err
+		}
+		ips = withPinned(ips, current.PinnedHosts.V)
+		return tx.Model(&current).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": time.Now(), "last_error": ""}).Error
+	}); err != nil {
 		return nil, err
 	}
 	return ips, nil
