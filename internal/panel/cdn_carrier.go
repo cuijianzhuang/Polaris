@@ -3,7 +3,6 @@ package panel
 import (
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -95,22 +94,21 @@ func (s *Server) carrierOfIP(ip string) string {
 // carrierCDNIPs is the profile's list for one carrier: the fresh reports of
 // that carrier's speed-test points, merged and filtered like the main list.
 // nil when there is none, and the caller falls back to the main list.
-func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string) []string {
+func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string, ports ...int) []string {
+	port := cdnDefaultPort(p)
+	if len(ports) > 0 {
+		port = ports[0]
+	}
 	if !p.CarrierSplit || carrier == "" {
 		return nil
 	}
-	reports := sharedCDNReports(s.st.DB, p, time.Now().Add(-cdnStaleAfter(p)), carrier)
+	reports := cdnReportsForPort(s.st.DB, p, port, time.Now().Add(-cdnStaleAfter(p)), carrier)
 	if len(reports) == 0 {
 		return nil
 	}
 	list := withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
-	if p.NodeCheck && len(p.BadIPs.V) > 0 {
-		kept := slices.DeleteFunc(slices.Clone(list), func(ip string) bool { return slices.Contains(p.BadIPs.V, ip) })
-		if len(kept) > 0 {
-			list = kept
-		}
-	}
-	return list
+
+	return usableCDNIPsAt(p, list, port)
 }
 
 // portalCarrier is POST /u/carrier {carrier}: the user picks the carrier

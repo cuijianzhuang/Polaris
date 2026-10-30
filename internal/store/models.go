@@ -580,9 +580,10 @@ type CDNProfile struct {
 	StaleAlerted bool `json:"-"`
 	// NodeCheck has online nodes test each preferred IP; IPs no node can
 	// reach are listed in BadIPs and left out of subscriptions.
-	NodeCheck bool           `json:"nodeCheck"`
-	BadIPs    JSON[[]string] `json:"badIps"`
-	CheckedAt *time.Time     `json:"checkedAt"`
+	NodeCheck  bool                          `json:"nodeCheck"`
+	BadIPs     JSON[[]string]                `json:"badIps"`
+	PortChecks JSON[map[string]CDNPortCheck] `json:"portChecks"`
+	CheckedAt  *time.Time                    `json:"checkedAt"`
 	// CarrierSplit gives each subscriber the IPs that speed-test points on
 	// the subscriber's carrier reported (see CDNIPReport.Carrier).
 	CarrierSplit bool      `json:"carrierSplit"`
@@ -593,11 +594,20 @@ type CDNProfile struct {
 // CDNIPReport is the latest result a speed-test point sent for a CDN
 // profile: its best IPs, ranked.
 type CDNIPReport struct {
+	Port      int                 `json:"port"` // 0 = legacy HTTPS/443 report
+	Scheme    string              `gorm:"size:8" json:"scheme"`
 	ProfileID string              `gorm:"primaryKey;size:32" json:"profileId"`
 	Source    string              `gorm:"primaryKey;size:40" json:"source"` // e.g. "上海电信"
 	Carrier   string              `gorm:"size:8" json:"carrier"`            // ct / cu / cm / "" (unknown)
 	At        time.Time           `json:"at"`
 	IPs       JSON[[]CDNIPResult] `json:"ips"`
+}
+
+// CDNPortCheck keeps reachability verdicts isolated by actual client port.
+type CDNPortCheck struct {
+	BadIPs    []string  `json:"badIps"`
+	AllFailed bool      `json:"allFailed"`
+	At        time.Time `json:"at"`
 }
 
 // CDNIPResult is one tested IP: average latency, packet loss (0–1) and,
@@ -938,6 +948,7 @@ type APIToken struct {
 	// A CDN speed-test point's token may only report for this profile and
 	// under this source name (set when the panel pairs the point).
 	CDNProfileID string         `gorm:"size:32;index" json:"cdnProfileId,omitempty"`
+	CDNPort      int            `json:"cdnPort,omitempty"`
 	CDNSource    string         `gorm:"column:cdn_source;size:40" json:"cdnSource,omitempty"`
 	Hash         string         `gorm:"size:64;uniqueIndex" json:"-"`
 	Prefix       string         `gorm:"size:16" json:"prefix"` // first characters, to recognise a token

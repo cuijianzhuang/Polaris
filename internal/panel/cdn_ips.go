@@ -49,6 +49,8 @@ var (
 )
 
 type cdnIPReportReq struct {
+	Port    int                 `json:"port"`
+	Scheme  string              `json:"scheme"`
 	Source  string              `json:"source"`
 	Carrier string              `json:"carrier"` // ct / cu / cm; "" = infer from source
 	IPs     []store.CDNIPResult `json:"ips"`
@@ -158,9 +160,20 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
+	if token := apiTokenOf(c); token != nil && token.CDNPort > 0 {
+		if req.Port != 0 && req.Port != token.CDNPort {
+			c.JSON(http.StatusForbidden, gin.H{"error": "测速令牌只能上报绑定的端口"})
+			return
+		}
+		req.Port = token.CDNPort
+		if req.Scheme == "" {
+			req.Scheme = cdnScheme(&p)
+		}
+	}
 	now := time.Now()
 	var lists map[string][]string
 	var recovered []store.CDNProfile
+	var reportProblem error
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {
 			return err
@@ -168,8 +181,13 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
+		port, scheme, targetErr := cdnReportTarget(req, &p)
+		if targetErr != nil {
+			reportProblem = targetErr
+			return targetErr
+		}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.CDNIPReport{
-			ProfileID: p.ID, Source: req.Source, Carrier: carrier, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
+			ProfileID: p.ID, Source: req.Source, Carrier: carrier, Port: port, Scheme: scheme, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
 			return err
 		}
 		var err error
@@ -177,7 +195,11 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		return err
 	})
 	if err != nil {
-		dbError(c, err)
+		if reportProblem != nil {
+			badRequest(c, reportProblem)
+		} else {
+			dbError(c, err)
+		}
 		return
 	}
 	list := lists[p.ID]
@@ -206,7 +228,7 @@ func lockCDNReports(tx *gorm.DB) error {
 // fresh reports gets them merged, plus its typed-in domains; one with none
 // keeps its list without the removed addresses (a retired point's). It
 // returns the new lists and the profiles whose stale alert it cleared.
-func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, removed []string) (map[string][]string, []store.CDNProfile, error) {
+func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, removed []string, removedPorts ...int) (map[string][]string, []store.CDNProfile, error) {
 	var targets []store.CDNProfile
 	q := tx.Where("id = ?", origin.ID)
 	if origin.Provider == "cloudflare" {
@@ -227,7 +249,7 @@ func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, remov
 			if t.StaleAlerted {
 				recovered = append(recovered, *t)
 			}
-		} else if len(removed) > 0 {
+		} else if len(removed) > 0 && (len(removedPorts) == 0 || slices.Contains(removedPorts, cdnDefaultPort(t))) {
 			kept := slices.DeleteFunc(slices.Clone(t.PreferredIPs.V), func(ip string) bool {
 				return slices.Contains(removed, ip) && !slices.Contains(t.PinnedHosts.V, ip)
 			})
@@ -258,7 +280,12 @@ func reportIPs(rs []store.CDNIPReport) []string {
 // time: Cloudflare profiles with the same HTTP/HTTPS scheme (its own
 // otherwise), the newest per speed-test point, optionally of one carrier.
 func sharedCDNReports(db *gorm.DB, p *store.CDNProfile, since time.Time, carrier string) []store.CDNIPReport {
+	return cdnReportsForPort(db, p, cdnDefaultPort(p), since, carrier)
+}
+
+func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Time, carrier string) []store.CDNIPReport {
 	q := db.Model(&store.CDNIPReport{}).Where("at > ?", since)
+	q = q.Where("COALESCE(NULLIF(port,0),443) = ?", port).Where("COALESCE(NULLIF(scheme,''),'https') = ?", cdnScheme(p))
 	if p.Provider == "cloudflare" {
 		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnScheme(p)))
 	} else {
@@ -324,7 +351,11 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 		if len(gone) == 0 {
 			return nil
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now(), reportIPs(gone))
+		ports := []int{}
+		for _, r := range gone {
+			ports = append(ports, effectiveCDNReportPort(r))
+		}
+		_, _, err := rebuildCDNLists(tx, &p, time.Now(), reportIPs(gone), ports...)
 		return err
 	})
 	if err != nil {
@@ -394,12 +425,39 @@ func (s *Server) checkCDNIPsFromNodes() {
 	ctx, cancel := context.WithTimeout(s.ctxBG(), 4*time.Minute)
 	defer cancel()
 	for i := range ps {
-		bad := s.cdnUnreachable(ctx, &ps[i], nodes)
-		if ctx.Err() != nil {
-			return // ran out of time: keep the previous verdict
+		p := &ps[i]
+		checks := p.PortChecks.V
+		if checks == nil {
+			checks = map[string]store.CDNPortCheck{}
 		}
-		if err := s.st.DB.Model(&ps[i]).Updates(map[string]any{"bad_ips": store.NewJSON(bad), "checked_at": time.Now()}).Error; err != nil {
-			s.log.Warn("cdn node check", "profile", ps[i].Name, "err", err)
+		ports := s.cdnCheckPorts(p)
+		slices.SortStableFunc(ports, func(a, b int) int { return checks[strconv.Itoa(a)].At.Compare(checks[strconv.Itoa(b)].At) })
+		changed := false
+		for _, port := range ports {
+			q := *p
+			q.PreferredIPs = store.NewJSON(s.cdnAddressesForPort(p, port))
+			if len(q.PreferredIPs.V) == 0 {
+				continue
+			}
+			bad, allFailed := s.cdnUnreachablePort(ctx, &q, nodes, port)
+			if ctx.Err() != nil {
+				break
+			}
+			checks[strconv.Itoa(port)] = store.CDNPortCheck{BadIPs: bad, AllFailed: allFailed, At: time.Now()}
+			changed = true
+		}
+		if changed {
+			upd := map[string]any{"port_checks": store.NewJSON(checks)}
+			if check, ok := checks[strconv.Itoa(cdnDefaultPort(p))]; ok {
+				upd["bad_ips"] = store.NewJSON(check.BadIPs)
+				upd["checked_at"] = check.At
+			}
+			if err := s.st.DB.Model(p).Updates(upd).Error; err != nil {
+				s.log.Warn("cdn node check", "profile", p.Name, "err", err)
+			}
+		}
+		if ctx.Err() != nil {
+			return
 		}
 	}
 }
@@ -407,11 +465,14 @@ func (s *Server) checkCDNIPsFromNodes() {
 // cdnUnreachable returns the IPs (of the first cdnNodeCheckMaxIPs) that
 // failed from every node.
 func (s *Server) cdnUnreachable(ctx context.Context, p *store.CDNProfile, nodes []string) []string {
+	bad, _ := s.cdnUnreachablePort(ctx, p, nodes, cdnDefaultPort(p))
+	return bad
+}
+func (s *Server) cdnUnreachablePort(ctx context.Context, p *store.CDNProfile, nodes []string, port int) ([]string, bool) {
 	ips := p.PreferredIPs.V
 	if len(ips) > cdnNodeCheckMaxIPs {
 		ips = ips[:cdnNodeCheckMaxIPs]
 	}
-	port := cdnDefaultPort(p)
 	var mu sync.Mutex
 	ok := map[string]bool{}
 	sem := make(chan struct{}, cdnNodeCheckWorkers)
@@ -438,10 +499,10 @@ func (s *Server) cdnUnreachable(ctx context.Context, p *store.CDNProfile, nodes 
 			bad = append(bad, ip)
 		}
 	}
-	if len(bad) == len(ips) {
-		return []string{}
+	if len(ips) > 0 && len(bad) == len(ips) {
+		return []string{}, true
 	}
-	return nonNilStrs(bad)
+	return nonNilStrs(bad), false
 }
 
 func nonNilReports(rs []store.CDNIPReport) []store.CDNIPReport {
@@ -454,17 +515,5 @@ func nonNilReports(rs []store.CDNIPReport) []store.CDNIPReport {
 // usableCDNIPs is the profile's preferred list without the IPs the node
 // check marked bad.
 func usableCDNIPs(p *store.CDNProfile) []string {
-	if !p.NodeCheck || len(p.BadIPs.V) == 0 {
-		return p.PreferredIPs.V
-	}
-	out := make([]string, 0, len(p.PreferredIPs.V))
-	for _, ip := range p.PreferredIPs.V {
-		if !slices.Contains(p.BadIPs.V, ip) {
-			out = append(out, ip)
-		}
-	}
-	if len(out) == 0 {
-		return p.PreferredIPs.V
-	}
-	return out
+	return usableCDNIPsAt(p, p.PreferredIPs.V, cdnDefaultPort(p))
 }

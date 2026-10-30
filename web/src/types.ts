@@ -94,16 +94,16 @@ export interface TrafficPack {
   id: string; name: string; traffic: number; planIds: string[]; sale: boolean; priceStars: number; priceCny: number; priceUsdt: number; sort: number
 }
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string
-  target?: { scheme?: 'http' | 'https'; server: string; port: number; sni: string; host: string; path: string }; warnings?: string[] }
+  target?: { originPort?: number; scheme?: 'http' | 'https'; server: string; port: number; sni: string; host: string; path: string }; warnings?: string[] }
 export interface CDNProfile {
   scheme?: 'http' | 'https'
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'
   zoneId: string; lastRefreshAt?: string; lastError: string; inbounds: number; serves?: { node: string; tag: string; host: string }[]
-  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; carrierSplit: boolean; reports: CDNIPReport[]; shared?: string[]; thirdParty?: string[]; probes: CDNProbe[]
+  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; portChecks?: Record<string, { badIps: string[]; allFailed: boolean; at: string }>; carrierSplit: boolean; reports: CDNIPReport[]; shared?: string[]; thirdParty?: string[]; probes: CDNProbe[]
 }
-export interface CDNProbe { source: string; tokenId: string; prefix: string; createdAt: string; lastUsedAt?: string | null; lastIp: string }
-export interface CDNIPReport { source: string; carrier?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }
+export interface CDNProbe { port?: number; source: string; tokenId: string; prefix: string; createdAt: string; lastUsedAt?: string | null; lastIp: string }
+export interface CDNIPReport { port?: number; scheme?: 'http' | 'https'; source: string; carrier?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }
 export interface ChainHop { nodeId: string; inboundId?: string; port?: number }
 export interface HopProbe { nodeId: string; latencyMs: number; ok: boolean; error?: string }
 export interface Chain { id: string; name: string; mode: 'l4' | 'proxy'; hops: ChainHop[]; serviceUserId: string; probe: HopProbe[]; probedAt?: string; remark: string }
@@ -178,4 +178,4 @@ export interface NodeTraffic {
 export interface SourceReference { id: string; nodeId: string; tag: string; inboundIds: string[] }
 export interface SourceNode { id: string; sourceId: string; name: string; protocol: string; server: string; port: number; network: string; security: string; missing: boolean; available: boolean; supported: boolean; reason?: string; source: string; references: SourceReference[] }
 export interface SourceRefresh { id: string; revision: number; createdAt: string; unchanged: number; changes: { id: string; name: string; kind: string; fields?: string[] }[] }
-export interface CDNCheck { ok: boolean; status?: number; message: string; steps: string[]; warnings?: string[] }
+export interface CDNCheck { ok: boolean; partial?: boolean; status?: number; message: string; steps: string[]; warnings?: string[] }

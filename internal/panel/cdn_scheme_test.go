@@ -148,6 +148,7 @@ func TestProbeCDNHTTP(t *testing.T) {
 		}
 		w.Header().Set("Connection", "Upgrade")
 		w.Header().Set("Upgrade", "websocket")
+		w.Header().Set("Sec-WebSocket-Accept", cdnWebSocketAccept(r.Header.Get("Sec-WebSocket-Key")))
 		w.WriteHeader(101)
 	}))
 	defer srv.Close()
@@ -178,7 +179,7 @@ func TestCDNReportsDoNotMixSchemes(t *testing.T) {
 	}
 	report := func(id, ip string) {
 		t.Helper()
-		if code, out := admin.do("POST", "/cdn-profiles/"+id+"/preferred-ips", map[string]any{"source": "fixture", "ips": []map[string]any{{"ip": ip}}}); code != 200 {
+		if code, out := admin.do("POST", "/cdn-profiles/"+id+"/preferred-ips", map[string]any{"source": "fixture", "port": map[string]int{"http1": 80, "https": 443}[id], "ips": []map[string]any{{"ip": ip}}}); code != 200 {
 			t.Fatalf("report: %d %v", code, out)
 		}
 	}

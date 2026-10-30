@@ -31,16 +31,16 @@ func TestCDNProblem(t *testing.T) {
 	}{
 		{grpc(443), cf, 0, false, false},
 		{grpc(2087), cf, 0, false, true},    // CF keeps the client on 2087
-		{grpc(31000), cf, 0, false, false},  // not a CF port: clients use the profile's 443
+		{grpc(31000), cf, 0, false, true},   // no implicit origin-port rewrite
 		{grpc(2087), cf, 443, false, false}, // endpoint override
 		{grpc(2087), cf, 0, true, false},    // Caddy on 443
 		{grpc(2087), &store.CDNProfile{Provider: "other", Ports: store.NewJSON([]int{443})}, 0, false, false},
 		{in(model.TransWS, model.SecTLS, 2087), cf, 0, false, false},
-		{in(model.TransWS, model.SecTLS, 2087), cf, 8080, false, true},    // plain-HTTP port, clients use TLS
-		{in(model.TransWS, model.SecNone, 2087), cf, 0, false, true},      // Full: CF talks HTTPS to a plain listener
-		{in(model.TransWS, model.SecNone, 2087), cf, 0, true, true},       // Caddy needs the inbound's certificate
-		{in(model.TransWS, model.SecTLS, 2087), flexible, 0, false, true}, // Flexible: CF talks HTTP to a TLS listener
-		{in(model.TransWS, model.SecNone, 2087), flexible, 0, false, false},
+		{in(model.TransWS, model.SecTLS, 2087), cf, 8080, false, true},     // plain-HTTP port, clients use TLS
+		{in(model.TransWS, model.SecNone, 2087), cf, 0, false, true},       // Full: CF talks HTTPS to a plain listener
+		{in(model.TransWS, model.SecNone, 2087), cf, 0, true, true},        // Caddy needs the inbound's certificate
+		{in(model.TransWS, model.SecTLS, 2087), flexible, 0, false, false}, // Flexible on non-443 falls back to Full
+		{in(model.TransWS, model.SecNone, 2087), flexible, 0, false, true},
 		{in(model.TransWS, model.SecNone, 2087), &store.CDNProfile{Provider: "other"}, 0, false, false},
 	} {
 		if got := cdnProblem(c.m, c.p, c.epPort, c.fronted) != ""; got != c.bad {
@@ -223,6 +223,7 @@ func TestProbeCDN(t *testing.T) {
 		}
 		if status == 101 && r.Header.Get("Upgrade") == "websocket" {
 			w.Header().Set("Upgrade", "websocket")
+			w.Header().Set("Sec-WebSocket-Accept", cdnWebSocketAccept(r.Header.Get("Sec-WebSocket-Key")))
 			w.Header().Set("Connection", "Upgrade")
 		}
 		w.WriteHeader(status)
