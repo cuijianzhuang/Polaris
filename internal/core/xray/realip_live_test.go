@@ -40,10 +40,11 @@ func TestRenderTrustedForwardedFor(t *testing.T) {
 	}
 }
 
-// TestLiveTrustedForwardedFor runs a real Xray behind a pretend Cloudflare:
-// with the trusted header the user shows up with the visitor's address, and
-// a request without it keeps the connection's.
-func TestLiveTrustedForwardedFor(t *testing.T) {
+// Trust is available only on the protected loopback upstream of Caddy.
+func TestLiveTrustedForwardedFor(t *testing.T)              { testLiveForwardedFor(t, true) }
+func TestLivePublicInboundRejectsForwardedFor(t *testing.T) { testLiveForwardedFor(t, false) }
+
+func testLiveForwardedFor(t *testing.T, protected bool) {
 	bin := os.Getenv("POLARIS_XRAY_BIN")
 	if bin == "" {
 		t.Skip("POLARIS_XRAY_BIN not set")
@@ -53,8 +54,11 @@ func TestLiveTrustedForwardedFor(t *testing.T) {
 	a := New(core.Options{Version: "26.3.27", BinPath: bin, WorkDir: dir, APIListen: api})
 	port := freePort(t)
 	in := coretest.Inbound(model.CoreXray, "ws", port, model.ProtocolSpec{Type: model.ProtoVLESS},
-		model.TransportSpec{Type: model.TransWS, Path: "/ws", TrustedForwardedFor: []string{"CF-Connecting-IP"}}, model.SecuritySpec{})
+		model.TransportSpec{Type: model.TransWS, Path: "/ws", TrustedForwardedFor: []string{"X-Polaris-Client-IP"}}, model.SecuritySpec{})
 	in.Listen = "127.0.0.1"
+	if !protected {
+		in.Listen = "0.0.0.0"
+	}
 	cfg, err := a.Render(&model.NodeSpec{Inbounds: []model.Inbound{in}})
 	if err != nil {
 		t.Fatal(err)
@@ -70,6 +74,7 @@ func TestLiveTrustedForwardedFor(t *testing.T) {
 
 	web, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer web.Close()
+	accepted := make(chan struct{}, 2)
 	go func() { // holds every connection open, so Xray keeps the user online
 		for {
 			c, err := web.Accept()
@@ -77,6 +82,7 @@ func TestLiveTrustedForwardedFor(t *testing.T) {
 				return
 			}
 			t.Cleanup(func() { c.Close() })
+			accepted <- struct{}{}
 		}
 	}()
 	webPort := web.Addr().(*net.TCPAddr).Port
@@ -104,6 +110,11 @@ func TestLiveTrustedForwardedFor(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { c.CloseNow() })
+		select {
+		case <-accepted:
+		case <-time.After(3 * time.Second):
+			t.Fatal("proxy authentication/transport did not reach the target")
+		}
 	}
 	online := func() []string {
 		got, err := a.OnlineIPs(ctx)
@@ -112,22 +123,44 @@ func TestLiveTrustedForwardedFor(t *testing.T) {
 		}
 		return got[coretest.Users()[0].ID]
 	}
-	dial(http.Header{"Cf-Connecting-Ip": {"198.51.100.7"}, "X-Forwarded-For": {"198.51.100.7, 172.69.33.48"}})
+	dial(http.Header{"X-Polaris-Client-Ip": {"198.51.100.7"}, "Cf-Connecting-Ip": {"198.51.100.7"}, "X-Forwarded-For": {"198.51.100.7, 172.69.33.48"}})
 	var ips []string
 	for i := 0; i < 30; i++ {
-		if ips = online(); len(ips) > 0 {
+		if ips = online(); len(ips) > 0 || !protected {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	if fmt.Sprint(ips) != "[198.51.100.7]" {
+	want := "[]"
+	if protected {
+		want = "[198.51.100.7]"
+	}
+	if fmt.Sprint(ips) != want {
 		t.Fatalf("via CDN: online %v; logs:\n%s", ips, strings.Join(a.Logs(30), "\n"))
 	}
 	// A forged X-Forwarded-For without the CDN's header is ignored: the
 	// connection's own address (loopback, which Xray never lists) counts.
 	dial(http.Header{"X-Forwarded-For": {"203.0.113.9"}})
 	time.Sleep(500 * time.Millisecond)
-	if ips = online(); fmt.Sprint(ips) != "[198.51.100.7]" {
+	if ips = online(); fmt.Sprint(ips) != want {
 		t.Fatalf("forged header: online %v", ips)
+	}
+}
+
+func TestPublicHTTPTransportsCannotEnableForwardedTrust(t *testing.T) {
+	for _, tr := range []model.Transport{model.TransWS, model.TransHTTPUpgrade, model.TransXHTTP, model.TransGRPC} {
+		for _, listen := range []string{"0.0.0.0", "::", ""} {
+			in := coretest.Inbound(model.CoreXray, "public", 12345, model.ProtocolSpec{Type: model.ProtoVLESS}, model.TransportSpec{Type: tr, Path: "/ws", ServiceName: "svc", TrustedForwardedFor: []string{"CF-Connecting-IP", "X-Polaris-Client-IP"}}, model.SecuritySpec{})
+			in.Listen = listen
+			ib, err := renderInbound(in, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stream := ib["streamSettings"].(map[string]any)
+			headers := stream["sockopt"].(map[string]any)["trustedXForwardedFor"].([]string)
+			if len(headers) != 1 || headers[0] != "" {
+				t.Fatalf("%s %q trusts client headers: %v", tr, listen, headers)
+			}
+		}
 	}
 }

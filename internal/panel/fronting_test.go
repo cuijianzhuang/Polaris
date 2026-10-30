@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -35,7 +36,7 @@ func TestCaddyFronting(t *testing.T) {
 		t.Fatalf("fronts: %+v", spec.Fronts)
 	}
 	for _, in := range spec.Inbounds {
-		if in.Listen != "127.0.0.1" || in.Security.Type != model.SecNone || in.Port < frontInternalBase {
+		if in.Listen != "127.0.0.1" || in.Security.Type != model.SecNone || in.Port < frontInternalBase || !slices.Equal(in.Transport.TrustedForwardedFor, []string{"X-Polaris-Client-IP"}) {
 			t.Fatalf("inbound not moved behind caddy: %+v", in)
 		}
 	}
@@ -69,6 +70,11 @@ func TestCaddyFronting(t *testing.T) {
 	spec, _ = s.BuildSpec("n1")
 	if len(spec.Fronts) != 0 {
 		t.Fatal("fronting must be skipped when the public port is taken")
+	}
+	for _, in := range spec.Inbounds {
+		if len(in.Transport.TrustedForwardedFor) != 0 && !slices.Equal(in.Transport.TrustedForwardedFor, []string{""}) {
+			t.Fatal("blocked fronting retained trust", in.Tag)
+		}
 	}
 	_ = sub.Node{}
 }

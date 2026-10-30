@@ -124,6 +124,7 @@ func (s *Server) buildFronts(spec *model.NodeSpec) []model.FrontRule {
 			CertPEM: in.Security.CertPEM, KeyPEM: in.Security.KeyPEM, Inbound: in.Tag, Kind: in.Transport.Type,
 		})
 		in.Listen, in.Port = "127.0.0.1", internal
+		in.Transport.TrustedForwardedFor = []string{"X-Polaris-Client-IP"}
 		in.Security = model.SecuritySpec{Type: model.SecNone}
 	}
 	return rules

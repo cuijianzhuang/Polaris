@@ -3,11 +3,15 @@ package caddy
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -138,5 +142,100 @@ func TestRenderTrustsCloudflare(t *testing.T) {
 	}
 	if err := a.Validate(cfg); err != nil {
 		t.Fatalf("caddy rejected config: %v\n%s", err, cfg)
+	}
+}
+
+// A forwarded header is trusted only after validating the TCP peer. The
+// upstream receives a single sanitized IP even if the client supplied all
+// three header names. Loopback represents a trusted proxy only in phase 2.
+func TestLiveForwardedHeadersUseTrustedSocketPeer(t *testing.T) {
+	bin := os.Getenv("POLARIS_CADDY_BIN")
+	if bin == "" {
+		t.Skip("POLARIS_CADDY_BIN not set")
+	}
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"xff": r.Header.Get("X-Forwarded-For"), "marker": r.Header.Get("X-Polaris-Client-IP"), "cf": r.Header.Get("CF-Connecting-IP")})
+	}))
+	defer backend.Close()
+	address := func() string {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := l.Addr().String()
+		l.Close()
+		return addr
+	}
+	listen, admin := address(), address()
+	_, portText, _ := net.SplitHostPort(listen)
+	port, _ := strconv.Atoi(portText)
+	sec := coretest.TLS(t, "cdn.example.com")
+	a := New(core.Options{BinPath: bin, WorkDir: t.TempDir(), APIListen: admin})
+	cfg, err := a.Render(&model.NodeSpec{Fronts: []model.FrontRule{{Domain: "cdn.example.com", Port: port, Path: "/ws", Upstream: strings.TrimPrefix(backend.URL, "http://"), CertPEM: sec.CertPEM, KeyPEM: sec.KeyPEM}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err = core.AtomicWrite(a.configPath(), cfg, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err = a.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(ctx)
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(sec.CertPEM)) {
+		t.Fatal("test certificate invalid")
+	}
+	tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "cdn.example.com"}, DialContext: func(ctx context.Context, n, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, n, listen)
+	}}
+	defer tr.CloseIdleConnections()
+	client := &http.Client{Timeout: 3 * time.Second, Transport: tr}
+	request := func() map[string]string {
+		t.Helper()
+		var resp *http.Response
+		var err error
+		for i := 0; i < 30; i++ {
+			req, _ := http.NewRequest("GET", "https://cdn.example.com/ws", nil)
+			req.Header.Set("CF-Connecting-IP", "198.51.100.7")
+			req.Header.Set("X-Forwarded-For", "203.0.113.9, 172.69.33.48")
+			req.Header.Set("X-Polaris-Client-IP", "203.0.113.8")
+			resp, err = client.Do(req)
+			if err == nil {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err != nil {
+			t.Fatal(err, strings.Join(a.Logs(30), "\n"))
+		}
+		defer resp.Body.Close()
+		var got map[string]string
+		if resp.StatusCode != 200 {
+			t.Fatal(resp.Status)
+		}
+		if err = json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := request(); got["xff"] != "127.0.0.1" || got["marker"] != "127.0.0.1" || got["cf"] != "" {
+		t.Fatal("untrusted peer forged upstream address", got)
+	}
+	// Test-only proxy allowlist: prove genuine proxy metadata is still accepted,
+	// and its CF visitor header overrides the client-supplied XFF chain.
+	trusted := strings.Replace(string(cfg), strings.Join(model.CloudflareRanges, " "), "127.0.0.1/32", 1)
+	if err = core.AtomicWrite(a.configPath(), []byte(trusted), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(); got["xff"] != "198.51.100.7" || got["marker"] != "198.51.100.7" || got["cf"] != "" {
+		t.Fatal("trusted proxy visitor IP lost or XFF chain trusted", got)
 	}
 }

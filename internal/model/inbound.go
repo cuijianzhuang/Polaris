@@ -145,10 +145,9 @@ type TransportSpec struct {
 	// AcceptProxyProtocol reads the PROXY protocol header sent by a load
 	// balancer or relay in front (raw / ws / httpupgrade).
 	AcceptProxyProtocol bool `json:"acceptProxyProtocol,omitempty"`
-	// TrustedForwardedFor names headers that mark a request as coming from
-	// a trusted CDN; when one is present the core takes the client address
-	// from X-Forwarded-For instead of the connection (ws / httpupgrade /
-	// xhttp / grpc). Set by the panel for inbounds served through Cloudflare.
+	// TrustedForwardedFor enables sanitized forwarding headers only on a
+	// protected loopback listener behind the managed Caddy front. Public
+	// listeners must use the socket address even if these headers are forged.
 	TrustedForwardedFor []string `json:"trustedForwardedFor,omitempty"`
 }
 

@@ -194,7 +194,6 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		return nil, err
 	}
 	certCache := map[string]*store.Certificate{}
-	viaCF := s.cloudflareInbounds(inIDs)
 	spec.IPLimits = map[string]int{}
 	limited := map[string]store.User{} // candidates for per-user speed limits
 	for i := range ins {
@@ -202,10 +201,14 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		if ins[i].RelayAccess.V.Enabled && ins[i].RelayAccess.V.ProxyProtocol > 0 {
 			m.Transport.AcceptProxyProtocol = true
 		}
-		if viaCF[m.ID] {
-			// Cloudflare adds CF-Connecting-IP and puts the visitor first in
-			// X-Forwarded-For: count users by that, not by the edge address.
-			m.Transport.TrustedForwardedFor = []string{"CF-Connecting-IP"}
+		// Forwarding trust is derived only when buildFronts moves this
+		// listener behind the managed, sanitizing loopback proxy.
+		m.Transport.TrustedForwardedFor = nil
+		switch m.Transport.Type {
+		case model.TransWS, model.TransHTTPUpgrade, model.TransXHTTP, model.TransGRPC:
+			// An explicit impossible header also disables Xray's permissive
+			// fallback on agents that already support trustedForwardedFor.
+			m.Transport.TrustedForwardedFor = []string{""}
 		}
 		if m.Security.Type == model.SecTLS && m.Security.CertificateID != "" {
 			c, ok := certCache[m.Security.CertificateID]
@@ -688,22 +691,4 @@ func effectiveSpeed(u *store.User, plan [2]int) (up, down int) {
 		down = plan[1]
 	}
 	return up, down
-}
-
-// cloudflareInbounds lists the inbounds among ids that have a CDN entry on a
-// Cloudflare profile.
-func (s *Server) cloudflareInbounds(ids []string) map[string]bool {
-	out := map[string]bool{}
-	if len(ids) == 0 {
-		return out
-	}
-	var rows []string
-	s.st.DB.Table("endpoints").Select("DISTINCT endpoints.inbound_id").
-		Joins("JOIN cdn_profiles ON cdn_profiles.id = endpoints.cdn_profile_id").
-		Where("endpoints.kind = ? AND cdn_profiles.provider IN ? AND endpoints.inbound_id IN ?", "cdn", []string{"cloudflare", ""}, ids).
-		Scan(&rows)
-	for _, id := range rows {
-		out[id] = true
-	}
-	return out
 }

@@ -39,7 +39,7 @@ func TestCDNInboundHostFollowsEntry(t *testing.T) {
 	db.First(&sib, "id = ?", out["inbound"].(map[string]any)["id"])
 	var ep store.Endpoint
 	db.First(&ep, "inbound_id = ? AND kind = ?", sib.ID, "cdn")
-	if ep.Host != "oracle-sg-cdn.example.com" || sib.Transport.V.Host != ep.Host || sib.Security.V.ServerName != ep.Host {
+	if ep.Host != "oracle-sg-0480a93d2e9b094b-cdn.example.com" || sib.Transport.V.Host != ep.Host || sib.Security.V.ServerName != ep.Host {
 		t.Fatalf("sibling host %q / %q / %q", ep.Host, sib.Transport.V.Host, sib.Security.V.ServerName)
 	}
 
@@ -57,7 +57,7 @@ func TestCDNInboundHostFollowsEntry(t *testing.T) {
 	db.First(&old, "id = ?", old.ID)
 	var oldEp store.Endpoint
 	db.First(&oldEp, "inbound_id = ?", old.ID)
-	if oldEp.Host != "oracle-sg-cdn.example.com" || old.Transport.V.Host != oldEp.Host {
+	if oldEp.Host != "oracle-sg-0480a93d2e9b094b-cdn.example.com" || old.Transport.V.Host != oldEp.Host {
 		t.Fatalf("split: notes %v, entry %q, inbound host %q", notes, oldEp.Host, old.Transport.V.Host)
 	}
 	// A mismatch the panel did not make is reported on the entry.

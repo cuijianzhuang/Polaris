@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -265,6 +266,14 @@ func ImportAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string
 				return fmt.Errorf("读取 %s 失败: %w", sch.Table, err)
 			}
 			for _, r := range rows {
+				// A restored archive predates the current database schema. Startup
+				// migrations have already run on the empty destination, so infer
+				// legacy values from archive columns, not destination columns.
+				if _, cdn := m.(*store.CDNProfile); cdn {
+					if err := restoreCDNPins(r); err != nil {
+						return err
+					}
+				}
 				for k, v := range r {
 					switch x := v.(type) {
 					case string:
@@ -285,6 +294,42 @@ func ImportAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string
 			return err
 		}
 	}
+	return nil
+}
+
+// Preserve hand-entered domains from archives written before pinned_hosts.
+// An explicit empty value belongs to a newer archive and must stay empty.
+func restoreCDNPins(row map[string]any) error {
+	if _, present := row["pinned_hosts"]; present {
+		return nil
+	}
+	var data []byte
+	switch v := row["preferred_ips"].(type) {
+	case string:
+		data = []byte(v)
+	case []byte:
+		data = v
+	case nil:
+	default:
+		return errors.New("备份中的 CDN 优选地址格式不正确")
+	}
+	var hosts []string
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &hosts); err != nil {
+			return fmt.Errorf("备份中的 CDN 优选地址格式不正确: %w", err)
+		}
+	}
+	pinned := []string{}
+	for _, host := range hosts {
+		if net.ParseIP(host) == nil {
+			pinned = append(pinned, host)
+		}
+	}
+	b, err := json.Marshal(pinned)
+	if err != nil {
+		return err
+	}
+	row["pinned_hosts"] = string(b)
 	return nil
 }
 
