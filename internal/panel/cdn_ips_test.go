@@ -254,3 +254,37 @@ func TestCDNIPReportsShared(t *testing.T) {
 		}
 	}
 }
+
+func TestCDNDuplicateReportsKeepBestResult(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		first, best store.CDNIPResult
+	}{
+		{"loss", store.CDNIPResult{IP: "104.16.1.1", Loss: 0.5, Speed: 99, LatencyMs: 1}, store.CDNIPResult{IP: "::ffff:104.16.1.1", Loss: 0, Speed: 1, LatencyMs: 500}},
+		{"speed", store.CDNIPResult{IP: "104.16.1.1", Speed: 1, LatencyMs: 1}, store.CDNIPResult{IP: "104.16.1.1", Speed: 50, LatencyMs: 200, Colo: "hkg"}},
+		{"latency", store.CDNIPResult{IP: "2606:4700::1111", LatencyMs: 500}, store.CDNIPResult{IP: "2606:4700:0::1111", LatencyMs: 5}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, reverse := range []bool{false, true} {
+				ips := []store.CDNIPResult{tc.first, tc.best}
+				if reverse {
+					ips[0], ips[1] = ips[1], ips[0]
+				}
+				out, err := checkCDNReport(cdnIPReportReq{Source: "duplicate", IPs: ips})
+				if err != nil || len(out) != 1 {
+					t.Fatalf("%+v %v", out, err)
+				}
+				if out[0].LatencyMs != tc.best.LatencyMs || out[0].Speed != tc.best.Speed || out[0].Loss != tc.best.Loss {
+					t.Fatalf("reverse=%v kept %+v instead of %+v", reverse, out[0], tc.best)
+				}
+				if tc.name == "speed" && out[0].Colo != "HKG" {
+					t.Fatal("lost best result metadata", out)
+				}
+			}
+		})
+	}
+	// Every duplicate is still validated; malformed metrics cannot hide behind one valid entry.
+	if _, err := checkCDNReport(cdnIPReportReq{Source: "invalid", IPs: []store.CDNIPResult{{IP: "104.16.1.1"}, {IP: "104.16.1.1", Loss: 2}}}); err == nil {
+		t.Fatal("accepted invalid duplicate")
+	}
+}

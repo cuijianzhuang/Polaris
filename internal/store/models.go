@@ -556,9 +556,9 @@ type CDNProfile struct {
 	TLSMode      string         `gorm:"size:32" json:"tlsMode"` // full_strict / full / flexible
 	Ports        JSON[[]int]    `json:"ports"`
 	PreferredIPs JSON[[]string] `json:"preferredIps"`
-	// PinnedHosts are the preferred domains the admin typed in: automatic
-	// updates (source URL, speed-test points) replace the IPs but keep
-	// these, and subscriptions add them after the top N IPs.
+	// PinnedHosts are manually retained public IPs and domains. Automatic
+	// updates preserve them; subscriptions append them after the top N
+	// automatic addresses. The field name is kept for API/backup compatibility.
 	PinnedHosts   JSON[[]string] `json:"pinnedHosts"`
 	IPSourceURL   string         `gorm:"size:500" json:"ipSourceUrl"`
 	IPTopN        int            `json:"ipTopN"`

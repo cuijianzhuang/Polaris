@@ -1,4 +1,17 @@
 const m: Record<string, string> = {
+  '复制所选配置档的优选 IP、固定优选地址（IP / 域名）、来源 URL 和订阅展开设置，保存后生效': 'Copy the selected profile’s automatic IPs, fixed preferred addresses, source URL and subscription expansion settings. Save to apply.',
+  '只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自固定地址保留。': 'Cloudflare profiles share measurements only for the same CDN protocol and test port. Each profile retains its own fixed addresses.',
+
+  "固定优选地址（IP / 域名）": "Fixed preferred addresses (IP / domain)",
+  "维护固定优选地址": "Edit fixed preferred addresses",
+  "维护地址": "Edit addresses",
+  "尚未添加固定优选地址": "No fixed preferred addresses yet",
+  "一行一个公网 IP 或完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个自动地址之后，不占用 N 的名额。": "One public IP or full domain per line, without scheme, port or path. Automatic refreshes retain these addresses. With subscription expansion enabled, they follow the first N automatic addresses without consuming the N limit.",
+  "一行一个 IP 或来源域名，不带端口。测速点上报或来源 URL 刷新会替换；需要长期保留的 IP 或域名请填到「固定优选地址」。": "One IP or source domain per line, without ports. Reports and source URL refreshes replace this list. Put IPs or domains to retain in Fixed preferred addresses.",
+  "留空保存可取消固定；自动来源仍包含的地址可能在下次刷新时再次出现。": "Save an empty list to unpin all addresses. Addresses still present in an automatic source may return on the next refresh.",
+  "固定地址追加到前 N 个自动地址之后，不占用 N 的名额。": "Fixed addresses follow the first N automatic addresses without consuming the N limit.",
+  "当前订阅只用回源域名；在「编辑」中开启订阅展开后，自动和固定优选地址才会用于订阅。": "Subscriptions currently use only the origin domain. Enable subscription expansion in Edit to use automatic and fixed preferred addresses.",
+
   '副本': 'Copy',
   '复制此入站': 'Duplicate inbound',
   '入站名称（可选）': 'Inbound name (optional)',

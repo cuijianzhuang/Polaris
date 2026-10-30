@@ -288,14 +288,14 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 	if len(r.Ports) == 0 {
 		r.Ports = slices.Clone(cdnClientPorts(&store.CDNProfile{Scheme: r.Scheme}))
 	}
-	// A domain is typed in (kept across refreshes) when it already was, or
-	// is new in the form: domains a source URL put in the list come back
-	// with the form unchanged and must not become permanent by a save.
+	// Legacy mixed-list clients infer new domains as retained. Existing pins,
+	// including IPs, stay pinned when present; new IPs remain temporary.
+	// Unchanged source domains must not become permanent through a save.
 	oldList, oldPinned := p.PreferredIPs.V, p.PinnedHosts.V
 	p.Ports, p.PreferredIPs = store.NewJSON(r.Ports), store.NewJSON(nonNilStrs(r.PreferredIPs))
 	pinned := []string{}
 	for _, a := range r.PreferredIPs {
-		if net.ParseIP(a) == nil && (slices.Contains(oldPinned, a) || !slices.Contains(oldList, a)) {
+		if slices.Contains(oldPinned, a) || (net.ParseIP(a) == nil && !slices.Contains(oldList, a)) {
 			pinned = append(pinned, a)
 		}
 	}

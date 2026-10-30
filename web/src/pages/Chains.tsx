@@ -144,9 +144,9 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
   const sources = others.filter((o) => o.id !== profile?.id && (o.preferredIps.length > 0 || (o.pinnedHosts ?? []).length > 0 || o.ipSourceUrl))
   const copyFrom = (id: string) => {
     const o = sources.find((x) => x.id === id)
-    // Copy manual domains separately; source domains come from the copied URL.
+    // Copy retained addresses separately; source domains come from the copied URL.
     const isIP = (a: string) => /^[\d.]+$/.test(a) || a.includes(':')
-    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps.filter(isIP)), pinnedHosts: toLines(o.pinnedHosts), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
+    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps.filter((a) => isIP(a) && !(o.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(o.pinnedHosts), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
   }
   return (
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
@@ -182,15 +182,15 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
         {profile?.tokenSource === 'profile' && <Field label="Cloudflare API Token" full hint={t('这个配置档有单独保存的 Token（旧版本填写），留空保持不变。新配置档统一用「CDN 配置档」页的 CDN Token')}>
           <input className="input mono" type="password" value={f.apiToken} onChange={(e) => set('apiToken', e.target.value)} autoComplete="off" />
         </Field>}
-        {sources.length > 0 && <Field label={t('从其他配置档复制优选 IP')} full hint={t('复制所选配置档的优选 IP、手动优选域名、来源 URL 和订阅展开设置，保存后生效')}>
+        {sources.length > 0 && <Field label={t('从其他配置档复制优选 IP')} full hint={t('复制所选配置档的优选 IP、固定优选地址（IP / 域名）、来源 URL 和订阅展开设置，保存后生效')}>
           <select className="input" value="" onChange={(e) => copyFrom(e.target.value)} aria-label={t('从其他配置档复制优选 IP')}>
             <option value="">{t('选择配置档…')}</option>
             {sources.map((o) => <option key={o.id} value={o.id}>{o.name}（{t('{n} 个 IP', { n: o.preferredIps.length })}{o.ipSourceUrl ? ' · ' + t('有来源 URL') : ''}）</option>)}
           </select>
         </Field>}
         <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
-        <Field label={t('手动优选域名')} htmlFor="cdn-pinned-hosts" full hint={t('一行一个完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个优选地址之后，不占用 N 的名额。')}><textarea id="cdn-pinned-hosts" className="input mono" style={{ minHeight: 80 }} value={f.pinnedHosts} onChange={(e) => set('pinnedHosts', e.target.value)} placeholder={'best.example.com\nbest2.example.com'} /></Field>
-        <Field label={t('临时优选地址')} htmlFor="cdn-preferred-ips" full hint={t('一行一个 IP 或来源域名，不带端口。测速点上报或来源 URL 刷新会替换；需要长期保留的域名请填到「手动优选域名」。')}><textarea id="cdn-preferred-ips" className="input mono" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
+        <Field label={t('固定优选地址（IP / 域名）')} htmlFor="cdn-pinned-hosts" full hint={t('一行一个公网 IP 或完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个自动地址之后，不占用 N 的名额。')}><textarea id="cdn-pinned-hosts" className="input mono" style={{ minHeight: 80 }} value={f.pinnedHosts} onChange={(e) => set('pinnedHosts', e.target.value)} placeholder={'104.16.1.1\n2606:4700::1\nbest.example.com'} /></Field>
+        <Field label={t('临时优选地址')} htmlFor="cdn-preferred-ips" full hint={t('一行一个 IP 或来源域名，不带端口。测速点上报或来源 URL 刷新会替换；需要长期保留的 IP 或域名请填到「固定优选地址」。')}><textarea id="cdn-preferred-ips" className="input mono" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
         <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
         <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；告警后继续用原有 IP')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
       </div>
@@ -206,17 +206,17 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
 function CDNHostsEditor({ p, onClose, onSaved }: { p: CDNProfile; onClose: () => void; onSaved: () => void }) {
   const [hosts, setHosts] = useState(toLines(p.pinnedHosts))
   const { busy, run } = useAction()
-  return <Modal title={t('维护手动优选域名')} onClose={onClose} footer={<>
+  return <Modal title={t('维护固定优选地址')} onClose={onClose} footer={<>
     <button className="btn" type="button" disabled={busy} onClick={onClose}>{t('取消')}</button>
     <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
       await put(`/cdn-profiles/${p.id}/pinned-hosts`, { pinnedHosts: fromLines(hosts) })
       onSaved()
     }, t('已保存'))}>{t('保存')}</button>
   </>}>
-    <Field label={t('手动优选域名')} htmlFor="cdn-maintained-hosts" hint={t('一行一个完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个优选地址之后，不占用 N 的名额。')}>
-      <textarea id="cdn-maintained-hosts" className="input mono" rows={6} value={hosts} onChange={(e) => setHosts(e.target.value)} placeholder={'best.example.com\nbest2.example.com'} />
+    <Field label={t('固定优选地址（IP / 域名）')} htmlFor="cdn-maintained-hosts" hint={t('一行一个公网 IP 或完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个自动地址之后，不占用 N 的名额。')}>
+      <textarea id="cdn-maintained-hosts" className="input mono" rows={6} value={hosts} onChange={(e) => setHosts(e.target.value)} placeholder={'104.16.1.1\n2606:4700::1\nbest.example.com'} />
     </Field>
-    <p className="hint">{t('留空保存可清空手动列表；自动来源仍包含的域名可能在下次刷新时再次出现。')}</p>
+    <p className="hint">{t('留空保存可取消固定；自动来源仍包含的地址可能在下次刷新时再次出现。')}</p>
   </Modal>
 }
 
@@ -263,12 +263,12 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
           {synced.cert && <div>{tr(synced.cert)}</div>}
         </div>}
       </section>
-      <section className="card" aria-label={t('手动优选域名')}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('手动优选域名')} <span className="tag">{(p.pinnedHosts ?? []).length}</span></h2>
-          <button className="btn sm" type="button" onClick={() => setEditingHosts(true)}>{t('维护域名')}</button></div>
+      <section className="card" aria-label={t('固定优选地址（IP / 域名）')}>
+        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('固定优选地址（IP / 域名）')} <span className="tag">{(p.pinnedHosts ?? []).length}</span></h2>
+          <button className="btn sm" type="button" onClick={() => setEditingHosts(true)}>{t('维护地址')}</button></div>
         <p className="sub">{t('仅对当前配置档生效，测速点上报和来源 URL 刷新不会覆盖。')}</p>
-        {(p.pinnedHosts ?? []).length > 0 ? <ul className="mono small" style={{ paddingLeft: 20, overflowWrap: 'anywhere' }}>{p.pinnedHosts!.map((host) => <li key={host}>{host}{p.nodeCheck && (p.badIps ?? []).includes(host) && <span className="tag warn">{t('节点都连不上，订阅暂不使用')}</span>}</li>)}</ul> : <div className="sub">{t('尚未添加手动优选域名')}</div>}
-        <div className="hint">{p.expandPerIp ? t('手动域名追加到前 N 个优选地址之后，不占用 N 的名额。') : t('当前订阅只用回源域名；在「编辑」中开启订阅展开后，优选地址和手动域名才会用于订阅。')}</div>
+        {(p.pinnedHosts ?? []).length > 0 ? <ul className="mono small" style={{ paddingLeft: 20, overflowWrap: 'anywhere' }}>{p.pinnedHosts!.map((host) => <li key={host}>{host}{p.nodeCheck && (p.badIps ?? []).includes(host) && <span className="tag warn">{t('节点都连不上，订阅暂不使用')}</span>}</li>)}</ul> : <div className="sub">{t('尚未添加固定优选地址')}</div>}
+        <div className="hint">{p.expandPerIp ? t('固定地址追加到前 N 个自动地址之后，不占用 N 的名额。') : t('当前订阅只用回源域名；在「编辑」中开启订阅展开后，自动和固定优选地址才会用于订阅。')}</div>
         {editingHosts && <CDNHostsEditor key={p.id} p={p} onClose={() => setEditingHosts(false)} onSaved={() => { setEditingHosts(false); onChanged() }} />}
       </section>
       <section className="card">
@@ -289,7 +289,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自手动域名保留。')}</div>}
+        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自固定地址保留。')}</div>}
         {p.reports.length === 0 && waiting.length === 0 ? (p.shared ?? []).length > 0 ? null : <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
