@@ -6,6 +6,7 @@ import { copyText, Drawer, Empty, Field, Modal, Switch, fromLines, toLines, useA
 import { cdnPorts, cdnScheme } from '../cdn'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t, tr } from '../i18n'
+import CDNAddressTools from '../components/CDNAddressTools'
 import GeoPicker from '../components/GeoPicker'
 import WarpDialog from '../components/WarpDialog'
 import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet, SourceNode } from '../types'
@@ -192,7 +193,7 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
         <Field label={t('固定优选地址（IP / 域名）')} htmlFor="cdn-pinned-hosts" full hint={t('一行一个公网 IP 或完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个自动地址之后，不占用 N 的名额。')}><textarea id="cdn-pinned-hosts" className="input mono" style={{ minHeight: 80 }} value={f.pinnedHosts} onChange={(e) => set('pinnedHosts', e.target.value)} placeholder={'104.16.1.1\n2606:4700::1\nbest.example.com'} /></Field>
         <Field label={t('临时优选地址')} htmlFor="cdn-preferred-ips" full hint={t('一行一个 IP 或来源域名，不带端口。测速点上报或来源 URL 刷新会替换；需要长期保留的 IP 或域名请填到「固定优选地址」。')}><textarea id="cdn-preferred-ips" className="input mono" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
         <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
-        <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；告警后继续用原有 IP')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
+        <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；过期后遵循地址策略')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
       </div>
       <div className="toggle"><span>{t('节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅')}</span><Switch label={t('节点检测')} on={f.nodeCheck} onChange={(v) => set('nodeCheck', v)} /></div>
       <div className="toggle"><span>{t('按运营商分配：电信、联通、移动用户各自拿到同运营商测速点上报的 IP；识别不出运营商时用合并后的列表')}</span><Switch label={t('按运营商分配')} on={f.carrierSplit} onChange={(v) => set('carrierSplit', v)} /></div>
@@ -223,9 +224,6 @@ function CDNHostsEditor({ p, onClose, onSaved }: { p: CDNProfile; onClose: () =>
 function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: () => void; onDelete: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
   const [editingHosts, setEditingHosts] = useState(false)
-  const defaultPort = p.ports[0] ?? (cdnScheme(p) === 'http' ? 80 : 443)
-  const matchingReports = p.reports.filter((r) => (r.port || 443) === defaultPort && (r.scheme || 'https') === cdnScheme(p))
-  const automatic = p.preferredIps.filter((a) => !(p.pinnedHosts ?? []).includes(a))
   const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string; split?: string[] } | null>(null)
   const confirm = useConfirm()
   const reported = new Set(p.reports.map((r) => r.source))
@@ -263,30 +261,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
           {synced.cert && <div>{tr(synced.cert)}</div>}
         </div>}
       </section>
-      <section className="card" aria-label={t('固定优选地址（IP / 域名）')}>
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('固定优选地址（IP / 域名）')} <span className="tag">{(p.pinnedHosts ?? []).length}</span></h2>
-          <button className="btn sm" type="button" onClick={() => setEditingHosts(true)}>{t('维护地址')}</button></div>
-        <p className="sub">{t('仅对当前配置档生效，测速点上报和来源 URL 刷新不会覆盖。')}</p>
-        {(p.pinnedHosts ?? []).length > 0 ? <ul className="mono small" style={{ paddingLeft: 20, overflowWrap: 'anywhere' }}>{p.pinnedHosts!.map((host) => <li key={host}>{host}{p.nodeCheck && (p.badIps ?? []).includes(host) && <span className="tag warn">{t('节点都连不上，订阅暂不使用')}</span>}</li>)}</ul> : <div className="sub">{t('尚未添加固定优选地址')}</div>}
-        <div className="hint">{p.expandPerIp ? t('固定地址追加到前 N 个自动地址之后，不占用 N 的名额。') : t('当前订阅只用回源域名；在「编辑」中开启订阅展开后，自动和固定优选地址才会用于订阅。')}</div>
-        {editingHosts && <CDNHostsEditor key={p.id} p={p} onClose={() => setEditingHosts(false)} onSaved={() => { setEditingHosts(false); onChanged() }} />}
-      </section>
-      <section className="card">
-        <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>
-          <button className="btn sm" type="button" disabled={busy || !p.ipSourceUrl} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/refresh-ips`); onChanged() }, t('已刷新'))}>{t('刷新')}</button></div>
-        <div className="sub" style={{ marginBottom: 10 }}>{cdnScheme(p).toUpperCase()}:{defaultPort} · {matchingReports.length || (p.shared ?? []).length ? t('由 {n} 个测速点维护', { n: matchingReports.length + (p.shared ?? []).length }) : p.reports.length ? t('默认端口暂无对应测速结果，保留当前列表') : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
-        <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
-          {automatic.length ? automatic.map((ip) => {
-            const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
-            const proxy = (p.thirdParty ?? []).includes(ip)
-            return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}{proxy && <span className="tag warn" style={{ marginLeft: 6, fontSize: 11 }} title={t('不在 Cloudflare 官方 IP 段：第三方反代')}>{t('反代')}</span>}</div>
-          }) : <span>{t('还没有自动或临时优选地址。可在「编辑」中填写临时地址或来源 URL，或添加测速点自动上报。')}</span>}
-        </div>
-        {p.nodeCheck && <details style={{ marginTop: 8 }}>
-          <summary className="sub">{t('各端口检测结果')}</summary>
-          {Object.entries(p.portChecks ?? {}).length > 0 ? Object.entries(p.portChecks ?? {}).map(([port, check]) => <div className="hint" key={port}>{cdnScheme(p).toUpperCase()}:{port} · {check.allFailed ? t('全部地址不可达，暂保留列表') : t('{n} 个地址不可达', { n: check.badIps.length })} · {ago(check.at)}</div>) : <div className="hint">{p.checkedAt ? t('旧检测结果仅适用于默认端口 {port}', { port: defaultPort }) : t('节点检测：等待第一次检测')}</div>}
-        </details>}
-      </section>
+      {editingHosts && <CDNHostsEditor key={p.id + "-hosts"} p={p} onClose={() => setEditingHosts(false)} onSaved={() => { setEditingHosts(false); onChanged() }} />}
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
         {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自固定地址保留。')}</div>}
@@ -316,6 +291,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
         )}
         <ProbeInstall key={p.id} profile={p} onPaired={onChanged} />
       </section>
+      <CDNAddressTools key={p.id + "-tools"} p={p} onMaintain={() => setEditingHosts(true)} onChanged={onChanged} />
     </>
   )
 }
@@ -772,8 +748,8 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
   const [source, setSource] = useState('')
   const [carrier, setCarrier] = useState('')
   const [port, setPort] = useState('')
-  const probePort = Number(port) || p.ports[0] || 443
-  const [made, setMade] = useState<{ port?: number; source: string; token: string; mirror: string } | null>(null)
+  const probePort = Number(port) || p.ports[0] || (cdnScheme(p) === 'http' ? 80 : 443)
+  const [made, setMade] = useState<{ port?: number; source: string; token: string; mirror: string; scheme?: string; instance?: string } | null>(null)
   const { busy, run } = useAction()
   const toast = useToast()
   const apiUrl = new URL(API, window.location.href).href
@@ -783,16 +759,18 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
     `curl -fsSL ${made.mirror ? made.mirror + '/' : ''}${script} | sudo sh -s --`,
     `--api ${q(apiUrl)} --profile ${p.id} --host ${q(p.originDomain)}`,
     `--token ${made.token} --source ${q(made.source)}`,
-    `--args ${q('-port ' + (made.port || probePort))}`,
+    `--args ${q('-scheme ' + (made.scheme || cdnScheme(p)) + ' -port ' + (made.port || probePort))}`,
+    made.instance ? `--instance ${q(made.instance)}` : '',
     carrier ? `--carrier ${carrier}` : '',
     made.mirror ? `--mirror ${q(made.mirror + '/')}` : '',
   ].filter(Boolean).join(' ')
-  const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}> --args '-port ${probePort}'`
-  if (cdnScheme(p) === 'http') return <div className="hint" style={{ marginTop: 10 }}>{t('当前一键测速程序仅支持 HTTPS；HTTP 配置档可维护优选地址、设置来源 URL，或自行按 HTTP 端口测速并上报。')}</div>
+  const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}> --instance <${t('实例名称')}> --args '-scheme ${cdnScheme(p)} -port ${probePort}'`
+
   return (
     <details style={{ marginTop: 10 }} open={!!made}>
       <summary className="sub" style={{ cursor: 'pointer' }}>{t('添加测速点（一键安装 cf-ip-probe）')}</summary>
       <div className="sub" style={{ margin: '8px 0' }}>{t('填写测速点名称，面板会生成一个只能给这个配置档、以这个名称上报的专用令牌，并给出完整的安装命令。在用户所在地区的 Linux 机器（国内 VPS、树莓派、OpenWrt 路由器）上以 root 运行；OpenWrt 上去掉 sudo。')}</div>
+      <p className="hint">{t('同机多端口请使用不同测速点名称；每个安装命令使用独立实例，不覆盖其他测速点。')}</p>
       {!made ? (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <input className="input" style={{ flex: '1 1 160px', minWidth: 0 }} value={source} maxLength={40} placeholder={t('测速点名称，例如 上海电信')} aria-label={t('测速点名称')} onChange={(e) => setSource(e.target.value)} />
@@ -804,7 +782,7 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
             <option value="ct">{t('电信')}</option><option value="cu">{t('联通')}</option><option value="cm">{t('移动')}</option>
           </select>
           <button className="btn sm pri" type="button" disabled={busy || !source.trim()} onClick={() => run(async () => {
-            const r = await post<{ port?: number; source: string; token: string; mirror: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim(), port: probePort })
+            const r = await post<{ port?: number; source: string; token: string; mirror: string; scheme?: string; instance?: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim(), port: probePort })
             setMade(r); onPaired()
           })}>{t('生成安装命令')}</button>
         </div>

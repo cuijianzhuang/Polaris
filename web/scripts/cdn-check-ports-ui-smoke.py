@@ -24,7 +24,7 @@ class Fixture(BaseFixture):
   if path=='/cdn-profiles/cf/probes' and req.method=='POST':
    body=req.post_data_json;self.writes.append((req.method,path,body,req.headers))
    self.profile['probes']=[dict(source=body['source'],port=body['port'],tokenId='probe',prefix='plt_test',createdAt=now)]
-   return route.fulfill(status=201,json=dict(body,token='plt_fixture',mirror=''))
+   return route.fulfill(status=201,json=dict(body,scheme='https',instance='cdn-8443',token='plt_fixture',mirror=''))
   if path=='/inbounds':return route.fulfill(json=[self.inbound])
   if path=='/inbounds/i1/endpoints':return route.fulfill(json=[dict(id='ep',inboundId='i1',kind='cdn',cdnProfileId='cf',address='',port=0,sni='',host='',path='',remark='',warnings=[],target=dict(scheme='https',server='cdn.example.com',port=443,originPort=443,sni='cdn.example.com',host='cdn.example.com',path='/ws'))])
   if path=='/inbounds/i1/endpoints/ep/check':

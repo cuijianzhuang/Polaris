@@ -305,28 +305,19 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n = apply(n)
 		// An entry with its own address uses it, not the preferred IPs.
 		if !p.ExpandPerIP || ep.Address != "" {
-			n.Name = name("CDN")
-			return []sub.Node{n}
-		}
-		ips := s.carrierCDNIPs(&p, carrier, n.Port)
-		if ips == nil {
-			ips = s.cdnIPsForPort(&p, n.Port)
-		}
-		if len(ips) == 0 {
-			n.Name = name("CDN")
-			return []sub.Node{n}
-		}
-		if p.IPTopN > 0 {
-			// Top N automatic addresses; manually retained IPs/domains always follow.
-			var measured, pinned []string
-			for _, a := range ips {
-				if slices.Contains(p.PinnedHosts.V, a) {
-					pinned = append(pinned, a)
-				} else {
-					measured = append(measured, a)
-				}
+			if cdnAddressBlocked(&p, n.Server) {
+				return nil
 			}
-			ips = append(measured[:min(len(measured), p.IPTopN)], pinned...)
+			n.Name = name("CDN")
+			return []sub.Node{n}
+		}
+		ips := s.selectedCDNIPs(&p, n.Port, carrier)
+		if len(ips) == 0 {
+			if cdnAddressBlocked(&p, n.Server) {
+				return nil
+			}
+			n.Name = name("CDN")
+			return []sub.Node{n}
 		}
 		var out []sub.Node
 		for i, ip := range ips {

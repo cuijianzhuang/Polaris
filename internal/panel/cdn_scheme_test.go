@@ -125,8 +125,8 @@ func TestCDNSchemeCreatesPlainSibling(t *testing.T) {
 		t.Fatal("rejected switch mutated scheme")
 	}
 	code, _ = admin.do("POST", "/cdn-profiles/"+profile+"/probes", map[string]any{"source": "fixture"})
-	if code != 400 {
-		t.Fatalf("HTTPS-only installer allowed on HTTP: %d", code)
+	if code != 201 {
+		t.Fatalf("HTTP probe pairing failed: %d", code)
 	}
 	port := s.findFreePort("n1", &model.Inbound{Transport: model.TransportSpec{Type: model.TransWS}}, map[int]bool{80: true}, 80, true, &p)
 	if port != 8880 {

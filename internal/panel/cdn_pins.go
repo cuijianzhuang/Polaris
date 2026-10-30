@@ -43,6 +43,34 @@ func normalizeCDNPinnedHosts(input []string) ([]string, error) {
 	return hosts, nil
 }
 
+// A deny rule may also name a private literal left by an old source list.
+func normalizeCDNBlockedHosts(input []string) ([]string, error) {
+	out := []string{}
+	for _, raw := range input {
+		host := strings.TrimSpace(raw)
+		ipText := host
+		if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+			ipText = host[1 : len(host)-1]
+		}
+		if ip, err := netip.ParseAddr(ipText); err == nil && ip.Zone() == "" {
+			host = ip.Unmap().String()
+		} else {
+			values, err := normalizeCDNPinnedHosts([]string{raw})
+			if err != nil {
+				return nil, err
+			}
+			if len(values) == 0 {
+				continue
+			}
+			host = values[0]
+		}
+		if !slices.Contains(out, host) {
+			out = append(out, host)
+		}
+	}
+	return out, nil
+}
+
 // Remove the previous manual portion, then append the explicit replacement.
 // Automatic addresses stay automatic unless the admin explicitly pins them.
 func setCDNPinnedHosts(p *store.CDNProfile, hosts, oldPinned []string) {

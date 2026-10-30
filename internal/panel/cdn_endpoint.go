@@ -26,6 +26,7 @@ import (
 // cdnTarget is where a client of a cdn endpoint connects, as the
 // subscription tells it (see expandEndpoint).
 type cdnTarget struct {
+	Provider   string `json:"provider,omitempty"`
 	Scheme     string `json:"scheme"`
 	OriginPort int    `json:"originPort"`
 	Server     string `json:"server"`
@@ -38,7 +39,7 @@ type cdnTarget struct {
 func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnTarget {
 	front, fronted := s.frontFor(m.ID)
 	host := orDefault(ep.Host, p.OriginDomain)
-	t := cdnTarget{OriginPort: m.Port, Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
+	t := cdnTarget{Provider: p.Provider, OriginPort: m.Port, Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
 	if m.Transport.Type == model.TransGRPC {
 		t.Path = "/" + m.Transport.ServiceName
 	}
@@ -262,13 +263,21 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 	}
 }
 
+type cdnStage struct {
+	Kind      string   `json:"kind"`
+	State     string   `json:"state"`
+	Detail    string   `json:"detail,omitempty"`
+	Addresses []string `json:"addresses,omitempty"`
+}
+
 type cdnCheck struct {
-	Partial  bool     `json:"partial,omitempty"`
-	OK       bool     `json:"ok"`
-	Status   int      `json:"status,omitempty"`
-	Message  string   `json:"message"`
-	Steps    []string `json:"steps"`
-	Warnings []string `json:"warnings,omitempty"`
+	Stages   []cdnStage `json:"stages,omitempty"`
+	Partial  bool       `json:"partial,omitempty"`
+	OK       bool       `json:"ok"`
+	Status   int        `json:"status,omitempty"`
+	Message  string     `json:"message"`
+	Steps    []string   `json:"steps"`
+	Warnings []string   `json:"warnings,omitempty"`
 }
 
 // cdnProbeRoots overrides the system roots in tests.
@@ -292,8 +301,28 @@ func cdnWebSocketAccept(key string) string {
 	return base64.StdEncoding.EncodeToString(digest[:])
 }
 
-func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) cdnCheck {
-	r := cdnCheck{Steps: []string{}}
+func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) (r cdnCheck) {
+	r = cdnCheck{Steps: []string{}, Stages: []cdnStage{{Kind: "origin_dns", State: "not_tested"}, {Kind: "address_dns", State: "not_tested"}, {Kind: "tcp", State: "not_tested"}, {Kind: "tls", State: "not_tested"}, {Kind: "http", State: "not_tested"}, {Kind: "transport", State: "not_tested"}}}
+	stage := func(kind, state, detail string, addresses ...string) {
+		for i := range r.Stages {
+			if r.Stages[i].Kind == kind {
+				r.Stages[i].State = state
+				r.Stages[i].Detail = detail
+				r.Stages[i].Addresses = addresses
+				break
+			}
+		}
+	}
+	defer func() {
+		state := "failed"
+		if r.OK {
+			state = "passed"
+		} else if r.Partial {
+			state = "partial"
+		}
+		stage("transport", state, r.Message)
+	}()
+
 	step := func(f string, a ...any) { r.Steps = append(r.Steps, fmt.Sprintf(f, a...)) }
 	fail := func(f string, a ...any) cdnCheck { r.Message = fmt.Sprintf(f, a...); return r }
 
@@ -301,14 +330,30 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 	if net.ParseIP(t.SNI) == nil {
 		addrs, err := net.DefaultResolver.LookupHost(ctx, t.SNI)
 		if err != nil || len(addrs) == 0 {
+			stage("origin_dns", "failed", fmt.Sprint(err))
 			return fail("域名 %s 没有 DNS 记录：在 Cloudflare 添加一条指向节点 IP 的记录并开启代理（橙色云朵），或在配置档点「同步 DNS」", t.SNI)
 		}
+		stage("origin_dns", "passed", t.SNI, addrs...)
 		step("%s 解析到 %s", t.SNI, strings.Join(addrs, ", "))
 		for _, a := range addrs {
-			if nodeIP != "" && a == nodeIP {
+			if (t.Provider == "" || t.Provider == "cloudflare") && nodeIP != "" && a == nodeIP {
 				return fail("%s 直接解析到节点 IP %s，没有经过 Cloudflare：在 Cloudflare 的 DNS 里把这条记录的代理打开（橙色云朵）", t.SNI, a)
 			}
 		}
+	}
+
+	if net.ParseIP(t.SNI) != nil {
+		stage("origin_dns", "skipped", t.SNI, t.SNI)
+	}
+	if net.ParseIP(t.Server) == nil {
+		ips, err := net.DefaultResolver.LookupHost(ctx, t.Server)
+		if err != nil || len(ips) == 0 {
+			stage("address_dns", "failed", fmt.Sprint(err))
+			return fail("优选域名 %s 解析失败：%v", t.Server, err)
+		}
+		stage("address_dns", "passed", t.Server, ips...)
+	} else {
+		stage("address_dns", "skipped", t.Server, t.Server)
 	}
 
 	// 2. Connect using the selected client scheme.
@@ -316,19 +361,24 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 	d := &net.Dialer{Timeout: 8 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
+		stage("tcp", "failed", err.Error())
 		return fail("连不上 %s：%v", addr, err)
 	}
 	defer conn.Close()
+	stage("tcp", "passed", conn.RemoteAddr().String())
 	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
 	var tc net.Conn = conn
 	if t.Scheme != "http" {
 		tlsConn := tls.Client(conn, &tls.Config{ServerName: t.SNI, NextProtos: []string{"http/1.1"}, RootCAs: cdnProbeRoots})
 		if err := tlsConn.HandshakeContext(ctx); err != nil {
+			stage("tls", "failed", err.Error())
 			return fail("和 %s 的 TLS 握手失败（SNI %s）：%v。检查域名是否接入 Cloudflare、端口是否为 Cloudflare 的 HTTPS 端口", addr, t.SNI, err)
 		}
 		tc = tlsConn
+		stage("tls", "passed", t.SNI)
 		step("TLS 连上 %s（SNI %s）", addr, t.SNI)
 	} else {
+		stage("tls", "skipped", "HTTP")
 		step("HTTP 连上 %s（Host %s）", addr, t.Host)
 	}
 
@@ -342,14 +392,21 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		req += "Connection: close\r\n"
 	}
 	if _, err := tc.Write([]byte(req + "\r\n")); err != nil {
+		stage("http", "failed", err.Error())
 		return fail("发送请求失败：%v", err)
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(tc), nil)
 	if err != nil {
+		stage("http", "failed", err.Error())
 		return fail("读取响应失败：%v", err)
 	}
 	resp.Body.Close()
 	r.Status = resp.StatusCode
+	httpState := "passed"
+	if resp.StatusCode >= 300 {
+		httpState = "failed"
+	}
+	stage("http", httpState, fmt.Sprintf("HTTP %d", resp.StatusCode))
 	viaCF := resp.Header.Get("Cf-Ray") != "" || strings.EqualFold(resp.Header.Get("Server"), "cloudflare")
 	step("HTTP %d%s", resp.StatusCode, map[bool]string{true: "（经 Cloudflare）", false: ""}[viaCF])
 	if msg, ok := cfErrors[resp.StatusCode]; ok && viaCF {
@@ -366,7 +423,7 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		r.Message = fmt.Sprintf("HTTP %d：入口返回重定向，尚未完成传输握手，请检查路径和重定向规则", resp.StatusCode)
 	case resp.StatusCode >= 500:
 		r.Message = fmt.Sprintf("HTTP %d：CDN 或回源服务异常", resp.StatusCode)
-	case !viaCF:
+	case !viaCF && (t.Provider == "" || t.Provider == "cloudflare"):
 		r.Partial = resp.StatusCode == http.StatusSwitchingProtocols || (resp.StatusCode >= 200 && resp.StatusCode < 300)
 		r.Message = fmt.Sprintf("响应没有 Cloudflare 标识（HTTP %d），无法确认经过 CDN 或代理业务可用", resp.StatusCode)
 	case resp.StatusCode == http.StatusSwitchingProtocols && (transport == model.TransWS || transport == model.TransHTTPUpgrade):

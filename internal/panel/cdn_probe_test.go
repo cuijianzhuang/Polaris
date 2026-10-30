@@ -24,6 +24,10 @@ func TestCDNProbePairing(t *testing.T) {
 	if code != 201 || !strings.HasPrefix(out["token"].(string), "plt_") || out["mirror"] != "https://mirror.example" || out["source"] != "上海电信" {
 		t.Fatalf("pair: %d %v", code, out)
 	}
+	instance := out["instance"]
+	if out["scheme"] != "https" || out["port"] != float64(443) || instance == "" {
+		t.Fatal("missing installation metadata", out)
+	}
 	tok := out["token"].(string)
 	if code, _ := pair("cf", "bad/name"); code != 400 {
 		t.Fatalf("bad source accepted: %d", code)
@@ -73,6 +77,9 @@ func TestCDNProbePairing(t *testing.T) {
 
 	// Pairing the same name again replaces the token.
 	_, out = pair("cf", "上海电信")
+	if out["instance"] != instance {
+		t.Fatal("re-pair changed instance", out)
+	}
 	if c := report(probe, "cf", "上海电信"); c != 401 {
 		t.Fatalf("old token still works after re-pairing: %d", c)
 	}
@@ -101,5 +108,38 @@ func TestCDNProbePairing(t *testing.T) {
 	s.st.DB.Model(&store.APIToken{}).Where("cdn_profile_id = ?", "other").Count(&n)
 	if n != 0 {
 		t.Fatalf("%d tokens left after deleting the profile", n)
+	}
+}
+
+func TestCDNHTTPProbeInstances(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	p := store.CDNProfile{ID: "http-pair", Name: "http", Provider: "cloudflare", Scheme: "http", Ports: store.NewJSON([]int{80, 8080})}
+	if err := s.st.DB.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+	pair := func(name string, port int) (int, map[string]any) {
+		return admin.do("POST", "/cdn-profiles/"+p.ID+"/probes", map[string]any{"source": name, "port": port})
+	}
+	code, a := pair("http-80", 80)
+	if code != 201 || a["scheme"] != "http" || a["port"] != float64(80) || a["instance"] == "" {
+		t.Fatal(code, a)
+	}
+	code, b := pair("http-8080", 8080)
+	if code != 201 || a["instance"] == b["instance"] {
+		t.Fatal("independent ports reused instance", code, b)
+	}
+	if code, _ = pair("bad-port", 443); code != 400 {
+		t.Fatal("HTTPS port accepted for HTTP", code)
+	}
+	for _, p := range []map[string]any{a, b} {
+		client := &apiClient{t: t, base: srv.URL + s.cfg.APIBase(), tok: p["token"].(string)}
+		code, out := client.do("POST", "/cdn-profiles/http-pair/preferred-ips", map[string]any{"source": p["source"], "scheme": "http", "port": p["port"], "ips": []map[string]any{{"ip": "104.16.1.1"}}})
+		if code != 200 {
+			t.Fatal(code, out)
+		}
+		code, _ = client.do("POST", "/cdn-profiles/http-pair/preferred-ips", map[string]any{"source": p["source"], "scheme": "http", "port": 8880, "ips": []map[string]any{{"ip": "104.16.1.1"}}})
+		if code != 403 {
+			t.Fatal("port binding bypassed", code)
+		}
 	}
 }
