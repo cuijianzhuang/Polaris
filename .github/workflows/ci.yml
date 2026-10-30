@@ -297,3 +297,4 @@ jobs:
           python web/scripts/cdn-domains-ui-smoke.py
           python web/scripts/cdn-scheme-ui-smoke.py
           python web/scripts/cdn-check-ports-ui-smoke.py
+          python web/scripts/rollout-result-ui-smoke.py

@@ -1,4 +1,8 @@
 const operations: Record<string, string> = {
+  "升级任务": "Upgrade task",
+  "关闭升级结果": "Dismiss upgrade result",
+  "仅隐藏此结果，不会删除升级记录": "Hide this result without deleting the upgrade record",
+
   "入站状态": "Inbound status",
   "插件状态": "Plugin status",
   "重新加载会丢弃尚未保存的通知设置，继续吗？": "Reloading will discard unsaved notification settings. Continue?",
