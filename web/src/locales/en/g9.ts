@@ -291,5 +291,22 @@ const m: Record<string, string> = {
 
   "使用相同 CDN 协议的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。": "Nodes using the same CDN protocol can share a profile. Create separate HTTP and HTTPS profiles. Shared nodes receive origin hostnames shown under Served nodes.",
 
+  "Flexible 仅在 HTTPS 443 使用 HTTP 80 回源；其他 HTTPS 端口回落到 Full，需要 TLS。": "Flexible uses HTTP port 80 at the origin only for HTTPS port 443. Other HTTPS ports fall back to Full and require TLS.",
+  "各端口检测结果": "Checks by port",
+  "全部地址不可达，暂保留列表": "All addresses unreachable; retaining the list",
+  "{n} 个地址不可达": "{n} unreachable addresses",
+  "旧检测结果仅适用于默认端口 {port}": "Legacy check results apply only to default port {port}",
+  "相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果": "Cloudflare profiles share reports only for the same CDN protocol and test port. This profile also uses reports from {list}",
+  "只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自手动域名保留。": "Only Cloudflare profiles using the same CDN protocol and test port share reports. Each keeps its own manual domains.",
+  "旧默认": "legacy default",
+  "测速端口": "Test port",
+  "回源端口": "Origin port",
+  "传输检测通过": "Transport check passed",
+  "检测部分完成": "Check partially completed",
+  "入站端口与 CDN 实际回源端口不一致，请调整入站端口、使用 Caddy，或在已有回源改写规则的入口中明确指定客户端端口。": "The inbound port does not match the CDN origin port. Adjust the inbound port, use Caddy, or explicitly set the client port on an entry with an existing origin rewrite rule.",
+  "默认端口暂无对应测速结果，保留当前列表": "No matching measurements for the default port; retaining the current list",
+
+  "填写客户端连接 CDN 的端口；与回源入站端口不同且未用 Caddy 时，需先配置 CDN 回源端口改写规则。": "Enter the client-facing CDN port. If it differs from the origin listener and Caddy is not used, configure the CDN origin-port rewrite first.",
+
 }
 export default m

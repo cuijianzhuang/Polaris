@@ -282,6 +282,7 @@ func (r *cdnReq) normalize() error {
 }
 
 func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
+	oldPort, oldScheme := cdnDefaultPort(p), cdnScheme(p)
 	p.Scheme = orDefault(r.Scheme, "https")
 	p.Name, p.Provider, p.OriginDomain, p.TLSMode = r.Name, orDefault(r.Provider, "cloudflare"), r.OriginDomain, orDefault(r.TLSMode, "full_strict")
 	if len(r.Ports) == 0 {
@@ -303,7 +304,9 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		setCDNPinnedHosts(p, *r.PinnedHosts, oldPinned)
 	}
 	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
-	if !p.NodeCheck {
+	if !p.NodeCheck || oldPort != cdnDefaultPort(p) || oldScheme != cdnScheme(p) {
+		p.PortChecks = store.NewJSON(map[string]store.CDNPortCheck{})
+		p.CheckedAt = nil
 		p.BadIPs = store.NewJSON([]string{})
 	}
 	p.IPSourceURL, p.IPTopN, p.ExpandPerIP, p.AutoDNS, p.CaddyFronting = r.IPSourceURL, r.IPTopN, r.ExpandPerIP, r.AutoDNS, r.CaddyFronting
@@ -361,8 +364,10 @@ func (s *Server) listCDN(c *gin.Context) {
 					continue
 				}
 				for _, r := range reports[o.ID] {
-					own := slices.ContainsFunc(reports[p.ID], func(x store.CDNIPReport) bool { return x.Source == r.Source })
-					if r.At.After(since) && !own && !slices.Contains(shared, r.Source) {
+					own := slices.ContainsFunc(reports[p.ID], func(x store.CDNIPReport) bool {
+						return x.Source == r.Source && effectiveCDNReportPort(x) == cdnDefaultPort(&p) && effectiveCDNReportScheme(x) == cdnScheme(&p)
+					})
+					if effectiveCDNReportPort(r) == cdnDefaultPort(&p) && effectiveCDNReportScheme(r) == cdnScheme(&p) && r.At.After(since) && !own && !slices.Contains(shared, r.Source) {
 						shared = append(shared, r.Source)
 					}
 				}

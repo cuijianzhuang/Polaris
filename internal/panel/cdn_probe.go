@@ -3,6 +3,7 @@ package panel
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,6 +21,7 @@ var errCDNProbeHTTP = errors.New("当前一键测速程序仅支持 HTTPS，HTTP
 // admin copies a ready install command. Removing the point revokes it.
 
 type cdnProbeView struct {
+	Port       int        `json:"port"`
 	Source     string     `json:"source"`
 	TokenID    string     `json:"tokenId"`
 	Prefix     string     `json:"prefix"`
@@ -37,7 +39,7 @@ func (s *Server) cdnProbes(ids []string) map[string][]cdnProbeView {
 	var ts []store.APIToken
 	s.st.DB.Where("cdn_profile_id IN ?", ids).Order("cdn_source").Find(&ts)
 	for _, t := range ts {
-		out[t.CDNProfileID] = append(out[t.CDNProfileID], cdnProbeView{Source: t.CDNSource, TokenID: t.ID, Prefix: t.Prefix,
+		out[t.CDNProfileID] = append(out[t.CDNProfileID], cdnProbeView{Port: t.CDNPort, Source: t.CDNSource, TokenID: t.ID, Prefix: t.Prefix,
 			CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, LastIP: t.LastIP})
 	}
 	return out
@@ -56,6 +58,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		return
 	}
 	var req struct {
+		Port   int    `json:"port"`
 		Source string `json:"source"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -84,17 +87,23 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		if cdnScheme(&p) == "http" {
 			return errCDNProbeHTTP
 		}
+		if req.Port == 0 {
+			req.Port = cdnDefaultPort(&p)
+		}
+		if req.Port < 1 || req.Port > 65535 || (p.Provider == "cloudflare" && !slices.Contains(cdnClientPorts(&p), req.Port)) {
+			return cdnSchemeProblem("测速端口不属于当前 CDN 协议的可用端口")
+		}
 		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ?", p.ID, source).Delete(&store.APIToken{}).Error; err != nil {
 			return err
 		}
 		t, sec, err := s.issueAPITokenIn(tx, name, "", []string{ScopeCDNIPs}, 0, c.GetString("admin"), func(t *store.APIToken) {
-			t.CDNProfileID, t.CDNSource = p.ID, source
+			t.CDNProfileID, t.CDNSource, t.CDNPort = p.ID, source, req.Port
 		})
 		tok, secret = t, sec
 		return err
 	})
 	if err != nil {
-		if errors.Is(err, errCDNProbeHTTP) {
+		if _, validation := err.(cdnSchemeProblem); errors.Is(err, errCDNProbeHTTP) || validation {
 			badRequest(c, err)
 		} else {
 			serverError(c, err)
@@ -102,7 +111,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		return
 	}
 	s.auditCtx(c, "cdn.probe_pair", p.Name, source)
-	c.JSON(http.StatusCreated, gin.H{"source": source, "tokenId": tok.ID, "token": secret,
+	c.JSON(http.StatusCreated, gin.H{"port": req.Port, "source": source, "tokenId": tok.ID, "token": secret,
 		"mirror": strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/")})
 }
 

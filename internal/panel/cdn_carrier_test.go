@@ -27,7 +27,7 @@ func TestCDNIPsByCarrier(t *testing.T) {
 		Transport: store.NewJSON(model.TransportSpec{Type: model.TransWS, Path: "/ws"}),
 		Security:  store.NewJSON(model.SecuritySpec{Type: model.SecTLS, ServerName: "cdn.example.com"})})
 	merged := []string{"104.16.0.1", "104.16.0.9", "104.16.0.2"}
-	db.Create(&store.CDNProfile{ID: "cf", Name: "cf", OriginDomain: "cdn.example.com", Ports: store.NewJSON([]int{443}),
+	db.Create(&store.CDNProfile{ID: "cf", Name: "cf", OriginDomain: "cdn.example.com", Ports: store.NewJSON([]int{2053}),
 		ExpandPerIP: true, CarrierSplit: true, PreferredIPs: store.NewJSON(merged)})
 	db.Create(&store.Endpoint{ID: "ep", InboundID: "ws", Kind: "cdn", CDNProfileID: "cf"})
 	now := time.Now()
@@ -36,7 +36,7 @@ func TestCDNIPsByCarrier(t *testing.T) {
 		for _, ip := range ips {
 			rs = append(rs, store.CDNIPResult{IP: ip, LatencyMs: 50})
 		}
-		db.Create(&store.CDNIPReport{ProfileID: "cf", Source: source, Carrier: carrier, At: at, IPs: store.NewJSON(rs)})
+		db.Create(&store.CDNIPReport{Port: 2053, Scheme: "https", ProfileID: "cf", Source: source, Carrier: carrier, At: at, IPs: store.NewJSON(rs)})
 	}
 	report("上海电信", "ct", now, "104.16.0.1")
 	report("广州移动", "cm", now, "104.16.0.9", "104.16.0.2")

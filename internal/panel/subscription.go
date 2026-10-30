@@ -289,6 +289,9 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n.Server = host
 		_, fronted := s.frontFor(m.ID)
 		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
+		if p.Provider == "cloudflare" && ep.Port == 0 && !(fronted && p.CaddyFronting) && m.Port != cdnOriginPort(&p, n.Port) {
+			return nil
+		}
 		if cdnScheme(&p) == "http" {
 			n.TLS = model.ClientTLS{Type: model.SecNone}
 		} else {
@@ -301,13 +304,17 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n.Transport.Host = host
 		n = apply(n)
 		// An entry with its own address uses it, not the preferred IPs.
-		if !p.ExpandPerIP || len(p.PreferredIPs.V) == 0 || ep.Address != "" {
+		if !p.ExpandPerIP || ep.Address != "" {
 			n.Name = name("CDN")
 			return []sub.Node{n}
 		}
-		ips := s.carrierCDNIPs(&p, carrier)
+		ips := s.carrierCDNIPs(&p, carrier, n.Port)
 		if ips == nil {
-			ips = usableCDNIPs(&p)
+			ips = s.cdnIPsForPort(&p, n.Port)
+		}
+		if len(ips) == 0 {
+			n.Name = name("CDN")
+			return []sub.Node{n}
 		}
 		if p.IPTopN > 0 {
 			// Top N of the measured addresses; typed-in domains always follow.

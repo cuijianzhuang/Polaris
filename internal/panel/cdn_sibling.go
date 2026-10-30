@@ -58,21 +58,28 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	}
 	// A port the CDN proxies that nothing on the node uses: the profile's
 	// own ports first, then the ports for the selected client scheme.
-	if !cdnOriginTLS(&p) {
-		m.Security = model.SecuritySpec{Type: model.SecNone}
-	}
 	candidates := append(slices.Clone(p.Ports.V), cdnClientPorts(&p)...)
 	used, err := s.usedPorts(node.ID)
 	if err != nil {
 		dbError(c, err)
 		return
 	}
+	clientPort := 0
 	for _, port := range candidates {
-		if port <= 0 || used[port] {
+		originPort := port
+		if p.Provider == "cloudflare" {
+			originPort = cdnOriginPort(&p, port)
+		}
+		if port <= 0 || used[originPort] {
 			continue
 		}
-		m.Port = port
+		m.Port = originPort
+		m.Security = model.SecuritySpec{Type: model.SecTLS, ServerName: host}
+		if !cdnOriginTLSAt(&p, port) {
+			m.Security = model.SecuritySpec{Type: model.SecNone}
+		}
 		if s.portConflict(node.ID, &m, "") == nil {
+			clientPort = port
 			break
 		}
 		m.Port = 0
@@ -96,14 +103,17 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	// origin address in subscriptions.
 	s.st.DB.Where("inbound_id = ? AND kind = ?", row.ID, "direct").Delete(&store.Endpoint{})
 	sib := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: p.ID}
+	if cdnNodePort(&p, m.Port, false) != clientPort {
+		sib.Port = clientPort
+	}
 	assignCDNHost(s.st.DB, &sib, node.ID)
 	if err := s.st.DB.Create(&sib).Error; err != nil {
 		dbError(c, err)
 		return
 	}
 	addedPort := false
-	if !slices.Contains(p.Ports.V, m.Port) {
-		p.Ports = store.NewJSON(append(slices.Clone(p.Ports.V), m.Port))
+	if !slices.Contains(p.Ports.V, clientPort) {
+		p.Ports = store.NewJSON(append(slices.Clone(p.Ports.V), clientPort))
 		s.warnWrite("cdn profile ports", s.st.DB.Model(&p).Update("ports", p.Ports).Error)
 		addedPort = true
 	}

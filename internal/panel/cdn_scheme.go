@@ -48,7 +48,18 @@ func cdnPortsText(p *store.CDNProfile) string {
 // Cloudflare's origin encryption mode affects HTTPS visitors; HTTP visitors
 // reach the origin using plain HTTP even under Full / Full (strict).
 func cdnOriginTLS(p *store.CDNProfile) bool {
-	return cdnScheme(p) == "https" && p.TLSMode != "flexible"
+	return cdnOriginTLSAt(p, cdnDefaultPort(p))
+}
+
+// Flexible only applies to HTTPS :443; other HTTPS ports fall back to Full.
+func cdnOriginTLSAt(p *store.CDNProfile, port int) bool {
+	return cdnScheme(p) == "https" && !(p.TLSMode == "flexible" && (p.Provider != "cloudflare" || port == 443))
+}
+func cdnOriginPort(p *store.CDNProfile, port int) int {
+	if p.Provider == "cloudflare" && cdnScheme(p) == "https" && p.TLSMode == "flexible" && port == 443 {
+		return 80
+	}
+	return port
 }
 
 // A scheme change cannot inherit old measurements or invalidate attached origins.

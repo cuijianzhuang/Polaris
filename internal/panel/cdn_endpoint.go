@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/sha1"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -25,31 +26,35 @@ import (
 // cdnTarget is where a client of a cdn endpoint connects, as the
 // subscription tells it (see expandEndpoint).
 type cdnTarget struct {
-	Scheme string `json:"scheme"`
-	Server string `json:"server"`
-	Port   int    `json:"port"`
-	SNI    string `json:"sni"`
-	Host   string `json:"host"`
-	Path   string `json:"path"`
+	Scheme     string `json:"scheme"`
+	OriginPort int    `json:"originPort"`
+	Server     string `json:"server"`
+	Port       int    `json:"port"`
+	SNI        string `json:"sni"`
+	Host       string `json:"host"`
+	Path       string `json:"path"`
 }
 
 func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnTarget {
-	_, fronted := s.frontFor(m.ID)
+	front, fronted := s.frontFor(m.ID)
 	host := orDefault(ep.Host, p.OriginDomain)
-	t := cdnTarget{Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
+	t := cdnTarget{OriginPort: m.Port, Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
 	if m.Transport.Type == model.TransGRPC {
 		t.Path = "/" + m.Transport.ServiceName
-	}
-	if p.ExpandPerIP {
-		if ips := usableCDNIPs(p); len(ips) > 0 {
-			t.Server = ips[0]
-		}
 	}
 	if ep.Address != "" {
 		t.Server = ep.Address
 	}
 	if ep.Port > 0 {
 		t.Port = ep.Port
+	}
+	if fronted && p.CaddyFronting {
+		t.OriginPort = front.Port
+	}
+	if p.ExpandPerIP && ep.Address == "" {
+		if ips := s.cdnIPsForPort(p, t.Port); len(ips) > 0 {
+			t.Server = ips[0]
+		}
 	}
 	if ep.SNI != "" {
 		t.SNI = ep.SNI
@@ -73,6 +78,10 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 	var out []string
 	if problem := s.cdnEndpointProblem(&m, row.ID, p, ep.Port); problem != "" {
 		out = append(out, problem)
+	}
+	target := s.cdnTargetFor(ep, &m, p)
+	if target.Port != cdnDefaultPort(p) && len(sharedCDNReports(s.st.DB, p, time.Now().Add(-cdnStaleAfter(p)), "")) > 0 && len(cdnReportsForPort(s.st.DB, p, target.Port, time.Now().Add(-cdnStaleAfter(p)), "")) == 0 {
+		out = append(out, fmt.Sprintf("当前入口端口 %d 没有对应测速结果，其他端口的测速不能证明该端口可用", target.Port))
 	}
 	host := orDefault(ep.Host, p.OriginDomain)
 	if w := s.cdnCertProblem(&m, p, host); w != "" {
@@ -142,6 +151,10 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 	}
 	m := s.toModelInbound(&row)
 	t := s.cdnTargetFor(&ep, &m, &p)
+	if problem := s.cdnEndpointProblem(&m, row.ID, &p, ep.Port); problem != "" {
+		c.JSON(http.StatusOK, cdnCheck{Message: problem, Steps: []string{}, Warnings: s.cdnEndpointWarnings(&ep, &row, &p)})
+		return
+	}
 	var node store.Node
 	s.st.DB.First(&node, "id = ?", row.NodeID)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
@@ -180,7 +193,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			// port), where nothing listens: 521 although the TLS port answers.
 			if mode, err := cf.sslMode(ctx, zone); err == nil {
 				r.Steps = append(r.Steps, "Cloudflare SSL/TLS 模式："+mode)
-				if cdnOriginTLS(p) && (mode == "flexible" || mode == "off") {
+				if cdnOriginTLSAt(p, t.Port) && (mode == "flexible" || mode == "off") {
 					r.Message = fmt.Sprintf("Cloudflare 的 SSL/TLS 模式是 %s：Cloudflare 用明文 HTTP 连节点的 HTTP 端口（80 或对应的 HTTP 端口，而不是 %d），那里没有程序监听，所以报 521。到 Cloudflare 后台 SSL/TLS 把模式改为 Full（或在配置档选 Full 后点「同步 DNS」）", mode, t.Port)
 					return
 				}
@@ -212,18 +225,22 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 	if len(nodeIPs) == 0 {
 		return
 	}
-	addr := net.JoinHostPort(nodeIPs[0], strconv.Itoa(t.Port))
+	originPort := t.OriginPort
+	if originPort == 0 {
+		originPort = cdnOriginPort(p, t.Port)
+	}
+	addr := net.JoinHostPort(nodeIPs[0], strconv.Itoa(originPort))
 	conn, err := (&net.Dialer{Timeout: 6 * time.Second}).DialContext(ctx, "tcp", addr)
 	switch {
 	case err != nil && strings.Contains(err.Error(), "refused"):
 		r.Steps = append(r.Steps, "面板直连 "+addr+"：连接被拒绝")
-		r.Message += fmt.Sprintf("。面板直连 %s 也被拒绝：节点上 %d 端口没有程序在监听（看节点卡片的版本号是否已应用、内核是否在运行），或系统防火墙（iptables / ufw，Oracle 镜像默认有 REJECT 规则）拒绝了这个端口", addr, t.Port)
+		r.Message += fmt.Sprintf("。面板直连 %s 也被拒绝：节点上 %d 端口没有程序在监听（看节点卡片的版本号是否已应用、内核是否在运行），或系统防火墙（iptables / ufw，Oracle 镜像默认有 REJECT 规则）拒绝了这个端口", addr, originPort)
 	case err != nil:
 		r.Steps = append(r.Steps, "面板直连 "+addr+"："+err.Error())
-		r.Message += fmt.Sprintf("。面板直连 %s 也连不上（%v）：检查云服务商安全组 / 防火墙是否放行 %d 端口", addr, err, t.Port)
+		r.Message += fmt.Sprintf("。面板直连 %s 也连不上（%v）：检查云服务商安全组 / 防火墙是否放行 %d 端口", addr, err, originPort)
 	default:
 		_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
-		if !cdnOriginTLS(p) {
+		if !cdnOriginTLSAt(p, t.Port) {
 			conn.Close()
 			r.Steps = append(r.Steps, "面板直连 "+addr+"：TCP 通，配置为 HTTP 回源")
 			r.Message += "。HTTP 回源端口 TCP 可达，请检查 DNS、Cloudflare 来源 IP 的防火墙规则及 HTTP 入站日志"
@@ -238,7 +255,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 		}
 		r.Steps = append(r.Steps, "面板直连 "+addr+"：正常（TLS 握手成功）")
 		if isLocalIP(nodeIPs[0]) {
-			r.Message += fmt.Sprintf("。面板和节点在同一台机器上，面板直连 %s 走的是本机、不经过防火墙，所以不能说明外部能连：检查这台机器的防火墙（iptables / ufw / nftables）、fail2ban / CrowdSec 是否拦了 Cloudflare 的 IP，以及云服务商的安全组是否放行 %d 端口", addr, t.Port)
+			r.Message += fmt.Sprintf("。面板和节点在同一台机器上，面板直连 %s 走的是本机、不经过防火墙，所以不能说明外部能连：检查这台机器的防火墙（iptables / ufw / nftables）、fail2ban / CrowdSec 是否拦了 Cloudflare 的 IP，以及云服务商的安全组是否放行 %d 端口", addr, originPort)
 		} else {
 			r.Message += fmt.Sprintf("。但面板直连 %s 是通的：节点本身没问题，多半是 DNS 记录指向了别的 IP，或防火墙（iptables / ufw、fail2ban / CrowdSec）只拦了 Cloudflare 的 IP 段", addr)
 		}
@@ -246,6 +263,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 }
 
 type cdnCheck struct {
+	Partial  bool     `json:"partial,omitempty"`
 	OK       bool     `json:"ok"`
 	Status   int      `json:"status,omitempty"`
 	Message  string   `json:"message"`
@@ -266,6 +284,12 @@ var cfErrors = map[int]string{
 	525: "Cloudflare 和节点 SSL 握手失败：节点这个端口上不是 TLS 服务（入站没开 TLS），或 SSL 模式与入站不匹配",
 	526: "节点证书无效：SSL 模式是 Full (strict)，而证书不包含回源域名或是自签证书。在配置档点「同步 DNS」换成 Origin 证书，或把 Cloudflare 的 SSL 模式改为 Full",
 	530: "Cloudflare 解析不了回源（错误 1016）：回源域名的 DNS 记录不对",
+}
+
+// RFC 6455 Sec-WebSocket-Accept; SHA-1 here is a protocol checksum.
+func cdnWebSocketAccept(key string) string {
+	digest := sha1.Sum([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
+	return base64.StdEncoding.EncodeToString(digest[:])
 }
 
 func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) cdnCheck {
@@ -332,20 +356,35 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		return fail("错误 %d：%s", resp.StatusCode, msg)
 	}
 	switch {
-	case t.Scheme == "http" && resp.StatusCode >= 300 && resp.StatusCode < 400 && strings.HasPrefix(strings.ToLower(resp.Header.Get("Location")), "https://"):
-		r.Message = "HTTP 入口被重定向到 HTTPS：请检查 Cloudflare 的 Always Use HTTPS / 重定向规则，或改用 HTTPS 配置档"
-	case resp.StatusCode == http.StatusSwitchingProtocols:
-		r.OK = true
-		r.Message = "连通：客户端 → Cloudflare → 节点入站都通了"
-	case transport != model.TransWS && transport != model.TransHTTPUpgrade && resp.StatusCode < 500:
-		r.OK = true
-		r.Message = fmt.Sprintf("Cloudflare 已连到节点（HTTP %d）；%s 无法在这里完整握手，客户端仍连不上请看内核日志", resp.StatusCode, transport)
 	case resp.StatusCode == http.StatusForbidden && viaCF:
 		r.Message = "被 Cloudflare 拦截（403）：检查 WAF、Bot Fight Mode 或防火墙规则"
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
+		r.Message = fmt.Sprintf("HTTP %d：请求被拒绝或限流，不能判定 CDN 入口可用", resp.StatusCode)
+	case t.Scheme == "http" && resp.StatusCode >= 300 && resp.StatusCode < 400 && strings.HasPrefix(strings.ToLower(resp.Header.Get("Location")), "https://"):
+		r.Message = "HTTP 入口被重定向到 HTTPS：请检查 Cloudflare 的 Always Use HTTPS / 重定向规则，或改用 HTTPS 配置档"
+	case resp.StatusCode >= 300 && resp.StatusCode < 400:
+		r.Message = fmt.Sprintf("HTTP %d：入口返回重定向，尚未完成传输握手，请检查路径和重定向规则", resp.StatusCode)
+	case resp.StatusCode >= 500:
+		r.Message = fmt.Sprintf("HTTP %d：CDN 或回源服务异常", resp.StatusCode)
 	case !viaCF:
-		r.Message = fmt.Sprintf("响应没有经过 Cloudflare（HTTP %d）：这个地址或域名没走 Cloudflare 代理", resp.StatusCode)
+		r.Partial = resp.StatusCode == http.StatusSwitchingProtocols || (resp.StatusCode >= 200 && resp.StatusCode < 300)
+		r.Message = fmt.Sprintf("响应没有 Cloudflare 标识（HTTP %d），无法确认经过 CDN 或代理业务可用", resp.StatusCode)
+	case resp.StatusCode == http.StatusSwitchingProtocols && (transport == model.TransWS || transport == model.TransHTTPUpgrade):
+		if !strings.EqualFold(resp.Header.Get("Upgrade"), "websocket") || !slices.ContainsFunc(strings.Split(resp.Header.Get("Connection"), ","), func(token string) bool { return strings.EqualFold(strings.TrimSpace(token), "upgrade") }) {
+			r.Message = "入口返回 101，但缺少有效的 Upgrade 响应头，传输握手未通过"
+			break
+		}
+		if transport == model.TransWS && resp.Header.Get("Sec-WebSocket-Accept") != cdnWebSocketAccept(base64.StdEncoding.EncodeToString(key)) {
+			r.Message = "WebSocket 升级响应校验失败，传输握手未通过"
+			break
+		}
+		r.OK = true
+		r.Message = "CDN 传输升级通过；尚未验证代理认证和实际业务请求"
+	case transport != model.TransWS && transport != model.TransHTTPUpgrade:
+		r.Partial = true
+		r.Message = fmt.Sprintf("收到 HTTP %d 响应；尚未验证 %s 协议握手、代理认证和实际业务请求", resp.StatusCode, transport)
 	default:
-		r.Message = fmt.Sprintf("已到达节点，但 WebSocket 握手失败（HTTP %d）：入站路径或 Host 和订阅不一致，或入站不是 WS", resp.StatusCode)
+		r.Message = fmt.Sprintf("WebSocket 握手未通过（HTTP %d）：请检查入站协议、路径和 Host", resp.StatusCode)
 	}
 	return r
 }

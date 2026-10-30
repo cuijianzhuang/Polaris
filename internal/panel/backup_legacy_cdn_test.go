@@ -74,7 +74,7 @@ func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
 	if (legacy && (len(p.PinnedHosts.V) != 1 || p.PinnedHosts.V[0] != "preferred.example.com")) || (!legacy && len(p.PinnedHosts.V) != 0) {
 		t.Fatal("legacy domain not pinned", p.PinnedHosts.V)
 	}
-	dst.DB.Create(&store.CDNIPReport{ProfileID: p.ID, Source: "review", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.16.2.2", LatencyMs: 10}})})
+	dst.DB.Create(&store.CDNIPReport{Scheme: cdnScheme(&p), Port: cdnDefaultPort(&p), ProfileID: p.ID, Source: "review", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.16.2.2", LatencyMs: 10}})})
 	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := rebuildCDNLists(tx, &p, time.Now(), nil); return e }); err != nil {
 		t.Fatal(err)
 	}

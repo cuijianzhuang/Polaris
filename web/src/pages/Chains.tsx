@@ -176,7 +176,7 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
         {f.provider === 'cloudflare' && f.scheme === 'https' && <div className="hint" style={{ gridColumn: '1 / -1' }}>{
           f.tlsMode === 'full_strict' ? t('Full (strict)：Cloudflare 校验节点证书，证书必须包含回源域名（或用「同步 DNS」签发的 Origin 证书），否则报 526。')
             : f.tlsMode === 'full' ? t('Full：Cloudflare 用 HTTPS 回源但不校验证书，节点上任意证书都行，入站必须开 TLS。')
-              : t('Flexible：Cloudflare 用明文 HTTP 回源，入站不能开 TLS，也不能用 Caddy 统一回源；一般不推荐。')}
+              : t('Flexible 仅在 HTTPS 443 使用 HTTP 80 回源；其他 HTTPS 端口回落到 Full，需要 TLS。')}
           {' '}{t('这里的设置要和 Cloudflare 后台「SSL/TLS」一致：点「同步 DNS」会替你改（对整个域名生效）。')}</div>}
         <Field label={t('可用端口')} htmlFor="cdn-ports" hint={f.provider === 'cloudflare' ? t('Cloudflare 的 {scheme} 端口：{ports}。第一个为默认连接端口。', { scheme: f.scheme.toUpperCase(), ports: cdnPorts(f.scheme).join('、') }) : undefined}><input id="cdn-ports" className="input mono" value={f.ports} onChange={(e) => set('ports', e.target.value)} /></Field>
         {profile?.tokenSource === 'profile' && <Field label="Cloudflare API Token" full hint={t('这个配置档有单独保存的 Token（旧版本填写），留空保持不变。新配置档统一用「CDN 配置档」页的 CDN Token')}>
@@ -223,6 +223,8 @@ function CDNHostsEditor({ p, onClose, onSaved }: { p: CDNProfile; onClose: () =>
 function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: () => void; onDelete: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
   const [editingHosts, setEditingHosts] = useState(false)
+  const defaultPort = p.ports[0] ?? (cdnScheme(p) === 'http' ? 80 : 443)
+  const matchingReports = p.reports.filter((r) => (r.port || 443) === defaultPort && (r.scheme || 'https') === cdnScheme(p))
   const automatic = p.preferredIps.filter((a) => !(p.pinnedHosts ?? []).includes(a))
   const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string; split?: string[] } | null>(null)
   const confirm = useConfirm()
@@ -272,7 +274,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('优选 IP')}</h2>
           <button className="btn sm" type="button" disabled={busy || !p.ipSourceUrl} onClick={() => run(async () => { await post(`/cdn-profiles/${p.id}/refresh-ips`); onChanged() }, t('已刷新'))}>{t('刷新')}</button></div>
-        <div className="sub" style={{ marginBottom: 10 }}>{p.reports.length || (p.shared ?? []).length ? t('由 {n} 个测速点维护', { n: p.reports.length + (p.shared ?? []).length }) : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
+        <div className="sub" style={{ marginBottom: 10 }}>{cdnScheme(p).toUpperCase()}:{defaultPort} · {matchingReports.length || (p.shared ?? []).length ? t('由 {n} 个测速点维护', { n: matchingReports.length + (p.shared ?? []).length }) : p.reports.length ? t('默认端口暂无对应测速结果，保留当前列表') : p.ipSourceUrl ? t('来源：{url}', { url: p.ipSourceUrl }) : t('手动维护')} · {p.expandPerIp ? (p.ipTopN ? t('订阅取前 {n} 个', { n: p.ipTopN }) : t('订阅全部使用')) : t('订阅只用回源域名')}{p.lastRefreshAt ? ' · ' + ago(p.lastRefreshAt) : ''}</div>
         <div className="mono small" style={{ background: 'var(--soft)', borderRadius: 8, padding: '10px 12px', lineHeight: 1.8, maxHeight: 200, overflowY: 'auto' }}>
           {automatic.length ? automatic.map((ip) => {
             const bad = p.nodeCheck && (p.badIps ?? []).includes(ip)
@@ -280,11 +282,14 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
             return <div key={ip} style={bad ? { color: 'var(--bad)', textDecoration: 'line-through' } : undefined} title={bad ? t('节点都连不上，订阅暂不使用') : undefined}>{ip}{proxy && <span className="tag warn" style={{ marginLeft: 6, fontSize: 11 }} title={t('不在 Cloudflare 官方 IP 段：第三方反代')}>{t('反代')}</span>}</div>
           }) : <span>{t('还没有自动或临时优选地址。可在「编辑」中填写临时地址或来源 URL，或添加测速点自动上报。')}</span>}
         </div>
-        {p.nodeCheck && <div className="sub" style={{ marginTop: 8 }}>{p.checkedAt ? t('节点检测：{t}，{n} 个连不上', { t: ago(p.checkedAt), n: (p.badIps ?? []).length }) : t('节点检测：等待第一次检测')}</div>}
+        {p.nodeCheck && <details style={{ marginTop: 8 }}>
+          <summary className="sub">{t('各端口检测结果')}</summary>
+          {Object.entries(p.portChecks ?? {}).length > 0 ? Object.entries(p.portChecks ?? {}).map(([port, check]) => <div className="hint" key={port}>{cdnScheme(p).toUpperCase()}:{port} · {check.allFailed ? t('全部地址不可达，暂保留列表') : t('{n} 个地址不可达', { n: check.badIps.length })} · {ago(check.at)}</div>) : <div className="hint">{p.checkedAt ? t('旧检测结果仅适用于默认端口 {port}', { port: defaultPort }) : t('节点检测：等待第一次检测')}</div>}
+        </details>}
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点，各自手动域名保留。')}</div>}
+        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自手动域名保留。')}</div>}
         {p.reports.length === 0 && waiting.length === 0 ? (p.shared ?? []).length > 0 ? null : <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3
@@ -292,7 +297,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
             return (
               <div key={r.source} className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
                 <div style={{ minWidth: 0 }}>
-                  <div><b>{r.source}</b>{r.carrier && <span className="tag" style={{ marginLeft: 6 }}>{carrierLabel(r.carrier)}</span>} <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
+                  <div><b>{r.source}</b><span className="tag" style={{ marginLeft: 6 }}>{(r.scheme || 'https').toUpperCase()}:{r.port || 443}{!r.port ? ' · ' + t('旧默认') : ''}</span>{r.carrier && <span className="tag" style={{ marginLeft: 6 }}>{carrierLabel(r.carrier)}</span>} <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
                   <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{best ? `${best.ip}${best.colo ? ` · ${best.colo}` : ''} · ${Math.round(best.latencyMs)} ms${best.speed ? ` · ${best.speed.toFixed(1)} MB/s` : ''}${best.loss > 0 ? ` · ${t('丢包')} ${Math.round(best.loss * 100)}%` : ''}` : '—'} <span className="sub">{t('共 {n} 个', { n: r.ips.length })}</span></div>
                 </div>
                 <button className="btn sm" type="button" disabled={busy} onClick={() => remove(r.source)}>{t('移除')}</button>
@@ -302,14 +307,14 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
           {waiting.map((w) => (
             <div key={'w-' + w.source} className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
               <div style={{ minWidth: 0 }}>
-                <div><b>{w.source}</b> <span className="tag warn" style={{ marginLeft: 6 }}>{t('等待首次上报')}</span></div>
+                <div><b>{w.source}</b> <span className="tag">{cdnScheme(p).toUpperCase()}:{w.port || 443}</span> <span className="tag warn" style={{ marginLeft: 6 }}>{t('等待首次上报')}</span></div>
                 <div className="sub">{t('{when}生成安装命令', { when: ago(w.createdAt) })}{w.lastUsedAt ? ' · ' + t('最近连接 {when}', { when: ago(w.lastUsedAt) }) : ''}</div>
               </div>
               <button className="btn sm" type="button" disabled={busy} onClick={() => remove(w.source)}>{t('移除')}</button>
             </div>
           ))}</div>
         )}
-        <ProbeInstall profile={p} onPaired={onChanged} />
+        <ProbeInstall key={p.id} profile={p} onPaired={onChanged} />
       </section>
     </>
   )
@@ -766,7 +771,9 @@ export default function Chains() {
 function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired: () => void }) {
   const [source, setSource] = useState('')
   const [carrier, setCarrier] = useState('')
-  const [made, setMade] = useState<{ source: string; token: string; mirror: string } | null>(null)
+  const [port, setPort] = useState('')
+  const probePort = Number(port) || p.ports[0] || 443
+  const [made, setMade] = useState<{ port?: number; source: string; token: string; mirror: string } | null>(null)
   const { busy, run } = useAction()
   const toast = useToast()
   const apiUrl = new URL(API, window.location.href).href
@@ -776,10 +783,11 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
     `curl -fsSL ${made.mirror ? made.mirror + '/' : ''}${script} | sudo sh -s --`,
     `--api ${q(apiUrl)} --profile ${p.id} --host ${q(p.originDomain)}`,
     `--token ${made.token} --source ${q(made.source)}`,
+    `--args ${q('-port ' + (made.port || probePort))}`,
     carrier ? `--carrier ${carrier}` : '',
     made.mirror ? `--mirror ${q(made.mirror + '/')}` : '',
   ].filter(Boolean).join(' ')
-  const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}>`
+  const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}> --args '-port ${probePort}'`
   if (cdnScheme(p) === 'http') return <div className="hint" style={{ marginTop: 10 }}>{t('当前一键测速程序仅支持 HTTPS；HTTP 配置档可维护优选地址、设置来源 URL，或自行按 HTTP 端口测速并上报。')}</div>
   return (
     <details style={{ marginTop: 10 }} open={!!made}>
@@ -788,12 +796,15 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
       {!made ? (
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <input className="input" style={{ flex: '1 1 160px', minWidth: 0 }} value={source} maxLength={40} placeholder={t('测速点名称，例如 上海电信')} aria-label={t('测速点名称')} onChange={(e) => setSource(e.target.value)} />
+          <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={String(probePort)} aria-label={t('测速端口')} onChange={(e) => setPort(e.target.value)}>
+            {Array.from(new Set([...p.ports, ...cdnPorts(cdnScheme(p))])).map((port) => <option key={port} value={String(port)}>{cdnScheme(p).toUpperCase()}:{port}</option>)}
+          </select>
           <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={carrier} aria-label={t('运营商')} onChange={(e) => setCarrier(e.target.value)}>
             <option value="">{t('运营商：从名称识别')}</option>
             <option value="ct">{t('电信')}</option><option value="cu">{t('联通')}</option><option value="cm">{t('移动')}</option>
           </select>
           <button className="btn sm pri" type="button" disabled={busy || !source.trim()} onClick={() => run(async () => {
-            const r = await post<{ source: string; token: string; mirror: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim() })
+            const r = await post<{ port?: number; source: string; token: string; mirror: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim(), port: probePort })
             setMade(r); onPaired()
           })}>{t('生成安装命令')}</button>
         </div>

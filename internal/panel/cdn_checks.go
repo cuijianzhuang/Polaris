@@ -34,6 +34,9 @@ func cdnProblem(m *model.Inbound, p *store.CDNProfile, epPort int, fronted bool)
 	if port == 0 {
 		port = cdnNodePort(p, m.Port, fronted)
 	}
+	if !fronted && epPort == 0 && m.Port != cdnOriginPort(p, port) {
+		return fmt.Sprintf("入站端口 %d 不是 Cloudflare 的 %s 端口，不能自动映射到 %d：请使用受支持的入站端口或 Caddy；已配置外部回源端口改写时，需在入口明确填写客户端端口", m.Port, strings.ToUpper(cdnScheme(p)), port)
+	}
 	if !slices.Contains(cdnClientPorts(p), port) {
 		return fmt.Sprintf("客户端会经 Cloudflare 连 %d 端口，但 %s 只支持 %s：请修改入口端口", port, strings.ToUpper(cdnScheme(p)), cdnPortsText(p))
 	}
@@ -47,7 +50,7 @@ func cdnProblem(m *model.Inbound, p *store.CDNProfile, epPort int, fronted bool)
 		if tls {
 			return "HTTP CDN 使用明文 HTTP 回源，入站应关闭 TLS，或改用 HTTPS CDN"
 		}
-	} else if p.TLSMode == "flexible" {
+	} else if !cdnOriginTLSAt(p, port) {
 		if tls {
 			return "SSL 模式 Flexible 下 Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上：把配置档的 SSL 模式改为 Full 或 Full (strict)"
 		}
