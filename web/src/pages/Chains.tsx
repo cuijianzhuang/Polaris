@@ -163,8 +163,8 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
         <Field label={t('服务商')}>
           <select className="input" value={f.provider} onChange={(e) => set('provider', e.target.value)}><option value="cloudflare">Cloudflare</option><option value="other">{t('其他')}</option></select>
         </Field>
-        <Field label={t('回源域名')} htmlFor="cdn-origin" full hint={t('同一连接方式的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。')}><input id="cdn-origin" className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
-        <Field label={t('客户端连接方式')} htmlFor="cdn-scheme" full hint={t('客户端到 CDN 的连接方式，与 Cloudflare 回源 SSL 模式分别设置。切换后重置可用端口，可再调整顺序。')}>
+        <Field label={t('回源域名')} htmlFor="cdn-origin" full hint={t('使用相同 CDN 协议的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。')}><input id="cdn-origin" className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
+        <Field label={t('CDN 协议')} htmlFor="cdn-scheme" full hint={t('选择客户端到 CDN 的 HTTP 或 HTTPS 协议；回源 SSL 模式单独设置。切换协议后重置可用端口，可再调整顺序。')}>
           <select id="cdn-scheme" className="input" value={f.scheme} onChange={(e) => setF((x) => ({ ...x, scheme: e.target.value as 'http' | 'https', ports: cdnPorts(e.target.value).join(', '), caddyFronting: e.target.value === 'http' ? false : x.caddyFronting }))}>
             <option value="https">{t('HTTPS（TLS）')}</option><option value="http">{t('HTTP（明文）')}</option>
           </select>
@@ -239,7 +239,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('CDN 配置档 · {name}', { name: p.name })}</h2><span className="tag" style={{ margin: 0 }}>{p.provider === 'cloudflare' ? 'Cloudflare' : t('其他')} · {cdnScheme(p).toUpperCase()}</span></div>
         <dl className="kv" style={{ margin: '16px 0 0' }}>
           <dt>{t('回源域名')}</dt><dd className="mono">{p.originDomain}</dd>
-          <dt>{t('客户端连接方式')}</dt><dd>{cdnScheme(p).toUpperCase()}</dd>
+          <dt>{t('CDN 协议')}</dt><dd>{cdnScheme(p).toUpperCase()}</dd>
           <dt>{t('TLS 模式')}</dt><dd>{cdnScheme(p) === 'http' ? t('HTTP 回源（不使用此设置）') : p.tlsMode === 'full_strict' ? 'Full (strict)' : p.tlsMode}</dd>
           <dt>{t('可用端口')}</dt><dd>{p.ports.map((x) => <span key={x} className="tag">{x}</span>)}</dd>
           <dt>{t('服务节点')}</dt><dd>{(p.serves ?? []).length === 0 ? <span className="sub">{t('还没有入站使用：在「入站」里给入站添加这个配置档的 CDN 入口')}</span> : (p.serves ?? []).map((x) => (
@@ -284,7 +284,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
       </section>
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
-        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 HTTP/HTTPS 连接方式的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 HTTP/HTTPS 连接方式的 Cloudflare 配置档共用测速点，各自手动域名保留。')}</div>}
+        {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点，各自手动域名保留。')}</div>}
         {p.reports.length === 0 && waiting.length === 0 ? (p.shared ?? []).length > 0 ? null : <div className="sub">{t('还没有测速点上报。在用户所在地区的机器上安装测速程序（见下方「添加测速点」），或用带「上报 CDN 优选 IP」权限的 API 令牌调用 POST /cdn-profiles/{id}/preferred-ips。', { id: p.id })}</div> : (
           <div style={{ marginTop: 10 }}>{p.reports.map((r) => {
             const stale = Date.now() - new Date(r.at).getTime() > (p.staleHours || 24) * 3600e3

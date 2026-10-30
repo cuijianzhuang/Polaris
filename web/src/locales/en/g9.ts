@@ -270,14 +270,14 @@ const m: Record<string, string> = {
   "当前订阅只用回源域名；在「编辑」中开启订阅展开后，优选地址和手动域名才会用于订阅。": "Subscriptions currently use only the origin domain. Enable subscription expansion in Edit to use preferred addresses and manual domains.",
   "还没有自动或临时优选地址。可在「编辑」中填写临时地址或来源 URL，或添加测速点自动上报。": "No automatic or temporary preferred addresses yet. Enter temporary addresses or a source URL in Edit, or add a speed-test reporter.",
 
-  "客户端连接方式": "Client connection",
-  "客户端到 CDN 的连接方式，与 Cloudflare 回源 SSL 模式分别设置。切换后重置可用端口，可再调整顺序。": "Client-to-CDN protocol, separate from Cloudflare origin SSL mode. Switching resets the available ports; you can then reorder them.",
+  "CDN 协议": "CDN protocol",
+  "选择客户端到 CDN 的 HTTP 或 HTTPS 协议；回源 SSL 模式单独设置。切换协议后重置可用端口，可再调整顺序。": "Client-to-CDN protocol, separate from Cloudflare origin SSL mode. Switching resets the available ports; you can then reorder them.",
   "HTTP（明文）": "HTTP (plaintext)",
   "HTTP CDN 使用明文连接和 HTTP 回源，Cloudflare 入站应关闭 TLS。若站点开启强制 HTTPS 或重定向规则，HTTP 节点将无法连接。": "HTTP CDN uses plaintext connections and HTTP to the origin. Disable TLS on Cloudflare origin inbounds. Forced HTTPS or redirect rules will prevent HTTP nodes from connecting.",
   "Cloudflare 的 {scheme} 端口：{ports}。第一个为默认连接端口。": "Cloudflare {scheme} ports: {ports}. The first is the default connection port.",
   "HTTP 回源（不使用此设置）": "HTTP origin (this setting is unused)",
-  "相同 HTTP/HTTPS 连接方式的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果": "Cloudflare profiles with the same HTTP/HTTPS scheme share reports. This profile also uses reports from {list}",
-  "只有相同 HTTP/HTTPS 连接方式的 Cloudflare 配置档共用测速点，各自手动域名保留。": "Only Cloudflare profiles with the same HTTP/HTTPS scheme share reports. Each keeps its own manual domains.",
+  "相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果": "Cloudflare profiles using the same CDN protocol (HTTP/HTTPS) share reports. This profile also uses reports from {list}",
+  "只有相同 CDN 协议（HTTP/HTTPS）的 Cloudflare 配置档共用测速点，各自手动域名保留。": "Only Cloudflare profiles using the same CDN protocol (HTTP/HTTPS) share reports. Each keeps its own manual domains.",
   "当前一键测速程序仅支持 HTTPS；HTTP 配置档可维护优选地址、设置来源 URL，或自行按 HTTP 端口测速并上报。": "The bundled speed-test installer currently supports HTTPS only. For HTTP profiles, maintain preferred addresses, use a source URL, or measure the HTTP port and report it through the API.",
   "客户端经 CDN 连 {scheme}://{domain}:{port}": "Clients connect through CDN to {scheme}://{domain}:{port}",
   "HTTP CDN 使用 HTTP 回源，此入站应关闭 TLS，或改用 HTTPS 配置档。": "HTTP CDN uses HTTP to the origin. Disable TLS on this inbound or select an HTTPS profile.",
@@ -289,7 +289,7 @@ const m: Record<string, string> = {
 
   "Cloudflare 的 gRPC 入口必须使用 HTTPS 和 443 端口。": "Cloudflare gRPC entries require HTTPS on port 443.",
 
-  "同一连接方式的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。": "Nodes using the same connection scheme can share a profile. Create separate HTTP and HTTPS profiles. Shared nodes receive origin hostnames shown under Served nodes.",
+  "使用相同 CDN 协议的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。": "Nodes using the same CDN protocol can share a profile. Create separate HTTP and HTTPS profiles. Shared nodes receive origin hostnames shown under Served nodes.",
 
 }
 export default m
