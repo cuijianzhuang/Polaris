@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -652,8 +653,16 @@ func first(ss []string) string {
 }
 
 func truncate(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if len(s) <= n {
 		return s
+	}
+	// Keep the byte limit without splitting a UTF-8 character. Audit strings
+	// are stored as PostgreSQL text; an incomplete rune aborts the transaction.
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }
