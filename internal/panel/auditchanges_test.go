@@ -3,10 +3,28 @@ package panel
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
+
+func TestTruncatePreservesUTF8(t *testing.T) {
+	for _, input := range []string{"", "plain ASCII", "中文诊断记录", "a中🙂z", strings.Repeat("检测记录🙂", 1000)} {
+		for _, limit := range []int{-1, 0, 1, 2, 3, 4, 7, 8, 9, 250, 4000, len(input), len(input) + 1} {
+			got := truncate(input, limit)
+			if !utf8.ValidString(got) || !strings.HasPrefix(input, got) || (limit >= 0 && len(got) > limit) {
+				t.Fatalf("limit %d produced an invalid or oversized prefix: %q", limit, got)
+			}
+			if len(got) < len(input) && limit >= 0 {
+				_, size := utf8.DecodeRuneInString(input[len(got):])
+				if len(got)+size <= limit {
+					t.Fatalf("limit %d omitted a character that fits", limit)
+				}
+			}
+		}
+	}
+}
 
 // TestNewSettingsSaveable: the settings added for recent features are
 // accepted by PUT /settings (a key missing from the whitelist is dropped).

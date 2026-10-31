@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -98,6 +99,11 @@ func TestCDNFailedChecksAffectSubscriptionsAndPreview(t *testing.T) {
 
 func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 	s, _, admin := newAdminClient(t)
+	// Real installations may audit these writes. Long Chinese diagnostics must
+	// remain valid UTF-8 when the audit detail is truncated, including on PG.
+	if code, out := admin.do("PUT", "/settings", map[string]string{"audit_changes": "true"}); code != 200 {
+		t.Fatalf("enable change records: %d %v", code, out)
+	}
 	var status atomic.Int64
 	status.Store(403)
 	edge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +162,7 @@ func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 		p.AddressChecks.V[key] = b
 	}
 	for i := 0; i < 64; i++ {
-		raw, _ := json.Marshal(cdnAddressResult{EndpointID: "another-entry", CheckedAt: time.Now().Add(-time.Duration(i+1) * time.Second), cdnCheck: cdnCheck{OK: true}})
+		raw, _ := json.Marshal(cdnAddressResult{EndpointID: "another-entry", CheckedAt: time.Now().Add(-time.Duration(i+1) * time.Second), cdnCheck: cdnCheck{OK: true, Message: strings.Repeat("历史诊断记录", 40)}})
 		p.AddressChecks.V[fmt.Sprint("history-", i)] = raw
 	}
 	s.st.DB.Model(&p).Update("address_checks", p.AddressChecks)
@@ -234,5 +240,19 @@ func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 	}
 	if code, _ := admin.do("DELETE", "/cdn-profiles/failure/check-address", map[string]any{"endpointId": "re", "address": "127.0.0.1"}); code != 404 {
 		t.Fatal("foreign entry admitted", code)
+	}
+	var logs []store.AuditLog
+	if err := s.st.DB.Where("action = ? AND target LIKE ?", "change.update", "cdn_profiles/failure%").Find(&logs).Error; err != nil {
+		t.Fatal(err)
+	}
+	truncated := false
+	for _, log := range logs {
+		if !utf8.ValidString(log.Detail) || len(log.Detail) > 4000 {
+			t.Fatal("invalid or oversized diagnostic audit detail")
+		}
+		truncated = truncated || len(log.Detail) >= 3997
+	}
+	if !truncated {
+		t.Fatal("long diagnostic audit detail was not exercised")
 	}
 }
