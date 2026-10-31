@@ -7,7 +7,7 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import NodeExternalMetrics from '../components/NodeExternalMetrics'
 import LimitedUsers from '../components/LimitedUsers'
-import { NodeActivity } from '../components/NodeCard'
+import { NetUsage, NodeActivity } from '../components/NodeCard'
 import NodeBrowser from '../components/NodeBrowser'
 import NodeProvider from '../components/NodeProvider'
 import NetCollectionHealth from '../components/NetCollectionHealth'
@@ -496,6 +496,7 @@ export default function Nodes() {
                     const t = traffic.data?.[sel.id]
                     return t ? `↑ ${bytes(t.rawUp)} ↓ ${bytes(t.rawDown)}` : '—'
                   })()}</div></div>
+                  {!!(sel.netLimit || netUsed(sel)) && <div className="node-selected-net"><NetUsage n={sel} /></div>}
                   <div><span className="sub" style={{ margin: 0 }}>{t('系统')}</span><div className="mono">{sel.connected ? t('CPU {cpu}% · 内存 {mem}% · 运行 {up}', { cpu: sel.system.cpu, mem: sel.system.mem, up: uptime(sel.system.uptime) }) : '—'}</div></div>
                   <div className="row" style={{ marginLeft: 'auto' }}>
                     {!scoped && outdated(sel) && (

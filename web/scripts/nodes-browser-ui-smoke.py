@@ -71,6 +71,8 @@ with sync_playwright() as p:
     choice=fleet.get_by_role('button',name='查看节点 US Edge 083' if zh else 'View node US Edge 083',exact=True)
     choice.focus();page.keyboard.press('Enter')
     expect(page.locator('#node-detail-title')).to_have_text('🇺🇸 US Edge 083')
+    expect(page.locator('.node-selected-net')).to_be_visible()
+    expect(page.locator('.node-selected-net')).to_contain_text('100 GB')
     expect(page).to_have_url(BASE+'/nodes?id=n83')
     expect(fleet.locator('#node-browser-content')).to_be_hidden()
     expect(page.locator('#node-detail-title')).to_be_focused()
