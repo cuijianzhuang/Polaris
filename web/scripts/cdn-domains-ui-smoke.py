@@ -26,6 +26,8 @@ class Fixture(BaseFixture):
         if path == '/cdn-profiles/cf/probes' and req.method=='POST':
             body=req.post_data_json;self.writes.append((req.method,path,body,req.headers))
             return route.fulfill(json=dict(body,scheme=self.profile.get('scheme','https'),instance='cdn-fixture',token='plt_synthetic',mirror=''))
+        if path == '/cdn-regions':
+            return route.fulfill(json=[dict(code='CN-31',name='上海',en='Shanghai'),dict(code='CN-44',name='广东',en='Guangdong'),dict(code='CN-33',name='浙江',en='Zhejiang')])
         if path == '/cdn-shodan':
             return route.fulfill(json=dict(enabled=False, query='', defaultQuery='', pages=1, keySet=False, count=0, total=0, at='', error='', sample=[]))
         if path == '/cdn-profiles':

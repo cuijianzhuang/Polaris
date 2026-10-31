@@ -11,24 +11,25 @@ OUT=Path(os.environ.get('POLARIS_CDN_ARTIFACTS','/tmp/polaris-cdn-ui'));OUT.mkdi
 now=datetime.now(timezone.utc).isoformat()
 class Fixture(Base):
  def __init__(self):
-  super().__init__();self.profile.update(scheme='https',ports=[443,8443],expandPerIp=True,carrierSplit=True,blockedHosts=[],stalePolicy='source')
+  super().__init__();self.profile.update(scheme='https',ports=[443,8443],expandPerIp=True,carrierSplit=True,regionSplit=True,blockedHosts=[],stalePolicy='source')
   self.checks={};self.verdict='tls'
  def context(self,ep):
   return dict(endpointId=ep,inboundId='i1',label='Hong Kong / '+ep,transport='ws',warnings=[],target=dict(scheme=self.profile['scheme'],server='keep.example.com',port=8443 if ep=='ep8443' else self.profile['ports'][0],sni='cdn.example.com',host='cdn.example.com',path='/ws'))
  def route(self,route):
   req=route.request;url=urlparse(req.url);path=url.path.removeprefix('/api/v1');q=parse_qs(url.query)
   if path=='/cdn-profiles/cf/address-tools':
-   ep=q.get('endpoint',['ep443'])[0] or 'ep443';ctx=self.context(ep);carrier=q.get('carrier',[''])[0]
+   ep=q.get('endpoint',['ep443'])[0] or 'ep443';ctx=self.context(ep);carrier=q.get('carrier',[''])[0];region=q.get('region',[''])[0]
    automatic=['104.16.1.1','104.16.1.2'] if ep=='ep443' else ['104.16.2.1']
+   if region=='CN-44' and ep=='ep443':automatic=['104.16.4.1']
    pins=self.profile['pinnedHosts'];blocked=self.profile['blockedHosts']
-   measured=automatic[1:] if carrier=='cm' and ep=='ep443' else automatic
+   measured=automatic[1:] if carrier=='cm' and ep=='ep443' and len(automatic)>1 else automatic
    selected=([a for a in measured if a not in blocked][:self.profile['ipTopN']]+[a for a in pins if a not in blocked])
    items=[]
    for a in dict.fromkeys(automatic+pins+blocked):
     item=dict(address=a,type='domain' if a.endswith('.com') else 'ipv4',source='fixed' if a in pins else 'measurement',fixed=a in pins,blocked=a in blocked,blockKey=a if a in blocked else '',selected=a in selected,reason='blocked' if a in blocked else 'fixed' if a in pins and a in selected else 'selected' if a in selected else 'not_selected',sources=['Shanghai Telecom'],reportedAt=now,measurement=dict(latencyMs=20,loss=0,speed=12))
     if (ep,a) in self.checks:item['check']=self.checks[(ep,a)]
     items.append(item)
-   return route.fulfill(json=dict(contexts=[self.context('ep443'),self.context('ep8443')],context=ctx,items=items,selected=selected,scheme=self.profile['scheme'],port=ctx['target']['port'],carrier=carrier))
+   return route.fulfill(json=dict(contexts=[self.context('ep443'),self.context('ep8443')],matchMode='carrier' if region=='CN-33' else 'region_carrier' if region and carrier else 'merged',context=ctx,items=items,selected=selected,scheme=self.profile['scheme'],port=ctx['target']['port'],carrier=carrier))
   if path=='/cdn-profiles/cf/address-policy':
    body=req.post_data_json;self.writes.append((req.method,path,body,req.headers));self.profile.update(body);return route.fulfill(json=dict(ok=True))
   if path=='/cdn-profiles/cf/check-address':
@@ -57,6 +58,12 @@ with sync_playwright() as p:
     expect(row).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
     carrier=card.get_by_label('预览运营商' if lang=='zh' else 'Preview carrier');carrier.select_option('cm')
     expect(card.locator('[data-address="104.16.1.2"]')).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
+    region=card.get_by_label('预览地区' if lang=='zh' else 'Preview region');region.select_option('CN-44')
+    expect(card.locator('[data-address="104.16.4.1"]')).to_be_visible()
+    expect(card).to_contain_text('已匹配同地区、同运营商' if lang=='zh' else 'Matched region and carrier')
+    region.select_option('CN-33')
+    expect(card).to_contain_text('本地区无匹配结果，回退同运营商其他地区' if lang=='zh' else 'No regional match; using this carrier in other regions')
+    region.select_option('')
     entry=card.get_by_label('用于检查和预览的入口' if lang=='zh' else 'Entry for checks and preview');entry.select_option('ep8443')
     preferred=card.locator('[data-address="104.16.2.1"]');expect(preferred).to_be_visible()
     check=preferred.get_by_role('button',name='检测' if lang=='zh' else 'Check',exact=True)

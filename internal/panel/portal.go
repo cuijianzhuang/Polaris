@@ -163,7 +163,7 @@ func (s *Server) portalPage(c *gin.Context) {
 	var nodes []sub.Node
 	if s.servedUser(u) {
 		var err error
-		if nodes, err = s.subNodes(u); err != nil {
+		if nodes, err = s.subNodesFor(u, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {
 			serverError(c, err)
 			return
 		}
@@ -180,6 +180,10 @@ func (s *Server) portalPage(c *gin.Context) {
 	}
 	info.Rename = u.SelfService && s.selfRenameOn()
 	info.CarrierPick, info.Carrier = s.cdnCarrierSplitOn(), u.CDNCarrier
+	if err := s.portalCDNInfo(&info, u, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {
+		serverError(c, err)
+		return
+	}
 	if s.webShopOn() {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
 	}

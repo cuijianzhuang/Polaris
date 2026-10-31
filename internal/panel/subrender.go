@@ -255,6 +255,9 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	}
 	if cc.External && !raw && format != "links" && !(hasSnell && (format == "singbox" || format == "surge")) {
 		var err error
+		if u != nil && !strings.HasPrefix(callback, "/sub/p/") {
+			callback = withCDNAudience(callback, s.subCarrier(c.Request, u), s.subRegion(c.Request, u))
+		}
 		body, ctype, err = s.renderExternal(c.Request.Context(), cc, format, s.callbackURL(callback))
 		if err != nil {
 			s.log.Warn("external converter failed, using built-in", "err", err)

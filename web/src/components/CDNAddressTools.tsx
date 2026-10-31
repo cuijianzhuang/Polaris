@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
 import { get, post, put } from '../api'
+import CDNRegionSelect from './CDNRegionSelect'
 import { ago, datetime } from '../format'
 import { t } from '../i18n'
 import type { CDNProfile, Endpoint } from '../types'
 import { Empty, Field, Modal, fromLines, toLines, useAction, useLoad } from './ui'
 
 type Target = NonNullable<Endpoint['target']>
-type Context = { endpointId: string; inboundId: string; label: string; transport: string; target: Target; warnings: string[] }
+type Context = { explicitAddress?: string; endpointId: string; inboundId: string; label: string; transport: string; target: Target; warnings: string[] }
 type Result = { ok: boolean; partial?: boolean; message: string; target: Target; checkedAt: string; viewpoint: 'panel'; businessVerified: false; warnings?: string[]; stages?: { kind: string; state: string; detail?: string; addresses?: string[] }[] }
 type Row = { blockKey?: string; address: string; type: string; source: string; fixed: boolean; blocked: boolean; selected: boolean; reason: string; sources: string[]; reportedAt?: string; measurement?: { latencyMs: number; loss: number; speed?: number }; stale?: boolean; check?: Result }
-type Tools = { contexts: Context[]; context?: Context; items: Row[]; selected: string[]; scheme: string; port: number; carrier: string }
+type Tools = { matchMode?: string; contexts: Context[]; context?: Context; items: Row[]; selected: string[]; scheme: string; port: number; carrier: string }
 const stageLabel = (s: string) => ({ origin_dns: t('入口域名解析'), address_dns: t('优选地址解析'), tcp: 'TCP', tls: 'TLS', http: t('HTTP 响应'), transport: t('传输握手') }[s] ?? s)
 const stateLabel = (s: string) => ({ passed: t('通过'), failed: t('失败'), partial: t('部分结果'), skipped: t('跳过'), not_tested: t('未测试') }[s] ?? s)
 const reasonLabel = (s: string) => ({ entry_override: t('入口指定地址'), blocked: t('已禁用'), no_endpoint: t('等待关联入口'), origin_only: t('仅回源域名'), fixed: t('固定追加'), selected: t('按当前策略选中'), not_selected: t('未被当前策略选中') }[s] ?? s)
@@ -30,11 +31,11 @@ function Policy({ p, onClose, onSaved }: { p: CDNProfile; onClose: () => void; o
   </Modal>
 }
 export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNProfile; onMaintain: () => void; onChanged: () => void }) {
-  const [endpoint, setEndpoint] = useState(''), [carrier, setCarrier] = useState('')
+  const [endpoint, setEndpoint] = useState(''), [carrier, setCarrier] = useState(''), [region, setRegion] = useState('')
   const [result, setResult] = useState<Result>(), [policy, setPolicy] = useState(false)
-  const signature = JSON.stringify([p.preferredIps, p.pinnedHosts, p.blockedHosts, p.portChecks, p.expandPerIp, p.ipTopN, p.stalePolicy, p.staleHours])
-  useEffect(() => setResult(undefined), [signature, endpoint, carrier])
-  const data = useLoad(() => get<Tools>(`/cdn-profiles/${p.id}/address-tools?endpoint=${encodeURIComponent(endpoint)}&carrier=${carrier}`), [p.id, endpoint, carrier, signature])
+  const signature = JSON.stringify([p.preferredIps, p.pinnedHosts, p.blockedHosts, p.portChecks, p.expandPerIp, p.ipTopN, p.stalePolicy, p.staleHours, p.regionSplit, p.carrierSplit])
+  useEffect(() => setResult(undefined), [signature, endpoint, carrier, region])
+  const data = useLoad(() => get<Tools>(`/cdn-profiles/${p.id}/address-tools?endpoint=${encodeURIComponent(endpoint)}&carrier=${carrier}&region=${encodeURIComponent(region)}`), [p.id, endpoint, carrier, region, signature])
   const { busy, run } = useAction()
   const contexts = data.data?.contexts ?? [], context = data.data?.context
   // Older panels and mock fixtures can still display the maintained addresses.
@@ -52,11 +53,13 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
       <Field label={t('用于检查和预览的入口')} htmlFor={p.id + "-preview-entry"}><select id={p.id + "-preview-entry"} className="input" disabled={busy || !contexts.length} value={endpoint || context?.endpointId || ''} onChange={(e) => { setEndpoint(e.target.value); setResult(undefined) }}>
         {!contexts.length && <option value="">{t('请先关联一个启用的 CDN 入口')}</option>}{contexts.map((c) => <option key={c.endpointId} value={c.endpointId}>{c.label} · {c.target.scheme?.toUpperCase()}:{c.target.port}</option>)}
       </select></Field>
+      <Field label={t('预览地区')}><CDNRegionSelect label={t('预览地区')} emptyLabel={t('全部地区')} value={region} disabled={busy} onChange={setRegion} /></Field>
       <Field label={t('预览运营商')} htmlFor={p.id + "-preview-carrier"}><select id={p.id + "-preview-carrier"} className="input" disabled={busy} value={carrier} onChange={(e) => { setCarrier(e.target.value); setResult(undefined) }}>
         <option value="">{t('合并列表')}</option><option value="ct">{t('电信')}</option><option value="cu">{t('联通')}</option><option value="cm">{t('移动')}</option>
       </select></Field>
     </div>
     <div className="hint" style={{ margin: '8px 0' }}>{t('固定地址追加到前 N 个自动地址之后，不占用 N 的名额。')} {t('测速过期：{h} 小时', { h: p.staleHours || 24 })} · {(p.stalePolicy || 'source') === 'keep' ? t('保留旧列表，等待测速恢复') : t('尝试来源 URL，失败保留旧列表')}</div>
+    {context && p.expandPerIp && !context.explicitAddress && data.data?.matchMode && <p className="hint">{data.data.matchMode === 'region_carrier' ? t('已匹配同地区、同运营商') : data.data.matchMode === 'region' ? t('已匹配同地区') : data.data.matchMode === 'carrier' ? region && p.regionSplit ? t('本地区无匹配结果，回退同运营商其他地区') : t('使用同运营商结果') : t('无匹配分组，使用合并或保留列表')}</p>}
     {carrier && !p.carrierSplit && <p className="hint">{t('运营商分流未开启，当前预览使用合并列表。')}</p>}
     {!p.expandPerIp && <div className="note small">{t('当前订阅只用回源域名；在「编辑」中开启订阅展开后，自动和固定优选地址才会用于订阅。')}</div>}
     {context && <div className="note small mono" style={{ overflowWrap: 'anywhere' }}>SNI: {context.target.sni} · Host: {context.target.host} · {context.target.path}<br />{t('选用地址：{list}', { list: (data.data?.selected ?? []).join(' · ') || '—' })}</div>}

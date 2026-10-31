@@ -21,6 +21,7 @@ import (
 // admin copies a ready install command. Removing the point revokes it.
 
 type cdnProbeView struct {
+	Region     string     `json:"region"`
 	Port       int        `json:"port"`
 	Source     string     `json:"source"`
 	TokenID    string     `json:"tokenId"`
@@ -39,7 +40,7 @@ func (s *Server) cdnProbes(ids []string) map[string][]cdnProbeView {
 	var ts []store.APIToken
 	s.st.DB.Where("cdn_profile_id IN ?", ids).Order("cdn_source").Find(&ts)
 	for _, t := range ts {
-		out[t.CDNProfileID] = append(out[t.CDNProfileID], cdnProbeView{Port: t.CDNPort, Source: t.CDNSource, TokenID: t.ID, Prefix: t.Prefix,
+		out[t.CDNProfileID] = append(out[t.CDNProfileID], cdnProbeView{Region: t.CDNRegion, Port: t.CDNPort, Source: t.CDNSource, TokenID: t.ID, Prefix: t.Prefix,
 			CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, LastIP: t.LastIP})
 	}
 	return out
@@ -55,8 +56,10 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 	}
 
 	var req struct {
-		Port   int    `json:"port"`
-		Source string `json:"source"`
+		Port    int    `json:"port"`
+		Source  string `json:"source"`
+		Region  string `json:"region"`
+		Carrier string `json:"carrier"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -67,6 +70,16 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		badRequest(c, errors.New("测速点名称例如「上海电信」：字母、数字、汉字开头，最长 40 个字符"))
 		return
 	}
+	region, err := reportRegion(cdnIPReportReq{Source: source, Region: req.Region})
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	carrier, err := reportCarrier(cdnIPReportReq{Source: source, Carrier: req.Carrier})
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
 	name := "cf-ip-probe · " + source
 	for len(name) > 64 { // the token name column holds 64 bytes
 		_, size := utf8.DecodeLastRuneInString(name)
@@ -74,7 +87,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 	}
 	var tok *store.APIToken
 	var secret string
-	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {
 			return err
 		}
@@ -92,7 +105,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 			return err
 		}
 		t, sec, err := s.issueAPITokenIn(tx, name, "", []string{ScopeCDNIPs}, 0, c.GetString("admin"), func(t *store.APIToken) {
-			t.CDNProfileID, t.CDNSource, t.CDNPort = p.ID, source, req.Port
+			t.CDNProfileID, t.CDNSource, t.CDNPort, t.CDNRegion = p.ID, source, req.Port, region
 		})
 		tok, secret = t, sec
 		return err
@@ -106,7 +119,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		return
 	}
 	s.auditCtx(c, "cdn.probe_pair", p.Name, source)
-	c.JSON(http.StatusCreated, gin.H{"port": req.Port, "source": source, "tokenId": tok.ID, "token": secret,
+	c.JSON(http.StatusCreated, gin.H{"region": region, "carrier": carrier, "port": req.Port, "source": source, "tokenId": tok.ID, "token": secret,
 		"scheme": cdnScheme(&p), "instance": fmt.Sprintf("cdn-%x", sha256.Sum256([]byte(p.ID+"/"+source)))[:20],
 		"mirror": strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/")})
 }

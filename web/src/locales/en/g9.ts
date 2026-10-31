@@ -1,4 +1,17 @@
 const m: Record<string, string> = {
+  "预览地区": "Preview region",
+  "已匹配同地区、同运营商": "Matched region and carrier",
+  "已匹配同地区": "Matched region",
+  "本地区无匹配结果，回退同运营商其他地区": "No regional match; using this carrier in other regions",
+  "使用同运营商结果": "Using results for this carrier",
+  "无匹配分组，使用合并或保留列表": "No matching group; using the merged or retained list",
+  "优选地址分配": "Preferred address allocation",
+  "用户个人列表优先；共享结果按所选方式匹配。地区无结果时先回退同运营商，最后使用合并列表。": "Personal lists take priority. Shared results follow this allocation mode, falling back to the same carrier and then the merged list.",
+  "按运营商": "By carrier",
+  "按省份／地区＋运营商": "By province / region and carrier",
+  "测速点地区": "Probe region",
+  "地区：从名称识别": "Region: infer from name",
+
   "只在有测速点上报过时生效；过期后遵循地址策略": "Applies after the first measurement report; expired results follow the address policy",
  '入口指定地址': 'Address set by the entry',
  '运营商分流未开启，当前预览使用合并列表。': 'Carrier splitting is disabled; this preview uses the merged list.',

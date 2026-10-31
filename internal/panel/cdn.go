@@ -204,6 +204,7 @@ type cdnReq struct {
 	CaddyFronting bool      `json:"caddyFronting"`
 	NodeCheck     bool      `json:"nodeCheck"`
 	StaleHours    int       `json:"staleHours"`
+	RegionSplit   *bool     `json:"regionSplit"`
 	CarrierSplit  bool      `json:"carrierSplit"`
 	APIToken      string    `json:"apiToken"` // empty = unchanged
 }
@@ -323,6 +324,9 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		p.StalePolicy = *r.StalePolicy
 	}
 
+	if r.RegionSplit != nil {
+		p.RegionSplit = *r.RegionSplit
+	}
 	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
 	if !p.NodeCheck || oldPort != cdnDefaultPort(p) || oldScheme != cdnScheme(p) {
 		p.PortChecks = store.NewJSON(map[string]store.CDNPortCheck{})
