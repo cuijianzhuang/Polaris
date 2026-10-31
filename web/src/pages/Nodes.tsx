@@ -7,7 +7,8 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import NodeExternalMetrics from '../components/NodeExternalMetrics'
 import LimitedUsers from '../components/LimitedUsers'
-import NodeCard, { NodeActivity } from '../components/NodeCard'
+import { NetUsage, NodeActivity } from '../components/NodeCard'
+import NodeBrowser from '../components/NodeBrowser'
 import NodeProvider from '../components/NodeProvider'
 import NetCollectionHealth from '../components/NetCollectionHealth'
 import { ProTag, useFeature } from '../components/License'
@@ -399,6 +400,7 @@ export default function Nodes() {
   const { scoped } = useScope() // Telegram node operator: view, sync, rollback, restart only
   const [params, setParams] = useSearchParams()
   const [selId, setSelId] = useState<string | null>(params.get('id'))
+  const [browserOpen, setBrowserOpen] = useState(true)
   const [editing, setEditing] = useState<Node | 'new' | null>(params.get('new') ? 'new' : null)
   const [install, setInstall] = useState<Install | null>(null)
   const [coreForm, setCoreForm] = useState<{ core?: Core } | null>(null)
@@ -406,11 +408,26 @@ export default function Nodes() {
   const toast = useToast()
   const confirm = useConfirm()
   const { busy, run } = useAction()
-  const sel = useMemo(() => nodes.find((n) => n.id === selId) ?? nodes[0], [nodes, selId])
+  const sel = useMemo(() => selId ? nodes.find((n) => n.id === selId) : nodes[0], [nodes, selId])
   const caps = useLoad(() => (sel ? get<CapSet[]>('/capabilities?node=' + sel.id) : Promise.resolve([])), [sel?.id, sel?.cores.map((c) => c.version).join()])
   const revs = useLoad(() => (sel ? get<Revision[]>(`/nodes/${sel.id}/revisions`) : Promise.resolve([])), [sel?.id, sel?.desiredRev, sel?.appliedRev])
 
-  useEffect(() => { if (params.get('new')) { setParams({}, { replace: true }) } }, [params, setParams])
+  useEffect(() => { setSelId(params.get('id')) }, [params])
+  // Pin the initial node too: a heartbeat that reorders the list must not
+  // silently move the detail actions to a different node.
+  useEffect(() => { if (!selId && nodes[0]) setSelId(nodes[0].id) }, [nodes, selId])
+  useEffect(() => { if (params.get('new')) { const next = new URLSearchParams(params); next.delete('new'); setParams(next, { replace: true }) } }, [params, setParams])
+  const selectNode = (node: Node) => {
+    setSelId(node.id)
+    const next = new URLSearchParams(params); next.set('id', node.id); setParams(next)
+    if (nodes.length > 6 || window.matchMedia('(max-width: 760px)').matches) {
+      setBrowserOpen(false)
+      requestAnimationFrame(() => {
+        const heading = document.getElementById('node-detail-title')
+        heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' })
+      })
+    }
+  }
 
   // Per-node traffic, refreshed every 10 s.
   const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)))
@@ -455,13 +472,16 @@ export default function Nodes() {
       {!scoped && <RolloutPanel nodes={nodes} refresh={rolloutTick} />}
       {nodes.length === 0 ? <div className="card"><Empty>{scoped ? t('没有分配给你的节点，请联系超级管理员。') : t('还没有节点。')}{scoped ? null : t('点击「添加节点」生成一行安装命令，在服务器上执行即可接入。')}</Empty></div> : (
         <>
-          <div className="nodes" role="group" aria-label={t('选择节点')}>
-            {nodes.map((n) => <NodeCard key={n.id} n={n} on={sel?.id === n.id} onClick={() => setSelId(n.id)} traffic={traffic.data?.[n.id]}
-              badge={upgrading[n.id] ? <span className="tag info-tag">{t('升级中…')}</span> : outdated(n) ? <span className="tag warn">{t('可升级')}</span> : null} />)}
-          </div>
+          <NodeBrowser nodes={nodes} selected={sel} traffic={traffic.data} open={browserOpen} onOpen={setBrowserOpen} onSelect={selectNode}
+            badge={(n) => upgrading[n.id] ? <span className="tag info-tag">{t('升级中…')}</span> : outdated(n) ? <span className="tag warn">{t('可升级')}</span> : null} />
+          {selId && !sel && <div className="note warn" role="status">{t('所选节点已不存在，请重新选择节点')}</div>}
           {sel && (
             <>
               <section className="card">
+                <div className="node-detail-heading"><h2 id="node-detail-title" tabIndex={-1}>{sel.flag} {sel.name}</h2><span className="small mute">{t('当前节点')}</span>{!browserOpen && <button className="btn sm" type="button" onClick={() => {
+                  setBrowserOpen(true)
+                  requestAnimationFrame(() => { document.getElementById('node-browser')?.scrollIntoView({ block: 'start' }); document.querySelector<HTMLInputElement>('#node-browser input[type="search"]')?.focus({ preventScroll: true }) })
+                }}>{t('切换节点')}</button>}</div>
                 <div className="sync">
                   <div><span className="sub" style={{ margin: 0 }}>Agent</span><div className="mono">{sel.agentVersion ? 'v' + vnorm(sel.agentVersion) : t('未接入')}
                     {outdated(sel) && <span className="small" style={{ color: 'var(--warn)', marginLeft: 6 }}>→ v{vnorm(panelVer)}</span>}</div></div>
@@ -476,6 +496,7 @@ export default function Nodes() {
                     const t = traffic.data?.[sel.id]
                     return t ? `↑ ${bytes(t.rawUp)} ↓ ${bytes(t.rawDown)}` : '—'
                   })()}</div></div>
+                  {!!(sel.netLimit || netUsed(sel)) && <div className="node-selected-net"><NetUsage n={sel} /></div>}
                   <div><span className="sub" style={{ margin: 0 }}>{t('系统')}</span><div className="mono">{sel.connected ? t('CPU {cpu}% · 内存 {mem}% · 运行 {up}', { cpu: sel.system.cpu, mem: sel.system.mem, up: uptime(sel.system.uptime) }) : '—'}</div></div>
                   <div className="row" style={{ marginLeft: 'auto' }}>
                     {!scoped && outdated(sel) && (
@@ -604,7 +625,7 @@ export default function Nodes() {
                 }}>{t('吊销证书')}</button>
                 <button className="btn sm danger" type="button" onClick={async () => {
                   if (await confirm(t('删除节点 {node} 及其所有入站？此操作不可恢复。', { node: sel.name }), { danger: true, ok: t('删除') }))
-                    run(async () => { await del('/nodes/' + sel.id); setSelId(null); refresh() }, t('已删除'))
+                    run(async () => { await del('/nodes/' + sel.id); setSelId(null); const next = new URLSearchParams(params); next.delete('id'); setParams(next, { replace: true }); setBrowserOpen(true); refresh() }, t('已删除'))
                 }}>{t('删除节点')}</button>
               </div>}
             </>
