@@ -1,5 +1,6 @@
 """Preferred address preview, blocking and layered diagnostics with real React."""
 import copy,json,os,shutil
+from time import monotonic
 from datetime import datetime,timezone
 from pathlib import Path
 from urllib.parse import urlparse,parse_qs
@@ -45,14 +46,28 @@ class Fixture(Base):
    self.checks[key]=result;return route.fulfill(json=result)
   return super().route(route)
 
-def settle_preview(page,card):
- # A policy write refreshes both the preview and its parent profile. The new
- # profile can start another preview fetch after the expected row is visible.
- # Drain those requests before reload/close rather than cancelling a mocked
- # response mid-flight, which can surface as a WebKit access-control error.
- expect(card).to_have_attribute('aria-busy','false')
- page.wait_for_load_state('networkidle')
- expect(card).to_have_attribute('aria-busy','false')
+class APIRequests:
+ def __init__(self,page):
+  self.pending=set();self.changed=monotonic()
+  page.on('request',lambda req:self.update(req,True))
+  page.on('requestfinished',lambda req:self.update(req,False))
+  page.on('requestfailed',lambda req:self.update(req,False))
+ def update(self,req,started):
+  if '/api/v1/' not in req.url:return
+  if started:self.pending.add(req)
+  else:self.pending.discard(req)
+  self.changed=monotonic()
+ def settle_preview(self,page,card):
+  # A policy write refreshes both the preview and its parent profile. The new
+  # profile can start another preview fetch after the expected row is visible.
+  # Track a fresh quiet interval each time: a document's initial networkidle
+  # event alone does not guarantee that later SPA refreshes have completed.
+  expect(card).to_have_attribute('aria-busy','false')
+  self.changed=monotonic();deadline=self.changed+10
+  while self.pending or monotonic()-self.changed<0.5:
+   assert monotonic()<deadline,('API requests did not settle',[req.url for req in self.pending])
+   page.wait_for_timeout(50) # Dispatch request events while polling the quiet interval.
+  expect(card).to_have_attribute('aria-busy','false')
 
 with sync_playwright() as p:
  for engine in ['chromium','webkit']:
@@ -60,6 +75,7 @@ with sync_playwright() as p:
   for width in [390,1440]:
    for lang in ['zh','en']:
     f=Fixture();page=browser.new_page(viewport=dict(width=width,height=1000));page.set_default_timeout(10000)
+    requests=APIRequests(page)
     page.add_init_script("localStorage.setItem('polaris.token','fixture');localStorage.setItem('polaris.refresh','0');localStorage.setItem('polaris.lang',%s)"%json.dumps(lang))
     errors=[];page.on('pageerror',lambda e,errors=errors:errors.append(str(e)));page.route('**/api/v1/**',f.route)
     page.goto(BASE+'/chains');page.get_by_role('tab',name='CDN 配置档' if lang=='zh' else 'CDN profile',exact=True).click()
@@ -68,7 +84,7 @@ with sync_playwright() as p:
     row=card.locator('[data-address="104.16.1.1"]')
     row.get_by_role('button',name='禁用' if lang=='zh' else 'Disable',exact=True).click()
     expect(row).to_contain_text('已禁用' if lang=='zh' else 'Disabled')
-    settle_preview(page,card)
+    requests.settle_preview(page,card)
     page.reload();page.get_by_role('tab',name='CDN 配置档' if lang=='zh' else 'CDN profile',exact=True).click()
     expect(row).to_contain_text('已禁用' if lang=='zh' else 'Disabled')
     row.get_by_role('button',name='恢复' if lang=='zh' else 'Restore',exact=True).click()
@@ -88,7 +104,7 @@ with sync_playwright() as p:
     expect(result).to_contain_text('2606:4700::1111');expect(result).to_contain_text('8443')
     assert f.last('/cdn-profiles/cf/check-address')[2]==dict(endpointId='ep8443',address='104.16.2.1')
     expect(preferred).to_contain_text('检测失败，已排除' if lang=='zh' else 'Check failed; excluded')
-    settle_preview(page,card)
+    requests.settle_preview(page,card)
     page.reload();page.get_by_role('tab',name='CDN 配置档' if lang=='zh' else 'CDN profile',exact=True).click()
     entry.select_option('ep8443');expect(preferred).to_contain_text('检测失败，已排除' if lang=='zh' else 'Check failed; excluded')
     entry.select_option('ep443');expect(card.locator('[data-address="104.16.1.1"]')).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
@@ -112,7 +128,7 @@ with sync_playwright() as p:
     preferred.get_by_role('button',name='重置检测' if lang=='zh' else 'Reset check',exact=True).click()
     expect(preferred).to_contain_text('未检测' if lang=='zh' else 'Not checked')
     expect(preferred).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
-    settle_preview(page,card)
+    requests.settle_preview(page,card)
     page.close()
     assert not errors,(engine,width,lang,errors)
     print(engine,width,lang,'preview/carrier/port, blacklist persistence, layered verdicts and expiry policy OK',flush=True)
