@@ -12,7 +12,7 @@ now=datetime.now(timezone.utc).isoformat()
 class Fixture(Base):
  def __init__(self):
   super().__init__();self.profile.update(scheme='https',ports=[443,8443],expandPerIp=True,carrierSplit=True,regionSplit=True,blockedHosts=[],stalePolicy='source')
-  self.checks={};self.verdict='tls'
+  self.checks={};self.failures=set();self.verdict='tls'
  def context(self,ep):
   return dict(endpointId=ep,inboundId='i1',label='Hong Kong / '+ep,transport='ws',warnings=[],target=dict(scheme=self.profile['scheme'],server='keep.example.com',port=8443 if ep=='ep8443' else self.profile['ports'][0],sni='cdn.example.com',host='cdn.example.com',path='/ws'))
  def route(self,route):
@@ -23,10 +23,11 @@ class Fixture(Base):
    if region=='CN-44' and ep=='ep443':automatic=['104.16.4.1']
    pins=self.profile['pinnedHosts'];blocked=self.profile['blockedHosts']
    measured=automatic[1:] if carrier=='cm' and ep=='ep443' and len(automatic)>1 else automatic
-   selected=([a for a in measured if a not in blocked][:self.profile['ipTopN']]+[a for a in pins if a not in blocked])
+   selected=([a for a in measured if a not in blocked and (ep,a) not in self.failures][:self.profile['ipTopN']]+[a for a in pins if a not in blocked and (ep,a) not in self.failures])
    items=[]
    for a in dict.fromkeys(automatic+pins+blocked):
     item=dict(address=a,type='domain' if a.endswith('.com') else 'ipv4',source='fixed' if a in pins else 'measurement',fixed=a in pins,blocked=a in blocked,blockKey=a if a in blocked else '',selected=a in selected,reason='blocked' if a in blocked else 'fixed' if a in pins and a in selected else 'selected' if a in selected else 'not_selected',sources=['Shanghai Telecom'],reportedAt=now,measurement=dict(latencyMs=20,loss=0,speed=12))
+    if (ep,a) in self.failures:item.update(reason='check_failed' if a not in blocked else 'blocked',failedAt=now)
     if (ep,a) in self.checks:item['check']=self.checks[(ep,a)]
     items.append(item)
    return route.fulfill(json=dict(contexts=[self.context('ep443'),self.context('ep8443')],matchMode='carrier' if region=='CN-33' else 'region_carrier' if region and carrier else 'merged',context=ctx,items=items,selected=selected,scheme=self.profile['scheme'],port=ctx['target']['port'],carrier=carrier))
@@ -36,7 +37,10 @@ class Fixture(Base):
    body=req.post_data_json;self.writes.append((req.method,path,body,req.headers));target=copy.deepcopy(self.context(body['endpointId'])['target']);target['server']=body['address']
    stages=[dict(kind='address_dns',state='passed',addresses=['104.16.1.1','2606:4700::1111']),dict(kind='tcp',state='passed'),dict(kind='tls',state='failed' if self.verdict=='tls' else 'passed'),dict(kind='http',state='not_tested' if self.verdict=='tls' else 'failed' if self.verdict=='waf' else 'passed',detail='HTTP 403' if self.verdict=='waf' else 'HTTP 101'),dict(kind='transport',state='passed' if self.verdict=='ok' else 'partial' if self.verdict=='partial' else 'failed')]
    result=dict(ok=self.verdict=='ok',partial=self.verdict=='partial',message='fixture: '+self.verdict,target=target,checkedAt=now,viewpoint='panel',businessVerified=False,stages=stages,warnings=[])
-   self.checks[(body['endpointId'],body['address'])]=result;return route.fulfill(json=result)
+   key=(body['endpointId'],body['address'])
+   if self.verdict=='ok':self.failures.discard(key)
+   elif self.verdict!='partial':self.failures.add(key)
+   self.checks[key]=result;return route.fulfill(json=result)
   return super().route(route)
 with sync_playwright() as p:
  for engine in ['chromium','webkit']:
@@ -70,9 +74,16 @@ with sync_playwright() as p:
     check.click();result=card.get_by_role('status');expect(result).to_contain_text('fixture: tls')
     expect(result).to_contain_text('2606:4700::1111');expect(result).to_contain_text('8443')
     assert f.last('/cdn-profiles/cf/check-address')[2]==dict(endpointId='ep8443',address='104.16.2.1')
+    expect(preferred).to_contain_text('检测失败，已排除' if lang=='zh' else 'Check failed; excluded')
+    page.reload();page.get_by_role('tab',name='CDN 配置档' if lang=='zh' else 'CDN profile',exact=True).click()
+    entry.select_option('ep8443');expect(preferred).to_contain_text('检测失败，已排除' if lang=='zh' else 'Check failed; excluded')
+    entry.select_option('ep443');expect(card.locator('[data-address="104.16.1.1"]')).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
+    entry.select_option('ep8443');expect(preferred).to_contain_text('检测失败，已排除' if lang=='zh' else 'Check failed; excluded')
     f.verdict='waf';check.click();expect(result).to_contain_text('HTTP 403')
     f.verdict='partial';check.click();expect(result).to_contain_text('检测部分完成' if lang=='zh' else 'Check partially completed')
+    expect(preferred).to_contain_text('检测失败，已排除' if lang=='zh' else 'Check failed; excluded')
     f.verdict='ok';check.click();expect(result).to_contain_text('传输检测通过' if lang=='zh' else 'Transport check passed')
+    expect(preferred).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
     expect(card).to_contain_text('不代表客户端网络或代理认证通过' if lang=='zh' else 'do not verify the client network or proxy authentication')
     card.get_by_role('button',name='地址策略' if lang=='zh' else 'Address policy',exact=True).click()
     dialog=page.get_by_role('dialog');dialog.get_by_label('测速结果过期后' if lang=='zh' else 'When measurements expire').select_option('keep')
@@ -80,6 +91,8 @@ with sync_playwright() as p:
     dialog.get_by_role('button',name='保存' if lang=='zh' else 'Save',exact=True).click();expect(dialog).to_have_count(0)
     assert f.last('/cdn-profiles/cf/address-policy')[2]==dict(blockedHosts=['keep.example.com'],stalePolicy='keep')
     expect(card.locator('[data-address="keep.example.com"]')).to_contain_text('已禁用' if lang=='zh' else 'Disabled')
+    f.verdict='tls';check.click()
+    expect(card).to_contain_text('当前入口的候选已被排除' if lang=='zh' else "This entry's candidates have been excluded")
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
     card.scroll_into_view_if_needed();page.screenshot(path=str(OUT/f'{engine}-{width}-{lang}-tools.png'))
     assert not errors,errors

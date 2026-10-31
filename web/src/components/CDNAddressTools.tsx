@@ -9,11 +9,11 @@ import { Empty, Field, Modal, fromLines, toLines, useAction, useLoad } from './u
 type Target = NonNullable<Endpoint['target']>
 type Context = { explicitAddress?: string; endpointId: string; inboundId: string; label: string; transport: string; target: Target; warnings: string[] }
 type Result = { ok: boolean; partial?: boolean; message: string; target: Target; checkedAt: string; viewpoint: 'panel'; businessVerified: false; warnings?: string[]; stages?: { kind: string; state: string; detail?: string; addresses?: string[] }[] }
-type Row = { blockKey?: string; address: string; type: string; source: string; fixed: boolean; blocked: boolean; selected: boolean; reason: string; sources: string[]; reportedAt?: string; measurement?: { latencyMs: number; loss: number; speed?: number }; stale?: boolean; check?: Result }
+type Row = { blockKey?: string; address: string; type: string; source: string; fixed: boolean; blocked: boolean; selected: boolean; reason: string; sources: string[]; reportedAt?: string; measurement?: { latencyMs: number; loss: number; speed?: number }; stale?: boolean; failedAt?: string; check?: Result }
 type Tools = { matchMode?: string; contexts: Context[]; context?: Context; items: Row[]; selected: string[]; scheme: string; port: number; carrier: string }
 const stageLabel = (s: string) => ({ origin_dns: t('入口域名解析'), address_dns: t('优选地址解析'), tcp: 'TCP', tls: 'TLS', http: t('HTTP 响应'), transport: t('传输握手') }[s] ?? s)
 const stateLabel = (s: string) => ({ passed: t('通过'), failed: t('失败'), partial: t('部分结果'), skipped: t('跳过'), not_tested: t('未测试') }[s] ?? s)
-const reasonLabel = (s: string) => ({ entry_override: t('入口指定地址'), blocked: t('已禁用'), no_endpoint: t('等待关联入口'), origin_only: t('仅回源域名'), fixed: t('固定追加'), selected: t('按当前策略选中'), not_selected: t('未被当前策略选中') }[s] ?? s)
+const reasonLabel = (s: string) => ({ check_failed: t('检测失败，已排除'), entry_override: t('入口指定地址'), blocked: t('已禁用'), no_endpoint: t('等待关联入口'), origin_only: t('仅回源域名'), fixed: t('固定追加'), selected: t('按当前策略选中'), not_selected: t('未被当前策略选中') }[s] ?? s)
 function Policy({ p, onClose, onSaved }: { p: CDNProfile; onClose: () => void; onSaved: () => void }) {
   const [blocked, setBlocked] = useState(toLines(p.blockedHosts))
   const [policy, setPolicy] = useState(p.stalePolicy || 'source')
@@ -63,6 +63,7 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
     {carrier && !p.carrierSplit && <p className="hint">{t('运营商分流未开启，当前预览使用合并列表。')}</p>}
     {!p.expandPerIp && <div className="note small">{t('当前订阅只用回源域名；在「编辑」中开启订阅展开后，自动和固定优选地址才会用于订阅。')}</div>}
     {context && <div className="note small mono" style={{ overflowWrap: 'anywhere' }}>SNI: {context.target.sni} · Host: {context.target.host} · {context.target.path}<br />{t('选用地址：{list}', { list: (data.data?.selected ?? []).join(' · ') || '—' })}</div>}
+    {context && !data.loading && !(data.data?.selected ?? []).length && rows.some((r) => r.reason === 'check_failed') && <div className="note warn small">{t('当前入口的候选已被排除，订阅不输出此 CDN 入口；可重新检测失败地址。')}</div>}
     {(context?.warnings ?? []).map((w, i) => <div className="note warn small" key={i}>{w}</div>)}
     <div className="scroll"><table className="rtable">
       <thead><tr><th>{t('地址')}</th><th>{t('来源 / 状态')}</th><th>{t('测量与检测')}</th><th>{t('订阅选用')}</th><th>{t('操作')}</th></tr></thead>
@@ -70,8 +71,8 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
         <td className="mono rt-head" style={{ overflowWrap: 'anywhere' }}>{r.address}<div className="mute small">{r.type === 'domain' ? t('域名') : r.type.toUpperCase()}{(p.thirdParty ?? []).includes(r.address) && <span className="tag warn">{t('反代')}</span>}</div></td>
         <td data-label={t('来源 / 状态')}><div><span className={'tag ' + (r.blocked ? 'bad' : r.fixed ? 'info-tag' : '')}>{r.blocked ? t('已禁用') : r.fixed ? t('固定保留') : r.source === 'measurement' ? t('测速上报') : t('来源或保留列表')}</span><div className="small mute">{r.sources.join(' · ')}</div></div></td>
         <td className="small" data-label={t('测量与检测')}><div>{r.measurement && <div>{r.measurement.latencyMs} ms · {Math.round(r.measurement.loss * 100)}% · {r.measurement.speed || 0} MB/s</div>}{r.reportedAt && <div className={r.stale ? 'warn' : 'mute'}>{ago(r.reportedAt)}{r.stale && ' · ' + t('已过期')}</div>}
-          <div>{r.check ? <button className="link" onClick={() => setResult(r.check)}>{r.check.ok ? t('传输检测通过') : r.check.partial ? t('检测部分完成') : t('检测未通过')} · {ago(r.check.checkedAt)}{Date.now() - Date.parse(r.check.checkedAt) > 1800000 && ' · ' + t('检测结果较旧')}</button> : t('未检测')}</div></div></td>
-        <td data-label={t('订阅选用')}><span className={'tag ' + (r.selected ? 'ok' : '')}>{reasonLabel(r.reason)}</span></td>
+          <div>{r.check ? <button className="link" onClick={() => setResult(r.check)}>{r.check.ok ? t('传输检测通过') : r.check.partial ? t('检测部分完成') : t('检测未通过')} · {ago(r.check.checkedAt)}{Date.now() - Date.parse(r.check.checkedAt) > 1800000 && ' · ' + t('检测结果较旧')}</button> : r.failedAt ? <span>{t('检测未通过')} · {ago(r.failedAt)}</span> : t('未检测')}</div></div></td>
+        <td data-label={t('订阅选用')}><span className={'tag ' + (r.selected ? 'ok' : r.reason === 'check_failed' ? 'bad' : '')}>{reasonLabel(r.reason)}</span></td>
         <td className="rt-actions"><div className="row" style={{ flexWrap: 'wrap' }}><button className="btn sm" disabled={busy || data.loading || !context} onClick={() => run(async () => { setResult(undefined); const res = await post<Result>(`/cdn-profiles/${p.id}/check-address`, { endpointId: context!.endpointId, address: r.address }); setResult(res); data.reload() })}>{t('检测')}</button>
           <button className="btn sm" disabled={busy} onClick={() => run(async () => { const blocked = r.blocked ? (p.blockedHosts ?? []).filter((a) => a !== (r.blockKey || r.address)) : [...(p.blockedHosts ?? []), r.address]; await put(`/cdn-profiles/${p.id}/address-policy`, { blockedHosts: blocked, stalePolicy: p.stalePolicy || 'source' }); changed() }, t('已保存'))}>{r.blocked ? t('恢复') : t('禁用')}</button></div></td>
       </tr>)}</tbody>
@@ -81,7 +82,7 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
       {Object.entries(p.portChecks ?? {}).map(([port, c]) => <div className="hint" key={port}>{p.scheme?.toUpperCase() || 'HTTPS'}:{port} · {c.allFailed ? t('全部地址不可达，暂保留列表') : t('{n} 个地址不可达', { n: c.badIps.length })} · {ago(c.at)}</div>)}
       {!Object.keys(p.portChecks ?? {}).length && <div className="hint">{t('节点检测：等待第一次检测')}</div>}
     </details>}
-    <p className="hint">{t('检测来自面板网络，结果只验证此地址的 DNS、TCP、TLS 和传输握手，不代表客户端网络或代理认证通过；不会据此自动剔除地址。')}</p>
+    <p className="hint">{t('检测来自面板网络，只验证 DNS、TCP、TLS 和传输握手，不代表客户端网络或代理认证通过。明确失败的地址不进入当前入口的订阅，重新检测通过后恢复；未检测或部分完成不作为失败。')}</p>
     {result && <div className={'note ' + (result.ok ? '' : result.partial ? 'warn' : 'bad')} role="status" style={{ display: 'block', overflowWrap: 'anywhere' }}>
       <b>{result.ok ? t('传输检测通过') : result.partial ? t('检测部分完成') : t('检测未通过')}</b> · {datetime(result.checkedAt)}
       <div className="mono small">{result.target.scheme?.toUpperCase()}://{result.target.server}:{result.target.port} · SNI {result.target.sni} · Host {result.target.host} · {result.target.path}</div>

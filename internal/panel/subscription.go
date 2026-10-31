@@ -309,17 +309,40 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		}
 		n.Transport.Host = host
 		n = apply(n)
+		// Diagnostics are scoped to this entry, including its actual port and
+		// security. They must not trigger the all-unreachable fail-open path.
+		var keep func(string) bool
+		excluded := false
+		if len(p.AddressChecks.V) > 0 || len(p.AddressFailures.V) > 0 {
+			var row store.Inbound
+			if err := s.st.DB.First(&row, "id = ?", m.ID).Error; err != nil {
+				return nil
+			}
+			revision := cdnHealthRevision(row, &p)
+			target := s.cdnTargetFor(&ep, m, &p)
+			keep = func(address string) bool {
+				target.Server = address
+				if cdnAddressFailureAt(&p, ep.ID, target, m.Transport.Type, revision) != nil {
+					excluded = true
+					return false
+				}
+				return true
+			}
+		}
 		// An entry with its own address uses it, not the preferred IPs.
 		if !p.ExpandPerIP || ep.Address != "" {
-			if cdnAddressBlocked(&p, n.Server) {
+			if cdnAddressBlocked(&p, n.Server) || (keep != nil && !keep(n.Server)) {
 				return nil
 			}
 			n.Name = name("CDN")
 			return []sub.Node{n}
 		}
-		ips := s.selectedCDNIPs(&p, n.Port, carrier, audience...)
+		ips := s.selectedCDNIPsWhere(&p, n.Port, carrier, keep, audience...)
 		if len(ips) == 0 {
-			if cdnAddressBlocked(&p, n.Server) {
+			if excluded {
+				return nil
+			}
+			if cdnAddressBlocked(&p, n.Server) || (keep != nil && !keep(n.Server)) {
 				return nil
 			}
 			n.Name = name("CDN")

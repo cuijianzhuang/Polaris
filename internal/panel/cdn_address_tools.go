@@ -50,6 +50,7 @@ type cdnAddressRow struct {
 	Measurement *store.CDNIPResult `json:"measurement,omitempty"`
 	Stale       bool               `json:"stale"`
 	Check       *cdnAddressResult  `json:"check,omitempty"`
+	FailedAt    *time.Time         `json:"failedAt,omitempty"`
 }
 
 func cdnHealthRevision(row store.Inbound, p *store.CDNProfile) string {
@@ -180,11 +181,18 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		} else if p.IPSourceURL != "" {
 			row.Source = "source_or_retained"
 		}
+		if chosen != nil {
+			target := chosen.Target
+			target.Server = a
+			row.FailedAt = cdnAddressFailureAt(&p, chosen.EndpointID, target, chosen.Transport, chosen.Revision)
+		}
 		switch {
 		case row.Blocked:
 			row.Reason = "blocked"
 		case chosen == nil:
 			row.Reason = "no_endpoint"
+		case row.FailedAt != nil:
+			row.Reason = "check_failed"
 		case row.Selected && chosen.ExplicitAddress != "":
 			row.Reason = "entry_override"
 		case row.Selected && chosen.Target.Server == a && (!p.ExpandPerIP):
@@ -199,12 +207,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		if chosen != nil {
 			target := chosen.Target
 			target.Server = a
-			if raw := p.AddressChecks.V[cdnCheckKey(chosen.EndpointID, target, chosen.Transport, chosen.Revision)]; len(raw) > 0 {
-				var check cdnAddressResult
-				if json.Unmarshal(raw, &check) == nil {
-					row.Check = &check
-				}
-			}
+			row.Check = cdnCachedAddressCheck(&p, cdnCheckKey(chosen.EndpointID, target, chosen.Transport, chosen.Revision))
 		}
 		items = append(items, row)
 	}
@@ -270,6 +273,17 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 		if err := tx.First(&current, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
+		if failure, ok := current.AddressFailures.V[cdnFailureSlot(result.EndpointID, result.Target.Server)]; ok && failure.At.After(result.CheckedAt) {
+			return nil
+		}
+		// A slower, older request cannot undo a newer check of the same address.
+		for fingerprint := range current.AddressChecks.V {
+			prior := cdnCachedAddressCheck(&current, fingerprint)
+			if prior != nil && prior.EndpointID == result.EndpointID && prior.Target.Server == result.Target.Server && prior.CheckedAt.After(result.CheckedAt) {
+				return nil
+			}
+		}
+		recordCDNAddressVerdict(&current, key, result)
 		checks := current.AddressChecks.V
 		if checks == nil {
 			checks = map[string]json.RawMessage{}
@@ -295,7 +309,7 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 			delete(checks, order[0].key)
 			order = order[1:]
 		}
-		return tx.Model(&current).Update("address_checks", store.NewJSON(checks)).Error
+		return tx.Model(&current).Updates(map[string]any{"address_checks": store.NewJSON(checks), "address_failures": current.AddressFailures}).Error
 	})
 	if err != nil {
 		dbError(c, err)
