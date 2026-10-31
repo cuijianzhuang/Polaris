@@ -101,13 +101,25 @@ func cdnAddressBlocked(p *store.CDNProfile, address string) bool {
 
 // This selection is shared by subscription output and the operator preview.
 func (s *Server) selectedCDNIPs(p *store.CDNProfile, port int, carrier string, audience ...cdnAudience) []string {
+	return s.selectedCDNIPsWhere(p, port, carrier, nil, audience...)
+}
+
+// Apply endpoint diagnostics before Top N so failed entries do not consume slots.
+func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier string, keep func(string) bool, audience ...cdnAudience) []string {
+	filter := func(ips []string) []string {
+		if keep == nil {
+			return ips
+		}
+		return slices.DeleteFunc(slices.Clone(ips), func(a string) bool { return !keep(a) })
+	}
 	if len(audience) > 0 && len(audience[0].Personal[p.ID]) > 0 {
-		return usableCDNIPsAt(p, audience[0].Personal[p.ID], port)
+		return filter(usableCDNIPsAt(p, audience[0].Personal[p.ID], port))
 	}
 	ips := s.cdnAudienceIPs(p, port, carrier, audienceRegion(audience))
 	if ips == nil {
 		ips = s.cdnIPsForPort(p, port)
 	}
+	ips = filter(ips)
 	if p.IPTopN > 0 {
 		var automatic, pinned []string
 		for _, a := range ips {

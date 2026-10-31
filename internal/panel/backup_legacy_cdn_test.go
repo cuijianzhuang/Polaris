@@ -91,6 +91,7 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	s := newTestServer(t)
 	pins := []string{"104.16.9.9", "2606:4700::1111", "keep.example.com"}
 	p := store.CDNProfile{ID: "fixed", Name: "fixed", StalePolicy: "keep", BlockedHosts: store.NewJSON([]string{"104.16.9.9"}), Provider: "cloudflare", Scheme: "https", Ports: store.NewJSON([]int{443}), PreferredIPs: store.NewJSON(append([]string{"104.16.1.1"}, pins...)), PinnedHosts: store.NewJSON(pins)}
+	p.AddressFailures = store.NewJSON(map[string]store.CDNAddressFailure{"test-slot": {Fingerprint: "test-fingerprint", At: time.Now()}})
 	if err := s.st.DB.Create(&p).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -110,6 +111,9 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	}
 	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {
 		t.Fatal(err)
+	}
+	if p.AddressFailures.V["test-slot"].Fingerprint != "test-fingerprint" {
+		t.Fatal("restore lost compact failure")
 	}
 	if p.StalePolicy != "keep" || !slices.Equal(p.BlockedHosts.V, []string{"104.16.9.9"}) {
 		t.Fatal("restore lost address policy", p.StalePolicy, p.BlockedHosts.V)

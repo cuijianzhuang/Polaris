@@ -392,6 +392,7 @@ func (s *Server) Router() http.Handler {
 
 	p.GET("/cdn-profiles/:id/address-tools", s.cdnAddressTools)
 	p.POST("/cdn-profiles/:id/check-address", s.checkCDNAddress)
+	p.DELETE("/cdn-profiles/:id/check-address", s.resetCDNAddressCheck)
 	p.PUT("/cdn-profiles/:id/address-policy", s.updateCDNAddressPolicy)
 	p.GET("/cdn-regions", s.listCDNRegions)
 	p.GET("/cdn-profiles", s.listCDN)
