@@ -283,6 +283,12 @@ jobs:
         run: |
           export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
           go test -count=1 -v ./internal/panel -run '^TestLivePortalTelegramBrowser$'
+      - name: Personal CDN addresses and regional subscription selection
+        env:
+          POLARIS_PORTAL_CDN_BROWSER_TEST: '1'
+        run: |
+          export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          go test -count=1 -v ./internal/panel -run '^TestLivePortalCDNBrowser$'
       - name: Every admin page loads in a real browser (desktop, phone, English)
         env:
           POLARIS_PAGES_BROWSER_TEST: '1'

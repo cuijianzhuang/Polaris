@@ -100,8 +100,11 @@ func cdnAddressBlocked(p *store.CDNProfile, address string) bool {
 }
 
 // This selection is shared by subscription output and the operator preview.
-func (s *Server) selectedCDNIPs(p *store.CDNProfile, port int, carrier string) []string {
-	ips := s.carrierCDNIPs(p, carrier, port)
+func (s *Server) selectedCDNIPs(p *store.CDNProfile, port int, carrier string, audience ...cdnAudience) []string {
+	if len(audience) > 0 && len(audience[0].Personal[p.ID]) > 0 {
+		return usableCDNIPsAt(p, audience[0].Personal[p.ID], port)
+	}
+	ips := s.cdnAudienceIPs(p, port, carrier, audienceRegion(audience))
 	if ips == nil {
 		ips = s.cdnIPsForPort(p, port)
 	}

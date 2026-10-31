@@ -197,11 +197,13 @@ type User struct {
 	SelfService bool `json:"selfService"`
 	// CDNCarrier is the carrier the user picked for CDN preferred IPs
 	// (ct / cu / cm); "" detects it from the subscription request.
-	CDNCarrier   string     `gorm:"size:8" json:"cdnCarrier"`
-	RenamedAt    *time.Time `json:"-"` // last self-service rename
-	WarnedUsage  bool       `json:"-"` // traffic warning scheduled this cycle
-	WarnedExpire *time.Time `json:"-"`
-	Remark       string     `gorm:"size:255" json:"remark"`
+	CDNCarrier   string                    `gorm:"size:8" json:"cdnCarrier"`
+	CDNRegion    string                    `gorm:"size:16" json:"cdnRegion"`
+	CDNPreferred JSON[map[string][]string] `json:"-"`
+	RenamedAt    *time.Time                `json:"-"` // last self-service rename
+	WarnedUsage  bool                      `json:"-"` // traffic warning scheduled this cycle
+	WarnedExpire *time.Time                `json:"-"`
+	Remark       string                    `gorm:"size:255" json:"remark"`
 	// Self-service port forwarding, set from the plan (professional
 	// edition): FwdUsed counts this period's forwarded traffic, FwdCapped
 	// records that FwdTraffic was reached (the rules are then withheld).
@@ -589,6 +591,7 @@ type CDNProfile struct {
 	CheckedAt  *time.Time                    `json:"checkedAt"`
 	// CarrierSplit gives each subscriber the IPs that speed-test points on
 	// the subscriber's carrier reported (see CDNIPReport.Carrier).
+	RegionSplit  bool      `json:"regionSplit"`
 	CarrierSplit bool      `json:"carrierSplit"`
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
@@ -602,6 +605,7 @@ type CDNIPReport struct {
 	ProfileID string              `gorm:"primaryKey;size:32" json:"profileId"`
 	Source    string              `gorm:"primaryKey;size:40" json:"source"` // e.g. "上海电信"
 	Carrier   string              `gorm:"size:8" json:"carrier"`            // ct / cu / cm / "" (unknown)
+	Region    string              `gorm:"size:16" json:"region"`
 	At        time.Time           `json:"at"`
 	IPs       JSON[[]CDNIPResult] `json:"ips"`
 }
@@ -952,6 +956,7 @@ type APIToken struct {
 	// under this source name (set when the panel pairs the point).
 	CDNProfileID string         `gorm:"size:32;index" json:"cdnProfileId,omitempty"`
 	CDNPort      int            `json:"cdnPort,omitempty"`
+	CDNRegion    string         `gorm:"size:16" json:"cdnRegion,omitempty"`
 	CDNSource    string         `gorm:"column:cdn_source;size:40" json:"cdnSource,omitempty"`
 	Hash         string         `gorm:"size:64;uniqueIndex" json:"-"`
 	Prefix       string         `gorm:"size:16" json:"prefix"` // first characters, to recognise a token

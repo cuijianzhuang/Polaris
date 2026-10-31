@@ -100,10 +100,10 @@ export interface CDNProfile {
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; blockedHosts?: string[]; stalePolicy?: 'keep' | 'source'; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'
   zoneId: string; lastRefreshAt?: string; lastError: string; inbounds: number; serves?: { node: string; tag: string; host: string }[]
-  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; portChecks?: Record<string, { badIps: string[]; allFailed: boolean; at: string }>; carrierSplit: boolean; reports: CDNIPReport[]; shared?: string[]; thirdParty?: string[]; probes: CDNProbe[]
+  nodeCheck: boolean; staleHours: number; badIps: string[] | null; checkedAt?: string; portChecks?: Record<string, { badIps: string[]; allFailed: boolean; at: string }>; carrierSplit: boolean; regionSplit?: boolean; reports: CDNIPReport[]; shared?: string[]; thirdParty?: string[]; probes: CDNProbe[]
 }
-export interface CDNProbe { port?: number; source: string; tokenId: string; prefix: string; createdAt: string; lastUsedAt?: string | null; lastIp: string }
-export interface CDNIPReport { port?: number; scheme?: 'http' | 'https'; source: string; carrier?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }
+export interface CDNProbe { region?: string; port?: number; source: string; tokenId: string; prefix: string; createdAt: string; lastUsedAt?: string | null; lastIp: string }
+export interface CDNIPReport { port?: number; scheme?: 'http' | 'https'; source: string; carrier?: string; region?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }
 export interface ChainHop { nodeId: string; inboundId?: string; port?: number }
 export interface HopProbe { nodeId: string; latencyMs: number; ok: boolean; error?: string }
 export interface Chain { id: string; name: string; mode: 'l4' | 'proxy'; hops: ChainHop[]; serviceUserId: string; probe: HopProbe[]; probedAt?: string; remark: string }

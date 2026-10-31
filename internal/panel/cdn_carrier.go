@@ -101,13 +101,7 @@ func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string, ports ...int
 	if !p.CarrierSplit || carrier == "" {
 		return nil
 	}
-	reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), carrier)
-	if len(reports) == 0 {
-		return nil
-	}
-	list := withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
-
-	return usableCDNIPsAt(p, list, port)
+	return s.cdnAudienceIPs(p, port, carrier, "")
 }
 
 // portalCarrier is POST /u/carrier {carrier}: the user picks the carrier

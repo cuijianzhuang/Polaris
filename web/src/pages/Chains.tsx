@@ -7,6 +7,7 @@ import { cdnPorts, cdnScheme } from '../cdn'
 import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t, tr } from '../i18n'
 import CDNAddressTools from '../components/CDNAddressTools'
+import CDNRegionSelect from '../components/CDNRegionSelect'
 import GeoPicker from '../components/GeoPicker'
 import WarpDialog from '../components/WarpDialog'
 import type { CapSet, CDNProfile, Chain, ChainHop, Inbound, Node, Outbound, RouteMatch, RoutingRule, RulePreset, RuleSet, SourceNode } from '../types'
@@ -137,7 +138,7 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
     scheme: cdnScheme(profile), name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
     ports: (profile?.ports ?? cdnPorts(cdnScheme(profile))).join(', '), preferredIps: toLines(profile?.preferredIps.filter((a) => !(profile.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(profile?.pinnedHosts), ipSourceUrl: profile?.ipSourceUrl ?? '',
     ipTopN: String(profile?.ipTopN ?? 0), expandPerIp: profile?.expandPerIp ?? false, autoDns: profile?.autoDns ?? false, caddyFronting: profile?.caddyFronting ?? false, apiToken: '',
-    nodeCheck: profile?.nodeCheck ?? false, staleHours: String(profile?.staleHours || 24), carrierSplit: profile?.carrierSplit ?? false,
+    nodeCheck: profile?.nodeCheck ?? false, staleHours: String(profile?.staleHours || 24), carrierSplit: profile?.carrierSplit ?? false, regionSplit: profile?.regionSplit ?? false,
   })
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
@@ -196,7 +197,11 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
         <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；过期后遵循地址策略')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
       </div>
       <div className="toggle"><span>{t('节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅')}</span><Switch label={t('节点检测')} on={f.nodeCheck} onChange={(v) => set('nodeCheck', v)} /></div>
-      <div className="toggle"><span>{t('按运营商分配：电信、联通、移动用户各自拿到同运营商测速点上报的 IP；识别不出运营商时用合并后的列表')}</span><Switch label={t('按运营商分配')} on={f.carrierSplit} onChange={(v) => set('carrierSplit', v)} /></div>
+      <Field label={t('优选地址分配')} hint={t('用户个人列表优先；共享结果按所选方式匹配。地区无结果时先回退同运营商，最后使用合并列表。')}>
+        <select className="input" aria-label={t('优选地址分配')} value={f.regionSplit ? 'region' : f.carrierSplit ? 'carrier' : 'merged'} onChange={(e) => setF((x) => ({ ...x, regionSplit: e.target.value === 'region', carrierSplit: e.target.value !== 'merged' }))}>
+          <option value="merged">{t('合并列表')}</option><option value="carrier">{t('按运营商')}</option><option value="region">{t('按省份／地区＋运营商')}</option>
+        </select>
+      </Field>
       <div className="toggle"><span>{t('订阅按优选 IP 展开（一个 IP 一个节点）')}</span><Switch label={t('展开')} on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
       <div className="toggle"><span>{t('自动同步 DNS 记录（开启代理）：需要 API Token；新加 CDN 入口时和每 6 小时把记录指向节点 IP，不改 SSL 模式和证书')}</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
       <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享第一个端口，按路径分流；入站需开 TLS；该端口被其他入站占用时不生效）')}</span><Switch label="Caddy" disabled={f.scheme === 'http'} on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>
@@ -272,7 +277,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
             return (
               <div key={r.source} className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
                 <div style={{ minWidth: 0 }}>
-                  <div><b>{r.source}</b><span className="tag" style={{ marginLeft: 6 }}>{(r.scheme || 'https').toUpperCase()}:{r.port || 443}{!r.port ? ' · ' + t('旧默认') : ''}</span>{r.carrier && <span className="tag" style={{ marginLeft: 6 }}>{carrierLabel(r.carrier)}</span>} <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
+                  <div><b>{r.source}</b>{r.region && <span className="tag">{r.region}</span>}<span className="tag" style={{ marginLeft: 6 }}>{(r.scheme || 'https').toUpperCase()}:{r.port || 443}{!r.port ? ' · ' + t('旧默认') : ''}</span>{r.carrier && <span className="tag" style={{ marginLeft: 6 }}>{carrierLabel(r.carrier)}</span>} <span className="sub" style={stale ? { color: 'var(--bad)' } : undefined}>· {ago(r.at)}</span></div>
                   <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{best ? `${best.ip}${best.colo ? ` · ${best.colo}` : ''} · ${Math.round(best.latencyMs)} ms${best.speed ? ` · ${best.speed.toFixed(1)} MB/s` : ''}${best.loss > 0 ? ` · ${t('丢包')} ${Math.round(best.loss * 100)}%` : ''}` : '—'} <span className="sub">{t('共 {n} 个', { n: r.ips.length })}</span></div>
                 </div>
                 <button className="btn sm" type="button" disabled={busy} onClick={() => remove(r.source)}>{t('移除')}</button>
@@ -282,7 +287,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
           {waiting.map((w) => (
             <div key={'w-' + w.source} className="row" style={{ flexWrap: 'nowrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, padding: '8px 0', borderTop: '1px solid var(--line)' }}>
               <div style={{ minWidth: 0 }}>
-                <div><b>{w.source}</b> <span className="tag">{cdnScheme(p).toUpperCase()}:{w.port || 443}</span> <span className="tag warn" style={{ marginLeft: 6 }}>{t('等待首次上报')}</span></div>
+                <div><b>{w.source}</b>{w.region && <span className="tag">{w.region}</span>} <span className="tag">{cdnScheme(p).toUpperCase()}:{w.port || 443}</span> <span className="tag warn" style={{ marginLeft: 6 }}>{t('等待首次上报')}</span></div>
                 <div className="sub">{t('{when}生成安装命令', { when: ago(w.createdAt) })}{w.lastUsedAt ? ' · ' + t('最近连接 {when}', { when: ago(w.lastUsedAt) }) : ''}</div>
               </div>
               <button className="btn sm" type="button" disabled={busy} onClick={() => remove(w.source)}>{t('移除')}</button>
@@ -747,9 +752,10 @@ export default function Chains() {
 function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired: () => void }) {
   const [source, setSource] = useState('')
   const [carrier, setCarrier] = useState('')
+ const [region, setRegion] = useState('')
   const [port, setPort] = useState('')
   const probePort = Number(port) || p.ports[0] || (cdnScheme(p) === 'http' ? 80 : 443)
-  const [made, setMade] = useState<{ port?: number; source: string; token: string; mirror: string; scheme?: string; instance?: string } | null>(null)
+  const [made, setMade] = useState<{ port?: number; source: string; token: string; mirror: string; scheme?: string; instance?: string; region?: string; carrier?: string } | null>(null)
   const { busy, run } = useAction()
   const toast = useToast()
   const apiUrl = new URL(API, window.location.href).href
@@ -761,7 +767,8 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
     `--token ${made.token} --source ${q(made.source)}`,
     `--args ${q('-scheme ' + (made.scheme || cdnScheme(p)) + ' -port ' + (made.port || probePort))}`,
     made.instance ? `--instance ${q(made.instance)}` : '',
-    carrier ? `--carrier ${carrier}` : '',
+    (made.carrier || carrier) ? `--carrier ${made.carrier || carrier}` : '',
+    (made.region || region) ? `--region ${q(made.region || region)}` : '',
     made.mirror ? `--mirror ${q(made.mirror + '/')}` : '',
   ].filter(Boolean).join(' ')
   const manual = `curl -fsSL ${script} | sudo sh -s -- --api ${apiUrl} --profile ${p.id} --host ${p.originDomain} --token <${t('令牌')}> --source <${t('测速点名称')}> --instance <${t('实例名称')}> --args '-scheme ${cdnScheme(p)} -port ${probePort}'`
@@ -777,12 +784,13 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
           <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={String(probePort)} aria-label={t('测速端口')} onChange={(e) => setPort(e.target.value)}>
             {Array.from(new Set([...p.ports, ...cdnPorts(cdnScheme(p))])).map((port) => <option key={port} value={String(port)}>{cdnScheme(p).toUpperCase()}:{port}</option>)}
           </select>
+          <CDNRegionSelect value={region} onChange={setRegion} label={t('测速点地区')} emptyLabel={t('地区：从名称识别')} />
           <select className="input" style={{ flex: '0 0 auto', width: 'auto' }} value={carrier} aria-label={t('运营商')} onChange={(e) => setCarrier(e.target.value)}>
             <option value="">{t('运营商：从名称识别')}</option>
             <option value="ct">{t('电信')}</option><option value="cu">{t('联通')}</option><option value="cm">{t('移动')}</option>
           </select>
           <button className="btn sm pri" type="button" disabled={busy || !source.trim()} onClick={() => run(async () => {
-            const r = await post<{ port?: number; source: string; token: string; mirror: string; scheme?: string; instance?: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim(), port: probePort })
+            const r = await post<{ port?: number; source: string; token: string; mirror: string; scheme?: string; instance?: string; region?: string; carrier?: string }>(`/cdn-profiles/${p.id}/probes`, { source: source.trim(), port: probePort, ...(region ? { region } : {}), ...(carrier ? { carrier } : {}) })
             setMade(r); onPaired()
           })}>{t('生成安装命令')}</button>
         </div>
@@ -790,7 +798,7 @@ function ProbeInstall({ profile: p, onPaired }: { profile: CDNProfile; onPaired:
         <div style={{ display: 'grid', gap: 8 }}>
           <div className="note warn small">{t('命令里含有专用令牌，只显示这一次。再次生成同名测速点会让旧令牌失效。')}</div>
           <div className="row" style={{ flexWrap: 'nowrap', alignItems: 'flex-start' }}><code className="small" style={{ flex: 1, wordBreak: 'break-all' }}>{cmd}</code><button className="btn sm" type="button" onClick={async () => { await copyText(cmd!); toast(t('已复制')) }}>{t('复制')}</button></div>
-          <div><button className="btn sm" type="button" onClick={() => { setMade(null); setSource(''); setCarrier('') }}>{t('再添加一个')}</button></div>
+          <div><button className="btn sm" type="button" onClick={() => { setMade(null); setSource(''); setCarrier(''); setRegion('') }}>{t('再添加一个')}</button></div>
         </div>
       )}
       <details style={{ marginTop: 8 }}>

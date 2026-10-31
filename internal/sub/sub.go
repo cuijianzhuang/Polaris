@@ -58,6 +58,20 @@ type Node struct {
 type ExtraLink struct{ Title, URL string }
 
 // Info is the account summary shared by every format.
+type CDNRegionChoice struct {
+	Code string
+	Name string
+}
+type CDNProfileChoice struct {
+	ID        string
+	Name      string
+	Scheme    string
+	Port      int
+	Enabled   bool
+	Addresses string
+	Selection string
+}
+
 type Info struct {
 	Title    string
 	Username string
@@ -83,6 +97,12 @@ type Info struct {
 	Rename bool
 	// CarrierPick offers choosing the carrier (ct / cu / cm, "" = automatic)
 	// whose CDN preferred IPs the subscription uses (Portal pages only).
+	CDNManage   bool
+	CDNChoices  []CDNProfileChoice
+	CDNRegions  []CDNRegionChoice
+	CDNNetwork  string
+	RegionPick  bool
+	Region      string
 	CarrierPick bool
 	Carrier     string
 	// LoginVia says how the user signed in ("Telegram", "邮箱"); MailBind

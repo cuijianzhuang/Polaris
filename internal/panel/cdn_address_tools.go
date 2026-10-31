@@ -81,14 +81,14 @@ func (s *Server) cdnContexts(p *store.CDNProfile) []cdnCheckContext {
 }
 
 // The same expansion function as a real subscription, with no user credentials.
-func (s *Server) cdnPreview(p *store.CDNProfile, ctx cdnCheckContext, carrier string) []string {
+func (s *Server) cdnPreview(p *store.CDNProfile, ctx cdnCheckContext, carrier string, region string) []string {
 	var ep store.Endpoint
 	var row store.Inbound
 	if s.st.DB.First(&ep, "id = ?", ctx.EndpointID).Error != nil || s.st.DB.First(&row, "id = ?", ctx.InboundID).Error != nil {
 		return nil
 	}
 	m := s.toModelInbound(&row)
-	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport}, ep, map[string]string{}, "{kind}", nil, nil, &m, carrier)
+	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport}, ep, map[string]string{}, "{kind}", nil, nil, &m, carrier, cdnAudience{Region: region})
 	out := []string{}
 	for _, n := range nodes {
 		out = append(out, n.Server)
@@ -108,6 +108,11 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 			return
 		}
 	}
+	region, err := normalizeCDNRegion(c.Query("region"))
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
 	contexts := s.cdnContexts(&p)
 	var chosen *cdnCheckContext
 	for i := range contexts {
@@ -124,7 +129,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 	selected := []string{}
 	if chosen != nil {
 		port = chosen.Target.Port
-		selected = s.cdnPreview(&p, *chosen, carrier)
+		selected = s.cdnPreview(&p, *chosen, carrier, region)
 	}
 	addresses := append(slices.Clone(s.cdnAddressesForPort(&p, port)), p.PinnedHosts.V...)
 	addresses = append(addresses, p.BlockedHosts.V...)
@@ -203,7 +208,8 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		}
 		items = append(items, row)
 	}
-	c.JSON(200, gin.H{"contexts": contexts, "context": chosen, "items": items, "selected": selected, "scheme": cdnScheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnStaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
+	_, matchMode := s.cdnAudienceReports(&p, port, carrier, region)
+	c.JSON(200, gin.H{"contexts": contexts, "region": region, "regions": s.cdnRegionOptions(), "matchMode": matchMode, "selectionMessage": s.cdnSelectionText(&p, carrier, region, nil, port), "context": chosen, "items": items, "selected": selected, "scheme": cdnScheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnStaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
 }
 func (s *Server) checkCDNAddress(c *gin.Context) {
 	var req struct {

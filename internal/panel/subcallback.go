@@ -2,6 +2,7 @@ package panel
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -60,7 +61,19 @@ func (s *Server) subCallbackHandler(c *gin.Context) {
 		c.String(http.StatusNotFound, "404 page not found")
 		return
 	}
-	c.Request.URL.RawQuery = "raw=1"
+	target, err := url.ParseRequestURI(path)
+	if err != nil || target.Host != "" {
+		c.String(404, "404 page not found")
+		return
+	}
+	query := url.Values{"raw": []string{"1"}}
+	for _, key := range []string{"carrier", "region"} {
+		if v := target.Query().Get(key); v != "" {
+			query.Set(key, v)
+		}
+	}
+	path = target.Path
+	c.Request.URL.RawQuery = query.Encode()
 	if tok, ok := strings.CutPrefix(path, "/sub/p/"); ok {
 		c.Params = gin.Params{{Key: "token", Value: tok}}
 		s.profileSubscription(c)

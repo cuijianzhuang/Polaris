@@ -52,6 +52,7 @@ type cdnIPReportReq struct {
 	Port    int                 `json:"port"`
 	Scheme  string              `json:"scheme"`
 	Source  string              `json:"source"`
+	Region  string              `json:"region"`
 	Carrier string              `json:"carrier"` // ct / cu / cm; "" = infer from source
 	IPs     []store.CDNIPResult `json:"ips"`
 }
@@ -164,6 +165,18 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	region, err := reportRegion(req)
+	if err != nil {
+		badRequest(c, err)
+		return
+	}
+	if token := apiTokenOf(c); token != nil && token.CDNRegion != "" {
+		if req.Region != "" && region != token.CDNRegion {
+			c.JSON(403, gin.H{"error": "测速令牌只能上报绑定的地区"})
+			return
+		}
+		region = token.CDNRegion
+	}
 	if err := cdnTokenAllows(apiTokenOf(c), p.ID, req.Source); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
@@ -195,7 +208,7 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 			return targetErr
 		}
 		if err := tx.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.CDNIPReport{
-			ProfileID: p.ID, Source: req.Source, Carrier: carrier, Port: port, Scheme: scheme, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
+			ProfileID: p.ID, Source: req.Source, Carrier: carrier, Region: region, Port: port, Scheme: scheme, At: now, IPs: store.NewJSON(ips)}).Error; err != nil {
 			return err
 		}
 		var err error
@@ -291,7 +304,7 @@ func sharedCDNReports(db *gorm.DB, p *store.CDNProfile, since time.Time, carrier
 	return cdnReportsForPort(db, p, cdnDefaultPort(p), since, carrier)
 }
 
-func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Time, carrier string) []store.CDNIPReport {
+func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Time, carrier string, regions ...string) []store.CDNIPReport {
 	q := db.Model(&store.CDNIPReport{}).Where("at > ?", since)
 	q = q.Where("COALESCE(NULLIF(port,0),443) = ?", port).Where("COALESCE(NULLIF(scheme,''),'https') = ?", cdnScheme(p))
 	if p.Provider == "cloudflare" {
@@ -307,6 +320,9 @@ func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Ti
 	seen := map[string]bool{}
 	out := rs[:0]
 	for _, r := range rs {
+		if len(regions) > 0 && regions[0] != "" && effectiveCDNRegion(r) != regions[0] {
+			continue
+		}
 		if !seen[r.Source] {
 			seen[r.Source] = true
 			out = append(out, r)
@@ -324,6 +340,7 @@ func (s *Server) cdnReports(ids []string) map[string][]store.CDNIPReport {
 	var rs []store.CDNIPReport
 	s.st.DB.Where("profile_id IN ?", ids).Order("at DESC").Find(&rs)
 	for _, r := range rs {
+		r.Region = effectiveCDNRegion(r)
 		out[r.ProfileID] = append(out[r.ProfileID], r)
 	}
 	return out
