@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { get, post, put } from '../api'
+import { del, get, post, put } from '../api'
 import CDNRegionSelect from './CDNRegionSelect'
 import { ago, datetime } from '../format'
 import { t } from '../i18n'
@@ -74,6 +74,7 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
           <div>{r.check ? <button className="link" onClick={() => setResult(r.check)}>{r.check.ok ? t('传输检测通过') : r.check.partial ? t('检测部分完成') : t('检测未通过')} · {ago(r.check.checkedAt)}{Date.now() - Date.parse(r.check.checkedAt) > 1800000 && ' · ' + t('检测结果较旧')}</button> : r.failedAt ? <span>{t('检测未通过')} · {ago(r.failedAt)}</span> : t('未检测')}</div></div></td>
         <td data-label={t('订阅选用')}><span className={'tag ' + (r.selected ? 'ok' : r.reason === 'check_failed' ? 'bad' : '')}>{reasonLabel(r.reason)}</span></td>
         <td className="rt-actions"><div className="row" style={{ flexWrap: 'wrap' }}><button className="btn sm" disabled={busy || data.loading || !context} onClick={() => run(async () => { setResult(undefined); const res = await post<Result>(`/cdn-profiles/${p.id}/check-address`, { endpointId: context!.endpointId, address: r.address }); setResult(res); data.reload() })}>{t('检测')}</button>
+          {r.failedAt && <button className="btn sm" disabled={busy} onClick={() => run(async () => { await del(`/cdn-profiles/${p.id}/check-address`, { endpointId: context!.endpointId, address: r.address }); changed() }, t('已重置为未检测'))}>{t('重置检测')}</button>}
           <button className="btn sm" disabled={busy} onClick={() => run(async () => { const blocked = r.blocked ? (p.blockedHosts ?? []).filter((a) => a !== (r.blockKey || r.address)) : [...(p.blockedHosts ?? []), r.address]; await put(`/cdn-profiles/${p.id}/address-policy`, { blockedHosts: blocked, stalePolicy: p.stalePolicy || 'source' }); changed() }, t('已保存'))}>{r.blocked ? t('恢复') : t('禁用')}</button></div></td>
       </tr>)}</tbody>
     </table></div>
@@ -83,6 +84,7 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
       {!Object.keys(p.portChecks ?? {}).length && <div className="hint">{t('节点检测：等待第一次检测')}</div>}
     </details>}
     <p className="hint">{t('检测来自面板网络，只验证 DNS、TCP、TLS 和传输握手，不代表客户端网络或代理认证通过。明确失败的地址不进入当前入口的订阅，重新检测通过后恢复；未检测或部分完成不作为失败。')}</p>
+    <p className="hint">{t('手动重置检测会清除当前入口的结论，将地址恢复为未检测并重新参与选择。')}</p>
     {result && <div className={'note ' + (result.ok ? '' : result.partial ? 'warn' : 'bad')} role="status" style={{ display: 'block', overflowWrap: 'anywhere' }}>
       <b>{result.ok ? t('传输检测通过') : result.partial ? t('检测部分完成') : t('检测未通过')}</b> · {datetime(result.checkedAt)}
       <div className="mono small">{result.target.scheme?.toUpperCase()}://{result.target.server}:{result.target.port} · SNI {result.target.sni} · Host {result.target.host} · {result.target.path}</div>

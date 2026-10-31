@@ -217,4 +217,22 @@ func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 	if got := selected(); strings.Contains(got, "127.0.0.1") {
 		t.Fatal("partial retry cleared known failure", got)
 	}
+
+	if code, out := admin.do("DELETE", "/cdn-profiles/failure/check-address", map[string]any{"endpointId": "failure-ep", "address": "127.0.0.1"}); code != 200 {
+		t.Fatal(code, out)
+	}
+	if got := selected(); !strings.Contains(got, "127.0.0.1") {
+		t.Fatal("explicit reset did not restore untested candidate", got)
+	}
+	_, token, err := s.issueAPIToken("report", "", []string{ScopeCDNIPs}, 0, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := &apiClient{t: t, base: admin.base, tok: token}
+	if code, _ := probe.do("DELETE", "/cdn-profiles/failure/check-address", map[string]any{"endpointId": "failure-ep", "address": "127.0.0.1"}); code != 403 {
+		t.Fatal("report token could reset diagnostic state", code)
+	}
+	if code, _ := admin.do("DELETE", "/cdn-profiles/failure/check-address", map[string]any{"endpointId": "re", "address": "127.0.0.1"}); code != 404 {
+		t.Fatal("foreign entry admitted", code)
+	}
 }

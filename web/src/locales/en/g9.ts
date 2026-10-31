@@ -1,4 +1,8 @@
 const m: Record<string, string> = {
+  "重置检测": "Reset check",
+  "已重置为未检测": "Reset to untested",
+  "手动重置检测会清除当前入口的结论，将地址恢复为未检测并重新参与选择。": "Resetting clears this entry\u2019s verdict and returns the address to the untested selection pool.",
+
   "检测失败，已排除": "Check failed; excluded",
   "当前入口的候选已被排除，订阅不输出此 CDN 入口；可重新检测失败地址。": "This entry's candidates have been excluded, so its CDN node is omitted from subscriptions. Recheck the failed addresses to recover.",
   "检测来自面板网络，只验证 DNS、TCP、TLS 和传输握手，不代表客户端网络或代理认证通过。明确失败的地址不进入当前入口的订阅，重新检测通过后恢复；未检测或部分完成不作为失败。": "Checks run from the panel network and verify only DNS, TCP, TLS and transport handshakes. They do not verify the client network or proxy authentication. Clear failures are excluded from this entry until a successful recheck; untested and partial results are not failures.",

@@ -35,6 +35,8 @@ class Fixture(Base):
    body=req.post_data_json;self.writes.append((req.method,path,body,req.headers));self.profile.update(body);return route.fulfill(json=dict(ok=True))
   if path=='/cdn-profiles/cf/check-address':
    body=req.post_data_json;self.writes.append((req.method,path,body,req.headers));target=copy.deepcopy(self.context(body['endpointId'])['target']);target['server']=body['address']
+   if req.method=='DELETE':
+    key=(body['endpointId'],body['address']);self.checks.pop(key,None);self.failures.discard(key);return route.fulfill(json=dict(ok=True))
    stages=[dict(kind='address_dns',state='passed',addresses=['104.16.1.1','2606:4700::1111']),dict(kind='tcp',state='passed'),dict(kind='tls',state='failed' if self.verdict=='tls' else 'passed'),dict(kind='http',state='not_tested' if self.verdict=='tls' else 'failed' if self.verdict=='waf' else 'passed',detail='HTTP 403' if self.verdict=='waf' else 'HTTP 101'),dict(kind='transport',state='passed' if self.verdict=='ok' else 'partial' if self.verdict=='partial' else 'failed')]
    result=dict(ok=self.verdict=='ok',partial=self.verdict=='partial',message='fixture: '+self.verdict,target=target,checkedAt=now,viewpoint='panel',businessVerified=False,stages=stages,warnings=[])
    key=(body['endpointId'],body['address'])
@@ -95,6 +97,9 @@ with sync_playwright() as p:
     expect(card).to_contain_text('当前入口的候选已被排除' if lang=='zh' else "This entry's candidates have been excluded")
     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
     card.scroll_into_view_if_needed();page.screenshot(path=str(OUT/f'{engine}-{width}-{lang}-tools.png'))
+    preferred.get_by_role('button',name='重置检测' if lang=='zh' else 'Reset check',exact=True).click()
+    expect(preferred).to_contain_text('未检测' if lang=='zh' else 'Not checked')
+    expect(preferred).to_contain_text('按当前策略选中' if lang=='zh' else 'Selected by current policy')
     assert not errors,errors
     page.close();print(engine,width,lang,'preview/carrier/port, blacklist persistence, layered verdicts and expiry policy OK',flush=True)
   browser.close()
