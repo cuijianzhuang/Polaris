@@ -1,0 +1,17 @@
+export default {
+  '定时检测': 'Scheduled checks',
+  'CDN 地址定时检测': 'Scheduled CDN address checks',
+  '定时检测进行中': 'Scheduled checks running',
+  '定时检测：每 {n} 分钟': 'Scheduled checks: every {n} minutes',
+  '本轮已检 {done} / {total}': 'Checked this sweep: {done} / {total}',
+  '失败 {n}': 'Failed: {n}',
+  '部分完成 {n}': 'Partial: {n}',
+  '下次检查 / 续批': 'Next check / batch',
+  '最近自动检测': 'Last automatic check',
+  '自动检测周期': 'Automatic check interval',
+  '定时检测设置已保存': 'Scheduled check settings saved',
+  '覆盖当前配置档所有已启用的关联入口，按实际协议、端口、SNI、Host 和路径分别检测；跳过手动禁用地址。': 'Checks every enabled associated entry in this profile using its actual protocol, port, SNI, Host and path. Manually blocked addresses are skipped.',
+  '后台每分钟调度，地址较多时分批续检，每批最多 8 个；整轮完成后再等待设置的周期。': 'The scheduler runs every minute. Larger lists continue in batches of up to 8. The interval starts after the full sweep finishes.',
+  '检测来自面板网络，只验证 DNS、TCP、TLS 和传输握手。失败地址从对应入口订阅中排除，复检通过才恢复；部分完成不会解除已有失败。': 'Checks run from the panel network and verify DNS, TCP, TLS and transport handshakes only. Failed addresses are excluded for that entry until a successful recheck; partial results do not clear existing failures.',
+  '关闭或修改周期会中止旧轮次的后续写入；已有检测结论保留。': 'Disabling or changing the interval invalidates further writes from the old sweep. Existing verdicts are retained.',
+}

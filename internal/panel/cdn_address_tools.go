@@ -212,7 +212,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		items = append(items, row)
 	}
 	_, matchMode := s.cdnAudienceReports(&p, port, carrier, region)
-	c.JSON(200, gin.H{"contexts": contexts, "region": region, "regions": s.cdnRegionOptions(), "matchMode": matchMode, "selectionMessage": s.cdnSelectionText(&p, carrier, region, nil, port), "context": chosen, "items": items, "selected": selected, "scheme": cdnScheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnStaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
+	c.JSON(200, gin.H{"schedule": cdnAddressSchedule(&p), "contexts": contexts, "region": region, "regions": s.cdnRegionOptions(), "matchMode": matchMode, "selectionMessage": s.cdnSelectionText(&p, carrier, region, nil, port), "context": chosen, "items": items, "selected": selected, "scheme": cdnScheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnStaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
 }
 func (s *Server) checkCDNAddress(c *gin.Context) {
 	var req struct {
@@ -265,22 +265,55 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 	}
 	result.Warnings = s.cdnEndpointWarnings(&ep, &row, &p)
 	key := cdnCheckKey(ep.ID, target, m.Transport.Type, cdnHealthRevision(row, &p))
-	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+	if err := s.saveCDNAddressResult(c.Request.Context(), p.ID, key, result, ""); err != nil {
+		dbError(c, err)
+		return
+	}
+	s.auditCtx(c, "cdn.address_check", p.Name, req.Address)
+	c.JSON(http.StatusOK, result)
+}
+
+// Manual and scheduled diagnostics persist exactly the same scoped verdict.
+func (s *Server) saveCDNAddressResult(ctx context.Context, profileID, key string, result cdnAddressResult, lease string) error {
+	return s.st.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {
 			return err
 		}
 		var current store.CDNProfile
-		if err := tx.First(&current, "id = ?", p.ID).Error; err != nil {
+		if err := tx.First(&current, "id = ?", profileID).Error; err != nil {
 			return err
 		}
+		updates := map[string]any{}
+		if lease != "" {
+			if current.AddressCheckLeaseID != lease || current.AddressCheckInterval == 0 {
+				return errCDNScheduleChanged
+			}
+			run := current.AddressCheckRuntime.V
+			run.Cursor = key
+			run.Checked++
+			at := time.Now()
+			run.LastAt = &at
+			if result.Partial {
+				run.Partial++
+			} else if !result.OK {
+				run.Failed++
+			}
+			updates["address_check_runtime"] = store.NewJSON(run)
+		}
+		progressOnly := func() error {
+			if len(updates) == 0 {
+				return nil
+			}
+			return tx.Model(&current).Updates(updates).Error
+		}
 		if failure, ok := current.AddressFailures.V[cdnFailureSlot(result.EndpointID, result.Target.Server)]; ok && failure.At.After(result.CheckedAt) {
-			return nil
+			return progressOnly()
 		}
 		// A slower, older request cannot undo a newer check of the same address.
 		for fingerprint := range current.AddressChecks.V {
 			prior := cdnCachedAddressCheck(&current, fingerprint)
 			if prior != nil && prior.EndpointID == result.EndpointID && prior.Target.Server == result.Target.Server && prior.CheckedAt.After(result.CheckedAt) {
-				return nil
+				return progressOnly()
 			}
 		}
 		recordCDNAddressVerdict(&current, key, result)
@@ -309,14 +342,9 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 			delete(checks, order[0].key)
 			order = order[1:]
 		}
-		return tx.Model(&current).Updates(map[string]any{"address_checks": store.NewJSON(checks), "address_failures": current.AddressFailures}).Error
+		updates["address_checks"], updates["address_failures"] = store.NewJSON(checks), current.AddressFailures
+		return tx.Model(&current).Updates(updates).Error
 	})
-	if err != nil {
-		dbError(c, err)
-		return
-	}
-	s.auditCtx(c, "cdn.address_check", p.Name, req.Address)
-	c.JSON(http.StatusOK, result)
 }
 func (s *Server) updateCDNAddressPolicy(c *gin.Context) {
 	var req struct {
