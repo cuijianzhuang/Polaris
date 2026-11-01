@@ -719,10 +719,19 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	trusted := parseNetList(s.st.GetSetting("ip_limit_trusted", ""))
 	allowed := s.nodeUsers(nodeID)
 	for _, u := range m.Users {
+		if u == nil {
+			continue
+		}
 		if !allowed[u.UserId] {
 			continue // not a user of this node
 		}
-		list := s.shared.setNodeIPs(u.UserId, nodeID, u.Ips, time.Now())
+		ips := normalizedOnlineIPs(u.Ips)
+		// Reject malformed nonempty reports without clearing a valid snapshot.
+		if len(u.Ips) > 0 && len(ips) == 0 {
+			continue
+		}
+		list := s.shared.setNodeIPs(u.UserId, nodeID, ips, time.Now())
+		list = normalizedOnlineIPs(list)
 		sort.Strings(list)
 		counted := 0
 		for _, ip := range list {
@@ -736,7 +745,11 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		if err := s.st.DB.First(&user, "id = ?", u.UserId).Error; err != nil {
 			continue
 		}
-		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(map[string]any{"online_ips": store.NewJSON(list), "online_at": time.Now()})
+		updates := map[string]any{"online_ips": store.NewJSON(list)}
+		if len(ips) > 0 {
+			updates["online_at"] = time.Now()
+		}
+		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(updates)
 		if user.IPLimit > 0 && counted > user.IPLimit {
 			if s.alertOnce("ip:"+user.ID, 10*time.Minute) {
 				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", counted, user.IPLimit, strings.Join(list, ", ")), "")

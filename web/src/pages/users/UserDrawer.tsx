@@ -2,10 +2,11 @@ import { ProTag, useFeature } from '../../components/License'
 import { useState } from 'react'
 import TrafficChart from '../../components/TrafficChart'
 import UserTrafficSources from '../../components/UserTrafficSources'
+import { UserOnlineDetails } from '../../components/UserOnline'
 import { del, get, post, put } from '../../api'
 import { useNodes } from '../../App'
 import { Copy, Drawer, Field, QR, useAction, useLoad, Section } from '../../components/ui'
-import { ago, bytes, date, datetime, GB, isOnline } from '../../format'
+import { ago, bytes, date, datetime, GB } from '../../format'
 import type { Group, Inbound, NodeQuota, User, UserDevice } from '../../types'
 import { TrafficEdit } from '../../components/UserTools'
 import { t, tr } from '../../i18n'
@@ -292,13 +293,9 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
           <dt>{t('密码')}</dt><dd className="mono">{user.password}</dd>
           {(user.extraTraffic ?? 0) > 0 && <><dt>{t('流量包')}</dt><dd className="mono">+{bytes(user.extraTraffic!)} <span className="mute small">{t('（本周期有效，已计入流量配额）')}</span></dd></>}
           <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
-          <dt>{t('在线设备')}</dt>
+          <dt>{t('在线 IP')}</dt>
           <dd className="small">
-            {(user.onlineDevices ?? []).length === 0
-              ? <span className="mute">{isOnline(user.onlineAt) ? t('在线，但没有拿到来源 IP（刚连上，或走的是不上报 IP 的入站，如端口转发）') : '—'}</span>
-              : (user.onlineDevices ?? []).map((d) => (
-                <div key={d.ip}><span className="mono">{d.ip}</span> · {d.nodes.join(', ') || '—'} · {ago(d.seen)}{(d.model || d.os) && <> · {[d.model, d.os].filter(Boolean).join(' ')}</>}</div>
-              ))}
+            <UserOnlineDetails key={user.id} user={user} />
           </dd>
           <dt>{t('最近拉取订阅')}</dt><dd className="small">{user.lastSubAt ? `${datetime(user.lastSubAt)} · ${user.lastSubUa || '—'}` : '—'}</dd>
         </div>

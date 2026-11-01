@@ -71,11 +71,12 @@ export interface Inbound {
   health?: InboundHealth
 }
 export interface NodeQuota { userId: string; nodeId: string; nodeName: string; extra: number; extraUsed: number; limit: number; used: number }
-export interface OnlineDevice { ip: string; nodes: string[]; seen: string; model?: string; os?: string }
+export interface OnlineDevice { ip: string; nodes: string[]; seen: string; model?: string; os?: string; excluded?: 'trusted' | 'cdn' }
 export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; onlineDevices: OnlineDevice[]; remark: string; groupIds: string[]; createdAt: string
+  onlineIpState?: 'available' | 'partial' | 'unavailable' | 'expired' | 'none'; onlineIpSeenAt?: string; onlineIpCount?: number
   nodeIds: string[]; inboundIds: string[]; telegramId: number; email?: string; planId?: string; extraTraffic?: number
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
 }

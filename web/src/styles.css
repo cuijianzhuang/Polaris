@@ -709,6 +709,11 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .node-detail-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 16px; }
 .node-detail-heading > .btn { margin-left: auto; }
 .node-selected-net { min-width: 180px; max-width: 260px; flex: 1 1 180px; }
+.online-user-details { display: flex; flex-direction: column; gap: 10px; min-width: 0; text-align: left; }
+.online-user-details .note { margin: 0; }
+.online-device-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.online-device-ip { overflow-wrap: anywhere; word-break: break-word; }
+.online-ip-count { text-align: left; white-space: nowrap; }
 #node-browser { scroll-margin-top: 90px; }
 #node-detail-title { scroll-margin-top: 90px; overflow-wrap: anywhere; }
 @media (max-width: 760px) {

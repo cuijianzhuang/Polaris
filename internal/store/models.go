@@ -184,6 +184,10 @@ type User struct {
 	// OnlineDevices is what is connected right now, filled per request from
 	// the panel's live reports (never stored).
 	OnlineDevices []OnlineDevice `gorm:"-" json:"onlineDevices"`
+	// Live report metadata. Counts and timestamps never come from stored IPs.
+	OnlineIPState  string     `gorm:"-" json:"onlineIpState,omitempty"`
+	OnlineIPSeenAt *time.Time `gorm:"-" json:"onlineIpSeenAt,omitempty"`
+	OnlineIPCount  *int       `gorm:"-" json:"onlineIpCount,omitempty"`
 	// ExtraTraffic is the part of TrafficLimit added by traffic packs this
 	// period; it goes when the period ends (traffic reset or a new period).
 	ExtraTraffic int64 `json:"extraTraffic"`
@@ -1189,11 +1193,12 @@ func (q UserNodeQuota) Capped() bool { return q.Limit > 0 && q.Used >= q.Limit }
 // OnlineDevice is one source IP a user is connected from, with the nodes it
 // reached and, when the same IP fetched the subscription, the client's model.
 type OnlineDevice struct {
-	IP    string    `json:"ip"`
-	Nodes []string  `json:"nodes"`
-	Seen  time.Time `json:"seen"`
-	Model string    `json:"model,omitempty"`
-	OS    string    `json:"os,omitempty"`
+	IP       string    `json:"ip"`
+	Nodes    []string  `json:"nodes"`
+	Seen     time.Time `json:"seen"`
+	Model    string    `json:"model,omitempty"`
+	OS       string    `json:"os,omitempty"`
+	Excluded string    `json:"excluded,omitempty"` // trusted or cdn; not counted toward IPLimit
 }
 
 // UserDevice is a client device (HWID) that fetched a user's subscription.
