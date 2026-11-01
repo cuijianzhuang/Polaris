@@ -43,30 +43,31 @@ var Version = "dev"
 
 // Server is the panel.
 type Server struct {
-	renderCache    renderCache // plugin subscription output (plugin_sub.go)
-	businessEvents chan struct{}
-	userNoticeBusy atomic.Bool
-	cfg            *Config
-	st             *store.Store
-	ca             *pki.CA
-	log            *slog.Logger
-	hub            *Hub
-	traffic        *trafficInbox
-	eph            *ephStore   // short-lived values shared by every instance (sign-in codes, OAuth states)
-	tgWeb          tgWebLogins // login-page Telegram sign-in requests
-	portalWeb      tgWebLogins // user center Telegram sign-in requests
-	hbMu           sync.Mutex
-	probeBusy      atomic.Bool                         // a probe round is running
-	statusCache    atomic.Pointer[statusSnap]          // public status page data
-	statusBuildMu  sync.Mutex                          // coalesce concurrent status rebuilds
-	restartHook    func()                              // tests: replaces the re-exec after a restore
-	hbCores        map[string]hbCoreState              // last core state written per node
-	progress       map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
-	limited        map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
-	lic            atomic.Pointer[licenseState]        // license in effect (see license.go)
-	licKeys        []ed25519.PublicKey                 // overrides the built-in license keys (tests)
-	jwtKey         []byte
-	rt             *realtime
+	renderCache         renderCache // plugin subscription output (plugin_sub.go)
+	businessEvents      chan struct{}
+	userNoticeBusy      atomic.Bool
+	cfg                 *Config
+	st                  *store.Store
+	ca                  *pki.CA
+	log                 *slog.Logger
+	hub                 *Hub
+	traffic             *trafficInbox
+	eph                 *ephStore   // short-lived values shared by every instance (sign-in codes, OAuth states)
+	tgWeb               tgWebLogins // login-page Telegram sign-in requests
+	portalWeb           tgWebLogins // user center Telegram sign-in requests
+	hbMu                sync.Mutex
+	probeBusy           atomic.Bool // a probe round is running
+	cdnAddressCheckBusy atomic.Bool
+	statusCache         atomic.Pointer[statusSnap]          // public status page data
+	statusBuildMu       sync.Mutex                          // coalesce concurrent status rebuilds
+	restartHook         func()                              // tests: replaces the re-exec after a restore
+	hbCores             map[string]hbCoreState              // last core state written per node
+	progress            map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
+	limited             map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
+	lic                 atomic.Pointer[licenseState]        // license in effect (see license.go)
+	licKeys             []ed25519.PublicKey                 // overrides the built-in license keys (tests)
+	jwtKey              []byte
+	rt                  *realtime
 
 	licenseMu              sync.Mutex           // serializes checks, installation and deactivation
 	licenseManualAvailable atomic.Int64         // nanosecond timestamp for the UI cooldown
@@ -426,6 +427,7 @@ func (s *Server) startJobs() func() {
 	add("0 23 5 * * *", "cdn-shodan", s.autoRefreshCDNShodan)
 	add("0 13 * * * *", "preferred-ips-stale", s.checkCDNReportsStale)
 	add("30 */30 * * * *", "preferred-ips-nodes", s.checkCDNIPsFromNodes)
+	add("25 * * * * *", "cdn-address-checks", s.checkScheduledCDNAddresses)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)
 	add("45 * * * * *", "health", s.probeChains)
 	add("*/20 * * * * *", "forward-failover", s.probeForwards)

@@ -365,6 +365,8 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 		return fail("连不上 %s：%v", addr, err)
 	}
 	defer conn.Close()
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopCancel()
 	stage("tcp", "passed", conn.RemoteAddr().String())
 	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
 	var tc net.Conn = conn

@@ -307,6 +307,7 @@ jobs:
           python web/scripts/restore-drill-ui-smoke.py
           python web/scripts/admin-roles-ui-smoke.py
           python web/scripts/cdn-address-tools-ui-smoke.py
+          python web/scripts/cdn-schedule-ui-smoke.py
           python web/scripts/cdn-domains-ui-smoke.py
           python web/scripts/cdn-scheme-ui-smoke.py
           python web/scripts/cdn-check-ports-ui-smoke.py

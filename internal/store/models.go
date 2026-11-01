@@ -552,6 +552,20 @@ type Endpoint struct {
 	CreatedAt    time.Time `json:"createdAt"`
 }
 
+// A bounded sweep resumes by fingerprint rather than by the 64-item history.
+type CDNAddressCheckRuntime struct {
+	Graph      string     `json:"graph,omitempty"`
+	Cursor     string     `json:"cursor,omitempty"`
+	StartedAt  *time.Time `json:"startedAt,omitempty"`
+	LastAt     *time.Time `json:"lastAt,omitempty"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	Total      int        `json:"total"`
+	Checked    int        `json:"checked"`
+	Failed     int        `json:"failed"`
+	Partial    int        `json:"partial"`
+	Error      string     `json:"error,omitempty"`
+}
+
 // CDNProfile is a reusable CDN configuration.
 type CDNProfile struct {
 	Scheme       string         `gorm:"size:8;not null;default:https" json:"scheme"` // client to CDN: http / https
@@ -565,18 +579,23 @@ type CDNProfile struct {
 	// PinnedHosts are manually retained public IPs and domains. Automatic
 	// updates preserve them; subscriptions append them after the top N
 	// automatic addresses. The field name is kept for API/backup compatibility.
-	PinnedHosts     JSON[[]string]                     `json:"pinnedHosts"`
-	BlockedHosts    JSON[[]string]                     `json:"blockedHosts"`
-	StalePolicy     string                             `json:"stalePolicy"` // empty/source = URL fallback, keep = retain old reports
-	AddressChecks   JSON[map[string]json.RawMessage]   `json:"-"`
-	AddressFailures JSON[map[string]CDNAddressFailure] `json:"-"`
-	IPSourceURL     string                             `gorm:"size:500" json:"ipSourceUrl"`
-	IPTopN          int                                `json:"ipTopN"`
-	ExpandPerIP     bool                               `json:"expandPerIp"`
-	AutoDNS         bool                               `json:"autoDns"`
-	CaddyFronting   bool                               `json:"caddyFronting"`
-	APIToken        string                             `gorm:"size:500" json:"-"` // sealed
-	HasToken        bool                               `gorm:"-" json:"hasToken"`
+	PinnedHosts            JSON[[]string]                     `json:"pinnedHosts"`
+	BlockedHosts           JSON[[]string]                     `json:"blockedHosts"`
+	StalePolicy            string                             `json:"stalePolicy"` // empty/source = URL fallback, keep = retain old reports
+	AddressChecks          JSON[map[string]json.RawMessage]   `json:"-"`
+	AddressFailures        JSON[map[string]CDNAddressFailure] `json:"-"`
+	AddressCheckInterval   int                                `json:"addressCheckInterval"` // minutes; 0 disables scheduled transport checks
+	AddressCheckNextAt     *time.Time                         `json:"-"`
+	AddressCheckLeaseUntil *time.Time                         `json:"-"`
+	AddressCheckLeaseID    string                             `gorm:"size:32" json:"-"`
+	AddressCheckRuntime    JSON[CDNAddressCheckRuntime]       `json:"-"`
+	IPSourceURL            string                             `gorm:"size:500" json:"ipSourceUrl"`
+	IPTopN                 int                                `json:"ipTopN"`
+	ExpandPerIP            bool                               `json:"expandPerIp"`
+	AutoDNS                bool                               `json:"autoDns"`
+	CaddyFronting          bool                               `json:"caddyFronting"`
+	APIToken               string                             `gorm:"size:500" json:"-"` // sealed
+	HasToken               bool                               `gorm:"-" json:"hasToken"`
 	// TokenSource: which Cloudflare token the profile uses — "profile"
 	// (its own, from older versions), "cdn" (the CDN token set on the CDN
 	// page), "dns" (falling back to the DNS token in 系统设置) or "".
