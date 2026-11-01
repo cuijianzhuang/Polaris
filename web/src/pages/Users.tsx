@@ -4,7 +4,7 @@ import { get, post } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
 import { CopyBox, copyText, Empty, Modal, QR, useAction, useConfirm, useLoad, usePoll, useRefresh, RefreshPicker, useToast, SkeletonRows, useUndo, useToastApi, runBatch } from '../components/ui'
-import { ago, bytes, date, daysLeft, isOnline, userStatus } from '../format'
+import { bytes, date, daysLeft, isOnline, userStatus } from '../format'
 import type { Group, User } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal } from '../components/UserTools'
 import { t, tr } from '../i18n'
@@ -12,10 +12,11 @@ import { UserPlanModal } from '../components/Plans'
 import { BindNodesModal } from './users/BindNodesModal'
 import { GroupsModal } from './users/GroupsModal'
 import { UserDrawer } from './users/UserDrawer'
+import { hasOnlineIPs, UserActivity, UserIPCount, UserOnlineDetails } from '../components/UserOnline'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
-  { k: '', label: t('全部'), sum: 'all' }, { k: 'active', label: t('正常'), sum: 'active' }, { k: 'online', label: t('在线'), sum: 'online' },
+  { k: '', label: t('全部'), sum: 'all' }, { k: 'active', label: t('正常'), sum: 'active' }, { k: 'online', label: t('在线 / 活跃'), sum: 'online' },
   { k: 'expiring', label: t('即将到期'), sum: 'expiring' }, { k: 'near', label: t('流量将满'), sum: 'near' }, { k: 'limited', label: t('已超额'), sum: 'limited' }, { k: 'expired', label: t('已过期'), sum: 'expired' },
   { k: 'disabled', label: t('已禁用'), sum: 'disabled' },
 ]
@@ -33,7 +34,8 @@ function subURL(u: User) { return `${subBase}/sub/${u.subToken}` }
 
 function statusBadge(u: User) {
   const d = daysLeft(u.expireAt)
-  if (u.status === 'active' && isOnline(u.onlineAt)) return <span className="st ok">● {t('在线')}</span>
+  if (u.status === 'active' && hasOnlineIPs(u)) return <span className="st ok">● {t('在线')}</span>
+  if (u.status === 'active' && isOnline(u.onlineAt)) return <span className="st warn">{t('近期活跃')}</span>
   if (u.status === 'active' && d !== null && d <= 7) return <span className="st warn">{t('即将到期')}</span>
   if (u.bannedUntil && new Date(u.bannedUntil) > new Date()) return <span className="st bad">{t('IP 超限封禁')}</span>
   const s = userStatus[u.status] ?? { label: u.status, cls: 'off' }
@@ -41,6 +43,7 @@ function statusBadge(u: User) {
 }
 
 export default function Users() {
+  const [onlineUser, setOnlineUser] = useState<User | null>(null)
   const [params, setParams] = useSearchParams()
   const [q, setQ] = useState(() => params.get('q') ?? '')
   const [filter, setFilter] = useState<Filter>(() => (filters.some((f) => f.k === params.get('filter')) ? params.get('filter') as Filter : ''))
@@ -181,7 +184,7 @@ export default function Users() {
                 const pct = u.trafficLimit ? Math.min(100, (used / u.trafficLimit) * 100) : 0
                 const d = daysLeft(u.expireAt)
                 return (
-                  <tr key={u.id} className="clickable" onClick={() => setSelected(u)}>
+                  <tr key={u.id} className="clickable" data-user-id={u.id} onClick={() => setSelected(u)}>
                     <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={t('选择 {name}', { name: u.username })} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
                     <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
                     <td data-label={t('状态')}>{statusBadge(u)}</td>
@@ -198,10 +201,8 @@ export default function Users() {
                       <div className="bar" style={{ marginTop: 6 }}><div style={{ width: pct + '%', background: pct >= 100 ? 'var(--bad)' : 'var(--pri)' }} /></div>
                     </td>
                     <td data-label={t('到期')} className="mono" style={d !== null && d <= 7 && d >= 0 ? { color: 'var(--warn-ink)' } : undefined}>{u.expireAt ? (d !== null && d >= 0 && d <= 7 ? t('{n} 天后', { n: d }) : date(u.expireAt)) : t('永不')}</td>
-                    <td data-label={t('最近在线')} className="small">{isOnline(u.onlineAt) ? <span style={{ color: 'var(--ok)' }}>{t('在线')}</span> : u.onlineAt ? ago(u.onlineAt) : <span className="mute">{t('从未')}</span>}</td>
-                    <td data-label={t('在线 IP')} className="mono">{isOnline(u.onlineAt) && u.onlineIps.length === 0
-                      ? <span className="mute" title={t('在线，但没有拿到来源 IP（刚连上，或走的是不上报 IP 的入站，如端口转发）')}>—</span>
-                      : u.onlineIps.length} / {u.ipLimit || '∞'}</td>
+                    <td data-label={t('最近在线')} className="small"><UserActivity user={u} /></td>
+                    <td data-label={t('在线 IP')} className="mono" onClick={(e) => e.stopPropagation()}><UserIPCount user={u} onClick={() => setOnlineUser(u)} /></td>
                     <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
                       {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, t('流量已重置'))}>{t('重置流量')}</button>
                         : u.status === 'disabled' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post('/users/bulk', { action: 'enable', ids: [u.id] }); list.reload() }, t('已启用'))}>{t('启用')}</button>
@@ -243,6 +244,7 @@ export default function Users() {
         </div>
       )}
       {drawer && groups.data && <UserDrawer user={drawer === 'new' ? undefined : drawer} groups={groups.data} onClose={() => setDrawer(null)} onSaved={() => { setDrawer(null); list.reload() }} onDelete={(u) => removeUsers([u])} />}
+      {onlineUser && <Modal title={t('在线 IP · {name}', { name: onlineUser.username })} onClose={() => setOnlineUser(null)}><UserOnlineDetails key={onlineUser.id} user={onlineUser} /></Modal>}
       {qr && (
         <Modal title={t('订阅 · {name}', { name: qr.username })} onClose={() => setQr(null)}>
           <QR text={subURL(qr)} size={220} />
