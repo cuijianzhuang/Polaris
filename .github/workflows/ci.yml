@@ -77,6 +77,7 @@ jobs:
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
   go-postgres:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: postgres:16
@@ -95,7 +96,9 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Panel tests on PostgreSQL
-        run: go test -count=1 ./internal/panel/
+        # Each fixture migrates its own schema; the whole suite can exceed
+        # Go's default 10-minute package timeout on slower runners.
+        run: go test -timeout=20m -count=1 ./internal/panel/
         env:
           POLARIS_TEST_ALL_POSTGRES: '1'
   go-redis:
