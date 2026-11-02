@@ -201,7 +201,7 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	features := []string{}
 	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
-		if (v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
+		if (v == model.ManagedTunnelFeature || v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
 			features = append(features, v)
 		}
 	}
@@ -209,14 +209,21 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	var spec struct {
-		AccessRules []json.RawMessage `json:"accessRules"`
-		Inbounds    []model.Inbound   `json:"inbounds"`
+		AccessRules []json.RawMessage  `json:"accessRules"`
+		Inbounds    []model.Inbound    `json:"inbounds"`
+		Tunnels     []model.TunnelSpec `json:"tunnels"`
+		Cores       []model.CoreSpec   `json:"cores"`
 	}
 	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if len(spec.AccessRules) > 0 && !contains(features, model.RelayAccessFeature) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持中转访问保护的新版 Agent"))
+	}
+	for _, cs := range spec.Cores {
+		if cs.Type == model.CoreCloudflared && !contains(features, model.ManagedTunnelFeature) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持 Cloudflare Tunnel 托管的新版 Agent"))
+		}
 	}
 	for _, in := range spec.Inbounds {
 		if in.Enabled && in.SnellDedicated() && !contains(features, model.SnellPSKFeature) {
@@ -228,6 +235,25 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 		if in.Enabled && !in.OutboundIPStrategy.IsAuto() && !contains(features, model.OutboundIPFeature) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持出站 IP 策略的新版 Agent"))
 		}
+	}
+	if len(spec.Tunnels) > 0 {
+		if !contains(features, model.ManagedTunnelFeature) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持 Cloudflare Tunnel 托管的新版 Agent"))
+		}
+		credentials, err := a.s.deliverTunnelCredentials(n.ID, spec.Tunnels)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
+		var delivery map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &delivery); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid tunnel spec"))
+		}
+		delivery["tunnelCredentials"], _ = json.Marshal(credentials)
+		b, err := json.Marshal(delivery)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid tunnel delivery"))
+		}
+		raw = string(b)
 	}
 	return connect.NewResponse(&polarisv1.GetSpecResponse{Rev: rev, SpecJson: []byte(raw)}), nil
 }

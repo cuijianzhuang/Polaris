@@ -381,6 +381,7 @@ func (s *Server) listCDN(c *gin.Context) {
 	cdnTok, dnsTok := s.st.GetSetting("cdn_cf_token", "") != "", s.st.GetSetting("acme_cf_token", "") != ""
 	out := make([]view, 0, len(ps))
 	for _, p := range ps {
+		p.HasTunnelCredentials = p.TunnelCredential != ""
 		p.TokenSource = tokenSource(p.APIToken != "", cdnTok, dnsTok)
 		p.HasToken = p.TokenSource != ""
 		pv := probes[p.ID]
@@ -496,6 +497,15 @@ func (s *Server) updateCDN(c *gin.Context) {
 		}
 		candidate := p
 		req.apply(&candidate, s.st.Box.Seal)
+		if p.TunnelManaged && (!cdnTunnel(&candidate) || candidate.TunnelID != p.TunnelID) {
+			return cdnSchemeProblem("请先停用 Agent 托管并等待节点清理，再切换回源方式或 Tunnel UUID")
+		}
+		if p.TunnelNodeID != "" && (!cdnTunnel(&candidate) || candidate.TunnelID != p.TunnelID) {
+			if !s.tunnelCleanupConfirmed(tx, &p) {
+				return cdnSchemeProblem("旧节点尚未确认清理，请等待 Agent 同步后再切换")
+			}
+			candidate.TunnelNodeID = ""
+		}
 		if err := validateCDNSchemeChange(tx, &p, &candidate); err != nil {
 			return err
 		}
@@ -635,6 +645,9 @@ func (s *Server) deleteCDN(c *gin.Context) {
 	}
 	if len(inboundIDs) > 0 {
 		s.MarkDirty("cdn profile "+p.Name+" deleted", s.nodesForInbounds(inboundIDs...)...)
+	}
+	if p.TunnelNodeID != "" {
+		s.MarkDirty("managed tunnel deleted", p.TunnelNodeID)
 	}
 	s.auditCtx(c, "cdn.delete", p.Name, fmt.Sprintf("%d inbounds, disabled: %s", len(usage), strings.Join(disabled, ",")))
 	if len(usage) == 0 {

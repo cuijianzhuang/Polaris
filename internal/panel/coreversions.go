@@ -193,7 +193,8 @@ func (s *Server) upgradeCores(c *gin.Context) {
 // --- latest releases ---
 
 var coreRepos = map[model.CoreType]struct{ repo, tagPrefix string }{
-	model.CoreXray: {"XTLS/Xray-core", "v"}, model.CoreSingbox: {"SagerNet/sing-box", "v"},
+	model.CoreCloudflared: {"cloudflare/cloudflared", ""},
+	model.CoreXray:        {"XTLS/Xray-core", "v"}, model.CoreSingbox: {"SagerNet/sing-box", "v"},
 	model.CoreHysteria: {"apernet/hysteria", "app/v"}, model.CoreMihomo: {"MetaCubeX/mihomo", "v"},
 	model.CoreCaddy: {"caddyserver/caddy", "v"}, model.CoreForwarder: {"zhboner/realm", "v"},
 	model.CoreGost: {"go-gost/gost", "v"},
@@ -236,7 +237,8 @@ func (s *Server) coreLatest(c *gin.Context) {
 // fallbackVersions are used when a default is "latest" but GitHub (and the
 // mirror) cannot be reached.
 var fallbackVersions = map[model.CoreType]string{
-	model.CoreXray: "26.3.27", model.CoreSingbox: "1.13.5", model.CoreHysteria: "2.6.1",
+	model.CoreCloudflared: model.CloudflaredVersion,
+	model.CoreXray:        "26.3.27", model.CoreSingbox: "1.13.5", model.CoreHysteria: "2.6.1",
 	model.CoreForwarder: "2.7.0", model.CoreMihomo: "1.19.15", model.CoreCaddy: "2.10.2", model.CoreGost: "3.2.6",
 }
 

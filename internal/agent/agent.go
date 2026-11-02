@@ -30,6 +30,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 
 	_ "github.com/cuijianzhuang/polaris/internal/core/caddy"
+	_ "github.com/cuijianzhuang/polaris/internal/core/cloudflared"
 	_ "github.com/cuijianzhuang/polaris/internal/core/forwarder"
 	_ "github.com/cuijianzhuang/polaris/internal/core/gost"
 	_ "github.com/cuijianzhuang/polaris/internal/core/hysteria"
@@ -424,6 +425,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			features += "," + model.RouteTraceFeature + "," + model.RouteTraceToolFeature
 		}
 		if core.ParentBoundSupported() {
+			features += "," + model.ManagedTunnelFeature
 			features += "," + model.RelayBusinessFeature + "," + model.SingboxRelayBusinessFeature
 		}
 		req.Header().Set("X-Polaris-Agent-Features", features)
@@ -433,11 +435,19 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			continue
 		}
 		var spec model.NodeSpec
+		var delivery struct {
+			Credentials map[string]json.RawMessage `json:"tunnelCredentials"`
+		}
+		if err := json.Unmarshal(resp.Msg.SpecJson, &delivery); err != nil {
+			a.log.Error("decode tunnel delivery")
+			continue
+		}
 		if err := json.Unmarshal(resp.Msg.SpecJson, &spec); err != nil {
 			a.log.Error("decode spec", "err", err)
 			continue
 		}
 		spec.Rev = resp.Msg.Rev
+		spec.TunnelCredentials = delivery.Credentials
 		if spec.Rev == a.appliedRev() {
 			a.confirmUpgrade()
 			continue
@@ -455,8 +465,11 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 				attempts = 0
 			}
 			failed, retryAt = spec.Rev, time.Time{}
-			if r.installFailed && attempts < len(installRetry) {
-				d := installRetry[attempts]
+			if (r.installFailed && attempts < len(installRetry)) || r.retryable {
+				d := installRetry[min(attempts, len(installRetry)-1)]
+				if r.retryable {
+					d = min(d, 2*time.Minute)
+				}
 				attempts++
 				retryAt = time.Now().Add(d - time.Second)
 				res.Error += fmt.Sprintf("（%s 后自动重试）", d)

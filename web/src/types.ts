@@ -1,5 +1,5 @@
 export type OutboundIPStrategy = 'auto' | 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6'
-export type CoreType = 'xray' | 'singbox' | 'mihomo' | 'hysteria' | 'forwarder' | 'gost' | 'caddy' | 'auto'
+export type CoreType = 'xray' | 'singbox' | 'mihomo' | 'hysteria' | 'forwarder' | 'gost' | 'caddy' | 'cloudflared' | 'auto'
 export type Protocol = 'vless' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'anytls' | 'snell' | 'shadowtls' | 'naive' | 'socks' | 'http'
 export type Transport = 'tcp' | 'ws' | 'grpc' | 'httpupgrade' | 'xhttp' | 'kcp' | 'quic'
 export type Security = 'none' | 'tls' | 'reality'
@@ -41,7 +41,7 @@ export interface Core {
 }
 export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; lat?: number | null; lng?: number | null; labels: string[]
-  agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string
+  agentFeatures?: string[]; agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
@@ -99,6 +99,7 @@ export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn
 export interface CDNProfile {
 	// Tunnel UUID is public routing metadata; connector credentials stay on the node.
 	originMode?: 'direct' | 'tunnel' | ''; tunnelId?: string
+	tunnelManaged?: boolean; tunnelNodeId?: string; hasTunnelCredentials?: boolean
   scheme?: 'http' | 'https'
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; blockedHosts?: string[]; stalePolicy?: 'keep' | 'source'; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'

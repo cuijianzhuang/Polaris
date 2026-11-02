@@ -85,6 +85,9 @@ func validateCDNTunnel(db *gorm.DB, p *store.CDNProfile) error {
 	if !cdnTunnel(p) {
 		return nil
 	}
+	if p.TunnelManaged && (p.TunnelNodeID == "" || p.TunnelCredential == "" || p.TunnelCredentialVersion == "") {
+		return cdnSchemeProblem("Agent 托管缺少节点或有效凭据")
+	}
 	var count int64
 	if err := db.Model(&store.CDNProfile{}).Where("id <> ? AND origin_mode = ? AND tunnel_id = ?", p.ID, "tunnel", p.TunnelID).Count(&count).Error; err != nil {
 		return err
@@ -97,6 +100,7 @@ func validateCDNTunnel(db *gorm.DB, p *store.CDNProfile) error {
 		return err
 	}
 	node := ""
+	paths := map[string]int{}
 	for _, ep := range es {
 		var row store.Inbound
 		if err := db.First(&row, "id = ?", ep.InboundID).Error; err != nil {
@@ -113,11 +117,35 @@ func validateCDNTunnel(db *gorm.DB, p *store.CDNProfile) error {
 		if err := checkTunnelAttachments(db, p, row.ID, row.NodeID); err != nil {
 			return cdnSchemeProblem(err.Error())
 		}
+		host := orDefault(ep.Host, p.OriginDomain)
+		if !cdnHostRe.MatchString(host) || strings.HasPrefix(host, "*.") {
+			return cdnSchemeProblem("Tunnel Host 必须是有效域名")
+		}
+		path := orDefault(row.Transport.V.Path, "/")
+		if ep.Path != "" && ep.Path != path {
+			return cdnSchemeProblem("Tunnel 入口路径必须与入站 WS 路径一致")
+		}
+		if ep.SNI != "" && ep.SNI != host {
+			return cdnSchemeProblem("Tunnel SNI 必须与入口 Host 一致")
+		}
+		if row.Enabled {
+			key := host + "\n" + path
+			if port, ok := paths[key]; ok && port != row.Port {
+				return cdnSchemeProblem("Tunnel Host 与路径不能指向不同入站端口")
+			}
+			paths[key] = row.Port
+		}
+	}
+	if len(paths) > 1024 {
+		return cdnSchemeProblem("每个 Tunnel 最多支持 1024 条路由")
 	}
 	return nil
 }
 
 func checkTunnelAttachments(db *gorm.DB, p *store.CDNProfile, inboundID, nodeID string) error {
+	if p.TunnelNodeID != "" && p.TunnelNodeID != nodeID {
+		return fmt.Errorf("此隧道已绑定其他 Agent 节点")
+	}
 	var others int64
 	if err := db.Model(&store.Endpoint{}).Joins("JOIN inbounds ON inbounds.id = endpoints.inbound_id").Where("endpoints.cdn_profile_id = ? AND inbounds.node_id <> ?", p.ID, nodeID).Count(&others).Error; err != nil {
 		return err
@@ -167,15 +195,8 @@ func (s *Server) inboundTunnel(m *model.Inbound, id string) (bool, error) {
 	return len(profiles) > 0, nil
 }
 
-type cdnTunnelRoute struct {
-	Hostname      string           `json:"hostname,omitempty" yaml:"hostname,omitempty"`
-	Path          string           `json:"path,omitempty" yaml:"path,omitempty"`
-	Service       string           `json:"service" yaml:"service"`
-	OriginRequest *cdnTunnelOrigin `json:"originRequest,omitempty" yaml:"originRequest,omitempty"`
-}
-type cdnTunnelOrigin struct {
-	HTTPHostHeader string `json:"httpHostHeader" yaml:"httpHostHeader"`
-}
+type cdnTunnelRoute = model.TunnelRoute
+type cdnTunnelOrigin = model.TunnelOrigin
 
 func (s *Server) tunnelRoutes(p *store.CDNProfile) ([]cdnTunnelRoute, string, error) {
 	if err := validateCDNTunnel(s.st.DB, p); err != nil {

@@ -8,6 +8,7 @@ import { ago, coreShort, inboundSummary, protoLabel } from '../format'
 import { t, tr } from '../i18n'
 import CDNAddressTools from '../components/CDNAddressTools'
 import CDNTunnelConfig from '../components/CDNTunnelConfig'
+import CDNTunnelAgent from '../components/CDNTunnelAgent'
 import CDNRegionSelect from '../components/CDNRegionSelect'
 import GeoPicker from '../components/GeoPicker'
 import WarpDialog from '../components/WarpDialog'
@@ -168,11 +169,11 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
           <select className="input" disabled={f.originMode === 'tunnel'} value={f.provider} onChange={(e) => set('provider', e.target.value)}><option value="cloudflare">Cloudflare</option><option value="other">{t('其他')}</option></select>
         </Field>
         <Field label={t('回源方式')} htmlFor="cdn-origin-mode" full>
-          <select id="cdn-origin-mode" className="input" value={f.originMode} onChange={(e) => setF((x) => ({ ...x, originMode: e.target.value as 'direct' | 'tunnel', ...(e.target.value === 'tunnel' ? { provider: 'cloudflare', scheme: 'https', ports: '443', caddyFronting: false } : {}) }))}>
+          <select id="cdn-origin-mode" className="input" disabled={!!profile?.tunnelManaged} value={f.originMode} onChange={(e) => setF((x) => ({ ...x, originMode: e.target.value as 'direct' | 'tunnel', ...(e.target.value === 'tunnel' ? { provider: 'cloudflare', scheme: 'https', ports: '443', caddyFronting: false } : {}) }))}>
             <option value="direct">{t('公网回源')}</option><option value="tunnel">Cloudflare Tunnel (Argo)</option>
           </select>
         </Field>
-        {f.originMode === 'tunnel' && <Field label="Tunnel UUID" htmlFor="cdn-tunnel-id" full hint={t('填写已有命名隧道的 UUID，不是 Token。每个配置档只关联同一台节点，cloudflared 由你在该节点运行。')}><input id="cdn-tunnel-id" className="input mono" value={f.tunnelId} onChange={(e) => set('tunnelId', e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" /></Field>}
+        {f.originMode === 'tunnel' && <Field label="Tunnel UUID" htmlFor="cdn-tunnel-id" full hint={t('填写已有命名隧道的 UUID，不是 Token。每个配置档只关联同一台节点；保存后可选择 Agent 托管。')}><input id="cdn-tunnel-id" className="input mono" disabled={!!profile?.tunnelManaged} value={f.tunnelId} onChange={(e) => set('tunnelId', e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" /></Field>}
         <Field label={t('回源域名')} htmlFor="cdn-origin" full hint={t('使用相同 CDN 协议的节点可共用配置档；HTTP 和 HTTPS 分别建档。共享节点会自动分配回源域名，可在「服务节点」查看。')}><input id="cdn-origin" className="input mono" value={f.originDomain} onChange={(e) => set('originDomain', e.target.value)} placeholder="sub.example.com" /></Field>
         <Field label={t('CDN 协议')} htmlFor="cdn-scheme" full hint={t('选择客户端到 CDN 的 HTTP 或 HTTPS 协议；回源 SSL 模式单独设置。切换协议后重置可用端口，可再调整顺序。')}>
           <select id="cdn-scheme" className="input" disabled={f.originMode === 'tunnel'} value={f.scheme} onChange={(e) => setF((x) => ({ ...x, scheme: e.target.value as 'http' | 'https', ports: cdnPorts(e.target.value).join(', '), caddyFronting: e.target.value === 'http' ? false : x.caddyFronting }))}>
@@ -237,6 +238,7 @@ function CDNHostsEditor({ p, onClose, onSaved }: { p: CDNProfile; onClose: () =>
 
 function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: () => void; onDelete: () => void; onChanged: () => void }) {
   const [tunnelConfig, setTunnelConfig] = useState(false)
+  const [tunnelAgent, setTunnelAgent] = useState(false)
   const { busy, run } = useAction()
   const [editingHosts, setEditingHosts] = useState(false)
   const [synced, setSynced] = useState<{ records: string[]; sslMode?: string; cert?: string; split?: string[] } | null>(null)
@@ -266,6 +268,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn sm" type="button" onClick={onEdit}>{t('编辑')}</button>
           {p.originMode === 'tunnel' && <button className="btn sm" type="button" onClick={() => setTunnelConfig(true)}>{t('隧道回源配置')}</button>}
+          {p.originMode === 'tunnel' && <button className="btn sm" type="button" onClick={() => setTunnelAgent(true)}>{t('Agent 托管')}</button>}
           <button className="btn sm" type="button" disabled={busy || !p.hasToken} onClick={() => run(async () => {
             setSynced(await post<{ records: string[]; sslMode?: string; cert?: string; split?: string[] }>(`/cdn-profiles/${p.id}/sync-dns`)); onChanged()
           }, t('DNS 已同步'))}>{t('同步 DNS')}</button>
@@ -279,7 +282,8 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
         </div>}
       </section>
       {editingHosts && <CDNHostsEditor key={p.id + "-hosts"} p={p} onClose={() => setEditingHosts(false)} onSaved={() => { setEditingHosts(false); onChanged() }} />}
-      {tunnelConfig && <CDNTunnelConfig profileId={p.id} onClose={() => setTunnelConfig(false)} />}
+      {tunnelConfig && <CDNTunnelConfig profileId={p.id} managed={p.tunnelManaged} onClose={() => setTunnelConfig(false)} />}
+      {tunnelAgent && <CDNTunnelAgent profile={p} onClose={() => setTunnelAgent(false)} onSaved={() => { setTunnelAgent(false); onChanged() }} />}
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>
         {p.provider === 'cloudflare' && <div className="sub small" style={{ marginTop: 6 }}>{(p.shared ?? []).length > 0 ? t('相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点：本配置档也在用 {list} 的上报结果', { list: (p.shared ?? []).join('、') }) : t('只有相同 CDN 协议与测速端口的 Cloudflare 配置档共用测速点，各自固定地址保留。')}</div>}

@@ -30,6 +30,7 @@ import (
 
 	// Register every core adapter so capabilities are available.
 	_ "github.com/cuijianzhuang/polaris/internal/core/caddy"
+	_ "github.com/cuijianzhuang/polaris/internal/core/cloudflared"
 	_ "github.com/cuijianzhuang/polaris/internal/core/forwarder"
 	_ "github.com/cuijianzhuang/polaris/internal/core/gost"
 	_ "github.com/cuijianzhuang/polaris/internal/core/hysteria"

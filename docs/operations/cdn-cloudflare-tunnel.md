@@ -2,7 +2,7 @@
 
 流量路径：客户端 → Cloudflare HTTPS 443（可使用优选 IP）→ 命名 Tunnel → 同机 cloudflared → `http://127.0.0.1:入站端口` → 代理出口。
 
-此功能接入你已创建的 Tunnel。Polaris 保存公开的 Tunnel UUID、生成回源配置并同步 DNS，不保存连接令牌或凭据文件，也不安装、启动 cloudflared。Tunnel 与付费 Argo Smart Routing 是不同功能。
+此功能接入你已创建的 Tunnel。可选择手动运行 cloudflared，或让 Agent 安装并托管。本地凭据仅在启用 Agent 托管时加密保存；不会把密钥写入配置历史、订阅或日志。Tunnel 与付费 Argo Smart Routing 是不同功能。
 
 隧道通过主动向 Cloudflare 建立连接来隐藏回源公网入口，不改变代理出口 IP。客户端仍需能访问 Cloudflare 边缘与入口域名；Tunnel 不能保证避免 GFW 的 DNS、SNI 或 IP 阻断。
 
@@ -14,6 +14,22 @@
 - 面板与订阅接口仍可使用原有优选 IP、固定域名、地区/运营商选择和定时检测。检测结果仍来自面板网络，仅代表 DNS/TCP/TLS/WS 握手，不代表用户网络或完整代理业务成功。
 
 ## 配置流程
+
+### Agent 托管（本地管理的命名隧道）
+
+1. 先同时更新面板和 Agent，等待节点连接并上报 `cloudflare-tunnel-v1` 能力。旧 Agent 会在获取配置时被明确拦截。
+2. 在自己可信的管理机器上用 Cloudflare 官方工具创建本地管理的命名隧道（`cloudflared tunnel login`、`cloudflared tunnel create <名称>`），取得 UUID 和对应凭据 JSON。Cloudflare 控制台生成的远程 Token 不能替代此 JSON。
+3. 在 CDN 配置档选择 `Cloudflare Tunnel (Argo)`，填写 UUID。为对应节点创建本机 WS 入站，再打开「Agent 托管」，选择节点并导入凭据 JSON。面板不代替用户登录 Cloudflare 账户或创建隧道。
+4. Agent 下载并校验官方 cloudflared（默认 2026.10.7），保存私有凭据，自动生成路由并运行连接器。每个隧道独立运行，崩溃后退避重启，Agent 退出/崩溃时其子进程也会停止。重启 Agent 时可使用本机私有缓存恢复服务。
+5. 在托管窗口等待「节点隧道连接已就绪」，然后同步 DNS、检测入口并更新订阅。运行中不等于就绪：状态通过本机 `/ready` 检查，并在窗口每 5 秒刷新；多隧道节点显示该节点连接器的汇总状态。
+
+改变 WS 路径、端口或 Host 后，正常发布配置即可由 Agent 更新路由；只有变化的连接器需要重启。重新导入凭据会生成新的凭据版本并重启对应连接器，已有 WS 连接可能中断。最多支持每节点 32 个托管隧道，每隧道 1024 条路由。
+
+面板只在经节点认证的配置获取通道下发**当前**凭据；历史配置只保存凭据版本，轮换或停用后旧版本不能重新获取密钥。Agent 在 `<数据目录>/run/cloudflared/credentials/<配置档>/<版本>.json` 中以 `0600` 权限保存密钥，目录为 `0700`。连接器不继承 `TUNNEL_*` 环境变量的令牌、日志文件或回源覆盖，原有代理和 CA 环境保留；其输出只用于归类安全的故障原因，不保留原始日志。
+
+停用托管会删除面板中的当前凭据，由 Agent 下次同步停止进程并删除本机副本。仅当文件清理成功才确认该配置已应用；清理失败会保留待处理状态并退避重试。离线节点显示等待清理，不能冒充已完成。更换节点或切换 UUID/回源方式前，必须等待旧节点确认清理；迁移节点时还需移除旧节点关联的入口。停用不是在 Cloudflare 全局吊销凭据：丢失节点或凭据泄露时，需要在 Cloudflare 撤销/更换授权。加密备份仍可能包含过去的加密凭据，恢复旧备份不等于恢复 Cloudflare 已撤销的授权。
+
+### 自行运行 cloudflared
 
 1. 在 Cloudflare 创建命名 Tunnel，取得 UUID，并在对应 VPS 安装 cloudflared。使用自己的 Cloudflare DNS 域名；不是临时 `trycloudflare.com` Quick Tunnel。
 2. 面板「链路与 CDN → CDN 配置档 → 新建/编辑」选择回源方式 `Cloudflare Tunnel (Argo)`，填写 UUID、公开入口域名。客户端协议和端口固定为 HTTPS 443。已有公网回源入站不能直接切换：先建立独立的 Tunnel WS 入站。

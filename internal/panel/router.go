@@ -396,6 +396,8 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/cdn-profiles/:id/address-policy", s.updateCDNAddressPolicy)
 	p.PUT("/cdn-profiles/:id/check-schedule", s.updateCDNCheckSchedule)
 	p.GET("/cdn-profiles/:id/tunnel-config", s.cdnTunnelConfig)
+	p.GET("/cdn-profiles/:id/tunnel-agent", s.getTunnelAgent)
+	p.PUT("/cdn-profiles/:id/tunnel-agent", s.updateTunnelAgent)
 	p.GET("/cdn-regions", s.listCDNRegions)
 	p.GET("/cdn-profiles", s.listCDN)
 	p.POST("/cdn-profiles", s.createCDN)

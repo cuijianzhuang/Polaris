@@ -50,6 +50,9 @@ jobs:
           curl -fsSL -o caddy.tar.gz https://github.com/caddyserver/caddy/releases/download/v2.10.2/caddy_2.10.2_linux_amd64.tar.gz
           echo '5c218bc34c9197369263da7e9317a83acdbd80ef45d94dca5eff76e727c67cdd  caddy.tar.gz' | sha256sum -c -
           tar xzf caddy.tar.gz -C caddy caddy
+          curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-linux-amd64
+          echo '1f99fb518b83dec2ba8d870a7cc991d82a77e6196295a3d2754ba17ab9f91872  cloudflared' | sha256sum -c -
+          chmod +x cloudflared
           mkdir -p gost && curl -fsSL https://github.com/go-gost/gost/releases/download/v3.2.6/gost_3.2.6_linux_amd64.tar.gz | tar xz -C gost
           mkdir -p pebble && curl -fsSL https://github.com/letsencrypt/pebble/releases/download/v2.7.0/pebble-linux-amd64.tar.gz | tar xz -C pebble --strip-components=3
           B=https://raw.githubusercontent.com/letsencrypt/pebble/v2.7.0/test
@@ -68,6 +71,7 @@ jobs:
           POLARIS_MIHOMO_BIN: /tmp/cores/mihomo
           POLARIS_GOST_BIN: /tmp/cores/gost/gost
           POLARIS_CADDY_BIN: /tmp/cores/caddy/caddy
+          POLARIS_CLOUDFLARED_BIN: /tmp/cores/cloudflared
           POLARIS_PEBBLE_DIR: /tmp/cores/pebble
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
@@ -248,7 +252,8 @@ jobs:
       - run: npm run build
         working-directory: web
   passkeys:
-    runs-on: ubuntu-latest
+    # Playwright 1.56's browser/dependency packages support Ubuntu 24.04.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -309,6 +314,7 @@ jobs:
           python web/scripts/cdn-address-tools-ui-smoke.py
           python web/scripts/cdn-schedule-ui-smoke.py
           python web/scripts/cdn-tunnel-ui-smoke.py
+          python web/scripts/cdn-tunnel-agent-ui-smoke.py
           python web/scripts/cdn-domains-ui-smoke.py
           python web/scripts/cdn-scheme-ui-smoke.py
           python web/scripts/cdn-check-ports-ui-smoke.py

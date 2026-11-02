@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/core/cloudflared"
 	"github.com/cuijianzhuang/polaris/internal/model"
 )
 
@@ -69,6 +70,7 @@ func (a *Agent) limitWire(t model.CoreType) *model.LimitWire {
 var cfgNames = map[model.CoreType]string{
 	model.CoreXray: "xray.json", model.CoreSingbox: "singbox.json", model.CoreHysteria: "hysteria.json",
 	model.CoreForwarder: "realm.toml", model.CoreMihomo: "mihomo.yaml", model.CoreCaddy: "Caddyfile", model.CoreGost: "gost.yaml",
+	model.CoreCloudflared: "tunnels.json",
 }
 
 // applyResult describes one reconcile.
@@ -82,6 +84,7 @@ type applyResult struct {
 	rolledBack bool
 	// installFailed: a core could not be installed (worth retrying later).
 	installFailed bool
+	retryable     bool // transient credential cleanup failure
 }
 
 // Apply converges the host onto spec. Only one apply runs at a time.
@@ -94,6 +97,10 @@ type applyResult struct {
 func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
+	defer func() { spec.TunnelCredentials = nil }()
+	if err := a.prepareTunnelCredentials(spec); err != nil {
+		return applyResult{err: err}
+	}
 	for _, in := range spec.Inbounds {
 		if !in.Enabled {
 			continue
@@ -138,6 +145,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		return applyResult{err: fmt.Errorf("中转访问保护：%w", err)}
 	}
 	method := "hot"
+	retryable := false
 	wanted := map[model.CoreType]model.CoreSpec{}
 	for _, cs := range spec.Cores {
 		wanted[cs.Type] = cs
@@ -158,6 +166,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 			wanted[model.CoreCaddy] = model.CoreSpec{Type: model.CoreCaddy}
 		}
 	}
+	if len(spec.Tunnels) > 0 {
+		if _, ok := wanted[model.CoreCloudflared]; !ok {
+			wanted[model.CoreCloudflared] = model.CoreSpec{Type: model.CoreCloudflared, Version: model.CloudflaredVersion}
+		}
+	}
 	// Stop cores that are no longer wanted.
 	for t, m := range a.cores {
 		if _, ok := wanted[t]; !ok {
@@ -168,6 +181,11 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 				return applyResult{method: "reload", err: fmt.Errorf("停止 %s 失败：%w", t, err)}
 			}
 			a.setCore(t, nil)
+			if t == model.CoreCloudflared {
+				if err := a.pruneTunnelCredentials(nil); err != nil {
+					return applyResult{err: err, retryable: true}
+				}
+			}
 			method = "reload"
 		}
 	}
@@ -186,6 +204,12 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		gains[t] = takesPorts(coreSlice(had, t), coreSlice(spec, t))
 	}
 	sort.Slice(types, func(i, j int) bool {
+		if types[i] == model.CoreCloudflared {
+			return false
+		}
+		if types[j] == model.CoreCloudflared {
+			return true
+		}
 		if gains[types[i]] != gains[types[j]] {
 			return !gains[types[i]]
 		}
@@ -207,7 +231,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		cs := wanted[t]
 		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.RealmForwards()) > 0) ||
 			(t == model.CoreGost && len(spec.GostForwards()) > 0) ||
-			(t == model.CoreCaddy && len(spec.Fronts) > 0)
+			(t == model.CoreCaddy && len(spec.Fronts) > 0) || (t == model.CoreCloudflared && len(spec.Tunnels) > 0)
 		a.progress.step("准备 "+coreLabel(cs), 0, 0)
 		m, old, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
@@ -245,15 +269,24 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 			errs = append(errs, fmt.Sprintf("%s: %v", t, err))
 		} else {
 			m.applied = spec
+			if t == model.CoreCloudflared {
+				if err := a.pruneTunnelCredentials(spec.Tunnels); err != nil {
+					errs = append(errs, err.Error())
+					retryable = true
+				}
+			}
 		}
 	}
 	if len(errs) > 0 {
-		return applyResult{ok: false, method: method, err: errors.New(strings.Join(errs, "; ")), rolledBack: rolledBack, installFailed: installFailed}
+		return applyResult{ok: false, method: method, err: errors.New(strings.Join(errs, "; ")), rolledBack: rolledBack, installFailed: installFailed, retryable: retryable}
 	}
 	if a.fw != nil {
 		if err := a.fw.syncAccess(ctx, spec.AccessRules); err != nil {
 			return applyResult{method: method, err: fmt.Errorf("中转访问保护：%w", err)}
 		}
+	}
+	if err := a.pruneTunnelCredentials(spec.Tunnels); err != nil {
+		return applyResult{err: err, retryable: true}
 	}
 	a.current = spec
 	a.rev.Store(spec.Rev)
@@ -290,7 +323,7 @@ func (a *Agent) ensureCore(ctx context.Context, cs model.CoreSpec, active bool) 
 		return nil, nil, err
 	}
 	ad, err := core.New(cs.Type, core.Options{
-		BindToParent: (a.cfg.Supervised || cs.Type == model.CoreXray || cs.Type == model.CoreSingbox) && core.ParentBoundSupported(),
+		BindToParent: (a.cfg.Supervised || cs.Type == model.CoreXray || cs.Type == model.CoreSingbox || cs.Type == model.CoreCloudflared) && core.ParentBoundSupported(),
 		Version:      cs.Version, BinPath: bin, WorkDir: work, APIListen: a.apiListen(cs.Type),
 		AuthURL: "http://" + a.cfg.AuthListen + "/auth/" + string(cs.Type), Logger: a.log,
 		Limit: a.limitWire(cs.Type),
@@ -435,6 +468,13 @@ func (a *Agent) hotUpdate(ctx context.Context, m *managed, adds map[string][]mod
 // userOnlyDiff reports whether the core's part of two specs differs only in
 // inbound user lists, and returns the per-inbound additions/removals.
 func userOnlyDiff(prev, next *model.NodeSpec, t model.CoreType) (map[string][]model.User, map[string][]string, bool) {
+	if t == model.CoreCloudflared {
+		p, _ := json.Marshal(prev.Tunnels)
+		n, _ := json.Marshal(next.Tunnels)
+		if string(p) != string(n) {
+			return nil, nil, false
+		}
+	}
 	strip := func(s *model.NodeSpec) ([]byte, map[string][]model.User) {
 		users := map[string][]model.User{}
 		var ins []model.Inbound
@@ -509,6 +549,33 @@ func (a *Agent) loadSpec() *model.NodeSpec {
 	if json.Unmarshal(b, &s) != nil {
 		return nil
 	}
+	// A partially applied stop may already have removed a tunnel's key while
+	// another core failed. Restore unrelated proxy service, never that tunnel.
+	kept := []model.TunnelSpec{}
+	for _, t := range s.Tunnels {
+		if t.Validate() != nil {
+			continue
+		}
+		raw, err := os.ReadFile(cloudflared.CredentialPath(filepath.Join(a.cfg.DataDir, "run", "cloudflared"), t))
+		if err == nil {
+			if _, err := model.NormalizeTunnelCredentials(raw, t.ID); err == nil {
+				kept = append(kept, t)
+			}
+		}
+	}
+	if len(kept) != len(s.Tunnels) {
+		s.Tunnels = kept
+		s.Rev = 0
+		if len(kept) == 0 {
+			cores := s.Cores[:0]
+			for _, c := range s.Cores {
+				if c.Type != model.CoreCloudflared {
+					cores = append(cores, c)
+				}
+			}
+			s.Cores = cores
+		}
+	}
 	return &s
 }
 
@@ -555,6 +622,8 @@ func coreSlice(s *model.NodeSpec, t model.CoreType) *model.NodeSpec {
 		out.Forwards = s.GostForwards()
 	case model.CoreCaddy:
 		out.Fronts = s.Fronts
+	case model.CoreCloudflared:
+		out.Tunnels = s.Tunnels
 	}
 	return out
 }

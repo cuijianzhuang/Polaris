@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -18,12 +20,13 @@ import (
 // crash never takes the agent down, versions can be swapped independently and
 // GPL-licensed cores stay licence-isolated from the agent.
 type Process struct {
-	Name string
-	Bin  string
-	Args []string
-	Dir  string
-	Env  []string
-	Log  *slog.Logger
+	Name     string
+	Bin      string
+	Args     []string
+	Dir      string
+	Env      []string
+	UnsetEnv []string // child-only overrides, e.g. credential or log destinations
+	Log      *slog.Logger
 	// Filter sees every output line first; returning true consumes it, so
 	// it is not kept in the log buffer (used for high-volume lines an adapter
 	// only needs to count). Set before Start.
@@ -72,8 +75,15 @@ func (p *Process) Start(ctx context.Context) error {
 		}
 	}
 	cmd.Dir = p.Dir
-	if len(p.Env) > 0 {
-		cmd.Env = append(os.Environ(), p.Env...)
+	if len(p.Env) > 0 || len(p.UnsetEnv) > 0 {
+		cmd.Env = make([]string, 0, len(os.Environ())+len(p.Env))
+		for _, entry := range os.Environ() {
+			name, _, _ := strings.Cut(entry, "=")
+			if !slices.Contains(p.UnsetEnv, name) {
+				cmd.Env = append(cmd.Env, entry)
+			}
+		}
+		cmd.Env = append(cmd.Env, p.Env...)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	pr, pw := io.Pipe()
