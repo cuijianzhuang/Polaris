@@ -10,20 +10,25 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
-// countQueries counts SELECTs while fn runs.
+// countQueries counts page SELECTs, including Scan/Rows. Cached settings
+// lookups belong to middleware/cache state, not the number of list rows.
 func countQueries(t *testing.T, db *gorm.DB, fn func()) int64 {
 	t.Helper()
 	var n atomic.Int64
 	name := fmt.Sprintf("test:count:%p", &n)
 	var on atomic.Bool
-	if err := db.Callback().Query().After("gorm:query").Register(name, func(*gorm.DB) {
-		if on.Load() {
+	count := func(q *gorm.DB) {
+		if on.Load() && q.Statement.Table != "settings" {
 			n.Add(1)
 		}
-	}); err != nil {
+	}
+	if err := db.Callback().Query().After("gorm:query").Register(name, count); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Callback().Query().Remove(name) })
+	if err := db.Callback().Row().After("gorm:row").Register(name, count); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Callback().Query().Remove(name); db.Callback().Row().Remove(name) })
 	on.Store(true)
 	fn()
 	on.Store(false)
@@ -60,9 +65,15 @@ func TestListPagesQueryCountIsFlat(t *testing.T) {
 		db.Create(&store.UserGroup{UserID: "u1", GroupID: "g0"})
 	}
 	paths := []string{"/groups", "/plans", "/templates", "/cdn-profiles"}
-	measure := func() map[string]int64 {
+	measure := func(coldMiddleware bool) map[string]int64 {
 		out := map[string]int64{}
 		for _, p := range paths {
+			// Force the cache-miss path on the larger list: unrelated
+			// middleware refreshes must not look like per-row queries.
+			if coldMiddleware {
+				s.st.ForgetSetting("sub_base_url")
+				resetSubHostCache()
+			}
 			out[p] = countQueries(t, db, func() {
 				if code, _ := c.doList("GET", p); code != 200 {
 					t.Fatalf("%s: %d", p, code)
@@ -72,10 +83,10 @@ func TestListPagesQueryCountIsFlat(t *testing.T) {
 		return out
 	}
 	addRows(0, 2)
-	measure() // warm caches (settings are cached for a while): count per-row queries only
-	few := measure()
+	measure(false) // warm caches (settings are cached for a while): count per-row queries only
+	few := measure(false)
 	addRows(2, 12)
-	many := measure()
+	many := measure(true)
 	for _, p := range paths {
 		if many[p] != few[p] {
 			t.Errorf("%s: %d queries for 2 rows, %d for 12", p, few[p], many[p])
@@ -114,5 +125,44 @@ func TestListPagesQueryCountIsFlat(t *testing.T) {
 		if cd["id"] == "cdn1" && cd["inbounds"] != float64(1) {
 			t.Fatalf("cdn1 = %v", cd)
 		}
+	}
+}
+
+// Scan uses GORM's Row callbacks rather than Query callbacks. Missing it
+// would silently overlook per-row COUNTs implemented with Scan.
+func TestCountQueriesIncludesScansAndIgnoresSettingCache(t *testing.T) {
+	s := newTestServer(t)
+	db := s.st.DB
+	for _, id := range []string{"a", "b"} {
+		if err := db.Create(&store.User{ID: id, Username: id, UUID: id, SubToken: id}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	scans := countQueries(t, db, func() {
+		for _, id := range []string{"a", "b"} {
+			var u struct{ ID string }
+			if err := db.Model(&store.User{}).Select("id").Where("id = ?", id).Scan(&u).Error; err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	if scans != 2 {
+		t.Fatalf("Scan SELECTs: got %d, want 2", scans)
+	}
+	selects := countQueries(t, db, func() {
+		var u store.User
+		if err := db.First(&u, "id = ?", "a").Error; err != nil {
+			t.Fatal(err)
+		}
+	})
+	if selects != 1 {
+		t.Fatalf("Find SELECTs: got %d, want 1", selects)
+	}
+	settings := countQueries(t, db, func() {
+		s.st.ForgetSetting("query-count-fixture")
+		_ = s.st.GetSetting("query-count-fixture", "")
+	})
+	if settings != 0 {
+		t.Fatalf("unrelated settings cache miss counted: %d", settings)
 	}
 }
