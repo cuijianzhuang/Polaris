@@ -572,6 +572,16 @@ func (s *Server) deleteCore(c *gin.Context) {
 		return
 	}
 	var n int64
+	if cur.Type == model.CoreCloudflared {
+		if err := s.st.DB.Model(&store.CDNProfile{}).Where("tunnel_node_id = ? AND tunnel_managed = ?", cur.NodeID, true).Count(&n).Error; err != nil {
+			dbError(c, err)
+			return
+		}
+		if n > 0 {
+			c.JSON(http.StatusConflict, gin.H{"error": "请先在 CDN 配置档停用 Agent 托管隧道"})
+			return
+		}
+	}
 	s.st.DB.Model(&store.Inbound{}).Where("node_id = ? AND core = ?", cur.NodeID, cur.Type).Count(&n)
 	if n > 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("该内核仍承载 %d 个入站", n)})

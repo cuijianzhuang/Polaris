@@ -247,6 +247,17 @@ func hasAny(have, want []string) bool {
 
 func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planOptions, issueCerts bool) nodePlan {
 	np := nodePlan{NodeID: node.ID, NodeName: node.Name}
+	for _, item := range t.Items.V {
+		for _, ep := range item.Endpoints {
+			if ep.Kind == "cdn" {
+				var profile store.CDNProfile
+				if s.st.DB.First(&profile, "id = ?", orDefault(ep.CDNProfileID, opt.CDNProfileID)).Error == nil && cdnTunnel(&profile) {
+					np.Error = "Tunnel 配置档当前请通过入站页面创建或添加 WS 入口，不支持模板批量部署"
+					return np
+				}
+			}
+		}
+	}
 	cores, _ := s.nodeCores(node.ID)
 	var coreNames []string
 	for _, cr := range cores {

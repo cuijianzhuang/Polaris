@@ -568,14 +568,21 @@ type CDNAddressCheckRuntime struct {
 
 // CDNProfile is a reusable CDN configuration.
 type CDNProfile struct {
-	Scheme       string         `gorm:"size:8;not null;default:https" json:"scheme"` // client to CDN: http / https
-	ID           string         `gorm:"primaryKey;size:32" json:"id"`
-	Name         string         `gorm:"size:64;uniqueIndex" json:"name"`
-	Provider     string         `gorm:"size:32" json:"provider"` // cloudflare / other
-	OriginDomain string         `gorm:"size:255" json:"originDomain"`
-	TLSMode      string         `gorm:"size:32" json:"tlsMode"` // full_strict / full / flexible
-	Ports        JSON[[]int]    `json:"ports"`
-	PreferredIPs JSON[[]string] `json:"preferredIps"`
+	OriginMode              string         `gorm:"size:16" json:"originMode"` // empty/direct or tunnel (externally managed cloudflared)
+	TunnelID                string         `gorm:"size:36" json:"tunnelId"`   // public UUID, never a connector token
+	TunnelManaged           bool           `json:"tunnelManaged"`
+	TunnelNodeID            string         `gorm:"size:32" json:"tunnelNodeId"`
+	TunnelCredential        string         `json:"-"` // sealed, never copied into ConfigRevision
+	TunnelCredentialVersion string         `gorm:"size:32" json:"-"`
+	HasTunnelCredentials    bool           `gorm:"-" json:"hasTunnelCredentials"`
+	Scheme                  string         `gorm:"size:8;not null;default:https" json:"scheme"` // client to CDN: http / https
+	ID                      string         `gorm:"primaryKey;size:32" json:"id"`
+	Name                    string         `gorm:"size:64;uniqueIndex" json:"name"`
+	Provider                string         `gorm:"size:32" json:"provider"` // cloudflare / other
+	OriginDomain            string         `gorm:"size:255" json:"originDomain"`
+	TLSMode                 string         `gorm:"size:32" json:"tlsMode"` // full_strict / full / flexible
+	Ports                   JSON[[]int]    `json:"ports"`
+	PreferredIPs            JSON[[]string] `json:"preferredIps"`
 	// PinnedHosts are manually retained public IPs and domains. Automatic
 	// updates preserve them; subscriptions append them after the top N
 	// automatic addresses. The field name is kept for API/backup compatibility.

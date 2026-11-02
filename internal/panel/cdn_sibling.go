@@ -59,6 +59,13 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	// A port the CDN proxies that nothing on the node uses: the profile's
 	// own ports first, then the ports for the selected client scheme.
 	candidates := append(slices.Clone(p.Ports.V), cdnClientPorts(&p)...)
+	if cdnTunnel(&p) {
+		m.Listen = "127.0.0.1"
+		candidates = nil
+		for port := 18080; port < 19080; port++ {
+			candidates = append(candidates, port)
+		}
+	}
 	used, err := s.usedPorts(node.ID)
 	if err != nil {
 		dbError(c, err)
@@ -80,6 +87,9 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 		}
 		if s.portConflict(node.ID, &m, "") == nil {
 			clientPort = port
+			if cdnTunnel(&p) {
+				clientPort = 443
+			}
 			break
 		}
 		m.Port = 0
@@ -94,6 +104,18 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 		groups = []string{} // the source had none: keep it that way rather than the defaults
 	}
 	remark := "CDN · " + orDefault(src.Remark, src.Tag)
+	if cdnTunnel(&p) {
+		row, err := s.insertInbound(&node, &m, inboundMeta{Remark: remark, OutboundTag: src.OutboundTag, SpeedLimitMbps: src.SpeedLimitMbps, CDNProfileID: p.ID, CDNOnly: true}, groups)
+		if err != nil {
+			badRequest(c, err)
+			return
+		}
+		s.MarkDirty("tunnel inbound created", node.ID)
+		s.autoSyncCDNProfile(p.ID)
+		s.auditCtx(c, "inbound.cdn_sibling", node.Name+"/"+row.Tag, "Tunnel "+p.ID)
+		c.JSON(http.StatusCreated, gin.H{"inbound": row, "port": m.Port, "path": m.Transport.Path, "core": m.Core, "addedPort": false, "needSync": s.cfToken(&p) != "", "profile": p.Name})
+		return
+	}
 	row, err := s.insertInbound(&node, &m, inboundMeta{Remark: remark, OutboundTag: src.OutboundTag, SpeedLimitMbps: src.SpeedLimitMbps}, groups)
 	if err != nil {
 		badRequest(c, err)

@@ -92,7 +92,7 @@ func (s *Server) inboundView(in store.Inbound, nodes map[string]string, users ma
 	}
 	s.st.DB.Model(&store.Endpoint{}).Where("inbound_id = ?", in.ID).Count(&v.Endpoints)
 	var h store.InboundHealth
-	if !in.RelayOnly && s.st.DB.First(&h, "inbound_id = ?", in.ID).Error == nil {
+	if !in.RelayOnly && !isLoopbackHost(in.Listen) && s.st.DB.First(&h, "inbound_id = ?", in.ID).Error == nil {
 		v.Health = &h
 	}
 	return v
@@ -152,6 +152,11 @@ func (s *Server) getInbound(c *gin.Context) {
 func (s *Server) validateInbound(node *store.Node, m *model.Inbound, excludeID string) error {
 	if err := s.prepareInbound(m); err != nil {
 		return err
+	}
+	if excludeID != "" {
+		if _, err := s.inboundTunnel(m, excludeID); err != nil {
+			return err
+		}
 	}
 	if err := s.ensureCert(node, m); err != nil {
 		return err
@@ -218,6 +223,12 @@ func (s *Server) createInbound(c *gin.Context) {
 // insertInbound validates and stores a new inbound with its direct endpoint
 // and group bindings (nil groups = the default groups).
 func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundMeta, groupIDs []string) (store.Inbound, error) {
+	if meta.CDNProfileID != "" {
+		var p store.CDNProfile
+		if s.st.DB.First(&p, "id = ?", meta.CDNProfileID).Error == nil && cdnTunnel(&p) && !meta.CDNOnly {
+			return store.Inbound{}, fmt.Errorf("Tunnel 入站必须选择只走 CDN，不能同时发布直连入口")
+		}
+	}
 	if err := s.validateInbound(node, m, ""); err != nil {
 		return store.Inbound{}, err
 	}
@@ -259,11 +270,21 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 		groupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
 	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if meta.CDNProfileID != "" {
+			if err := lockCDNReports(tx); err != nil {
+				return err
+			}
+		}
 		if err := tx.Create(&row).Error; err != nil {
 			return err
 		}
 		for i := range endpoints {
 			if err := tx.Create(&endpoints[i]).Error; err != nil {
+				return err
+			}
+		}
+		if meta.CDNProfileID != "" {
+			if err := validateAttachedTunnels(tx, row.ID); err != nil {
 				return err
 			}
 		}
@@ -346,6 +367,9 @@ func (s *Server) updateInbound(c *gin.Context) {
 	row.Remark, row.OutboundTag, row.SpeedLimitMbps = req.Remark, req.OutboundTag, req.SpeedLimitMbps
 	s.sealInbound(&row)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
 		// Publication is edited independently; an older editor must not
 		// overwrite a relay-only policy selected after it loaded this row.
 		write := tx.Omit("RelayOnly", "RelayAccess", "OutboundIPStrategy")
@@ -354,6 +378,9 @@ func (s *Server) updateInbound(c *gin.Context) {
 			write = tx.Omit("RelayAccess", "OutboundIPStrategy")
 		}
 		if err := write.Save(&row).Error; err != nil {
+			return err
+		}
+		if err := validateAttachedTunnels(tx, row.ID); err != nil {
 			return err
 		}
 		if req.OutboundIPStrategy != nil {
@@ -555,6 +582,13 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		return
 	}
 	m := s.toModelInbound(&row)
+	if tunnel, err := s.inboundTunnel(&m, row.ID); err != nil {
+		badRequest(c, err)
+		return
+	} else if tunnel && (e.Kind != "cdn" || e.CDNProfileID == "") {
+		badRequest(c, fmt.Errorf("Tunnel 入站不能添加直连或中转入口"))
+		return
+	}
 	switch e.Kind {
 	case "direct":
 	case "cdn":
@@ -578,7 +612,19 @@ func (s *Server) createEndpoint(c *gin.Context) {
 	}
 	e.ID, e.InboundID = store.NewID(), row.ID
 	assignCDNHost(s.st.DB, &e, row.NodeID)
-	if err := s.st.DB.Create(&e).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		if err := tx.Create(&e).Error; err != nil {
+			return err
+		}
+		return validateAttachedTunnels(tx, row.ID)
+	}); err != nil {
+		if _, ok := err.(cdnSchemeProblem); ok {
+			badRequest(c, err)
+			return
+		}
 		dbError(c, err)
 		return
 	}
@@ -605,8 +651,38 @@ func (s *Server) deleteEndpoint(c *gin.Context) {
 		}
 	}
 
-	res := s.st.DB.Where("id = ? AND inbound_id = ?", c.Param("eid"), c.Param("id")).Delete(&store.Endpoint{})
-	if res.RowsAffected == 0 {
+	deleted := false
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		var p store.CDNProfile
+		if endpoint.Kind == "cdn" {
+			if err := tx.First(&p, "id = ?", endpoint.CDNProfileID).Error; err != nil && err != gorm.ErrRecordNotFound {
+				return err
+			}
+		}
+		res := tx.Where("id = ? AND inbound_id = ?", endpoint.ID, endpoint.InboundID).Delete(&store.Endpoint{})
+		if res.Error != nil {
+			return res.Error
+		}
+		deleted = res.RowsAffected > 0
+		if deleted && cdnTunnel(&p) {
+			var remaining int64
+			if err := tx.Model(&store.Endpoint{}).Where("inbound_id = ?", endpoint.InboundID).Count(&remaining).Error; err != nil {
+				return err
+			}
+			if remaining == 0 {
+				return tx.Model(&store.Inbound{}).Where("id = ?", endpoint.InboundID).Update("enabled", false).Error
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		dbError(c, err)
+		return
+	}
+	if !deleted {
 		notFound(c)
 		return
 	}
@@ -693,6 +769,14 @@ func (s *Server) checkCDNEndpoint(m *model.Inbound, inboundID string, relayAcces
 	}
 	if problem := s.cdnEndpointProblem(m, inboundID, &p, port); problem != "" {
 		return errors.New(problem)
+	}
+	if cdnTunnel(&p) {
+		if relayAccess {
+			return fmt.Errorf("Tunnel 回源不能同时启用中转来源限制")
+		}
+		if err := checkTunnelAttachments(s.st.DB, &p, inboundID, m.NodeID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

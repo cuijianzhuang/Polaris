@@ -13,14 +13,15 @@ import (
 type CoreType string
 
 const (
-	CoreXray      CoreType = "xray"
-	CoreSingbox   CoreType = "singbox"
-	CoreMihomo    CoreType = "mihomo"
-	CoreHysteria  CoreType = "hysteria"
-	CoreForwarder CoreType = "forwarder" // L4 port forwarder (nftables / realm)
-	CoreCaddy     CoreType = "caddy"     // TLS front for CDN inbounds sharing one port
-	CoreGost      CoreType = "gost"      // GOST v3 port forwarder
-	CoreAuto      CoreType = "auto"      // templates only: pick by capability
+	CoreXray        CoreType = "xray"
+	CoreSingbox     CoreType = "singbox"
+	CoreMihomo      CoreType = "mihomo"
+	CoreHysteria    CoreType = "hysteria"
+	CoreForwarder   CoreType = "forwarder" // L4 port forwarder (nftables / realm)
+	CoreCaddy       CoreType = "caddy"     // TLS front for CDN inbounds sharing one port
+	CoreCloudflared CoreType = "cloudflared"
+	CoreGost        CoreType = "gost" // GOST v3 port forwarder
+	CoreAuto        CoreType = "auto" // templates only: pick by capability
 )
 
 // Protocol is the inbound proxy protocol.
@@ -146,7 +147,7 @@ type TransportSpec struct {
 	// balancer or relay in front (raw / ws / httpupgrade).
 	AcceptProxyProtocol bool `json:"acceptProxyProtocol,omitempty"`
 	// TrustedForwardedFor enables sanitized forwarding headers only on a
-	// protected loopback listener behind the managed Caddy front. Public
+	// protected loopback listener behind managed Caddy or local cloudflared. Public
 	// listeners must use the socket address even if these headers are forged.
 	TrustedForwardedFor []string `json:"trustedForwardedFor,omitempty"`
 }

@@ -151,6 +151,9 @@ type NodeSpec struct {
 	Routes      []RouteRule   `json:"routes,omitempty"`
 	Forwards    []ForwardRule `json:"forwards,omitempty"`
 	Fronts      []FrontRule   `json:"fronts,omitempty"`
+	Tunnels     []TunnelSpec  `json:"tunnels,omitempty"`
+	// Supplied only over the authenticated node channel, never serialized.
+	TunnelCredentials map[string]json.RawMessage `json:"-"`
 	// IPLimits maps user id -> max concurrent source IPs (0 = unlimited);
 	// the agent uses it to raise alerts.
 	IPLimits map[string]int `json:"ipLimits,omitempty"`

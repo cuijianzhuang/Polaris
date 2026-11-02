@@ -288,6 +288,9 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		if err := s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error; err != nil || !m.CDNCapable() {
 			return nil
 		}
+		if cdnTunnel(&p) && cdnTunnelProblem(m, &p, ep.Port) != "" {
+			return nil
+		}
 		// The entry's own Host (one per node sharing the profile) is the
 		// hostname clients use for the address, SNI and Host alike.
 		host := orDefault(ep.Host, p.OriginDomain)
@@ -295,7 +298,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		n.Server = host
 		_, fronted := s.frontFor(m.ID)
 		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
-		if p.Provider == "cloudflare" && ep.Port == 0 && !(fronted && p.CaddyFronting) && m.Port != cdnOriginPort(&p, n.Port) {
+		if p.Provider == "cloudflare" && !cdnTunnel(&p) && ep.Port == 0 && !(fronted && p.CaddyFronting) && m.Port != cdnOriginPort(&p, n.Port) {
 			return nil
 		}
 		if cdnScheme(&p) == "http" {
@@ -479,6 +482,9 @@ func (s *Server) agentSHA(arch string) string {
 // cdnNodePort keeps ports proxied for the selected client scheme; otherwise
 // it uses the profile's first port (for fronting / explicit origin rewrites).
 func cdnNodePort(p *store.CDNProfile, inboundPort int, fronted bool) int {
+	if cdnTunnel(p) {
+		return 443
+	}
 	if fronted || !slices.Contains(cdnClientPorts(p), inboundPort) {
 		return cdnDefaultPort(p)
 	}

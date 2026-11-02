@@ -386,7 +386,7 @@ export default function Templates() {
                 {needsCDN && (
                   <Field label={t('CDN 入口使用的配置档')}>
                     <select className="input" value={opt.cdnProfileId} onChange={(e) => setOpt({ ...opt, cdnProfileId: e.target.value })}>
-                      <option value="">{t('不添加 CDN 入口')}</option>{(cdn.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      <option value="">{t('不添加 CDN 入口')}</option>{(cdn.data ?? []).filter((c) => c.originMode !== 'tunnel').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </Field>
                 )}

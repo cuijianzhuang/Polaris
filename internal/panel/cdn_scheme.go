@@ -53,6 +53,9 @@ func cdnOriginTLS(p *store.CDNProfile) bool {
 
 // Flexible only applies to HTTPS :443; other HTTPS ports fall back to Full.
 func cdnOriginTLSAt(p *store.CDNProfile, port int) bool {
+	if cdnTunnel(p) {
+		return false
+	}
 	return cdnScheme(p) == "https" && !(p.TLSMode == "flexible" && (p.Provider != "cloudflare" || port == 443))
 }
 func cdnOriginPort(p *store.CDNProfile, port int) int {

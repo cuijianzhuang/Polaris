@@ -152,6 +152,15 @@ func releaseFor(t model.CoreType, ver string) (*release, error) {
 				return "", errors.New("caddy: no sha256 digest published")
 			},
 		}, nil
+	case model.CoreCloudflared:
+		if v == "" {
+			v = model.CloudflaredVersion
+		}
+		if arch != "amd64" && arch != "arm64" && arch != "arm" && arch != "386" {
+			return nil, fmt.Errorf("unsupported cloudflared architecture")
+		}
+		asset := "cloudflared-linux-" + arch
+		return &release{url: "https://github.com/cloudflare/cloudflared/releases/download/" + v + "/" + asset, binary: asset, repo: "cloudflare/cloudflared", tag: v, digest: githubDigest}, nil
 	case model.CoreGost:
 		if v == "" {
 			v = "3.2.6"
@@ -360,7 +369,7 @@ func (s *stallReader) Read(b []byte) (int, error) {
 // BinPath returns the executable path for an installed version.
 func (i *Installer) BinPath(t model.CoreType, ver string) string {
 	name := map[model.CoreType]string{model.CoreXray: "xray", model.CoreSingbox: "sing-box", model.CoreHysteria: "hysteria",
-		model.CoreForwarder: "realm", model.CoreMihomo: "mihomo", model.CoreCaddy: "caddy", model.CoreGost: "gost"}[t]
+		model.CoreForwarder: "realm", model.CoreMihomo: "mihomo", model.CoreCaddy: "caddy", model.CoreGost: "gost", model.CoreCloudflared: "cloudflared"}[t]
 	return filepath.Join(i.Dir, string(t), versionDir(ver), name)
 }
 

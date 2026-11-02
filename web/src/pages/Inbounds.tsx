@@ -128,25 +128,28 @@ function CheckResult({ r }: { r: CDNCheck }) {
 }
 
 // NewCDNEntry publishes a new inbound through a CDN profile as it is created.
-function NewCDNEntry({ value, onChange, grpc, tls, port }: { value: { profileId: string; only: boolean }; onChange: (v: { profileId: string; only: boolean }) => void; grpc: boolean; tls: boolean; port: number }) {
+function NewCDNEntry({ value, onChange, grpc, tls, port }: { value: { profileId: string; only: boolean }; onChange: (v: { profileId: string; only: boolean }, tunnel?: boolean) => void; grpc: boolean; tls: boolean; port: number }) {
   const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
   const p = cdn.data?.find((c) => c.id === value.profileId)
   const clientPort = p ? cdnClientPort(p, port) : 0
   return (
     <Field label={t('CDN 入口')} hint={t('可选：创建时同时加一个 CDN 入口，订阅里多出一个经 CDN 的节点。之后也可以在编辑里添加。')}>
-      <select className="input" value={value.profileId} onChange={(e) => onChange({ ...value, profileId: e.target.value })}>
+      <select className="input" value={value.profileId} onChange={(e) => { const tunnel = cdn.data?.find((x) => x.id === e.target.value)?.originMode === 'tunnel'; onChange({ ...value, profileId: e.target.value, only: tunnel || value.only }, tunnel) }}>
         <option value="">{t('不走 CDN')}</option>
         {(cdn.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} · {cdnScheme(c).toUpperCase()} · {c.originDomain}</option>)}
       </select>
       {cdn.data?.length === 0 && <div className="hint">{t('还没有 CDN 配置档，先在「CDN」页添加。')}</div>}
-      {p && <Switch on={value.only} onChange={(v) => onChange({ ...value, only: v })} label={t('只走 CDN（订阅里不出现直连节点，不暴露节点 IP）')} />}
+      {p && <Switch disabled={p.originMode === 'tunnel'} on={value.only} onChange={(v) => onChange({ ...value, only: v })} label={t('只走 CDN（订阅里不出现直连节点，不暴露节点 IP）')} />}
       {p && <div className="hint">{t('客户端经 CDN 连 {scheme}://{domain}:{port}', { scheme: cdnScheme(p), domain: p.originDomain, port: clientPort })}</div>}
+      {p?.originMode === 'tunnel' && <p className="hint">{t('Tunnel 已选：使用 WS、127.0.0.1 明文回源，并且只发布 CDN 入口。客户端使用 HTTPS 443。')}</p>}
+      {p?.originMode !== 'tunnel' && <>
       {p && p.provider === 'cloudflare' && !p.caddyFronting && port !== cdnOriginPort(p, clientPort) && <div className="note warn small">{t('入站端口与 CDN 实际回源端口不一致，请调整入站端口、使用 Caddy，或在已有回源改写规则的入口中明确指定客户端端口。')}</div>}
       {p && p.provider === 'cloudflare' && cdnScheme(p) === 'http' && tls && <div className="note warn small">{t('HTTP CDN 使用 HTTP 回源，此入站应关闭 TLS，或改用 HTTPS 配置档。')}</div>}
       {p && p.provider === 'cloudflare' && cdnScheme(p) === 'https' && p.tlsMode === 'flexible' && clientPort === 443 && tls && <div className="note warn small">{t('配置档的 SSL 模式是 Flexible：Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上。把配置档改为 Full。')}</div>}
       {p && p.provider === 'cloudflare' && cdnOriginTLSAt(p, clientPort) && !tls && <div className="note warn small">{t('配置档的 SSL 模式是 Full：Cloudflare 用 HTTPS 回源，这个入站需要开启 TLS。')}</div>}
       {p && p.provider === 'cloudflare' && grpc && (cdnScheme(p) === 'http' || clientPort !== 443) && <div className="note warn small">{cdnScheme(p) === 'http' ? t('Cloudflare 的 gRPC 入口必须使用 HTTPS 和 443 端口。') : t('Cloudflare 只在 443 端口代理 gRPC：把入站端口改为 443、开启配置档的「Caddy 统一回源」，或改用 WS。')}</div>}
       {p && p.provider === 'cloudflare' && cdnScheme(p) === 'https' && (p.tlsMode || 'full_strict') === 'full_strict' && <div className="hint">{t('配置档的 SSL 模式是 Full (strict)：入站证书需要包含 {domain}，否则 Cloudflare 报 526。可在配置档点「同步 DNS」换成 Origin 证书，或改用 Full。', { domain: p.originDomain })}</div>}
+      </>}
     </Field>
   )
 }
@@ -355,8 +358,9 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
     const proto = ['vless', 'vmess', 'trojan'].includes(draft.protocol.type) ? draft.protocol.type : 'vless'
     let trans = ['ws', 'httpupgrade', 'grpc', 'xhttp'].includes(draft.transport.type) ? draft.transport.type : 'ws'
     if (p.provider === 'cloudflare' && trans === 'grpc' && (cdnScheme(p) === 'http' || usedTCP.has(443))) trans = 'ws'
-    const candidates = p.provider === 'cloudflare' && trans === 'grpc' ? [443] : cdnScheme(p) === 'http' ? cdnPorts('http') : [2053, 2083, 2087, 2096, 8443, 443]
-    const free = candidates.find((x) => !usedTCP.has(cdnOriginPort(p,x)) && cdnClientPort(p,cdnOriginPort(p,x)) === x)
+    if (p.originMode === 'tunnel') trans = 'ws'
+    const candidates = p.originMode === 'tunnel' ? Array.from({ length: 1000 }, (_, i) => 18080 + i) : p.provider === 'cloudflare' && trans === 'grpc' ? [443] : cdnScheme(p) === 'http' ? cdnPorts('http') : [2053, 2083, 2087, 2096, 8443, 443]
+    const free = candidates.find((x) => !usedTCP.has(cdnOriginPort(p,x)) && (p.originMode === 'tunnel' || cdnClientPort(p,cdnOriginPort(p,x)) === x))
     if (!free) { toast(t('这台节点上 {scheme} CDN 支持的端口都已被占用', { scheme: cdnScheme(p).toUpperCase() }), true); return }
     const rnd = () => Math.random().toString(36).slice(2, 10)
     setDraft((d) => normalizeDraft({ ...d, protocol: { ...d.protocol, type: proto as typeof d.protocol.type },
@@ -364,6 +368,7 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         ...(trans === 'grpc' ? { serviceName: d.transport.serviceName || rnd() } : { path: d.transport.path || '/' + rnd() }) },
       security: { ...d.security, type: cdnOriginTLSAt(p,free) ? 'tls' : 'none', serverName: cdnOriginTLSAt(p,free) ? p.originDomain : undefined } }, coreCaps))
     setPort(String(cdnOriginPort(p,free)))
+    if (p.originMode === 'tunnel') setListen('127.0.0.1')
     const tags = new Set((nodeInbounds.data ?? []).map((i) => i.tag))
     let newTag = `${proto}-${trans}-cdn`
     for (let i = 2; tags.has(newTag); i++) newTag = `${proto}-${trans}-cdn-${i}`
@@ -467,7 +472,7 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
       )}
       {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
       {!editing && (draftCDNCapable
-        ? <NewCDNEntry value={newCDN} onChange={setNewCDN} grpc={draft.transport.type === 'grpc'} tls={draft.security.type === 'tls'} port={Number(port) || 0} />
+        ? <NewCDNEntry value={newCDN} onChange={(v, tunnel) => { setNewCDN(v); if (tunnel) { setListen('127.0.0.1'); setDraft((d) => normalizeDraft({ ...d, transport: { ...d.transport, type: 'ws', path: d.transport.path || '/ws' }, security: { type: 'none' } }, coreCaps)) } }} grpc={draft.transport.type === 'grpc'} tls={draft.security.type === 'tls'} port={Number(port) || 0} />
         : <Field label={t('CDN 入口')} hint={t('当前是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP，而且不能用 REALITY。', { combo: `${draft.transport.type.toUpperCase()} + ${draft.security.type.toUpperCase()}` })}>
           <div><button className="btn sm" type="button" onClick={oneClickCDN}>{t('一键配置 CDN')}</button></div>
         </Field>)}

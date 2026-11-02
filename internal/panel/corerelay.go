@@ -22,7 +22,8 @@ import (
 // verifies every archive against the official digest.
 
 var relayRepos = map[string]bool{
-	"xtls/xray-core": true, "sagernet/sing-box": true, "cuijianzhuang/polaris": true, "apernet/hysteria": true,
+	"cloudflare/cloudflared": true,
+	"xtls/xray-core":         true, "sagernet/sing-box": true, "cuijianzhuang/polaris": true, "apernet/hysteria": true,
 	"metacubex/mihomo": true, "caddyserver/caddy": true, "go-gost/gost": true, "zhboner/realm": true,
 }
 

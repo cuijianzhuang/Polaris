@@ -54,7 +54,11 @@ type cdnAddressRow struct {
 }
 
 func cdnHealthRevision(row store.Inbound, p *store.CDNProfile) string {
-	b, _ := json.Marshal([]any{row.Transport, row.Security, p.TLSMode, p.CaddyFronting})
+	parts := []any{row.Transport, row.Security, p.TLSMode, p.CaddyFronting}
+	if cdnTunnel(p) {
+		parts = append(parts, "tunnel", p.TunnelID)
+	}
+	b, _ := json.Marshal(parts)
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 func cdnCheckKey(ep string, t cdnTarget, tr model.Transport, revision string) string {

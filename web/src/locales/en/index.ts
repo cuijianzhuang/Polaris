@@ -15,8 +15,10 @@ import adminRoles from './adminRoles'
 import nodeBrowser from './nodeBrowser'
 import userOnline from './userOnline'
 import cdnSchedule from './cdnSchedule'
+import cdnTunnel from './cdnTunnel'
+import cdnTunnelAgent from './cdnTunnelAgent'
 
 // English UI strings keyed by the Chinese source text, split by area so
 // files can be edited independently.
-const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8, ...g9, ...operations, ...appearance, ...recovery, ...adminRoles, ...nodeBrowser, ...userOnline, ...cdnSchedule }
+const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8, ...g9, ...operations, ...appearance, ...recovery, ...adminRoles, ...nodeBrowser, ...userOnline, ...cdnSchedule, ...cdnTunnel, ...cdnTunnelAgent }
 export default en

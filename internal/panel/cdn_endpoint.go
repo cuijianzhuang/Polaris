@@ -88,7 +88,7 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 	if w := s.cdnCertProblem(&m, p, host); w != "" {
 		out = append(out, w)
 	}
-	if m.Transport.Host != "" && !strings.EqualFold(m.Transport.Host, host) {
+	if !cdnTunnel(p) && m.Transport.Host != "" && !strings.EqualFold(m.Transport.Host, host) {
 		out = append(out, fmt.Sprintf("入站的 Host 是 %s，但客户端经 CDN 会发 Host: %s，内核会拒绝（HTTP 404）：把入站的 Host 清空或改成 %s；如果是多节点自动分配子域名造成的，点配置档的「同步 DNS」会自动改正", m.Transport.Host, host, host))
 	}
 	return out
@@ -97,6 +97,9 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 // cdnCertProblem is cdnCertWarning for a stored inbound: its certificate
 // (a Cloudflare Origin one, or one for the origin host) may already fit.
 func (s *Server) cdnCertProblem(m *model.Inbound, p *store.CDNProfile, host string) string {
+	if cdnTunnel(p) {
+		return ""
+	}
 	if cdnScheme(p) == "http" || p.Provider != "cloudflare" || m.Security.Type != model.SecTLS || (p.TLSMode != "" && p.TLSMode != "full_strict") {
 		return ""
 	}
@@ -168,7 +171,7 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 		s.diagnoseOrigin(dctx, &res, &p, &node, t)
 		dcancel()
 	}
-	res.Warnings = s.cdnEndpointWarnings(&ep, &row, &p)
+	res.Warnings = append(res.Warnings, s.cdnEndpointWarnings(&ep, &row, &p)...)
 	c.JSON(http.StatusOK, res)
 }
 
@@ -176,6 +179,10 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 // the DNS record (with the profile's API token) and a direct connection
 // to the node's port. Cloudflare reaches the origin on the client's port.
 func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNProfile, node *store.Node, t cdnTarget) {
+	if cdnTunnel(p) {
+		r.Warnings = append(r.Warnings, "Tunnel 回源不连接 VPS 公网端口，请检查 cloudflared 连接状态和隧道回源配置")
+		return
+	}
 	nodeIPs := []string{}
 	for _, ip := range []string{nodeOrigin(node), node.PublicIPv4, node.PublicIPv6} {
 		if ip = strings.TrimSpace(ip); ip != "" && !slices.Contains(nodeIPs, ip) {
