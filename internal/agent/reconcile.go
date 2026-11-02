@@ -558,7 +558,7 @@ func (a *Agent) loadSpec() *model.NodeSpec {
 		}
 		raw, err := os.ReadFile(cloudflared.CredentialPath(filepath.Join(a.cfg.DataDir, "run", "cloudflared"), t))
 		if err == nil {
-			if _, err := model.NormalizeTunnelCredentials(raw, t.ID); err == nil {
+			if _, err := model.NormalizeManagedTunnelCredential(raw, t.ID, t.CredentialMode); err == nil {
 				kept = append(kept, t)
 			}
 		}

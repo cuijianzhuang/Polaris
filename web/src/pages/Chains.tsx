@@ -282,7 +282,7 @@ function CDNAside({ p, onEdit, onDelete, onChanged }: { p: CDNProfile; onEdit: (
         </div>}
       </section>
       {editingHosts && <CDNHostsEditor key={p.id + "-hosts"} p={p} onClose={() => setEditingHosts(false)} onSaved={() => { setEditingHosts(false); onChanged() }} />}
-      {tunnelConfig && <CDNTunnelConfig profileId={p.id} managed={p.tunnelManaged} onClose={() => setTunnelConfig(false)} />}
+      {tunnelConfig && <CDNTunnelConfig profileId={p.id} managed={p.tunnelManaged} credentialMode={p.tunnelCredentialMode} onClose={() => setTunnelConfig(false)} />}
       {tunnelAgent && <CDNTunnelAgent profile={p} onClose={() => setTunnelAgent(false)} onSaved={() => { setTunnelAgent(false); onChanged() }} />}
       <section className="card">
         <div className="row" style={{ justifyContent: 'space-between' }}><h2>{t('测速点')}</h2><span className="sub">{t('超过 {h} 小时没上报会告警', { h: p.staleHours || 24 })}</span></div>

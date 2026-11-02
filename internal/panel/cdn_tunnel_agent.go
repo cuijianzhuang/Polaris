@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
@@ -30,7 +31,7 @@ func (s *Server) tunnelAgentView(p *store.CDNProfile) gin.H {
 	if pending && n.LastError != "" {
 		statusError = n.LastError
 	}
-	return gin.H{"enabled": p.TunnelManaged, "nodeId": p.TunnelNodeID, "hasCredentials": p.TunnelCredential != "", "supported": slices.Contains(n.AgentFeatures.V, model.ManagedTunnelFeature), "nodeStatus": n.Status, "nodeName": n.Name, "pending": pending, "running": c.Status == "running", "error": statusError, "activeEntries": active, "ready": p.TunnelManaged && !pending && c.Status == "running" && c.Error == "" && n.Status == "online", "version": c.RunningVersion, "cleanupConfirmed": cleaned}
+	return gin.H{"credentialMode": p.TunnelCredentialMode, "remoteSupported": slices.Contains(n.AgentFeatures.V, model.RemoteTunnelFeature), "enabled": p.TunnelManaged, "nodeId": p.TunnelNodeID, "hasCredentials": p.TunnelCredential != "", "supported": slices.Contains(n.AgentFeatures.V, model.ManagedTunnelFeature), "nodeStatus": n.Status, "nodeName": n.Name, "pending": pending, "running": c.Status == "running", "error": statusError, "activeEntries": active, "ready": p.TunnelManaged && !pending && c.Status == "running" && c.Error == "" && n.Status == "online", "version": c.RunningVersion, "cleanupConfirmed": cleaned}
 }
 
 func (s *Server) tunnelAppliedVersion(db *gorm.DB, p *store.CDNProfile) string {
@@ -92,15 +93,17 @@ func (s *Server) getTunnelAgent(c *gin.Context) {
 }
 func (s *Server) updateTunnelAgent(c *gin.Context) {
 	var req struct {
-		Enabled     *bool  `json:"enabled"`
-		NodeID      string `json:"nodeId"`
-		Credentials string `json:"credentials"`
+		Enabled        *bool   `json:"enabled"`
+		NodeID         string  `json:"nodeId"`
+		Credentials    string  `json:"credentials"`
+		Token          string  `json:"token"`
+		CredentialMode *string `json:"credentialMode"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, fmt.Errorf("请提供有效的托管设置"))
 		return
 	}
-	if req.Enabled == nil || len(req.Credentials) > 16384 {
+	if req.Enabled == nil || len(req.Credentials) > 16384 || len(req.Token) > 16384 {
 		badRequest(c, fmt.Errorf("请提供 enabled，凭据大小不得超过 16 KiB"))
 		return
 	}
@@ -130,17 +133,43 @@ func (s *Server) updateTunnelAgent(c *gin.Context) {
 			if oldNode != "" && oldNode != node.ID && (p.TunnelManaged || !s.tunnelCleanupConfirmed(tx, &p)) {
 				return cdnSchemeProblem("请先停用托管并等待旧节点清理，再更换节点")
 			}
-			if req.Credentials != "" {
-				raw, err := model.NormalizeTunnelCredentials([]byte(req.Credentials), p.TunnelID)
+			mode := p.TunnelCredentialMode
+			if mode == "" {
+				mode = "local"
+			}
+			oldMode := mode
+			if req.CredentialMode != nil {
+				mode = *req.CredentialMode
+			}
+			if mode != "local" && mode != "remote" {
+				return cdnSchemeProblem("凭据模式只能是 local 或 remote")
+			}
+			if mode != oldMode && (p.TunnelManaged || !s.tunnelCleanupConfirmed(tx, &p)) {
+				return cdnSchemeProblem("请先停用并等待 Agent 清理，再切换凭据模式")
+			}
+			if mode == "remote" && !slices.Contains(node.AgentFeatures.V, model.RemoteTunnelFeature) {
+				return cdnSchemeProblem("请升级支持远程 Tunnel Token 的 Agent")
+			}
+			if (mode == "remote" && req.Credentials != "") || (mode == "local" && req.Token != "") {
+				return cdnSchemeProblem("请使用所选模式对应的凭据")
+			}
+			input := req.Credentials
+			if mode == "remote" {
+				input = req.Token
+			}
+			if input != "" {
+				raw, err := model.NormalizeManagedTunnelCredential([]byte(input), p.TunnelID, mode)
 				if err != nil {
 					return cdnSchemeProblem(err.Error())
 				}
 				p.TunnelCredential = s.st.Box.Seal(string(raw))
 				p.TunnelCredentialVersion = store.NewID()
 			}
-			if p.TunnelCredential == "" {
-				return cdnSchemeProblem("请导入本地管理的 Tunnel 凭据 JSON")
+			if p.TunnelCredential == "" || mode != oldMode && input == "" {
+				return cdnSchemeProblem("请填写所选模式的凭据，远程模式填写 Tunnel Token")
 			}
+			p.TunnelCredentialMode = mode
+
 			p.TunnelManaged = true
 			p.TunnelNodeID = node.ID
 			var total int64
@@ -156,12 +185,22 @@ func (s *Server) updateTunnelAgent(c *gin.Context) {
 			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "node_id"}, {Name: "type"}}, DoNothing: true}).Create(&store.Core{ID: store.NewID(), NodeID: node.ID, Type: model.CoreCloudflared, Version: model.CloudflaredVersion, Status: "installing"}).Error; err != nil {
 				return err
 			}
+
+			if mode == "remote" {
+				var connector store.Core
+				if err := tx.First(&connector, "node_id = ? AND type = ?", node.ID, model.CoreCloudflared).Error; err != nil {
+					return err
+				}
+				if !core.VersionAtLeast(connector.Version, model.RemoteTunnelMinVersion) {
+					return cdnSchemeProblem("远程 Tunnel Token 需要 cloudflared 2025.4.0 或更新版本，请先升级内核")
+				}
+			}
 		} else {
 			p.TunnelManaged = false
 			p.TunnelCredential = ""
 			p.TunnelCredentialVersion = ""
 		}
-		return tx.Model(&p).Updates(map[string]any{"tunnel_managed": p.TunnelManaged, "tunnel_node_id": p.TunnelNodeID, "tunnel_credential": p.TunnelCredential, "tunnel_credential_version": p.TunnelCredentialVersion}).Error
+		return tx.Model(&p).Updates(map[string]any{"tunnel_credential_mode": p.TunnelCredentialMode, "tunnel_managed": p.TunnelManaged, "tunnel_node_id": p.TunnelNodeID, "tunnel_credential": p.TunnelCredential, "tunnel_credential_version": p.TunnelCredentialVersion}).Error
 	})
 	if err != nil {
 		if _, ok := err.(cdnSchemeProblem); ok {
@@ -186,18 +225,33 @@ func (s *Server) updateTunnelAgent(c *gin.Context) {
 
 func (s *Server) buildManagedTunnels(spec *model.NodeSpec) error {
 	var ps []store.CDNProfile
-	if err := s.st.DB.Model(&store.CDNProfile{}).Select("DISTINCT cdn_profiles.*").Joins("JOIN endpoints ON endpoints.cdn_profile_id = cdn_profiles.id JOIN inbounds ON inbounds.id = endpoints.inbound_id").Where("cdn_profiles.tunnel_managed = ? AND cdn_profiles.tunnel_node_id = ? AND inbounds.enabled = ?", true, spec.NodeID, true).Order("cdn_profiles.id").Find(&ps).Error; err != nil {
+	if err := s.st.DB.Where("tunnel_managed = ? AND tunnel_node_id = ?", true, spec.NodeID).Order("id").Find(&ps).Error; err != nil {
 		return err
 	}
 	for _, p := range ps {
-		routes, node, err := s.tunnelRoutes(&p)
-		if err != nil {
-			return err
+		t := model.TunnelSpec{ProfileID: p.ID, ID: p.TunnelID, CredentialVersion: p.TunnelCredentialVersion}
+		if p.TunnelCredentialMode == "remote" {
+			if err := validateCDNTunnel(s.st.DB, &p); err != nil {
+				return err
+			}
+			t.CredentialMode = "remote"
+		} else {
+			var active int64
+			if err := s.st.DB.Table("endpoints").Joins("JOIN inbounds ON inbounds.id = endpoints.inbound_id").Where("endpoints.cdn_profile_id = ? AND inbounds.enabled = ?", p.ID, true).Count(&active).Error; err != nil {
+				return err
+			}
+			if active == 0 {
+				continue
+			}
+			routes, node, err := s.tunnelRoutes(&p)
+			if err != nil {
+				return err
+			}
+			if node != spec.NodeID {
+				return fmt.Errorf("Tunnel 节点绑定不一致")
+			}
+			t.Routes = routes
 		}
-		if node != spec.NodeID {
-			return fmt.Errorf("Tunnel 节点绑定不一致")
-		}
-		t := model.TunnelSpec{ProfileID: p.ID, ID: p.TunnelID, CredentialVersion: p.TunnelCredentialVersion, Routes: routes}
 		if err := t.Validate(); err != nil {
 			return err
 		}
@@ -217,7 +271,7 @@ func (s *Server) deliverTunnelCredentials(nodeID string, tunnels []model.TunnelS
 		if err := s.st.DB.First(&p, "id = ? AND tunnel_managed = ? AND tunnel_node_id = ?", t.ProfileID, true, nodeID).Error; err != nil {
 			return nil, fmt.Errorf("Tunnel 凭据授权已变化，请同步最新配置")
 		}
-		if p.TunnelID != t.ID || p.TunnelCredentialVersion != t.CredentialVersion {
+		if p.TunnelID != t.ID || p.TunnelCredentialVersion != t.CredentialVersion || (p.TunnelCredentialMode == "remote") != (t.CredentialMode == "remote") {
 			return nil, fmt.Errorf("Tunnel 凭据已轮换，请同步最新配置")
 		}
 		if err := validateCDNTunnel(s.st.DB, &p); err != nil {
@@ -227,11 +281,15 @@ func (s *Server) deliverTunnelCredentials(nodeID string, tunnels []model.TunnelS
 		if err != nil {
 			return nil, fmt.Errorf("Tunnel 凭据解密失败")
 		}
-		credential, err := model.NormalizeTunnelCredentials([]byte(raw), t.ID)
+		credential, err := model.NormalizeManagedTunnelCredential([]byte(raw), t.ID, t.CredentialMode)
 		if err != nil {
 			return nil, fmt.Errorf("Tunnel 凭据无效，请重新导入")
 		}
-		out[t.ProfileID] = credential
+		if t.CredentialMode == "remote" {
+			out[t.ProfileID], _ = json.Marshal(string(credential))
+		} else {
+			out[t.ProfileID] = credential
+		}
 	}
 	return out, nil
 }

@@ -2,7 +2,7 @@
 
 流量路径：客户端 → Cloudflare HTTPS 443（可使用优选 IP）→ 命名 Tunnel → 同机 cloudflared → `http://127.0.0.1:入站端口` → 代理出口。
 
-此功能接入你已创建的 Tunnel。可选择手动运行 cloudflared，或让 Agent 安装并托管。本地凭据仅在启用 Agent 托管时加密保存；不会把密钥写入配置历史、订阅或日志。Tunnel 与付费 Argo Smart Routing 是不同功能。
+此功能接入你已创建的 Tunnel。可选择手动运行 cloudflared，或让 Agent 安装并托管。JSON 凭据或远程 Token 仅在启用 Agent 托管时加密保存；不会把密钥写入配置历史、订阅或日志。Tunnel 与付费 Argo Smart Routing 是不同功能。
 
 隧道通过主动向 Cloudflare 建立连接来隐藏回源公网入口，不改变代理出口 IP。客户端仍需能访问 Cloudflare 边缘与入口域名；Tunnel 不能保证避免 GFW 的 DNS、SNI 或 IP 阻断。
 
@@ -14,6 +14,18 @@
 - 面板与订阅接口仍可使用原有优选 IP、固定域名、地区/运营商选择和定时检测。检测结果仍来自面板网络，仅代表 DNS/TCP/TLS/WS 握手，不代表用户网络或完整代理业务成功。
 
 ## 配置流程
+
+### 一键安装（Cloudflare 远程 Token）
+
+1. 同时更新面板和 Agent，等待节点上报 `cloudflare-tunnel-v1` 和 `cloudflare-tunnel-token-v1`。只支持 JSON 的旧 Agent 不能获取远程 Token 配置。
+2. 在 Cloudflare 创建远程管理的命名 Tunnel，取得 Tunnel UUID 和安装命令中的完整 Token（不是 Cloudflare API Token）。在面板创建 Tunnel CDN 配置档，填写对应 UUID 和公开入口域名。
+3. 打开该配置档的「Agent 托管」，开启托管，选择「远程 Token（Cloudflare 维护路由）」、目标节点，粘贴 Token，点「一键安装并启动」。不需要手动 SSH 安装 cloudflared。Agent 会校验官方安装包（默认 2026.10.7，Token 文件模式最低 2025.4.0）、私密保存 Token，并托管连接器；即使尚未创建入站，也可以先安装并建立边缘连接。
+4. 为该节点创建使用此配置档的本机 WS 入站。按「隧道回源配置」表格，在 Cloudflare 配置公开主机名、路径、Service 和 HTTP Host Header。云端路由是实际生效的配置；面板显示期望值，**不会自动推送远程路由**，也不会创建 Cloudflare 隧道或代替账户授权。
+5. 等待「节点隧道连接已就绪」，再同步 DNS、检测真实入口并更新订阅。连接器就绪只代表连接到 Cloudflare，不保证远程路由正确或业务可用。更改入站路径、端口或 Host 后需同步修改 Cloudflare 路由。
+
+Token 在面板加密保存，只通过绑定节点的认证通道下发。Agent 将原始 Token 写入 `<数据目录>/run/cloudflared/credentials/<配置档>/<版本>.token`（`0600`），通过 `--token-file` 启动，不把 Token 放进命令行、环境变量、生成的 YAML、配置历史或读接口。重新打开窗口不会回显 Token，留空保存保留当前值；填写新 Token 会轮换私有文件并重启对应连接器。Token 必须匹配配置档的 UUID，不要粘贴整条安装命令。
+
+停用后的停止、清理和等待确认流程与本地 JSON 模式相同。切换管理方式前需停用并等待旧节点确认清理，再导入新方式的凭据。
 
 ### Agent 托管（本地管理的命名隧道）
 

@@ -20,53 +20,73 @@ func testManagedSpec() (*model.NodeSpec, []byte) {
 	return &model.NodeSpec{NodeID: "n", Rev: 1, Tunnels: []model.TunnelSpec{tunnel}, TunnelCredentials: map[string]json.RawMessage{"fixture": raw}}, raw
 }
 func TestManagedTunnelPrivateCacheAndHistory(t *testing.T) {
-	a := &Agent{cfg: Config{DataDir: t.TempDir()}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
-	spec, raw := testManagedSpec()
-	if err := a.prepareTunnelCredentials(spec); err != nil {
-		t.Fatal(err)
-	}
-	path := cloudflared.CredentialPath(filepath.Join(a.cfg.DataDir, "run", "cloudflared"), spec.Tunnels[0])
-	fi, err := os.Stat(path)
-	if err != nil || fi.Mode().Perm() != 0600 {
-		t.Fatal("unsafe credential file", err)
-	}
-	a.saveSpec(spec)
-	saved, err := os.ReadFile(a.specPath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(saved), "TunnelSecret") || strings.Contains(string(saved), "tunnelCredentials") {
-		t.Fatal("credential persisted in spec history")
-	}
-	spec.TunnelCredentials = nil
-	if err := a.prepareTunnelCredentials(spec); err != nil {
-		t.Fatal("offline restore failed", err)
-	}
-	next := spec.Clone()
-	next.Tunnels[0].CredentialVersion = strings.Repeat("c", 16)
-	next.TunnelCredentials = map[string]json.RawMessage{"fixture": raw}
-	if _, _, hot := userOnlyDiff(spec, next, model.CoreCloudflared); hot {
-		t.Fatal("credential rotation skipped reload")
-	}
-	if err := a.prepareTunnelCredentials(next); err != nil {
-		t.Fatal(err)
-	}
-	if err := a.pruneTunnelCredentials(next.Tunnels); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatal("old version retained after rotation")
-	}
-	if err := a.pruneTunnelCredentials(nil); err != nil {
-		t.Fatal(err)
-	}
-	next.TunnelCredentials = nil
-	if err := a.prepareTunnelCredentials(next); err == nil {
-		t.Fatal("disabled credential resurrected without panel delivery")
-	}
-	restored := a.loadSpec()
-	if restored == nil || len(restored.Tunnels) != 0 || restored.Rev != 0 {
-		t.Fatal("old cache could resurrect a cleaned tunnel")
+	for _, remote := range []bool{false, true} {
+		t.Run(map[bool]string{false: "local", true: "remote"}[remote], func(t *testing.T) {
+			a := &Agent{cfg: Config{DataDir: t.TempDir()}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+			spec, raw := testManagedSpec()
+			if remote {
+				spec.Tunnels[0].CredentialMode = "remote"
+				spec.Tunnels[0].Routes = nil
+				payload, _ := json.Marshal(map[string]any{"a": strings.Repeat("b", 32), "t": spec.Tunnels[0].ID, "s": []byte(strings.Repeat("remote-fixture-private", 2))})
+				token := base64.StdEncoding.EncodeToString(payload)
+				raw, _ = json.Marshal(token)
+				spec.TunnelCredentials["fixture"] = raw
+			}
+			if err := a.prepareTunnelCredentials(spec); err != nil {
+				t.Fatal(err)
+			}
+			path := cloudflared.CredentialPath(filepath.Join(a.cfg.DataDir, "run", "cloudflared"), spec.Tunnels[0])
+			fi, err := os.Stat(path)
+			if err != nil || fi.Mode().Perm() != 0600 {
+				t.Fatal("unsafe credential file", err)
+			}
+			if remote {
+				b, _ := os.ReadFile(path)
+				var token string
+				_ = json.Unmarshal(raw, &token)
+				if string(b) != token || !strings.HasSuffix(path, ".token") {
+					t.Fatal("token file must contain raw token")
+				}
+			}
+			a.saveSpec(spec)
+			saved, err := os.ReadFile(a.specPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(saved), "TunnelSecret") || strings.Contains(string(saved), "tunnelCredentials") || strings.Contains(string(saved), string(raw)) {
+				t.Fatal("credential persisted in spec history")
+			}
+			spec.TunnelCredentials = nil
+			if err := a.prepareTunnelCredentials(spec); err != nil {
+				t.Fatal("offline restore failed", err)
+			}
+			next := spec.Clone()
+			next.Tunnels[0].CredentialVersion = strings.Repeat("c", 16)
+			next.TunnelCredentials = map[string]json.RawMessage{"fixture": raw}
+			if _, _, hot := userOnlyDiff(spec, next, model.CoreCloudflared); hot {
+				t.Fatal("credential rotation skipped reload")
+			}
+			if err := a.prepareTunnelCredentials(next); err != nil {
+				t.Fatal(err)
+			}
+			if err := a.pruneTunnelCredentials(next.Tunnels); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatal("old version retained after rotation")
+			}
+			if err := a.pruneTunnelCredentials(nil); err != nil {
+				t.Fatal(err)
+			}
+			next.TunnelCredentials = nil
+			if err := a.prepareTunnelCredentials(next); err == nil {
+				t.Fatal("disabled credential resurrected without panel delivery")
+			}
+			restored := a.loadSpec()
+			if restored == nil || len(restored.Tunnels) != 0 || restored.Rev != 0 {
+				t.Fatal("old cache could resurrect a cleaned tunnel")
+			}
+		})
 	}
 }
 func TestManagedTunnelCleanupFailureIsNotAcknowledged(t *testing.T) {
