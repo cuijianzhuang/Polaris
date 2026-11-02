@@ -187,6 +187,8 @@ func (c *cfClient) originCert(ctx context.Context, hosts []string) (certPEM, key
 // --- API ---
 
 type cdnReq struct {
+	OriginMode    *string   `json:"originMode"`
+	TunnelID      *string   `json:"tunnelId"`
 	Scheme        string    `json:"scheme"`
 	Name          string    `json:"name" binding:"required"`
 	Provider      string    `json:"provider"`
@@ -255,6 +257,9 @@ func (r *cdnReq) normalize() error {
 		}
 	}
 	r.Ports = ports
+	if err := normalizeCDNTunnel(r); err != nil {
+		return err
+	}
 	var ips []string
 	for _, ip := range r.PreferredIPs {
 		ip = strings.Trim(strings.TrimSpace(ip), "[]")
@@ -296,6 +301,15 @@ func (r *cdnReq) normalize() error {
 }
 
 func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
+	if r.OriginMode != nil {
+		p.OriginMode = *r.OriginMode
+	}
+	if r.TunnelID != nil {
+		p.TunnelID = *r.TunnelID
+	}
+	if !cdnTunnel(p) {
+		p.TunnelID = ""
+	}
 	oldPort, oldScheme := cdnDefaultPort(p), cdnScheme(p)
 	p.Scheme = orDefault(r.Scheme, "https")
 	p.Name, p.Provider, p.OriginDomain, p.TLSMode = r.Name, orDefault(r.Provider, "cloudflare"), r.OriginDomain, orDefault(r.TLSMode, "full_strict")
@@ -414,7 +428,19 @@ func (s *Server) createCDN(c *gin.Context) {
 	}
 	p := store.CDNProfile{ID: store.NewID()}
 	req.apply(&p, s.st.Box.Seal)
-	if err := s.st.DB.Create(&p).Error; err != nil {
+	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockCDNReports(tx); err != nil {
+			return err
+		}
+		if err := validateCDNTunnel(tx, &p); err != nil {
+			return err
+		}
+		return tx.Create(&p).Error
+	}); err != nil {
+		if _, ok := err.(cdnSchemeProblem); ok {
+			badRequest(c, err)
+			return
+		}
 		dbError(c, err)
 		return
 	}
@@ -437,6 +463,12 @@ func (s *Server) updateCDN(c *gin.Context) {
 	}
 	if req.Scheme == "" {
 		req.Scheme = cdnScheme(&p)
+	}
+	if req.OriginMode == nil {
+		req.OriginMode = &p.OriginMode
+	}
+	if req.TunnelID == nil {
+		req.TunnelID = &p.TunnelID
 	}
 	if err := req.normalize(); err != nil {
 		badRequest(c, err)
@@ -465,6 +497,9 @@ func (s *Server) updateCDN(c *gin.Context) {
 		candidate := p
 		req.apply(&candidate, s.st.Box.Seal)
 		if err := validateCDNSchemeChange(tx, &p, &candidate); err != nil {
+			return err
+		}
+		if err := validateCDNTunnel(tx, &candidate); err != nil {
 			return err
 		}
 		p = candidate
@@ -652,6 +687,9 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 		if zone, err = cf.zoneFor(ctx, p.OriginDomain); err != nil {
 			return res, cfStep("查找 "+p.OriginDomain+" 所在的域名", "Zone.Zone 读取", err)
 		}
+	}
+	if cdnTunnel(p) {
+		return s.syncCDNTunnel(ctx, cf, zone, p)
 	}
 	res.Split = s.splitSharedCDNHosts(p)
 	var eps []store.Endpoint

@@ -97,6 +97,8 @@ export interface TrafficPack {
 export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn' | 'relay'; address: string; port: number; sni: string; host: string; path: string; cdnProfileId: string; relayChainId: string; remark: string
   target?: { originPort?: number; scheme?: 'http' | 'https'; server: string; port: number; sni: string; host: string; path: string }; warnings?: string[] }
 export interface CDNProfile {
+	// Tunnel UUID is public routing metadata; connector credentials stay on the node.
+	originMode?: 'direct' | 'tunnel' | ''; tunnelId?: string
   scheme?: 'http' | 'https'
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; blockedHosts?: string[]; stalePolicy?: 'keep' | 'source'; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'

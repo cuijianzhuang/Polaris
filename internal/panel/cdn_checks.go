@@ -20,6 +20,9 @@ import (
 //
 // Client scheme selects the edge ports independently of origin SSL mode.
 func cdnProblem(m *model.Inbound, p *store.CDNProfile, epPort int, fronted bool) string {
+	if cdnTunnel(p) {
+		return cdnTunnelProblem(m, p, epPort)
+	}
 	if fronted && cdnScheme(p) == "http" {
 		return "HTTP CDN 不支持内置 Caddy 统一回源，请使用 HTTPS"
 	}
@@ -82,6 +85,9 @@ func (s *Server) cdnEndpointProblem(m *model.Inbound, inboundID string, p *store
 // certificate covers the origin domain; a certificate for the node's own
 // domain (or a self-signed one) fails with error 526.
 func cdnCertWarning(m *model.Inbound, p *store.CDNProfile) string {
+	if cdnTunnel(p) {
+		return ""
+	}
 	if cdnScheme(p) == "http" || p.Provider != "cloudflare" || m.Security.Type != model.SecTLS {
 		return ""
 	}
