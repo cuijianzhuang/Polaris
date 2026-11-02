@@ -12,6 +12,8 @@ import (
 )
 
 const ManagedTunnelFeature = "cloudflare-tunnel-v1"
+const RemoteTunnelFeature = "cloudflare-tunnel-token-v1"
+const RemoteTunnelMinVersion = "2025.4.0" // --token-file, Cloudflare official minimum
 const CloudflaredVersion = "2026.10.7"
 
 type TunnelRoute struct {
@@ -27,6 +29,7 @@ type TunnelSpec struct {
 	ProfileID         string        `json:"profileId"`
 	ID                string        `json:"id"`
 	CredentialVersion string        `json:"credentialVersion"`
+	CredentialMode    string        `json:"credentialMode,omitempty"` // empty/local = local JSON, remote = token file
 	Routes            []TunnelRoute `json:"routes"`
 }
 
@@ -37,6 +40,15 @@ var tunnelVersion = regexp.MustCompile(`^[a-z2-9]{16}$`)
 func (t TunnelSpec) Validate() error {
 	if !tunnelProfile.MatchString(t.ProfileID) || !tunnelUUID.MatchString(t.ID) || !tunnelVersion.MatchString(t.CredentialVersion) {
 		return fmt.Errorf("invalid managed tunnel identity")
+	}
+	if t.CredentialMode != "" && t.CredentialMode != "local" && t.CredentialMode != "remote" {
+		return fmt.Errorf("invalid tunnel credential mode")
+	}
+	if t.CredentialMode == "remote" {
+		if len(t.Routes) != 0 {
+			return fmt.Errorf("remote tunnel routes must come from Cloudflare")
+		}
+		return nil
 	}
 	if len(t.Routes) < 2 || len(t.Routes) > 1025 {
 		return fmt.Errorf("invalid managed tunnel routes")
@@ -93,4 +105,44 @@ func NormalizeTunnelCredentials(raw []byte, id string) ([]byte, error) {
 	c.AccountTag = strings.ToLower(c.AccountTag)
 	c.TunnelID = id
 	return json.Marshal(c)
+}
+
+// Validate identity without converting a remotely managed token into local
+// credentials. The original opaque token is what cloudflared must receive.
+func NormalizeRemoteTunnelToken(raw []byte, id string) ([]byte, error) {
+	invalid := fmt.Errorf("请填写完整 Tunnel Token（不是安装命令或 Cloudflare API Token），且必须匹配配置档 UUID")
+	if len(raw) > 16384 || !tunnelUUID.MatchString(id) {
+		return nil, invalid
+	}
+	token := strings.TrimSpace(string(raw))
+	if token == "" || strings.ContainsAny(token, " \t\r\n") {
+		return nil, invalid
+	}
+	decoded, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return nil, invalid
+	}
+	var c struct {
+		Account string `json:"a"`
+		ID      string `json:"t"`
+		Secret  []byte `json:"s"`
+	}
+	if json.Unmarshal(decoded, &c) != nil || strings.ToLower(c.ID) != id {
+		return nil, invalid
+	}
+	a, err := hex.DecodeString(c.Account)
+	if err != nil || len(a) != 16 || len(c.Secret) < 32 || len(c.Secret) > 256 {
+		return nil, invalid
+	}
+	return []byte(token), nil
+}
+
+func NormalizeManagedTunnelCredential(raw []byte, id, mode string) ([]byte, error) {
+	if mode == "remote" {
+		return NormalizeRemoteTunnelToken(raw, id)
+	}
+	if mode != "" && mode != "local" {
+		return nil, fmt.Errorf("invalid tunnel credential mode")
+	}
+	return NormalizeTunnelCredentials(raw, id)
 }

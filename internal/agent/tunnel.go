@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,13 @@ func (a *Agent) prepareTunnelCredentials(spec *model.NodeSpec) error {
 		seen[t.ProfileID] = true
 		seen[t.ID] = true
 		raw := spec.TunnelCredentials[t.ProfileID]
+		if len(raw) > 0 && t.CredentialMode == "remote" {
+			var token string
+			if json.Unmarshal(raw, &token) != nil {
+				return fmt.Errorf("Tunnel Token 下发格式无效")
+			}
+			raw = []byte(token)
+		}
 		path := cloudflared.CredentialPath(work, t)
 		if len(raw) == 0 {
 			var err error
@@ -39,7 +47,7 @@ func (a *Agent) prepareTunnelCredentials(spec *model.NodeSpec) error {
 				return fmt.Errorf("Tunnel 凭据尚未下发，请连接面板同步最新配置")
 			}
 		}
-		normalized, err := model.NormalizeTunnelCredentials(raw, t.ID)
+		normalized, err := model.NormalizeManagedTunnelCredential(raw, t.ID, t.CredentialMode)
 		if err != nil {
 			return fmt.Errorf("Tunnel 凭据无效，请重新导入")
 		}

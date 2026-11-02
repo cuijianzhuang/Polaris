@@ -99,7 +99,7 @@ export interface Endpoint { id: string; inboundId: string; kind: 'direct' | 'cdn
 export interface CDNProfile {
 	// Tunnel UUID is public routing metadata; connector credentials stay on the node.
 	originMode?: 'direct' | 'tunnel' | ''; tunnelId?: string
-	tunnelManaged?: boolean; tunnelNodeId?: string; hasTunnelCredentials?: boolean
+	tunnelCredentialMode?: '' | 'local' | 'remote'; tunnelManaged?: boolean; tunnelNodeId?: string; hasTunnelCredentials?: boolean
   scheme?: 'http' | 'https'
   id: string; name: string; provider: string; originDomain: string; tlsMode: string; ports: number[]; preferredIps: string[]
   ipSourceUrl: string; pinnedHosts?: string[]; blockedHosts?: string[]; stalePolicy?: 'keep' | 'source'; ipTopN: number; expandPerIp: boolean; autoDns: boolean; caddyFronting: boolean; hasToken: boolean; tokenSource: '' | 'profile' | 'cdn' | 'dns'

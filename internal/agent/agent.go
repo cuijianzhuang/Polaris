@@ -426,6 +426,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 		}
 		if core.ParentBoundSupported() {
 			features += "," + model.ManagedTunnelFeature
+			features += "," + model.RemoteTunnelFeature
 			features += "," + model.RelayBusinessFeature + "," + model.SingboxRelayBusinessFeature
 		}
 		req.Header().Set("X-Polaris-Agent-Features", features)

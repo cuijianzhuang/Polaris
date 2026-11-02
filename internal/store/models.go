@@ -574,6 +574,7 @@ type CDNProfile struct {
 	TunnelNodeID            string         `gorm:"size:32" json:"tunnelNodeId"`
 	TunnelCredential        string         `json:"-"` // sealed, never copied into ConfigRevision
 	TunnelCredentialVersion string         `gorm:"size:32" json:"-"`
+	TunnelCredentialMode    string         `gorm:"size:16" json:"tunnelCredentialMode"`
 	HasTunnelCredentials    bool           `gorm:"-" json:"hasTunnelCredentials"`
 	Scheme                  string         `gorm:"size:8;not null;default:https" json:"scheme"` // client to CDN: http / https
 	ID                      string         `gorm:"primaryKey;size:32" json:"id"`

@@ -1,4 +1,4 @@
-// Package cloudflared supervises locally managed named Cloudflare Tunnels.
+// Package cloudflared supervises local-JSON and remote-token Cloudflare Tunnels.
 package cloudflared
 
 import (
@@ -57,7 +57,11 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 	return model.CapSet{Core: model.CoreCloudflared, Version: v}
 }
 func CredentialPath(work string, t model.TunnelSpec) string {
-	return filepath.Join(work, "credentials", t.ProfileID, t.CredentialVersion+".json")
+	ext := ".json"
+	if t.CredentialMode == "remote" {
+		ext = ".token"
+	}
+	return filepath.Join(work, "credentials", t.ProfileID, t.CredentialVersion+ext)
 }
 func (a *Adapter) configPath(t model.TunnelSpec) string {
 	b, _ := json.Marshal(t)
@@ -74,6 +78,9 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if err := t.Validate(); err != nil {
 			return nil, err
 		}
+		if t.CredentialMode == "remote" && !core.VersionAtLeast(a.opt.Version, model.RemoteTunnelMinVersion) {
+			return nil, fmt.Errorf("远程 Tunnel Token 需要 cloudflared %s 或更新版本", model.RemoteTunnelMinVersion)
+		}
 		if seen[t.ProfileID] || seen[t.ID] {
 			return nil, fmt.Errorf("duplicate managed tunnel")
 		}
@@ -83,12 +90,24 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Tunnel 私有凭据文件不存在")
 		}
-		if _, err := model.NormalizeTunnelCredentials(raw, t.ID); err != nil {
+		if _, err := model.NormalizeManagedTunnelCredential(raw, t.ID, t.CredentialMode); err != nil {
 			return nil, fmt.Errorf("Tunnel 私有凭据无效")
 		}
 		credential, err := filepath.Abs(CredentialPath(a.opt.WorkDir, t))
 		if err != nil {
 			return nil, err
+		}
+		if t.CredentialMode == "remote" {
+			// An explicit, empty local config prevents discovering a user's
+			// unrelated config.yml. No local ingress or secret goes into it.
+			b, _ := yaml.Marshal(map[string]string{"tunnel": t.ID})
+			if err := os.MkdirAll(filepath.Dir(a.configPath(t)), 0700); err != nil {
+				return nil, err
+			}
+			if err := core.AtomicWrite(a.configPath(t), b, 0600); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		cfg := struct {
 			Tunnel     string              `yaml:"tunnel"`
@@ -116,6 +135,16 @@ func (a *Adapter) Validate(cfg []byte) error {
 	for _, t := range tunnels {
 		if err := t.Validate(); err != nil {
 			return err
+		}
+		if t.CredentialMode == "remote" {
+			raw, err := os.ReadFile(CredentialPath(a.opt.WorkDir, t))
+			if err != nil {
+				return fmt.Errorf("Tunnel Token 文件不存在")
+			}
+			if _, err := model.NormalizeRemoteTunnelToken(raw, t.ID); err != nil {
+				return fmt.Errorf("Tunnel Token 无效")
+			}
+			continue // Remote ingress is fetched by cloudflared, not locally validated.
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		// Never return tool output: even an invalid binary/config must not echo a key.
@@ -160,6 +189,13 @@ func (a *Adapter) makeChild(t model.TunnelSpec) (*child, error) {
 	_ = l.Close()
 	c := &child{spec: t, config: a.configPath(t), metrics: metrics}
 	c.proc = core.NewProcess("cloudflared", a.opt.BinPath, a.opt.WorkDir, a.opt.Logger, "--no-autoupdate", "tunnel", "--config", c.config, "--metrics", metrics, "run")
+	if t.CredentialMode == "remote" {
+		path, err := filepath.Abs(CredentialPath(a.opt.WorkDir, t))
+		if err != nil {
+			return nil, err
+		}
+		c.proc.Args = append(c.proc.Args, "--token-file", path)
+	}
 	// Do not inherit cloudflared-specific credential, token or log-file
 	// overrides. Keep the session proxy and CA environment untouched.
 	for _, value := range os.Environ() {

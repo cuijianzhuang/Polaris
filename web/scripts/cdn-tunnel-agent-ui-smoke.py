@@ -30,7 +30,7 @@ class Fixture(Base):
   if path=='/cdn-profiles/cf/tunnel-agent':
    if req.method=='PUT':
     body=req.post_data_json;self.writes.append((req.method,path,body,req.headers))
-    assert set(body)<=set(['enabled','nodeId','credentials'])
+    assert set(body)<=set(['enabled','nodeId','credentials','credentialMode'])
     assert not body['enabled'] or self.supported
     if body['enabled']:
      if not self.state['hasCredentials']:assert body.get('credentials')==CREDENTIAL

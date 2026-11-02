@@ -57,6 +57,9 @@ func cdnHealthRevision(row store.Inbound, p *store.CDNProfile) string {
 	parts := []any{row.Transport, row.Security, p.TLSMode, p.CaddyFronting}
 	if cdnTunnel(p) {
 		parts = append(parts, "tunnel", p.TunnelID)
+		if p.TunnelCredentialMode == "remote" {
+			parts = append(parts, "remote")
+		}
 	}
 	b, _ := json.Marshal(parts)
 	return fmt.Sprintf("%x", sha256.Sum256(b))

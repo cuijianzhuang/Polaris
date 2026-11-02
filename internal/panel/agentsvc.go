@@ -201,7 +201,7 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	features := []string{}
 	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
-		if (v == model.ManagedTunnelFeature || v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
+		if (v == model.RemoteTunnelFeature || v == model.ManagedTunnelFeature || v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
 			features = append(features, v)
 		}
 	}
@@ -239,6 +239,11 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	if len(spec.Tunnels) > 0 {
 		if !contains(features, model.ManagedTunnelFeature) {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持 Cloudflare Tunnel 托管的新版 Agent"))
+		}
+		for _, t := range spec.Tunnels {
+			if t.CredentialMode == "remote" && !contains(features, model.RemoteTunnelFeature) {
+				return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持远程 Tunnel Token 的新版 Agent"))
+			}
 		}
 		credentials, err := a.s.deliverTunnelCredentials(n.ID, spec.Tunnels)
 		if err != nil {

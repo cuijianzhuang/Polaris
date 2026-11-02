@@ -103,6 +103,18 @@ func TestCloudflaredChild(t *testing.T) {
 			os.Exit(0)
 		}
 	}
+	for i, arg := range args {
+		if arg == "--token-file" && i+1 < len(args) {
+			raw, err := os.ReadFile(args[i+1])
+			if err != nil {
+				os.Exit(4)
+			}
+			if _, err := model.NormalizeRemoteTunnelToken(raw, fixtureTunnel().ID); err != nil {
+				os.Exit(5)
+			}
+			fmt.Println(string(raw)) // The parent must consume, never log, token output.
+		}
+	}
 	metrics := ""
 	for i, arg := range args {
 		if arg == "--metrics" && i+1 < len(args) {
