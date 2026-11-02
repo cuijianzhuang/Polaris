@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { get, post } from '../api'
+import { get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
-import { CopyBox, copyText, Empty, Modal, QR, useAction, useConfirm, useLoad, usePoll, useRefresh, RefreshPicker, useToast, SkeletonRows, useUndo, useToastApi, runBatch } from '../components/ui'
+import { CopyBox, copyText, Empty, Modal, QR, useAction, useConfirm, useLoad, usePoll, useRefresh, RefreshPicker, useToast, SkeletonRows, useUndo, useToastApi, runBatch, Switch } from '../components/ui'
 import { bytes, date, daysLeft, isOnline, userStatus } from '../format'
 import type { Group, User } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal } from '../components/UserTools'
@@ -40,6 +40,16 @@ function statusBadge(u: User) {
   if (u.bannedUntil && new Date(u.bannedUntil) > new Date()) return <span className="st bad">{t('IP 超限封禁')}</span>
   const s = userStatus[u.status] ?? { label: u.status, cls: 'off' }
   return <span className={'st ' + s.cls}>{s.label}</span>
+}
+
+function UserStateSwitch({ user, onSaved }: { user: User; onSaved: () => void }) {
+  const { busy, run } = useAction()
+  const [status, setStatus] = useState(user.status)
+  useEffect(() => setStatus(user.status), [user.status])
+  return <Switch label={t('启用用户 {name}', { name: user.username })} on={status !== 'disabled'} disabled={busy} onChange={(enabled) => run(async () => {
+    const saved = await put<User>(`/users/${user.id}/state`, { enabled })
+    setStatus(saved.status); onSaved()
+  }, t('用户状态已更新，等待节点同步'))} />
 }
 
 export default function Users() {
@@ -187,7 +197,7 @@ export default function Users() {
                   <tr key={u.id} className="clickable" data-user-id={u.id} onClick={() => setSelected(u)}>
                     <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={t('选择 {name}', { name: u.username })} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
                     <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
-                    <td data-label={t('状态')}>{statusBadge(u)}</td>
+                    <td data-label={t('状态')} onClick={(e) => e.stopPropagation()}><div className="row" title={t('开关控制手动启用；到期和流量限制仍然生效')}><UserStateSwitch user={u} onSaved={list.reload} />{statusBadge(u)}</div></td>
                     <td data-label={t('授权')}>
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title={t('整台节点')}>{nname(n)}</span>)}
                       {u.planId && <span className="tag info-tag" title={t('套餐')}>{gname(u.planId)}</span>}
@@ -205,7 +215,6 @@ export default function Users() {
                     <td data-label={t('在线 IP')} className="mono" onClick={(e) => e.stopPropagation()}><UserIPCount user={u} onClick={() => setOnlineUser(u)} /></td>
                     <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
                       {u.status === 'limited' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post(`/users/${u.id}/reset-traffic`); list.reload() }, t('流量已重置'))}>{t('重置流量')}</button>
-                        : u.status === 'disabled' ? <button className="btn sm" type="button" onClick={() => run(async () => { await post('/users/bulk', { action: 'enable', ids: [u.id] }); list.reload() }, t('已启用'))}>{t('启用')}</button>
                         : <>
                           <button className="icon-btn" type="button" aria-label={t('复制订阅链接')} onClick={() => copySub(u)}><Icon.Copy /></button>
                           <button className="icon-btn" type="button" aria-label={t('显示二维码')} onClick={() => setQr(u)}><Icon.QR /></button>

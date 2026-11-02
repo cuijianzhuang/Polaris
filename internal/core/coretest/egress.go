@@ -22,6 +22,11 @@ import (
 // FetchVLESS uses a real authenticated user, including for the limiter's
 // internal re-entry tests. Targets stay local; no public probe is required.
 func FetchVLESS(port int, target string) (string, error) {
+	return FetchVLESSUser(port, target, Users()[0].UUID)
+}
+
+// FetchVLESSUser verifies authentication with a specific user's UUID.
+func FetchVLESSUser(port int, target, userUUID string) (string, error) {
 	host, p, err := net.SplitHostPort(target)
 	if err != nil {
 		return "", err
@@ -33,7 +38,7 @@ func FetchVLESS(port int, target string) (string, error) {
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(3 * time.Second))
-	uuid, _ := hex.DecodeString(strings.ReplaceAll(Users()[0].UUID, "-", ""))
+	uuid, _ := hex.DecodeString(strings.ReplaceAll(userUUID, "-", ""))
 	header := append([]byte{0}, uuid...)
 	header = append(header, 0, 1, byte(destPort>>8), byte(destPort))
 	if ip := net.ParseIP(host); ip != nil {
