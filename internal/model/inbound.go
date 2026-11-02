@@ -146,7 +146,7 @@ type TransportSpec struct {
 	// balancer or relay in front (raw / ws / httpupgrade).
 	AcceptProxyProtocol bool `json:"acceptProxyProtocol,omitempty"`
 	// TrustedForwardedFor enables sanitized forwarding headers only on a
-	// protected loopback listener behind the managed Caddy front. Public
+	// protected loopback listener behind managed Caddy or local cloudflared. Public
 	// listeners must use the socket address even if these headers are forged.
 	TrustedForwardedFor []string `json:"trustedForwardedFor,omitempty"`
 }

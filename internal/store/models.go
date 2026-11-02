@@ -568,6 +568,8 @@ type CDNAddressCheckRuntime struct {
 
 // CDNProfile is a reusable CDN configuration.
 type CDNProfile struct {
+	OriginMode   string         `gorm:"size:16" json:"originMode"`                   // empty/direct or tunnel (externally managed cloudflared)
+	TunnelID     string         `gorm:"size:36" json:"tunnelId"`                     // public UUID, never a connector token
 	Scheme       string         `gorm:"size:8;not null;default:https" json:"scheme"` // client to CDN: http / https
 	ID           string         `gorm:"primaryKey;size:32" json:"id"`
 	Name         string         `gorm:"size:64;uniqueIndex" json:"name"`

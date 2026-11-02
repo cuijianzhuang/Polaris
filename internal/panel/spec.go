@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -195,6 +196,10 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		return nil, err
 	}
 	certCache := map[string]*store.Certificate{}
+	var tunnelInbounds []string
+	if err := s.st.DB.Table("endpoints").Joins("JOIN cdn_profiles ON cdn_profiles.id = endpoints.cdn_profile_id JOIN inbounds ON inbounds.id = endpoints.inbound_id").Where("inbounds.node_id = ? AND cdn_profiles.origin_mode = ?", node.ID, "tunnel").Distinct().Pluck("endpoints.inbound_id", &tunnelInbounds).Error; err != nil {
+		return nil, err
+	}
 	spec.IPLimits = map[string]int{}
 	limited := map[string]store.User{} // candidates for per-user speed limits
 	for i := range ins {
@@ -223,6 +228,15 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 			if c != nil {
 				m.Security.CertPEM = c.Cert
 				m.Security.KeyPEM = s.st.Box.MustOpen(c.Key)
+			}
+		}
+		if slices.Contains(tunnelInbounds, m.ID) {
+			if tunnel, err := s.inboundTunnel(&m, m.ID); err != nil {
+				return nil, err
+			} else if tunnel {
+				// cloudflared runs on this host and the origin is loopback-only.
+				// Cloudflare overwrites this visitor header at its edge.
+				m.Transport.TrustedForwardedFor = []string{"CF-Connecting-IP"}
 			}
 		}
 		for _, u := range users[m.ID] {
