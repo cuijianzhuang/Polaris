@@ -105,6 +105,8 @@ h3 { margin: 0; font-size: 15px; font-weight: 600; }
 /* cards & tables */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 20px 22px; box-shadow: var(--shadow-1); transition: box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease); }
 .card.flush { padding: 0; overflow: hidden; }
+/* Wide tables must remain reachable at tablet and desktop widths too. */
+.card.flush:has(> table) { overflow-x: auto; }
 .ctitle { font-weight: 600; font-size: 15px; letter-spacing: -.01em; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13.5px; }
@@ -241,13 +243,18 @@ textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono)
 .overlay.closing .drawer { animation: slide-out .17s var(--ease) both; }
 .overlay .modal { animation: pop-in .26s var(--ease-out) both; }
 .overlay.closing .modal { animation: pop-out .17s var(--ease) both; }
-.overlay.center { justify-content: center; align-items: flex-start; padding: 8vh 16px; overflow-y: auto; }
-.drawer { width: min(520px, 100%); height: 100%; background: var(--card); overflow-y: auto; padding: 24px 26px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 18px; box-shadow: -16px 0 48px -12px rgba(16, 24, 32, .22); }
+.overlay.center { --dialog-gap: min(8vh, 48px); justify-content: center; align-items: flex-start; padding: var(--dialog-gap) 16px; overflow-y: auto; }
+.drawer { --dialog-top: 24px; --dialog-bottom: 24px; --dialog-x: 26px; width: min(520px, 100%); height: 100%; background: var(--card); overflow-y: auto; padding: 24px 26px; border-left: 1px solid var(--line); display: flex; flex-direction: column; gap: 18px; box-shadow: -16px 0 48px -12px rgba(16, 24, 32, .22); }
 .drawer.wide { width: min(760px, 100%); }
-.modal { width: min(560px, 100%); background: var(--card); border-radius: 18px; border: 1px solid var(--line); padding: 24px; display: flex; flex-direction: column; gap: 16px; box-shadow: var(--shadow-3); }
+.modal { --dialog-top: 24px; --dialog-bottom: 24px; --dialog-x: 24px; max-height: calc(100dvh - 2 * var(--dialog-gap)); overflow-y: auto; width: min(560px, 100%); background: var(--card); border-radius: 18px; border: 1px solid var(--line); padding: 24px; display: flex; flex-direction: column; gap: 16px; box-shadow: var(--shadow-3); }
 .modal.wide { width: min(880px, 100%); }
 .modal.xwide { width: min(1180px, 100%); }
 .dhead { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.drawer > *, .modal > * { flex-shrink: 0; min-width: 0; }
+:is(.drawer, .modal) > .dhead { position: sticky; top: calc(-1 * var(--dialog-top)); z-index: 2; background: var(--card); margin: calc(-1 * var(--dialog-top)) calc(-1 * var(--dialog-x)) 0; padding: var(--dialog-top) var(--dialog-x) 14px; border-bottom: 1px solid var(--line); }
+.dhead h2 { min-width: 0; overflow-wrap: anywhere; }
+.dhead .icon-btn { flex: none; }
+:is(.drawer, .modal) > .dfoot { position: sticky; bottom: calc(-1 * var(--dialog-bottom)); z-index: 2; background: var(--card); margin-left: calc(-1 * var(--dialog-x)); margin-right: calc(-1 * var(--dialog-x)); margin-bottom: calc(-1 * var(--dialog-bottom)); padding: 14px var(--dialog-x) var(--dialog-bottom); border-top: 1px solid var(--line); }
 .dfoot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 100; display: flex; flex-direction: column; gap: 8px; }
 .toast { background: var(--ink); color: var(--on-ink); border-radius: 12px; font-weight: 500; padding: 11px 16px; font-size: 13px; max-width: 420px; box-shadow: var(--shadow-3); cursor: pointer; animation: toast-in .32s var(--ease-out) both; }
@@ -450,9 +457,9 @@ details.more[open] > div { animation: fade-up .25s var(--ease-out) both; }
   /* 16px inputs stop iOS Safari from zooming in on focus */
   .input, select.input, textarea.input, .tags input { font-size: 16px; }
   /* drawers and dialogs become full-height sheets */
-  .drawer, .drawer.wide { width: 100%; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
+  .drawer, .drawer.wide { --dialog-top: calc(16px + env(safe-area-inset-top)); --dialog-bottom: calc(16px + env(safe-area-inset-bottom)); --dialog-x: 16px; width: 100%; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
   .overlay.center { padding: 0; align-items: flex-end; }
-  .modal, .modal.wide, .modal.xwide { width: 100%; max-height: 92vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
+  .modal, .modal.wide, .modal.xwide { width: 100%; --dialog-top: 20px; --dialog-bottom: calc(20px + env(safe-area-inset-bottom)); --dialog-x: 16px; max-height: 92vh; max-height: 92dvh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom)); }
   .overlay .modal { animation: sheet-in .3s var(--ease-out) both; }
   .overlay.closing .modal { animation: sheet-out .17s var(--ease) both; }
   .dfoot .btn { flex: 1 1 auto; }
@@ -813,8 +820,8 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 /* DNS server rows */
 .dns-row { display: grid; grid-template-columns: 110px minmax(0, 1.3fr) minmax(0, 1.3fr) 130px auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 .dns-row.lbl { margin-bottom: 4px; }
-@media (max-width: 720px) {
-  .dns-row { grid-template-columns: 1fr 1fr; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+@media (max-width: 1100px) {
+  .dns-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .dns-row.lbl { display: none; }
   .dns-row > :nth-child(2), .dns-row > :nth-child(3) { grid-column: 1 / -1; }
 }
@@ -1021,7 +1028,7 @@ html[data-mode="dark"] .nm-tip-st.bad, html[data-mode="dark"] .nm-row-st.bad { c
 
 /* routing rule editor row */
 .form-grid.rule-draft { margin-top: 12px; grid-template-columns: 90px 150px minmax(0, 1fr) 160px auto; align-items: end; }
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .form-grid.rule-draft { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
   .form-grid.rule-draft > :nth-child(n + 3) { grid-column: 1 / -1; }
 }
@@ -1182,14 +1189,22 @@ html[data-mode] button.pv-card:hover { transform:none; }
   .appearance-heading { gap:10px; }
   .appearance-local { border:0;padding:0;background:none; }
 }
-@media (pointer:coarse) { .page-content input.input, .page-content select.input, .page-content textarea.input { font-size:16px;min-height:42px; } .appearance .accent-swatch, .appearance .seg .opt { min-height:44px; } }
+@media (pointer:coarse) {
+  :is(.page-content, .overlay, .login) :is(input.input, select.input, textarea.input) { font-size:16px;min-height:42px; }
+  .overlay .icon-btn { min-width:44px;min-height:44px; }
+  .overlay .dfoot .btn, .appearance .accent-swatch, .appearance .seg .opt { min-height:44px; }
+}
 .operational-overview > .grid { gap:0; }
 .operational-overview > .grid > .ops-summary { border:0;border-radius:0;padding:0 20px 0 0; }
 .operational-overview > .grid > .ops-summary + .ops-summary { border-left:1px solid var(--line);padding-left:20px; }
 .operational-overview > .grid > .ops-summary > b { font-size:12px;color:var(--mute);font-weight:500; }
 .operational-overview > .grid > .ops-summary > div { font-size:12px;line-height:1.9; }
-@media (max-width:1100px) and (min-width:761px) { .operational-overview > .grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
-@media (max-width:760px) {
+@media (min-width:761px) and (max-width:1100px) {
+  .page-content .form-grid:not(.rule-draft), .page-content .g2, .page-content .g3 { grid-template-columns:minmax(0,1fr); }
+  .page-content .g2 > *, .page-content .g3 > * { grid-column:auto !important; }
+}
+@media (max-width:1100px) {
+  .operational-overview > .grid { grid-template-columns:minmax(0,1fr); }
   .operational-overview > .grid > .ops-summary { padding:0 0 14px; }
   .operational-overview > .grid > .ops-summary + .ops-summary { border-left:0;border-top:1px solid var(--line);padding:14px 0; }
 }
@@ -1316,7 +1331,8 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
 }
 @media (max-width:760px) {
   .mtop-btn, .mtop .theme-btn, .side-close { width:44px;height:44px; }
-  .page-content .icon-btn { min-width:44px;min-height:44px; }
+  .page-content .icon-btn, .overlay .icon-btn { min-width:44px;min-height:44px; }
+  .overlay .dfoot .btn { min-height:44px; }
   .page-content input, .page-content textarea, .page-content select { scroll-margin-top:76px;scroll-margin-bottom:110px; }
   .settings-savebar { position:sticky;bottom:calc(68px + env(safe-area-inset-bottom));z-index:5;padding:12px 0 6px;box-shadow:0 -10px 16px -16px rgba(0,0,0,.35); }
   .settings-savebar > .row { justify-content:space-between; }
@@ -1329,7 +1345,6 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
    keep its trailing actions column pinned to the right edge so 编辑 / 删除
    stay in view while the data columns scroll under it. */
 @media (max-width: 760px) {
-  .card.flush:has(> table:not(.rtable)) { overflow-x: auto; }
   :is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tr > :last-child {
     position: sticky; right: 0; z-index: 1;
     background: var(--card);
@@ -1337,3 +1352,7 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
   }
   :is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tbody tr:hover > :last-child { background: var(--soft-2); }
 }
+
+/* Content-driven controls keep long labels readable without changing the theme. */
+.name-template-row > .field { flex: 1 1 320px; }
+.reminder-kinds { grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); }

@@ -41,9 +41,9 @@ export default function SubTemplates() {
       <SubSettings />
       <section className="card">
         <h2>{t('节点名称模板')}</h2>
-        <div className="row" style={{ marginTop: 12, alignItems: 'flex-end' }}>
+        <div className="row name-template-row" style={{ marginTop: 12, alignItems: 'flex-end' }}>
           <Field label={t('模板')} hint={t('变量：{flag} 旗帜 · {region} 地区 · {node} 节点名 · {protocol} 协议 · {tag} 入站标签 · {kind} 入口类型 · {rate} 流量倍率')}>
-            <input className="input mono" style={{ minWidth: 320 }} value={nameTpl} onChange={(e) => setNameTpl(e.target.value)} />
+            <input className="input mono" value={nameTpl} onChange={(e) => setNameTpl(e.target.value)} />
           </Field>
           <button className="btn" type="button" disabled={busy} onClick={() => run(() => put('/settings', { sub_name_template: nameTpl }), t('已保存'))}>{t('保存')}</button>
         </div>
