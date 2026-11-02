@@ -255,8 +255,10 @@ jobs:
       - run: npm run build
         working-directory: web
   passkeys:
-    # Playwright 1.56's browser/dependency packages support Ubuntu 24.04.
+    # Real server-backed tests; mocked UI workflows run separately.
+    # Playwright 1.56's browser packages support Ubuntu 24.04.
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -270,6 +272,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: web/scripts/browser-requirements.txt
+      - name: Cache Chromium and WebKit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu24-playwright-${{ hashFiles('web/scripts/browser-requirements.txt') }}-chromium-webkit
       - name: Build the actual admin UI
         working-directory: web
         run: |
@@ -277,52 +286,102 @@ jobs:
           npm run build
       - name: Install browser test dependencies
         run: |
-          python -m pip install playwright==1.56.0
+          python -m pip install -r web/scripts/browser-requirements.txt
           python -m playwright install --with-deps chromium webkit
+          echo "POLARIS_CHROMIUM_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
+      - name: Compile browser integration tests once
+        run: go test -c -o "$RUNNER_TEMP/polaris-browser.test" ./internal/panel
       - name: Real WebAuthn registration, replay rejection, revocation and recovery
+        working-directory: internal/panel
         env:
           POLARIS_PASSKEY_BROWSER_TEST: '1'
         run: |
-          export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-          go test -count=1 -v ./internal/panel -run '^TestLivePasskeyBrowser$'
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePasskeyBrowser$'
       - name: User portal Telegram login and poll keep CSRF protection
+        working-directory: internal/panel
         env:
           POLARIS_PORTAL_BROWSER_TEST: '1'
         run: |
-          export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-          go test -count=1 -v ./internal/panel -run '^TestLivePortalTelegramBrowser$'
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePortalTelegramBrowser$'
       - name: Personal CDN addresses and regional subscription selection
+        working-directory: internal/panel
         env:
           POLARIS_PORTAL_CDN_BROWSER_TEST: '1'
         run: |
-          export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-          go test -count=1 -v ./internal/panel -run '^TestLivePortalCDNBrowser$'
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePortalCDNBrowser$'
       - name: Every admin page loads in a real browser (desktop, phone, English)
+        working-directory: internal/panel
         env:
           POLARIS_PAGES_BROWSER_TEST: '1'
         run: |
-          export POLARIS_CHROMIUM_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-          go test -count=1 -v ./internal/panel -run '^TestLiveAdminPagesBrowser$'
-      - name: Probe, appearance and settings workflows in Chromium and WebKit
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLiveAdminPagesBrowser$'
+  browser-ui:
+    name: browser-ui (${{ matrix.suite }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: settings
+            scripts: >-
+              probe-refresh-ui-smoke.py appearance-ui-smoke.py
+              settings-workflow-smoke.py restore-drill-ui-smoke.py admin-roles-ui-smoke.py
+          - suite: cdn-addresses
+            scripts: >-
+              cdn-address-tools-ui-smoke.py cdn-schedule-ui-smoke.py
+              cdn-domains-ui-smoke.py cdn-check-ports-ui-smoke.py
+          - suite: cdn-tunnels
+            scripts: >-
+              cdn-tunnel-ui-smoke.py cdn-tunnel-agent-ui-smoke.py
+              cdn-tunnel-remote-ui-smoke.py cdn-scheme-ui-smoke.py
+          - suite: nodes-users
+            scripts: >-
+              rollout-result-ui-smoke.py nodes-browser-ui-smoke.py
+              user-online-ui-smoke.py user-state-ui-smoke.py
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: web/scripts/browser-requirements.txt
+      - name: Cache Chromium and WebKit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu24-playwright-${{ hashFiles('web/scripts/browser-requirements.txt') }}-chromium-webkit
+      - name: Install UI and browser dependencies
         run: |
-          npm --prefix web run dev -- --host 127.0.0.1 --port 5187 > /tmp/probe-vite.log 2>&1 &
-          probe_server_pid=$!
-          trap 'kill "$probe_server_pid"' EXIT
-          curl --retry 20 --retry-connrefused --retry-delay 1 -fsS http://127.0.0.1:5187/ > /dev/null
-          python web/scripts/probe-refresh-ui-smoke.py
-          python web/scripts/appearance-ui-smoke.py
-          python web/scripts/settings-workflow-smoke.py
-          python web/scripts/restore-drill-ui-smoke.py
-          python web/scripts/admin-roles-ui-smoke.py
-          python web/scripts/cdn-address-tools-ui-smoke.py
-          python web/scripts/cdn-schedule-ui-smoke.py
-          python web/scripts/cdn-tunnel-ui-smoke.py
-          python web/scripts/cdn-tunnel-agent-ui-smoke.py
-          python web/scripts/cdn-tunnel-remote-ui-smoke.py
-          python web/scripts/cdn-domains-ui-smoke.py
-          python web/scripts/cdn-scheme-ui-smoke.py
-          python web/scripts/cdn-check-ports-ui-smoke.py
-          python web/scripts/rollout-result-ui-smoke.py
-          python web/scripts/nodes-browser-ui-smoke.py
-          python web/scripts/user-online-ui-smoke.py
-          python web/scripts/user-state-ui-smoke.py
+          npm --prefix web ci --no-audit --no-fund
+          python -m pip install -r web/scripts/browser-requirements.txt
+          python -m playwright install --with-deps chromium webkit
+          echo "POLARIS_CHROMIUM_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
+      - name: Run ${{ matrix.suite }} workflows in Chromium and WebKit
+        env:
+          BROWSER_TEST_SCRIPTS: ${{ matrix.scripts }}
+          POLARIS_WEB_TEST_URL: http://127.0.0.1:5187
+        run: |
+          set -euo pipefail
+          npm --prefix web run dev -- --host 127.0.0.1 --port 5187 --strictPort > /tmp/browser-vite.log 2>&1 &
+          browser_server_pid=$!
+          trap 'kill "$browser_server_pid" 2>/dev/null || true' EXIT
+          curl --retry 20 --retry-connrefused --retry-delay 1 -fsS "$POLARIS_WEB_TEST_URL/" > /dev/null
+          printf '| Script | Seconds | Result |\n| --- | ---: | --- |\n' >> "$GITHUB_STEP_SUMMARY"
+          for script in $BROWSER_TEST_SCRIPTS; do
+            echo "::group::$script"
+            script_started=$SECONDS
+            if python "web/scripts/$script"; then
+              printf '| %s | %s | passed |\n' "$script" "$((SECONDS-script_started))" >> "$GITHUB_STEP_SUMMARY"
+            else
+              script_exit=$?
+              printf '| %s | %s | failed |\n' "$script" "$((SECONDS-script_started))" >> "$GITHUB_STEP_SUMMARY"
+              exit "$script_exit"
+            fi
+            echo "::endgroup::"
+          done
