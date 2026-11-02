@@ -168,7 +168,7 @@ function ReminderTemplates() {
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <h2>{t('提醒文案')}</h2>
       <div className="sub" style={{ margin: 0 }}>{t('自定义发给用户的提醒与状态通知；留空使用内置文案。变量会按每个用户替换：')}{tplVars.map((v) => <code key={v} style={{ marginRight: 6 }}>{'{' + v + '}'}</code>)}</div>
-      <div className="seg" style={{ gridTemplateColumns: `repeat(${tplKinds.length}, minmax(0, 1fr))` }}>
+      <div className="seg reminder-kinds">
         {tplKinds.map((tk) => <button key={tk.k} type="button" className={'opt' + (kind === tk.k ? ' on' : '')} onClick={() => setKind(tk.k)}>{tk.label}{f[tk.k]?.trim() ? <small>{t('已自定义')}</small> : <small>{t('内置')}</small>}</button>)}
       </div>
       <textarea className="input" style={{ minHeight: 90 }} value={text} placeholder={cur.ph} onChange={(e) => setF({ ...f, [kind]: e.target.value })} />
