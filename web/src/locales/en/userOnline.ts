@@ -1,4 +1,8 @@
 export default {
+ '启用用户 {name}': 'Enable user {name}',
+ '用户状态已更新，等待节点同步': 'User state updated; waiting for node sync',
+ '开关控制手动启用；到期和流量限制仍然生效': 'The switch controls manual availability; expiry and traffic limits still apply',
+
   '未识别': 'Unknown',
   '近期活跃': 'Recently active',
   '在线 / 活跃': 'Online / active',

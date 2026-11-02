@@ -1,5 +1,5 @@
 // Package singbox adapts sing-box (>= 1.11 config format). sing-box has no
-// public user-management API, so user changes fall back to a SIGHUP reload.
+// public user-management API, so user changes use a supervised restart.
 // Per-user traffic comes from the v2ray_api stats service, which requires a
 // build with the with_v2ray_api tag. Official builds lack it but ship the
 // Clash API, which still yields inbound / outbound totals (see clashapi.go).
@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
@@ -775,26 +774,19 @@ func (a *Adapter) Stop(ctx context.Context) error {
 	return a.proc.Stop(ctx)
 }
 
-// Reload asks sing-box to re-read its config via SIGHUP, starting it if needed.
+// Reload replaces the process synchronously. SIGHUP closes the whole box
+// asynchronously; a live PID can still be closing its old listeners or failing
+// to start the new box. That is not an acknowledgment of the new user list.
+// Stop waits for the old process (and its log callbacks), and Start reports
+// startup failures so the Agent can roll back instead of acknowledging them.
 func (a *Adapter) Reload(ctx context.Context) error {
 	if a.proc == nil {
 		return fmt.Errorf("sing-box binary not configured")
 	}
-	if !a.proc.Running() {
-		return a.Start(ctx)
+	if err := a.Stop(ctx); err != nil {
+		return err
 	}
-	a.mu.Lock()
-	dedicated := len(a.snellOwners) > 0 || len(a.pendingSnellOwners) > 0
-	a.mu.Unlock()
-	if dedicated {
-		// The Agent drained counters under the old ownership map first.
-		// A synchronous stop prevents attributing old-process bytes to a new owner.
-		if err := a.proc.Stop(ctx); err != nil {
-			return err
-		}
-		return a.Start(ctx)
-	}
-	return a.proc.Signal(syscall.SIGHUP)
+	return a.Start(ctx)
 }
 
 func (a *Adapter) AddUsers(context.Context, string, []model.User) error { return core.ErrNotSupported }

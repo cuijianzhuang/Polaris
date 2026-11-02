@@ -330,6 +330,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/users/:id/devices/:did", s.deleteDevice)
 	p.GET("/users/:id", s.getUser)
 	p.PUT("/users/:id", s.updateUser)
+	p.PUT("/users/:id/state", s.setUserState)
 	p.DELETE("/users/:id", s.deleteUser)
 	p.POST("/users/:id/reset-traffic", s.resetUserTraffic)
 	p.POST("/users/:id/renew", s.renewUser)

@@ -122,7 +122,7 @@ func TestSnellRejectedConfigCannotChangeRestartOwnership(t *testing.T) {
 		t.Fatal("manual restart stole old ownership", a.snellOwners, e)
 	}
 	// A normal userkey config needs no PSK ownership map, even if a rejected
-	// PSK draft remains pending after prior SIGHUP-only routing changes.
+	// PSK draft remains pending after earlier routing changes.
 	os.WriteFile(a.configPath(), []byte(`{"inbounds":[{"type":"snell","users":[{"name":"u1","userkey":"key"}]}]}`), 0600)
 	if e = a.activateSnellOwners(); e != nil || len(a.snellOwners) != 0 {
 		t.Fatal("ordinary userkey restart rejected", e)

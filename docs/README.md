@@ -27,6 +27,7 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [用户启用、禁用与连接排查](operations/user-availability.md) | 独立开关、节点应用状态、内核重载和共享链路排查 |
 | [后台账号与角色](operations/admin-roles.md) | 超级管理员、节点运维、只读运维、客服、财务只读的权限范围 |
 | [付款恢复、退款和运行健康](operations/recovery-and-health.md) | 在线订单的补单、退款流程和运行健康检查 |
 

@@ -322,3 +322,4 @@ jobs:
           python web/scripts/rollout-result-ui-smoke.py
           python web/scripts/nodes-browser-ui-smoke.py
           python web/scripts/user-online-ui-smoke.py
+          python web/scripts/user-state-ui-smoke.py

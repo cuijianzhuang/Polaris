@@ -131,6 +131,25 @@ func commandUserView(c *gin.Context, u *store.User) any {
 	return gin.H{"id": u.ID, "username": u.Username, "status": u.Status, "planId": u.PlanID, "trafficLimit": u.TrafficLimit, "usedUp": u.UsedUp, "usedDown": u.UsedDown, "expireAt": u.ExpireAt, "expireAfterDays": u.ExpireAfterDays}
 }
 
+// PUT /users/:id/state changes only manual availability, leaving credentials,
+// entitlements and other users untouched. Quota/expiry limits still apply.
+func (s *Server) setUserState(c *gin.Context) {
+	var req struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Enabled == nil {
+		badRequest(c, errors.New("请提供 enabled"))
+		return
+	}
+	s.userCommand(c, "user.state", func(tx *gorm.DB, u *store.User, now time.Time) (string, error) {
+		u.Status = "disabled"
+		if *req.Enabled {
+			u.Status = "active"
+		}
+		return fmt.Sprintf("enabled=%t", *req.Enabled), nil
+	})
+}
+
 // POST /users/:id/renew: expired accounts start from now; first-use accounts
 // gain days in their unstarted period; unlimited accounts remain unlimited.
 func (s *Server) renewUser(c *gin.Context) {
@@ -217,6 +236,8 @@ func (s *Server) addUserTraffic(c *gin.Context) {
 func commandBusinessEvent(action string, user *store.User, detail string) *Event {
 	e := &Event{UserID: user.ID, Data: map[string]any{"user": userBrief(user), "detail": detail}}
 	switch action {
+	case "user.state":
+		e.Kind = "user.updated"
 	case "user.pack", "user.add_traffic":
 		e.Kind = "user.traffic_added"
 	case "user.plan":

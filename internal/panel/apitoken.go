@@ -69,6 +69,7 @@ var tokenRoutes = map[string]string{
 	"POST /users":                         ScopeUsersWrite,
 	"POST /users/bulk":                    ScopeUsersWrite,
 	"PUT /users/:id":                      ScopeUsersWrite,
+	"PUT /users/:id/state":                ScopeUsersWrite,
 	"DELETE /users/:id":                   ScopeUsersWrite,
 	"PUT /users/:id/traffic":              ScopeUsersWrite,
 	"POST /users/:id/reset-traffic":       ScopeUsersWrite,
