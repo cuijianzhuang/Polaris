@@ -63,13 +63,18 @@ type CDNRegionChoice struct {
 	Name string
 }
 type CDNProfileChoice struct {
-	ID        string
-	Name      string
-	Scheme    string
-	Port      int
-	Enabled   bool
-	Addresses string
-	Selection string
+	ID             string
+	Name           string
+	Scheme         string
+	Port           int
+	Enabled        bool
+	Addresses      string
+	Selection      string
+	PoolJSON       string
+	PortsJSON      string
+	ProbeSupported bool
+	ProbePrefix    string
+	ProbePort      int
 }
 
 type Info struct {

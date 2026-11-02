@@ -27,6 +27,8 @@
 
 | 文档 | 内容 |
 | --- | --- |
+| [个人 CDN 优选地址池](operations/personal-cdn-pool.md) | 用户手动维护、官方测速接入、个人上报令牌与公共池兜底 |
+| [公共 CDN 固定地址与来源维护](operations/cdn-preferred-domains.md) | 固定／自动地址、配置保存时保留最新测速结果与订阅筛选 |
 | [用户启用、禁用与连接排查](operations/user-availability.md) | 独立开关、节点应用状态、内核重载和共享链路排查 |
 | [后台账号与角色](operations/admin-roles.md) | 超级管理员、节点运维、只读运维、客服、财务只读的权限范围 |
 | [付款恢复、退款和运行健康](operations/recovery-and-health.md) | 在线订单的补单、退款流程和运行健康检查 |

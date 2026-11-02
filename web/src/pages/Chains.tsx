@@ -141,8 +141,11 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
     scheme: cdnScheme(profile), name: profile?.name ?? '', provider: profile?.provider ?? 'cloudflare', originDomain: profile?.originDomain ?? '', tlsMode: profile?.tlsMode ?? 'full_strict',
     ports: (profile?.ports ?? cdnPorts(cdnScheme(profile))).join(', '), preferredIps: toLines(profile?.preferredIps.filter((a) => !(profile.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(profile?.pinnedHosts), ipSourceUrl: profile?.ipSourceUrl ?? '',
     ipTopN: String(profile?.ipTopN ?? 0), expandPerIp: profile?.expandPerIp ?? false, autoDns: profile?.autoDns ?? false, caddyFronting: profile?.caddyFronting ?? false, apiToken: '',
-    nodeCheck: profile?.nodeCheck ?? false, staleHours: String(profile?.staleHours || 24), carrierSplit: profile?.carrierSplit ?? false, regionSplit: profile?.regionSplit ?? false,
+    nodeCheck: profile?.nodeCheck ?? false, staleHours: String(profile?.staleHours ?? 24), carrierSplit: profile?.carrierSplit ?? false, regionSplit: profile?.regionSplit ?? false,
   })
+  const [automaticEdited, setAutomaticEdited] = useState(false)
+  const fixedCount = new Set(fromLines(f.pinnedHosts)).size
+  const automaticCount = new Set(fromLines(f.preferredIps)).size
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v }))
   const { busy, run } = useAction()
   // Profiles to copy preferred IPs from: those that have any.
@@ -151,13 +154,13 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
     const o = sources.find((x) => x.id === id)
     // Copy retained addresses separately; source domains come from the copied URL.
     const isIP = (a: string) => /^[\d.]+$/.test(a) || a.includes(':')
-    if (o) setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps.filter((a) => isIP(a) && !(o.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(o.pinnedHosts), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp }))
+    if (o) { setAutomaticEdited(true); setF((x) => ({ ...x, preferredIps: toLines(o.preferredIps.filter((a) => isIP(a) && !(o.pinnedHosts ?? []).includes(a))), pinnedHosts: toLines(o.pinnedHosts), ipSourceUrl: o.ipSourceUrl, ipTopN: String(o.ipTopN || 0), expandPerIp: o.expandPerIp })) }
   }
   return (
     <Drawer title={profile ? t('CDN 配置档 · {name}', { name: profile.name }) : t('新建 CDN 配置档')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
       <button className="btn pri" type="button" disabled={busy || !f.name || !f.originDomain} onClick={() => run(async () => {
-        const body = { ...f, ports: f.ports.split(/[,\s]+/).map(Number).filter(Boolean), preferredIps: fromLines(f.preferredIps), pinnedHosts: fromLines(f.pinnedHosts), ipTopN: Number(f.ipTopN) || 0, staleHours: Number(f.staleHours) || 0 }
+        const body = { ...f, ports: f.ports.split(/[,\s]+/).map(Number).filter(Boolean), preferredIps: !profile || automaticEdited ? fromLines(f.preferredIps) : undefined, pinnedHosts: fromLines(f.pinnedHosts), ipTopN: Number(f.ipTopN) || 0, staleHours: Number(f.staleHours) || 0 }
         if (profile) await put('/cdn-profiles/' + profile.id, body)
         else await post('/cdn-profiles', body)
         onSaved()
@@ -199,11 +202,29 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
             {sources.map((o) => <option key={o.id} value={o.id}>{o.name}（{t('{n} 个 IP', { n: o.preferredIps.length })}{o.ipSourceUrl ? ' · ' + t('有来源 URL') : ''}）</option>)}
           </select>
         </Field>}
-        <Field label={t('优选 IP 来源 URL')} full hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} /></Field>
-        <Field label={t('固定优选地址（IP / 域名）')} htmlFor="cdn-pinned-hosts" full hint={t('一行一个公网 IP 或完整域名，不带协议、端口或路径。自动刷新会保留；启用订阅展开后，追加到前 N 个自动地址之后，不占用 N 的名额。')}><textarea id="cdn-pinned-hosts" className="input mono" style={{ minHeight: 80 }} value={f.pinnedHosts} onChange={(e) => set('pinnedHosts', e.target.value)} placeholder={'104.16.1.1\n2606:4700::1\nbest.example.com'} /></Field>
-        <Field label={t('临时优选地址')} htmlFor="cdn-preferred-ips" full hint={t('一行一个 IP 或来源域名，不带端口。测速点上报或来源 URL 刷新会替换；需要长期保留的 IP 或域名请填到「固定优选地址」。')}><textarea id="cdn-preferred-ips" className="input mono" style={{ minHeight: 80 }} value={f.preferredIps} onChange={(e) => set('preferredIps', e.target.value)} /></Field>
-        <Field label={t('订阅取前 N 个')} hint={t('0 为全部')}><input className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
-        <Field label={t('测速点多久没上报就告警（小时）')} hint={t('只在有测速点上报过时生效；过期后遵循地址策略')}><input className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
+        <section className="cdn-editor-section" aria-label={t('公共优选地址池')}>
+          <div className="cdn-editor-heading"><h3>{t('公共优选地址池')}</h3><span className="sub">{t('{fixed} 个固定 · {automatic} 个自动／临时', { fixed: fixedCount, automatic: automaticCount })}</span></div>
+          <p className="hint">{t('此处维护配置档的公共地址。用户可在用户中心维护个人池；个人池无可用地址时使用这里的公共池。')}</p>
+          <div className="toggle"><span>{t('订阅按优选 IP 展开（一个 IP 一个节点）')}</span><Switch label={t('展开')} on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
+          {!f.expandPerIp && <p className="note warn" role="status">{t('尚未开启订阅展开，下面的地址会保存，但当前订阅仍使用入口指定地址或回源域名。')}</p>}
+          <Field label={t('固定优选地址（IP / 域名）')} htmlFor="cdn-pinned-hosts" hint={t('手动长期保留，一行一个公网 IP 或完整域名，不带协议、端口或路径。来源刷新和测速上报不会覆盖。')}>
+            <textarea id="cdn-pinned-hosts" className="input mono" rows={6} value={f.pinnedHosts} onChange={(e) => set('pinnedHosts', e.target.value)} placeholder={'104.16.1.1\n2606:4700::1\nbest.example.com'} />
+          </Field>
+          <div className="cdn-editor-divider"><h3>{t('自动来源与临时地址')}</h3><p className="hint">{t('来源 URL 和测速点会更新这部分地址。需要保留的地址请移入上方固定列表。')}</p></div>
+          <Field label={t('优选 IP 来源 URL')} htmlFor="cdn-ip-source" hint={t('每 6 小时拉取；每行一个 IP 或域名，支持 ip:port / CSV')}><input id="cdn-ip-source" type="url" className="input mono" value={f.ipSourceUrl} onChange={(e) => set('ipSourceUrl', e.target.value)} placeholder="https://example.com/addresses.txt" /></Field>
+          <Field label={t('临时优选地址')} htmlFor="cdn-preferred-ips" hint={t('未编辑时，保存配置会保留服务器最新测速结果；手动修改后会替换当前自动列表，之后仍可能被来源刷新或测速上报替换。')}>
+            <textarea id="cdn-preferred-ips" className="input mono" rows={5} value={f.preferredIps} onChange={(e) => { setAutomaticEdited(true); set('preferredIps', e.target.value) }} />
+          </Field>
+          <div className="cdn-editor-actions"><span className="hint">{automaticEdited ? t('自动列表已编辑，保存后替换当前内容。') : t('自动列表未编辑，保存时保留服务器最新内容。')}</span><button className="btn sm" type="button" disabled={!automaticCount} onClick={() => {
+            setF((x) => ({ ...x, pinnedHosts: toLines([...new Set([...fromLines(x.pinnedHosts), ...fromLines(x.preferredIps)])]), preferredIps: '' }))
+            setAutomaticEdited(true)
+          }}>{t('全部转为固定地址')}</button></div>
+          <div className="form-grid">
+            <Field label={t('订阅取前 N 个')} htmlFor="cdn-top-n" hint={t('只限制自动地址，0 为全部；固定地址不占名额。')}><input id="cdn-top-n" type="number" min={0} step={1} className="input mono" value={f.ipTopN} onChange={(e) => set('ipTopN', e.target.value)} /></Field>
+            <Field label={t('测速点多久没上报就告警（小时）')} htmlFor="cdn-stale-hours" hint={t('只在有测速点上报过时生效；过期后遵循地址策略')}><input id="cdn-stale-hours" type="number" min={0} max={720} step={1} className="input mono" value={f.staleHours} onChange={(e) => set('staleHours', e.target.value)} /></Field>
+          </div>
+          <p className="hint">{t('公共池订阅顺序：通过筛选的前 N 个自动地址，再追加全部固定地址；禁用或检测失败的地址会过滤。入口已指定连接地址时，继续使用入口设置。')}</p>
+        </section>
       </div>
       <div className="toggle"><span>{t('节点检测：每 30 分钟由在线节点连接各优选 IP，所有节点都连不上的不放进订阅')}</span><Switch label={t('节点检测')} on={f.nodeCheck} onChange={(v) => set('nodeCheck', v)} /></div>
       <Field label={t('优选地址分配')} hint={t('用户个人列表优先；共享结果按所选方式匹配。地区无结果时先回退同运营商，最后使用合并列表。')}>
@@ -211,7 +232,6 @@ function CDNDrawer({ profile, others = [], onClose, onSaved }: { profile?: CDNPr
           <option value="merged">{t('合并列表')}</option><option value="carrier">{t('按运营商')}</option><option value="region">{t('按省份／地区＋运营商')}</option>
         </select>
       </Field>
-      <div className="toggle"><span>{t('订阅按优选 IP 展开（一个 IP 一个节点）')}</span><Switch label={t('展开')} on={f.expandPerIp} onChange={(v) => set('expandPerIp', v)} /></div>
       {f.originMode === 'tunnel' && <p className="note small">{t('当前支持 WS、HTTPS 443 和同机回源。入站需监听 127.0.0.1 并关闭 TLS；优选 IP 仍可使用。隧道隐藏回源入口，不改变出口 IP，也不能保证域名或连接不被阻断。')}</p>}
       <div className="toggle"><span>{f.originMode === 'tunnel' ? t('自动同步隧道 DNS：把入口域名指向 Tunnel，不写入 VPS IP，不修改域名 SSL 模式。') : t('自动同步 DNS 记录（开启代理）：需要 API Token；新加 CDN 入口时和每 6 小时把记录指向节点 IP，不改 SSL 模式和证书')}</span><Switch label="DNS" on={f.autoDns} onChange={(v) => set('autoDns', v)} /></div>
       {f.originMode !== 'tunnel' && <div className="toggle"><span>{t('Agent 内置 Caddy 统一回源（多个 WS/gRPC/HTTPUpgrade 入站共享第一个端口，按路径分流；入站需开 TLS；该端口被其他入站占用时不生效）')}</span><Switch label="Caddy" disabled={f.scheme === 'http'} on={f.caddyFronting} onChange={(v) => set('caddyFronting', v)} /></div>}

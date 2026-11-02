@@ -119,6 +119,7 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/carrier", s.portalGate(decoy, s.portalCarrier))
 		r.POST(portalPath+"/region", s.portalGate(decoy, s.portalRegion))
 		r.POST(portalPath+"/cdn-preferences", s.portalGate(decoy, s.portalCDNPreferences))
+		r.POST(portalPath+"/cdn-pool", s.portalGate(decoy, s.portalCDNPool))
 		r.POST(portalPath+"/email/code", s.portalGate(decoy, s.portalMailCode))
 		r.GET(portalPath+"/forwards", s.portalGate(decoy, s.portalForwards))
 		r.POST(portalPath+"/forwards", s.portalGate(decoy, s.portalForwardCreate))

@@ -38,7 +38,7 @@ func (s *Server) cdnProbes(ids []string) map[string][]cdnProbeView {
 		return out
 	}
 	var ts []store.APIToken
-	s.st.DB.Where("cdn_profile_id IN ?", ids).Order("cdn_source").Find(&ts)
+	s.st.DB.Where("cdn_profile_id IN ? AND (cdn_user_id = ? OR cdn_user_id IS NULL)", ids, "").Order("cdn_source").Find(&ts)
 	for _, t := range ts {
 		out[t.CDNProfileID] = append(out[t.CDNProfileID], cdnProbeView{Region: t.CDNRegion, Port: t.CDNPort, Source: t.CDNSource, TokenID: t.ID, Prefix: t.Prefix,
 			CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, LastIP: t.LastIP})
@@ -101,7 +101,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		if req.Port < 1 || req.Port > 65535 || (p.Provider == "cloudflare" && !slices.Contains(cdnClientPorts(&p), req.Port)) {
 			return cdnSchemeProblem("测速端口不属于当前 CDN 协议的可用端口")
 		}
-		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ?", p.ID, source).Delete(&store.APIToken{}).Error; err != nil {
+		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ? AND (cdn_user_id = ? OR cdn_user_id IS NULL)", p.ID, source, "").Delete(&store.APIToken{}).Error; err != nil {
 			return err
 		}
 		t, sec, err := s.issueAPITokenIn(tx, name, "", []string{ScopeCDNIPs}, 0, c.GetString("admin"), func(t *store.APIToken) {

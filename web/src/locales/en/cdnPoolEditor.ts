@@ -1,0 +1,15 @@
+export default {
+  "公共优选地址池": "Public preferred address pool",
+  "{fixed} 个固定 · {automatic} 个自动／临时": "{fixed} fixed · {automatic} automatic / temporary",
+  "此处维护配置档的公共地址。用户可在用户中心维护个人池；个人池无可用地址时使用这里的公共池。": "Manage shared addresses for this profile here. Users can manage personal pools in the user center; this public pool is used when their personal pool has no usable addresses.",
+  "尚未开启订阅展开，下面的地址会保存，但当前订阅仍使用入口指定地址或回源域名。": "Subscription expansion is off. These addresses will be saved; subscriptions currently use the entry address or origin domain.",
+  "手动长期保留，一行一个公网 IP 或完整域名，不带协议、端口或路径。来源刷新和测速上报不会覆盖。": "Keep these addresses permanently. One public IP or full domain per line, without a scheme, port or path. Source refreshes and probe reports preserve them.",
+  "自动来源与临时地址": "Automatic sources and temporary addresses",
+  "来源 URL 和测速点会更新这部分地址。需要保留的地址请移入上方固定列表。": "Source URLs and probes update these addresses. Move addresses to the fixed list above to retain them.",
+  "未编辑时，保存配置会保留服务器最新测速结果；手动修改后会替换当前自动列表，之后仍可能被来源刷新或测速上报替换。": "Saving without editing this list preserves the latest server results. Editing replaces the current automatic list, which later source refreshes and probe reports may replace again.",
+  "自动列表已编辑，保存后替换当前内容。": "Automatic list edited. Saving will replace its current contents.",
+  "自动列表未编辑，保存时保留服务器最新内容。": "Automatic list unchanged. Saving preserves the latest server contents.",
+  "全部转为固定地址": "Move all to fixed addresses",
+  "只限制自动地址，0 为全部；固定地址不占名额。": "Limits automatic addresses only. 0 includes all; fixed addresses do not count toward the limit.",
+  "公共池订阅顺序：通过筛选的前 N 个自动地址，再追加全部固定地址；禁用或检测失败的地址会过滤。入口已指定连接地址时，继续使用入口设置。": "Public pool order: the first N eligible automatic addresses, followed by all eligible fixed addresses. Disabled or failed addresses are filtered out. Entries with an explicit connection address keep their entry settings.",
+}

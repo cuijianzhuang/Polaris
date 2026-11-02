@@ -220,3 +220,53 @@ func TestCDNFixedIPsAndDomains(t *testing.T) {
 		t.Fatal("explicit clear kept old pins", get().PreferredIPs.V)
 	}
 }
+
+// Saving other profile settings must use the report list current at commit time.
+// Omitted and explicit empty lists have different meanings after normalization.
+func TestCDNEditorPreservesUneditedAutomaticResults(t *testing.T) {
+	s, _, admin := newAdminClient(t)
+	body := map[string]any{"name": "editor", "originDomain": "cdn.example.com", "provider": "cloudflare", "preferredIps": []string{"104.16.1.1"}, "pinnedHosts": []string{"keep.example.com"}, "expandPerIp": true}
+	code, out := admin.do("POST", "/cdn-profiles", body)
+	if code != 201 {
+		t.Fatal(code, out)
+	}
+	id := out["id"].(string)
+	// The editor is open when another speed-test result is received.
+	if code, out := admin.do("POST", "/cdn-profiles/"+id+"/preferred-ips", map[string]any{"source": "editor-test", "ips": []map[string]any{{"ip": "104.17.2.2"}}}); code != 200 {
+		t.Fatal(code, out)
+	}
+	delete(body, "preferredIps")
+	body["name"] = "renamed"
+	body["pinnedHosts"] = []string{"keep.example.com", "104.18.3.3"}
+	for _, nullList := range []bool{false, true} {
+		if nullList {
+			body["preferredIps"] = nil
+		}
+		if code, out := admin.do("PUT", "/cdn-profiles/"+id, body); code != 200 {
+			t.Fatal(code, out)
+		}
+		var p store.CDNProfile
+		s.st.DB.First(&p, "id = ?", id)
+		if fmt.Sprint(p.PreferredIPs.V) != "[104.17.2.2 keep.example.com 104.18.3.3]" || p.Name != "renamed" {
+			t.Fatal("editor overwrote latest results", p.PreferredIPs.V)
+		}
+	}
+	// An intentional clear still works and preserves explicitly submitted pins.
+	body["preferredIps"] = []string{}
+	if code, out := admin.do("PUT", "/cdn-profiles/"+id, body); code != 200 {
+		t.Fatal(code, out)
+	}
+	var p store.CDNProfile
+	s.st.DB.First(&p, "id = ?", id)
+	if fmt.Sprint(p.PreferredIPs.V) != "[keep.example.com 104.18.3.3]" {
+		t.Fatal("explicit clear ignored", p.PreferredIPs.V)
+	}
+	body["preferredIps"] = []string{"104.19.4.4"}
+	if code, out := admin.do("PUT", "/cdn-profiles/"+id, body); code != 200 {
+		t.Fatal(code, out)
+	}
+	s.st.DB.First(&p, "id = ?", id)
+	if fmt.Sprint(p.PreferredIPs.V) != "[104.19.4.4 keep.example.com 104.18.3.3]" {
+		t.Fatal("intentional edit ignored", p.PreferredIPs.V)
+	}
+}

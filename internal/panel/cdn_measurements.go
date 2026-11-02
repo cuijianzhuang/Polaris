@@ -112,14 +112,27 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 		}
 		return slices.DeleteFunc(slices.Clone(ips), func(a string) bool { return !keep(a) })
 	}
-	if len(audience) > 0 && len(audience[0].Personal[p.ID]) > 0 {
-		return filter(usableCDNIPsAt(p, audience[0].Personal[p.ID], port))
+	if len(audience) > 0 {
+		personal := personalCDNAddresses(audience[0], p.ID, port)
+		if ips := usableCDNIPsAt(p, filter(personal), port); len(ips) > 0 {
+			return ips
+		}
 	}
-	ips := s.cdnAudienceIPs(p, port, carrier, audienceRegion(audience))
-	if ips == nil {
-		ips = s.cdnIPsForPort(p, port)
+	originalKeep := keep
+	keep = func(a string) bool {
+		if originalKeep != nil && !originalKeep(a) {
+			return false
+		}
+		return len(audience) == 0 || personalCDNAllowed(audience[0].Pools[p.ID], a, port)
 	}
-	ips = filter(ips)
+	// Apply exact-entry diagnostics to raw candidates before node filtering,
+	// so a known failure still suppresses origin fallback when all nodes fail.
+	reports, _ := s.cdnAudienceReports(p, port, carrier, audienceRegion(audience))
+	ips := s.cdnAddressesForPort(p, port)
+	if len(reports) > 0 {
+		ips = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
+	}
+	ips = usableCDNIPsAt(p, filter(ips), port)
 	if p.IPTopN > 0 {
 		var automatic, pinned []string
 		for _, a := range ips {
@@ -146,8 +159,5 @@ func usableCDNIPsAt(p *store.CDNProfile, list []string, port int) []string {
 		bad = p.BadIPs.V
 	}
 	out := slices.DeleteFunc(slices.Clone(list), func(ip string) bool { return slices.Contains(bad, ip) })
-	if len(out) == 0 {
-		return list
-	} // preserve the existing all-unreachable fallback
 	return out
 }

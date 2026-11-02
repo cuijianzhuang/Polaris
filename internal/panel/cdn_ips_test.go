@@ -184,14 +184,14 @@ func TestCDNIPsNodeCheck(t *testing.T) {
 	stop1()
 	stop2()
 
-	// Nothing reachable: keep every IP.
+	// Nothing reachable: every failed IP stays out of subscriptions.
 	stop1 = fakeProber(t, s, "n1", map[string]string{})
 	defer stop1()
 	s.st.DB.Model(&store.Node{}).Where("id = ?", "n2").Update("status", "offline")
 	s.checkCDNIPsFromNodes()
 	s.st.DB.First(&p, "id = ?", "cf")
-	if len(p.BadIPs.V) != 0 || len(usableCDNIPs(&p)) != 3 {
-		t.Fatalf("all-unreachable check dropped IPs: %v", p.BadIPs.V)
+	if len(p.BadIPs.V) != 3 || len(usableCDNIPs(&p)) != 0 {
+		t.Fatalf("all-unreachable check revived failed IPs: %v", p.BadIPs.V)
 	}
 }
 

@@ -120,6 +120,7 @@ func (s *Server) subRegion(r *http.Request, u *store.User) string {
 type cdnAudience struct {
 	Region   string
 	Personal map[string][]string
+	Pools    map[string]store.PersonalCDNPool
 }
 
 func audienceRegion(a []cdnAudience) string {
