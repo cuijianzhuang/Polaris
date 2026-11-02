@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"slices"
 	"strings"
 	"testing"
@@ -114,6 +115,14 @@ func TestPersonalCDNFilteringFallbackAndNodeSettings(t *testing.T) {
 		t.Fatal(code)
 	}
 	pool := store.PersonalCDNPool{Automatic: map[string][]string{"443": {"104.20.8.8"}, "2053": {"104.20.7.7"}}, Disabled: []string{"104.20.8.8"}, Checks: map[string]store.PersonalCDNCheck{"104.20.9.9:443": {OK: false, At: time.Now()}}}
+	var owner store.User
+	s.st.DB.First(&owner, "id = ?", "ra")
+	var profile store.CDNProfile
+	s.st.DB.First(&profile, "id = ?", "regional")
+	entries, _ := s.personalCDNEntries(s.st.DB, &owner, &profile)
+	target := entries[0].Target
+	target.Server = "104.20.9.9"
+	pool.EndpointChecks = map[string]store.PersonalCDNCheck{cdnFailureSlot("re", "104.20.9.9"): {OK: false, Failed: true, At: time.Now(), Fingerprint: cdnCheckKey("re", target, entries[0].Transport, entries[0].Revision)}}
 	s.st.DB.Model(&store.User{}).Where("id = ?", "ra").Update("cdn_pool", store.NewJSON(map[string]store.PersonalCDNPool{"regional": pool}))
 	if got := regionServers(t, s, "ra", "ct", "CN-31"); !slices.Equal(got, []string{"104.16.1.1"}) {
 		t.Fatal("personal failures did not fall back", got)
@@ -148,9 +157,12 @@ func TestPersonalCDNFilteringFallbackAndNodeSettings(t *testing.T) {
 
 func TestPersonalCDNCheckRejectsPrivateTargets(t *testing.T) {
 	for _, address := range []string{"127.0.0.1", "::1", "169.254.169.254", "10.0.0.1", "100.64.0.1", "localhost"} {
-		r := checkPersonalCDN(context.Background(), address, 80, "http", "example.com")
-		if r.OK || !strings.Contains(r.Message, "private") {
-			t.Fatal("private target reached", address, r)
+		conn, err := personalCDNDialer().DialContext(context.Background(), "tcp", net.JoinHostPort(address, "80"))
+		if conn != nil {
+			conn.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "private") {
+			t.Fatal("private target reached", address, err)
 		}
 	}
 }

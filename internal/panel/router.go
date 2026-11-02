@@ -118,6 +118,7 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/rename", s.portalGate(decoy, s.portalRename))
 		r.POST(portalPath+"/carrier", s.portalGate(decoy, s.portalCarrier))
 		r.POST(portalPath+"/region", s.portalGate(decoy, s.portalRegion))
+		r.GET(portalPath+"/cdn-state", s.portalGate(decoy, s.personalCDNState))
 		r.POST(portalPath+"/cdn-preferences", s.portalGate(decoy, s.portalCDNPreferences))
 		r.POST(portalPath+"/cdn-pool", s.portalGate(decoy, s.portalCDNPool))
 		r.POST(portalPath+"/email/code", s.portalGate(decoy, s.portalMailCode))

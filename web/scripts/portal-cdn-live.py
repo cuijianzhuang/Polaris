@@ -17,6 +17,7 @@ with sync_playwright() as p:
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
     # Start each scenario with the shared Shanghai Telecom pool.
     for path,body in [('cdn-preferences',dict(profileId='regional',addresses=[])),('region',dict(region='CN-31')),('carrier',dict(carrier='ct'))]:
+     if path=='cdn-preferences': body['version']=context.request.get(base+'/u/cdn-state?profileId=regional').json()['version']
      result=context.request.post(base+'/u/'+path,data=body,headers={'X-Polaris-Portal':'1'});assert result.status==200
     page.goto(base+'/u')
     panel=page.locator('#cdn-preferences')

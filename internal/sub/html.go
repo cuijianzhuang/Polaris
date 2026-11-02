@@ -68,10 +68,11 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 {{if .CDNManage}}<details class="card" id="cdn-preferences"><summary><b>维护个人优选 IP／域名</b></summary>
 <p class="mute cdn-intro">个人池优先，公共池兜底。手动维护无需安装程序；本地自动测速不会覆盖手动地址。</p>
 <p class="mute">{{.CDNNetwork}}</p>
-{{if .CDNChoices}}<div class="cdn-controls"><label>CDN 配置<select id="cdn-profile" class="cdn-input">{{range .CDNChoices}}<option value="{{.ID}}" data-pool="{{.PoolJSON}}" data-ports="{{.PortsJSON}}" data-probe="{{.ProbePrefix}}" data-probe-port="{{.ProbePort}}" data-supported="{{.ProbeSupported}}" data-expanded="{{.Enabled}}" data-addresses="{{.Addresses}}" data-selection="{{.Selection}}">{{.Name}} · {{.Scheme}}:{{.Port}}</option>{{end}}</select></label><label>检测／测速端口<select id="cdn-port" class="cdn-input" aria-label="检测与测速端口"></select></label></div>
+{{if .CDNChoices}}<div class="cdn-controls"><label>CDN 配置<select id="cdn-profile" class="cdn-input">{{range .CDNChoices}}<option value="{{.ID}}" data-version="{{.PoolVersion}}" data-entries="{{.EntriesJSON}}" data-pool="{{.PoolJSON}}" data-ports="{{.PortsJSON}}" data-probe="{{.ProbePrefix}}" data-probe-port="{{.ProbePort}}" data-supported="{{.ProbeSupported}}" data-expanded="{{.Enabled}}" data-addresses="{{.Addresses}}" data-selection="{{.Selection}}">{{.Name}} · {{.Scheme}}:{{.Port}}</option>{{end}}</select></label><label>检测／测速端口<select id="cdn-port" class="cdn-input" aria-label="检测与测速端口"></select></label></div>
+<label>检测入口<select id="cdn-endpoint" class="cdn-input" aria-label="检测入口"></select></label><p class="mute" id="cdn-endpoint-target"></p>
 <p class="mute" id="cdn-selection"></p><p id="cdn-pool-warning" class="note" hidden>管理员尚未开启订阅展开。地址可正常维护，当前订阅仍使用入口指定地址或回源域名。</p>
 <div class="cdn-summary" id="cdn-summary" aria-live="polite"></div>
-<p id="cdn-preferences-error" role="alert" class="note bad" hidden></p>
+<p id="cdn-preferences-error" role="alert" class="note bad" hidden></p><button type="button" class="btn sm" id="cdn-conflict-reload" hidden>重新加载服务器内容（先复制草稿）</button>
 <section class="cdn-section"><div class="row"><h2>手动地址</h2><span class="tag">自动刷新保留</span></div>
 <p class="mute">只填公网 IP 或完整域名，不带协议、端口或路径。最多 32 个地址，保存后更新客户端订阅。</p>
 <div class="cdn-add-row"><input id="cdn-add-address" class="cdn-input" aria-label="添加 IP 或域名" placeholder="输入 IP 或完整域名" autocomplete="off"><button type="button" class="btn sm" id="cdn-add">添加到手动列表</button></div>
@@ -80,11 +81,13 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 <div class="row"><button type="button" class="btn" id="cdn-save">保存个人优选地址</button><span id="cdn-draft" class="mute" role="status"></span></div></section>
 <section class="cdn-section"><div class="row"><h2>地址与检测状态</h2><span class="sp"></span><button type="button" class="btn sm" id="cdn-check-all">检测已启用地址</button><button type="button" class="btn sm" id="cdn-stop-checks" hidden>停止检测</button></div>
 <p class="mute">按当前端口展示手动和自动地址。禁用或检测失败的地址不进入订阅；未检测地址仍可使用。</p><p class="mute" id="cdn-check-progress" role="status"></p><div id="cdn-pool-items"></div>
-<p class="mute">检测来自面板网络，仅验证 TCP／TLS 连通性。SNI、Host、端口及订阅权限继续沿用入口配置。</p></section>
+<p class="mute">按所选入口的协议、端口、SNI、Host 和路径检测。结果只影响这个入口；入口配置改变后需重新检测。传输握手通过不代表代理认证或实际业务通过。</p></section>
 <section class="cdn-section"><div class="row"><h2>自动优选</h2><span class="tag">官方 cf-ip-probe · 每小时测速</span></div>
-<p class="mute">在自己的 Linux 或 OpenWrt 网络运行，结果只更新本人的自动地址池。每个配置绑定一个测速端口。</p><p id="cdn-probe-status" class="mute"></p>
+<p class="mute">在自己的 Linux 或 OpenWrt 网络运行，结果只更新本人的自动地址池。每个配置绑定一个测速端口。</p><div class="cdn-controls"><label>自动结果过期后<select id="cdn-stale-policy" class="cdn-input"><option value="keep">继续使用最近结果</option><option value="fallback">回退公共池</option></select></label><label>多久未上报算过期（小时）<input id="cdn-stale-hours" class="cdn-input" type="number" min="1" max="720" step="1"><span class="mute">1–720 小时，默认 24 小时</span></label></div><p id="cdn-freshness" class="mute" role="status"></p><p class="mute">按测速端口分别计算，手动地址不受过期策略影响。可单独保存过期设置，手动地址不会随自动结果过期。</p><button type="button" class="btn sm" id="cdn-save-policy">保存过期设置</button>
+<p id="cdn-probe-status" class="mute"></p>
 <div class="row"><button type="button" class="btn sm" id="cdn-pair">创建专用上报令牌</button><button type="button" class="btn sm" id="cdn-revoke">撤销令牌</button></div>
 <div id="cdn-install" hidden><p class="mute">安装命令仅此次显示。重置后旧令牌立即失效；复制到自己的机器运行，OpenWrt 去掉 sudo。撤销后停止上报，已有结果保留。</p><textarea id="cdn-command" class="cdn-input" readonly rows="5" aria-label="官方测速程序安装命令"></textarea><button type="button" class="btn sm" id="cdn-copy-command">复制安装命令</button><span class="mute" id="cdn-copy-status" role="status"></span></div></section>
+<section class="cdn-section"><div class="row"><h2>个人订阅地址预览</h2><span class="sp"></span><button type="button" class="btn sm" id="cdn-preview-refresh">刷新预览</button></div><p class="mute">显示已保存配置生成的地址和过滤原因；未保存草稿不参与预览。</p><div id="cdn-preview" aria-live="polite"></div></section>
 {{else}}<p class="mute">暂无有权限使用的 CDN 入口，请联系管理员。</p>{{end}}</details>{{end}}
 {{if .Announce}}<section class="note" role="note">📢 {{.Announce}}</section>{{end}}
 <section class="card">

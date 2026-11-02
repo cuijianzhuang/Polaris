@@ -1,0 +1,55 @@
+import assert from 'node:assert/strict'
+import {mkdir} from 'node:fs/promises'
+const {chromium}=await import(process.env.POLARIS_PLAYWRIGHT_MODULE||'playwright')
+const browser=await chromium.launch({headless:true,executablePath:process.env.POLARIS_CHROMIUM_BIN||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--no-sandbox']})
+const base=process.env.POLARIS_PORTAL_TEST_URL
+try{
+ for(const width of [390,1440]){
+  const context=await browser.newContext({viewport:{width,height:1000}})
+  await context.addCookies([{name:'polaris_u',value:process.env.POLARIS_PORTAL_TEST_COOKIE,url:base+'/u',httpOnly:true,sameSite:'Lax'}])
+  const state=await context.request.get(base+'/u/cdn-state?profileId=regional').then(r=>r.json())
+  assert.equal((await context.request.post(base+'/u/cdn-preferences',{headers:{'X-Polaris-Portal':'1'},data:{profileId:'regional',version:state.version,addresses:['manual.example.com'],disabled:[],stalePolicy:'fallback',staleHours:24}})).status(),200)
+  const a=await context.newPage(),b=await context.newPage(),errors=[]
+  for(const page of [a,b])page.on('pageerror',e=>errors.push(e.message))
+  await a.goto(base+'/u#cdn-preferences');await b.goto(base+'/u#cdn-preferences')
+  await a.locator('#cdn-preview [data-endpoint="re"]').waitFor()
+  assert.match(await a.locator('#cdn-freshness').innerText(),/过期.*回退公共池/)
+  const first=a.locator('#cdn-preview [data-endpoint="re"]')
+  assert.match(await first.innerText(),/manual.example.com.*手动.*已选用/)
+  assert.match(await first.innerText(),/104.20.7.7.*过期或协议已改变/)
+  await a.locator('#cdn-port').selectOption('2053')
+  await a.waitForFunction(()=>document.querySelector('#cdn-preview [data-endpoint="reliability-port"]')?.open)
+  assert.match(await a.locator('#cdn-freshness').innerText(),/未过期/)
+  assert.match(await a.locator('#cdn-endpoint-target').innerText(),/sni.example.com.*host.example.com.*\/custom/)
+  assert.match(await a.locator('#cdn-preview [data-endpoint="reliability-port"]').innerText(),/104.20.8.8.*已选用/)
+  await a.locator('#cdn-port').selectOption('443')
+  async function draft(page,value){if(!(await page.locator('#cdn-bulk-edit').evaluate(e=>e.open)))await page.locator('#cdn-bulk-edit > summary').click();await page.locator('#cdn-addresses').fill(value)}
+  await draft(a,'fresh.example.com')
+  await Promise.all([a.waitForEvent('load'),a.locator('#cdn-save').click()])
+  await draft(b,'my-unsaved.example.com')
+  await b.locator('#cdn-save').click()
+  await b.locator('#cdn-conflict-reload').waitFor({state:'visible'})
+  assert.match(await b.locator('#cdn-preferences-error').innerText(),/其他窗口/)
+  assert.equal(await b.locator('#cdn-addresses').inputValue(),'my-unsaved.example.com')
+  const latest=await context.request.get(base+'/u/cdn-state?profileId=regional').then(r=>r.json())
+  assert.deepEqual(latest.addresses,['fresh.example.com'])
+  await a.locator('#cdn-stale-policy').selectOption('keep')
+  await Promise.all([a.waitForEvent('load'),a.locator('#cdn-save-policy').click()])
+  await a.locator('#cdn-preview [data-endpoint="re"]').waitFor()
+  assert.match(await a.locator('#cdn-freshness').innerText(),/继续使用最近结果/)
+  assert.match(await a.locator('#cdn-preview [data-endpoint="re"]').innerText(),/104.20.7.7.*自动.*已选用/)
+  await draft(a,'')
+  await Promise.all([a.waitForEvent('load'),a.locator('#cdn-save').click()])
+  await a.locator('#cdn-stale-policy').selectOption('fallback')
+  await Promise.all([a.waitForEvent('load'),a.locator('#cdn-save-policy').click()])
+  await a.locator('#cdn-preview [data-endpoint="re"]').waitFor()
+  assert.match(await a.locator('#cdn-preview [data-endpoint="re"]').innerText(),/公共池兜底/)
+  assert.match(await a.locator('#cdn-preview [data-endpoint="re"]').innerText(),/104.16.1.1.*公共.*已选用/)
+  assert.equal((await context.request.post(base+'/u/cdn-preferences',{headers:{'X-Polaris-Portal':'1'},data:{profileId:'regional',addresses:['unversioned.example.com']}})).status(),428)
+  assert(await a.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))
+  assert.deepEqual(errors,[])
+  if(process.env.POLARIS_CDN_ARTIFACTS){await mkdir(process.env.POLARIS_CDN_ARTIFACTS,{recursive:true});await a.locator('#cdn-preferences').screenshot({path:process.env.POLARIS_CDN_ARTIFACTS+'/personal-cdn-reliability-'+width+'.png'})}
+  await context.close()
+ }
+ console.log('Per-entry identity, per-port freshness, subscription preview and stale-tab protection passed at 390/1440 px')
+}finally{await browser.close()}

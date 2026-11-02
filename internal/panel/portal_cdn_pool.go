@@ -3,14 +3,11 @@ package panel
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"fmt"
-	"net"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -22,18 +19,7 @@ func personalCDNAllowed(pool store.PersonalCDNPool, address string, port int) bo
 	if slices.Contains(pool.Disabled, address) {
 		return false
 	}
-	check, exists := pool.Checks[net.JoinHostPort(address, strconv.Itoa(port))]
-	return !exists || check.OK
-}
-func personalCDNAddresses(a cdnAudience, profile string, port int) []string {
-	pool := a.Pools[profile]
-	list := slices.Clone(a.Personal[profile])
-	for _, address := range pool.Automatic[strconv.Itoa(port)] {
-		if !slices.Contains(list, address) {
-			list = append(list, address)
-		}
-	}
-	return slices.DeleteFunc(list, func(address string) bool { return !personalCDNAllowed(pool, address, port) })
+	return true // Legacy port-only checks cannot identify an actual entry.
 }
 
 // All writers reload the latest account under the report lock, so report refreshes
@@ -110,6 +96,16 @@ func (s *Server) personalCDNReport(c *gin.Context, token *store.APIToken) {
 		if pool.Automatic == nil {
 			pool.Automatic = map[string][]string{}
 		}
+		if pool.PortReports == nil {
+			pool.PortReports = map[string]store.PersonalCDNReportMeta{}
+		}
+		// Freeze legacy timestamps before advancing the profile-wide timestamp.
+		for oldPort := range pool.Automatic {
+			if _, exists := pool.PortReports[oldPort]; !exists && pool.ReportedAt != nil {
+				pool.PortReports[oldPort] = store.PersonalCDNReportMeta{At: *pool.ReportedAt}
+			}
+		}
+		pool.PortReports[strconv.Itoa(req.Port)] = store.PersonalCDNReportMeta{At: time.Now(), Scheme: req.Scheme}
 		pool.Automatic[strconv.Itoa(req.Port)] = addresses
 		now := time.Now()
 		pool.ReportedAt = &now
@@ -137,10 +133,12 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
 	var req struct {
-		ProfileID string `json:"profileId"`
-		Action    string `json:"action"`
-		Address   string `json:"address"`
-		Port      int    `json:"port"`
+		ProfileID  string `json:"profileId"`
+		EndpointID string `json:"endpointId"`
+		Context    string `json:"context"`
+		Action     string `json:"action"`
+		Address    string `json:"address"`
+		Port       int    `json:"port"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -160,10 +158,21 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 	if req.Port == 0 {
 		req.Port = cdnDefaultPort(&p)
 	}
-	if !slices.Contains(s.cdnCheckPorts(&p), req.Port) {
-		badRequest(c, fmt.Errorf("请选择当前入口使用的端口"))
+	entries, err := s.personalCDNEntries(s.st.DB, u, &p)
+	if err != nil {
+		dbError(c, err)
 		return
 	}
+	if req.Action == "preview" {
+		s.personalCDNPreviewResponse(c, u, &p, entries)
+		return
+	}
+
+	if !slices.ContainsFunc(entries, func(entry personalCDNEntry) bool { return entry.Target.Port == req.Port }) {
+		badRequest(c, fmt.Errorf("请选择本人有权限使用的入口端口"))
+		return
+	}
+
 	response := gin.H{"ok": true}
 	apiBase := strings.TrimRight(s.panelBase(), "/") + s.cfg.APIBase()
 	switch req.Action {
@@ -192,7 +201,7 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 			instance := fmt.Sprintf("personal-%x", sha256.Sum256([]byte(u.ID+"/"+p.ID)))[:25]
 			script := "https://github.com/cuijianzhuang/polaris-plugins/releases/latest/download/install.sh"
 			response["command"] = "curl -fsSL " + shellQuote(script) + " | sudo sh -s -- --api " + shellQuote(apiBase) +
-				" --profile " + shellQuote(p.ID) + " --host " + shellQuote(p.OriginDomain) + " --token " + shellQuote(secret) + " --source personal --instance " + shellQuote(instance) + " --args " + shellQuote("-scheme "+cdnScheme(&p)+" -port "+strconv.Itoa(req.Port)+" -interval 1h")
+				" --profile " + shellQuote(p.ID) + " --host " + shellQuote(personalCDNProbeHost(entries, req.EndpointID, req.Port, p.OriginDomain)) + " --token " + shellQuote(secret) + " --source personal --instance " + shellQuote(instance) + " --args " + shellQuote("-scheme "+cdnScheme(&p)+" -port "+strconv.Itoa(req.Port)+" -interval 1h")
 			return nil
 		})
 	case "check":
@@ -211,16 +220,36 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 			badRequest(c, fmt.Errorf("请先保存该地址"))
 			return
 		}
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
+		entryIndex := slices.IndexFunc(entries, func(entry personalCDNEntry) bool {
+			return entry.EndpointID == req.EndpointID && entry.Target.Port == req.Port
+		})
+		if entryIndex < 0 {
+			c.JSON(403, gin.H{"error": "请选择本人有权限使用的检测入口"})
+			return
+		}
+		entry := entries[entryIndex]
+		if req.Context != "" && req.Context != entry.Context {
+			c.JSON(409, gin.H{"error": "入口配置已改变，请刷新后重新检测"})
+			return
+		}
+		target := entry.Target
+		target.Server = address
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
 		defer cancel()
-		result := checkPersonalCDN(ctx, address, req.Port, cdnScheme(&p), p.OriginDomain)
+		at := time.Now()
+		checked := probeCDNWithDialer(ctx, target, entry.Transport, "", personalCDNDialer())
+		if c.Request.Context().Err() != nil {
+			return
+		} // A disconnected client is not evidence of an unreachable address.
+		result := store.PersonalCDNCheck{At: at, OK: checked.OK, Partial: checked.Partial, Message: checked.Message, Fingerprint: cdnCheckKey(entry.EndpointID, target, entry.Transport, entry.Revision)}
 		err = s.mutatePersonalCDN(u.ID, p.ID, func(_ *gorm.DB, pool *store.PersonalCDNPool) error {
-			if pool.Checks == nil {
-				pool.Checks = map[string]store.PersonalCDNCheck{}
-			}
-			pool.Checks[net.JoinHostPort(address, strconv.Itoa(req.Port))] = result
+			result = recordPersonalCDNVerdict(pool, entry.EndpointID, address, result)
+
 			return nil
 		})
+		response["endpointId"] = entry.EndpointID
+		response["stages"] = checked.Stages
+
 		response["check"] = result
 	default:
 		badRequest(c, fmt.Errorf("不支持的操作"))
@@ -232,34 +261,4 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 	}
 	s.audit(portalActor(u, s.portalViaMail(c)), "user.cdn_pool."+req.Action, u.Username, p.ID, clientIP(c.Request))
 	c.JSON(http.StatusOK, response)
-}
-
-// Check connectivity from the panel. The socket guard validates the resolved
-// destination, preventing private DNS answers and DNS rebinding from reaching LANs.
-func checkPersonalCDN(ctx context.Context, address string, port int, scheme, host string) store.PersonalCDNCheck {
-	r := store.PersonalCDNCheck{At: time.Now()}
-	dialer := &net.Dialer{Timeout: 8 * time.Second, Control: func(_, destination string, _ syscall.RawConn) error {
-		ip, _, err := net.SplitHostPort(destination)
-		if err != nil {
-			return err
-		}
-		return checkSourceIP(net.ParseIP(ip), false)
-	}}
-	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(address, strconv.Itoa(port)))
-	if err == nil {
-		defer conn.Close()
-		if deadline, ok := ctx.Deadline(); ok {
-			_ = conn.SetDeadline(deadline)
-		}
-		if scheme == "https" {
-			err = tls.Client(conn, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}).HandshakeContext(ctx)
-		}
-	}
-	if err != nil {
-		r.Message = "连接检测失败：" + err.Error()
-		return r
-	}
-	r.OK = true
-	r.Message = "TCP／TLS 连接检测通过；测速以本地 cf-ip-probe 结果为准"
-	return r
 }

@@ -308,7 +308,13 @@ func cdnWebSocketAccept(key string) string {
 	return base64.StdEncoding.EncodeToString(digest[:])
 }
 
-func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) (r cdnCheck) {
+func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) cdnCheck {
+	return probeCDNWithNetwork(ctx, t, transport, nodeIP, &net.Dialer{Timeout: 8 * time.Second}, net.DefaultResolver.LookupHost, true)
+}
+func probeCDNWithDialer(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string, dialer *net.Dialer) cdnCheck {
+	return probeCDNWithNetwork(ctx, t, transport, nodeIP, dialer, net.DefaultResolver.LookupHost, false)
+}
+func probeCDNWithNetwork(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string, dialer *net.Dialer, lookupHost func(context.Context, string) ([]string, error), originDNS bool) (r cdnCheck) {
 	r = cdnCheck{Steps: []string{}, Stages: []cdnStage{{Kind: "origin_dns", State: "not_tested"}, {Kind: "address_dns", State: "not_tested"}, {Kind: "tcp", State: "not_tested"}, {Kind: "tls", State: "not_tested"}, {Kind: "http", State: "not_tested"}, {Kind: "transport", State: "not_tested"}}}
 	stage := func(kind, state, detail string, addresses ...string) {
 		for i := range r.Stages {
@@ -334,8 +340,8 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 	fail := func(f string, a ...any) cdnCheck { r.Message = fmt.Sprintf(f, a...); return r }
 
 	// 1. The origin domain must resolve, through Cloudflare's proxy.
-	if net.ParseIP(t.SNI) == nil {
-		addrs, err := net.DefaultResolver.LookupHost(ctx, t.SNI)
+	if originDNS && net.ParseIP(t.SNI) == nil {
+		addrs, err := lookupHost(ctx, t.SNI)
 		if err != nil || len(addrs) == 0 {
 			stage("origin_dns", "failed", fmt.Sprint(err))
 			return fail("域名 %s 没有 DNS 记录：在 Cloudflare 添加一条指向节点 IP 的记录并开启代理（橙色云朵），或在配置档点「同步 DNS」", t.SNI)
@@ -351,9 +357,11 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 
 	if net.ParseIP(t.SNI) != nil {
 		stage("origin_dns", "skipped", t.SNI, t.SNI)
+	} else if !originDNS {
+		stage("origin_dns", "skipped", "连接地址单独解析；SNI 仅用于 TLS 身份验证")
 	}
 	if net.ParseIP(t.Server) == nil {
-		ips, err := net.DefaultResolver.LookupHost(ctx, t.Server)
+		ips, err := lookupHost(ctx, t.Server)
 		if err != nil || len(ips) == 0 {
 			stage("address_dns", "failed", fmt.Sprint(err))
 			return fail("优选域名 %s 解析失败：%v", t.Server, err)
@@ -365,8 +373,7 @@ func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeI
 
 	// 2. Connect using the selected client scheme.
 	addr := net.JoinHostPort(t.Server, strconv.Itoa(t.Port))
-	d := &net.Dialer{Timeout: 8 * time.Second}
-	conn, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		stage("tcp", "failed", err.Error())
 		return fail("连不上 %s：%v", addr, err)

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -75,10 +76,24 @@ func (s *Server) portalCDNInfo(info *sub.Info, u *store.User, carrier, region st
 	for _, p := range profiles {
 		personal := u.CDNPreferred.V[p.ID]
 		poolJSON, _ := json.Marshal(u.CDNPool.V[p.ID])
-		portsJSON, _ := json.Marshal(s.cdnCheckPorts(&p))
+		entries, err := s.personalCDNEntries(s.st.DB, u, &p)
+		if err != nil {
+			return err
+		}
+		entriesJSON, _ := json.Marshal(entries)
+		ports := []int{}
+		for _, entry := range entries {
+			if !slices.Contains(ports, entry.Target.Port) {
+				ports = append(ports, entry.Target.Port)
+			}
+		}
+		if index := slices.Index(ports, cdnDefaultPort(&p)); index >= 0 {
+			ports[0], ports[index] = ports[index], ports[0]
+		}
+		portsJSON, _ := json.Marshal(ports)
 		var token store.APIToken
 		s.st.DB.Where("cdn_user_id = ? AND cdn_profile_id = ?", u.ID, p.ID).First(&token)
-		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbeSupported: p.Provider == "cloudflare", ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
+		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, PoolVersion: personalCDNVersion(u.ID, p.ID, personal, u.CDNPool.V[p.ID]), EntriesJSON: string(entriesJSON), PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbeSupported: p.Provider == "cloudflare", ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
 	}
 	return nil
 }
@@ -101,9 +116,12 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
 	var req struct {
-		ProfileID string    `json:"profileId"`
-		Addresses *[]string `json:"addresses"`
-		Disabled  *[]string `json:"disabled"`
+		ProfileID   string    `json:"profileId"`
+		Version     string    `json:"version"`
+		StalePolicy *string   `json:"stalePolicy"`
+		StaleHours  *int      `json:"staleHours"`
+		Addresses   *[]string `json:"addresses"`
+		Disabled    *[]string `json:"disabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -139,6 +157,18 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 		c.JSON(403, gin.H{"error": "只能维护本人有权限使用的 CDN 配置"})
 		return
 	}
+	if req.Version == "" {
+		c.JSON(428, gin.H{"error": "请刷新页面获取最新版本后再保存，当前草稿可先复制保留"})
+		return
+	}
+	if req.StalePolicy != nil && *req.StalePolicy != "keep" && *req.StalePolicy != "fallback" {
+		badRequest(c, fmt.Errorf("过期策略应为 keep 或 fallback"))
+		return
+	}
+	if req.StaleHours != nil && (*req.StaleHours < 1 || *req.StaleHours > 720) {
+		badRequest(c, fmt.Errorf("过期时间为 1–720 小时"))
+		return
+	}
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {
 			return err
@@ -146,6 +176,9 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 		var current store.User
 		if err := tx.First(&current, "id = ?", u.ID).Error; err != nil {
 			return err
+		}
+		if req.Version != personalCDNVersion(u.ID, req.ProfileID, current.CDNPreferred.V[req.ProfileID], current.CDNPool.V[req.ProfileID]) {
+			return errPersonalCDNConflict
 		}
 		choices := current.CDNPreferred.V
 		if choices == nil {
@@ -157,19 +190,31 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 			choices[req.ProfileID] = addresses
 		}
 		updates := map[string]any{"cdn_preferred": store.NewJSON(choices)}
-		if req.Disabled != nil {
+		if req.Disabled != nil || req.StalePolicy != nil || req.StaleHours != nil {
 			pools := current.CDNPool.V
 			if pools == nil {
 				pools = map[string]store.PersonalCDNPool{}
 			}
 			pool := pools[req.ProfileID]
-			pool.Disabled = disabled
+			if req.Disabled != nil {
+				pool.Disabled = disabled
+			}
+			if req.StalePolicy != nil {
+				pool.StalePolicy = *req.StalePolicy
+			}
+			if req.StaleHours != nil {
+				pool.StaleHours = *req.StaleHours
+			}
 			pools[req.ProfileID] = pool
 			updates["cdn_pool"] = store.NewJSON(pools)
 		}
 		return tx.Model(&current).Updates(updates).Error
 	})
 	if err != nil {
+		if errors.Is(err, errPersonalCDNConflict) {
+			c.JSON(409, gin.H{"error": err.Error()})
+			return
+		}
 		dbError(c, err)
 		return
 	}

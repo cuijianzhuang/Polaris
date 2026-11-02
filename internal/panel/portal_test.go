@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -23,6 +24,29 @@ type portalClient struct {
 
 func (p *portalClient) req(method, path string, body any, csrf bool) (int, string) {
 	p.t.Helper()
+	// Existing portal scenarios model a browser that read its edit version.
+	// Explicit versions (including an empty one) are left intact for conflict tests.
+	if method == "POST" && path == "/u/cdn-preferences" {
+		if fields, ok := body.(map[string]any); ok {
+			if _, supplied := fields["version"]; !supplied {
+				copy := map[string]any{}
+				for k, v := range fields {
+					copy[k] = v
+				}
+				if id, ok := fields["profileId"].(string); ok {
+					code, state := p.req("GET", "/u/cdn-state?profileId="+url.QueryEscape(id), nil, false)
+					if code == 200 {
+						var snapshot struct {
+							Version string `json:"version"`
+						}
+						json.Unmarshal([]byte(state), &snapshot)
+						copy["version"] = snapshot.Version
+					}
+				}
+				body = copy
+			}
+		}
+	}
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)

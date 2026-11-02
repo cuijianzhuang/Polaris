@@ -226,6 +226,12 @@ func TestCDNRegionMetadataAndPersonalBackup(t *testing.T) {
 	if got := regionServers(t, s, "ra", "ct", "CN-31"); !slices.Equal(got, []string{"cdn.example.com"}) {
 		t.Fatal("personal list bypassed expansion policy", got)
 	}
+	at := time.Now().UTC().Truncate(time.Second)
+	pool := store.PersonalCDNPool{StalePolicy: "fallback", StaleHours: 12, Automatic: map[string][]string{"443": {"104.20.7.7"}}, PortReports: map[string]store.PersonalCDNReportMeta{"443": {At: at, Scheme: "https"}}, EndpointChecks: map[string]store.PersonalCDNCheck{"slot": {At: at, Failed: true, Fingerprint: "stored-fingerprint"}}}
+	if err := s.st.DB.Model(&store.User{}).Where("id = ?", "ra").Update("cdn_pool", store.NewJSON(map[string]store.PersonalCDNPool{"regional": pool})).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	files, _, err := backupfmt.ExportAll(s.st.DB)
 	if err != nil {
 		t.Fatal(err)
@@ -247,6 +253,11 @@ func TestCDNRegionMetadataAndPersonalBackup(t *testing.T) {
 	if restored.CDNRegion != "CN-31" || !slices.Equal(restored.CDNPreferred.V["regional"], []string{"104.20.9.9", "keep.example.com"}) {
 		t.Fatal("backup lost private choices", restored.CDNRegion, restored.CDNPreferred.V)
 	}
+	restoredPool := restored.CDNPool.V["regional"]
+	if restoredPool.StalePolicy != "fallback" || restoredPool.StaleHours != 12 || !restoredPool.PortReports["443"].At.Equal(at) || restoredPool.PortReports["443"].Scheme != "https" || !restoredPool.EndpointChecks["slot"].Failed || restoredPool.EndpointChecks["slot"].Fingerprint != "stored-fingerprint" {
+		t.Fatal("backup lost personal reliability metadata", restoredPool)
+	}
+
 	var p store.CDNProfile
 	dst.DB.First(&p, "id = ?", "regional")
 	if !p.RegionSplit {

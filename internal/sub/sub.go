@@ -71,6 +71,8 @@ type CDNProfileChoice struct {
 	Addresses      string
 	Selection      string
 	PoolJSON       string
+	EntriesJSON    string
+	PoolVersion    string
 	PortsJSON      string
 	ProbeSupported bool
 	ProbePrefix    string

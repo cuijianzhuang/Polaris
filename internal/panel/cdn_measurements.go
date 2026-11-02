@@ -113,7 +113,13 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 		return slices.DeleteFunc(slices.Clone(ips), func(a string) bool { return !keep(a) })
 	}
 	if len(audience) > 0 {
-		personal := personalCDNAddresses(audience[0], p.ID, port)
+		personal := slices.Clone(audience[0].Personal[p.ID])
+		for _, address := range personalCDNAutomatic(audience[0].Pools[p.ID], port, cdnScheme(p), time.Now()) {
+			if !slices.Contains(personal, address) {
+				personal = append(personal, address)
+			}
+		}
+		personal = slices.DeleteFunc(personal, func(address string) bool { return !personalCDNAllowed(audience[0].Pools[p.ID], address, port) })
 		if ips := usableCDNIPsAt(p, filter(personal), port); len(ips) > 0 {
 			return ips
 		}
