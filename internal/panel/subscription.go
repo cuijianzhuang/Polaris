@@ -96,6 +96,10 @@ func (s *Server) subNodesFor(u *store.User, carrier string, regions ...string) (
 	if len(regions) > 0 {
 		region = regions[0]
 	}
+	return s.subNodesForTrace(u, carrier, region, nil)
+}
+
+func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace map[string][]sub.Node) ([]sub.Node, error) {
 	audience := cdnAudience{Region: region, Personal: u.CDNPreferred.V, Pools: u.CDNPool.V}
 	var ins []store.Inbound
 	err := s.st.DB.Table("inbounds").Select("DISTINCT inbounds.*").
@@ -189,7 +193,11 @@ func (s *Server) subNodesFor(u *store.User, carrier string, regions ...string) (
 			if in.RelayOnly && ep.Kind != "relay" {
 				continue
 			}
-			out = append(out, s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, carrier, audience)...)
+			expanded := s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, carrier, audience)
+			if trace != nil {
+				trace[ep.ID] = append(trace[ep.ID], expanded...)
+			}
+			out = append(out, expanded...)
 		}
 	}
 	return sub.Dedupe(out), nil
@@ -316,7 +324,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		// security. They must not trigger the all-unreachable fail-open path.
 		var keep func(string) bool
 		excluded := false
-		if len(p.AddressChecks.V) > 0 || len(p.AddressFailures.V) > 0 {
+		if len(p.AddressChecks.V) > 0 || len(p.AddressFailures.V) > 0 || (len(audience) > 0 && len(audience[0].Pools[p.ID].EndpointChecks) > 0) {
 			var row store.Inbound
 			if err := s.st.DB.First(&row, "id = ?", m.ID).Error; err != nil {
 				return nil
@@ -325,7 +333,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			target := s.cdnTargetFor(&ep, m, &p)
 			keep = func(address string) bool {
 				target.Server = address
-				if cdnAddressFailureAt(&p, ep.ID, target, m.Transport.Type, revision) != nil {
+				if cdnAddressFailureAt(&p, ep.ID, target, m.Transport.Type, revision) != nil || (len(audience) > 0 && personalCDNFailure(audience[0].Pools[p.ID], ep.ID, target, m.Transport.Type, revision) != nil) {
 					excluded = true
 					return false
 				}

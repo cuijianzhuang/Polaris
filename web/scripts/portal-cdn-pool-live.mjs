@@ -28,10 +28,10 @@ try {
   const token=command.split("--token '")[1].split("'")[0]
   const api=command.split("--api '")[1].split("'")[0]
   const report=await context.request.post(api+'/cdn-profiles/regional/preferred-ips',{headers:{Authorization:'Bearer '+token},data:{source:'personal',port:443,scheme:'https',ips:[{ip:'104.20.7.7'}]}})
-  assert.equal(report.status(),200)
+  assert.equal(report.status(),200,await report.text())
   await page.reload()
   assert((await page.locator('#cdn-addresses').inputValue()).includes('best.example.com'))
-  const automaticRow=page.locator('.cdn-item').filter({hasText:'104.20.7.7'})
+  const automaticRow=page.locator('#cdn-pool-items > .cdn-item').filter({hasText:'104.20.7.7'})
   assert.equal(await automaticRow.getByText('自动',{exact:true}).count(),1)
   // Pinning an automatic address is an explicit manual edit; row operations
   // cannot silently submit that unsaved draft.
@@ -40,7 +40,7 @@ try {
   assert(!(await row.getByRole('button',{name:'启用',exact:true}).isEnabled()))
   await Promise.all([page.waitForEvent('load'),page.locator('#cdn-save').click()])
   assert((await page.locator('#cdn-addresses').inputValue()).includes('104.20.7.7'))
-  await page.locator('.cdn-item').filter({hasText:'104.20.8.8'}).getByRole('button',{name:'移除',exact:true}).click()
+  await page.locator('#cdn-pool-items > .cdn-item').filter({hasText:'104.20.8.8'}).getByRole('button',{name:'移除',exact:true}).click()
   await Promise.all([page.waitForEvent('load'),page.locator('#cdn-save').click()])
   assert(!(await page.locator('#cdn-addresses').inputValue()).includes('104.20.8.8'))
   // Reject over-limit imports without replacing the saved list.
@@ -62,7 +62,7 @@ try {
   await page.waitForFunction(()=>document.querySelector('#cdn-check-progress').textContent.includes('检测完成'))
   assert(!checked.includes('104.20.9.9'))
   assert(checked.includes('best.example.com')&&checked.includes('104.20.7.7'))
-  assert.match(await page.locator('.cdn-item').filter({hasText:'best.example.com'}).innerText(),/示例诊断/)
+  assert.match(await page.locator('#cdn-pool-items > .cdn-item').filter({hasText:'best.example.com'}).innerText(),/示例诊断/)
   assert.match(await page.locator('#cdn-summary').innerText(),/1 个检测失败/)
   if(process.env.POLARIS_CDN_ARTIFACTS){
    await mkdir(process.env.POLARIS_CDN_ARTIFACTS,{recursive:true})
@@ -87,7 +87,8 @@ try {
   assert.deepEqual(errors,[])
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))
   // Reset the same fixture before the next viewport.
-  await context.request.post(base+'/u/cdn-preferences',{headers:{'X-Polaris-Portal':'1'},data:{profileId:'regional',addresses:[],disabled:[]}})
+  const resetState=await context.request.get(base+'/u/cdn-state?profileId=regional').then(r=>r.json())
+  await context.request.post(base+'/u/cdn-preferences',{headers:{'X-Polaris-Portal':'1'},data:{profileId:'regional',version:resetState.version,addresses:[],disabled:[]}})
   await context.close()
  }
  console.log('Personal pool browser checks passed at 390 and 1440 px')

@@ -989,16 +989,27 @@ func AllModels() []any {
 // Only the SHA-256 of the token is stored; Scopes limit what it may call.
 // PersonalCDNPool keeps manual choices separate from automatic measurements.
 // Disabled addresses survive subsequent reports. Checks are specific to a port.
+type PersonalCDNReportMeta struct {
+	At     time.Time `json:"at"`
+	Scheme string    `json:"scheme,omitempty"`
+}
 type PersonalCDNPool struct {
-	Disabled   []string                    `json:"disabled,omitempty"`
-	Automatic  map[string][]string         `json:"automatic,omitempty"`
-	Checks     map[string]PersonalCDNCheck `json:"checks,omitempty"`
-	ReportedAt *time.Time                  `json:"reportedAt,omitempty"`
+	StalePolicy    string                           `json:"stalePolicy,omitempty"`
+	StaleHours     int                              `json:"staleHours,omitempty"`
+	PortReports    map[string]PersonalCDNReportMeta `json:"portReports,omitempty"`
+	EndpointChecks map[string]PersonalCDNCheck      `json:"endpointChecks,omitempty"`
+	Disabled       []string                         `json:"disabled,omitempty"`
+	Automatic      map[string][]string              `json:"automatic,omitempty"`
+	Checks         map[string]PersonalCDNCheck      `json:"checks,omitempty"`
+	ReportedAt     *time.Time                       `json:"reportedAt,omitempty"`
 }
 type PersonalCDNCheck struct {
-	OK      bool      `json:"ok"`
-	At      time.Time `json:"at"`
-	Message string    `json:"message"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
+	Partial     bool      `json:"partial,omitempty"`
+	Failed      bool      `json:"failed,omitempty"`
+	OK          bool      `json:"ok"`
+	At          time.Time `json:"at"`
+	Message     string    `json:"message"`
 }
 
 type APIToken struct {
