@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import {mkdir} from 'node:fs/promises'
 const {chromium} = await import(process.env.POLARIS_PLAYWRIGHT_MODULE || 'playwright')
 const base = process.env.POLARIS_PORTAL_TEST_URL
 const browser = await chromium.launch({headless:true, executablePath:process.env.POLARIS_CHROMIUM_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args:['--no-sandbox']})
@@ -30,8 +31,58 @@ try {
   assert.equal(report.status(),200)
   await page.reload()
   assert((await page.locator('#cdn-addresses').inputValue()).includes('best.example.com'))
-  assert.match(await page.locator('#cdn-pool-items').innerText(),/104.20.7.7.*自动/)
+  const automaticRow=page.locator('.cdn-item').filter({hasText:'104.20.7.7'})
+  assert.equal(await automaticRow.getByText('自动',{exact:true}).count(),1)
+  // Pinning an automatic address is an explicit manual edit; row operations
+  // cannot silently submit that unsaved draft.
+  await automaticRow.getByRole('button',{name:'保留为手动',exact:true}).click()
+  assert(await page.locator('#cdn-draft').innerText().then(t=>t.includes('未保存')))
+  assert(!(await row.getByRole('button',{name:'启用',exact:true}).isEnabled()))
+  await Promise.all([page.waitForEvent('load'),page.locator('#cdn-save').click()])
+  assert((await page.locator('#cdn-addresses').inputValue()).includes('104.20.7.7'))
+  await page.locator('.cdn-item').filter({hasText:'104.20.8.8'}).getByRole('button',{name:'移除',exact:true}).click()
+  await Promise.all([page.waitForEvent('load'),page.locator('#cdn-save').click()])
+  assert(!(await page.locator('#cdn-addresses').inputValue()).includes('104.20.8.8'))
+  // Reject over-limit imports without replacing the saved list.
+  const tooMany=Array.from({length:33},(_,i)=>'candidate'+i+'.example.com').join('\n')
+  await page.locator('#cdn-import').setInputFiles({name:'large.txt',mimeType:'text/plain',buffer:Buffer.from(tooMany)})
+  await page.locator('#cdn-preferences-error').waitFor({state:'visible'})
+  assert(!(await page.locator('#cdn-addresses').inputValue()).includes('candidate0'))
+  assert(!(await page.locator('#cdn-save').isEnabled()))
+  const checked=[]
+  let pauseChecks=false, releaseCheck, signalStart
+  await page.route('**/u/cdn-pool',async route=>{
+   const body=route.request().postDataJSON()
+   if(body.action!=='check')return route.continue()
+   checked.push(body.address)
+   if(pauseChecks)await new Promise(resolve=>{releaseCheck=resolve;signalStart()})
+   return route.fulfill({json:{ok:true,check:{ok:body.address!=='best.example.com',at:new Date().toISOString(),message:body.address==='best.example.com'?'连接检测失败：示例诊断':'TCP／TLS 连接检测通过'}}})
+  })
+  await page.locator('#cdn-check-all').click()
+  await page.waitForFunction(()=>document.querySelector('#cdn-check-progress').textContent.includes('检测完成'))
+  assert(!checked.includes('104.20.9.9'))
+  assert(checked.includes('best.example.com')&&checked.includes('104.20.7.7'))
+  assert.match(await page.locator('.cdn-item').filter({hasText:'best.example.com'}).innerText(),/示例诊断/)
+  assert.match(await page.locator('#cdn-summary').innerText(),/1 个检测失败/)
+  if(process.env.POLARIS_CDN_ARTIFACTS){
+   await mkdir(process.env.POLARIS_CDN_ARTIFACTS,{recursive:true})
+   await page.locator('#cdn-preferences').scrollIntoViewIfNeeded()
+   await page.locator('#cdn-preferences').screenshot({path:process.env.POLARIS_CDN_ARTIFACTS+'/personal-pool-'+width+'.png'})
+  }
+  // Stop waits for the in-flight address and does not dispatch the next one.
+  const beforeStop=checked.length
+  pauseChecks=true
+  const started=new Promise(resolve=>{signalStart=resolve})
+  await page.locator('#cdn-check-all').click()
+  await started
+  await page.locator('#cdn-stop-checks').click()
+  releaseCheck()
+  await page.waitForFunction(()=>document.querySelector('#cdn-check-progress').textContent.includes('已停止'))
+  assert.equal(checked.length,beforeStop+1)
+  pauseChecks=false
+  await page.locator('#cdn-port').selectOption('2053')
   await Promise.all([page.waitForEvent('load'),page.locator('#cdn-revoke').click()])
+  assert.equal(await page.locator('#cdn-port').inputValue(),'2053')
   assert.equal(await page.locator('#cdn-command').inputValue(),'')
   assert.deepEqual(errors,[])
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))

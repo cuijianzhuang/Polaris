@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright, expect
 base=os.environ['POLARIS_PORTAL_TEST_URL']
 out=Path(os.environ.get('POLARIS_CDN_ARTIFACTS','/tmp/polaris-portal-cdn'));out.mkdir(parents=True,exist_ok=True)
 with sync_playwright() as p:
- for engine in ['chromium','webkit']:
+ for engine in os.environ.get('POLARIS_TEST_ENGINES','chromium,webkit').split(','):
   options=dict(headless=True)
   if engine=='chromium':options.update(executable_path=os.environ.get('POLARIS_CHROMIUM_BIN') or shutil.which('chromium'),args=['--no-sandbox','--disable-dev-shm-usage'])
   browser=getattr(p,engine).launch(**options)
@@ -20,7 +20,7 @@ with sync_playwright() as p:
      result=context.request.post(base+'/u/'+path,data=body,headers={'X-Polaris-Portal':'1'});assert result.status==200
     page.goto(base+'/u')
     panel=page.locator('#cdn-preferences')
-    panel.locator('summary').click();expect(page.get_by_label('个人优选地址（一行一个，最多 32 个）')).to_be_visible()
+    page.locator('#cdn-preferences > summary').click();expect(page.get_by_label('个人优选地址（一行一个，最多 32 个）')).to_be_visible()
     expect(page.locator('#cdn-profile')).to_have_value('regional')
     assert 'foreign' not in page.locator('#cdn-profile').inner_text()
     text=page.locator('#cdn-addresses');text.fill('https://bad.example.com')
@@ -37,6 +37,7 @@ with sync_playwright() as p:
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
     page.screenshot(path=str(out/f'{engine}-{width}-{theme}-personal.png'))
     # Clearing restores shared selection; selecting a different region changes output.
+    if not page.locator('#cdn-bulk-edit').evaluate('(el) => el.open'): page.locator('#cdn-bulk-edit > summary').click()
     page.locator('#cdn-addresses').fill('')
     with page.expect_navigation():page.get_by_role('button',name='保存个人优选地址',exact=True).click()
     expect(page.locator('#cdn-addresses')).to_have_value('')

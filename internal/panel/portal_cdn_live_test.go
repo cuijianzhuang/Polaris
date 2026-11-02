@@ -36,6 +36,10 @@ func TestLivePersonalCDNPoolBrowser(t *testing.T) {
 		t.Skip("POLARIS_PERSONAL_CDN_BROWSER_TEST required")
 	}
 	s, base, _ := cdnRegionFixture(t)
+	if err := s.st.DB.Create(&store.Endpoint{ID: "personal-ui-port", InboundID: "ri", Kind: "cdn", CDNProfileID: "regional", Port: 2053}).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	s.cfg.PublicURL = base
 	s.subLimit = &sharedLimiter{s: s.shared, name: "personal-cdn-browser", perMinute: 600000}
 	var u store.User

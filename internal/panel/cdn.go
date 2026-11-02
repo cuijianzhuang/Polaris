@@ -195,8 +195,8 @@ type cdnReq struct {
 	OriginDomain  string    `json:"originDomain" binding:"required"`
 	TLSMode       string    `json:"tlsMode"`
 	Ports         []int     `json:"ports"`
-	PreferredIPs  []string  `json:"preferredIps"`
-	PinnedHosts   *[]string `json:"pinnedHosts"` // nil keeps the legacy mixed-list contract
+	PreferredIPs  []string  `json:"preferredIps"` // omitted/null preserves the latest list; [] explicitly clears
+	PinnedHosts   *[]string `json:"pinnedHosts"`  // nil keeps the legacy mixed-list contract
 	BlockedHosts  *[]string `json:"blockedHosts"`
 	StalePolicy   *string   `json:"stalePolicy"` // nil preserves the current policy
 	IPSourceURL   string    `json:"ipSourceUrl"`
@@ -261,6 +261,9 @@ func (r *cdnReq) normalize() error {
 		return err
 	}
 	var ips []string
+	if r.PreferredIPs != nil {
+		ips = []string{}
+	}
 	for _, ip := range r.PreferredIPs {
 		ip = strings.Trim(strings.TrimSpace(ip), "[]")
 		if ip == "" {
@@ -320,14 +323,19 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 	// including IPs, stay pinned when present; new IPs remain temporary.
 	// Unchanged source domains must not become permanent through a save.
 	oldList, oldPinned := p.PreferredIPs.V, p.PinnedHosts.V
-	p.Ports, p.PreferredIPs = store.NewJSON(r.Ports), store.NewJSON(nonNilStrs(r.PreferredIPs))
-	pinned := []string{}
-	for _, a := range r.PreferredIPs {
-		if slices.Contains(oldPinned, a) || (net.ParseIP(a) == nil && !slices.Contains(oldList, a)) {
-			pinned = append(pinned, a)
+	p.Ports = store.NewJSON(r.Ports)
+	// Omitted automatic addresses preserve reports received while the editor was open.
+	// An explicit [] still clears the automatic portion.
+	if r.PreferredIPs != nil {
+		p.PreferredIPs = store.NewJSON(nonNilStrs(r.PreferredIPs))
+		pinned := []string{}
+		for _, a := range r.PreferredIPs {
+			if slices.Contains(oldPinned, a) || (net.ParseIP(a) == nil && !slices.Contains(oldList, a)) {
+				pinned = append(pinned, a)
+			}
 		}
+		p.PinnedHosts = store.NewJSON(pinned)
 	}
-	p.PinnedHosts = store.NewJSON(pinned)
 	if r.PinnedHosts != nil {
 		setCDNPinnedHosts(p, *r.PinnedHosts, oldPinned)
 	}
@@ -427,7 +435,7 @@ func (s *Server) createCDN(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	p := store.CDNProfile{ID: store.NewID()}
+	p := store.CDNProfile{ID: store.NewID(), PreferredIPs: store.NewJSON([]string{}), PinnedHosts: store.NewJSON([]string{})}
 	req.apply(&p, s.st.Box.Seal)
 	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {

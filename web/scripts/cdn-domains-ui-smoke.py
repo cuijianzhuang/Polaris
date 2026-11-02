@@ -56,13 +56,14 @@ class Fixture(BaseFixture):
         if path == '/cdn-profiles/cf' and req.method == 'PUT':
             body = req.post_data_json
             self.writes.append((req.method, path, body, req.headers))
+            automatic = [a for a in self.profile['preferredIps'] if a not in self.profile['pinnedHosts']]
             self.profile.update(body)
-            self.profile['preferredIps'] = list(dict.fromkeys(body['preferredIps'] + body['pinnedHosts']))
+            self.profile['preferredIps'] = list(dict.fromkeys(body.get('preferredIps', automatic) + body['pinnedHosts']))
             return route.fulfill(json=self.profile)
         return super().route(route)
 
 with sync_playwright() as p:
-    for engine in ['chromium', 'webkit']:
+    for engine in os.environ.get('POLARIS_TEST_ENGINES', 'chromium,webkit').split(','):
         options = dict(headless=True)
         if engine == 'chromium':
             options.update(executable_path=os.environ.get('POLARIS_CHROMIUM_BIN') or shutil.which('chromium'), args=['--no-sandbox','--disable-dev-shm-usage'])
@@ -109,6 +110,7 @@ with sync_playwright() as p:
                 expect(card).to_contain_text('new.example.com')
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
                 card.scroll_into_view_if_needed()
+                expect(page.locator('.toast')).to_have_count(0, timeout=10000)
                 page.screenshot(path=str(OUT/f'{engine}-{width}-{lang}.png'))
                 # Explicit empty array clears, and reopening shows the persisted empty list.
                 card.get_by_role('button',name=edit,exact=True).click()
@@ -117,10 +119,33 @@ with sync_playwright() as p:
                 expect(dialog).to_have_count(0)
                 expect(card.locator('[data-address="new.example.com"]')).to_have_count(0)
                 assert f.last('/cdn-profiles/cf/pinned-hosts')[2]=={'pinnedHosts':[]}
+                # Saving only fixed addresses must omit the stale automatic list.
+                page.get_by_role('button',name='编辑' if lang=='zh' else 'Edit',exact=True).last.click()
+                expect(page.locator('#cdn-preferred-ips')).to_have_value('104.17.1.1')
+                f.profile['preferredIps']=['104.20.2.2']
+                page.locator('#cdn-pinned-hosts').fill('fixed.example.com')
+                page.get_by_role('dialog').get_by_role('button',name=save,exact=True).click()
+                expect(page.get_by_role('dialog')).to_have_count(0)
+                assert 'preferredIps' not in f.last('/cdn-profiles/cf')[2]
+                assert f.profile['preferredIps']==['104.20.2.2','fixed.example.com']
+                # Explicit promotion retains addresses across subsequent reports.
+                page.get_by_role('button',name='编辑' if lang=='zh' else 'Edit',exact=True).last.click()
+                page.get_by_role('button',name='全部转为固定地址' if lang=='zh' else 'Move all to fixed addresses',exact=True).click()
+                expect(page.locator('#cdn-pinned-hosts')).to_have_value('fixed.example.com\n104.20.2.2')
+                expect(page.locator('#cdn-preferred-ips')).to_have_value('')
+                page.locator('.cdn-editor-section').scroll_into_view_if_needed()
+                expect(page.locator('.toast')).to_have_count(0, timeout=10000)
+                page.locator('.drawer').evaluate("drawer => { const section = drawer.querySelector('.cdn-editor-section'); drawer.scrollTop += section.getBoundingClientRect().top - drawer.querySelector('.dhead').getBoundingClientRect().bottom - 14 }")
+                page.screenshot(path=str(OUT/f'{engine}-{width}-{lang}-editor.png'))
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
+                page.get_by_role('dialog').get_by_role('button',name=save,exact=True).click()
+                expect(page.get_by_role('dialog')).to_have_count(0)
+                assert f.last('/cdn-profiles/cf')[2]['preferredIps']==[]
+                assert f.profile['pinnedHosts']==['fixed.example.com','104.20.2.2']
                 # The full editor separates persisted pins and temporary results, including copy.
                 page.get_by_role('button',name='编辑' if lang=='zh' else 'Edit',exact=True).last.click()
-                expect(page.locator('#cdn-pinned-hosts')).to_have_value('')
-                expect(page.locator('#cdn-preferred-ips')).to_have_value('104.17.1.1')
+                expect(page.locator('#cdn-pinned-hosts')).to_have_value('fixed.example.com\n104.20.2.2')
+                expect(page.locator('#cdn-preferred-ips')).to_have_value('')
                 page.get_by_label('从其他配置档复制优选 IP' if lang=='zh' else 'Copy preferred IPs from another profile',exact=True).select_option('other')
                 expect(page.locator('#cdn-pinned-hosts')).to_have_value('104.16.9.8\n2606:4700::1001\nother.example.com')
                 expect(page.locator('#cdn-preferred-ips')).to_have_value('104.18.1.1')

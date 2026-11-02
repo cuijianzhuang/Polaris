@@ -1356,3 +1356,12 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
 /* Content-driven controls keep long labels readable without changing the theme. */
 .name-template-row > .field { flex: 1 1 320px; }
 .reminder-kinds { grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); }
+
+/* Keep public CDN pool controls together in the configuration drawer. */
+.cdn-editor-section { grid-column: 1 / -1; min-width: 0; border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.cdn-editor-heading, .cdn-editor-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.cdn-editor-section h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.cdn-editor-section p { margin: 0; }
+.cdn-editor-section .toggle { margin: 0; }
+.cdn-editor-divider { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 6px; }
+.cdn-editor-actions > .hint { flex: 1 1 180px; }

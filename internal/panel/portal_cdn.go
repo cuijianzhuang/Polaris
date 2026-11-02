@@ -78,7 +78,7 @@ func (s *Server) portalCDNInfo(info *sub.Info, u *store.User, carrier, region st
 		portsJSON, _ := json.Marshal(s.cdnCheckPorts(&p))
 		var token store.APIToken
 		s.st.DB.Where("cdn_user_id = ? AND cdn_profile_id = ?", u.ID, p.ID).First(&token)
-		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
+		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbeSupported: p.Provider == "cloudflare", ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
 	}
 	return nil
 }
