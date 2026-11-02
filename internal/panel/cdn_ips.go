@@ -145,6 +145,11 @@ func cdnStaleAfter(p *store.CDNProfile) time.Duration {
 
 // postCDNIPReport is POST /cdn-profiles/:id/preferred-ips {source, ips}.
 func (s *Server) postCDNIPReport(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 128<<10)
+	if t := apiTokenOf(c); t != nil && t.CDNUserID != "" {
+		s.personalCDNReport(c, t)
+		return
+	}
 	var p store.CDNProfile
 	if err := s.st.DB.First(&p, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -370,7 +375,7 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 		if err := tx.Where("profile_id = ? AND source = ?", p.ID, c.Param("source")).Delete(&store.CDNIPReport{}).Error; err != nil {
 			return err
 		}
-		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ?", p.ID, c.Param("source")).Delete(&store.APIToken{}).Error; err != nil {
+		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ? AND (cdn_user_id = ? OR cdn_user_id IS NULL)", p.ID, c.Param("source"), "").Delete(&store.APIToken{}).Error; err != nil {
 			return err
 		}
 		if len(gone) == 0 {
@@ -534,7 +539,7 @@ func (s *Server) cdnUnreachablePort(ctx context.Context, p *store.CDNProfile, no
 		}
 	}
 	if len(ips) > 0 && len(bad) == len(ips) {
-		return []string{}, true
+		return nonNilStrs(bad), true
 	}
 	return nonNilStrs(bad), false
 }

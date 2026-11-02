@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -42,7 +43,7 @@ func (s *Server) cdnSelectionText(p *store.CDNProfile, carrier, region string, p
 	}
 	if len(personal) > 0 {
 		available := usableCDNIPsAt(p, personal, port)
-		return fmt.Sprintf("个人优选：%d 个候选，%d 个通过当前配置的筛选", len(personal), len(available))
+		return fmt.Sprintf("个人优选：%d 个手动候选，%d 个通过公共规则筛选；实际订阅同时过滤个人禁用和检测失败的地址，无可用个人地址时使用公共池", len(personal), len(available))
 	}
 	_, mode := s.cdnAudienceReports(p, port, carrier, region)
 	switch mode {
@@ -73,7 +74,11 @@ func (s *Server) portalCDNInfo(info *sub.Info, u *store.User, carrier, region st
 	}
 	for _, p := range profiles {
 		personal := u.CDNPreferred.V[p.ID]
-		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
+		poolJSON, _ := json.Marshal(u.CDNPool.V[p.ID])
+		portsJSON, _ := json.Marshal(s.cdnCheckPorts(&p))
+		var token store.APIToken
+		s.st.DB.Where("cdn_user_id = ? AND cdn_profile_id = ?", u.ID, p.ID).First(&token)
+		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
 	}
 	return nil
 }
@@ -98,6 +103,7 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 	var req struct {
 		ProfileID string    `json:"profileId"`
 		Addresses *[]string `json:"addresses"`
+		Disabled  *[]string `json:"disabled"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -111,6 +117,18 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 	if err != nil {
 		badRequest(c, err)
 		return
+	}
+	var disabled []string
+	if req.Disabled != nil {
+		if len(*req.Disabled) > 256 {
+			badRequest(c, fmt.Errorf("最多禁用 256 个地址"))
+			return
+		}
+		disabled, err = normalizeCDNPinnedHosts(*req.Disabled)
+		if err != nil {
+			badRequest(c, err)
+			return
+		}
 	}
 	profiles, err := s.cdnUserProfiles(u)
 	if err != nil {
@@ -138,7 +156,18 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 		} else {
 			choices[req.ProfileID] = addresses
 		}
-		return tx.Model(&current).Update("cdn_preferred", store.NewJSON(choices)).Error
+		updates := map[string]any{"cdn_preferred": store.NewJSON(choices)}
+		if req.Disabled != nil {
+			pools := current.CDNPool.V
+			if pools == nil {
+				pools = map[string]store.PersonalCDNPool{}
+			}
+			pool := pools[req.ProfileID]
+			pool.Disabled = disabled
+			pools[req.ProfileID] = pool
+			updates["cdn_pool"] = store.NewJSON(pools)
+		}
+		return tx.Model(&current).Updates(updates).Error
 	})
 	if err != nil {
 		dbError(c, err)

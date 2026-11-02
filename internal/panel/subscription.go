@@ -96,7 +96,7 @@ func (s *Server) subNodesFor(u *store.User, carrier string, regions ...string) (
 	if len(regions) > 0 {
 		region = regions[0]
 	}
-	audience := cdnAudience{Region: region, Personal: u.CDNPreferred.V}
+	audience := cdnAudience{Region: region, Personal: u.CDNPreferred.V, Pools: u.CDNPool.V}
 	var ins []store.Inbound
 	err := s.st.DB.Table("inbounds").Select("DISTINCT inbounds.*").
 		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
@@ -334,7 +334,8 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		}
 		// An entry with its own address uses it, not the preferred IPs.
 		if !p.ExpandPerIP || ep.Address != "" {
-			if cdnAddressBlocked(&p, n.Server) || (keep != nil && !keep(n.Server)) {
+			personalAllowed := len(audience) == 0 || personalCDNAllowed(audience[0].Pools[p.ID], n.Server, n.Port)
+			if !personalAllowed || len(usableCDNIPsAt(&p, []string{n.Server}, n.Port)) == 0 || (keep != nil && !keep(n.Server)) {
 				return nil
 			}
 			n.Name = name("CDN")
@@ -345,7 +346,8 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			if excluded {
 				return nil
 			}
-			if cdnAddressBlocked(&p, n.Server) || (keep != nil && !keep(n.Server)) {
+			personalAllowed := len(audience) == 0 || personalCDNAllowed(audience[0].Pools[p.ID], n.Server, n.Port)
+			if !personalAllowed || len(usableCDNIPsAt(&p, []string{n.Server}, n.Port)) == 0 || (keep != nil && !keep(n.Server)) {
 				return nil
 			}
 			n.Name = name("CDN")

@@ -201,13 +201,14 @@ type User struct {
 	SelfService bool `json:"selfService"`
 	// CDNCarrier is the carrier the user picked for CDN preferred IPs
 	// (ct / cu / cm); "" detects it from the subscription request.
-	CDNCarrier   string                    `gorm:"size:8" json:"cdnCarrier"`
-	CDNRegion    string                    `gorm:"size:16" json:"cdnRegion"`
-	CDNPreferred JSON[map[string][]string] `json:"-"`
-	RenamedAt    *time.Time                `json:"-"` // last self-service rename
-	WarnedUsage  bool                      `json:"-"` // traffic warning scheduled this cycle
-	WarnedExpire *time.Time                `json:"-"`
-	Remark       string                    `gorm:"size:255" json:"remark"`
+	CDNCarrier   string                           `gorm:"size:8" json:"cdnCarrier"`
+	CDNRegion    string                           `gorm:"size:16" json:"cdnRegion"`
+	CDNPreferred JSON[map[string][]string]        `json:"-"`
+	CDNPool      JSON[map[string]PersonalCDNPool] `json:"-"`
+	RenamedAt    *time.Time                       `json:"-"` // last self-service rename
+	WarnedUsage  bool                             `json:"-"` // traffic warning scheduled this cycle
+	WarnedExpire *time.Time                       `json:"-"`
+	Remark       string                           `gorm:"size:255" json:"remark"`
 	// Self-service port forwarding, set from the plan (professional
 	// edition): FwdUsed counts this period's forwarded traffic, FwdCapped
 	// records that FwdTraffic was reached (the rules are then withheld).
@@ -986,7 +987,23 @@ func AllModels() []any {
 
 // APIToken lets scripts and plugins call the API without a login session.
 // Only the SHA-256 of the token is stored; Scopes limit what it may call.
+// PersonalCDNPool keeps manual choices separate from automatic measurements.
+// Disabled addresses survive subsequent reports. Checks are specific to a port.
+type PersonalCDNPool struct {
+	Disabled   []string                    `json:"disabled,omitempty"`
+	Automatic  map[string][]string         `json:"automatic,omitempty"`
+	Checks     map[string]PersonalCDNCheck `json:"checks,omitempty"`
+	ReportedAt *time.Time                  `json:"reportedAt,omitempty"`
+}
+type PersonalCDNCheck struct {
+	OK      bool      `json:"ok"`
+	At      time.Time `json:"at"`
+	Message string    `json:"message"`
+}
+
 type APIToken struct {
+	CDNUserID string `gorm:"size:32;index" json:"cdnUserId,omitempty"`
+
 	ID       string `gorm:"primaryKey;size:32" json:"id"`
 	Name     string `gorm:"size:64" json:"name"`
 	PluginID string `gorm:"size:64;index" json:"pluginId,omitempty"` // set for a plugin's own token

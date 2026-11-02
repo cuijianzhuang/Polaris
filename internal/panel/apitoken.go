@@ -135,6 +135,18 @@ func (s *Server) authToken(c *gin.Context, tok string) {
 	}
 	route := c.Request.Method + " " + strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
 	need, ok := tokenRoutes[route]
+	if t.CDNUserID != "" {
+		var u store.User
+		if s.st.DB.First(&u, "id = ? AND is_service = ?", t.CDNUserID, false).Error != nil || !s.servedUser(&u) {
+			c.AbortWithStatusJSON(401, gin.H{"error": "账号不可用"})
+			return
+		}
+		profiles, err := s.cdnUserProfiles(&u)
+		if err != nil || !slices.ContainsFunc(profiles, func(p store.CDNProfile) bool { return p.ID == t.CDNProfileID }) {
+			c.AbortWithStatusJSON(403, gin.H{"error": "已无权使用此 CDN 配置"})
+			return
+		}
+	}
 	if !ok {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "API 令牌不能访问此接口"})
 		return
@@ -255,6 +267,9 @@ func (s *Server) tokenSelf(c *gin.Context) {
 // tokenAllows is shared by authentication and the filtered OpenAPI view.
 // Existing broad scopes remain compatible; new tokens can request less.
 func tokenAllows(t *store.APIToken, route string) bool {
+	if t.CDNUserID != "" && route != "POST /cdn-profiles/:id/preferred-ips" && route != "GET /cdn-profiles/:id/ip-candidates" {
+		return false
+	}
 	need, ok := tokenRoutes[route]
 	if !ok {
 		return false
