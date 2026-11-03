@@ -24,6 +24,16 @@ with sync_playwright() as p:
     page.locator('#cdn-preferences > summary').click();expect(page.get_by_label('个人优选地址（一行一个，最多 32 个）')).to_be_visible()
     expect(page.locator('#cdn-profile')).to_have_value('regional')
     assert 'foreign' not in page.locator('#cdn-profile').inner_text()
+    # WebKit can leak selected text outside a sized select's anonymous box.
+    # Exercise a long label as well as the real entry label without changing its value.
+    entry=page.locator('#cdn-endpoint')
+    expect(entry.locator('option')).not_to_have_count(0)
+    original=entry.evaluate('(e)=>e.selectedOptions[0].textContent')
+    entry.evaluate('(e)=>e.selectedOptions[0].textContent="long-entry-".repeat(30)')
+    page.screenshot(path=str(out/f'{engine}-{width}-{theme}-long-entry.png'),full_page=True)
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1'),f'{engine} {width} {theme}: long entry label overflows'
+    assert entry.evaluate('(e)=>e.selectedOptions[0].textContent').endswith('long-entry-')
+    entry.evaluate('(e,text)=>e.selectedOptions[0].textContent=text',original)
     text=page.locator('#cdn-addresses');text.fill('https://bad.example.com')
     page.get_by_role('button',name='保存个人优选地址',exact=True).click()
     expect(page.locator('#cdn-preferences-error')).to_be_visible();expect(text).to_have_value('https://bad.example.com')
