@@ -13,6 +13,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  mirror-tests:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test mirror selection, privacy and release publication guards
+        run: python3 -m unittest discover -s .github/scripts -p 'test_mirror_sync.py' -v
   # The Go suites run as parallel jobs (they took ~22 minutes back to back).
   go:
     runs-on: ubuntu-latest
