@@ -289,6 +289,8 @@ jobs:
           python -m pip install -r web/scripts/browser-requirements.txt
           python -m playwright install --with-deps chromium webkit
           echo "POLARIS_CHROMIUM_BIN=$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')" >> "$GITHUB_ENV"
+          # The pinned Python package also bundles the Node Playwright driver.
+          echo "POLARIS_PLAYWRIGHT_MODULE=$(python -c 'import pathlib, playwright; print(pathlib.Path(playwright.__file__).parent / "driver/package/index.mjs")')" >> "$GITHUB_ENV"
       - name: Compile browser integration tests once
         run: go test -c -o "$RUNNER_TEMP/polaris-browser.test" ./internal/panel
       - name: Real WebAuthn registration, replay rejection, revocation and recovery
@@ -309,6 +311,13 @@ jobs:
           POLARIS_PORTAL_CDN_BROWSER_TEST: '1'
         run: |
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePortalCDNBrowser$'
+      - name: Personal CDN imports, probe pairing, expiry and stale editor protection
+        working-directory: internal/panel
+        env:
+          POLARIS_PERSONAL_CDN_BROWSER_TEST: '1'
+          POLARIS_PERSONAL_CDN_RELIABILITY_BROWSER_TEST: '1'
+        run: |
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePersonalCDN(Pool|Reliability)Browser$'
       - name: Every admin page loads in a real browser (desktop, phone, English)
         working-directory: internal/panel
         env:
