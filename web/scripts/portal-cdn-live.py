@@ -35,8 +35,12 @@ with sync_playwright() as p:
     bob=context.request.get(base+'/sub/bob-region-subscription-token?format=clash').text()
     assert '104.20.9.9' in alice and 'best.example.com' in alice
     assert '104.20.9.9' not in bob and '104.16.2.1' in bob
-    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
-    page.screenshot(path=str(out/f'{engine}-{width}-{theme}-personal.png'))
+    overflow=page.evaluate('''() => ({viewport:innerWidth, document:document.documentElement.scrollWidth, scrollX,
+      elements:[...document.querySelectorAll('body *')]
+      .filter(e => e.getClientRects().length && (e.getBoundingClientRect().right + scrollX > innerWidth + 1 || e.scrollWidth > e.clientWidth + 1))
+      .slice(0, 25).map(e => ({tag:e.tagName,id:e.id,css:e.className,text:e.textContent.slice(0, 90),width:e.getBoundingClientRect().width,scroll:e.scrollWidth,right:e.getBoundingClientRect().right}))})''')
+    page.screenshot(path=str(out/f'{engine}-{width}-{theme}-personal.png'),full_page=True)
+    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1'),f'{engine} {width} {theme}: overflowing controls {overflow}'
     # Clearing restores shared selection; selecting a different region changes output.
     if not page.locator('#cdn-bulk-edit').evaluate('(el) => el.open'): page.locator('#cdn-bulk-edit > summary').click()
     page.locator('#cdn-addresses').fill('')
