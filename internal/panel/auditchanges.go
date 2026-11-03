@@ -46,6 +46,7 @@ var changeTables = map[string][]string{
 	"inbound_templates": {},
 	"endpoints":         {},
 	"cdn_profiles":      {},
+	"websites":          {"Files", "Version"},
 	"certificates":      {"LastError"},
 	"settings":          {},
 	"sub_templates":     {},

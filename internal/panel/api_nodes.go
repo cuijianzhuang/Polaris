@@ -276,7 +276,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 			}
 		}
 
-		for _, m := range []any{&store.Core{}, &store.Inbound{}, &store.Outbound{}, &store.RoutingRule{}, &store.ConfigRevision{}, &store.ForwardRule{}, &store.NodeNetBoot{}, &store.NotificationState{}, &store.NodeRouteTrace{}, &store.NodeRouteSchedule{}, &store.NodeRouteScheduleState{}} {
+		for _, m := range []any{&store.Website{}, &store.Core{}, &store.Inbound{}, &store.Outbound{}, &store.RoutingRule{}, &store.ConfigRevision{}, &store.ForwardRule{}, &store.NodeNetBoot{}, &store.NotificationState{}, &store.NodeRouteTrace{}, &store.NodeRouteSchedule{}, &store.NodeRouteScheduleState{}} {
 			if err := tx.Where("node_id = ?", id).Delete(m).Error; err != nil {
 				return err
 			}

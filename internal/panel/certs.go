@@ -322,7 +322,9 @@ func (s *Server) nodesUsingCert(certID string) []string {
 			ids = append(ids, in.NodeID)
 		}
 	}
-	return ids
+	var siteIDs []string
+	s.st.DB.Model(&store.Website{}).Where("certificate_id = ?", certID).Pluck("node_id", &siteIDs)
+	return append(ids, siteIDs...)
 }
 
 func orDefault(s, d string) string {

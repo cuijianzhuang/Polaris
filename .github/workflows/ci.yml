@@ -256,7 +256,7 @@ jobs:
         working-directory: web
   passkeys:
     env:
-      POLARIS_CDN_ARTIFACTS: ${{ runner.temp }}/portal-cdn-screenshots
+      POLARIS_CDN_ARTIFACTS: /tmp/polaris-portal-cdn-screenshots
     # Real server-backed tests; mocked UI workflows run separately.
     # Playwright 1.56's browser packages support Ubuntu 24.04.
     runs-on: ubuntu-24.04
@@ -320,6 +320,12 @@ jobs:
           POLARIS_PERSONAL_CDN_RELIABILITY_BROWSER_TEST: '1'
         run: |
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePersonalCDN(Pool|Reliability)Browser$'
+      - name: Website uploads and unified entry preview in Chromium and WebKit
+        working-directory: internal/panel
+        env:
+          POLARIS_WEBSITES_BROWSER_TEST: '1'
+        run: |
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLiveWebsitesBrowser$'
       - name: Every admin page loads in a real browser (desktop, phone, English)
         working-directory: internal/panel
         env:
@@ -331,7 +337,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: portal-cdn-layout
-          path: ${{ runner.temp }}/portal-cdn-screenshots
+          path: /tmp/polaris-portal-cdn-screenshots
           if-no-files-found: ignore
   browser-ui:
     name: browser-ui (${{ matrix.suite }})
