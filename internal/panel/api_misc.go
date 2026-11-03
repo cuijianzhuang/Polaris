@@ -77,7 +77,7 @@ func (s *Server) createCert(c *gin.Context) {
 func (s *Server) deleteCert(c *gin.Context) {
 	id := c.Param("id")
 	if n := len(s.nodesUsingCert(id)); n > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "证书仍被入站使用"})
+		c.JSON(http.StatusConflict, gin.H{"error": "证书仍被入站或网站使用"})
 		return
 	}
 	s.st.DB.Delete(&store.Certificate{}, "id = ?", id)

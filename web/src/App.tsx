@@ -49,6 +49,7 @@ const Tickets = page(() => import('./pages/Tickets'))
 const Plans = page(() => import('./pages/Plans'))
 const SubTemplates = page(() => import('./pages/SubTemplates'))
 const Certificates = page(() => import('./pages/Certificates'))
+const Websites = page(() => import('./pages/Websites'))
 const Settings = page(() => import('./pages/Settings'))
 const Audit = page(() => import('./pages/Audit'))
 const Convert = page(() => import('./pages/Convert'))
@@ -124,6 +125,7 @@ const nav: NavItem[] = [
   { to: '/domains', label: t('域名与证书'), icon: <Icon.Globe />, children: [
     { to: '/domains', label: t('域名与 DDNS'), icon: <Icon.Globe /> },
     { to: '/certificates', label: t('证书'), icon: <Icon.Lock /> },
+    { to: '/websites', label: t('网站与 443 入口'), icon: <Icon.Globe /> },
   ] },
   { to: '/extensions', label: t('扩展'), icon: <Icon.Extension /> },
   { to: '/settings', label: t('系统'), icon: <Icon.Gear />, children: [
@@ -368,6 +370,7 @@ function Session() {
                       <Route path="/plans" element={<Plans />} />
                       <Route path="/sub-templates" element={<SubTemplates />} />
                       <Route path="/certificates" element={<Certificates />} />
+                      <Route path="/websites" element={<Websites />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/audit" element={<Audit />} />
                       <Route path="/convert" element={<Convert />} />

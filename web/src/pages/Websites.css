@@ -1,0 +1,27 @@
+.website-bundle { display: grid; gap: 8px; min-width: 0; }
+.website-upload { border: 1px dashed var(--input-strong); border-radius: var(--r-lg); background: var(--soft-2); transition: border-color var(--dur), background var(--dur); min-width: 0; }
+.website-upload.dragging { border-color: var(--pri); background: var(--pri-soft); }
+.website-upload:focus-within { border-color: var(--pri); }
+.website-upload.invalid { border-color: var(--bad-line); }
+.website-upload-main { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 20px; }
+.website-upload-icon { width: 44px; height: 44px; border: 1px solid var(--pri-line); background: var(--pri-soft); color: var(--pri); border-radius: 12px; display: grid; place-items: center; }
+.website-upload-icon svg { width: 22px; height: 22px; }
+.website-upload-copy { display: grid; gap: 4px; min-width: 0; }
+.website-upload-copy strong { color: var(--ink); font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.website-upload-copy > span { color: var(--mute); font-size: 12px; overflow-wrap: anywhere; }
+.website-upload-main .btn { min-height: 36px; white-space: nowrap; }
+.website-upload-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; border-top: 1px solid var(--line-2); padding: 10px 20px; font-size: 11px; color: var(--mute); }
+.website-upload-state { display: inline-flex; align-items: center; gap: 6px; }
+.website-upload-state::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
+.website-upload-state.ready { color: var(--ok-ink); }
+.website-upload-state.ready::before { background: var(--ok); }
+.website-upload-error { color: var(--bad-ink); margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.website-upload-hint { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; color: var(--mute); font-size: 11px; line-height: 1.7; }
+.website-upload-help > summary { color: var(--pri); cursor: pointer; }
+.website-upload-help p { max-width: 60ch; margin: 6px 0 0; }
+@media (max-width: 540px) {
+  .website-upload-main { grid-template-columns: 40px minmax(0, 1fr); gap: 12px; padding: 16px; }
+  .website-upload-icon { width: 40px; height: 40px; border-radius: 10px; }
+  .website-upload-main .btn { grid-column: 1 / -1; width: 100%; min-height: 40px; }
+  .website-upload-footer { padding: 10px 16px; }
+}

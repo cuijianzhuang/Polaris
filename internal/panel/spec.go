@@ -284,10 +284,13 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreForwarder})
 	}
 	spec.Fronts = s.buildFronts(spec)
+	if err := s.buildWebsites(spec); err != nil {
+		return nil, err
+	}
 	if err := s.buildManagedTunnels(spec); err != nil {
 		return nil, err
 	}
-	if len(spec.Fronts) > 0 && !spec.HasCore(model.CoreCaddy) {
+	if spec.HasWebFront() && !spec.HasCore(model.CoreCaddy) {
 		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreCaddy})
 	}
 	return spec, nil

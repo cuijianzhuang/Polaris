@@ -156,6 +156,11 @@ func (s *Server) Router() http.Handler {
 	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
 
 	p := api.Group("", s.authRequired, s.adminRoleGuard, s.scopeGuard, s.licenseManagementGuard, s.trackChanges, s.idempotency)
+	p.GET("/websites", s.listWebsites)
+	p.POST("/websites/archive", s.websiteArchive)
+	p.POST("/websites/preview", s.previewWebsite)
+	p.POST("/websites", s.saveWebsite)
+	p.DELETE("/websites/:id", s.deleteWebsite)
 	p.GET("/ws", func(c *gin.Context) {
 		s.handleWS(c.Writer, c.Request, s.sessionCheck(c), nodeScope(c))
 	})

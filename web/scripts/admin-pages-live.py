@@ -10,7 +10,7 @@ sub = os.environ.get('POLARIS_PAGES_TEST_SUB', '')
 # Optional: save a full-page screenshot of every page into this directory.
 shots = os.environ.get('POLARIS_PAGES_SHOTS', '')
 routes = ['/', '/stats', '/nodes', '/map', '/probe', '/cores', '/forwards', '/inbounds', '/chains', '/templates',
-          '/users', '/shop', '/tickets', '/plans', '/sub-templates', '/certificates', '/settings', '/audit',
+          '/users', '/shop', '/tickets', '/plans', '/sub-templates', '/certificates', '/websites', '/settings', '/audit',
           '/convert', '/domains', '/telegram', '/costs', '/extensions', '/license',
           # Every settings tab, and the new-user drawer.
           '/settings#security', '/settings#update', '/settings#backup', '/settings#network', '/settings#notifications',

@@ -44,3 +44,18 @@ func TestForwarderPinnedDigest(t *testing.T) {
 		}
 	}
 }
+
+func TestWebsitePortOwnershipAndReload(t *testing.T) {
+	before := &model.NodeSpec{Websites: []model.WebsiteSpec{{Domain: "site.example.com", Port: 443, Mode: "static", Path: "/", Files: map[string][]byte{"index.html": []byte("old")}}}}
+	after := before.Clone()
+	after.Websites[0].Files["index.html"] = []byte("new")
+	if len(portsOf(coreSlice(before, model.CoreCaddy))) != 1 {
+		t.Fatal("website listener missing from Caddy port ownership")
+	}
+	if _, _, same := userOnlyDiff(before, after, model.CoreCaddy); same {
+		t.Fatal("bundle change was mistaken for a user-only update")
+	}
+	if len(wantedPorts(before)) != 1 {
+		t.Fatal("website public port missing from firewall desired state")
+	}
+}

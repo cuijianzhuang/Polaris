@@ -161,7 +161,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 			wanted[model.CoreGost] = model.CoreSpec{Type: model.CoreGost}
 		}
 	}
-	if len(spec.Fronts) > 0 {
+	if spec.HasWebFront() {
 		if _, ok := wanted[model.CoreCaddy]; !ok {
 			wanted[model.CoreCaddy] = model.CoreSpec{Type: model.CoreCaddy}
 		}
@@ -231,7 +231,7 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 		cs := wanted[t]
 		active := len(spec.InboundsFor(t)) > 0 || (t == model.CoreForwarder && len(spec.RealmForwards()) > 0) ||
 			(t == model.CoreGost && len(spec.GostForwards()) > 0) ||
-			(t == model.CoreCaddy && len(spec.Fronts) > 0) || (t == model.CoreCloudflared && len(spec.Tunnels) > 0)
+			(t == model.CoreCaddy && spec.HasWebFront()) || (t == model.CoreCloudflared && len(spec.Tunnels) > 0)
 		a.progress.step("准备 "+coreLabel(cs), 0, 0)
 		m, old, err := a.ensureCore(ctx, cs, active)
 		if err != nil {
@@ -492,9 +492,10 @@ func userOnlyDiff(prev, next *model.NodeSpec, t model.CoreType) (map[string][]mo
 			Out []model.Outbound
 			R   []model.RouteRule
 			F   []model.ForwardRule
+			W   []model.WebsiteSpec
 			Fr  []model.FrontRule
 			L   []string // limited users change the rendered routing
-		}{ins, s.Outbounds, s.Routes, s.Forwards, s.Fronts, s.LimitedUsers(all)})
+		}{ins, s.Outbounds, s.Routes, s.Forwards, s.Websites, s.Fronts, s.LimitedUsers(all)})
 		return b, users
 	}
 	pb, pu := strip(prev)
@@ -622,6 +623,7 @@ func coreSlice(s *model.NodeSpec, t model.CoreType) *model.NodeSpec {
 		out.Forwards = s.GostForwards()
 	case model.CoreCaddy:
 		out.Fronts = s.Fronts
+		out.Websites = s.Websites
 	case model.CoreCloudflared:
 		out.Tunnels = s.Tunnels
 	}

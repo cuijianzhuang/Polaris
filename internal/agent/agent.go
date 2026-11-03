@@ -417,7 +417,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			rev = 0
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
-		features := model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature + "," + model.SnellPSKFeature
+		features := model.WebsiteFeature + "," + model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature + "," + model.SnellPSKFeature
 		if a.cfg.Supervised && runtime.GOOS == "linux" {
 			features += "," + model.AgentRollbackFeature
 		}

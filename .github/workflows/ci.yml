@@ -320,6 +320,12 @@ jobs:
           POLARIS_PERSONAL_CDN_RELIABILITY_BROWSER_TEST: '1'
         run: |
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePersonalCDN(Pool|Reliability)Browser$'
+      - name: Website uploads and unified entry preview in Chromium and WebKit
+        working-directory: internal/panel
+        env:
+          POLARIS_WEBSITES_BROWSER_TEST: '1'
+        run: |
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLiveWebsitesBrowser$'
       - name: Every admin page loads in a real browser (desktop, phone, English)
         working-directory: internal/panel
         env:

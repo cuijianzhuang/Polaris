@@ -59,11 +59,12 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 // Render writes certificates next to the config and returns the Caddyfile.
 func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 	type site struct {
-		domain string
-		port   int
-		cert   string
-		sum    string // digest of the certificate and key
-		rules  []model.FrontRule
+		domain  string
+		port    int
+		cert    string
+		sum     string // digest of the certificate and key
+		rules   []model.FrontRule
+		website *model.WebsiteSpec
 	}
 	sites := map[string]*site{}
 	var keys []string
@@ -91,6 +92,34 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			}
 		}
 		st.rules = append(st.rules, f)
+	}
+	for i := range spec.Websites {
+		w := &spec.Websites[i]
+		key := fmt.Sprintf("%s:%d", w.Domain, w.Port)
+		st, ok := sites[key]
+		if !ok {
+			st = &site{domain: w.Domain, port: w.Port}
+			sites[key] = st
+			keys = append(keys, key)
+		}
+		if st.website != nil {
+			return nil, fmt.Errorf("duplicate website: %s", key)
+		}
+		st.website = w
+		name := fmt.Sprintf("website-%x", sha256.Sum256([]byte(key)))
+		st.cert = name
+		sum := sha256.Sum256([]byte(w.CertPEM + w.KeyPEM))
+		st.sum = hex.EncodeToString(sum[:8])
+		if w.CertPEM == "" || w.KeyPEM == "" {
+			return nil, fmt.Errorf("website %s has no certificate", key)
+		}
+		dir := filepath.Join(a.opt.WorkDir, "certs")
+		if err := core.AtomicWrite(filepath.Join(dir, name+".crt"), []byte(w.CertPEM), 0o600); err != nil {
+			return nil, err
+		}
+		if err := core.AtomicWrite(filepath.Join(dir, name+".key"), []byte(w.KeyPEM), 0o600); err != nil {
+			return nil, err
+		}
 	}
 	sort.Strings(keys)
 	var b strings.Builder
@@ -120,10 +149,17 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 			fmt.Fprintf(&b, "\t@r%d path %s %s/*\n", i, p, p)
 			fmt.Fprintf(&b, "\thandle @r%d {\n\t\treverse_proxy %s {\n\t\t\tflush_interval -1\n\t\t\theader_up -CF-Connecting-IP\n\t\t\theader_up X-Polaris-Client-IP {http.vars.client_ip}\n\t\t\theader_up X-Forwarded-For {http.vars.client_ip}\n\t\t}\n\t}\n", i, upstream)
 		}
-		b.WriteString("\thandle {\n\t\trespond 404\n\t}\n}\n")
+		if st.website != nil {
+			if err := a.renderWebsite(&b, *st.website, st.rules); err != nil {
+				return nil, err
+			}
+		} else {
+			b.WriteString("\thandle {\n\t\trespond 404\n\t}\n")
+		}
+		b.WriteString("}\n")
 	}
 	a.mu.Lock()
-	a.n = len(spec.Fronts)
+	a.n = len(spec.Fronts) + len(spec.Websites)
 	a.mu.Unlock()
 	return []byte(b.String()), nil
 }

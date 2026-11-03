@@ -150,6 +150,7 @@ type NodeSpec struct {
 	Outbounds   []Outbound    `json:"outbounds,omitempty"`
 	Routes      []RouteRule   `json:"routes,omitempty"`
 	Forwards    []ForwardRule `json:"forwards,omitempty"`
+	Websites    []WebsiteSpec `json:"websites,omitempty"`
 	Fronts      []FrontRule   `json:"fronts,omitempty"`
 	Tunnels     []TunnelSpec  `json:"tunnels,omitempty"`
 	// Supplied only over the authenticated node channel, never serialized.

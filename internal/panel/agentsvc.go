@@ -201,7 +201,7 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 	}
 	features := []string{}
 	for _, v := range strings.Split(req.Header().Get("X-Polaris-Agent-Features"), ",") {
-		if (v == model.RemoteTunnelFeature || v == model.ManagedTunnelFeature || v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
+		if (v == model.WebsiteFeature || v == model.RemoteTunnelFeature || v == model.ManagedTunnelFeature || v == model.AgentRollbackFeature || v == model.RelayAccessFeature || v == model.OutboundIPFeature || v == model.RelayBusinessFeature || v == model.SingboxRelayBusinessFeature || v == model.SnellUsersFeature || v == model.SnellPSKFeature || v == model.RouteTraceFeature || v == model.RouteTraceToolFeature) && !contains(features, v) {
 			features = append(features, v)
 		}
 	}
@@ -209,13 +209,17 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	var spec struct {
-		AccessRules []json.RawMessage  `json:"accessRules"`
-		Inbounds    []model.Inbound    `json:"inbounds"`
-		Tunnels     []model.TunnelSpec `json:"tunnels"`
-		Cores       []model.CoreSpec   `json:"cores"`
+		Websites    []model.WebsiteSpec `json:"websites"`
+		AccessRules []json.RawMessage   `json:"accessRules"`
+		Inbounds    []model.Inbound     `json:"inbounds"`
+		Tunnels     []model.TunnelSpec  `json:"tunnels"`
+		Cores       []model.CoreSpec    `json:"cores"`
 	}
 	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	if len(spec.Websites) > 0 && !contains(features, model.WebsiteFeature) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持统一网站入口的新版 Agent"))
 	}
 	if len(spec.AccessRules) > 0 && !contains(features, model.RelayAccessFeature) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持中转访问保护的新版 Agent"))
