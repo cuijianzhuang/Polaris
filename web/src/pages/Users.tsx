@@ -136,6 +136,7 @@ export default function Users() {
           <details className="menu">
             <summary className="btn">{t('更多')}</summary>
             <div className="menu-list" onClick={(e) => { (e.currentTarget.parentElement as HTMLDetailsElement).open = false }}>
+              <button type="button" onClick={() => setModal('bulk')}>{t('批量创建')}</button>
               <button type="button" onClick={() => setModal('import')}>{t('导入用户（JSON / 3x-ui）')}</button>
               <button type="button" onClick={() => run(async () => downloadJSON(`polaris-users-${new Date().toISOString().slice(0, 10)}.json`, await get('/users/export')), t('已导出'))}>{t('导出全部用户')}</button>
               <button type="button" disabled={!sum.limited && !sum.expired} onClick={async () => {
@@ -149,7 +150,6 @@ export default function Users() {
             </div>
           </details>
           <RefreshPicker ms={refreshMs} onChange={setRefreshMs} onNow={list.reload} />
-          <button className="btn" type="button" onClick={() => setModal('bulk')}>{t('批量创建')}</button>
           <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ {t('新建用户')}</button>
         </div>
       </div>

@@ -90,10 +90,14 @@ with sync_playwright() as p:
         page.wait_for_function("!!localStorage.getItem('polaris.token')")
         # Authentication mounts the dashboard and starts its requests. Let that
         # landing navigation settle before the first explicit route visit.
+        page.locator('.app .page-content h1').first.wait_for(state='visible')
         page.wait_for_load_state('networkidle')
         for route in routes:
             problems.clear()
-            page.goto(url + route)
+            # The first route is the dashboard already mounted by login.
+            # Reloading it can cancel auth-triggered requests in WebKit.
+            if route != '/':
+                page.goto(url + route)
             page.wait_for_load_state('networkidle')
             crashed = page.get_by_text('页面出错了' if lang == 'zh' else 'This page hit an error', exact=False).count() > 0
             headings = page.locator('main h1, main h2, main h3, .card h2, h1, h2').count()

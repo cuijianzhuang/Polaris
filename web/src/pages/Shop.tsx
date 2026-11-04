@@ -95,13 +95,13 @@ function Orders() {
       )}
       <div className="row list-toolbar">
         <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索订单号 / 用户 / 套餐')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索订单')} />
-        <div className="chips">
-          {['', 'paid', 'processing', 'pending', 'expired', 'cancelled', 'failed', 'refund_pending', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
-        </div>
         <select className="input" style={{ width: 'auto', minHeight: 34 }} value={method} onChange={(e) => setMethod(e.target.value)} aria-label={t('付款方式')}>
           <option value="">{t('全部付款方式')}</option>
           {Object.entries(methodLabel).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
         </select>
+        <div className="chips">
+          {['', 'paid', 'processing', 'pending', 'expired', 'cancelled', 'failed', 'refund_pending', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}
+        </div>
         <span className="spacer" />
         {checked.length > 0
           ? <><span className="small mute">{t('已选 {n}', { n: checked.length })}</span><button className="btn sm danger" type="button" disabled={busy} onClick={() => removeOrders(checked)}>{t('删除所选')}</button></>

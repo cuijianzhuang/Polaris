@@ -14,6 +14,7 @@ import { t } from './i18n'
 import LangToggle from './components/LangToggle'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import { useMobileKeyboard } from './components/useMobileKeyboard'
+import { useMenuDismiss } from './components/useMenuDismiss'
 import SudoPrompt from './components/SudoPrompt'
 import { SettingsDraftProvider, useSettingsLeave } from './components/SettingsDrafts'
 import type { Node } from './types'
@@ -214,6 +215,7 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: Error | n
 
 function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
   useMobileKeyboard()
+  useMenuDismiss()
   const leave = useSettingsLeave()
   const { title } = useBrand()
   const [menu, setMenu] = useState(false) // the sidebar, as a drawer on phones
@@ -268,17 +270,19 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
       <nav className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
         <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-fold" aria-label={folded ? t('展开侧栏') : t('收起侧栏')} aria-pressed={folded} title={folded ? t('展开侧栏') : t('收起侧栏')} onClick={() => fold(!folded)}><Icon.Fold /></button><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
-        {scoped ? (
-          <>
-            <NavLink to="/nodes" className="nav" title={folded ? t('我的节点') : undefined}><Icon.Server />{t('我的节点')}</NavLink>
-            <div className="navsec">{t('仅可操作分配给你的节点')}</div>
-            {!user.startsWith('tg:') && <NavLink to="/account" className="nav"><Icon.Lock />{t('我的账号')}</NavLink>}
-          </>
-        ) : (
-          <>
-            {items.map((n) => n.children ? <NavGroup key={n.label} item={n} folded={folded} onUnfold={() => fold(false)} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav" title={folded ? n.label : undefined}>{n.icon}{n.label}</NavLink>)}
-          </>
-        )}
+        <div className="side-menu">
+          {scoped ? (
+            <>
+              <NavLink to="/nodes" className="nav" title={folded ? t('我的节点') : undefined}><Icon.Server />{t('我的节点')}</NavLink>
+              <div className="navsec">{t('仅可操作分配给你的节点')}</div>
+              {!user.startsWith('tg:') && <NavLink to="/account" className="nav"><Icon.Lock />{t('我的账号')}</NavLink>}
+            </>
+          ) : (
+            <>
+              {items.map((n) => n.children ? <NavGroup key={n.label} item={n} folded={folded} onUnfold={() => fold(false)} /> : <NavLink key={n.to} to={n.to} end={n.end} className="nav" title={folded ? n.label : undefined}>{n.icon}{n.label}</NavLink>)}
+            </>
+          )}
+        </div>
         <div className="side-foot">
           <span className="me"><span className="avatar" title={accountName}>{(accountName[0] || '?').toUpperCase()}</span><span className="me-text"><b title={accountName}>{accountName}</b><small title={accountRole}>{accountRole}</small></span></span>
           <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={async () => { if (await leave()) onLogout() }}>{t('退出')}</button></span>

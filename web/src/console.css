@@ -22,6 +22,12 @@
   height: 100dvh;
   padding: 12px 10px;
   gap: 4px;
+  overflow: hidden;
+}
+.app .side-menu {
+  display: flex; flex-direction: column; gap: 4px;
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  overscroll-behavior: contain; padding: 2px 0;
 }
 .app .brand { padding: 8px 8px 18px; font-size: 18px; gap: 9px; }
 .app .brand-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -77,22 +83,11 @@
   align-items: center;
   gap: 12px 20px;
 }
+.page-content > .top > div:first-child { flex: 1 1 320px; min-width: 0; }
 .page-content > .top h1 { font-size: 22px; padding-left: 10px; border-left: 3px solid var(--pri); }
 .page-content > .top .sub { line-height: 1.65; max-width: 88ch; }
 .app .page-content .card { box-shadow: none; }
-.page-content .card > h2, .page-content .card > .ctitle:not(:has(.chip)) { position: relative; padding-left: 12px; }
-.page-content .card > h2::before, .page-content .card > .ctitle:not(:has(.chip))::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 14px;
-  border-radius: 2px;
-  background: var(--pri);
-}
-.page-content .card.flush > .ctitle::before { left: 6px; }
+.page-content .card > h2 { font-size: 15px; }
 .page-content .kpi .val { color: var(--pri-ink); }
 .page-content .kpi .val .small, .page-content .kpi .val .of { color: var(--mute); }
 
@@ -103,10 +98,14 @@
 .chip.on { background: var(--pri-soft); border-color: var(--pri-line); color: var(--pri-ink); box-shadow: none; }
 .chip.on .chip-n { background: var(--pri-line); color: var(--pri-ink); }
 .chip.sm { border-radius: var(--r-sm); }
-.input { box-shadow: none; }
+.input { min-width: 0; box-shadow: none; }
 th { font-weight: 550; background: var(--soft-2); }
 td { padding-top: 12px; padding-bottom: 12px; }
 tr.sel td { background: var(--pri-soft); }
+/* Keep audit text readable inside the horizontally scrollable table. */
+.audit-table { min-width: 900px; }
+.audit-table td:nth-child(4) { min-width: 140px; }
+.audit-table td:nth-child(5) { min-width: 220px; }
 
 /* A common work area for search, status filters and bulk actions. */
 .list-toolbar {
@@ -117,6 +116,7 @@ tr.sel td { background: var(--pri-soft); }
   border-radius: var(--r-lg);
   min-width: 0;
 }
+.list-toolbar > .spacer:last-child { display: none; }
 .list-toolbar .search { flex: 0 1 340px; min-width: 0; max-width: 100%; }
 .list-toolbar > .chips { flex: 1 1 100%; border-top: 1px solid var(--line-2); padding-top: 10px; }
 .list-toolbar > .chips .input { max-width: 100%; }
@@ -128,6 +128,19 @@ tr.sel td { background: var(--pri-soft); }
 .tab.on { color: var(--pri-ink); background: var(--pri-soft); border-color: var(--pri-line); }
 .app .settings .snav-item.on { color: var(--pri-ink); background: var(--pri-soft); border-color: var(--pri-line); box-shadow: none; }
 .app .settings .snav-item.on svg { color: inherit; }
+
+.menu > summary.btn:not(:has(svg))::after { content: ''; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); margin: 0 2px 3px 4px; }
+.menu[open] > summary.btn:not(:has(svg))::after { transform: rotate(225deg); margin-top: 4px; }
+.menu-list { max-height: var(--menu-height, none); overflow-y: auto; translate: var(--menu-shift, 0px) 0; }
+.menu[data-menu-above] > .menu-list { top: auto; bottom: calc(100% + 6px); }
+.menu-list button { flex-shrink: 0; min-height: 36px; padding: 8px 12px; }
+.menu-list button:focus-visible { background: var(--pri-soft); color: var(--pri-ink); outline-offset: -2px; }
+.dhead .icon-btn:hover { transform: none; }
+.refresh-picker { min-width: 0; }
+@media (pointer: coarse) {
+  .menu-list button, .side-actions > button { min-height: 44px; }
+  .side-actions > button { min-width: 44px; }
+}
 
 .login { background: var(--bg); padding: 24px 16px; }
 .login .card { border-color: var(--line); border-radius: 10px; box-shadow: var(--shadow-2); }
@@ -151,7 +164,12 @@ tr.sel td { background: var(--pri-soft); }
   .app .side .nav, .app .side .navsub .nav { min-height: 44px; }
   .page-content { padding: 16px 12px calc(84px + env(safe-area-inset-bottom)); gap: 12px; }
   .page-content > .top { padding: 16px; gap: 12px; }
+  .page-content > .top > div:first-child { flex-basis: 100%; }
   .page-content > .top h1 { font-size: 20px; }
+  /* Anchor dropdowns to the whole action row when individual buttons wrap. */
+  .page-content > .top > .row { position: relative; }
+  .page-content > .top > .row > .menu { position: static; }
+  .page-content > .top > .row > .menu > .menu-list { left: 0; right: auto; max-width: 100%; }
   .page-content .btn { min-height: 42px; }
   .list-toolbar { padding: 12px; gap: 10px; }
   .list-toolbar .search { flex: 1 1 100%; }
