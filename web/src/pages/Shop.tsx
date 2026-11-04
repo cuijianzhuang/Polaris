@@ -1,3 +1,4 @@
+import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { del, get, post, put } from '../api'
@@ -406,17 +407,12 @@ function Packs() {
 }
 
 function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => void }) {
-  const settings = useLoad(() => get<Record<string, any>>('/settings'))
   const keys = ['shop_enabled', 'shop_web_enabled', 'shop_auto_create', 'shop_user_rename', 'shop_user_prefix', 'shop_order_minutes', 'shop_stars', 'shop_epay_enabled', 'shop_usdt_enabled', 'shop_code_enabled', 'shop_epay_disabled_types', 'shop_epay_url', 'shop_epay_pid', 'shop_epay_types', 'shop_usdt_address', 'shop_usdt_evm_address', 'shop_usdt_chains', 'shop_usdt_rpc_bsc', 'shop_usdt_rpc_polygon', 'shop_usdt_rpc_arbitrum', 'shop_terms', 'shop_support'] as const
   const defaults: Record<string, string> = { shop_enabled: 'false', shop_web_enabled: 'false', shop_auto_create: 'true', shop_user_rename: 'true', shop_user_prefix: 'tg', shop_order_minutes: '30', shop_stars: 'false', shop_epay_enabled: 'true', shop_usdt_enabled: 'true', shop_code_enabled: 'true', shop_epay_disabled_types: '[]', shop_epay_types: 'alipay,wxpay', shop_usdt_chains: 'tron' }
-  const [f, setF] = useState<Record<string, string>>({})
+  const { state: settings, fields: f, setFields: setF } = useSettingsForm(Object.fromEntries(keys.map((key) => [key, defaults[key] ?? ''])))
   const [secrets, setSecrets] = useState({ shop_epay_key: '', shop_usdt_apikey: '' })
   const payOK = useFeature('shop_payments')
   const { busy, run } = useAction()
-  useEffect(() => {
-    const d = settings.data
-    if (d) setF(Object.fromEntries(keys.map((k) => [k, d[k] ?? defaults[k] ?? ''])))
-  }, [settings.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const sw = (k: string) => f[k] === 'true'
   const chains = (f.shop_usdt_chains ?? '').split(',').filter(Boolean)
@@ -430,9 +426,8 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
   const epayTypes = [...new Set((f.shop_epay_types ?? 'alipay,wxpay').split(',').map((v) => v.trim()).filter((v) => v && v.length <= 16))]
   const epayLabels: Record<string, string> = { alipay: t('支付宝'), wxpay: t('微信支付'), qqpay: t('QQ 钱包'), usdt: 'USDT', bank: t('网银') }
   const toggleType = (type: string, enabled: boolean) => set('shop_epay_disabled_types', JSON.stringify(enabled ? disabledTypes.filter((v) => v !== type) : [...new Set([...disabledTypes, type])]))
-  if (!settings.data) return null
   return (
-    <div className="grid g2">
+    <SettingsGate state={settings}><fieldset className="settings-fields" disabled={busy || settings.loading}><div className="grid g2">
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2>{t('商店')}</h2>
         {status && !status.botRunning && <div className="note warn">{t('Telegram 机器人未运行。请先在「系统 → Telegram 机器人」里启用。')}</div>}
@@ -465,7 +460,7 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
         <Field label={t('接口地址')} htmlFor="s-epay-url" hint={t('易支付网关地址，例如 https://pay.example.com')}><input id="s-epay-url" className="input mono" value={f.shop_epay_url ?? ''} onChange={(e) => set('shop_epay_url', e.target.value)} placeholder="https://pay.example.com" /></Field>
         <div className="form-grid">
           <Field label={t('商户 ID')} htmlFor="s-epay-pid"><input id="s-epay-pid" className="input mono" value={f.shop_epay_pid ?? ''} onChange={(e) => set('shop_epay_pid', e.target.value)} /></Field>
-          <Field label={t('商户密钥')} htmlFor="s-epay-key" hint={settings.data.shop_epay_key_set ? t('已保存（留空不修改）') : t('加密存储')}><input id="s-epay-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_epay_key} onChange={(e) => setSecrets({ ...secrets, shop_epay_key: e.target.value })} /></Field>
+          <Field label={t('商户密钥')} htmlFor="s-epay-key" hint={settings.data?.shop_epay_key_set ? t('已保存（留空不修改）') : t('加密存储')}><input id="s-epay-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_epay_key} onChange={(e) => setSecrets({ ...secrets, shop_epay_key: e.target.value })} /></Field>
         </div>
         <Field label={t('支付方式')} htmlFor="s-epay-types" hint={t('逗号分隔：alipay 支付宝、wxpay 微信、qqpay QQ 钱包')}><input id="s-epay-types" className="input mono" value={f.shop_epay_types ?? ''} onChange={(e) => set('shop_epay_types', e.target.value)} /></Field>
         <div className="sub">{t('下列渠道与易支付总开关共同生效。关闭子渠道会保留其配置。')}</div>
@@ -482,7 +477,7 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
         ))}
         {chains.includes('tron') && <>
           <Field label={t('TRON 收款地址')} htmlFor="s-usdt-addr" hint={t('TRON 网络地址（T 开头）')}><input id="s-usdt-addr" className="input mono" value={f.shop_usdt_address ?? ''} onChange={(e) => set('shop_usdt_address', e.target.value)} placeholder="T…" /></Field>
-          <Field label="TronGrid API Key" htmlFor="s-usdt-key" hint={settings.data.shop_usdt_apikey_set ? t('已保存（留空不修改）') : t('在 trongrid.io 免费申请；不填也能用，但容易被限流')}><input id="s-usdt-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_usdt_apikey} onChange={(e) => setSecrets({ ...secrets, shop_usdt_apikey: e.target.value })} /></Field>
+          <Field label="TronGrid API Key" htmlFor="s-usdt-key" hint={settings.data?.shop_usdt_apikey_set ? t('已保存（留空不修改）') : t('在 trongrid.io 免费申请；不填也能用，但容易被限流')}><input id="s-usdt-key" className="input mono" type="password" autoComplete="off" value={secrets.shop_usdt_apikey} onChange={(e) => setSecrets({ ...secrets, shop_usdt_apikey: e.target.value })} /></Field>
         </>}
         {evmOn && <>
           <Field label={t('EVM 收款地址')} htmlFor="s-usdt-evm" hint={t('BEP20、Polygon、Arbitrum 共用一个 0x 地址。请用自己掌握私钥的钱包地址，不要用交易所充值地址')}><input id="s-usdt-evm" className="input mono" value={f.shop_usdt_evm_address ?? ''} onChange={(e) => set('shop_usdt_evm_address', e.target.value)} placeholder="0x…" /></Field>
@@ -507,7 +502,7 @@ function PaySettings({ status, onSaved }: { status?: ShopStatus; onSaved: () => 
         settings.reload()
         onSaved()
       }, t('已保存'))}>{t('保存')}</button></div>
-    </div>
+    </div></fieldset></SettingsGate>
   )
 }
 

@@ -145,9 +145,28 @@ var editableSettings = map[string]bool{
 	"ddns_auto_provider": true, "ddns_auto_zone": true, "ddns_auto_family": true, "ddns_auto_address": true,
 }
 
+// Report effective switch defaults only for absent rows. Explicit values,
+// including empty strings and "0", have their own runtime meaning.
+var switchSettingDefaults = map[string]string{
+	"tg_enabled": "false", "tg_notify_users": "true", "tg_daily_report": "true",
+	"mail_notify_users": "true", "mail_notify_admin": "true",
+	"backup_tg": "false", "backup_s3_path_style": "true",
+	"probe_enabled": "true", "status_page": "false", "status_show_traffic": "false", "status_show_cost": "false",
+	"tickets_enabled": "false", "portal_enabled": "false", "portal_email_register": "false",
+	"sub_update_interval": "1", "sub_enabled": "true", "sub_routing_enabled": "false", "sub_show_bot": "true", "sub_show_rate": "true", "sub_host_strict": "1",
+	"converter_for_users": "false", "sub_apply_ops_users": "false", "allow_private_sources": "false", "sub_skip_cert": "false", "sub_force_udp": "false",
+	"audit_changes": "false", "inbound_probe": "true",
+	"shop_enabled": "false", "shop_web_enabled": "false", "shop_auto_create": "true", "shop_user_rename": "true", "shop_stars": "false",
+	"shop_epay_enabled": "true", "shop_usdt_enabled": "true", "shop_code_enabled": "true",
+	"ddns_auto_address": "true",
+}
+
 func (s *Server) getSettings(c *gin.Context) {
 	var all []store.Setting
-	s.st.DB.Find(&all)
+	if err := s.st.DB.Find(&all).Error; err != nil {
+		serverError(c, err)
+		return
+	}
 	out := map[string]any{}
 	for _, st := range all {
 		if !editableSettings[st.Key] {
@@ -160,10 +179,9 @@ func (s *Server) getSettings(c *gin.Context) {
 		out[st.Key] = st.Value
 	}
 	out["admin_path"] = s.cfg.AdminPath
-	// Missing switches keep the behavior of existing installations.
-	for _, key := range []string{"shop_epay_enabled", "shop_usdt_enabled", "shop_code_enabled", "mail_notify_admin"} {
+	for key, value := range switchSettingDefaults {
 		if _, exists := out[key]; !exists {
-			out[key] = "true"
+			out[key] = value
 		}
 	}
 	if _, exists := out["shop_epay_disabled_types"]; !exists {
@@ -231,6 +249,7 @@ func (s *Server) putSettings(c *gin.Context) {
 		return
 	}
 	var keys []string
+	changes := map[string]string{}
 	for k, v := range req {
 		if !editableSettings[k] {
 			continue
@@ -262,11 +281,12 @@ func (s *Server) putSettings(c *gin.Context) {
 				return
 			}
 		}
-		if err := s.st.SetSetting(k, v); err != nil {
-			serverError(c, err)
-			return
-		}
+		changes[k] = v
 		keys = append(keys, k)
+	}
+	if err := s.st.SetSettings(changes); err != nil {
+		serverError(c, err)
+		return
 	}
 	s.auditCtx(c, "settings.update", strings.Join(keys, ","), "")
 	s.auditChanges.Store(s.st.GetSetting("audit_changes", "false") == "true")

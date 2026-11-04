@@ -8,6 +8,6 @@ export default defineConfig({
   plugins: [react()],
   build: { outDir: 'dist', emptyOutDir: false, chunkSizeWarningLimit: 800 },
   server: {
-    proxy: { '/api': 'http://127.0.0.1:8080', '/sub': 'http://127.0.0.1:8080' },
+    proxy: { '/api': 'http://127.0.0.1:8080', '^/sub/': 'http://127.0.0.1:8080' },
   },
 })

@@ -1,6 +1,7 @@
+import { SettingsGate, readSettings } from '../../components/SettingsLoad'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../../components/SettingsDrafts'
 import { useEffect, useState } from 'react'
-import { get, post, put } from '../../api'
+import { post, put } from '../../api'
 import { Field, Switch, useAction, useLoad } from '../../components/ui'
 import { t } from '../../i18n'
 
@@ -8,14 +9,14 @@ export const mailKeys = ['smtp_host', 'smtp_port', 'smtp_security', 'smtp_user',
 
 // MailSettings: the SMTP account, a test message, and who gets mail.
 export function MailSettings() {
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const s = useLoad(readSettings)
   const [f, setF] = useState<Record<string, string>>({})
   const [baseline, setBaseline] = useState('')
   const saver = useSettingsSave()
   const [pass, setPass] = useState('')
   const [to, setTo] = useState('')
   useEffect(() => {
-    if (s.data) { const next = Object.fromEntries(mailKeys.map((k) => [k, String(s.data?.[k] ?? '')])); setF(next); setBaseline(JSON.stringify(next)) }
+    if (s.data) { const next = Object.fromEntries(mailKeys.map((k) => [k, String(s.data?.[k] ?? (k === 'mail_notify_users' || k === 'mail_notify_admin' ? 'true' : ''))])); setF(next); setBaseline(JSON.stringify(next)) }
   }, [s.data])
   const { busy: actionBusy, run } = useAction()
   const busy = actionBusy || saver.busy
@@ -27,7 +28,7 @@ export function MailSettings() {
     if (!dirty) return true
     if (busy || s.loading || !s.data || invalidPort) return false
     return saver.run(async () => {
-      const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'false' ? 'false' : 'true', mail_notify_admin: f.mail_notify_admin === 'false' ? 'false' : 'true' }
+      const body: Record<string, string> = { ...f, smtp_security: security, mail_notify_users: f.mail_notify_users === 'true' ? 'true' : 'false', mail_notify_admin: f.mail_notify_admin === 'true' ? 'true' : 'false' }
       if (pass) body.smtp_password = pass
       await put('/settings', body); setPass(''); setBaseline(JSON.stringify(f)); s.reload()
     }, t('邮件设置已保存'))
@@ -38,6 +39,7 @@ export function MailSettings() {
     if (!r.ok) throw new Error(t('发送失败：{err}', { err: r.error ?? '' }))
   }, t('测试邮件已发出，请查收'))
   const passSet = !!s.data?.smtp_password_set
+  if (!s.data || s.error || !baseline) return <SettingsGate state={s} ready={!!baseline} />
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <h2>{t('邮件（SMTP）')}</h2>
@@ -57,8 +59,8 @@ export function MailSettings() {
         <Field label={t('发件人名称')} hint={t('可留空')}><input className="input" value={f.smtp_from_name || ''} onChange={(e) => set('smtp_from_name', e.target.value)} /></Field>
         <Field label={t('管理员收件地址')} hint={t('可留空；开启管理员邮件通知后，新订单、备份失败、升级结果、节点告警等通知发送到这里')}><input className="input mono" value={f.mail_admin_to || ''} placeholder="ops@example.com" onChange={(e) => set('mail_admin_to', e.target.value.trim())} /></Field>
       </div>
-      <div className="toggle"><span>{t('给用户发提醒邮件')}</span><Switch label={t('给用户发提醒邮件')} on={f.mail_notify_users !== 'false'} onChange={(v) => set('mail_notify_users', String(v))} /></div>
-      <div className="toggle"><span>{t('给管理员发通知邮件')}</span><Switch label={t('给管理员发通知邮件')} on={f.mail_notify_admin !== 'false'} onChange={(v) => set('mail_notify_admin', String(v))} /></div>
+      <div className="toggle"><span>{t('给用户发提醒邮件')}</span><Switch label={t('给用户发提醒邮件')} on={f.mail_notify_users === 'true'} onChange={(v) => set('mail_notify_users', String(v))} /></div>
+      <div className="toggle"><span>{t('给管理员发通知邮件')}</span><Switch label={t('给管理员发通知邮件')} on={f.mail_notify_admin === 'true'} onChange={(v) => set('mail_notify_admin', String(v))} /></div>
       <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={s.loading || !s.data || invalidPort} onSave={save} />
       <div className="row">
         <input className="input mono" style={{ width: 'auto', minWidth: 200 }} type="email" value={to} placeholder={t('测试收件地址')} onChange={(e) => setTo(e.target.value)} aria-label={t('测试收件地址')} />
