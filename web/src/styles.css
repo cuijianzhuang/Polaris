@@ -598,7 +598,7 @@ a.attn-item:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
 
 /* sidebar extras: brand, search trigger, account */
 .brand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.brand svg { flex: none; border-radius: 8px; box-shadow: 0 2px 6px -1px rgba(14, 116, 144, .35); }
+.brand > svg { flex: none; border-radius: 8px; box-shadow: 0 2px 6px -1px rgba(14, 116, 144, .35); }
 .side-search { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; padding: 0 8px 0 10px; height: 36px; border-radius: var(--r); border: 1px solid var(--line); background: var(--soft-2); color: var(--faint); font: inherit; font-size: 13px; cursor: pointer; transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease); }
 .side-search:hover { border-color: var(--input-strong); background: var(--card); color: var(--mute); }
 .side-search svg { width: 16px; height: 16px; flex: none; }

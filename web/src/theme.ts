@@ -21,7 +21,7 @@ export const accents: { id: string; label: string; color: string }[] = [
   { id: 'ice', label: t('冰青'), color: '#197C78' },
   { id: 'amber', label: t('琥珀'), color: '#995B16' },
   { id: 'teal', label: t('青碧'), color: '#0E7490' },
-  { id: 'blue', label: t('海蓝'), color: '#2563EB' },
+  { id: 'blue', label: t('海蓝'), color: '#0066CC' },
   { id: 'violet', label: t('紫罗兰'), color: '#7C3AED' },
   { id: 'green', label: t('松绿'), color: '#15803D' },
   { id: 'rose', label: t('玫红'), color: '#E11D48' },

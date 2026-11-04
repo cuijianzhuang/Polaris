@@ -167,7 +167,7 @@ function NavGroup({ item, folded, onUnfold }: { item: NavItem; folded: boolean; 
         {item.icon}{item.label}<span className="chev" aria-hidden="true"><Icon.Chevron /></span>
       </button>
       <div className="navsub" id={groupID}>
-        {item.children!.map((c) => <NavLink key={c.to} to={c.to} className="nav" title={folded ? c.label : undefined}>{c.icon}{c.label}</NavLink>)}
+        {item.children!.map((c) => <NavLink key={c.to} to={c.to} className="nav" title={folded ? c.label : undefined}>{c.label}</NavLink>)}
       </div>
     </div>
   )
@@ -268,8 +268,8 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
         <ThemeToggle themesOK={themesOK} />
       </header>
       <div className={'side-mask' + (menu ? ' on' : '')} onClick={() => setMenu(false)} aria-hidden="true" />
-      <nav className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
-        <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-fold" aria-label={folded ? t('展开侧栏') : t('收起侧栏')} aria-pressed={folded} title={folded ? t('展开侧栏') : t('收起侧栏')} onClick={() => fold(!folded)}><Icon.Fold /></button><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
+      <nav id="console-sidebar" className={'side' + (menu ? ' open' : '')} aria-label={t('主导航')}>
+        <div className="brand"><Icon.Brand size={30} /><span className="brand-name">{title}</span><button type="button" className="side-close" aria-label={t('关闭菜单')} onClick={() => setMenu(false)}><Icon.Close /></button></div>
         <div className="side-menu">
           {scoped ? (
             <>
@@ -290,8 +290,9 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       </nav>
       <main className="main">
         <header className="workspace-bar">
+          <button type="button" className="side-fold" aria-label={folded ? t('展开侧栏') : t('收起侧栏')} aria-pressed={folded} aria-controls="console-sidebar" title={folded ? t('展开侧栏') : t('收起侧栏')} onClick={() => fold(!folded)}><Icon.Fold /></button>
           <nav className="workspace-breadcrumb" aria-label={t('当前位置')}>
-            <Link to="/"><Icon.Dashboard /><span>{t('控制台')}</span></Link><span aria-hidden="true">/</span>
+            <Link to="/"><span>{t('控制台')}</span></Link><span aria-hidden="true">/</span>
             {currentSection && currentSection.label !== currentPage?.label && <><span className="workspace-section">{currentSection.label}</span><span aria-hidden="true">/</span></>}
             <b aria-current="page">{currentPage?.label ?? title}</b>
           </nav>

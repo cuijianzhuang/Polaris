@@ -412,7 +412,11 @@ export default function Nodes() {
   const caps = useLoad(() => (sel ? get<CapSet[]>('/capabilities?node=' + sel.id) : Promise.resolve([])), [sel?.id, sel?.cores.map((c) => c.version).join()])
   const revs = useLoad(() => (sel ? get<Revision[]>(`/nodes/${sel.id}/revisions`) : Promise.resolve([])), [sel?.id, sel?.desiredRev, sel?.appliedRev])
 
-  useEffect(() => { setSelId(params.get('id')) }, [params])
+  useEffect(() => {
+    setSelId(params.get('id'))
+    // Back to the unselected URL restores the overview, including small fleets.
+    if (!params.get('id')) setBrowserOpen(true)
+  }, [params])
   // Pin the initial node too: a heartbeat that reorders the list must not
   // silently move the detail actions to a different node.
   useEffect(() => { if (!selId && nodes[0]) setSelId(nodes[0].id) }, [nodes, selId])
@@ -420,13 +424,11 @@ export default function Nodes() {
   const selectNode = (node: Node) => {
     setSelId(node.id)
     const next = new URLSearchParams(params); next.set('id', node.id); setParams(next)
-    if (nodes.length > 6 || window.matchMedia('(max-width: 760px)').matches) {
-      setBrowserOpen(false)
-      requestAnimationFrame(() => {
-        const heading = document.getElementById('node-detail-title')
-        heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' })
-      })
-    }
+    setBrowserOpen(false)
+    requestAnimationFrame(() => {
+      const heading = document.getElementById('node-detail-title')
+      heading?.focus({ preventScroll: true }); heading?.scrollIntoView({ block: 'start' })
+    })
   }
 
   // Per-node traffic, refreshed every 10 s.
@@ -480,7 +482,14 @@ export default function Nodes() {
               <section className="card">
                 <div className="node-detail-heading"><h2 id="node-detail-title" tabIndex={-1}>{sel.flag} {sel.name}</h2><span className="small mute">{t('当前节点')}</span>{!browserOpen && <button className="btn sm" type="button" onClick={() => {
                   setBrowserOpen(true)
-                  requestAnimationFrame(() => { document.getElementById('node-browser')?.scrollIntoView({ block: 'start' }); document.querySelector<HTMLInputElement>('#node-browser input[type="search"]')?.focus({ preventScroll: true }) })
+                  requestAnimationFrame(() => {
+                    document.getElementById('node-browser')?.scrollIntoView({ block: 'start' })
+                    const search = document.querySelector<HTMLInputElement>('#node-browser input[type="search"]')
+                    const selected = document.querySelector<HTMLElement>('#node-browser .ncard[aria-pressed="true"], #node-browser .node-list-select[aria-pressed="true"]')
+                    const first = document.querySelector<HTMLElement>('#node-browser .ncard, #node-browser .node-list-select')
+                    const target = search?.getClientRects().length ? search : selected ?? first
+                    target?.focus({ preventScroll: true })
+                  })
                 }}>{t('切换节点')}</button>}</div>
                 <div className="sync">
                   <div><span className="sub" style={{ margin: 0 }}>Agent</span><div className="mono">{sel.agentVersion ? 'v' + vnorm(sel.agentVersion) : t('未接入')}
