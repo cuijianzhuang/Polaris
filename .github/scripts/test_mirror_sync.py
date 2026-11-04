@@ -1,7 +1,13 @@
 import importlib.util
+import contextlib
+import io
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
+from unittest import mock
 import urllib.request
 
 spec=importlib.util.spec_from_file_location('mirror',str(Path(__file__).with_name('mirror-sync.py')))
@@ -24,6 +30,55 @@ class FakeAPI:
   Path(args[-1]).write_bytes(b'bad');return (3,'sha256:bad')
 
 class MirrorTests(unittest.TestCase):
+ def test_git_temporary_transport_failure_is_retried_safely(self):
+  failed=subprocess.CompletedProcess([],128,b'',b'RPC failed; HTTP 502 fixture-secret')
+  ok=subprocess.CompletedProcess([],0,b'',b'')
+  log=io.StringIO()
+  with mock.patch.object(m.subprocess,'run',side_effect=[failed,ok]) as run, mock.patch.object(m.time,'sleep') as sleep, contextlib.redirect_stdout(log):
+   m.run_git(['git','fetch'],'fetch',{})
+  self.assertEqual(run.call_count,2);sleep.assert_called_once_with(1)
+  self.assertIn('retry 2/3',log.getvalue());self.assertNotIn('fixture-secret',log.getvalue())
+ def test_git_retry_limit_and_permanent_refusals(self):
+  samples=[(b'RPC failed; curl 92 HTTP/2 stream reset',3,'transport'),
+   (b'Authentication failed for https://user:fixture-secret@github.com/repo',1,'access denied'),
+   (b'refusing to allow a Personal Access Token to update workflow without workflow scope',1,'Workflows'),
+   (b'GH013: Repository rule violations found',1,'repository rules'),
+   (b'[rejected] main -> main (non-fast-forward)',1,'history differs'),
+   (b'[rejected] v1 -> v1 (already exists)',1,'history differs'),
+   (b'SSL certificate problem: certificate verification failed',1,'TLS'),
+   (b'Unclassified fixture-secret error',1,'unrecognized')]
+  for output,attempts,hint in samples:
+   with self.subTest(output=output),mock.patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1,b'',output)) as run, mock.patch.object(m.time,'sleep') as sleep, contextlib.redirect_stdout(io.StringIO()) as log:
+    with self.assertRaises(m.SyncError) as caught:m.run_git(['git','push'],'push',{})
+    self.assertEqual(run.call_count,attempts);self.assertEqual(sleep.call_count,attempts-1)
+    self.assertIn(hint,str(caught.exception));self.assertNotIn('fixture-secret',str(caught.exception)+log.getvalue())
+ def test_git_timeout_is_not_retried_or_echoed(self):
+  with mock.patch.object(m.subprocess,'run',side_effect=subprocess.TimeoutExpired(['fixture-secret'],900)) as run, mock.patch.object(m.time,'sleep') as sleep, contextlib.redirect_stdout(io.StringIO()):
+   with self.assertRaisesRegex(m.SyncError,'fetch timed out') as caught:m.run_git(['git','fetch'],'fetch',{})
+  run.assert_called_once();sleep.assert_not_called();self.assertNotIn('fixture-secret',str(caught.exception))
+ def test_git_push_remains_atomic_without_force_or_prune(self):
+  with mock.patch.object(m,'run_git') as run:m.git_sync(SOURCE,TARGET,'fixture-source','fixture-target')
+  self.assertEqual([call.args[1] for call in run.call_args_list],['init','fetch','push'])
+  command=run.call_args_list[-1].args[0]
+  self.assertIn('--atomic',command)
+  self.assertFalse(any(arg.startswith(('--force','--prune','+')) for arg in command))
+  self.assertNotIn('fixture-source',' '.join(command));self.assertNotIn('fixture-target',' '.join(command))
+ @unittest.skipUnless(shutil.which('git'),'Git required')
+ def test_local_tag_conflict_does_not_partially_update_destination(self):
+  env=dict(os.environ,GIT_CONFIG_GLOBAL=os.devnull,GIT_CONFIG_NOSYSTEM='1')
+  def git(*args):
+   return subprocess.run(['git','-c','user.name=Fixture','-c','user.email=fixture@example.invalid',*map(str,args)],env=env,check=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE).stdout.decode().strip()
+  with tempfile.TemporaryDirectory() as tmp:
+   work=Path(tmp,'source');dest=Path(tmp,'mirror.git')
+   git('init','-b','main',work);git('init','--bare',dest)
+   Path(work,'file').write_text('first');git('-C',work,'add','file');git('-C',work,'commit','-m','first');git('-C',work,'tag','v1')
+   first=git('-C',work,'rev-parse','HEAD')
+   command=['git','-C',str(work),'push','--atomic',str(dest),'refs/heads/*:refs/heads/*','refs/tags/*:refs/tags/*']
+   with contextlib.redirect_stdout(io.StringIO()):m.run_git(command,'push',env)
+   Path(work,'file').write_text('second');git('-C',work,'commit','-am','second');git('-C',work,'tag','-f','v1')
+   with contextlib.redirect_stdout(io.StringIO()),self.assertRaisesRegex(m.SyncError,'history differs'):m.run_git(command,'push',env)
+   self.assertEqual(git('--git-dir',dest,'rev-parse','refs/heads/main'),first)
+   self.assertEqual(git('--git-dir',dest,'rev-parse','refs/tags/v1'),first)
  def test_pair_allowlist(self):
   for repo in m.NAMES:m.validate_pair('cuijianzhuang/'+repo,'PolarisPanelOrg/'+repo)
   for a,b in [(SOURCE,'attacker/Polaris'),('PolarisPanelOrg/Polaris',SOURCE),('cuijianzhuang/other','PolarisPanelOrg/other')]:
