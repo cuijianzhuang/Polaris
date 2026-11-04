@@ -1,3 +1,4 @@
+import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
 import SourceResources from '../components/SourceResources'
 import OpChain from '../components/OperatorChain'
 import ProcessingGroups, { ProcessingGroupPicker } from '../components/ProcessingGroups'
@@ -373,24 +374,15 @@ function ShareModal({ p, formats, onClose, onReset }: { p: SubProfile; formats: 
 // --- global settings ---
 
 function ConvertSettings({ meta }: { meta?: Meta }) {
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
-  const [f, setF] = useState<Record<string, string>>({})
-  const [ops, setOps] = useState<Operator[]>([])
+  const { state: s, fields: f, setFields: setF } = useSettingsForm({ converter_mode: 'builtin', converter_backend: '', converter_config: '', converter_params: '', converter_for_users: 'false', sub_apply_ops_users: 'false', allow_private_sources: 'false', sub_scheme: '', sub_skip_cert: 'false', sub_force_udp: 'false', sub_operators: '[]' })
   const { busy, run } = useAction()
-  useEffect(() => {
-    if (!s.data) return
-    setF({
-      converter_mode: s.data.converter_mode ?? 'builtin', converter_backend: s.data.converter_backend ?? '', converter_config: s.data.converter_config ?? '',
-      converter_params: s.data.converter_params ?? '', converter_for_users: s.data.converter_for_users ?? 'false',
-      sub_apply_ops_users: s.data.sub_apply_ops_users ?? 'false', allow_private_sources: s.data.allow_private_sources ?? 'false',
-      sub_scheme: s.data.sub_scheme ?? '', sub_skip_cert: s.data.sub_skip_cert ?? 'false', sub_force_udp: s.data.sub_force_udp ?? 'false',
-    })
-    try { setOps(JSON.parse(s.data.sub_operators || '[]')) } catch { setOps([]) }
-  }, [s.data])
+  let ops: Operator[] = []
+  try { const value = JSON.parse(f.sub_operators); if (Array.isArray(value)) ops = value } catch { /* An invalid saved chain cannot be rendered. */ }
+  const setOps = (value: Operator[]) => setF((previous) => ({ ...previous, sub_operators: JSON.stringify(value) }))
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
-  const save = () => run(async () => { await put('/settings', { ...f, sub_operators: JSON.stringify(ops) }); s.reload() }, t('设置已保存'))
+  const save = () => run(async () => { await put('/settings', f); s.reload() }, t('设置已保存'))
   return (
-    <div className="grid g2">
+    <SettingsGate state={s}><fieldset className="settings-fields" disabled={busy || s.loading}><div className="grid g2">
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <h2>{t('默认转换引擎')}</h2>
         <div className="seg">
@@ -422,6 +414,6 @@ function ConvertSettings({ meta }: { meta?: Meta }) {
         <OpChain ops={ops} onChange={setOps} meta={meta} />
         <div><button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button></div>
       </section>
-    </div>
+    </div></fieldset></SettingsGate>
   )
 }

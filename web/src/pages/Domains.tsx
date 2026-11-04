@@ -1,3 +1,4 @@
+import { SettingsGate, readSettings } from '../components/SettingsLoad'
 import { useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
@@ -23,7 +24,7 @@ export default function Domains() {
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const toast = useToast()
-  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const settings = useLoad(readSettings)
   const [auto, setAuto] = useState<{ provider: string; zone: string; family: string; address: boolean } | null>(null)
   const a = auto ?? {
     provider: settings.data?.ddns_auto_provider ?? '', zone: settings.data?.ddns_auto_zone ?? '',
@@ -98,7 +99,7 @@ export default function Domains() {
         )}
       </section>
 
-      <section className="card">
+      <SettingsGate state={settings}><fieldset className="settings-fields" disabled={busy || settings.loading}><section className="card">
         <h2>{t('自动绑定')}</h2>
         <div className="sub" style={{ marginTop: 0 }}>{t('新节点接入时自动绑定「节点名.根域名」（如 bwg-hk.node.example.com），IP 变化后自动更新。节点名里的中文会被去掉，重名自动加序号。')}</div>
         <div className="grid g2" style={{ marginTop: 12 }}>
@@ -125,7 +126,7 @@ export default function Domains() {
           <button className="btn" type="button" disabled={busy || !!auto || !settings.data?.ddns_auto_provider || !settings.data?.ddns_auto_zone || unbound.length === 0} onClick={bindAll}
             title={auto ? t('先保存设置') : undefined}>{t('为未绑定的节点补绑')}{unbound.length ? `（${unbound.length}）` : ''}</button>
         </div>
-      </section>
+      </section></fieldset></SettingsGate>
 
       <section className="card flush scroll">
         <div className="row" style={{ padding: '14px 16px 0', justifyContent: 'space-between' }}>

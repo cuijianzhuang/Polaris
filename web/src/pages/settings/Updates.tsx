@@ -1,3 +1,4 @@
+import { SettingsGate, readSettings } from '../../components/SettingsLoad'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../../components/SettingsDrafts'
 import { useEffect, useState } from 'react'
 import { get, post, put } from '../../api'
@@ -33,7 +34,7 @@ export type UpdateInfo = { current: string; latest?: string; newer?: boolean; up
 // the outcome arrives as a Telegram message and in the audit log.
 export function Updates() {
   const info = useLoad(() => get<UpdateInfo>('/system/update?fresh=1'))
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const s = useLoad(readSettings)
   const [mode, setMode] = useState<string | null>(null)
   const [hour, setHour] = useState<string | null>(null)
   const { busy: actionBusy, run } = useAction()
@@ -70,7 +71,7 @@ export function Updates() {
         <button className="btn" type="button" disabled={busy || !d?.newer || !d?.updater || !!d?.pending} onClick={() => start(true)}>{t('升级面板和全部节点')}</button>
         <button className="btn" type="button" disabled={busy} onClick={() => info.reload()}>{t('检查更新')}</button>
       </div>
-      <div className="form-grid">
+      <SettingsGate state={s} ready={!!baseline}><div className="form-grid">
         <Field label={t('自动更新')} hint={t('新版本发布后：通知会发给 Telegram 超级管理员（每个版本一次）')}>
           <select className="input" disabled={busy || s.loading || !baseline} value={m} onChange={(e) => setMode(e.target.value)}>
             <option value="off">{t('关闭')}</option>
@@ -85,7 +86,7 @@ export function Updates() {
           </select>
         </Field>
       </div>
-      <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={busy || s.loading || !s.data} onSave={save} />
+      <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={busy || s.loading || !s.data} onSave={save} /></SettingsGate>
     </section>
   )
 }

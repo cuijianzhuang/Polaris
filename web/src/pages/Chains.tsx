@@ -1,3 +1,4 @@
+import { SettingsGate, readSettings } from '../components/SettingsLoad'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, API, ApiError, del, get, post, put } from '../api'
@@ -851,7 +852,7 @@ const carrierLabel = (c: string) => ({ ct: t('电信'), cu: t('联通'), cm: t('
 // CFTokenCard sets the CDN token (cdn_cf_token): the Cloudflare token every
 // CDN profile uses. It needs more permissions than the DNS token in 系统设置.
 function CFTokenCard({ onSaved }: { onSaved: () => void }) {
-  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const settings = useLoad(readSettings)
   const { busy, run } = useAction()
   const [editing, setEditing] = useState(false)
   const [token, setToken] = useState('')
@@ -861,8 +862,9 @@ function CFTokenCard({ onSaved }: { onSaved: () => void }) {
     await put('/settings', { cdn_cf_token: token.trim() })
     setToken(''); setEditing(false); settings.reload(); onSaved()
   }, t('已保存'))
+  if (!settings.data || settings.error) return <SettingsGate state={settings} />
   return (
-    <section className="card cdn-token">
+    <fieldset className="settings-fields" disabled={busy || settings.loading}><section className="card cdn-token">
       <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
           <b>{t('Cloudflare CDN Token')}</b>
@@ -880,7 +882,7 @@ function CFTokenCard({ onSaved }: { onSaved: () => void }) {
           </div>
         </div>
       )}
-    </section>
+    </section></fieldset>
   )
 }
 

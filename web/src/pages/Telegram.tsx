@@ -1,8 +1,10 @@
+import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../components/SettingsDrafts'
+import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
 import { useFeature } from '../components/License'
 import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
-import { CopyBox, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
+import { CopyBox, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll } from '../components/ui'
 import { datetime } from '../format'
 import type { TGAdmin } from '../types'
 import { t } from '../i18n'
@@ -17,33 +19,43 @@ export default function Telegram() {
   const { nodes } = useNodes()
   const st = useLoad(() => get<Status>('/telegram'))
   const admins = useLoad(() => get<{ admins: TGAdmin[]; boundUsers: number }>('/telegram/admins'))
-  const settings = useLoad(() => get<Record<string, any>>('/settings'))
-  const [f, setF] = useState({ tg_enabled: 'false', tg_token: '', tg_api_base: '', tg_notify_users: 'true', remind_usage_pct: '80', remind_expire_days: '7,3,1', tg_daily_report: 'true', tg_daily_report_hour: '9' })
+  const { state: settings, fields: f, setFields: setF, dirty, reset } = useSettingsForm({ tg_enabled: 'false', tg_token: '', tg_api_base: '', tg_notify_users: 'true', remind_usage_pct: '80', remind_expire_days: '7,3,1', tg_daily_report: 'true', tg_daily_report_hour: '9' })
   const [bind, setBind] = useState<BindReq | null>(null)
   const [code, setCode] = useState<{ command: string; bot: string } | null>(null)
   const [edit, setEdit] = useState<TGAdmin | null>(null)
-  const { busy, run } = useAction()
+  const { busy: actionBusy, run } = useAction()
+  const saver = useSettingsSave()
+  const busy = actionBusy || saver.busy
   const confirm = useConfirm()
-  useEffect(() => {
-    const d = settings.data
-    if (d) setF({ tg_enabled: d.tg_enabled ?? 'false', tg_token: '', tg_api_base: d.tg_api_base ?? '', tg_notify_users: d.tg_notify_users ?? 'true',
-      remind_usage_pct: d.remind_usage_pct || '80', remind_expire_days: d.remind_expire_days || '7,3,1', tg_daily_report: d.tg_daily_report || 'true', tg_daily_report_hour: d.tg_daily_report_hour || '9' })
-  }, [settings.data])
+  usePoll(() => { if (!st.loading) st.reload() }, 5000)
+  const running = !!st.data?.running && !st.error
+  const save = async () => {
+    if (!dirty) return true
+    if (busy || settings.loading || !settings.data || settings.error) return false
+    return saver.run(async () => {
+      await put('/settings', f)
+      settings.reload(); st.reload()
+    }, t('已保存，机器人将在几秒内重连'))
+  }
+  useSettingsDraft({ label: t('Telegram 机器人'), dirty, busy, save, discard: reset })
   const nodeName = (id: string) => nodes.find((n) => n.id === id)?.name ?? id
 
   return (
     <>
       <div className="top">
         <div><h1>{t('Telegram 机器人')}</h1><div className="sub">{t('管理员远程查看节点、重启内核、管理用户；用户绑定订阅后自助查询流量与到期、获取订阅链接')}</div></div>
-        <button className="btn pri" type="button" disabled={!st.data?.running} onClick={() => setBind({ role: 'operator', name: '', nodeIds: [] })}>{t('+ 绑定管理员')}</button>
+        <button className="btn pri" type="button" disabled={!running} onClick={() => setBind({ role: 'operator', name: '', nodeIds: [] })}>{t('+ 绑定管理员')}</button>
       </div>
       {!menuOK && <div className="note warn">{t('机器人的管理菜单（节点管理、用户列表、排行、版本更新）需要专业版许可证；告警通知、账号绑定和用户自助照常可用。')}</div>}
       <div className="grid g2">
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <SettingsGate state={settings}><section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <fieldset className="settings-fields" disabled={busy || settings.loading}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <h2>{t('机器人设置')}</h2>
-            <span className={'st ' + (st.data?.running ? 'ok' : 'off')}>{st.data?.running ? t('● 运行中 @{name}', { name: st.data.username }) : t('未运行')}</span>
+            <span className={'st ' + (running ? 'ok' : st.error ? 'warn' : 'off')} role="status">{st.error ? t('状态获取失败') : !st.data ? t('获取状态中…') : running ? t('● 运行中 @{name}', { name: st.data!.username }) : t('未运行')}</span>
           </div>
+          {st.error && <div className="note bad" role="alert">{st.error}</div>}
+          <div className="hint">{t('开关是启用配置，需保存后生效；运行状态会自动刷新。')}</div>
           {st.data?.error && <div className="note bad">{st.data.error}</div>}
           <div className="toggle"><span>{t('启用机器人')}</span><Switch label={t('启用')} on={f.tg_enabled === 'true'} onChange={(v) => setF({ ...f, tg_enabled: String(v) })} /></div>
           <Field label="Bot Token" hint={settings.data?.tg_token_set ? t('已保存（留空不修改）') : t('在 @BotFather 创建机器人获取；加密存储')}>
@@ -60,13 +72,12 @@ export default function Telegram() {
           <div className="toggle"><span>{t('每日报告：每天向超级管理员发送节点、流量与需要关注的用户（超额 / 到期 / 将满）')}</span><Switch label={t('每日报告')} on={f.tg_daily_report === 'true'} onChange={(v) => setF({ ...f, tg_daily_report: String(v) })} /></div>
           {f.tg_daily_report === 'true' && <Field label={t('每日报告时间（点）')} hint={t('服务器本地时间 0–23')}><input className="input mono" inputMode="numeric" value={f.tg_daily_report_hour} onChange={(e) => setF({ ...f, tg_daily_report_hour: e.target.value })} /></Field>}
           <div className="row">
-            <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
-              await put('/settings', f); settings.reload(); setTimeout(st.reload, 3000)
-            }, t('已保存，机器人将在几秒内重连'))}>{t('保存')}</button>
-            <button className="btn" type="button" disabled={busy || !st.data?.running} onClick={() => run(async () => { const r = await post<{ sent: number }>('/telegram/test'); return r }, t('测试消息已发送给所有管理员'))}>{t('发送测试消息')}</button>
+            <SettingsSaveBar dirty={dirty} busy={saver.busy} loading={settings.loading} error={saver.error} onSave={save} />
+            <button className="btn" type="button" disabled={busy || !running} onClick={() => run(async () => { const r = await post<{ sent: number }>('/telegram/test'); return r }, t('测试消息已发送给所有管理员'))}>{t('发送测试消息')}</button>
             <button className="btn" type="button" onClick={st.reload}>{t('刷新状态')}</button>
           </div>
-        </section>
+          </fieldset>
+        </section></SettingsGate>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <h2>{t('角色与命令')}</h2>
           <dl className="kv" style={{ margin: 0, gridTemplateColumns: '110px minmax(0,1fr)' }}>
@@ -151,12 +162,11 @@ const tplVars = ['user', 'used', 'total', 'left', 'percent', 'expire', 'days', '
 
 // ReminderTemplates: custom wording for what users receive on Telegram.
 function ReminderTemplates() {
-  const settings = useLoad(() => get<Record<string, string>>('/settings'))
-  const [f, setF] = useState<Record<string, string>>({})
+  const { state: settings, fields: values, setFields: setValues } = useSettingsForm(Object.fromEntries(tplKinds.map((tk) => ['tpl_' + tk.k, ''])))
+  const f = Object.fromEntries(tplKinds.map((tk) => [tk.k, values['tpl_' + tk.k]]))
   const [kind, setKind] = useState<string>('traffic_warn')
   const [preview, setPreview] = useState<{ text: string; user: string } | null>(null)
   const { busy, run } = useAction()
-  useEffect(() => { if (settings.data) setF(Object.fromEntries(tplKinds.map((t) => [t.k, settings.data?.['tpl_' + t.k] ?? '']))) }, [settings.data])
   const cur = tplKinds.find((t) => t.k === kind)!
   const text = f[kind] ?? ''
   useEffect(() => {
@@ -165,19 +175,21 @@ function ReminderTemplates() {
     return () => clearTimeout(tm)
   }, [text])
   return (
-    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <SettingsGate state={settings}><section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <fieldset className="settings-fields" disabled={busy || settings.loading}>
       <h2>{t('提醒文案')}</h2>
       <div className="sub" style={{ margin: 0 }}>{t('自定义发给用户的提醒与状态通知；留空使用内置文案。变量会按每个用户替换：')}{tplVars.map((v) => <code key={v} style={{ marginRight: 6 }}>{'{' + v + '}'}</code>)}</div>
       <div className="seg reminder-kinds">
         {tplKinds.map((tk) => <button key={tk.k} type="button" className={'opt' + (kind === tk.k ? ' on' : '')} onClick={() => setKind(tk.k)}>{tk.label}{f[tk.k]?.trim() ? <small>{t('已自定义')}</small> : <small>{t('内置')}</small>}</button>)}
       </div>
-      <textarea className="input" style={{ minHeight: 90 }} value={text} placeholder={cur.ph} onChange={(e) => setF({ ...f, [kind]: e.target.value })} />
+      <textarea className="input" style={{ minHeight: 90 }} value={text} placeholder={cur.ph} onChange={(e) => setValues({ ...values, ['tpl_' + kind]: e.target.value })} />
       {preview && <div className="note" style={{ whiteSpace: 'pre-wrap' }}><span className="small mute">{t('预览（{user}）：', { user: preview.user })}</span>{'\n'}{preview.text}</div>}
       <div className="row">
         <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', Object.fromEntries(tplKinds.map((t) => ['tpl_' + t.k, f[t.k] ?? '']))); settings.reload() }, t('提醒文案已保存'))}>{t('保存')}</button>
-        {!text && <button className="btn" type="button" onClick={() => setF({ ...f, [kind]: cur.ph })}>{t('以示例为起点')}</button>}
+        {!text && <button className="btn" type="button" onClick={() => setValues({ ...values, ['tpl_' + kind]: cur.ph })}>{t('以示例为起点')}</button>}
       </div>
-    </section>
+      </fieldset>
+    </section></SettingsGate>
   )
 }
 

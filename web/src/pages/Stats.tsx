@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
+import { useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { download, get, put } from '../api'
 import { StackedBars } from '../components/Charts'
@@ -79,20 +80,18 @@ function Share({ rows, total }: { rows: Row[]; total: number }) {
 }
 
 function SpikeSettings() {
-  const s = useLoad(() => get<Record<string, string>>('/settings'))
-  const [f, setF] = useState({ factor: '', min: '' })
+  const { state: s, fields: f, setFields: setF } = useSettingsForm({ traffic_spike_factor: '5', traffic_spike_min_gb: '5' })
   const { busy, run } = useAction()
-  useEffect(() => { if (s.data) setF({ factor: s.data.traffic_spike_factor ?? '5', min: s.data.traffic_spike_min_gb ?? '5' }) }, [s.data])
   return (
-    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <SettingsGate state={s}><fieldset className="settings-fields" disabled={busy || s.loading}><section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <h2>{t('流量异常提醒')}</h2>
       <div className="sub" style={{ margin: 0 }}>{t('每小时检查一次：用户近 24 小时的流量超过过去 7 天日均的若干倍（且不少于下限）时，通过 Telegram 通知管理员，每个用户每天最多一次。常用于发现共享或泄露的账号。')}</div>
       <div className="form-grid">
-        <Field label={t('倍数')} hint={t('0 为关闭')}><input className="input mono" inputMode="decimal" value={f.factor} onChange={(e) => setF({ ...f, factor: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
-        <Field label={t('最少流量（GB）')} hint={t('低于这个量不提醒')}><input className="input mono" inputMode="decimal" value={f.min} onChange={(e) => setF({ ...f, min: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
+        <Field label={t('倍数')} hint={t('0 为关闭')}><input className="input mono" inputMode="decimal" value={f.traffic_spike_factor} onChange={(e) => setF({ ...f, traffic_spike_factor: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
+        <Field label={t('最少流量（GB）')} hint={t('低于这个量不提醒')}><input className="input mono" inputMode="decimal" value={f.traffic_spike_min_gb} onChange={(e) => setF({ ...f, traffic_spike_min_gb: e.target.value.replace(/[^0-9.]/g, '') })} /></Field>
       </div>
-      <div><button className="btn" type="button" disabled={busy} onClick={() => run(() => put('/settings', { traffic_spike_factor: f.factor || '0', traffic_spike_min_gb: f.min || '0' }), t('已保存'))}>{t('保存')}</button></div>
-    </section>
+      <div><button className="btn" type="button" disabled={busy} onClick={() => run(() => put('/settings', { traffic_spike_factor: f.traffic_spike_factor || '0', traffic_spike_min_gb: f.traffic_spike_min_gb || '0' }), t('已保存'))}>{t('保存')}</button></div>
+    </section></fieldset></SettingsGate>
   )
 }
 

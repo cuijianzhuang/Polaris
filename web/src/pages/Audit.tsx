@@ -1,3 +1,4 @@
+import { SettingsGate, readSettings } from '../components/SettingsLoad'
 import { useEffect, useState } from 'react'
 import { get, put } from '../api'
 import { Empty, Switch, useAction, useLoad } from '../components/ui'
@@ -34,7 +35,7 @@ export default function Audit() {
   useEffect(() => { const tm = setTimeout(() => { setQuery(q); setPage(0) }, 300); return () => clearTimeout(tm) }, [q])
   const list = useLoad(() => get<{ items: AuditLog[]; total: number }>(`/audit-logs?limit=100&offset=${page * 100}&action=${action}&q=${encodeURIComponent(query)}`), [action, query, page])
   const total = list.data?.total ?? 0
-  const settings = useLoad(() => get<Record<string, string>>('/settings'))
+  const settings = useLoad(readSettings)
   const { busy, run } = useAction()
   const recording = settings.data?.audit_changes === 'true'
   return (
@@ -42,7 +43,7 @@ export default function Audit() {
       <div className="top">
         <div><h1>{t('审计日志')}</h1><div className="sub">{t('全部写操作与登录记录 · 保留 180 天 · 仅超级管理员可见')}</div></div>
         <label className="row small" title={t('开启后，管理员每次操作创建、修改、删除了哪些记录、改了哪些字段（改前 → 改后）都会记下来；密码、密钥等只记「已隐藏」')}>
-          {t('变更记录')}<Switch label={t('变更记录')} on={recording} onChange={(v) => !busy && run(async () => { await put('/settings', { audit_changes: String(v) }); settings.reload() }, v ? t('已开启变更记录') : t('已关闭变更记录'))} />
+          {t('变更记录')}{!settings.data || settings.error ? <SettingsGate state={settings} compact /> : <Switch label={t('变更记录')} disabled={busy || settings.loading} on={recording} onChange={(v) => !busy && run(async () => { await put('/settings', { audit_changes: String(v) }); settings.reload() }, v ? t('已开启变更记录') : t('已关闭变更记录'))} />}
         </label>
       </div>
       <div className="row list-toolbar">

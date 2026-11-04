@@ -1,3 +1,4 @@
+import { SettingsGate, readSettings } from '../../components/SettingsLoad'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../../components/SettingsDrafts'
 import { ProTag, useFeature } from '../../components/License'
 import { useEffect, useRef, useState } from 'react'
@@ -30,7 +31,7 @@ export function Backups() {
   const [drillAsk, setDrillAsk] = useState<string | null>(null)
   const drillLock = useRef(false)
   const [drillPass, setDrillPass] = useState('')
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const s = useLoad(readSettings)
   const [f, setF] = useState<Record<string, string>>({})
   const [baseline, setBaseline] = useState('')
   const saver = useSettingsSave()
@@ -116,6 +117,7 @@ export function Backups() {
       <div className="row"><button className="btn sm" type="button" disabled={busy} onClick={testS3}>{t('测试连接')}</button></div>
     </div>
   )
+  if (!s.data || s.error || !baseline) return <SettingsGate state={s} ready={!!baseline} />
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <fieldset className="settings-fields" disabled={busy || s.loading || !baseline}>

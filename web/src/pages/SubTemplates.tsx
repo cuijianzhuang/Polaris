@@ -1,3 +1,4 @@
+import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
 import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
@@ -114,22 +115,21 @@ const routingExample = `{
 }`
 
 function SubSettings() {
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
   const plansQ = useLoad(() => get<{ id: string; name: string }[]>('/plans'))
   const plans = plansQ.data ?? []
-  const [f, setF] = useState<Record<string, string>>({})
+  const { state: s, fields: f, setFields: setF } = useSettingsForm({ ...Object.fromEntries(settingKeys.map((key) => [key, ''])), sub_enabled: 'true', sub_show_bot: 'true', sub_show_rate: 'true', sub_host_strict: '1', sub_update_interval: '1' })
   const { busy, run } = useAction()
   const confirm = useConfirm()
-  useEffect(() => { if (s.data) setF(Object.fromEntries(settingKeys.map((k) => [k, String(s.data?.[k] ?? '')]))) }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
-  const on = (k: string, def = false) => (f[k] === '' || f[k] === undefined ? def : f[k] === 'true')
+  const on = (k: string) => k === 'sub_enabled' ? f[k] !== 'false' : f[k] === 'true'
   return (
-    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <SettingsGate state={s}><section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <fieldset className="settings-fields" disabled={busy || s.loading}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>{t('订阅与信息页')}</h2>
-        <label className="row small">{t('对外提供订阅')}<Switch label={t('启用订阅')} on={on('sub_enabled', true)} onChange={(v) => set('sub_enabled', String(v))} /></label>
+        <label className="row small">{t('对外提供订阅')}<Switch label={t('启用订阅')} on={on('sub_enabled')} onChange={(v) => set('sub_enabled', String(v))} /></label>
       </div>
-      {!on('sub_enabled', true) && <div className="note warn">{t('已关闭：所有 /sub/ 链接返回 404，客户端将无法更新订阅。')}</div>}
+      {!on('sub_enabled') && <div className="note warn">{t('已关闭：所有 /sub/ 链接返回 404，客户端将无法更新订阅。')}</div>}
       <div className="form-grid">
         <Field label={t('订阅域名')} hint={t('订阅链接使用的地址，可与后台分开（如走 CDN 的独立域名），格式 https://sub.example.com；留空用公开地址。HTTPS 证书可在「设置 → 面板访问」一键配置')}><input className="input mono" value={f.sub_base_url ?? ''} onChange={(e) => set('sub_base_url', e.target.value)} placeholder={s.data?.public_url || 'https://sub.example.com'} /></Field>
         <Field label={t('订阅标题')} hint={t('客户端里显示的配置名（profile-title），留空用站点标题')}><input className="input" value={f.sub_title ?? ''} onChange={(e) => set('sub_title', e.target.value)} placeholder={s.data?.site_title} /></Field>
@@ -147,8 +147,8 @@ function SubSettings() {
           ))}
         </div>
       </Field>
-      <div className="toggle"><span>{t('信息页显示 Telegram 一键绑定（机器人运行时）')}</span><Switch label={t('机器人绑定')} on={on('sub_show_bot', true)} onChange={(v) => set('sub_show_bot', String(v))} /></div>
-      <div className="toggle"><span>{t('节点名显示流量倍率（倍率不为 1 时加「×2」等；名称模板里可用 {rate} 指定位置）')}</span><Switch label={t('显示倍率')} on={on('sub_show_rate', true)} onChange={(v) => set('sub_show_rate', String(v))} /></div>
+      <div className="toggle"><span>{t('信息页显示 Telegram 一键绑定（机器人运行时）')}</span><Switch label={t('机器人绑定')} on={on('sub_show_bot')} onChange={(v) => set('sub_show_bot', String(v))} /></div>
+      <div className="toggle"><span>{t('节点名显示流量倍率（倍率不为 1 时加「×2」等；名称模板里可用 {rate} 指定位置）')}</span><Switch label={t('显示倍率')} on={on('sub_show_rate')} onChange={(v) => set('sub_show_rate', String(v))} /></div>
       <div className="toggle"><span>{t('用户中心：用户用 Telegram 登录查看流量、到期和订阅，可自助重置链接（需先绑定机器人；不设密码）')}</span><Switch label={t('用户中心')} on={on('portal_enabled')} onChange={(v) => set('portal_enabled', String(v))} /></div>
       {on('portal_enabled') && <div className="hint">{t('配置了邮件（设置 → 邮件）后，用户也可以用邮箱验证码登录用户中心，并在用户中心绑定邮箱。')}</div>}
       {on('portal_enabled') && <div className="toggle"><span>{t('允许邮箱注册：没有账号的邮箱验证后自动创建账号（需配置邮件）')}</span><Switch label={t('邮箱注册')} on={on('portal_email_register')} onChange={(v) => set('portal_email_register', String(v))} /></div>}
@@ -183,6 +183,7 @@ function SubSettings() {
           }, t('已开始推送'))
         }}>{t('推送公告到 Telegram')}</button>
       </div>
-    </section>
+      </fieldset>
+    </section></SettingsGate>
   )
 }

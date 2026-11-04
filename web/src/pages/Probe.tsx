@@ -1,3 +1,4 @@
+import { SettingsGate, readSettings } from '../components/SettingsLoad'
 import { memo, useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
@@ -192,7 +193,7 @@ function Targets({ nodes, onClose, onChanged }: { nodes: PNode[]; onClose: () =>
 }
 
 function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () => void; onSaved: () => void }) {
-  const s = useLoad(() => get<Record<string, string>>('/settings'))
+  const s = useLoad(readSettings)
   const [f, setF] = useState<Record<string, string> | null>(null)
   const v = f ?? (s.data ? { probe_enabled: s.data.probe_enabled ?? 'true', status_page: s.data.status_page ?? 'false', status_title: s.data.status_title ?? '', status_note: s.data.status_note ?? '', status_show_traffic: s.data.status_show_traffic ?? 'false', status_show_cost: s.data.status_show_cost ?? 'false' } : null)
   const set = (k: string, x: string) => setF({ ...(v ?? {}), [k]: x })
@@ -200,9 +201,9 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
   return (
     <Modal title={t('探针设置')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
-      <button className="btn pri" type="button" disabled={busy || !v} onClick={() => run(async () => { await put('/settings', v); onSaved() }, t('已保存'))}>{t('保存')}</button>
+      <button className="btn pri" type="button" disabled={busy || s.loading || !!s.error || !v} onClick={() => run(async () => { await put('/settings', v); onSaved() }, t('已保存'))}>{t('保存')}</button>
     </>}>
-      {!v ? <div className="mute">{t('加载中…')}</div> : <>
+      {!v || s.error ? <SettingsGate state={s} /> : <fieldset className="settings-fields" disabled={busy || s.loading}>
         <Field label={t('延迟探测')}><label className="row small"><Switch label={t('延迟探测')} on={v.probe_enabled === 'true'} onChange={(x) => set('probe_enabled', String(x))} />{t('每 10 秒从各节点测一次延迟')}</label></Field>
         <Field label={t('公开状态页')} hint={t('任何人打开都能看到节点在线状态、资源占用和三网延迟；不显示 IP、域名和 Agent 版本，可在节点详情里单独隐藏节点')}>
           <label className="row small"><Switch label={t('公开状态页')} on={v.status_page === 'true'} onChange={(x) => set('status_page', String(x))} />{t('开启')} <span className="mono">{url}</span></label>
@@ -212,7 +213,7 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
         <Field label={t('公告')} htmlFor="st-note"><textarea id="st-note" className="input" rows={3} value={v.status_note} onChange={(e) => set('status_note', e.target.value)} placeholder={t('可选，显示在页面顶部')} /></Field>
         <Field label={t('显示服务器流量')}><label className="row small"><Switch label={t('显示服务器流量')} on={v.status_show_traffic === 'true'} onChange={(x) => set('status_show_traffic', String(x))} />{t('在公开页显示各节点本月流量和额度')}</label></Field>
         <Field label={t('显示价格和到期')}><label className="row small"><Switch label={t('显示价格和到期')} on={v.status_show_cost === 'true'} onChange={(x) => set('status_show_cost', String(x))} />{t('在公开页显示服务器价格和剩余天数（来自节点的成本设置）')}</label></Field>
-      </>}
+      </fieldset>}
     </Modal>
   )
 }

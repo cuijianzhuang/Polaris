@@ -1,7 +1,8 @@
+import { SettingsGate, readSettings } from './SettingsLoad'
 // Xray geodata auto-update: Xray downloads the .dat files on a cron
 // schedule and reloads them without a restart (Xray 26.4.25+).
 import { useEffect, useState } from 'react'
-import { get, put } from '../api'
+import { put } from '../api'
 import { t } from '../i18n'
 import { Field, Switch, useAction, useLoad } from './ui'
 
@@ -13,7 +14,8 @@ export const STANDARD_GEO: Asset[] = [
 ]
 
 export default function GeodataCard() {
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
+  const s = useLoad(readSettings)
+  const [loaded, setLoaded] = useState<typeof s.data>()
   const [on, setOn] = useState(false)
   const [cron, setCron] = useState('0 4 * * *')
   const [outbound, setOutbound] = useState('')
@@ -21,6 +23,7 @@ export default function GeodataCard() {
   const { busy, run } = useAction()
   useEffect(() => {
     if (!s.data) return
+    setLoaded(s.data)
     setOn(!!s.data.geodata_cron)
     if (s.data.geodata_cron) setCron(s.data.geodata_cron)
     setOutbound(s.data.geodata_outbound ?? '')
@@ -32,8 +35,9 @@ export default function GeodataCard() {
     await put('/settings', { geodata_cron: on ? cron.trim() : '', geodata_outbound: outbound.trim(), geodata_assets: JSON.stringify(list) })
     s.reload()
   }, t('已保存，各节点将重新下发 Xray 配置'))
+  if (!s.data || s.error || loaded !== s.data) return <SettingsGate state={s} ready={loaded === s.data} />
   return (
-    <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <fieldset className="settings-fields" disabled={busy || s.loading}><section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>{t('Xray Geodata 自动更新')}</h2>
         <Switch label={t('Geodata 自动更新')} on={on} onChange={setOn} />
@@ -57,6 +61,6 @@ export default function GeodataCard() {
         <button className="btn" type="button" onClick={() => setAssets(STANDARD_GEO)}>{t('使用标准来源')}</button>
         <button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button>
       </div>
-    </section>
+    </section></fieldset>
   )
 }

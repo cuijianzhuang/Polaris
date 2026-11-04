@@ -1,4 +1,10 @@
 const appearance: Record<string, string> = {
+  '设置响应格式无效，请重试。': 'Invalid settings response. Please retry.',
+  '无法读取设置，请重试。': 'Unable to load settings. Please retry.',
+  '状态获取失败': 'Status unavailable',
+  '获取状态中…': 'Fetching status…',
+  '开关是启用配置，需保存后生效；运行状态会自动刷新。': 'The switch controls the enabled configuration and takes effect after saving. Runtime status refreshes automatically.',
+
   '保存失败，输入已保留。请重试或继续编辑。': 'Save failed. Your input is preserved. Retry or continue editing.',
   '继续编辑': 'Continue editing',
   '放弃修改': 'Discard changes',

@@ -1,3 +1,4 @@
+import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
 import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
@@ -17,22 +18,20 @@ const statusLabel: Record<string, [string, string]> = {
 }
 
 function TicketSettings({ onSaved }: { onSaved: () => void }) {
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
-  const [f, setF] = useState<Record<string, string>>({})
-  useEffect(() => {
-    if (s.data) setF({ tickets_enabled: String(s.data.tickets_enabled ?? ''), ticket_max_open: String(s.data.ticket_max_open ?? ''), ticket_autoclose_days: String(s.data.ticket_autoclose_days ?? '') })
-  }, [s.data])
+  const { state: s, fields: f, setFields: setF } = useSettingsForm({ tickets_enabled: 'false', ticket_max_open: '', ticket_autoclose_days: '' })
   const { busy, run } = useAction()
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   return (
-    <section className="card" style={{ display: 'grid', gap: 12 }}>
+    <SettingsGate state={s}><section className="card" style={{ display: 'grid', gap: 12 }}>
+      <fieldset className="settings-fields" disabled={busy || s.loading}>
       <div className="toggle"><span>{t('开启工单：用户可在用户中心「🎫 工单」或机器人 /ticket 提交问题')}</span><Switch label={t('开启工单')} on={f.tickets_enabled === 'true'} onChange={(v) => set('tickets_enabled', String(v))} /></div>
       <div className="form-grid">
         <Field label={t('每人同时未关闭的工单')} hint={t('0 表示不限，默认 3')}><input className="input mono" inputMode="numeric" value={f.ticket_max_open ?? ''} placeholder="3" onChange={(e) => set('ticket_max_open', e.target.value.replace(/[^\d]/g, ''))} /></Field>
         <Field label={t('已回复后自动关闭（天）')} hint={t('回复后用户多少天没再回复就自动关闭；0 表示不自动关闭，默认 7')}><input className="input mono" inputMode="numeric" value={f.ticket_autoclose_days ?? ''} placeholder="7" onChange={(e) => set('ticket_autoclose_days', e.target.value.replace(/[^\d]/g, ''))} /></Field>
       </div>
       <div><button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/settings', f); s.reload(); onSaved() }, t('已保存'))}>{t('保存')}</button></div>
-    </section>
+      </fieldset>
+    </section></SettingsGate>
   )
 }
 
