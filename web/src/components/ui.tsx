@@ -153,8 +153,8 @@ export function useRefresh(def: number, key = REFRESH_KEY): [number, (ms: number
 // RefreshPicker chooses how often a live page reloads; reload now is the button next to it.
 export function RefreshPicker({ ms, onChange, onNow }: { ms: number; onChange: (ms: number) => void; onNow: () => void }) {
   return (
-    <span className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-      <button className="btn sm" type="button" onClick={onNow} title={t('立即刷新')} aria-label={t('立即刷新')}>↻</button>
+    <span className="row refresh-picker" style={{ gap: 6, flexWrap: 'nowrap' }}>
+      <button className="btn sm" type="button" onClick={onNow} title={t('立即刷新')} aria-label={t('立即刷新')}><Icon.Refresh /></button>
       <select className="input" style={{ width: 'auto', minHeight: 32 }} value={ms} onChange={(e) => onChange(Number(e.target.value))} aria-label={t('自动刷新频率')}>
         {refreshChoices.map((v) => <option key={v} value={v}>{v ? t('每 {n} 秒刷新', { n: v / 1000 }) : t('不自动刷新')}</option>)}
       </select>

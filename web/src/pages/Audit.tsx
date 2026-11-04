@@ -47,11 +47,11 @@ export default function Audit() {
       </div>
       <div className="row list-toolbar">
         <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索对象 / 详情 / 管理员')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索')} />
-        {prefixes.map((p) => <button key={p.k} type="button" className={'chip' + (action === p.k ? ' on' : '')} onClick={() => { setAction(p.k); setPage(0) }}>{p.label}</button>)}
+        <div className="chips">{prefixes.map((p) => <button key={p.k} type="button" className={'chip' + (action === p.k ? ' on' : '')} onClick={() => { setAction(p.k); setPage(0) }}>{p.label}</button>)}</div>
       </div>
       <div className="card flush scroll">
         {list.data?.items.length === 0 ? <Empty>{t('没有记录')}</Empty> : (
-          <table>
+          <table className="audit-table">
             <thead><tr><th>{t('时间')}</th><th>{t('操作者')}</th><th>{t('操作@@audit')}</th><th>{t('对象')}</th><th>{t('详情')}</th><th>IP</th></tr></thead>
             <tbody>
               {(list.data?.items ?? []).map((l) => (

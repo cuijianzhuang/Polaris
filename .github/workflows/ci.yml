@@ -358,7 +358,7 @@ jobs:
           - suite: settings
             scripts: >-
               probe-refresh-ui-smoke.py appearance-ui-smoke.py
-              license-method-ui-smoke.py
+              license-method-ui-smoke.py ui-details-ui-smoke.py
               settings-workflow-smoke.py restore-drill-ui-smoke.py admin-roles-ui-smoke.py
           - suite: cdn-addresses
             scripts: >-
