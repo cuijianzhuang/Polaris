@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState, type KeyboardEvent } from 'react'
 import { get, post } from '../api'
 import { t, tr } from '../i18n'
 import { Icon } from './Icons'
@@ -55,6 +55,15 @@ export default function License() {
   const [key, setKey] = useState('')
   const [text, setText] = useState('')
   const [mode, setMode] = useState<'key' | 'text'>('key')
+  const methodID = useId()
+  const changeMethod = (event: KeyboardEvent<HTMLDivElement>) => {
+    const next = event.key === 'Home' ? 'key' : event.key === 'End' ? 'text'
+      : event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? (mode === 'key' ? 'text' : 'key') : undefined
+    if (!next) return
+    event.preventDefault()
+    setMode(next)
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-method="${next}"]`)?.focus()
+  }
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const d = v.data
@@ -152,38 +161,40 @@ export default function License() {
       </section>
 
       {/* Activation */}
-      {d.keys && <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h3>{lic ? t('更换许可证') : t('激活')}</h3>
-          <div className="seg-mini row" role="tablist">
-            <button type="button" className={'btn sm' + (mode === 'key' ? ' pri' : '')} onClick={() => setMode('key')}>{t('激活码')}</button>
-            <button type="button" className={'btn sm' + (mode === 'text' ? ' pri' : '')} onClick={() => setMode('text')}>{t('许可证文件')}</button>
+      {d.keys && <section className="card license-activation" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="row license-activation-header" style={{ justifyContent: 'space-between' }}>
+          <h3 id={methodID + '-title'}>{lic ? t('更换许可证') : t('激活')}</h3>
+          <div className="seg-mini license-methods" role="tablist" aria-labelledby={methodID + '-title'} onKeyDown={changeMethod}>
+            <button type="button" role="tab" id={methodID + '-key'} data-method="key" aria-selected={mode === 'key'} aria-controls={methodID + '-panel'} tabIndex={mode === 'key' ? 0 : -1} className={mode === 'key' ? 'on' : ''} onClick={() => setMode('key')}>{t('激活码')}</button>
+            <button type="button" role="tab" id={methodID + '-text'} data-method="text" aria-selected={mode === 'text'} aria-controls={methodID + '-panel'} tabIndex={mode === 'text' ? 0 : -1} className={mode === 'text' ? 'on' : ''} onClick={() => setMode('text')}>{t('许可证文件')}</button>
           </div>
         </div>
-        {mode === 'key' ? <>
-          {!d.server && <div className="note warn">{t('授权服务未配置，请联系服务提供方，或改用许可证文件。')}</div>}
-          <Field label={t('激活码')} hint={t('联网激活，许可证会绑定到本面板（实例 ID）')}>
-            <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input className="input mono" value={key} onChange={(e) => setKey(e.target.value)} placeholder="XXXXX-XXXXX-XXXXX-XXXXX" disabled={!d.server} style={{ letterSpacing: 1 }} />
-              <button className="btn pri" type="button" disabled={busy || !key.trim() || !d.server} onClick={() => run(async () => { try { await post('/license/activate', { key }); setKey('') } finally { v.reload() } }, t('已激活'))}>{t('激活')}</button>
+        <div className="license-method-panel" role="tabpanel" id={methodID + '-panel'} aria-labelledby={methodID + '-' + mode}>
+          {mode === 'key' ? <>
+            {!d.server && <div className="note warn">{t('授权服务未配置，请联系服务提供方，或改用许可证文件。')}</div>}
+            <Field label={t('激活码')} htmlFor={methodID + '-key-input'} hint={t('联网激活，许可证会绑定到本面板（实例 ID）')}>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input id={methodID + '-key-input'} className="input mono" value={key} onChange={(e) => setKey(e.target.value)} placeholder="XXXXX-XXXXX-XXXXX-XXXXX" disabled={!d.server} style={{ letterSpacing: 1 }} />
+                <button className="btn pri" type="button" disabled={busy || !key.trim() || !d.server} onClick={() => run(async () => { try { await post('/license/activate', { key }); setKey('') } finally { v.reload() } }, t('已激活'))}>{t('激活')}</button>
+              </div>
+            </Field>
+          </> : <>
+            <Field label={t('粘贴许可证')} htmlFor={methodID + '-text-input'} hint={t('离线许可证或授权后台下载的许可证文本；也可以直接导入 .lic 文件')}>
+              <textarea id={methodID + '-text-input'} className="input mono" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+            </Field>
+            <div className="row">
+              <button className="btn pri" type="button" disabled={busy || !text.trim()} onClick={() => run(async () => { await post('/license', { text }); setText(''); v.reload() }, t('许可证已安装'))}>{t('安装许可证')}</button>
+              <label className={'btn' + (busy ? ' disabled' : '')} style={{ cursor: 'pointer' }}>
+                {t('导入许可证文件')}
+                <input type="file" accept=".lic,.txt,text/plain" hidden disabled={busy} onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = '' // the same file can be chosen again
+                  if (file) run(async () => { await post('/license', { text: (await file.text()).trim() }); v.reload() }, t('许可证已安装'))
+                }} />
+              </label>
             </div>
-          </Field>
-        </> : <>
-          <Field label={t('粘贴许可证')} hint={t('离线许可证或授权后台下载的许可证文本；也可以直接导入 .lic 文件')}>
-            <textarea className="input mono" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
-          </Field>
-          <div className="row">
-            <button className="btn pri" type="button" disabled={busy || !text.trim()} onClick={() => run(async () => { await post('/license', { text }); setText(''); v.reload() }, t('许可证已安装'))}>{t('安装许可证')}</button>
-            <label className={'btn' + (busy ? ' disabled' : '')} style={{ cursor: 'pointer' }}>
-              {t('导入许可证文件')}
-              <input type="file" accept=".lic,.txt,text/plain" hidden disabled={busy} onChange={(e) => {
-                const file = e.target.files?.[0]
-                e.target.value = '' // the same file can be chosen again
-                if (file) run(async () => { await post('/license', { text: (await file.text()).trim() }); v.reload() }, t('许可证已安装'))
-              }} />
-            </label>
-          </div>
-        </>}
+          </>}
+        </div>
       </section>}
 
       {/* This panel and the license server */}
