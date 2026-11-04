@@ -1,6 +1,6 @@
 import StaffWorkspace, { StaffAccount } from './pages/StaffWorkspace'
 import { Component, Suspense, createContext, lazy, useCallback, useContext, useEffect, useLayoutEffect, useState, type ComponentType, type ReactNode } from 'react'
-import { createBrowserRouter, RouterProvider, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { BASE, get, getToken, onInflight, post, setToken, setUnauthorizedHandler, takeOAuthResult, wsURL } from './api'
 import { Icon } from './components/Icons'
 import CommandPalette, { type PaletteItem } from './components/CommandPalette'
@@ -157,14 +157,15 @@ function TopProgress() {
 function NavGroup({ item, folded, onUnfold }: { item: NavItem; folded: boolean; onUnfold: () => void }) {
   const loc = useLocation()
   const here = item.children!.some((c) => loc.pathname === c.to || loc.pathname.startsWith(c.to + '/'))
+  const groupID = 'nav-group-' + item.to.replace(/\W/g, '-')
   const [open, setOpen] = useState(here)
   useEffect(() => { if (here) setOpen(true) }, [here])
   return (
-    <div className={'navgroup' + (open ? ' open' : '')}>
-      <button type="button" className={'nav' + (here && !open ? ' active' : '')} aria-expanded={open} title={folded ? item.label : undefined} onClick={() => { if (folded) { setOpen(true); onUnfold() } else setOpen(!open) }}>
+    <div className={'navgroup' + (open ? ' open' : '') + (here ? ' current' : '')}>
+      <button type="button" className={'nav' + (here && !open ? ' active' : '')} aria-expanded={open} aria-controls={groupID} title={folded ? item.label : undefined} onClick={() => { if (folded) { setOpen(true); onUnfold() } else setOpen(!open) }}>
         {item.icon}{item.label}<span className="chev" aria-hidden="true"><Icon.Chevron /></span>
       </button>
-      <div className="navsub">
+      <div className="navsub" id={groupID}>
         {item.children!.map((c) => <NavLink key={c.to} to={c.to} className="nav" title={folded ? c.label : undefined}>{c.icon}{c.label}</NavLink>)}
       </div>
     </div>
@@ -254,6 +255,7 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform)
   const inTabs = tabs.some((tb) => (tb.end ? loc.pathname === tb.to : loc.pathname.startsWith(tb.to)))
   const currentPage = pages.find((p) => p.to === '/' ? loc.pathname === '/' : loc.pathname === p.to || loc.pathname.startsWith(p.to + '/'))
+  const currentSection = items.find((item) => item.children?.some((child) => loc.pathname === child.to || loc.pathname.startsWith(child.to + '/')))
   return (
     <div className={'app' + (folded ? ' folded' : '')}>
       <TopProgress />
@@ -284,7 +286,11 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
       </nav>
       <main className="main">
         <header className="workspace-bar">
-          <nav className="workspace-breadcrumb" aria-label={t('当前位置')}><span>{t('控制台')}</span><span aria-hidden="true">/</span><b aria-current="page">{currentPage?.label ?? title}</b></nav>
+          <nav className="workspace-breadcrumb" aria-label={t('当前位置')}>
+            <Link to="/"><Icon.Dashboard /><span>{t('控制台')}</span></Link><span aria-hidden="true">/</span>
+            {currentSection && currentSection.label !== currentPage?.label && <><span className="workspace-section">{currentSection.label}</span><span aria-hidden="true">/</span></>}
+            <b aria-current="page">{currentPage?.label ?? title}</b>
+          </nav>
           <button type="button" className="workspace-search" aria-label={t('搜索')} onClick={() => setPalette(true)}><Icon.Search /><span>{scoped ? t('搜索页面、节点…') : t('搜索页面、节点、用户…')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         </header>
         <div className="page-content" key={loc.pathname}><PageBoundary>{children}</PageBoundary></div>
