@@ -24,6 +24,7 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
   const [preference, setPreference] = useState<View | null>(() => {
     try { const v = localStorage.getItem(VIEW_KEY); return v === 'cards' || v === 'list' ? v : null } catch { return null }
   })
+  const [filtersOpen, setFiltersOpen] = useState(nodes.length > 6)
   const view = preference ?? (nodes.length > 6 ? 'list' : 'cards')
   const chooseView = (v: View) => { setPreference(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* storage unavailable */ } }
   const regions = useMemo(() => [...new Set(nodes.map((n) => n.region).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [nodes])
@@ -45,20 +46,28 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
   const pages = Math.max(1, Math.ceil(filtered.length / size)), current = Math.min(page, pages)
   useEffect(() => setPage((p) => Math.min(p, pages)), [pages])
   const shown = filtered.slice((current - 1) * size, current * size)
-  const active = !!(query || status || region || core)
-  const clear = () => { setQuery(''); setStatus(''); setRegion(''); setCore('') }
+  const activeCount = [query, status, region, core, sort === 'default' ? '' : sort].filter(Boolean).length
+  const active = activeCount > 0
+  const clear = () => { setQuery(''); setStatus(''); setRegion(''); setCore(''); setSort('default') }
   const selectedVisible = !selected || filtered.some((n) => n.id === selected.id)
 
   return <section className={'node-browser' + (open ? '' : ' collapsed')} aria-label={t('节点浏览')} id="node-browser">
     <div className="node-browser-heading">
       <div className="node-totals" aria-label={t('节点概况')}>
-        <span>{t('节点')} <b>{nodes.length}</b></span><span><i className="dot" style={{ background: 'var(--ok)' }} />{t('在线')} <b>{online}</b></span>
-        {attention > 0 && <button className={'link node-attention' + (status === 'attention' ? ' active' : '')} type="button" onClick={() => { setStatus(status === 'attention' ? '' : 'attention'); onOpen(true) }}>{t('需关注')} <b>{attention}</b></button>}
+        <button className="link node-total" type="button" onClick={() => { clear(); onOpen(true) }}>{t('节点')} <b>{nodes.length}</b></button>
+        <button className={'link node-total' + (status === 'online' ? ' active' : '')} type="button" aria-pressed={status === 'online'} onClick={() => { setStatus(status === 'online' ? '' : 'online'); onOpen(true) }}><i className="dot" style={{ background: 'var(--ok)' }} />{t('在线')} <b>{online}</b></button>
+        {attention > 0 && <button className={'link node-attention' + (status === 'attention' ? ' active' : '')} type="button" aria-pressed={status === 'attention'} onClick={() => { setStatus(status === 'attention' ? '' : 'attention'); onOpen(true) }}>{t('需关注')} <b>{attention}</b></button>}
       </div>
-      <button className="btn sm" type="button" aria-expanded={open} aria-controls="node-browser-content" onClick={() => onOpen(!open)}>{open ? t('收起节点列表') : t('切换节点')}</button>
+      <div className="node-browser-tools">
+        {open && <>
+          <div className="seg-mini node-view" role="group" aria-label={t('节点展示方式')}><button type="button" className={view === 'cards' ? 'on' : ''} aria-pressed={view === 'cards'} onClick={() => chooseView('cards')}>{t('卡片')}</button><button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => chooseView('list')}>{t('列表')}</button></div>
+          <button className={'btn sm' + (active ? ' filter-active' : '')} type="button" aria-expanded={filtersOpen} aria-controls="node-filter-controls" onClick={() => setFiltersOpen(!filtersOpen)}>{t('筛选')}{active && <span className="chip-n">{activeCount}</span>}</button>
+        </>}
+        {(nodes.length > 6 || !open) && <button className="btn sm" type="button" aria-expanded={open} aria-controls="node-browser-content" onClick={() => onOpen(!open)}>{open ? t('收起节点列表') : t('切换节点')}</button>}
+      </div>
     </div>
     <div id="node-browser-content" hidden={!open}>
-      <div className="node-filters">
+      <div className="node-filters" id="node-filter-controls" hidden={!filtersOpen}>
         <label className="node-search"><Icon.Search /><input className="input" type="search" aria-label={t('搜索节点')} placeholder={t('名称、地址、地区或标签')} value={query} onChange={(e) => setQuery(e.target.value)} /></label>
         <select className="input" aria-label={t('节点状态')} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option value="">{t('全部状态')}</option><option value="attention">{t('需关注')}</option>
@@ -69,9 +78,8 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
         <select className="input" aria-label={t('节点排序')} value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="default">{t('默认顺序')}</option><option value="name">{t('名称排序')}</option><option value="attention">{t('需关注优先')}</option><option value="cpu">{t('CPU 从高到低')}</option><option value="mem">{t('内存从高到低')}</option><option value="traffic">{t('服务器流量从高到低')}</option>
         </select>
-        <div className="seg-mini node-view" role="group" aria-label={t('节点展示方式')}><button type="button" className={view === 'cards' ? 'on' : ''} aria-pressed={view === 'cards'} onClick={() => chooseView('cards')}>{t('卡片')}</button><button type="button" className={view === 'list' ? 'on' : ''} aria-pressed={view === 'list'} onClick={() => chooseView('list')}>{t('列表')}</button></div>
       </div>
-      <div className="node-browser-meta"><span role="status">{t('显示 {from}–{to} / {total} 个节点', { from: filtered.length ? (current - 1) * size + 1 : 0, to: Math.min(current * size, filtered.length), total: filtered.length })}</span>{active && <button className="link" type="button" onClick={clear}>{t('清除筛选')}</button>}{!selectedVisible && <span>{t('当前节点不在筛选结果中')}</span>}</div>
+      {(active || nodes.length > size) && <div className="node-browser-meta"><span role="status">{t('显示 {from}–{to} / {total} 个节点', { from: filtered.length ? (current - 1) * size + 1 : 0, to: Math.min(current * size, filtered.length), total: filtered.length })}</span>{active && <button className="link" type="button" onClick={clear}>{t('清除筛选')}</button>}{!selectedVisible && <span>{t('当前节点不在筛选结果中')}</span>}</div>}
       {filtered.length === 0 ? <div className="card"><Empty>{t('没有匹配的节点')}<button className="btn sm" type="button" onClick={clear}>{t('清除筛选')}</button></Empty></div> : view === 'cards' ? <div className="nodes" role="group" aria-label={t('选择节点')}>
         {shown.map((n) => <NodeCard key={n.id} n={n} on={selected?.id === n.id} onClick={() => onSelect(n)} traffic={traffic?.[n.id]} badge={badge(n)} />)}
       </div> : <div className="card flush node-list"><div className="scroll">
@@ -93,11 +101,11 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
           })}</tbody>
         </table>
       </div></div>}
-      <nav className="node-pagination" aria-label={t('节点分页')}>
+      {(nodes.length > 12 || size !== 12) && <nav className="node-pagination" aria-label={t('节点分页')}>
         <label>{t('每页节点数')}<select className="input" value={size} onChange={(e) => setSize(Number(e.target.value))}>{[12, 24, 48].map((n) => <option key={n}>{n}</option>)}</select></label>
         <span className="mute">{t('第 {page} / {pages} 页', { page: current, pages })}</span>
         <button className="btn sm" type="button" disabled={current === 1} onClick={() => setPage(current - 1)}>{t('上一页')}</button><button className="btn sm" type="button" disabled={current >= pages} onClick={() => setPage(current + 1)}>{t('下一页')}</button>
-      </nav>
+      </nav>}
     </div>
   </section>
 }

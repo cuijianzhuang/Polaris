@@ -1,26 +1,27 @@
 /* Console surfaces and layout. Colours continue to come from the selected
    Polaris palette; compact navigation and work areas follow a panel layout. */
 :root {
-  --bg: #F3F5F8;
-  --soft: #F3F5F8;
-  --soft-2: #F8FAFC;
-  --line: #E5E9F0;
-  --line-2: #EFF2F6;
-  --input: #D6DDE7;
-  --side: color-mix(in srgb, var(--pri) 5%, var(--card));
-  --side-hover: color-mix(in srgb, var(--pri) 8%, var(--card));
-  --side-line: color-mix(in srgb, var(--pri) 12%, var(--card));
-  --r-sm: 4px;
-  --r: 6px;
-  --r-lg: 8px;
+  --bg: #F5F5F7;
+  --soft: #F5F5F7;
+  --soft-2: #FAFAFC;
+  --line: #E5E5EA;
+  --line-2: #EFEFF2;
+  --input: #D9D9E0;
+  --side: #F0F1F4;
+  --side-hover: color-mix(in srgb, var(--ink) 5%, var(--side));
+  --side-line: var(--line);
+  --r-sm: 6px;
+  --r: 10px;
+  --r-lg: 14px;
   --ring: 0 0 0 3px color-mix(in srgb, var(--pri) 14%, transparent);
   --workspace-header-height: 56px;
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', 'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
 }
 
 .app .side {
-  flex-basis: 200px;
+  flex-basis: 216px;
   height: 100dvh;
-  padding: 12px 10px;
+  padding: 0 12px 12px;
   gap: 4px;
   overflow: hidden;
 }
@@ -29,35 +30,48 @@
   flex: 1 1 auto; min-height: 0; overflow: auto;
   overscroll-behavior: contain; padding: 2px 0;
 }
-.app .brand { padding: 8px 8px 18px; font-size: 18px; gap: 9px; }
+.app .brand { min-height: 56px; padding: 0 8px; margin-bottom: 8px; font-size: 19px; gap: 10px; }
 .app .brand-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app .brand > img, .app .brand > svg { flex-shrink: 0; }
-.app .side .nav { min-height: 40px; padding: 9px 10px; border: 1px solid transparent; }
+.app .side .nav { min-height: 40px; padding: 9px 10px; border: 1px solid transparent; border-radius: 8px; }
 .app .side .nav:hover { color: var(--pri-ink); }
 .app .side .nav:hover svg { color: inherit; }
 .app .side .nav.active {
   background: var(--pri-soft);
   color: var(--pri-ink);
-  border-color: var(--pri-line);
+  border-color: transparent;
   box-shadow: none;
 }
 .app .side .nav.active svg { color: inherit; }
-.app .side .nav.active::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--pri);
-}
-.app .side .navgroup.current > .nav { color: var(--pri-ink); }
-.app .side .navgroup.current > .nav svg { color: inherit; }
-.app .navsub { margin: 2px 0 6px 16px; padding-left: 8px; gap: 3px; }
-.app .side .navsub .nav { min-height: 36px; padding: 7px 9px; }
+.app .side .nav.active::before { display: none; }
+.app .side .navgroup.current > .nav { color: var(--ink); }
+.app .side .navgroup.current > .nav svg { color: var(--mute); }
+.app .navsub { margin: 2px 0 8px; padding: 0; border-left: 0; gap: 2px; }
+.app .side .navsub .nav { min-height: 36px; padding: 8px 12px 8px 40px; font-weight: 450; }
+.app .side .navsub .nav.active { font-weight: 600; }
 .app .side-foot { margin-top: auto; padding: 14px 4px 2px; gap: 12px; }
-.app .side-fold { background: var(--card); border: 1px solid var(--side-line); }
+.workspace-bar .side-fold { margin: 0; width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--mute); }
+.workspace-bar .side-fold:hover { background: var(--side-hover); color: var(--ink); }
+.workspace-bar .side-fold svg { border-radius: 0; box-shadow: none; }
+@media (pointer: coarse) { .workspace-bar .side-fold { width: 44px; height: 44px; } }
+
+/* Accessible system-blue controls, with separate dark surfaces. */
+html[data-accent="blue"]:not([data-style="blackgold"]) {
+  --pri: #0066CC; --pri-ink: #0055AD; --pri-soft: #E8F1FC; --pri-line: #C5DBF5; --pri-bright: #82BBFF;
+}
+html[data-mode="dark"][data-accent="blue"]:not([data-style="blackgold"]) {
+  --pri: #409CFF; --on-pri: #071828; --pri-ink: #8CC3FF; --pri-soft: #16324E; --pri-line: #28517B;
+}
+
+/* Neutral graphite surfaces for the default style; other saved styles keep
+   their palettes, and the chosen accent still supplies interactive colour. */
+html[data-mode="dark"]:not([data-style]) {
+  --bg: #1C1C1E; --card: #252527; --soft: #2C2C2E; --soft-2: #28282A;
+  --ink: #F2F2F7; --ink-2: #D1D1D6; --mute: #ACACB5; --faint: #94949E;
+  --line: #3A3A3C; --line-2: #313134; --input: #49494F; --input-strong: #63636C;
+  --side: #222225; --side-ink: #B8B8C1; --side-hover: #303034; --side-line: #363639;
+}
+html[data-mode="dark"] .chip.on { background: var(--pri-soft); color: var(--pri-ink); }
 
 .workspace-bar {
   position: sticky;
@@ -65,7 +79,10 @@
   z-index: 20;
   min-height: var(--workspace-header-height);
   padding: 0 24px;
-  gap: 16px;
+  gap: 12px;
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: saturate(1.4) blur(18px);
+  -webkit-backdrop-filter: saturate(1.4) blur(18px);
 }
 .workspace-breadcrumb { flex: 1; gap: 8px; overflow: hidden; }
 .workspace-breadcrumb a { display: inline-flex; align-items: center; gap: 7px; color: var(--mute); flex: none; }
@@ -76,15 +93,15 @@
 .workspace-search { min-width: 240px; min-height: 34px; border-radius: var(--r); background: var(--soft-2); }
 .page-content { max-width: 1920px; padding: 20px 24px 32px; gap: 16px; }
 .page-content > .top {
-  padding: 18px 20px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
+  padding: 4px 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   align-items: center;
   gap: 12px 20px;
 }
 .page-content > .top > div:first-child { flex: 1 1 320px; min-width: 0; }
-.page-content > .top h1 { font-size: 22px; padding-left: 10px; border-left: 3px solid var(--pri); }
+.page-content > .top h1 { font-size: 26px; font-weight: 650; letter-spacing: -.025em; padding: 0; border: 0; }
 .page-content > .top .sub { line-height: 1.65; max-width: 88ch; }
 .app .page-content .card { box-shadow: none; }
 .page-content .card > h2 { font-size: 15px; }
@@ -150,7 +167,7 @@ tr.sel td { background: var(--pri-soft); }
 }
 @media (min-width: 761px) {
   .app.folded .side .nav { padding: 10px 0; }
-  .app.folded .side .nav.active::before { left: -1px; }
+  .app.folded .brand { min-height: 56px; padding: 0; gap: 0; }
 }
 @media (min-width: 761px) and (max-width: 1100px) {
   .workspace-bar { padding: 0 20px; }
@@ -163,9 +180,10 @@ tr.sel td { background: var(--pri-soft); }
   .app .side { padding: calc(16px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom)); }
   .app .side .nav, .app .side .navsub .nav { min-height: 44px; }
   .page-content { padding: 16px 12px calc(84px + env(safe-area-inset-bottom)); gap: 12px; }
-  .page-content > .top { padding: 16px; gap: 12px; }
+  .app .brand { min-height: 44px; padding: 0 4px 14px; }
+  .page-content > .top { padding: 4px 4px 8px; gap: 12px; }
   .page-content > .top > div:first-child { flex-basis: 100%; }
-  .page-content > .top h1 { font-size: 20px; }
+  .page-content > .top h1 { font-size: 24px; }
   /* Anchor dropdowns to the whole action row when individual buttons wrap. */
   .page-content > .top > .row { position: relative; }
   .page-content > .top > .row > .menu { position: static; }
@@ -177,3 +195,15 @@ tr.sel td { background: var(--pri-soft); }
   .tab { min-height: 44px; }
   .login .card { padding: 24px; }
 }
+
+/* Fleet controls adapt to scale; one-page card views stay concise. */
+.node-browser-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.node-browser-tools .node-view { margin-left: 0; }
+.node-filters[hidden] { display: none; }
+.node-total { display: inline-flex; align-items: center; gap: 6px; font: inherit; color: var(--mute); }
+.node-total.active, .filter-active { color: var(--pri-ink); }
+.node-total:hover { color: var(--ink); }
+.node-browser .nodes { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.node-browser .nodes:has(> .ncard:only-child) { max-width: 480px; }
+.node-browser .nodes:has(> .ncard:nth-child(2):last-child) { max-width: 980px; }
+.node-browser .ncard.on { border-color: var(--pri-line); box-shadow: 0 0 0 1px var(--pri-line); }

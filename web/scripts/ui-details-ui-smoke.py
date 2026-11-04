@@ -59,12 +59,14 @@ with sync_playwright() as p:
                     if width<760:
                         side.get_by_role('button',name='关闭菜单' if language=='zh' else 'Close menu',exact=True).click()
                     else:
-                        fold=side.locator('.side-fold')
+                        fold=page.locator('.workspace-bar .side-fold')
                         fold.click()
                         expect(page.locator('.app')).to_have_class('app folded')
                         in_view(fold)
                         fold.click()
                         expect(page.locator('.app')).to_have_class('app')
+                        expect(fold).to_have_attribute('aria-controls', 'console-sidebar')
+                        assert fold.evaluate('(e)=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}')
                     more=page.locator('.top details.menu')
                     summary=more.locator('summary')
                     bulk=more.get_by_role('button',name='批量创建' if language=='zh' else 'Bulk create',exact=True)
