@@ -150,6 +150,52 @@ def validate_pair(source, target):
         raise SyncError('Destination must be the corresponding PolarisPanelOrg repository')
 
 
+def git_failure_hint(stage, output):
+    """Classify captured Git output, without ever returning credential-bearing text."""
+    text = output.decode('utf-8', errors='replace').lower()
+    if 'gh006' in text or 'gh013' in text or 'protected branch' in text or 'repository rule violations' in text:
+        return 'destination branch protection or repository rules rejected the push; review mirror repository rules', False
+    if 'refusing to allow' in text and 'workflow' in text:
+        return 'workflow update refused; MIRROR_TOKEN needs Workflows: write (classic PAT: workflow scope)', False
+    if stage == 'push' and any(value in text for value in ('non-fast-forward', '(fetch first)', '(already exists)', 'would clobber existing tag')):
+        return 'destination branch/tag history differs; review the conflicting refs before synchronizing', False
+    if any(value in text for value in ('ssl certificate problem', 'certificate verification failed', 'ssl: no alternative certificate')):
+        return 'TLS certificate verification failed; check runner trust and network configuration', False
+    if any(value in text for value in ('authentication failed', 'could not read username', 'invalid username or token',
+            'write access to repository not granted', 'permission denied', 'permission to ', 'repository not found',
+            'resource not accessible', 'http 401', 'http 403', 'returned error: 401', 'returned error: 403')):
+        credential = 'SOURCE_TOKEN (GITHUB_TOKEN) with Contents: read' if stage == 'fetch' else 'MIRROR_TOKEN with access to the destination repository and required write permissions'
+        return 'GitHub access denied; check ' + credential, False
+    if any(value in text for value in ('http 429', 'http 500', 'http 502', 'http 503', 'http 504',
+            'returned error: 429', 'returned error: 500', 'returned error: 502', 'returned error: 503', 'returned error: 504',
+            'connection reset by peer', 'remote end hung up unexpectedly', 'early eof', 'unexpected disconnect',
+            'could not resolve host', 'failed to connect to', 'connection timed out', 'operation timed out',
+            'tls connection was non-properly terminated', 'curl 56', 'curl 92')):
+        return 'temporary Git transport or GitHub service failure', True
+    return 'unrecognized Git failure; authenticated command output was withheld', False
+
+
+def run_git(command, stage, env):
+    print('Git mirror ' + stage + ': starting', flush=True)
+    for attempt in range(3):
+        try:
+            result = subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
+        except subprocess.TimeoutExpired:
+            # Retrying a full 15-minute timeout could exhaust the entire job.
+            raise SyncError('Git mirror ' + stage + ' timed out after 900 seconds') from None
+        except OSError:
+            raise SyncError('Git mirror ' + stage + ' could not start Git') from None
+        if result.returncode == 0:
+            print('Git mirror ' + stage + ': complete', flush=True)
+            return
+        hint, transient = git_failure_hint(stage, (result.stdout or b'') + (result.stderr or b''))
+        if transient and stage in {'fetch', 'push'} and attempt < 2:
+            print(f'Git mirror {stage}: {hint}; retry {attempt + 2}/3', flush=True)
+            time.sleep(2 ** attempt)
+            continue
+        raise SyncError(f'Git mirror {stage} failed: {hint} (no force-push or prune was attempted)')
+
+
 def git_sync(source, target, source_token, target_token):
     with tempfile.TemporaryDirectory(prefix='polaris-git-mirror-') as tmp:
         helper = Path(tmp, 'credential.py')
@@ -170,15 +216,13 @@ if fields.get("host")=="github.com":
                    GIT_CONFIG_KEY_2='credential.useHttpPath', GIT_CONFIG_VALUE_2='true')
         bare = Path(tmp, 'repo.git')
         commands = [
-            ['git', 'init', '--bare', str(bare)],
-            ['git', '--git-dir', str(bare), 'fetch', '--no-tags', 'https://github.com/' + source + '.git', '+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*'],
+            ('init', ['git', 'init', '--bare', str(bare)]),
+            ('fetch', ['git', '--git-dir', str(bare), 'fetch', '--no-tags', 'https://github.com/' + source + '.git', '+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*']),
             # Never force or prune: divergent destination history requires human review.
-            ['git', '--git-dir', str(bare), 'push', '--atomic', 'https://github.com/' + target + '.git', 'refs/heads/*:refs/heads/*', 'refs/tags/*:refs/tags/*'],
+            ('push', ['git', '--git-dir', str(bare), 'push', '--atomic', 'https://github.com/' + target + '.git', 'refs/heads/*:refs/heads/*', 'refs/tags/*:refs/tags/*']),
         ]
-        for command in commands:
-            result = subprocess.run(command, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)
-            if result.returncode:
-                raise SyncError('Git mirror failed; check permissions or divergent branches/tags (no force-push was attempted)')
+        for stage, command in commands:
+            run_git(command, stage, env)
 
 
 def sync_visibility(src, dst, target_api):
