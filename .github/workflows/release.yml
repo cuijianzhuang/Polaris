@@ -94,10 +94,32 @@ jobs:
           case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
           echo "Releasing $v"
 
-  test:
+  browser-checks:
     needs: version
     if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reuse: ${{ steps.verify.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Reuse successful PR browser checks only for the exact release tree
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/reuse-browser-checks.py
+
+  test:
+    needs: [version, browser-checks]
+    if: needs.version.outputs.skip != 'true'
     uses: ./.github/workflows/ci.yml
+    with:
+      reuse_browser_checks: ${{ needs.browser-checks.outputs.reuse == 'true' }}
     secrets: inherit
 
   # Both editions in one release:
