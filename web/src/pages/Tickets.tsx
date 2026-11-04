@@ -88,7 +88,7 @@ export default function Tickets({ staff = false }: { staff?: boolean }) {
       </div>
       {!staff && list.data && !list.data.enabled && <div className="note warn" style={{ marginBottom: 12 }}>{t('工单未开启：在「工单设置」里打开后，用户中心和机器人才会出现工单入口。')}</div>}
       {!staff && settings && <div style={{ marginBottom: 12 }}><TicketSettings onSaved={list.reload} /></div>}
-      <div className="row" style={{ marginBottom: 12 }}>
+      <div className="row list-toolbar" style={{ marginBottom: 12 }}>
         <div className="chips">
           {([['open', t('待回复')], ['answered', t('已回复')], ['closed', t('已关闭')], ['', t('全部')]] as const).map(([k, l]) =>
             <button key={k} type="button" className={'chip' + (status === k ? ' on' : '')} onClick={() => setStatus(k)}>{l}{k && counts[k] != null && <span className="chip-n">{counts[k]}</span>}</button>)}

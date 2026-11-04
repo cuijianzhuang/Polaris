@@ -72,7 +72,7 @@ with sync_playwright() as p:
             failures.extend(f'{label} {edge}: {issue}' for issue in issues)
             check_layout(page, label)
         if shots:
-            page.screenshot(path=os.path.join(shots, f'dialog-{label.replace(" ", "-")}.png'))
+            page.screenshot(path=os.path.join(shots, f'dialog-{label.replace(" ", "-")}.png'), animations='disabled')
 
     def visit_all(width, lang):
         page = browser.new_page(viewport=dict(width=width, height=1000), locale='zh-CN' if lang == 'zh' else 'en-US',
@@ -88,6 +88,9 @@ with sync_playwright() as p:
         page.locator('#p').fill('old-password')
         page.locator('form button[type=submit]').first.click()
         page.wait_for_function("!!localStorage.getItem('polaris.token')")
+        # Authentication mounts the dashboard and starts its requests. Let that
+        # landing navigation settle before the first explicit route visit.
+        page.wait_for_load_state('networkidle')
         for route in routes:
             problems.clear()
             page.goto(url + route)
@@ -104,7 +107,7 @@ with sync_playwright() as p:
             check_layout(page, label)
             if shots:
                 name = re.sub(r'[^a-z0-9]+', '-', route.lower()).strip('-') or 'home'
-                page.screenshot(path=os.path.join(shots, f'{name}-{width}-{lang}.png'), full_page=True)
+                page.screenshot(path=os.path.join(shots, f'{name}-{width}-{lang}.png'), full_page=True, animations='disabled')
             overflow = page.evaluate('document.documentElement.scrollWidth - window.innerWidth')
             if overflow > 4:
                 culprits = page.evaluate('''() => {
@@ -116,6 +119,23 @@ with sync_playwright() as p:
                 }''')
                 failures.append(f'{label}: page scrolls sideways by {overflow}px: {culprits}')
             print(f'ok {label}' if not (crashed or headings == 0 or problems) else f'FAIL {label}')
+        # Sticky workbench navigation must not cover bulk actions after scrolling.
+        page.goto(url + '/inbounds')
+        page.wait_for_load_state('networkidle')
+        page.set_viewport_size(dict(width=width, height=400))
+        page.locator('tbody input[type=checkbox]').first.check()
+        clear = page.get_by_role('button', name='取消选择' if lang == 'zh' else 'Clear selection', exact=True)
+        clear.wait_for(state='visible')
+        page.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)')
+        header = page.locator('.mtop' if width <= 760 else '.workspace-bar').bounding_box()
+        reachable = clear.evaluate('''e => {
+            const r = e.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+            return r.top >= 0 && r.bottom <= innerHeight && e.contains(hit);
+        }''')
+        if not reachable or not header or header['y'] < -1:
+            failures.append(f'bulk actions @{width}px {lang}: navigation or clear selection obscured after scrolling')
+        clear.click()
+        page.set_viewport_size(dict(width=width, height=1000))
         # The editor of an existing user.
         problems.clear()
         page.goto(url + '/users')

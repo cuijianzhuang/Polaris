@@ -4,6 +4,7 @@ import '@fontsource-variable/inter'
 import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import './styles.css'
+import './console.css'
 import { loadLang } from './i18n'
 
 // App and theme compute translated labels when their modules load, so they

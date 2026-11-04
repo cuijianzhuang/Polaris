@@ -93,7 +93,7 @@ function Orders() {
           ))}
         </div>
       )}
-      <div className="row">
+      <div className="row list-toolbar">
         <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索订单号 / 用户 / 套餐')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索订单')} />
         <div className="chips">
           {['', 'paid', 'processing', 'pending', 'expired', 'cancelled', 'failed', 'refund_pending', 'refunded'].map((s) => <button key={s} type="button" className={'chip' + (status === s ? ' on' : '')} onClick={() => setStatus(s)}>{s ? statusLabel[s][0] : t('全部')}</button>)}

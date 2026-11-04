@@ -45,7 +45,7 @@ export default function Audit() {
           {t('变更记录')}<Switch label={t('变更记录')} on={recording} onChange={(v) => !busy && run(async () => { await put('/settings', { audit_changes: String(v) }); settings.reload() }, v ? t('已开启变更记录') : t('已关闭变更记录'))} />
         </label>
       </div>
-      <div className="row">
+      <div className="row list-toolbar">
         <input className="input search" style={{ width: 'auto' }} placeholder={t('搜索对象 / 详情 / 管理员')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索')} />
         {prefixes.map((p) => <button key={p.k} type="button" className={'chip' + (action === p.k ? ' on' : '')} onClick={() => { setAction(p.k); setPage(0) }}>{p.label}</button>)}
       </div>

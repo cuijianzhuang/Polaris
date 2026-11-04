@@ -153,7 +153,7 @@ export default function Users() {
           <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ {t('新建用户')}</button>
         </div>
       </div>
-      <div className="row">
+      <div className="row list-toolbar">
         <label htmlFor="q" className="sr">{t('搜索用户')}</label>
         <input className="input search" id="q" placeholder={t('搜索用户名 / UUID / 备注')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} />
         <div className="chips">

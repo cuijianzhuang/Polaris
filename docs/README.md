@@ -59,6 +59,7 @@
 | [运维通知策略](design/notification-policy.md) | 事件 × 渠道、合并窗口、维护静默 |
 | [概览运维异常汇总](design/operational-overview.md) | 仪表盘「运维汇总」的统计口径 |
 | [管理界面：运维与中转功能接入](design/operations-ui.md) | 各运维功能的界面入口与接口对照 |
+| [控制台布局与主题](design/console-ui.md) | 参考 1Panel 的工作区布局、主题兼容与桌面／手机效果图 |
 | [服务器网卡流量与成本统计](design/server-network-accounting.md) | 服务器成本页的统计方式 |
 
 ### 入站、路由与中转

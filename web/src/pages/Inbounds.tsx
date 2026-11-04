@@ -568,7 +568,7 @@ export default function Inbounds() {
           <button className="btn pri" type="button" disabled={!nodes.length} onClick={() => {setSnellNode(undefined);setDrawer('new')}}>{t('+ 新建入站')}</button>
         </div>
       </div>
-      <div className="row" role="group" aria-label={t('筛选')}>
+      <div className="row list-toolbar" role="group" aria-label={t('筛选')}>
         <input className="input search" placeholder={t('搜索标签 / 备注 / 端口 / 节点')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} aria-label={t('搜索入站')} />
         <div className="chips">
           <button className={'chip' + (!filter.core && !filter.node ? ' on' : '')} type="button" onClick={() => setFilter({})}>{t('全部')}</button>
@@ -577,7 +577,7 @@ export default function Inbounds() {
         </div>
       </div>
       {sel.size > 0 && (
-        <div className="card row" style={{ gap: 8, padding: '10px 14px', position: 'sticky', top: 8, zIndex: 3 }}>
+        <div className="card row bulk-actions" style={{ gap: 8, padding: '10px 14px', position: 'sticky', zIndex: 3 }}>
           <b>{t('已选 {n} 个', { n: sel.size })}</b><span className="spacer" />
           <button className="btn sm" type="button" onClick={() => setBulk('port')}>{t('修改端口')}</button>
           <button className="btn sm" type="button" onClick={() => setBulk('speed')}>{t('设置限速')}</button>
