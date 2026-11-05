@@ -7,8 +7,8 @@ on:
   pull_request:
   workflow_call:
     inputs:
-      reuse_browser_checks:
-        description: Release verified a successful PR browser run for this exact Git tree
+      reuse_validated_checks:
+        description: Release verified a successful PR browser/PostgreSQL run for this exact Git tree
         type: boolean
         default: false
 
@@ -89,6 +89,7 @@ jobs:
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
   go-postgres:
+    if: inputs.reuse_validated_checks != true
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -259,7 +260,7 @@ jobs:
         working-directory: web
       # The Docker frontend stage above already builds the production UI.
   passkeys:
-    if: inputs.reuse_browser_checks != true
+    if: inputs.reuse_validated_checks != true
     container: mcr.microsoft.com/playwright/python:v1.56.0-noble
     defaults:
       run:
@@ -340,7 +341,7 @@ jobs:
           path: /tmp/polaris-portal-cdn-screenshots
           if-no-files-found: ignore
   browser-ui:
-    if: inputs.reuse_browser_checks != true
+    if: inputs.reuse_validated_checks != true
     container: mcr.microsoft.com/playwright/python:v1.56.0-noble
     defaults:
       run:
@@ -407,10 +408,10 @@ jobs:
             echo "::endgroup::"
           done
 
-  browser-proof:
-    # Only completed PR browser checks can be reused by a subsequent release.
+  pr-proof:
+    # Only completed PR browser/PostgreSQL checks can be reused by a release.
     # Record the checked-out merge tree, not just the PR head commit.
-    needs: [passkeys, browser-ui]
+    needs: [passkeys, browser-ui, go-postgres]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
@@ -418,9 +419,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Record tested Git tree
-        run: git rev-parse 'HEAD^{tree}' > browser-tree.txt
+        run: git rev-parse 'HEAD^{tree}' > validated-tree.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: browser-validated-tree-${{ github.run_attempt }}
-          path: browser-tree.txt
+          name: pr-validated-tree-${{ github.run_attempt }}
+          path: validated-tree.txt
           retention-days: 7

@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('reuse', Path(__file__).with_name('reuse-browser-checks.py'))
+spec = importlib.util.spec_from_file_location('reuse', Path(__file__).with_name('reuse-pr-checks.py'))
 reuse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reuse)
 REPO = 'cuijianzhuang/Polaris'
@@ -19,7 +19,7 @@ HEAD = 'b' * 40
 SHA = 'c' * 40
 
 
-def archive(tree=TREE, filename='browser-tree.txt', extra=False):
+def archive(tree=TREE, filename='validated-tree.txt', extra=False):
     out = io.BytesIO()
     with zipfile.ZipFile(out, 'w') as proof:
         proof.writestr(filename, tree + '\n')
@@ -32,7 +32,7 @@ class ReuseTests(unittest.TestCase):
     def setUp(self):
         self.run = dict(id=123, run_attempt=2, event='pull_request', path='.github/workflows/ci.yml',
                         head_sha=HEAD, head_repository=dict(full_name=REPO), status='completed', conclusion='success')
-        self.artifact = dict(id=456, name='browser-validated-tree-2', expired=False, size_in_bytes=200)
+        self.artifact = dict(id=456, name='pr-validated-tree-2', expired=False, size_in_bytes=200)
         self.proof = archive()
         self.requests = []
 
@@ -66,14 +66,14 @@ class ReuseTests(unittest.TestCase):
 
     def test_missing_expired_old_attempt_or_oversize_proofs_run_full_suite(self):
         original = copy.deepcopy(self.artifact)
-        for artifact in [None, dict(original, expired=True), dict(original, name='browser-validated-tree-1'),
+        for artifact in [None, dict(original, expired=True), dict(original, name='pr-validated-tree-1'),
                          dict(original, size_in_bytes=5000)]:
             with self.subTest(artifact=artifact):
                 self.artifact = artifact
                 self.assertIsNone(self.check())
 
     def test_changed_tree_and_unexpected_zip_entries_are_rejected(self):
-        for proof in [archive('d'*40), archive('a'), archive(filename='../browser-tree.txt'), archive(extra=True)]:
+        for proof in [archive('d'*40), archive('a'), archive(filename='../validated-tree.txt'), archive(extra=True)]:
             with self.subTest(proof=proof):
                 self.proof = proof
                 self.assertIsNone(self.check())

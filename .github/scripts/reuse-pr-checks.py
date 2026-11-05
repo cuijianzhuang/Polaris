@@ -1,6 +1,6 @@
-"""Reuse PR browser checks only with a successful run's exact-tree proof.
+"""Reuse PR browser/PostgreSQL checks only with a successful run's exact-tree proof.
 
-Missing, expired or unverifiable evidence falls back to the full browser suite.
+Missing, expired or unverifiable evidence falls back to the full browser/PostgreSQL suites.
 Go, private pro sources and real-core tests are always revalidated at release.
 """
 
@@ -25,9 +25,9 @@ def api(path, *, binary=False):
 
 def proof_matches(archive, tree):
     with zipfile.ZipFile(io.BytesIO(archive)) as proof:
-        if proof.namelist() != ["browser-tree.txt"]:
+        if proof.namelist() != ["validated-tree.txt"]:
             return False
-        entry = proof.getinfo("browser-tree.txt")
+        entry = proof.getinfo("validated-tree.txt")
         if entry.file_size != 41:
             return False
         return proof.read(entry) == (tree + "\n").encode("ascii")
@@ -49,7 +49,7 @@ def reusable_run(repo, tree, head, request=api):
         ):
             continue
         run_id = int(run["id"])
-        name = f"browser-validated-tree-{int(run['run_attempt'])}"
+        name = f"pr-validated-tree-{int(run['run_attempt'])}"
         artifacts = request(f"repos/{repo}/actions/runs/{run_id}/artifacts")["artifacts"]
         matches = [a for a in artifacts if a["name"] == name and not a["expired"]]
         if len(matches) != 1 or matches[0]["size_in_bytes"] > 4096:
@@ -63,7 +63,7 @@ def reusable_run(repo, tree, head, request=api):
 
 def main():
     run_id = None
-    reason = "Full browser suite: no verified PR run for this release tree."
+    reason = "Full browser/PostgreSQL suites: no verified PR run for this release tree."
     try:
         # Manual releases and tags may rebuild changed external dependencies.
         if os.environ.get("GITHUB_EVENT_NAME") == "push" and os.environ.get("GITHUB_REF") == "refs/heads/main":
@@ -78,9 +78,9 @@ def main():
                     git("rev-parse", "HEAD^{tree}"), parents[1],
                 )
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError, subprocess.SubprocessError, zipfile.BadZipFile):
-        reason = "Full browser suite: PR verification unavailable or invalid."
+        reason = "Full browser/PostgreSQL suites: PR verification unavailable or invalid."
     if run_id:
-        reason = f"Browser checks already passed for the exact release tree in PR CI run {run_id}; Go/pro/core checks still run."
+        reason = f"Browser/PostgreSQL checks already passed for the exact release tree in PR CI run {run_id}; Go/pro/core checks still run."
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write(f"reuse={'true' if run_id else 'false'}\n")
     if os.environ.get("GITHUB_STEP_SUMMARY"):
