@@ -38,6 +38,7 @@ jobs:
           POSTGRES_DB: polaris
         ports: ['5432:5432']
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U polaris" --health-interval 5s --health-timeout 5s --health-retries 10
       redis:
         image: redis:7
@@ -101,6 +102,7 @@ jobs:
           POSTGRES_DB: polaris
         ports: ['5432:5432']
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U polaris" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       POLARIS_TEST_POSTGRES_DSN: postgres://polaris:polaris@127.0.0.1:5432/polaris?sslmode=disable
@@ -145,6 +147,7 @@ jobs:
           POSTGRES_DB: polaris
         ports: ['5432:5432']
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U polaris" --health-interval 5s --health-timeout 5s --health-retries 10
       redis:
         image: redis:7
