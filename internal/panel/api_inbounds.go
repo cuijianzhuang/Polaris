@@ -83,6 +83,7 @@ type inboundView struct {
 func (s *Server) inboundView(in store.Inbound, nodes map[string]string, users map[string][]store.User) inboundView {
 	m := s.toModelInbound(&in)
 	v := inboundView{Inbound: in, NodeName: nodes[in.NodeID], UserCount: len(users[in.ID]), Network: m.Network(), CDN: m.CDNCapable()}
+	v.Security.V.RealityPublicKey = m.Security.RealityPublicKey
 	v.Security.V.RealityPrivateKey = ""
 	v.Protocol.V.ServerKey, v.Protocol.V.Decryption = "", ""
 	v.Security.V.RealityMldsa65Seed = ""
