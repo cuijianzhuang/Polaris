@@ -34,7 +34,7 @@ func TestLiveAdminPagesBrowser(t *testing.T) {
 	// Enough data that list pages render rows, not only empty states.
 	db := s.st.DB
 	now := time.Now()
-	db.Create(&store.Node{ID: "n1", Name: "东京", Address: "203.0.113.5", Status: "online", LastSeen: &now, Region: "JP", Flag: "JP",
+	db.Create(&store.Node{ID: "n1", Name: "东京-Tokyo-primary-edge-with-a-long-descriptive-node-name", Address: "2001:db8:1234:5678:abcd:ef01:2345:6789", Status: "online", LastSeen: &now, Region: "JP", Flag: "JP",
 		System: store.NewJSON(store.SystemInfo{CPU: 12, Mem: 40, RxBps: 1 << 20, TxBps: 2 << 20})})
 	db.Create(&store.Node{ID: "n2", Name: "香港", Address: "203.0.113.6", Status: "offline"})
 	db.Create(&store.Core{ID: "c1", NodeID: "n1", Type: model.CoreXray, Version: "26.3.27", Status: "running"})
@@ -42,7 +42,7 @@ func TestLiveAdminPagesBrowser(t *testing.T) {
 		Protocol:  store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS}),
 		Transport: store.NewJSON(model.TransportSpec{Type: model.TransTCP}),
 		Security:  store.NewJSON(model.SecuritySpec{Type: model.SecReality, ServerName: "www.example.com"})})
-	db.Create(&store.Group{ID: "g1", Name: "默认"})
+	db.Create(&store.Group{ID: "g1", Name: "Professional-plan-with-a-long-regional-group-name"})
 	db.Create(&store.GroupInbound{GroupID: "g1", InboundID: "in1"})
 	exp := now.Add(30 * 24 * time.Hour)
 	db.Create(&store.User{ID: "u1", Username: "alice", UUID: "6f1d3c1c-7a0e-4a9f-9a52-6b8f6e4f1a01", Password: "p", Status: "active",

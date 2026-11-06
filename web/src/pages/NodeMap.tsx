@@ -1,5 +1,5 @@
 import CountryFlag, { FlagText } from '../components/CountryFlag'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
@@ -31,16 +31,31 @@ const Land = memo(function Land({ hot }: { hot: number[] }) {
   )
 })
 
-function Popover({ n, geo, x, y, cw, ch, onClose }: { n: Node; geo: GeoPoint | null; x: number; y: number; cw: number; ch: number; onClose: () => void }) {
+function Popover({ n, geo, x, y, cw, ch, onClose, inline = false }: { n: Node; geo: GeoPoint | null; x: number; y: number; cw: number; ch: number; onClose: () => void; inline?: boolean }) {
   const st = nodeStatus[n.status] ?? nodeStatus.pending
   const w = Math.min(272, cw - 16)
   const left = clamp(x - w / 2, 8, cw - w - 8)
-  const below = y < 210
-  const style = below ? { left, top: Math.min(y + 18, ch - 8), width: w } : { left, top: y - 16, width: w, transform: 'translateY(-100%)' }
+  const ref = useRef<HTMLDivElement>(null)
+  const [height, setHeight] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => setHeight(el.getBoundingClientRect().height)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    el.focus({ preventScroll: true })
+    if (inline) el.scrollIntoView({ block: 'nearest' })
+    return () => observer.disconnect()
+  }, [n.id, inline])
+  const maxHeight = Math.max(1, ch - 16)
+  const shownHeight = Math.min(height || maxHeight, maxHeight)
+  const preferredTop = y + 18 + shownHeight <= ch - 8 ? y + 18 : y - 18 - shownHeight
+  const style = inline ? undefined : { left, top: clamp(preferredTop, 8, Math.max(8, ch - shownHeight - 8)), width: w, maxHeight }
   const addr = n.address || n.publicIpv4 || n.publicIpv6
   const src = geo ? { coords: t('经纬度'), city: t('按城市推算'), country: t('按国家推算') }[geo.source] : ''
   return (
-    <div className="nm-pop" style={style} data-nopan role="dialog" aria-label={n.name}>
+    <div ref={ref} className={'nm-pop' + (inline ? ' nm-pop-inline' : '')} style={style} data-nopan role="dialog" aria-label={n.name} tabIndex={-1}>
       <div className="nm-pop-h">
         <span className="nm-pop-name"><span className="nm-flag"><CountryFlag code={n.flag || geo?.cc} /></span><FlagText>{n.name}</FlagText></span>
         <button type="button" className="icon-btn" aria-label={t('关闭')} onClick={onClose}>×</button>
@@ -81,6 +96,11 @@ export default function NodeMap() {
   const base = Math.max(cw / MAP_W, ch / MAP_H) // px per viewBox unit at zoom 1 (cover)
   const [view, setView] = useState<View>({ k: 1, tx: 0, ty: 0 })
   const [sel, setSel] = useState<string | null>(null)
+  const selectionTrigger = useRef<HTMLElement | null>(null)
+  const closeDetails = useCallback(() => {
+    setSel(null)
+    selectionTrigger.current?.focus({ preventScroll: true })
+  }, [])
   const [hot, setHot] = useState<string | null>(null)
 
   const geoOf = useMemo(() => {
@@ -179,10 +199,12 @@ export default function NodeMap() {
     if (!(e.target as HTMLElement).closest('[data-nopan]') && !gest.current.moved) setSel(null)
   }
   useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') setSel(null) }
+    const h = (e: KeyboardEvent) => {
+      if (sel && e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.overlay')) { e.preventDefault(); closeDetails() }
+    }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
-  }, [])
+  }, [sel, closeDetails])
 
   // Markers: screen position, fanned out where they would overlap.
   const markers = useMemo(() => {
@@ -200,7 +222,8 @@ export default function NodeMap() {
     return out
   }, [placed, view, base])
 
-  const select = (id: string) => {
+  const select = (id: string, trigger: HTMLElement) => {
+    selectionTrigger.current = trigger
     setSel(id)
     const m = markers.find((x) => x.p.node.id === id)
     if (m && (m.x < 40 || m.y < 40 || m.x > cw - 40 || m.y > ch - 40)) {
@@ -260,17 +283,17 @@ export default function NodeMap() {
                       <i className="nm-ring" style={{ left: m.gx, top: m.gy, width: MARKER_GAP * 1.9 * (m.size > 7 ? 2.4 : 1), height: MARKER_GAP * 1.9 * (m.size > 7 ? 2.4 : 1) }} />}
                     <button type="button" data-nopan className={`nm-marker ${tone(n)}${sel === n.id ? ' sel' : ''}${hot === n.id ? ' hot' : ''}`}
                       style={{ left: m.x, top: m.y }} aria-label={`${n.name} · ${(nodeStatus[n.status] ?? nodeStatus.pending).label}`}
-                      onClick={() => select(n.id)} onMouseEnter={() => setHot(n.id)} onMouseLeave={() => setHot(null)} onFocus={() => setHot(n.id)} onBlur={() => setHot(null)} />
+                      onClick={(e) => select(n.id, e.currentTarget)} onMouseEnter={() => setHot(n.id)} onMouseLeave={() => setHot(null)} onFocus={() => setHot(n.id)} onBlur={() => setHot(null)} />
                   </span>
                 )
               })}
-              {hotMarker && hot !== sel && (
+              {!phone && hotMarker && hot !== sel && (
                 <div className="nm-tip" style={{ left: clamp(hotMarker.x, 70, cw - 70), top: hotMarker.y - 14 }}>
                   <CountryFlag code={hotMarker.p.node.flag || hotMarker.p.geo.cc} /> <b><FlagText>{hotMarker.p.node.name}</FlagText></b>
                   <span className={'nm-tip-st ' + tone(hotMarker.p.node)}>{(nodeStatus[hotMarker.p.node.status] ?? nodeStatus.pending).label}</span>
                 </div>
               )}
-              {selMarker && <Popover n={selMarker.p.node} geo={selMarker.p.geo} x={selMarker.x} y={selMarker.y} cw={cw} ch={ch} onClose={() => setSel(null)} />}
+              {!phone && selMarker && <Popover n={selMarker.p.node} geo={selMarker.p.geo} x={selMarker.x} y={selMarker.y} cw={cw} ch={ch} onClose={closeDetails} />}
               <div className="nm-ctl" data-nopan>
                 <button type="button" aria-label={t('放大')} disabled={view.k >= MAX_ZOOM} onClick={() => zoomAt(1.6, cw / 2, ch / 2)}>+</button>
                 <button type="button" aria-label={t('缩小')} disabled={view.k <= 1} onClick={() => zoomAt(1 / 1.6, cw / 2, ch / 2)}>−</button>
@@ -280,6 +303,7 @@ export default function NodeMap() {
                 <span><i className="ok" />{t('在线')}</span><span><i className="bad" />{t('离线 / 异常')}</span><span><i className="warn" />{t('待接入 / 同步中')}</span>
               </div>
             </div>
+            {phone && selMarker && <Popover inline n={selMarker.p.node} geo={selMarker.p.geo} x={selMarker.x} y={selMarker.y} cw={cw} ch={ch} onClose={closeDetails} />}
           </section>
           <section className="card nm-list-card" aria-label={t('节点列表')}>
             <div className="ctitle"><span>{t('节点列表')}</span><span className="mute" style={{ fontSize: 12.5 }}>{nodes.length}</span></div>
@@ -290,7 +314,7 @@ export default function NodeMap() {
                 return (
                   <li key={n.id}>
                     <button type="button" className={'nm-row' + (sel === n.id ? ' sel' : '')} disabled={!g}
-                      onMouseEnter={() => setHot(n.id)} onMouseLeave={() => setHot(null)} onFocus={() => setHot(n.id)} onBlur={() => setHot(null)} onClick={() => select(n.id)}>
+                      onMouseEnter={() => setHot(n.id)} onMouseLeave={() => setHot(null)} onFocus={() => setHot(n.id)} onBlur={() => setHot(null)} onClick={(e) => select(n.id, e.currentTarget)}>
                       <i className={'nm-dot ' + tone(n)} />
                       <span className="nm-row-main">
                         <span className="nm-row-name"><CountryFlag code={n.flag || g?.cc} /> <FlagText>{n.name}</FlagText></span>
