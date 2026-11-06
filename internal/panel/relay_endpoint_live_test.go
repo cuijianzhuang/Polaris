@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,10 @@ import (
 
 // The client consumes the panel's actual subscription, trusts the test CA,
 // and verifies the landing name even though it dials a different relay host.
-func TestLiveAnyTLSRelaySubscription(t *testing.T) {
+func TestLiveAnyTLSRelaySubscription(t *testing.T)  { liveRelaySubscription(t, false) }
+func TestLiveRealityRelaySubscription(t *testing.T) { liveRelaySubscription(t, true) }
+
+func liveRelaySubscription(t *testing.T, reality bool) {
 	bin, gbin := os.Getenv("POLARIS_SINGBOX_BIN"), os.Getenv("POLARIS_GOST_BIN")
 	if bin == "" || gbin == "" {
 		t.Skip("POLARIS_SINGBOX_BIN and POLARIS_GOST_BIN required")
@@ -39,13 +43,26 @@ func TestLiveAnyTLSRelaySubscription(t *testing.T) {
 	if err := s.st.DB.Create(&cert).Error; err != nil {
 		t.Fatal(err)
 	}
+	protocol := model.ProtocolSpec{Type: model.ProtoAnyTLS}
+	security := model.SecuritySpec{Type: model.SecTLS, CertificateID: cert.ID}
+	if reality {
+		dest := httptest.NewUnstartedServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		dest.EnableHTTP2 = true
+		dest.StartTLS()
+		defer dest.Close()
+		protocol = model.ProtocolSpec{Type: model.ProtoVLESS, Flow: "xtls-rprx-vision"}
+		security = coretest.Reality(t)
+		security.RealityDest = strings.TrimPrefix(dest.URL, "https://")
+		security.RealityPrivateKey = s.st.Box.Seal(security.RealityPrivateKey)
+		// Simulate an older import retaining another key pair's public half.
+		security.RealityPublicKey = coretest.Reality(t).RealityPublicKey
+	}
 	s.st.DB.Model(&store.Node{}).Where("id = ?", "land").Update("address", "localhost")
 	s.st.DB.Model(&store.Node{}).Where("id = ?", "relay").Update("address", "127.0.0.1")
 	s.st.DB.Model(&store.Core{}).Where("id = ?", "xray").Updates(map[string]any{"type": model.CoreSingbox, "version": "1.13.5"})
 	s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
 		"core": model.CoreSingbox, "listen": "::", "port": coretest.FreePort(t), "relay_only": true,
-		"protocol": store.NewJSON(model.ProtocolSpec{Type: model.ProtoAnyTLS}),
-		"security": store.NewJSON(model.SecuritySpec{Type: model.SecTLS, CertificateID: cert.ID}),
+		"protocol": store.NewJSON(protocol), "security": store.NewJSON(security),
 	})
 	id := createRelayTest(t, c, previewRelayTest(t, c, map[string]any{"relays": []any{map[string]any{"nodeId": "relay"}}}))
 	isolateLocalRelayPorts(t, s, id)
@@ -102,7 +119,9 @@ func TestLiveAnyTLSRelaySubscription(t *testing.T) {
 	if err = os.WriteFile(ca, []byte(tls.CertPEM), 0600); err != nil {
 		t.Fatal(err)
 	}
-	out["tls"].(map[string]any)["certificate_path"] = ca
+	if !reality {
+		out["tls"].(map[string]any)["certificate_path"] = ca
+	}
 	port := coretest.FreePort(t)
 	raw, _ = json.Marshal(map[string]any{"log": map[string]any{"level": "error"}, "inbounds": []any{map[string]any{"type": "socks", "listen": "127.0.0.1", "listen_port": port}}, "outbounds": []any{out}})
 	clientPath := filepath.Join(dir, "client.json")
@@ -125,7 +144,7 @@ func TestLiveAnyTLSRelaySubscription(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if !ready {
-		t.Fatal("AnyTLS subscription client did not start")
+		t.Fatal("relay subscription client did not start")
 	}
 	dialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), nil, &net.Dialer{Timeout: 2 * time.Second})
 	if err != nil {
@@ -146,11 +165,11 @@ func TestLiveAnyTLSRelaySubscription(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
 	res, err := client.Post(backend.URL, "application/octet-stream", bytes.NewReader(up))
 	if err != nil {
-		t.Fatal("generated AnyTLS relay subscription failed", err)
+		t.Fatal("generated relay subscription failed", protocol.Type, err)
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil || res.StatusCode != 200 || !bytes.Equal(body, down) {
-		t.Fatal("AnyTLS relay upload/download failed", res.StatusCode, err)
+		t.Fatal("relay upload/download failed", protocol.Type, res.StatusCode, err)
 	}
 }

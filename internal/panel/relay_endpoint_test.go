@@ -1,9 +1,11 @@
 package panel
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -39,6 +41,45 @@ func TestRelayEndpointPreservesLandingTLSName(t *testing.T) {
 				t.Fatal("explicit endpoint SNI must take precedence", nodes, err)
 			}
 		})
+	}
+}
+
+func TestRelayRealityKeyConsistency(t *testing.T) {
+	s, c := relayFixture(t)
+	u := relayTestUser(t, s)
+	private, public, err := pki.RealityKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wrong, err := pki.RealityKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec := model.SecuritySpec{Type: model.SecReality, RealityDest: "www.example.com:443", RealityServerNames: []string{"www.example.com"}, RealityShortIDs: []string{"0123456789abcdef"}, RealityPrivateKey: s.st.Box.Seal(private), RealityPublicKey: wrong}
+	if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{"security": store.NewJSON(sec), "relay_only": true}).Error; err != nil {
+		t.Fatal(err)
+	}
+	createRelayTest(t, c, previewRelayTest(t, c, map[string]any{"relays": []any{map[string]any{"nodeId": "relay"}}}))
+	nodes, err := s.subNodes(&u)
+	if err != nil || len(nodes) != 1 {
+		t.Fatal(nodes, err)
+	}
+	n := nodes[0]
+	if n.TLS.PublicKey != public || n.TLS.ServerName != "www.example.com" || n.TLS.ShortID != "0123456789abcdef" || n.Server != "relay.example.com" {
+		t.Fatal("relay subscription must match the landing's private key, SNI and short ID")
+	}
+	if code, out := c.do("GET", "/inbounds/in", nil); code != 200 || out["security"].(map[string]any)["realityPublicKey"] != public || out["security"].(map[string]any)["realityPrivateKey"] != nil {
+		t.Fatal("inbound view must expose the matching public key without its private half", code)
+	}
+	// Replacing a private key must not retain the former public half, and an
+	// invalid private key must be rejected even when a public key was supplied.
+	m := model.Inbound{Tag: "key-test", Port: 443, Protocol: model.ProtocolSpec{Type: model.ProtoVLESS}, Security: model.SecuritySpec{Type: model.SecReality, RealityDest: "www.example.com:443", RealityPrivateKey: private, RealityPublicKey: wrong}}
+	if err := s.prepareInbound(&m); err != nil || m.Security.RealityPublicKey != public {
+		t.Fatal("public half was not derived from replacement private key", err)
+	}
+	m.Security.RealityPrivateKey = "invalid-private-key"
+	if err := s.prepareInbound(&m); err == nil || !strings.Contains(err.Error(), "reality private key") {
+		t.Fatal("invalid REALITY private key accepted with a public key")
 	}
 }
 
