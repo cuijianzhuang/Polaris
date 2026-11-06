@@ -24,12 +24,25 @@ const emptyDraft = (): InboundDraft => ({
   sniffing: { enabled: true },
 })
 
-function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => void }) {
-  const eps = useLoad(() => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`), [inbound.id])
+function Endpoints({ inbound, onChanged, onPendingChange, onManageRelay, relayVersion }: { inbound: Inbound; onChanged: () => void; onPendingChange: (pending: boolean) => void; onManageRelay: () => void; relayVersion: number }) {
+  const { nodes } = useNodes()
+  const eps = useLoad(() => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`), [inbound.id, relayVersion])
   const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
-  const chains = useLoad(() => get<Chain[]>('/chains'))
+  const chains = useLoad(() => get<Chain[]>('/chains'), [relayVersion])
   const [kind, setKind] = useState<'direct' | 'cdn' | 'relay'>(inbound.cdnCapable ? 'cdn' : 'direct')
   const [form, setForm] = useState({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
+  const [dirty, setDirty] = useState(false)
+  useEffect(() => { onPendingChange(dirty) }, [dirty, onPendingChange])
+  const availableChains = (chains.data ?? []).filter((c) => {
+    const landing = c.hops[c.hops.length - 1]
+    return c.mode === 'l4' && !c.disabled && c.hops.length >= 2 && landing?.inboundId === inbound.id && landing.nodeId === inbound.nodeId
+      && !(eps.data ?? []).some((e) => e.kind === 'relay' && e.relayChainId === c.id)
+  })
+  const selectedChain = availableChains.find((c) => c.id === form.relayChainId)
+  const entryNode = nodes.find((n) => n.id === selectedChain?.hops[0]?.nodeId)
+  const landingNode = nodes.find((n) => n.id === inbound.nodeId)
+  const entryAddress = entryNode?.domain || entryNode?.address || entryNode?.publicIpv4 || entryNode?.publicIpv6 || ''
+  const landingSNI = inbound.security.serverName || landingNode?.domain || landingNode?.address || landingNode?.publicIpv4 || landingNode?.publicIpv6 || ''
   const { busy, run } = useAction()
   // The form below adds another entry; existing ones are listed above it.
   const [adding, setAdding] = useState(false)
@@ -40,6 +53,7 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
     await post(`/inbounds/${inbound.id}/endpoints`, { kind, ...form, port: Number(form.port) || 0 })
     setForm({ cdnProfileId: firstProfile, relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
     setAdding(false)
+    setDirty(false)
     eps.reload()
     onChanged()
   }, t('入口已添加'))
@@ -59,6 +73,7 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
     <section className="field">
       <span className="lbl">{t('入口（订阅里每个入口生成一个节点）')}</span>
       <div className="card flush">
+        {eps.error && <div className="note bad">{tr(eps.error)}<button className="link" type="button" onClick={eps.reload}>{t('重试')}</button></div>}
         {(eps.data ?? []).map((e, i) => (
           <div key={e.id} style={{ padding: '12px 14px', borderTop: i ? '1px solid var(--line-2)' : undefined, display: 'grid', gap: 6, minWidth: 0 }}>
             <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -80,16 +95,16 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
       {!adding && <div><button className="btn sm" type="button" onClick={() => setAdding(true)}>{t('+ 添加入口')}</button></div>}
       {adding && <div className="card" style={{ display: 'grid', gap: 10, background: 'var(--soft)' }}>
       <div className="row" style={{ justifyContent: 'space-between' }}><b>{t('添加入口')}</b>
-        {(eps.data?.length ?? 0) > 0 && <button className="link" type="button" onClick={() => setAdding(false)}>{t('收起')}</button>}</div>
+        <button className="link" type="button" onClick={() => { setAdding(false); setDirty(false); setForm({ cdnProfileId: firstProfile, relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' }) }}>{t('取消添加')}</button></div>
       <div className="seg c3">
         {(['direct', 'cdn', 'relay'] as const).map((k) => (
-          <button key={k} type="button" className={'opt' + (kind === k ? ' on' : '')} disabled={k === 'cdn' && !inbound.cdnCapable} onClick={() => setKind(k)}>
+          <button key={k} type="button" className={'opt' + (kind === k ? ' on' : '')} disabled={k === 'cdn' && !inbound.cdnCapable} onClick={() => { setKind(k); setDirty(true) }}>
             {k === 'direct' ? t('直连') : k === 'cdn' ? 'CDN' : t('中转')}{k === 'cdn' && !inbound.cdnCapable && <small>{t('{combo} 不能走 CDN', { combo: cdnBlocker(inbound) })}</small>}
           </button>
         ))}
       </div>
-      {!inbound.cdnCapable && <CDNSibling inbound={inbound} profiles={cdn.data ?? []} onDone={onChanged} />}
-      <div className="form-grid">
+      {!inbound.cdnCapable && kind !== 'relay' && <CDNSibling inbound={inbound} profiles={cdn.data ?? []} onDone={onChanged} />}
+      <div className="form-grid" onChange={() => setDirty(true)}>
         {kind === 'cdn' && (
           <Field label={t('CDN 配置档')} full>
             <select className="input" value={form.cdnProfileId} onChange={(e) => setForm({ ...form, cdnProfileId: e.target.value })}>
@@ -99,19 +114,28 @@ function Endpoints({ inbound, onChanged }: { inbound: Inbound; onChanged: () => 
           </Field>
         )}
         {kind === 'relay' && (
-          <Field label={t('中转链路')} full>
-            <select className="input" value={form.relayChainId} onChange={(e) => setForm({ ...form, relayChainId: e.target.value })}>
+          <Field label={t('中转链路')} full hint={t('仅显示落地为当前入站、已启用且尚未添加的线路。中转不会转换协议或替换落地认证。')}>
+            <select className="input" aria-label={t('中转链路')} disabled={chains.loading || !!chains.error} value={selectedChain?.id ?? ''} onChange={(e) => setForm({ ...form, relayChainId: e.target.value })}>
               <option value="">{t('选择链路')}</option>
-              {(chains.data ?? []).filter((c) => c.mode === 'l4').map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {availableChains.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            {chains.error && <div className="note bad">{tr(chains.error)}<button className="link" type="button" onClick={chains.reload}>{t('重试')}</button></div>}
+            {!chains.loading && !chains.error && availableChains.length === 0 && <div className="hint">{t('没有可添加的中转线路。请在中转管理中为当前入站创建或启用线路；新建线路会自动发布入口。')}</div>}
+            {selectedChain && <div className="note small" style={{ overflowWrap: 'anywhere' }}>
+              {t('连接入口')}：{form.address || entryAddress}:{form.port || selectedChain.hops[0].port} → {inbound.tag}:{inbound.port}
+              {inbound.security.type === 'tls' && <div>TLS SNI: {form.sni || landingSNI}</div>}
+            </div>}
+            <div><button className="btn sm" type="button" onClick={onManageRelay}>{t('中转管理')}</button></div>
           </Field>
         )}
         <Field label={t('地址（可选）')}><input className="input mono" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder={t('覆盖默认地址')} /></Field>
         <Field label={t('端口（可选）')} hint={kind === 'cdn' ? t('填写客户端连接 CDN 的端口；与回源入站端口不同且未用 Caddy 时，需先配置 CDN 回源端口改写规则。') : undefined}><input className="input mono" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} /></Field>
+        {kind === 'relay' && inbound.security.type === 'tls' && <Field label="TLS SNI" hint={t('留空沿用落地的证书名称，不使用中转机域名。')}><input className="input mono" aria-label="TLS SNI" placeholder={landingSNI} value={form.sni} onChange={(e) => setForm({ ...form, sni: e.target.value })} /></Field>}
         <Field label={t('Host（可选）')}><input className="input mono" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} /></Field>
         <Field label={t('备注')}><input className="input" value={form.remark} onChange={(e) => setForm({ ...form, remark: e.target.value })} /></Field>
       </div>
-      <div><button className="btn sm pri" type="button" disabled={busy || (kind === 'cdn' && !form.cdnProfileId) || (kind === 'relay' && !form.relayChainId)} onClick={add}>{t('添加')}</button></div>
+      <div className="hint">{t('点击「添加入口」后立即保存；底部「保存并下发」只保存入站配置。')}</div>
+      <div><button className="btn sm pri" type="button" disabled={busy || eps.loading || !!eps.error || (kind === 'cdn' && !form.cdnProfileId) || (kind === 'relay' && (!selectedChain || chains.loading || !!chains.error))} onClick={add}>{t('添加入口')}</button></div>
       </div>}
     </section>
   )
@@ -312,6 +336,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const [relayOnly, setRelayOnly] = useState(!!editing?.relayOnly)
   const [relayAccess, setRelayAccess] = useState<NonNullable<Inbound['relayAccess']>>(editing?.relayAccess ?? { enabled: false, proxyProtocol: 0 })
   const [relaysOpen, setRelaysOpen] = useState(false)
+  const [endpointPending, setEndpointPending] = useState(false)
+  const [relayVersion, setRelayVersion] = useState(0)
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
   const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
   const [newCDN, setNewCDN] = useState({ profileId: '', only: false })
@@ -396,7 +422,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         const r = await post<{ config: string }>('/inbounds/preview' + (editing ? '?id=' + editing.id : ''), body())
         setPreview(r.config)
       })}>{t('预览内核配置')}</button>
-      <button className="btn pri" type="button" disabled={busy || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
+      {endpointPending && <span className="hint" role="status">{t('请先添加入口，或取消本次添加，再保存入站。')}</span>}
+      <button className="btn pri" type="button" disabled={busy || endpointPending || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
     </>}>
       {!editing && <div className="note row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ flex: '1 1 200px' }}>{t('一键按 CDN 配置档设置协议、传输、回源安全和可用端口，订阅仅发布 CDN 入口。')}</span>
@@ -470,13 +497,13 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
       {draft.core === 'singbox' && node?.cores.find((c) => c.type === 'singbox')?.noUserTraffic && (
         <div className="note warn">{t('该节点运行的是官方版 sing-box（不含 v2ray_api），暂时只能统计入站总流量，用户的已用流量不会增加。Polaris 会自动构建带统计功能的同版本 sing-box，发布后 Agent 下次启动时自动替换；也可以在「节点」页把 sing-box 切换到已构建的版本。')}</div>
       )}
-      {editing && <Endpoints inbound={editing} onChanged={onSaved} />}
+      {editing && <Endpoints inbound={editing} onChanged={onSaved} onPendingChange={setEndpointPending} onManageRelay={() => setRelaysOpen(true)} relayVersion={relayVersion} />}
       {!editing && (draftCDNCapable
         ? <NewCDNEntry value={newCDN} onChange={(v, tunnel) => { setNewCDN(v); if (tunnel) { setListen('127.0.0.1'); setDraft((d) => normalizeDraft({ ...d, transport: { ...d.transport, type: 'ws', path: d.transport.path || '/ws' }, security: { type: 'none' } }, coreCaps)) } }} grpc={draft.transport.type === 'grpc'} tls={draft.security.type === 'tls'} port={Number(port) || 0} />
         : <Field label={t('CDN 入口')} hint={t('当前是 {combo}，不能走 CDN：CDN 只转发 WS、gRPC、HTTPUpgrade、XHTTP，而且不能用 REALITY。', { combo: `${draft.transport.type.toUpperCase()} + ${draft.security.type.toUpperCase()}` })}>
           <div><button className="btn sm" type="button" onClick={oneClickCDN}>{t('一键配置 CDN')}</button></div>
         </Field>)}
-      {editing && relaysOpen && <RelayManager inbound={editing} nodes={nodes} onClose={() => setRelaysOpen(false)} onChanged={onSaved} />}
+      {editing && relaysOpen && <RelayManager inbound={editing} nodes={nodes} onClose={() => setRelaysOpen(false)} onChanged={() => { setRelayVersion((v) => v + 1); onSaved() }} />}
       {preview && <Modal title={t('{core} 原生配置预览', { core: coreLabel[draft.core] })} onClose={() => setPreview('')} wide><div className="code">{preview}</div></Modal>}
     </Drawer>
   )

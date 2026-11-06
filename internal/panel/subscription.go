@@ -371,7 +371,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		return out
 	case "relay":
 		for _, ch := range chains {
-			if ch.Disabled || ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != m.ID {
+			if ch.Disabled || ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != m.ID || ch.Hops.V[len(ch.Hops.V)-1].NodeID != m.NodeID {
 				continue
 			}
 			entry, ok := nodes[ch.Hops.V[0].NodeID]
@@ -379,6 +379,11 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 				return nil
 			}
 			n := base
+			// Direct clients default to verifying the dialled landing host.
+			// L4 relays change only the dial address, not the TLS identity.
+			if n.TLS.Type == model.SecTLS && n.TLS.ServerName == "" {
+				n.TLS.ServerName = base.Server
+			}
 			n.Server, n.Port = nodeHost(entry), ch.Hops.V[0].Port
 			n = apply(n)
 			v := map[string]string{}

@@ -374,7 +374,7 @@ jobs:
           - suite: nodes-users
             scripts: >-
               rollout-result-ui-smoke.py nodes-browser-ui-smoke.py
-              user-online-ui-smoke.py user-state-ui-smoke.py
+              user-online-ui-smoke.py user-state-ui-smoke.py relay-endpoint-ui-smoke.py
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

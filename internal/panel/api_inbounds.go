@@ -581,6 +581,10 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	if e.Port < 0 || e.Port > 65535 {
+		badRequest(c, fmt.Errorf("入口端口必须为 0（使用默认值）或 1–65535"))
+		return
+	}
 	m := s.toModelInbound(&row)
 	if tunnel, err := s.inboundTunnel(&m, row.ID); err != nil {
 		badRequest(c, err)
@@ -602,8 +606,12 @@ func (s *Server) createEndpoint(c *gin.Context) {
 			badRequest(c, fmt.Errorf("relay chain: %w", err))
 			return
 		}
-		if ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != row.ID {
+		if ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != row.ID || ch.Hops.V[len(ch.Hops.V)-1].NodeID != row.NodeID {
 			badRequest(c, fmt.Errorf("该中转线路的落地与当前入站不匹配"))
+			return
+		}
+		if ch.Disabled {
+			badRequest(c, fmt.Errorf("该中转线路已停用，请先在中转管理中启用"))
 			return
 		}
 	default:
