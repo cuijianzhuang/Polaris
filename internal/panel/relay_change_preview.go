@@ -33,6 +33,11 @@ type relayPreviewStale struct{}
 func (relayPreviewStale) Error() string { return "预览后配置已变化，请重新预览" }
 
 func relayChangeError(c *gin.Context, err error) {
+	var binding proxyChainBindingError
+	if errors.As(err, &binding) {
+		badRequest(c, err)
+		return
+	}
 	var conflict relayChangeConflict
 	var stale relayPreviewStale
 	if errors.As(err, &conflict) {

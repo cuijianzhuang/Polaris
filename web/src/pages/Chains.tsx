@@ -20,7 +20,7 @@ type Tab = 'chains' | 'cdn' | 'routing' | 'rulesets' | 'dns'
 
 function hopInbound(ins: Inbound[], id?: string) { return ins.find((i) => i.id === id) }
 
-function ChainCard({ c, nodes, inbounds, onEdit, onChanged }: { c: Chain; nodes: Node[]; inbounds: Inbound[]; onEdit: () => void; onChanged: () => void }) {
+function ChainCard({ c, nodes, inbounds, chains, onEdit, onChanged }: { c: Chain; nodes: Node[]; inbounds: Inbound[]; chains: Chain[]; onEdit: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const name = (id: string) => nodes.find((n) => n.id === id)?.name ?? id
@@ -28,16 +28,19 @@ function ChainCard({ c, nodes, inbounds, onEdit, onChanged }: { c: Chain; nodes:
   const landIn = hopInbound(inbounds, landing?.inboundId)
   const firstIn = c.mode === 'proxy' ? hopInbound(inbounds, c.hops[0]?.inboundId) : landIn
   const probe = (i: number) => c.probe?.find((p) => p.nodeId === c.hops[i]?.nodeId)
-  const allOk = c.probe?.length && c.probe.every((p) => p.ok)
-  const anyBad = c.probe?.some((p) => !p.ok)
+  const allOk = c.probe?.length === c.hops.length && c.hops.every((h) => c.probe?.some((p) => p.nodeId === h.nodeId && p.ok && !p.skipped))
+  const anyBad = c.probe?.some((p) => !p.ok && !p.skipped)
+  const participants = c.hops.map((h) => nodes.find((n) => n.id === h.nodeId))
+  const conflicting = c.mode === 'proxy' && (c.hops.slice(0, -1).some((h) => hopInbound(inbounds, h.inboundId)?.outboundTag) || chains.some((other) => other.id !== c.id && other.mode === 'proxy' && !other.disabled && other.hops.slice(0, -1).some((h) => c.hops.slice(0, -1).some((own) => own.inboundId === h.inboundId))))
+  const deployment = c.disabled ? t('已停用') : c.published === false ? t('未发布到订阅') : conflicting ? t('路由冲突') : participants.some((n) => !n || n.status !== 'online') ? t('节点离线') : participants.some((n) => n?.lastError) ? t('下发失败') : participants.some((n) => n && n.appliedRev < n.desiredRev) ? t('等待配置应用') : ''
   return (
-    <article className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <article className="card" aria-label={c.name} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
           <h2>{c.mode === 'l4' ? t('{from} ⇢ {to}（L4 转发）', { from: name(c.hops[0].nodeId), to: name(landing.nodeId) }) : c.hops.map((h) => name(h.nodeId)).join(' → ')}</h2>
-          <div className="sub">{c.mode === 'l4' ? t('端口转发 · {from}:{port} → {to}:{toPort} · 不解密', { from: name(c.hops[0].nodeId), port: c.hops[0].port, to: name(landing.nodeId), toPort: landIn?.port ?? '?' }) : t('协议中转 · 服务账号 svc-{id} · 订阅名「{from} → {to}」', { id: c.id.slice(0, 8), from: name(c.hops[0].nodeId), to: name(landing.nodeId) })}{c.remark ? ' · ' + c.remark : ''}</div>
+          <div className="sub">{c.mode === 'l4' ? t('端口转发 · {from}:{port} → {to}:{toPort} · 不解密', { from: name(c.hops[0].nodeId), port: c.hops[0].port, to: name(landing.nodeId), toPort: landIn?.port ?? '?' }) : t('协议中转 · 默认订阅名称包含「{name}」', { name: c.name })}{c.remark ? ' · ' + c.remark : ''}</div>
         </div>
-        <span className={'st ' + (allOk ? 'ok' : anyBad ? 'warn' : 'off')}>{allOk ? t('● 全链路正常') : anyBad ? t('● 部分跳异常') : t('未探测')}</span>
+        <span className={'st ' + (deployment || anyBad ? 'warn' : allOk ? 'ok' : 'off')}>{deployment || (allOk ? t('● 网络检查通过') : anyBad ? t('● 部分跳异常') : t('未完成网络检查'))}</span>
       </div>
       <div className="path">
         <div className="hop"><b>{t('客户端')}</b><span>{firstIn ? `${protoLabel[firstIn.protocol.type]}-${firstIn.transport.type}` : '—'}</span></div>
@@ -47,7 +50,7 @@ function ChainCard({ c, nodes, inbounds, onEdit, onChanged }: { c: Chain; nodes:
           const p = i === 0 ? undefined : probe(i - 1)
           return (
             <span key={i} style={{ display: 'contents' }}>
-              <div className="arrow" aria-hidden="true"><span>{p ? (p.ok ? `${p.latencyMs} ms` : t('超时')) : '—'}</span>→</div>
+              <div className="arrow" title={p?.error} aria-hidden="true"><span>{p && !p.skipped ? (p.ok ? `${p.latencyMs} ms` : t('失败')) : '—'}</span>→</div>
               <div className={'hop' + (last ? ' land' : '')}>
                 <b>{name(h.nodeId)}</b>
                 <span>{c.mode === 'l4' && !last ? t('转发器 · realm') : ib ? `${ib.tag} · ${coreShort[ib.core]}` : '—'}</span>
@@ -58,7 +61,17 @@ function ChainCard({ c, nodes, inbounds, onEdit, onChanged }: { c: Chain; nodes:
         <div className="arrow" aria-hidden="true"><span>{probe(c.hops.length - 1)?.ok ? `${probe(c.hops.length - 1)!.latencyMs} ms` : '—'}</span>→</div>
         <div className="hop"><b>{t('出口')}</b><span>{t('见落地节点路由')}</span></div>
       </div>
+      {c.mode === 'proxy' && <div className="note small">
+        {t('复用已选入站，不会新增监听端口。客户端连接入口入站，后续跳使用服务账号；订阅可见性取决于入口入站的用户授权。')}
+        <div>{t('入口仅随链路发布；删除链路或撤销入口后，订阅不再展示，也不会自动恢复直连。')}</div>
+        {firstIn && <div><b>{t('客户端入口')}</b>：{name(firstIn.nodeId)} / {firstIn.tag} · {protoLabel[firstIn.protocol.type]} · :{firstIn.port}</div>}
+        {firstIn?.userCount === 0 && <div>{t('入口尚无授权用户，请检查入口入站的用户分组或直接授权。')}</div>}
+        {conflicting && <div>{t('入口被重复绑定或已指定其他出站，链路路由可能被覆盖。请为不同协议链路使用独立入站，并解除入口的出站绑定。')}</div>}
+      </div>}
+      <div className="hint">{t('探测仅检查节点间端口和落地自身出口，未验证客户端入口、代理认证或整条链路的数据传输。')}</div>
       <div className="row">
+        {firstIn && <Link className="btn sm" to={`/inbounds?node=${encodeURIComponent(firstIn.nodeId)}&inbound=${encodeURIComponent(firstIn.id)}`}>{t('打开入口入站')}</Link>}
+        {landIn && landIn.id !== firstIn?.id && <Link className="btn sm" to={`/inbounds?node=${encodeURIComponent(landIn.nodeId)}&inbound=${encodeURIComponent(landIn.id)}`}>{t('打开落地入站')}</Link>}
         <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await post(`/chains/${c.id}/probe`); onChanged() }, t('探测完成'))}>{t('立即探测')}</button>
         <button className="btn sm" type="button" onClick={onEdit}>{t('编辑')}</button>
         <button className="btn sm danger" type="button" onClick={async () => {
@@ -121,7 +134,7 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
                 <Field label={last ? t('落地入站') : t('中转入站')}>
                   <select className="input" value={h.inboundId ?? ''} onChange={(e) => setHop(i, { inboundId: e.target.value })}>
                     <option value="">{t('选择入站')}</option>
-                    {nodeIns(h.nodeId).map((ib) => <option key={ib.id} value={ib.id}>{ib.tag} · {inboundSummary(ib)}</option>)}
+                    {nodeIns(h.nodeId).map((ib) => <option key={ib.id} value={ib.id} disabled={!ib.enabled || (!last && !!ib.outboundTag)}>{ib.tag} · {inboundSummary(ib)}{!ib.enabled ? ` · ${t('已停用')}` : !last && ib.outboundTag ? ` · ${t('已绑定出站')}` : ''}</option>)}
                   </select>
                 </Field>
               )}
@@ -131,7 +144,7 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
       })}
       {hops.length < 4 && <div><button className="btn sm" type="button" onClick={() => setHops((x) => [...x.slice(0, -1), { nodeId: '', port: 30000 }, x[x.length - 1]])}>{t('+ 增加中转跳（最多 3 跳）')}</button></div>}
       <Field label={t('备注')} htmlFor="ch-remark"><input id="ch-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
-      <div className="note">{mode === 'l4' ? t('保存后自动在落地入站上添加「中转」入口，订阅里生成「[中转名] → [落地名]」节点。') : t('主控自动创建服务账号（不计配额、不出现在用户列表）、中转节点上的出站与路由规则；落地入站变更时上游自动重新下发。')}</div>
+      <div className="note">{mode === 'l4' ? t('保存后自动在落地入站上添加「中转」入口，订阅里生成「[中转名] → [落地名]」节点。') : <>{t('协议中转复用所选入站，并为其创建出站、路由和服务账号，不会新增入站。需要独立入口时，请先克隆入站并授权用户；同一入站只能用于一条协议中转路径。')}<div>{t('入口仅随链路发布；删除链路或撤销入口后，订阅不再展示，也不会自动恢复直连。')}</div></>}</div>
     </Drawer>
   )
 }
@@ -725,7 +738,7 @@ export default function Chains() {
   return (
     <>
       <div className="top">
-        <div><h1>{t('链路与 CDN')}</h1><div className="sub">{t('入口（直连 / CDN / 中转）→ 落地 → 出口，每条链路都会生成独立的订阅节点')}</div></div>
+        <div><h1>{t('链路与 CDN')}</h1><div className="sub">{t('入口 → 落地 → 出口；L4 发布中转入口，协议中转使用所选入站的协议和用户授权')}</div></div>
         <div className="row">
           <button className="btn" type="button" onClick={() => setCdnDrawer('new')}>{t('+ CDN 配置档')}</button>
           <button className="btn pri" type="button" disabled={nodes.length < 2} title={nodes.length < 2 ? t('至少需要两个节点') : undefined} onClick={() => setChainDrawer('new')}>{t('+ 新建链路')}</button>
@@ -739,7 +752,7 @@ export default function Chains() {
       {tab === 'chains' && (
         <div className="split">
           <div className="grow">
-            {(chains.data ?? []).map((c) => <ChainCard key={c.id} c={c} nodes={nodes} inbounds={inbounds.data ?? []} onEdit={() => setChainDrawer(c)} onChanged={chains.reload} />)}
+            {(chains.data ?? []).map((c) => <ChainCard key={c.id} c={c} nodes={nodes} inbounds={inbounds.data ?? []} chains={chains.data ?? []} onEdit={() => setChainDrawer(c)} onChanged={chains.reload} />)}
             {chains.data?.length === 0 && <div className="card"><Empty>{t('还没有链路。L4 转发适合线路优化；协议中转可在中转节点分流或换协议。')}</Empty></div>}
           </div>
           <aside className="aside">

@@ -3,6 +3,8 @@ package panel
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -109,21 +111,27 @@ func liveRelaySubscription(t *testing.T, reality bool) {
 	if err != nil || len(nodes) != 1 {
 		t.Fatal(nodes, err)
 	}
+	relaySubscriptionTransfer(t, bin, nodes[0], tls.CertPEM)
+}
+
+func relaySubscriptionTransfer(t *testing.T, bin string, node sub.Node, certPEM string) {
+	t.Helper()
+	dir := t.TempDir()
 	// Decode the exported URI too, so the test covers a normal client import.
-	parsed, err := sub.ParseLink(sub.ShareLink(nodes[0]))
+	parsed, err := sub.ParseLink(sub.ShareLink(node))
 	if err != nil {
 		t.Fatal(parsed, err)
 	}
 	out := sub.SingboxOutbound(parsed)
 	ca := filepath.Join(dir, "ca.pem")
-	if err = os.WriteFile(ca, []byte(tls.CertPEM), 0600); err != nil {
+	if err = os.WriteFile(ca, []byte(certPEM), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if !reality {
+	if node.TLS.Type == model.SecTLS {
 		out["tls"].(map[string]any)["certificate_path"] = ca
 	}
 	port := coretest.FreePort(t)
-	raw, _ = json.Marshal(map[string]any{"log": map[string]any{"level": "error"}, "inbounds": []any{map[string]any{"type": "socks", "listen": "127.0.0.1", "listen_port": port}}, "outbounds": []any{out}})
+	raw, _ := json.Marshal(map[string]any{"log": map[string]any{"level": "error"}, "inbounds": []any{map[string]any{"type": "socks", "listen": "127.0.0.1", "listen_port": port}}, "outbounds": []any{out}})
 	clientPath := filepath.Join(dir, "client.json")
 	if err = os.WriteFile(clientPath, raw, 0600); err != nil {
 		t.Fatal(err)
@@ -151,7 +159,7 @@ func liveRelaySubscription(t *testing.T, reality bool) {
 		t.Fatal(err)
 	}
 	up, down := bytes.Repeat([]byte("upload"), 4096), bytes.Repeat([]byte("download"), 4096)
-	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, e := io.ReadAll(r.Body)
 		if e != nil || !bytes.Equal(body, up) {
 			http.Error(w, "upload mismatch", http.StatusBadRequest)
@@ -160,16 +168,18 @@ func liveRelaySubscription(t *testing.T, reality bool) {
 		w.Write(down)
 	}))
 	defer backend.Close()
-	transport := &http.Transport{Dial: dialer.Dial}
+	roots := x509.NewCertPool()
+	roots.AddCert(backend.Certificate())
+	transport := &http.Transport{Dial: dialer.Dial, TLSClientConfig: &tls.Config{RootCAs: roots}}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
 	res, err := client.Post(backend.URL, "application/octet-stream", bytes.NewReader(up))
 	if err != nil {
-		t.Fatal("generated relay subscription failed", protocol.Type, err)
+		t.Fatal("generated relay subscription failed", node.Protocol, err)
 	}
 	defer res.Body.Close()
 	body, err := io.ReadAll(res.Body)
 	if err != nil || res.StatusCode != 200 || !bytes.Equal(body, down) {
-		t.Fatal("relay upload/download failed", protocol.Type, res.StatusCode, err)
+		t.Fatal("relay upload/download failed", node.Protocol, res.StatusCode, err)
 	}
 }
