@@ -25,6 +25,13 @@ func (s *Server) toModelInbound(in *store.Inbound) model.Inbound {
 		Extra: in.Extra, Enabled: in.Enabled, OutboundIPStrategy: in.OutboundIPStrategy,
 	}
 	m.Security.RealityPrivateKey = s.st.Box.MustOpen(m.Security.RealityPrivateKey)
+	// Older imports or key replacements may have retained another public
+	// half. The server's private key is authoritative for client parameters.
+	if m.Security.Type == model.SecReality && m.Security.RealityPrivateKey != "" {
+		if pub, err := pki.RealityPublicKey(m.Security.RealityPrivateKey); err == nil {
+			m.Security.RealityPublicKey = pub
+		}
+	}
 	m.Protocol.ServerKey = s.st.Box.MustOpen(m.Protocol.ServerKey)
 	m.Protocol.Decryption = s.st.Box.MustOpen(m.Protocol.Decryption)
 	m.Security.RealityMldsa65Seed = s.st.Box.MustOpen(m.Security.RealityMldsa65Seed)
@@ -75,7 +82,7 @@ func (s *Server) prepareInbound(m *model.Inbound) error {
 				return err
 			}
 			m.Security.RealityPrivateKey, m.Security.RealityPublicKey = priv, pub
-		} else if m.Security.RealityPublicKey == "" {
+		} else {
 			pub, err := pki.RealityPublicKey(m.Security.RealityPrivateKey)
 			if err != nil {
 				return fmt.Errorf("reality private key: %w", err)
