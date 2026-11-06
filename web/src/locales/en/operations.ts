@@ -674,5 +674,8 @@ const operations: Record<string, string> = {
   "入口仅随链路发布；删除链路或撤销入口后，订阅不再展示，也不会自动恢复直连。": "The entry is published with this path only. Deleting the path or withdrawing the entry removes it from subscriptions without restoring direct access.",
   "暂无发布入口，订阅中隐藏此入站": "No published entry. This inbound is hidden from subscriptions.",
   "未发布到订阅": "Not published to subscriptions",
+  "配置不兼容": "Incompatible configuration",
+  "请更换兼容的落地入站，或调整入口内核后重新保存下发。": "Choose a compatible landing inbound or adjust the entry core, then save and apply again.",
+  "下一跳的协议和传输必须受上游内核支持。sing-box 不支持 XHTTP 出站；保留 AnyTLS 入口时，可选择兼容的 WS / gRPC 落地。": "The upstream core must support the next hop's protocol and transport. sing-box cannot dial XHTTP. To retain an AnyTLS entry, choose a compatible WS/gRPC landing.",
 }
 export default operations

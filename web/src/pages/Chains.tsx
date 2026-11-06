@@ -32,7 +32,7 @@ function ChainCard({ c, nodes, inbounds, chains, onEdit, onChanged }: { c: Chain
   const anyBad = c.probe?.some((p) => !p.ok && !p.skipped)
   const participants = c.hops.map((h) => nodes.find((n) => n.id === h.nodeId))
   const conflicting = c.mode === 'proxy' && (c.hops.slice(0, -1).some((h) => hopInbound(inbounds, h.inboundId)?.outboundTag) || chains.some((other) => other.id !== c.id && other.mode === 'proxy' && !other.disabled && other.hops.slice(0, -1).some((h) => c.hops.slice(0, -1).some((own) => own.inboundId === h.inboundId))))
-  const deployment = c.disabled ? t('已停用') : c.published === false ? t('未发布到订阅') : conflicting ? t('路由冲突') : participants.some((n) => !n || n.status !== 'online') ? t('节点离线') : participants.some((n) => n?.lastError) ? t('下发失败') : participants.some((n) => n && n.appliedRev < n.desiredRev) ? t('等待配置应用') : ''
+  const deployment = c.disabled ? t('已停用') : c.configurationIssues?.length ? t('配置不兼容') : c.published === false ? t('未发布到订阅') : conflicting ? t('路由冲突') : participants.some((n) => !n || n.status !== 'online') ? t('节点离线') : participants.some((n) => n?.lastError) ? t('下发失败') : participants.some((n) => n && n.appliedRev < n.desiredRev) ? t('等待配置应用') : ''
   return (
     <article className="card" aria-label={c.name} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -61,6 +61,11 @@ function ChainCard({ c, nodes, inbounds, chains, onEdit, onChanged }: { c: Chain
         <div className="arrow" aria-hidden="true"><span>{probe(c.hops.length - 1)?.ok ? `${probe(c.hops.length - 1)!.latencyMs} ms` : '—'}</span>→</div>
         <div className="hop"><b>{t('出口')}</b><span>{t('见落地节点路由')}</span></div>
       </div>
+      {!!c.configurationIssues?.length && <div className="note bad" role="status">
+        <b>{t('配置不兼容')}</b>
+        {c.configurationIssues.map((issue, i) => <div key={i} style={{ overflowWrap: 'anywhere' }}>{tr(issue)}</div>)}
+        <div>{t('请更换兼容的落地入站，或调整入口内核后重新保存下发。')}</div>
+      </div>}
       {c.mode === 'proxy' && <div className="note small">
         {t('复用已选入站，不会新增监听端口。客户端连接入口入站，后续跳使用服务账号；订阅可见性取决于入口入站的用户授权。')}
         <div>{t('入口仅随链路发布；删除链路或撤销入口后，订阅不再展示，也不会自动恢复直连。')}</div>
@@ -144,6 +149,7 @@ function ChainDrawer({ chain, nodes, inbounds, onClose, onSaved }: { chain?: Cha
       })}
       {hops.length < 4 && <div><button className="btn sm" type="button" onClick={() => setHops((x) => [...x.slice(0, -1), { nodeId: '', port: 30000 }, x[x.length - 1]])}>{t('+ 增加中转跳（最多 3 跳）')}</button></div>}
       <Field label={t('备注')} htmlFor="ch-remark"><input id="ch-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
+      {mode === 'proxy' && <div className="hint">{t('下一跳的协议和传输必须受上游内核支持。sing-box 不支持 XHTTP 出站；保留 AnyTLS 入口时，可选择兼容的 WS / gRPC 落地。')}</div>}
       <div className="note">{mode === 'l4' ? t('保存后自动在落地入站上添加「中转」入口，订阅里生成「[中转名] → [落地名]」节点。') : <>{t('协议中转复用所选入站，并为其创建出站、路由和服务账号，不会新增入站。需要独立入口时，请先克隆入站并授权用户；同一入站只能用于一条协议中转路径。')}<div>{t('入口仅随链路发布；删除链路或撤销入口后，订阅不再展示，也不会自动恢复直连。')}</div></>}</div>
     </Drawer>
   )

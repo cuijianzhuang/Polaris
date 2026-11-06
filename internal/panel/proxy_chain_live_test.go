@@ -18,6 +18,14 @@ import (
 )
 
 func TestLiveAnyTLSProxyChainToXrayReality(t *testing.T) {
+	liveAnyTLSProxyChain(t, model.TransTCP)
+}
+
+func TestLiveAnyTLSProxyChainToXrayWebSocket(t *testing.T) {
+	liveAnyTLSProxyChain(t, model.TransWS)
+}
+
+func liveAnyTLSProxyChain(t *testing.T, transport model.Transport) {
 	bin, xbin := os.Getenv("POLARIS_SINGBOX_BIN"), os.Getenv("POLARIS_XRAY_BIN")
 	if bin == "" || xbin == "" {
 		t.Skip("POLARIS_SINGBOX_BIN and POLARIS_XRAY_BIN required")
@@ -47,7 +55,12 @@ func TestLiveAnyTLSProxyChainToXrayReality(t *testing.T) {
 	sec := coretest.Reality(t)
 	sec.RealityDest = strings.TrimPrefix(dest.URL, "https://")
 	sec.RealityPrivateKey = s.st.Box.Seal(sec.RealityPrivateKey)
-	if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{"listen": "127.0.0.1", "port": coretest.FreePort(t), "security": store.NewJSON(sec), "protocol": store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS, Flow: "xtls-rprx-vision"})}).Error; err != nil {
+	proto := model.ProtocolSpec{Type: model.ProtoVLESS, Flow: "xtls-rprx-vision"}
+	if transport == model.TransWS {
+		sec = model.SecuritySpec{Type: model.SecTLS, CertificateID: "entry-cert", ServerName: "127.0.0.1"}
+		proto.Flow = ""
+	}
+	if err := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{"listen": "127.0.0.1", "port": coretest.FreePort(t), "security": store.NewJSON(sec), "protocol": store.NewJSON(proto), "transport": store.NewJSON(model.TransportSpec{Type: transport, Path: "/proxy-test"})}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if code, out := c.do("POST", "/chains", chainReq{Name: "hk-to-tw", Mode: "proxy", Hops: []store.ChainHop{{NodeID: "relay", InboundID: entry.ID}, {NodeID: "land", InboundID: "in"}}}); code != 201 {
@@ -81,6 +94,25 @@ func TestLiveAnyTLSProxyChainToXrayReality(t *testing.T) {
 				o := item.(map[string]any)
 				if o["protocol"] == "freedom" {
 					o["settings"] = map[string]any{"finalRules": []any{map[string]any{"action": "allow", "ip": []string{"127.0.0.0/8"}}}}
+				}
+			}
+			raw, _ = json.Marshal(cfg)
+		}
+		if instance.typ == model.CoreSingbox && transport == model.TransWS {
+			// Trust the fixture CA for the actual generated TLS next hop; keep
+			// hostname verification enabled and preserve its transport/auth.
+			ca := filepath.Join(dir, "landing-ca.pem")
+			if err := os.WriteFile(ca, []byte(tls.CertPEM), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var cfg map[string]any
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			for _, item := range cfg["outbounds"].([]any) {
+				o := item.(map[string]any)
+				if o["type"] == "vless" {
+					o["tls"].(map[string]any)["certificate_path"] = ca
 				}
 			}
 			raw, _ = json.Marshal(cfg)

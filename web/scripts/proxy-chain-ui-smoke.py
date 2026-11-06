@@ -70,6 +70,12 @@ with sync_playwright() as p:
             f.chain['probe'][1].update(ok=False, skipped=True)
             page.reload()
             expect(card.get_by_text(text('未完成网络检查', 'Network checks incomplete'), exact=True)).to_be_visible()
+            f.chain['configurationIssues'] = ['sing-box 1.13.5: sing-box does not support xhttp outbound transport for vless']
+            page.reload()
+            expect(card.locator('.note.bad')).to_contain_text('xhttp')
+            expect(card.get_by_text(text('配置不兼容', 'Incompatible configuration'), exact=True)).to_have_count(2)
+            expect(card.get_by_text(text('● 网络检查通过', '● Network checks passed'), exact=True)).to_have_count(0)
+            del f.chain['configurationIssues']
             f.chain['published'] = False
             page.reload()
             expect(card.get_by_text(text('未发布到订阅', 'Not published to subscriptions'), exact=True)).to_be_visible()

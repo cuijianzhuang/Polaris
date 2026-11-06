@@ -410,6 +410,9 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 	if err := s.checkNodeRefReality(o.NodeID, &m); err != nil {
 		return nil, err
 	}
+	if err := s.checkNodeRefTransportOn(s.st.DB, o.NodeID, &m); err != nil {
+		return nil, err
+	}
 	set := model.OutboundSettings{Server: nodeHost(&target), Port: m.Port}
 	var typ model.OutboundType
 	switch m.Protocol.Type {

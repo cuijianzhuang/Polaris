@@ -526,6 +526,9 @@ func renderOutbounds(obs []model.Outbound) ([]any, []any, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("outbound %s: %w", o.Tag, err)
 		}
+		if err := checkOutboundSettings(o.Type, s); err != nil {
+			return nil, nil, fmt.Errorf("outbound %s: %w", o.Tag, err)
+		}
 		if o.Type.IsGroup() && s.Fallback != "" {
 			return nil, nil, fmt.Errorf("outbound %s: sing-box does not support group fallback; clear fallback or use Xray/mihomo", o.Tag)
 		}
