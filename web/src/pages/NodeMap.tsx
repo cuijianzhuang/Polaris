@@ -1,10 +1,11 @@
+import CountryFlag, { FlagText } from '../components/CountryFlag'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
 import { Empty } from '../components/ui'
 import { COUNTRY_PATHS, MAP_H, MAP_W } from '../assets/world-map'
-import { ago, bps, flag, nodeStatus } from '../format'
+import { ago, bps, nodeStatus } from '../format'
 import { clusterPoints, countryCode, countryNumeric, project, resolveNodeGeo, ringOffsets, type GeoPoint } from '../nodeGeo'
 import type { Node } from '../types'
 import { t } from '../i18n'
@@ -41,7 +42,7 @@ function Popover({ n, geo, x, y, cw, ch, onClose }: { n: Node; geo: GeoPoint | n
   return (
     <div className="nm-pop" style={style} data-nopan role="dialog" aria-label={n.name}>
       <div className="nm-pop-h">
-        <span className="nm-pop-name">{flag(n.flag || geo?.cc) && <span className="nm-flag">{flag(n.flag || geo?.cc)}</span>}{n.name}</span>
+        <span className="nm-pop-name"><span className="nm-flag"><CountryFlag code={n.flag || geo?.cc} /></span><FlagText>{n.name}</FlagText></span>
         <button type="button" className="icon-btn" aria-label={t('关闭')} onClick={onClose}>×</button>
       </div>
       <div className="row" style={{ gap: 8, margin: '4px 0 8px', flexWrap: 'wrap' }}>
@@ -236,7 +237,7 @@ export default function NodeMap() {
         <div className="card kpi"><span className="kpi-ico"><Icon.Server /></span><div className="label">{t('节点总数')}</div><div className="val">{counts.total}</div><div className="foot">{t('已定位 {a} · 未定位 {b}', { a: placed.length, b: unplaced.length })}</div></div>
         <div className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">{t('在线')}</div><div className="val">{counts.online}<span className="of"> / {counts.total}</span></div><div className="foot">{counts.other ? t('{n} 个待接入或同步中', { n: counts.other }) : t('全部已接入')}</div></div>
         <div className="card kpi"><span className="kpi-ico bad"><Icon.Server /></span><div className="label">{t('离线 / 异常')}</div><div className="val" style={abnormal ? { color: 'var(--bad)' } : undefined}>{abnormal}</div><div className="foot">{t('{a} 个离线 · {b} 个下发失败', { a: counts.offline, b: counts.error })}</div></div>
-        <div className="card kpi"><span className="kpi-ico violet"><Icon.Globe /></span><div className="label">{t('覆盖国家 / 地区')}</div><div className="val">{counts.countries.size}</div><div className="foot">{[...counts.countries].slice(0, 8).map((c) => flag(c)).join(' ') || '—'}</div></div>
+        <div className="card kpi"><span className="kpi-ico violet"><Icon.Globe /></span><div className="label">{t('覆盖国家 / 地区')}</div><div className="val">{counts.countries.size}</div><div className="foot">{counts.countries.size ? [...counts.countries].slice(0, 8).map((c) => <span key={c}><CountryFlag code={c} /> </span>) : '—'}</div></div>
       </section>
       {nodes.length === 0 ? (
         <section className="card"><Empty>{t('还没有节点，')}<Link to="/nodes?new=1">{t('添加第一个节点')}</Link></Empty></section>
@@ -265,7 +266,7 @@ export default function NodeMap() {
               })}
               {hotMarker && hot !== sel && (
                 <div className="nm-tip" style={{ left: clamp(hotMarker.x, 70, cw - 70), top: hotMarker.y - 14 }}>
-                  {flag(hotMarker.p.node.flag || hotMarker.p.geo.cc)} <b>{hotMarker.p.node.name}</b>
+                  <CountryFlag code={hotMarker.p.node.flag || hotMarker.p.geo.cc} /> <b><FlagText>{hotMarker.p.node.name}</FlagText></b>
                   <span className={'nm-tip-st ' + tone(hotMarker.p.node)}>{(nodeStatus[hotMarker.p.node.status] ?? nodeStatus.pending).label}</span>
                 </div>
               )}
@@ -292,7 +293,7 @@ export default function NodeMap() {
                       onMouseEnter={() => setHot(n.id)} onMouseLeave={() => setHot(null)} onFocus={() => setHot(n.id)} onBlur={() => setHot(null)} onClick={() => select(n.id)}>
                       <i className={'nm-dot ' + tone(n)} />
                       <span className="nm-row-main">
-                        <span className="nm-row-name">{flag(n.flag || g?.cc)} {n.name}</span>
+                        <span className="nm-row-name"><CountryFlag code={n.flag || g?.cc} /> <FlagText>{n.name}</FlagText></span>
                         <span className="mute nm-row-sub">{n.region || n.address || '—'}</span>
                       </span>
                       <span className={'nm-row-st ' + tone(n)}>{st.label}</span>
@@ -308,7 +309,7 @@ export default function NodeMap() {
         <section className="card" aria-label={t('未定位的节点')}>
           <div className="ctitle"><span>{t('未定位的节点（在节点设置里填写国家代码或经纬度）')}</span></div>
           <div className="nm-unplaced">
-            {unplaced.map((n) => <Link key={n.id} to={'/nodes?id=' + n.id} className="chip"><i className={'nm-dot ' + tone(n)} />{n.name}{n.region ? <span className="mute"> · {n.region}</span> : null}</Link>)}
+            {unplaced.map((n) => <Link key={n.id} to={'/nodes?id=' + n.id} className="chip"><i className={'nm-dot ' + tone(n)} /><FlagText>{n.name}</FlagText>{n.region ? <span className="mute"> · {n.region}</span> : null}</Link>)}
           </div>
         </section>
       )}

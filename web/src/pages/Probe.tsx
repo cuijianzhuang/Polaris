@@ -1,3 +1,4 @@
+import CountryFlag, { FlagText } from '../components/CountryFlag'
 import { SettingsGate, readSettings } from '../components/SettingsLoad'
 import { memo, useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
@@ -7,7 +8,7 @@ import { Lines } from '../components/Charts'
 import ProbePresetPicker from '../components/ProbePresetPicker'
 import { probePresets, type ProbePreset } from '../probeTargets'
 import { CopyBox, Drawer, Empty, Field, Modal, RefreshPicker, Switch, useAction, useConfirm, useLoad, useRefresh } from '../components/ui'
-import { bps, datetime, flag, uptime } from '../format'
+import { bps, datetime, uptime } from '../format'
 import { t } from '../i18n'
 import { alignedTimes, filterProbeNodes, freshTelemetry, latencyStats, validView } from '../probeMonitor'
 import type { ProbeNode, ProbeTarget, ProbeView, ProbeFilter, ProbeSort, LatencyPoint } from '../probeMonitor'
@@ -88,7 +89,7 @@ const ResourceHistory = memo(function ResourceHistory({ nodeId }: { nodeId: stri
 function NodeDrawer({ n, now, onClose, onChanged }: { n: PNode; now: number; onClose: () => void; onChanged: () => void }) {
   const { busy, run } = useAction()
   const fresh = freshTelemetry(n, now)
-  return <Drawer title={<>{flag(n.flag)} {n.name}</>} onClose={onClose} wide>
+  return <Drawer title={<><CountryFlag code={n.flag} /> <FlagText>{n.name}</FlagText></>} onClose={onClose} wide>
     <div className="pv">
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 14 }}><NodeBadges n={n} now={now} /><ProbeBadge n={n} now={now} /></div>
       <div className="pv-detail-summary"><div><small>{t('运行时间')}</small><b>{fresh ? uptime(n.uptime) : '—'}</b></div><div><small>{t('接收速率')}</small><b>{fresh ? bps(n.rxBps) : '—'}</b></div><div><small>{t('发送速率')}</small><b>{fresh ? bps(n.txBps) : '—'}</b></div></div>
@@ -245,7 +246,7 @@ export default function Probe() {
       <ProbeSummary nodes={d.nodes} now={now} showTraffic={d.showTraffic !== false} />
       <div className="pv-toolbar">
         <div className="pv-toolbar-top"><input className="pv-search" type="search" placeholder={t('搜索名称、地区或系统')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索节点')} /><div className="pv-toolbar-controls"><select value={sort} onChange={(e) => setSort(e.target.value as ProbeSort)} aria-label={t('节点排序')}><option value="default">{t('默认排序')}</option><option value="name">{t('按名称')}</option><option value="cpu">{t('CPU 从高到低')}</option><option value="network">{t('网速从高到低')}</option><option value="latency">{t('延迟从低到高')}</option><option value="expiry">{t('到期时间从近到远')}</option></select><div className="pv-seg" aria-label={t('展示方式')}>{([['card', t('条形')], ['ring', t('环形')], ['table', t('表格')]] as [ProbeView, string][]).map(([v, label]) => <button key={v} className={view === v ? 'on' : ''} aria-pressed={view === v} onClick={() => setView(v)}>{label}</button>)}</div></div></div>
-        <div className="pv-toolbar-bottom"><div className="pv-chips"><button className={'pv-chip' + (!region ? ' on' : '')} aria-pressed={!region} onClick={() => setRegion('')}>{t('全部地区')} {d.nodes.length}</button>{regions.map(([f, count]) => <button key={f} className={'pv-chip' + (region === f ? ' on' : '')} aria-pressed={region === f} onClick={() => setRegion(region === f ? '' : f)}>{flag(f)} {f} <small>{count}</small></button>)}</div><div className="pv-seg" aria-label={t('节点状态筛选')}>{statuses.map(([v, label]) => <button key={v} className={state === v ? 'on' : ''} aria-pressed={state === v} onClick={() => setState(v)}>{label}</button>)}</div><span className="pv-count">{t('显示 {n} / {all} 个节点', { n: nodes.length, all: d.nodes.length })}</span></div>
+        <div className="pv-toolbar-bottom"><div className="pv-chips"><button className={'pv-chip' + (!region ? ' on' : '')} aria-pressed={!region} onClick={() => setRegion('')}>{t('全部地区')} {d.nodes.length}</button>{regions.map(([f, count]) => <button key={f} className={'pv-chip' + (region === f ? ' on' : '')} aria-pressed={region === f} onClick={() => setRegion(region === f ? '' : f)}><CountryFlag code={f} /> {f} <small>{count}</small></button>)}</div><div className="pv-seg" aria-label={t('节点状态筛选')}>{statuses.map(([v, label]) => <button key={v} className={state === v ? 'on' : ''} aria-pressed={state === v} onClick={() => setState(v)}>{label}</button>)}</div><span className="pv-count">{t('显示 {n} / {all} 个节点', { n: nodes.length, all: d.nodes.length })}</span></div>
       </div>
       {!nodes.length ? <div className="pv-empty">{d.nodes.length ? t('没有符合筛选的节点') : t('还没有节点')}<div><button className="btn sm" onClick={clear}>{t('清除筛选')}</button></div></div> : view === 'table' ? <ProbeTable nodes={nodes} targets={d.targets} onOpen={setOpen} now={now} showTraffic={d.showTraffic !== false} /> : <div className="pv-grid">{nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d.targets} onOpen={() => setOpen(n.id)} view={view} now={now} showTraffic={d.showTraffic !== false} />)}</div>}
       <div className="pv-footnote">{t('延迟为节点到目标的 TCP 连接耗时；小图展示近 2 小时，每格 5 分钟。灰格表示无样本。')}</div>

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/flags"
+
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -19,6 +21,7 @@ var portalCDNScript string
 
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"bytes":           HumanBytes,
+	"flagText":        flags.Text,
 	"portalCDNScript": func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
 }).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
@@ -118,7 +121,7 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 {{range .Clients}}<a class="btn{{if .Pri}} pri{{end}}" href="{{.Href}}">{{.Name}}</a>{{end}}
 </div><p class="mute" style="margin:10px 0 0">按钮无反应时，复制上方链接到客户端手动添加订阅。</p></section>
 {{if .Links}}<details class="card node-list"><summary class="node-list-toggle"><h2>节点（{{len .Links}}）</h2><span class="mute when-closed">展开</span><span class="mute when-open">收起</span></summary>
-{{range .Links}}<div class="node"><details><summary class="row nw"><span class="nm" title="{{.Name}}">{{.Name}}</span><span class="tag">{{.Protocol}}</span><button class="btn sm" type="button" data-copy="{{.Link}}">复制</button></summary>
+{{range .Links}}<div class="node"><details><summary class="row nw"><span class="nm" title="{{.Name}}">{{flagText .Name}}</span><span class="tag">{{.Protocol}}</span><button class="btn sm" type="button" data-copy="{{.Link}}">复制</button></summary>
 {{if .QR}}<img class="qr" style="margin-top:10px" src="{{.QR}}" alt="{{.Name}} 二维码">{{end}}</details></div>{{end}}
 </details>{{end}}
 {{if and .Portal .Extras}}<section class="card"><h2>更多服务</h2><div class="grid">

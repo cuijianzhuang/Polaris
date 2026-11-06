@@ -8,6 +8,7 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 # The admin probe imports the styles also embedded by the public Go page.
 COPY internal/panel/probe_assets/ /src/internal/panel/probe_assets/
+COPY internal/flags/taiwan.svg /src/internal/flags/taiwan.svg
 RUN npm run build
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build

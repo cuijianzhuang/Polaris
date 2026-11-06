@@ -9,7 +9,7 @@ BASE = os.environ.get('POLARIS_WEB_TEST_URL', 'http://127.0.0.1:5187')
 
 def overview(cpu):
     now = datetime.now(timezone.utc).isoformat()
-    node = dict(id='live', name='Refresh fixture', region='HK', flag='HK', online=True, status='online',
+    node = dict(id='live', name='Refresh fixture', region='TW', flag='TW', online=True, status='online',
                 cpu=cpu, mem=42, rxBps=123456, txBps=456789, uptime=3600, load1=1, disk=20, diskTotal=100,
                 netUsed=0, netLimit=0, lastSeen=now, telemetryFresh=True, ipv4=True, ipv6=False, latency={}, probeTargets=[])
     return dict(nodes=[node], targets=[], at=now, probeEnabled=True, statusPage=False, showTraffic=True)
@@ -62,6 +62,9 @@ with sync_playwright() as p:
     page.goto(BASE + '/probe')
     expect(page.get_by_label('自动刷新频率')).to_have_value('2000')
     expect(page.locator('.pv-grid')).to_contain_text('12.0%')
+    flag_image = page.locator('.pv-grid img.country-flag[alt=TW]')
+    expect(flag_image).to_be_visible()
+    page.wait_for_function("document.querySelector('.pv-grid img.country-flag').naturalWidth > 0")
     # A response slower than a polling period is still accepted, without overlap.
     f.hold = True
     page.clock.run_for(2200)
