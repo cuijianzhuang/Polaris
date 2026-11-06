@@ -47,6 +47,23 @@ with sync_playwright() as p:
                 if (!card.querySelector(':scope > table') || card.scrollWidth <= card.clientWidth + 2) continue;
                 if (!['auto', 'scroll'].includes(getComputedStyle(card).overflowX)) issues.push('wide table cannot scroll');
             }
+            if (innerWidth <= 760) {
+                for (const group of document.querySelectorAll('.refresh-picker')) {
+                    if (!group.getClientRects().length) continue;
+                    const controls = [...group.children].map(e => e.getBoundingClientRect());
+                    if (controls.some(r => r.height < 44 || r.left < -1 || r.right > innerWidth+1) || Math.abs(controls[0].height-controls[1].height)>1)
+                        issues.push('refresh controls have inconsistent size or overflow');
+                }
+                for (const e of document.querySelectorAll('.rtable td')) {
+                    if (e.getClientRects().length && e.scrollWidth > e.clientWidth+2)
+                        issues.push('mobile table value clipped: '+e.innerText.slice(0,60));
+                }
+                for (const e of document.querySelectorAll('button.switch')) {
+                    if (!e.getClientRects().length) continue;
+                    const r=e.getBoundingClientRect();
+                    if (r.width<44 || r.height<44) issues.push('switch touch area too small');
+                }
+            }
             return issues;
         }''')
         failures.extend(f'{label}: {issue}' for issue in issues)

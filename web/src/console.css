@@ -207,3 +207,74 @@ tr.sel td { background: var(--pri-soft); }
 .node-browser .nodes:has(> .ncard:only-child) { max-width: 480px; }
 .node-browser .nodes:has(> .ncard:nth-child(2):last-child) { max-width: 980px; }
 .node-browser .ncard.on { border-color: var(--pri-line); box-shadow: 0 0 0 1px var(--pri-line); }
+
+/* Shared mobile controls must wrap as groups, with one consistent touch size. */
+.refresh-picker { gap: 6px; flex-wrap: nowrap; }
+.refresh-picker > .btn { flex: none; min-height: 36px; }
+.refresh-picker > select.input { width: auto; min-width: 0; min-height: 36px; flex: 1; }
+.nm-pop { overflow-y: auto; overscroll-behavior: contain; }
+.nm-pop-h { align-items: flex-start; }
+.nm-pop-h > .icon-btn { flex: none; }
+.nm-pop-name, .nm-kv dd { min-width: 0; }
+.nm-pop-inline { position: relative; inset: auto; width: 100%; max-height: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; padding: 16px; animation: fade-in .18s var(--ease) both; }
+.nm-pop-inline .nm-pop-link { display: inline-flex; align-items: center; min-height: 44px; }
+@media (max-width: 760px) {
+  html { scroll-padding-top: calc(68px + env(safe-area-inset-top)); scroll-padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+  .mtop, .mtabs { background: var(--card); }
+  .page-content > .top > .row { align-items: stretch; gap: 8px; }
+  :is(.top > .row, .pv-head-actions) > .refresh-picker { flex: 1 1 100%; width: 100%; }
+  .page-content .btn, .refresh-picker > .btn, .refresh-picker > select.input { min-height: 44px; }
+  .page-content > .top .btn { white-space: normal; overflow-wrap: anywhere; }
+  .page-content .btn svg { flex-shrink: 0; }
+  .pv-head-actions > .btn { flex: 1; }
+  .kpi .foot, .ctitle > :is(span, h2, h3) { overflow-wrap: anywhere; min-width: 0; }
+  /* Selection belongs to the whole mobile card, not each desktop cell. */
+  .rtable tr.sel { background: var(--soft-2); box-shadow: inset 3px 0 0 var(--pri); }
+  .rtable tr.sel td { background: transparent; }
+  .rtable tr.sel td:first-child { box-shadow: none; }
+  .rtable td { overflow-wrap: anywhere; align-items: flex-start; }
+  .rtable td > * { min-width: 0; max-width: 100%; }
+  .rtable td[data-label]::before { max-width: 44%; overflow-wrap: anywhere; }
+  .rtable td.rt-head { padding-right: 0; }
+  .rtable tr:has(.rt-check) > .rt-head { padding-right: 44px; }
+  .rtable td.rt-actions { align-items: center; gap: 8px; }
+  .rtable .rt-actions :is(button.link, a.link) { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 6px 10px; }
+}
+
+@media (pointer: coarse) {
+  .refresh-picker > .btn, .refresh-picker > select.input { min-height: 44px; }
+}
+
+/* Touch-sized hit areas keep the visual switch track compact. */
+@media (max-width: 760px), (pointer: coarse) {
+  :is(.page-content, .overlay, .login) :is(input.input, select.input) { min-height: 44px; }
+  .switch, .switch.on { width: 44px; height: 44px; background: transparent; }
+  .switch::before { content: ''; position: absolute; left: 0; right: 0; top: 10px; height: 24px; border-radius: 12px; background: var(--input-strong); transition: background-color .2s var(--ease); }
+  .switch.on::before { background: var(--pri); }
+  .switch::after { width: 18px; height: 18px; top: 13px; }
+  .switch.on::after { transform: translateX(20px); }
+  .switch:active::after { width: 22px; }
+  .switch.on:active::after { transform: translateX(16px); }
+}
+
+@media (max-width: 760px) {
+  .rtable .tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+  .user-grants { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+  .user-grants > .tag { margin: 0; }
+  .rtable td:has(.switch), .rtable td:has(> select.input) { align-items: center; }
+}
+@media (max-width: 760px), (pointer: coarse) {
+  .nm-ctl button { width: 44px; height: 44px; }
+  .nm-pop .icon-btn { min-width: 44px; min-height: 44px; }
+}
+@media (pointer: coarse) {
+  .app .side .nav, .app .side .navsub .nav { min-height: 44px; }
+}
+@media (pointer: coarse) and (min-width: 761px) and (max-width: 1100px) {
+  .workspace-search { min-width: 44px; width: 44px; min-height: 44px; }
+}
+
+@media (pointer: coarse) {
+  .page-content .btn, .page-content .icon-btn { min-width: 44px; min-height: 44px; }
+  .rtable .rt-actions :is(button.link, a.link) { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 6px 10px; }
+}

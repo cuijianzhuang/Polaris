@@ -132,6 +132,7 @@ export default function Users() {
       <div className="top">
         <div><h1>{t('用户')}</h1><div className="sub">{t('一个用户跨所有内核、所有协议通用 · 可整台绑定节点、按分组或单独授权入站')}</div></div>
         <div className="row">
+          <RefreshPicker ms={refreshMs} onChange={setRefreshMs} onNow={list.reload} />
           <button className="btn" type="button" onClick={() => setModal('groups')}>{t('分组')}</button>
           <details className="menu">
             <summary className="btn">{t('更多')}</summary>
@@ -149,7 +150,6 @@ export default function Users() {
               }}>{t('重置全部用户流量')}</button>
             </div>
           </details>
-          <RefreshPicker ms={refreshMs} onChange={setRefreshMs} onNow={list.reload} />
           <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ {t('新建用户')}</button>
         </div>
       </div>
@@ -198,13 +198,13 @@ export default function Users() {
                     <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={t('选择 {name}', { name: u.username })} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
                     <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
                     <td data-label={t('状态')} onClick={(e) => e.stopPropagation()}><div className="row" title={t('开关控制手动启用；到期和流量限制仍然生效')}><UserStateSwitch user={u} onSaved={list.reload} />{statusBadge(u)}</div></td>
-                    <td data-label={t('授权')}>
+                    <td data-label={t('授权')}><div className="user-grants">
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title={t('整台节点')}>{nname(n)}</span>)}
                       {u.planId && <span className="tag info-tag" title={t('套餐')}>{gname(u.planId)}</span>}
                       {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
                       {(u.inboundIds ?? []).length > 0 && <span className="tag" title={t('单独授权的入站')}>{t('+{n} 入站', { n: u.inboundIds.length })}</span>}
                       {!u.planId && !u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">{t('未授权')}</span>}
-                    </td>
+                    </div></td>
                     <td data-label={t('流量')} className="rt-wrap" style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : t('不限')}</span>
                       {(u.speedUpMbps || u.speedDownMbps) ? <span className="tag info-tag" style={{ marginLeft: 6 }} title={t('单独限速 (Mbps)')}>↑{u.speedUpMbps || '∞'} ↓{u.speedDownMbps || '∞'}</span> : null}

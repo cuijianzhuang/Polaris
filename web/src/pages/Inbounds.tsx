@@ -600,7 +600,7 @@ export default function Inbounds() {
                     {(i.protocol.fallbacks?.length ?? 0) > 0 && <span className="tag xray" style={{ marginLeft: 6 }}>{t('{n} 个回落', { n: i.protocol.fallbacks!.length })}</span>}
                     {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>{t('经 {tag} 回落', { tag: masterOf[i.id] })}</span>}
                     {i.speedLimitMbps > 0 && <span className="tag" style={{ marginLeft: 6 }}>{t('限速 {n}M', { n: i.speedLimitMbps })}</span>}</td>
-                  <td data-label={t('节点')}>{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></td>
+                  <td data-label={t('节点')}><div>{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></div></td>
                   <td data-label={t('协议')}>{inboundSummary(i).split(' · ')[0]}</td>
                   <td data-label={t('传输 · 安全')}>{inboundSummary(i).split(' · ').slice(1).join(' · ')}</td>
                   <td data-label={t('端口')} className="mono">{portLabel(i)}<HealthDot h={i.health} /></td>
