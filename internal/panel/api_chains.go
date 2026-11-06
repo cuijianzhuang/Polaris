@@ -38,24 +38,38 @@ func (s *Server) listChains(c *gin.Context) {
 	}
 	type chainView struct {
 		store.Chain
-		Published *bool `json:"published,omitempty"`
+		Published           *bool    `json:"published,omitempty"`
+		ConfigurationIssues []string `json:"configurationIssues,omitempty"`
 	}
 	var entryIDs []string
+	var nodeIDs []string
 	for _, ch := range cs {
 		if ch.Mode == "proxy" && len(ch.Hops.V) >= 2 {
-			entryIDs = append(entryIDs, ch.Hops.V[0].InboundID)
+			for _, h := range ch.Hops.V {
+				entryIDs = append(entryIDs, h.InboundID)
+				nodeIDs = append(nodeIDs, h.NodeID)
+			}
 		}
 	}
 	entries := map[string]store.Inbound{}
 	publishedEntries := map[string]bool{}
+	nodeCores := map[string][]store.Core{}
 	if len(entryIDs) > 0 {
 		var inbounds []store.Inbound
-		if err := s.st.DB.Select("id", "enabled", "relay_only").Where("id IN ?", entryIDs).Find(&inbounds).Error; err != nil {
+		if err := s.st.DB.Select("id", "node_id", "enabled", "relay_only", "core", "protocol", "transport").Where("id IN ?", entryIDs).Find(&inbounds).Error; err != nil {
 			dbError(c, err)
 			return
 		}
 		for _, in := range inbounds {
 			entries[in.ID] = in
+		}
+		var cores []store.Core
+		if err := s.st.DB.Select("node_id", "type", "version", "running_version").Where("node_id IN ?", nodeIDs).Find(&cores).Error; err != nil {
+			dbError(c, err)
+			return
+		}
+		for _, cr := range cores {
+			nodeCores[cr.NodeID] = append(nodeCores[cr.NodeID], cr)
 		}
 		var endpoints []store.Endpoint
 		if err := s.st.DB.Select("inbound_id", "relay_chain_id").Where("kind = ? AND inbound_id IN ?", "relay", entryIDs).Find(&endpoints).Error; err != nil {
@@ -76,6 +90,14 @@ func (s *Server) listChains(c *gin.Context) {
 				published = entry.Enabled && !ch.Disabled && (publishedEntries[ch.ID+"/"+entry.ID] || !entry.RelayOnly)
 			}
 			view.Published = &published
+			for i, h := range ch.Hops.V[:len(ch.Hops.V)-1] {
+				if next, ok := entries[ch.Hops.V[i+1].InboundID]; ok {
+					m := model.Inbound{Protocol: next.Protocol.V, Transport: next.Transport.V}
+					if err := nodeRefTransportError(nodeCores[h.NodeID], &m); err != nil {
+						view.ConfigurationIssues = append(view.ConfigurationIssues, fmt.Sprintf("第 %d 跳：%v", i+1, err))
+					}
+				}
+			}
 		}
 		out = append(out, view)
 	}
@@ -199,6 +221,9 @@ func (s *Server) validateChain(req *chainReq, chainID string) error {
 			}
 			nextModel := s.toModelInbound(&next)
 			if err := s.checkNodeRefReality(h.NodeID, &nextModel); err != nil {
+				return fmt.Errorf("第 %d 跳：%w", i+1, err)
+			}
+			if err := s.checkNodeRefTransportOn(s.st.DB, h.NodeID, &nextModel); err != nil {
 				return fmt.Errorf("第 %d 跳：%w", i+1, err)
 			}
 		}
@@ -628,6 +653,10 @@ func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, 
 		if t, ok = outboundTypeFor(in.Protocol.V.Type); !ok {
 			return badInput{fmt.Errorf("%s 不能作为出站目标", in.Protocol.V.Type)}
 		}
+		m := s.toModelInbound(&in)
+		if err := s.checkNodeRefTransportOn(tx, nodeID, &m); err != nil {
+			return badInput{err}
+		}
 	}
 	if err := s.nodeSupportsOutboundOn(tx, nodeID, t); err != nil {
 		return badInput{err}
@@ -642,6 +671,9 @@ func (s *Server) storeOutboundTx(tx *gorm.DB, nodeID string, o *store.Outbound, 
 		if err := json.Unmarshal(req.Settings, &tmp); err != nil {
 			return badInput{fmt.Errorf("settings: %w", err)}
 		}
+	}
+	if err := s.checkOutboundTransportOn(tx, nodeID, model.Outbound{Type: req.Type, Settings: req.Settings}); err != nil {
+		return badInput{err}
 	}
 	var members []string
 	if req.Type.IsGroup() {

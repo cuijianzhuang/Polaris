@@ -110,7 +110,7 @@ export interface CDNProbe { region?: string; port?: number; source: string; toke
 export interface CDNIPReport { port?: number; scheme?: 'http' | 'https'; source: string; carrier?: string; region?: string; at: string; ips: { ip: string; latencyMs: number; loss: number; speed?: number; colo?: string }[] }
 export interface ChainHop { nodeId: string; inboundId?: string; port?: number }
 export interface HopProbe { nodeId: string; latencyMs: number; ok: boolean; skipped?: boolean; error?: string }
-export interface Chain { id: string; name: string; mode: 'l4' | 'proxy'; hops: ChainHop[]; disabled?: boolean; published?: boolean; serviceUserId: string; probe: HopProbe[]; probedAt?: string; remark: string }
+export interface Chain { id: string; name: string; mode: 'l4' | 'proxy'; hops: ChainHop[]; disabled?: boolean; published?: boolean; configurationIssues?: string[]; serviceUserId: string; probe: HopProbe[]; probedAt?: string; remark: string }
 export interface Outbound { id: string; nodeId: string; tag: string; type: string; settings?: any; nodeRefInboundId: string; sourceNodeId?: string; detour: string; chainId: string; remark: string }
 export interface RouteMatch { inbound?: string[]; userGroups?: string[]; users?: string[]; domain?: string[]; domainSuffix?: string[]; domainKeyword?: string[]; geosite?: string[]; geoip?: string[]; ipCidr?: string[]; ruleSets?: string[]; port?: string[]; network?: string }
 export interface RuleSet {
