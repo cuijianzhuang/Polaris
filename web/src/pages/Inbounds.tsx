@@ -1,8 +1,8 @@
 import SnellSetup from '../components/SnellSetup'
 import OutboundIPField from '../components/OutboundIPField'
 import RelayManager, { RelayAccessFields } from '../components/RelayManager'
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icons'
 import { CloneModal, ImportInboundModal } from '../components/InboundTools'
 import { downloadJSON } from '../components/UserTools'
@@ -90,7 +90,7 @@ function Endpoints({ inbound, onChanged, onPendingChange, onManageRelay, relayVe
             {checks[e.id] && <CheckResult r={checks[e.id]} />}
           </div>
         ))}
-        {eps.data?.length === 0 && <div className="mute" style={{ padding: '12px 14px' }}>{t('无入口：订阅按直连生成')}</div>}
+        {eps.data?.length === 0 && <div className="mute" style={{ padding: '12px 14px' }}>{inbound.relayOnly ? t('暂无发布入口，订阅中隐藏此入站') : t('无入口：订阅按直连生成')}</div>}
       </div>
       {!adding && <div><button className="btn sm" type="button" onClick={() => setAdding(true)}>{t('+ 添加入口')}</button></div>}
       {adding && <div className="card" style={{ display: 'grid', gap: 10, background: 'var(--soft)' }}>
@@ -338,6 +338,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const [relaysOpen, setRelaysOpen] = useState(false)
   const [endpointPending, setEndpointPending] = useState(false)
   const [relayVersion, setRelayVersion] = useState(0)
+  const protocolChains = useLoad(() => editing ? get<Chain[]>('/chains') : Promise.resolve([] as Chain[]), [editing?.id])
+  const boundChains = (protocolChains.data ?? []).filter((c) => c.mode === 'proxy' && c.hops.slice(0, -1).some((h) => h.inboundId === editing?.id))
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
   const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
   const [newCDN, setNewCDN] = useState({ profileId: '', only: false })
@@ -429,6 +431,7 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         <span style={{ flex: '1 1 200px' }}>{t('一键按 CDN 配置档设置协议、传输、回源安全和可用端口，订阅仅发布 CDN 入口。')}</span>
         <button className="btn sm pri" type="button" onClick={oneClickCDN}>{t('一键配置 CDN')}</button>
       </div>}
+      {boundChains.length > 0 && <div className="note small"><b>{t('协议中转绑定')}</b>：{boundChains.map((c) => c.name).join(' · ')}<div>{t('这是链路复用的入口入站；客户端仍使用本入站的协议、端口与用户凭据。')}</div><Link className="link" to="/chains">{t('查看链路')}</Link></div>}
       <Section step={1} title={t('基础')} summary={[node?.name, tag, port && ':' + port, enabled ? '' : t('已停用')].filter(Boolean).join(' · ')}>
         <Field label={t('节点')} htmlFor="ib-node">
           <select id="ib-node" className="input" value={nodeId} disabled={!!editing} onChange={(e) => setNodeId(e.target.value)}>
@@ -528,6 +531,14 @@ export default function Inbounds() {
     return m
   }, [tagStats.data])
   const [drawer, setDrawer] = useState<Inbound | 'new' | null>(null)
+  const linkedInbound = params.get('inbound')
+  const openedInbound = useRef<string | null>(null)
+  useEffect(() => {
+    if (!linkedInbound) { openedInbound.current = null; return }
+    if (openedInbound.current === linkedInbound || !list.data) return
+    const inbound = list.data.find((i) => i.id === linkedInbound)
+    if (inbound) { openedInbound.current = linkedInbound; setDrawer(inbound) }
+  }, [linkedInbound, list.data])
   const [snellSetup,setSnellSetup] = useState(false)
   const [snellNode,setSnellNode] = useState<string>()
   const [relayInbound, setRelayInbound] = useState<Inbound>()

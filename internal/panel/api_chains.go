@@ -32,8 +32,54 @@ type chainReq struct {
 
 func (s *Server) listChains(c *gin.Context) {
 	var cs []store.Chain
-	s.st.DB.Order("name").Find(&cs)
-	c.JSON(http.StatusOK, cs)
+	if err := s.st.DB.Order("name").Find(&cs).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	type chainView struct {
+		store.Chain
+		Published *bool `json:"published,omitempty"`
+	}
+	var entryIDs []string
+	for _, ch := range cs {
+		if ch.Mode == "proxy" && len(ch.Hops.V) >= 2 {
+			entryIDs = append(entryIDs, ch.Hops.V[0].InboundID)
+		}
+	}
+	entries := map[string]store.Inbound{}
+	publishedEntries := map[string]bool{}
+	if len(entryIDs) > 0 {
+		var inbounds []store.Inbound
+		if err := s.st.DB.Select("id", "enabled", "relay_only").Where("id IN ?", entryIDs).Find(&inbounds).Error; err != nil {
+			dbError(c, err)
+			return
+		}
+		for _, in := range inbounds {
+			entries[in.ID] = in
+		}
+		var endpoints []store.Endpoint
+		if err := s.st.DB.Select("inbound_id", "relay_chain_id").Where("kind = ? AND inbound_id IN ?", "relay", entryIDs).Find(&endpoints).Error; err != nil {
+			dbError(c, err)
+			return
+		}
+		for _, ep := range endpoints {
+			publishedEntries[ep.RelayChainID+"/"+ep.InboundID] = true
+		}
+	}
+	out := make([]chainView, 0, len(cs))
+	for _, ch := range cs {
+		view := chainView{Chain: ch}
+		if ch.Mode == "proxy" && len(ch.Hops.V) >= 2 {
+			entry, exists := entries[ch.Hops.V[0].InboundID]
+			published := false
+			if exists {
+				published = entry.Enabled && !ch.Disabled && (publishedEntries[ch.ID+"/"+entry.ID] || !entry.RelayOnly)
+			}
+			view.Published = &published
+		}
+		out = append(out, view)
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // outboundTypeFor maps an inbound protocol to the client outbound used to reach it.
@@ -118,6 +164,11 @@ func (s *Server) validateChain(req *chainReq, chainID string) error {
 	if landing.RelayAccess.V.Enabled {
 		return fmt.Errorf("该落地已启用来源保护，请使用入站一键中转接口创建受管线路")
 	}
+	if req.Mode == "proxy" && chainID == "" {
+		if err := validateProxyChainBindings(s.st.DB, req, chainID); err != nil {
+			return err
+		}
+	}
 	for i, h := range req.Hops[:len(req.Hops)-1] {
 		switch req.Mode {
 		case "l4":
@@ -146,7 +197,61 @@ func (s *Server) validateChain(req *chainReq, chainID string) error {
 			if err := s.nodeSupportsOutbound(h.NodeID, t); err != nil {
 				return fmt.Errorf("第 %d 跳：%w", i+1, err)
 			}
+			nextModel := s.toModelInbound(&next)
+			if err := s.checkNodeRefReality(h.NodeID, &nextModel); err != nil {
+				return fmt.Errorf("第 %d 跳：%w", i+1, err)
+			}
 		}
+	}
+	return nil
+}
+
+// Protocol-chain rules match the whole inbound. Two paths cannot independently
+// route the same listener, and an explicit inbound egress outranks chain rules.
+type proxyChainBindingError struct{ error }
+
+func validateProxyChainBindings(db *gorm.DB, req *chainReq, chainID string) error {
+	if req.Mode != "proxy" {
+		return nil
+	}
+	var existing []store.Chain
+	if err := db.Where("mode = ? AND id <> ? AND disabled = ?", "proxy", chainID, false).Find(&existing).Error; err != nil {
+		return err
+	}
+	for i, hop := range req.Hops {
+		var in store.Inbound
+		if err := db.First(&in, "id = ? AND node_id = ?", hop.InboundID, hop.NodeID).Error; err != nil {
+			return proxyChainBindingError{fmt.Errorf("第 %d 跳入站不存在", i+1)}
+		}
+		if !in.Enabled {
+			return proxyChainBindingError{fmt.Errorf("第 %d 跳入站「%s」已停用", i+1, in.Tag)}
+		}
+		if i == len(req.Hops)-1 {
+			continue
+		}
+		if i == 0 && in.ServiceOnly {
+			return proxyChainBindingError{fmt.Errorf("客户端入口不能使用服务专用入站")}
+		}
+		if i == 0 && in.RelayAccess.V.Enabled {
+			return proxyChainBindingError{fmt.Errorf("入口启用了仅中转访问保护，请选择面向客户端的入站")}
+		}
+		if in.OutboundTag != "" {
+			return proxyChainBindingError{fmt.Errorf("入站「%s」已绑定出站「%s」，会覆盖链路路由；请先在入站配置中解除绑定", in.Tag, in.OutboundTag)}
+		}
+		for _, ch := range existing {
+			for _, h := range ch.Hops.V[:max(0, len(ch.Hops.V)-1)] {
+				if h.InboundID == hop.InboundID {
+					return proxyChainBindingError{fmt.Errorf("入站「%s」已用于协议中转「%s」；新链路需要独立入站", in.Tag, ch.Name)}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func lockChainConfiguration(tx *gorm.DB) error {
+	if tx.Dialector.Name() == "postgres" {
+		return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "polaris-relay-config").Error
 	}
 	return nil
 }
@@ -158,6 +263,14 @@ func (s *Server) materializeChain(tx *gorm.DB, ch *store.Chain) error {
 	landing := hops[len(hops)-1]
 	if ch.Mode == "l4" {
 		return tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: landing.InboundID, Kind: "relay", RelayChainID: ch.ID}).Error
+	}
+	// This listener now belongs to a protocol path. Keep direct/CDN entries
+	// dormant so removing the path cannot silently publish a direct fallback.
+	if err := tx.Model(&store.Inbound{}).Where("id = ?", hops[0].InboundID).Update("relay_only", true).Error; err != nil {
+		return err
+	}
+	if err := tx.Create(&store.Endpoint{ID: store.NewID(), InboundID: hops[0].InboundID, Kind: "relay", RelayChainID: ch.ID}).Error; err != nil {
+		return err
 	}
 	svc := store.User{ID: store.NewID(), Username: "svc-" + ch.ID, UUID: pki.UUID(), Password: pki.Password(24),
 		SSSeed: pki.Token(24), Status: "active", SubToken: pki.Token(32), IsService: true, Remark: "chain " + ch.Name,
@@ -188,6 +301,13 @@ func (s *Server) materializeChain(tx *gorm.DB, ch *store.Chain) error {
 }
 
 func (s *Server) dematerializeChain(tx *gorm.DB, ch *store.Chain) error {
+	// Also retire entries from chains created before explicit proxy endpoints
+	// existed. Administrators may later opt back into direct publication.
+	if ch.Mode == "proxy" && len(ch.Hops.V) > 0 {
+		if err := tx.Model(&store.Inbound{}).Where("id = ?", ch.Hops.V[0].InboundID).Update("relay_only", true).Error; err != nil {
+			return err
+		}
+	}
 	if err := tx.Where("chain_id = ?", ch.ID).Delete(&store.RelayBusinessStatus{}).Error; err != nil {
 		return err
 	}
@@ -217,6 +337,8 @@ func chainNodes(ch *store.Chain) []string {
 }
 
 func (s *Server) createChain(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var req chainReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -229,13 +351,19 @@ func (s *Server) createChain(c *gin.Context) {
 	ch := store.Chain{ID: store.NewID(), Name: req.Name, Mode: req.Mode, Hops: store.NewJSON(req.Hops), Remark: req.Remark,
 		Probe: store.NewJSON([]store.HopProbe{})}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockChainConfiguration(tx); err != nil {
+			return err
+		}
+		if err := validateProxyChainBindings(tx, &req, ""); err != nil {
+			return err
+		}
 		if err := tx.Create(&ch).Error; err != nil {
 			return err
 		}
 		return s.materializeChain(tx, &ch)
 	})
 	if err != nil {
-		dbError(c, err)
+		relayChangeError(c, err)
 		return
 	}
 	s.MarkDirty("chain "+ch.Name, chainNodes(&ch)...)
@@ -244,6 +372,8 @@ func (s *Server) createChain(c *gin.Context) {
 }
 
 func (s *Server) updateChain(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var ch store.Chain
 	if err := s.st.DB.First(&ch, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -268,6 +398,9 @@ func (s *Server) updateChain(c *gin.Context) {
 	}
 	before := []string{}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockChainConfiguration(tx); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&ch, "id = ?", c.Param("id")).Error; err != nil {
 			return err
 		}
@@ -275,10 +408,14 @@ func (s *Server) updateChain(c *gin.Context) {
 		if err := checkRelayChange(tx, c, "chain", "delete", []store.Chain{ch}); err != nil {
 			return err
 		}
+		if err := validateProxyChainBindings(tx, &req, ch.ID); err != nil {
+			return err
+		}
 		if err := s.dematerializeChain(tx, &ch); err != nil {
 			return err
 		}
 		ch.Name, ch.Mode, ch.Hops, ch.Remark, ch.ServiceUserID = req.Name, req.Mode, store.NewJSON(req.Hops), req.Remark, ""
+		ch.Probe, ch.ProbedAt = store.NewJSON([]store.HopProbe{}), nil
 		if err := tx.Save(&ch).Error; err != nil {
 			return err
 		}
@@ -389,8 +526,12 @@ func (s *Server) runChainProbe(ch *store.Chain) []store.HopProbe {
 			case !res.Ok:
 				p.Error = res.Error
 			default:
-				p.OK = true
-				p.LatencyMs, _ = strconv.Atoi(res.Output)
+				ms, err := strconv.Atoi(res.Output)
+				if err != nil || ms < 0 {
+					p.Error = "节点返回无效的探测结果"
+				} else {
+					p.OK, p.LatencyMs = true, ms
+				}
 			}
 			probes[i] = p
 		}(i)

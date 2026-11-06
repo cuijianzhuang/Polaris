@@ -17,6 +17,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -406,6 +407,9 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 		mm := s.toModelInbound(master)
 		m.Port, m.Security = mm.Port, mm.Security
 	}
+	if err := s.checkNodeRefReality(o.NodeID, &m); err != nil {
+		return nil, err
+	}
 	set := model.OutboundSettings{Server: nodeHost(&target), Port: m.Port}
 	var typ model.OutboundType
 	switch m.Protocol.Type {
@@ -449,6 +453,33 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 	}
 	b, _ := json.Marshal(set)
 	return &model.Outbound{ID: o.ID, NodeID: o.NodeID, Tag: o.Tag, Type: typ, Settings: b, Detour: o.Detour}, nil
+}
+
+// Client subscriptions already omit these servers for sing-box/mihomo. Apply
+// the same restriction to server-to-server node_ref clients used by chains.
+func (s *Server) checkNodeRefReality(sourceNode string, target *model.Inbound) error {
+	if target.Core != model.CoreXray || target.Security.Type != model.SecReality {
+		return nil
+	}
+	var server store.Core
+	if err := s.st.DB.First(&server, "node_id = ? AND type = ?", target.NodeID, model.CoreXray).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+	version := orDefault(server.RunningVersion, server.Version)
+	if !core.VersionAtLeast(version, model.XrayPQRealityVersion) {
+		return nil
+	}
+	var sources []store.Core
+	if err := s.st.DB.Where("node_id = ? AND type IN ?", sourceNode, []model.CoreType{model.CoreSingbox, model.CoreMihomo}).Find(&sources).Error; err != nil {
+		return err
+	}
+	if len(sources) > 0 {
+		return fmt.Errorf("落地 Xray %s 的 REALITY 要求 X25519MLKEM768，%s 出站无法连接；请选择兼容的落地入站", version, sources[0].Type)
+	}
+	return nil
 }
 
 // buildRoutes resolves user-group conditions into user ids.

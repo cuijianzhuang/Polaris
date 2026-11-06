@@ -175,18 +175,39 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 			}
 			vars["rate"] = rateLabel(rate)
 		}
-		// Proxy-chain relay inbounds are named "[relay] → [landing]".
-		for _, ch := range chains {
-			hops := ch.Hops.V
-			if ch.Mode == "proxy" && len(hops) >= 2 && hops[0].InboundID == in.ID {
-				if land, ok := nodes[hops[len(hops)-1].NodeID]; ok {
-					vars["node"] = node.Name + " → " + land.Name
-				}
-			}
-		}
 		var eps []store.Endpoint
 		s.st.DB.Where("inbound_id = ?", in.ID).Order("sort_order, created_at").Find(&eps)
-		if len(eps) == 0 && !in.RelayOnly {
+		// Old protocol chains reused a listener without creating an endpoint.
+		// Publish the explicit chain entry (or an in-memory equivalent for old
+		// records), never a misleading direct/CDN alias of the same path.
+		var proxyEntries []store.Endpoint
+		proxyBound := false
+		for _, ch := range chains {
+			if ch.Mode != "proxy" || len(ch.Hops.V) < 2 || ch.Hops.V[0].InboundID != in.ID || ch.Hops.V[0].NodeID != in.NodeID {
+				continue
+			}
+			proxyBound = true
+			if ch.Disabled {
+				continue
+			}
+			ep := store.Endpoint{Kind: "relay", RelayChainID: ch.ID, InboundID: in.ID}
+			for _, saved := range eps {
+				if saved.Kind == "relay" && saved.RelayChainID == ch.ID {
+					ep = saved
+					break
+				}
+			}
+			if ep.ID == "" && in.RelayOnly {
+				// The explicit entry was withdrawn. Only old chains that still
+				// have implicit direct publication need the compatibility path.
+				continue
+			}
+			proxyEntries = append(proxyEntries, ep)
+		}
+		if proxyBound {
+			eps = proxyEntries
+		}
+		if len(eps) == 0 && !in.RelayOnly && !proxyBound {
 			eps = []store.Endpoint{{Kind: "direct"}}
 		}
 		for _, ep := range eps {
@@ -371,7 +392,24 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		return out
 	case "relay":
 		for _, ch := range chains {
-			if ch.Disabled || ch.ID != ep.RelayChainID || ch.Mode != "l4" || len(ch.Hops.V) < 2 || ch.Hops.V[len(ch.Hops.V)-1].InboundID != m.ID || ch.Hops.V[len(ch.Hops.V)-1].NodeID != m.NodeID {
+			if ch.Disabled || ch.ID != ep.RelayChainID || len(ch.Hops.V) < 2 {
+				continue
+			}
+			if ch.Mode == "proxy" {
+				if ch.Hops.V[0].InboundID != m.ID || ch.Hops.V[0].NodeID != m.NodeID {
+					continue
+				}
+				v := map[string]string{}
+				for k, x := range vars {
+					v[k] = x
+				}
+				v["node"] = ch.Name
+				// Preserve the entry's TLS/Caddy handling and user credentials.
+				direct := ep
+				direct.Kind = "direct"
+				return s.expandEndpoint(base, direct, v, nameTpl, nodes, nil, m, carrier, audience...)
+			}
+			if ch.Mode != "l4" || ch.Hops.V[len(ch.Hops.V)-1].InboundID != m.ID || ch.Hops.V[len(ch.Hops.V)-1].NodeID != m.NodeID {
 				continue
 			}
 			entry, ok := nodes[ch.Hops.V[0].NodeID]
