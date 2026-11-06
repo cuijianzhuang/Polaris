@@ -1,3 +1,4 @@
+import CountryFlag, { FlagText } from '../components/CountryFlag'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import NetCollectionHealth from '../components/NetCollectionHealth'
@@ -5,7 +6,7 @@ import type { NetCollectionHealth as NetHealth } from '../types'
 import { receivedNetHealth } from '../netHealth'
 import { get, post, put } from '../api'
 import { Drawer, Empty, Field, Modal, Switch, useAction, useLoad } from '../components/ui'
-import { bytes, flag } from '../format'
+import { bytes } from '../format'
 import { t } from '../i18n'
 
 interface CostItem {
@@ -147,7 +148,7 @@ export default function Costs() {
               <tbody>
                 {(d?.items ?? []).map((it) => (
                   <tr key={it.nodeId}>
-                    <td style={{ fontWeight: 500 }}><Link className="link" to={'/nodes?id=' + encodeURIComponent(it.nodeId)} title={t('查看节点采样详情')}>{it.flag ? flag(it.flag) + ' ' : ''}{it.name}</Link></td>
+                    <td style={{ fontWeight: 500 }}><Link className="link" to={'/nodes?id=' + encodeURIComponent(it.nodeId)} title={t('查看节点采样详情')}><CountryFlag code={it.flag} /> <FlagText>{it.name}</FlagText></Link></td>
                     <td>{it.provider || <span className="mute">—</span>}{it.note && <div className="small mute">{it.note}</div>}</td>
                     <td className="mono">{it.amount ? <>{money(it.amount, it.currency)}<span className="mute"> / {Object.fromEntries(cycles())[it.cycle] ?? it.cycle}</span></> : <span className="mute">{t('未设置')}</span>}</td>
                     <td className="mono">{it.monthly ? money(it.monthly, base) : it.cycle !== 'once' && it.amount && !it.converted ? <span className="mute">{t('无汇率')}</span> : '—'}</td>

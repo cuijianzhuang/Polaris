@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/flags"
 	"github.com/gin-gonic/gin"
 )
 
@@ -99,7 +100,7 @@ var statusCSS string
 //go:embed probe_assets/status.js
 var statusJS string
 
-var statusTpl = template.Must(template.New("status").Parse(`<!doctype html>
+var statusTpl = template.Must(template.New("status").Funcs(template.FuncMap{"taiwanFlag": flags.Taiwan}).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="icon" type="image/png" href="/favicon.ico"><meta name="referrer" content="no-referrer"><meta name="color-scheme" content="light dark">
 <title>{{.Title}}</title><style>
@@ -108,7 +109,7 @@ main.pv-monitor{padding:34px 24px 48px}
 @media(max-width:640px){main.pv-monitor{padding:24px 14px}.pv-detail{padding:18px}}
 ` + statusCSS + `
 @media(prefers-color-scheme:dark){body.public-status{background:#0b1018;background-image:radial-gradient(ellipse at 12% 0,rgba(57,210,192,.035),transparent 55%)}.public-status .pv{--pv-card:#131b27;--pv-card-2:#182230;--pv-line:#253144;--pv-ink:#d3dae3;--pv-mute:#91a0b6;--pv-track:#222f41;--pv-green:#37d4ad;--pv-blue:#75aaff;--pv-yellow:#ffb870;--pv-red:#fb8491;--pv-cyan:#56d3ce;--pv-purple:#b392f0;--pv-glow:0 4px 18px -14px #000}}
-</style></head><body class="public-status"><main class="pv pv-monitor">
+</style></head><body class="public-status"><template id="taiwan-flag">{{taiwanFlag}}</template><main class="pv pv-monitor">
 <header class="pv-dashboard-head"><div><div class="pv-eyebrow">POLARIS / SERVER MONITOR</div><h1>{{.Title}}</h1><div class="pv-subtitle">资源状态与网络质量 <span class="pv-live"><i></i><span id="at">等待更新</span></span></div></div><span class="pv-count">每 2 秒更新</span></header>
 <div id="note" class="note" hidden></div><div id="error" class="note" role="alert" hidden><span id="error-message"></span><button type="button" id="retry" class="pv-link">重试</button></div><div id="probe-disabled" class="note" hidden>延迟探测已关闭</div>
 <div id="sum"></div>

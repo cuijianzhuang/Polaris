@@ -10,7 +10,13 @@
   const now = () => last ? Date.parse(last.at) + Math.max(0, performance.now() - received) : Date.now();
   const fresh = (n) => n.online && n.telemetryFresh !== false && Number.isFinite(Date.parse(n.lastSeen)) && now() - Date.parse(n.lastSeen) <= 90000 && Date.parse(n.lastSeen) - now() <= 60000;
   const liveLatency = (l) => l && Number.isFinite(Date.parse(l.at)) && now() - Date.parse(l.at) <= 180000 && Date.parse(l.at) - now() <= 60000;
-  const flag = (cc) => /^[a-z]{2}$/i.test(cc || '') ? String.fromCodePoint(...cc.toUpperCase().split('').map((v) => 127397 + v.charCodeAt(0))) : '◎';
+  const taiwanFlag = $('taiwan-flag').innerHTML;
+  const flagText = (text) => esc(text).replaceAll('🇹🇼', taiwanFlag);
+  const flag = (cc) => {
+    cc = String(cc || '').trim().toUpperCase();
+    if (/^[\u{1F1E6}-\u{1F1FF}]{2}$/u.test(cc)) return flagText(cc);
+    return cc === 'TW' ? taiwanFlag : /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...cc.split('').map((v) => 127397 + v.charCodeAt(0))) : '◎';
+  };
   const format = (value, units, base) => { let n = Number(value) || 0, i = 0; while (n >= base && i < units.length - 1) { n /= base; i++; } return n.toFixed(i ? 1 : 0) + ' ' + units[i]; };
   const bytes = (v) => format(v, ['B', 'KB', 'MB', 'GB', 'TB', 'PB'], 1024);
   const bps = (v) => format(v, ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'], 1000);
@@ -69,7 +75,7 @@
   }
   function card(n) {
     const f = fresh(n), cpu = f ? n.cpu : null, mem = f ? n.mem : null, disk = f && n.diskTotal > 0 ? n.disk : null;
-    let h = '<button type="button" data-node="' + esc(n.id) + '" class="pv-card' + (!n.online ? ' off' : concern(n) ? ' attention' : '') + '" aria-label="查看节点 ' + esc(n.name) + '"><div class="pv-hd"><span class="pv-flag">' + flag(n.flag) + '</span><span class="pv-identity"><strong class="pv-name">' + esc(n.name) + '</strong><span class="pv-region">' + esc(n.region || n.arch || '—') + '</span></span>' + badge(n) + '</div>' + badges(n);
+    let h = '<button type="button" data-node="' + esc(n.id) + '" class="pv-card' + (!n.online ? ' off' : concern(n) ? ' attention' : '') + '" aria-label="查看节点 ' + esc(n.name) + '"><div class="pv-hd"><span class="pv-flag">' + flag(n.flag) + '</span><span class="pv-identity"><strong class="pv-name">' + flagText(n.name) + '</strong><span class="pv-region">' + esc(n.region || n.arch || '—') + '</span></span>' + badge(n) + '</div>' + badges(n);
     h += view === 'ring' ? '<div class="pv-rings">' + ring('CPU', cpu) + ring('RAM', mem) + ring('DISK', disk) + '</div>' : '<div class="pv-rows">' + meter('CPU', cpu) + meter('RAM', mem) + meter('DISK', disk) + '</div>';
     h += '<div class="pv-load"><span>LOAD <small>1m</small></span><b>' + (f ? n.load1.toFixed(2) : '—') + '</b></div>';
     h += '<div class="pv-network"><span><small>接收速率</small><b class="pv-dn">↓ ' + (f ? bps(n.rxBps) : '—') + '</b></span><span><small>发送速率</small><b class="pv-up">↑ ' + (f ? bps(n.txBps) : '—') + '</b></span></div>';
@@ -86,7 +92,7 @@
     return '<div class="pv-scroll"><table class="pv-table"><thead><tr><th>节点</th><th>状态</th><th>CPU</th><th>RAM</th><th>DISK</th><th>接收 / 发送</th>' + (last.showTraffic ? '<th>本期流量</th>' : '') + '<th>网络质量</th><th>运行</th></tr></thead><tbody>' + ns.map((n) => {
       const f = fresh(n);
       const pings = targets(n).map((tg) => { const l = (n.latency || {})[tg.id], live = n.online && liveLatency(l); return '<span title="' + esc(tg.name) + '" style="color:' + (live ? pc(l.ms) : 'var(--pv-mute)') + '">' + esc(tg.name) + ' ' + (live ? l.ms > 0 ? l.ms.toFixed(l.ms < 1 ? 1 : 0) + ' ms' : '超时' : '—') + '</span>'; }).join('');
-      return '<tr><td><button class="pv-node-link" data-node="' + esc(n.id) + '">' + flag(n.flag) + ' ' + esc(n.name) + '</button></td><td>' + badge(n) + '</td><td>' + mini(f ? n.cpu : null) + '</td><td>' + mini(f ? n.mem : null) + '</td><td>' + mini(f && n.diskTotal > 0 ? n.disk : null) + '</td><td><span class="pv-dn">↓ ' + (f ? bps(n.rxBps) : '—') + '</span><br><span class="pv-up">↑ ' + (f ? bps(n.txBps) : '—') + '</span></td>' + (last.showTraffic ? '<td>' + bytes(n.netUsed) + '</td>' : '') + '<td><div class="pv-pings">' + pings + '</div></td><td>' + (f ? uptime(n.uptime) : '—') + '</td></tr>';
+      return '<tr><td><button class="pv-node-link" data-node="' + esc(n.id) + '">' + flag(n.flag) + ' ' + flagText(n.name) + '</button></td><td>' + badge(n) + '</td><td>' + mini(f ? n.cpu : null) + '</td><td>' + mini(f ? n.mem : null) + '</td><td>' + mini(f && n.diskTotal > 0 ? n.disk : null) + '</td><td><span class="pv-dn">↓ ' + (f ? bps(n.rxBps) : '—') + '</span><br><span class="pv-up">↑ ' + (f ? bps(n.txBps) : '—') + '</span></td>' + (last.showTraffic ? '<td>' + bytes(n.netUsed) + '</td>' : '') + '<td><div class="pv-pings">' + pings + '</div></td><td>' + (f ? uptime(n.uptime) : '—') + '</td></tr>';
     }).join('') + '</tbody></table></div>';
   }
   function filtered() {
@@ -114,7 +120,7 @@
   function drawDetail() {
     const n = last.nodes.find((n) => n.id === selected);
     if (!n) { $('detail').close(); selected = null; return; }
-    $('detail-title').textContent = n.name;
+    $('detail-title').innerHTML = flag(n.flag) + ' ' + flagText(n.name);
     const f = fresh(n);
     $('detail-content').innerHTML = '<div class="row">' + badges(n) + badge(n) + '</div><div class="pv-detail-summary"><div><small>运行时间</small><b>' + (f ? uptime(n.uptime) : '—') + '</b></div><div><small>接收速率</small><b>' + (f ? bps(n.rxBps) : '—') + '</b></div><div><small>发送速率</small><b>' + (f ? bps(n.txBps) : '—') + '</b></div></div><h3>近 2 小时网络质量</h3>' + quality(n, true) + '<p class="pv-footnote">每格 5 分钟；左侧为平均延迟，右侧为失败率。灰格表示无样本。失败率表示 TCP 连接探测失败的比例，不是 ICMP 丢包率。</p>';
   }

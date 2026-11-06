@@ -111,8 +111,8 @@ export function netUsed(n: { netMode?: string; netRx?: number; netTx?: number; n
 }
 
 export function flag(code?: string): string {
-  if (!code || code.length !== 2) return ''
-  const c = code.toUpperCase()
+  const c = code?.trim().toUpperCase() ?? ''
+  if (!/^[A-Z]{2}$/.test(c)) return ''
   return String.fromCodePoint(0x1f1e6 + c.charCodeAt(0) - 65, 0x1f1e6 + c.charCodeAt(1) - 65)
 }
 

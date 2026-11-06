@@ -1,5 +1,6 @@
+import CountryFlag, { FlagText } from './CountryFlag'
 import { memo, useEffect, useState } from 'react'
-import { bytes, bps, datetime, flag, uptime } from '../format'
+import { bytes, bps, datetime, uptime } from '../format'
 import { t } from '../i18n'
 import { attention, dateMs, daysLeft, freshLatency, freshTelemetry, nodeTargets, percent } from '../probeMonitor'
 import type { ProbeNode, ProbeTarget, ProbeView } from '../probeMonitor'
@@ -81,7 +82,7 @@ export function NodeProbeCard({ n, targets, onOpen, view, now, showTraffic }: { 
   const fresh = freshTelemetry(n, now)
   const cpu = fresh ? n.cpu : null, mem = fresh ? n.mem : null, disk = fresh && (n.diskTotal ?? 0) > 0 ? n.disk : null
   return <button type="button" className={'pv-card' + (!n.online ? ' off' : attention(n, now) ? ' attention' : '')} onClick={onOpen} aria-label={t('查看节点 {name}', { name: n.name })}>
-    <div className="pv-hd"><span className="pv-flag">{flag(n.flag) || '◎'}</span><span className="pv-identity"><strong className="pv-name">{n.name}</strong><span className="pv-region">{n.region || n.arch || '—'}</span></span><ProbeBadge n={n} now={now} /></div>
+    <div className="pv-hd"><span className="pv-flag"><CountryFlag code={n.flag} fallback="◎" /></span><span className="pv-identity"><strong className="pv-name"><FlagText>{n.name}</FlagText></strong><span className="pv-region">{n.region || n.arch || '—'}</span></span><ProbeBadge n={n} now={now} /></div>
     <NodeBadges n={n} now={now} />
     {view === 'ring' ? <div className="pv-rings"><Ring label="CPU" value={cpu} /><Ring label="RAM" value={mem} /><Ring label="DISK" value={disk} /></div> : <div className="pv-rows"><Meter label="CPU" value={cpu} /><Meter label="RAM" value={mem} /><Meter label="DISK" value={disk} /></div>}
     <div className="pv-load"><span>LOAD <small>1m</small></span><b>{fresh ? n.load1.toFixed(2) : '—'}</b></div>
@@ -113,6 +114,6 @@ export function ProbeTable({ nodes, targets, onOpen, now, showTraffic }: { nodes
   const mini = (v: number | null) => <span className="pv-mini"><span className="pv-track"><i style={{ width: (v == null ? 0 : percent(v)) + '%', background: usageColor(v ?? 0) }} /></span>{v == null ? '—' : v.toFixed(0) + '%'}</span>
   return <div className="pv-scroll"><table className="pv-table"><thead><tr><th>{t('节点')}</th><th>{t('状态')}</th><th>CPU</th><th>RAM</th><th>DISK</th><th>{t('接收 / 发送')}</th>{showTraffic && <th>{t('本期流量')}</th>}<th>{t('网络质量')}</th><th>{t('运行')}</th></tr></thead><tbody>{nodes.map((n) => {
     const fresh = freshTelemetry(n, now)
-    return <tr key={n.id}><td><button className="pv-node-link" onClick={() => onOpen(n.id)}>{flag(n.flag)} {n.name}</button></td><td><ProbeBadge n={n} now={now} /></td><td>{mini(fresh ? n.cpu : null)}</td><td>{mini(fresh ? n.mem : null)}</td><td>{mini(fresh && (n.diskTotal ?? 0) > 0 ? n.disk : null)}</td><td><span className="pv-dn">↓ {fresh ? bps(n.rxBps) : '—'}</span><br /><span className="pv-up">↑ {fresh ? bps(n.txBps) : '—'}</span></td>{showTraffic && <td>{bytes(n.netUsed)}{n.netLimit > 0 && <small className="pv-muted"> / {bytes(n.netLimit)}</small>}</td>}<td><div className="pv-pings">{nodeTargets(n, targets).map((tg) => { const l = n.latency[tg.id], live = n.online && freshLatency(l, now); return <span key={tg.id} title={tg.name} style={{ color: live ? pingColor(l.ms) : 'var(--pv-mute)' }}>{tg.name} {live ? l.ms > 0 ? l.ms.toFixed(l.ms < 1 ? 1 : 0) + ' ms' : t('超时') : '—'}</span> })}</div></td><td>{fresh ? uptime(n.uptime) : '—'}</td></tr>
+    return <tr key={n.id}><td><button className="pv-node-link" onClick={() => onOpen(n.id)}><CountryFlag code={n.flag} /> <FlagText>{n.name}</FlagText></button></td><td><ProbeBadge n={n} now={now} /></td><td>{mini(fresh ? n.cpu : null)}</td><td>{mini(fresh ? n.mem : null)}</td><td>{mini(fresh && (n.diskTotal ?? 0) > 0 ? n.disk : null)}</td><td><span className="pv-dn">↓ {fresh ? bps(n.rxBps) : '—'}</span><br /><span className="pv-up">↑ {fresh ? bps(n.txBps) : '—'}</span></td>{showTraffic && <td>{bytes(n.netUsed)}{n.netLimit > 0 && <small className="pv-muted"> / {bytes(n.netLimit)}</small>}</td>}<td><div className="pv-pings">{nodeTargets(n, targets).map((tg) => { const l = n.latency[tg.id], live = n.online && freshLatency(l, now); return <span key={tg.id} title={tg.name} style={{ color: live ? pingColor(l.ms) : 'var(--pv-mute)' }}>{tg.name} {live ? l.ms > 0 ? l.ms.toFixed(l.ms < 1 ? 1 : 0) + ' ms' : t('超时') : '—'}</span> })}</div></td><td>{fresh ? uptime(n.uptime) : '—'}</td></tr>
   })}</tbody></table></div>
 }

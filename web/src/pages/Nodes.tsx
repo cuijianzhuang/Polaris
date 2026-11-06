@@ -1,3 +1,4 @@
+import CountryFlag, { FlagText } from '../components/CountryFlag'
 import NodeNetworkTools from '../components/NodeNetworkTools'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -480,7 +481,7 @@ export default function Nodes() {
           {sel && (
             <>
               <section className="card">
-                <div className="node-detail-heading"><h2 id="node-detail-title" tabIndex={-1}>{sel.flag} {sel.name}</h2><span className="small mute">{t('当前节点')}</span>{!browserOpen && <button className="btn sm" type="button" onClick={() => {
+                <div className="node-detail-heading"><h2 id="node-detail-title" tabIndex={-1}><CountryFlag code={sel.flag} /> <FlagText>{sel.name}</FlagText></h2><span className="small mute">{t('当前节点')}</span>{!browserOpen && <button className="btn sm" type="button" onClick={() => {
                   setBrowserOpen(true)
                   requestAnimationFrame(() => {
                     document.getElementById('node-browser')?.scrollIntoView({ block: 'start' })

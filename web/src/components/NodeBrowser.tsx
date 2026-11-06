@@ -1,3 +1,4 @@
+import CountryFlag, { FlagText } from './CountryFlag'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { bps, coreLabel, coreShort, coreTagClass, netUsed, nodeStatus } from '../format'
 import { t } from '../i18n'
@@ -90,7 +91,7 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
             const problem = n.progress?.error || n.lastError || n.cores.find((c) => c.error)?.error
             return <tr key={n.id} className={selected?.id === n.id ? 'sel' : ''} data-node-id={n.id}>
               <td className="rt-head"><button className="node-list-select" type="button" title={[n.name, n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join('\n')} aria-pressed={selected?.id === n.id} aria-label={t('查看节点 {name}', { name: n.name })} onClick={() => onSelect(n)}>
-                <span className="node-list-name"><i className="dot" style={{ background: st.color }} />{n.flag} {n.name}{badge(n)}</span><span className="node-list-address">{[n.region, n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join(' · ') || t('无公网地址')}</span>
+                <span className="node-list-name"><i className="dot" style={{ background: st.color }} /><CountryFlag code={n.flag} /> <FlagText>{n.name}</FlagText>{badge(n)}</span><span className="node-list-address">{[n.region, n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join(' · ') || t('无公网地址')}</span>
               </button></td>
               <td data-label={t('状态')}><div className="node-list-state"><span className={'st ' + st.cls}>{st.label}</span>{n.progress?.active ? <span className="small mute">{t('处理中…')}</span> : problem ? <span className="small node-problem" title={problem}>{t('有错误')}</span> : n.appliedRev < n.desiredRev ? <span className="small mute">{t('等待同步')}</span> : null}</div></td>
               <td data-label={t('资源')}><div className="node-resources"><Resource value={n.system.cpu} label="CPU" connected={n.connected} /><Resource value={n.system.mem} label={t('内存')} connected={n.connected} /></div></td>
