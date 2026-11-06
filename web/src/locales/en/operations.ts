@@ -642,5 +642,15 @@ const operations: Record<string, string> = {
   "清除筛选": "Clear filters",
   "延迟为节点到目标的 TCP 连接耗时；小图展示近 2 小时，每格 5 分钟。灰格表示无样本。": "Latency measures TCP connection time from the node to each target. Mini charts cover 2 hours in 5-minute intervals. Gray intervals have no samples.",
 
+  "入口端口必须为 0（使用默认值）或 1–65535": "Endpoint port must be 0 (default) or between 1 and 65535",
+  "该中转线路已停用，请先在中转管理中启用": "This relay is disabled. Enable it in relay management first.",
+  "该中转线路的落地与当前入站不匹配": "This relay's landing does not match the current inbound",
+  "取消添加": "Cancel addition",
+  "仅显示落地为当前入站、已启用且尚未添加的线路。中转不会转换协议或替换落地认证。": "Only enabled routes landing on this inbound without an existing endpoint are shown. Relaying preserves the landing protocol and authentication.",
+  "没有可添加的中转线路。请在中转管理中为当前入站创建或启用线路；新建线路会自动发布入口。": "No relay routes can be added. Create or enable a route for this inbound in relay management; new routes publish an endpoint automatically.",
+  "连接入口": "Connect to",
+  "留空沿用落地的证书名称，不使用中转机域名。": "Leave blank to use the landing's certificate name, rather than the relay's domain.",
+  "点击「添加入口」后立即保存；底部「保存并下发」只保存入站配置。": "Add endpoint saves the endpoint immediately. Save and apply at the bottom saves the inbound configuration only.",
+  "请先添加入口，或取消本次添加，再保存入站。": "Add the endpoint or cancel the addition before saving the inbound.",
 }
 export default operations

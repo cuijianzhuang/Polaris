@@ -1,0 +1,156 @@
+package panel
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/core/coretest"
+	"github.com/cuijianzhuang/polaris/internal/core/gost"
+	"github.com/cuijianzhuang/polaris/internal/core/singbox"
+	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/store"
+	"github.com/cuijianzhuang/polaris/internal/sub"
+	"golang.org/x/net/proxy"
+)
+
+// The client consumes the panel's actual subscription, trusts the test CA,
+// and verifies the landing name even though it dials a different relay host.
+func TestLiveAnyTLSRelaySubscription(t *testing.T) {
+	bin, gbin := os.Getenv("POLARIS_SINGBOX_BIN"), os.Getenv("POLARIS_GOST_BIN")
+	if bin == "" || gbin == "" {
+		t.Skip("POLARIS_SINGBOX_BIN and POLARIS_GOST_BIN required")
+	}
+	s, c := relayFixture(t)
+	u := relayTestUser(t, s)
+	tls := coretest.TLS(t, "localhost")
+	cert := store.Certificate{ID: "relay-cert", Domain: "localhost", Provider: "manual", Cert: tls.CertPEM, Key: s.st.Box.Seal(tls.KeyPEM)}
+	if err := s.st.DB.Create(&cert).Error; err != nil {
+		t.Fatal(err)
+	}
+	s.st.DB.Model(&store.Node{}).Where("id = ?", "land").Update("address", "localhost")
+	s.st.DB.Model(&store.Node{}).Where("id = ?", "relay").Update("address", "127.0.0.1")
+	s.st.DB.Model(&store.Core{}).Where("id = ?", "xray").Updates(map[string]any{"type": model.CoreSingbox, "version": "1.13.5"})
+	s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
+		"core": model.CoreSingbox, "listen": "::", "port": coretest.FreePort(t), "relay_only": true,
+		"protocol": store.NewJSON(model.ProtocolSpec{Type: model.ProtoAnyTLS}),
+		"security": store.NewJSON(model.SecuritySpec{Type: model.SecTLS, CertificateID: cert.ID}),
+	})
+	id := createRelayTest(t, c, previewRelayTest(t, c, map[string]any{"relays": []any{map[string]any{"nodeId": "relay"}}}))
+	isolateLocalRelayPorts(t, s, id)
+	land, err := s.BuildSpec("land")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	a := singbox.New(core.Options{Version: "1.13.5", BinPath: bin, WorkDir: dir, APIListen: fmt.Sprintf("127.0.0.1:%d", coretest.FreePort(t))})
+	raw, err := a.Render(land)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Validate(raw); err != nil {
+		t.Fatal(err)
+	}
+	if err = core.AtomicWrite(filepath.Join(dir, "singbox.json"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = a.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer a.Stop(context.Background())
+	relay, err := s.BuildSpec("relay")
+	if err != nil || len(relay.Forwards) != 1 {
+		t.Fatal(relay, err)
+	}
+	// Use GOST's native raw TCP forwarder for the generated L4 target.
+	relay.Forwards[0].Engine = model.EngineGost
+	gd := t.TempDir()
+	ga := gost.New(core.Options{Version: "3.2.6", BinPath: gbin, WorkDir: gd, APIListen: fmt.Sprintf("127.0.0.1:%d", coretest.FreePort(t))})
+	raw, err = ga.Render(relay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = core.AtomicWrite(filepath.Join(gd, "gost.yaml"), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = ga.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	defer ga.Stop(context.Background())
+	nodes, err := s.subNodes(&u)
+	if err != nil || len(nodes) != 1 {
+		t.Fatal(nodes, err)
+	}
+	// Decode the exported URI too, so the test covers a normal client import.
+	parsed, err := sub.ParseLink(sub.ShareLink(nodes[0]))
+	if err != nil {
+		t.Fatal(parsed, err)
+	}
+	out := sub.SingboxOutbound(parsed)
+	ca := filepath.Join(dir, "ca.pem")
+	if err = os.WriteFile(ca, []byte(tls.CertPEM), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out["tls"].(map[string]any)["certificate_path"] = ca
+	port := coretest.FreePort(t)
+	raw, _ = json.Marshal(map[string]any{"log": map[string]any{"level": "error"}, "inbounds": []any{map[string]any{"type": "socks", "listen": "127.0.0.1", "listen_port": port}}, "outbounds": []any{out}})
+	clientPath := filepath.Join(dir, "client.json")
+	if err = os.WriteFile(clientPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "run", "-c", clientPath)
+	if err = cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	ready := false
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		conn, e := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
+		if e == nil {
+			conn.Close()
+			ready = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatal("AnyTLS subscription client did not start")
+	}
+	dialer, err := proxy.SOCKS5("tcp", fmt.Sprintf("127.0.0.1:%d", port), nil, &net.Dialer{Timeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, down := bytes.Repeat([]byte("upload"), 4096), bytes.Repeat([]byte("download"), 4096)
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, e := io.ReadAll(r.Body)
+		if e != nil || !bytes.Equal(body, up) {
+			http.Error(w, "upload mismatch", http.StatusBadRequest)
+			return
+		}
+		w.Write(down)
+	}))
+	defer backend.Close()
+	transport := &http.Transport{Dial: dialer.Dial}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
+	res, err := client.Post(backend.URL, "application/octet-stream", bytes.NewReader(up))
+	if err != nil {
+		t.Fatal("generated AnyTLS relay subscription failed", err)
+	}
+	defer res.Body.Close()
+	body, err := io.ReadAll(res.Body)
+	if err != nil || res.StatusCode != 200 || !bytes.Equal(body, down) {
+		t.Fatal("AnyTLS relay upload/download failed", res.StatusCode, err)
+	}
+}
