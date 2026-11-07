@@ -145,7 +145,6 @@ const m: Record<string, string> = {
   '默认 sing-box 版本': 'Default sing-box version',
   '只填邮箱即可用 HTTP 验证签发（由域名指向的节点在 80 端口应答）；再填 Cloudflare Token 则改用 DNS 验证，支持泛域名、无需 80 端口。': 'An email alone is enough to issue via HTTP validation (the node the domain points to answers on port 80); add a Cloudflare token to use DNS validation instead, which supports wildcards and doesn\'t need port 80.',
   '邮箱': 'Email',
-  '可选 · 需要 Zone.DNS 编辑权限': 'Optional · needs Zone.DNS edit permission',
   '部署信息': 'Deployment info',
   '版本': 'Version',
   '未设置（POLARIS_PUBLIC_URL）': 'Not set (POLARIS_PUBLIC_URL)',

@@ -5,7 +5,6 @@ export default {
   'Agent 托管': 'Agent management',
   'Agent 托管隧道': 'Agent-managed tunnel',
   '托管设置已保存，等待 Agent 同步': 'Settings saved; waiting for the Agent to sync',
-  '导入已有本地管理隧道的凭据后，Agent 会安装并校验 cloudflared、维护回源配置和进程。请先升级并连接新版 Agent。': 'Import an existing locally managed tunnel credential. The Agent installs and verifies cloudflared and maintains its origin routes and processes. Upgrade and connect the Agent first.',
   '由 Agent 托管 cloudflared': 'Manage cloudflared with the Agent',
   '托管节点': 'Managed node',
   '需要升级 Agent': 'Agent upgrade required',
