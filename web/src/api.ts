@@ -18,13 +18,16 @@ export function setToken(t: string | null) {
   try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY) } catch { /* private mode */ }
 }
 
+// isRecord narrows unknown JSON into an object for safe field access.
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+
 export class ApiError extends Error {
   status: number
-  data: any
-  constructor(status: number, message: string, data?: any) {
+  data: Record<string, unknown> | null
+  constructor(status: number, message: string, data?: unknown) {
     super(tr(message))
     this.status = status
-    this.data = data
+    this.data = isRecord(data) ? data : null
   }
 }
 
@@ -36,7 +39,7 @@ export function setUnauthorizedHandler(fn: () => void) { onUnauthorized = fn }
 // session is re-verified, and the request is sent again.
 let onSudo: (() => Promise<boolean>) | null = null
 export function setSudoHandler(fn: () => Promise<boolean>) { onSudo = fn }
-const needsSudo = (e: unknown) => e instanceof ApiError && e.status === 403 && !!e.data?.sudoRequired
+const needsSudo = (e: unknown) => e instanceof ApiError && e.status === 403 && e.data?.sudoRequired === true
 
 // In-flight request count, for the top progress bar.
 let inflight = 0
@@ -62,11 +65,12 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   const resp = await fetch(API + path, { method, headers, signal, body: body === undefined ? undefined : body instanceof Blob ? body : JSON.stringify(body) })
   if (resp.status === 204) return undefined as T
   const text = await resp.text()
-  let data: any = undefined
+  let data: unknown = undefined
   try { data = text ? JSON.parse(text) : undefined } catch { data = text }
   if (!resp.ok) {
     if (resp.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/passkeys/login/') && path !== '/auth/account-recovery') onUnauthorized()
-    throw new ApiError(resp.status, (data && data.error) || resp.statusText, data)
+    const message = isRecord(data) && typeof data.error === 'string' && data.error ? data.error : resp.statusText
+    throw new ApiError(resp.status, message, data)
   }
   return data as T
 }
