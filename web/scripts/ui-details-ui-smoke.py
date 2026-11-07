@@ -52,9 +52,10 @@ with sync_playwright() as p:
                     menu=side.locator('.side-menu')
                     assert menu.evaluate('(e)=>e.scrollHeight>e.clientHeight'), 'fixture must exercise menu overflow'
                     menu.evaluate('(e)=>e.scrollTop=e.scrollHeight')
-                    for item in [side.locator('.brand'), side.locator('.side-foot'), side.locator('.logout')]: in_view(item)
+                    logout = side.get_by_role('button', name='退出登录' if language=='zh' else 'Sign out', exact=True)
+                    for item in [side.locator('.brand'), side.locator('.side-foot'), logout]: in_view(item)
                     # The footer must be hittable, not merely visible behind the menu.
-                    assert side.locator('.logout').evaluate('(e)=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}')
+                    assert logout.evaluate('(e)=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}')
                     page.screenshot(path=str(OUT/(case+'-navigation.png')),animations='disabled')
                     if width<760:
                         side.get_by_role('button',name='关闭菜单' if language=='zh' else 'Close menu',exact=True).click()
