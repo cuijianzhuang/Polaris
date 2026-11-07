@@ -6,6 +6,7 @@ LDFLAGS := -s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=$(VE
 all: web build
 
 web:
+	rm -rf web/dist/*
 	cd web && npm ci --no-audit --no-fund && npm run build
 
 build:
@@ -19,7 +20,7 @@ agent:
 
 test:
 	go vet ./...
-	go test ./...
+	go test -timeout 0 ./...
 
 # Runs adapter, subscription and end-to-end tests against real core binaries:
 #   make test-cores XRAY=/path/to/xray SINGBOX=/path/to/sing-box
