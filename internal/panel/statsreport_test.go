@@ -126,3 +126,36 @@ func TestNodeMetrics(t *testing.T) {
 		t.Fatalf("slot average: %v", p)
 	}
 }
+
+func TestPresetRange(t *testing.T) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2026-03-01 02:00 Shanghai (a non-leap year, so February spans 01-28).
+	now := time.Date(2026, 3, 1, 2, 0, 0, 0, loc)
+	cases := []struct{ preset, from, to string }{
+		{"today", "2026-03-01", "2026-03-01"},
+		{"7d", "2026-02-23", "2026-03-01"},
+		{"30d", "2026-01-31", "2026-03-01"},
+		{"90d", "2025-12-02", "2026-03-01"},
+		{"month", "2026-03-01", "2026-03-01"},
+		{"last", "2026-02-01", "2026-02-28"},
+		{"year", "2026-01-01", "2026-03-01"},
+	}
+	for _, c := range cases {
+		f, to, ok := presetRange(now, c.preset)
+		if !ok || f != c.from || to != c.to {
+			t.Errorf("%s = %s..%s (ok=%v), want %s..%s", c.preset, f, to, ok, c.from, c.to)
+		}
+	}
+	if _, _, ok := presetRange(now, "nope"); ok {
+		t.Error("unknown preset reported ok")
+	}
+	// "last" in January rolls to the previous year.
+	jan := time.Date(2026, 1, 15, 0, 0, 0, 0, loc)
+	f, to, ok := presetRange(jan, "last")
+	if !ok || f != "2025-12-01" || to != "2025-12-31" {
+		t.Errorf("last in January = %s..%s, want 2025-12-01..2025-12-31", f, to)
+	}
+}
