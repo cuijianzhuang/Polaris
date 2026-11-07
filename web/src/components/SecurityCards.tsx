@@ -112,6 +112,13 @@ type Provider = { id: string; name: string; kind: 'oidc' | 'oauth2'; issuer: str
   clientId: string; scopes: string; subjectField: string; loginField: string; enabled: boolean }
 type ProviderForm = Partial<Provider> & { clientSecret?: string }
 
+// Compare only editable values. Empty optional fields and response metadata
+// must not manufacture a draft, nor may a later list refresh change its baseline.
+function providerDraftValue(form: ProviderForm) {
+  const fields = ['name', 'issuer', 'authUrl', 'tokenUrl', 'userInfoUrl', 'clientId', 'clientSecret', 'scopes', 'subjectField', 'loginField'] as const
+  return JSON.stringify([form.kind ?? 'oidc', form.enabled !== false, ...fields.map((key) => form[key] ?? '')])
+}
+
 // Presets fill the usual endpoints; the tenant / realm parts are placeholders to edit.
 const ssoPresets: { label: string; f: ProviderForm }[] = [
   { label: 'Google', f: { name: 'Google', kind: 'oidc', issuer: 'https://accounts.google.com' } },
@@ -132,9 +139,11 @@ export function SSOProviders() {
   const list = useLoad((signal) => get<{ providers: Provider[]; callbackUrl: string }>('/sso/providers', signal))
   const mine = useLoad((signal) => get<{ providerId: string; login: string }[]>('/auth/sso/bindings', signal))
   const [edit, setEdit] = useState<ProviderForm | null>(null)
+  const [editBaseline, setEditBaseline] = useState('')
+  const openEditor = (form: ProviderForm) => { setEdit(form); setEditBaseline(providerDraftValue(form)) }
   const { busy, run } = useAction()
   const confirm = useConfirm()
-  useSettingsDraft({ label: t('单点登录'), dirty: !!edit && (!!edit.clientSecret || JSON.stringify(edit) !== JSON.stringify(list.data?.providers?.find((p) => p.id === edit.id) ?? { kind: 'oidc', name: '' })), busy, discard: () => setEdit(null) })
+  useSettingsDraft({ label: t('单点登录'), dirty: !!edit && providerDraftValue(edit) !== editBaseline, busy, discard: () => setEdit(null) })
   const ps = list.data?.providers ?? []
   const bound = (id: string) => (mine.data ?? []).find((b) => b.providerId === id)
   const set = (k: keyof ProviderForm, v: string | boolean) => setEdit((x) => ({ ...x, [k]: v }))
@@ -144,7 +153,7 @@ export function SSOProviders() {
   }, t('已保存'))
   return (
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div className="ctitle"><span>{t('单点登录')}</span><button className="btn sm" type="button" onClick={() => setEdit({ kind: 'oidc', name: '' })}>{t('+ 添加登录方式')}</button></div>
+      <div className="ctitle"><span>{t('单点登录')}</span><button className="btn sm" type="button" onClick={() => openEditor({ kind: 'oidc', name: '' })}>{t('+ 添加登录方式')}</button></div>
       <div className="sub" style={{ margin: 0 }}>{t('为登录页添加「使用 … 登录」：任意 OpenID Connect 提供方（Google、Microsoft、GitLab、Keycloak、Authentik、Okta、Auth0…）或 OAuth 2.0 服务。添加后点「绑定」把你的外部账号关联到当前管理员；开启了二次验证时仍需输入验证码。')}</div>
       {ps.length === 0 && <div className="hint">{t('还没有添加单点登录。')}</div>}
       {ps.map((p) => {
@@ -157,7 +166,7 @@ export function SSOProviders() {
             </div>
             {b ? <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await del('/auth/sso/bindings/' + p.id); mine.reload() }, t('已解除绑定'))}>{t('解绑')}</button>
               : <button className="btn sm" type="button" disabled={busy || !p.enabled} onClick={() => run(async () => { location.href = (await post<{ url: string }>(`/auth/sso/${p.id}/bind-url`)).url })}>{t('绑定')}</button>}
-            <button className="btn sm" type="button" onClick={() => setEdit({ ...p })}>{t('编辑')}</button>
+            <button className="btn sm" type="button" onClick={() => openEditor({ ...p })}>{t('编辑')}</button>
             <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(t('删除登录方式 {name}？已绑定的账号一并解除。', { name: p.name }), { danger: true })) run(async () => { await del('/sso/providers/' + p.id); list.reload(); mine.reload() }) }}>{t('删除')}</button>
           </div>
         )
@@ -184,7 +193,7 @@ export function SSOProviders() {
                   <Field label={t('用户信息地址')}><input className="input mono" value={edit.userInfoUrl ?? ''} onChange={(e) => set('userInfoUrl', e.target.value.trim())} /></Field>
                 </>}
               <Field label="Client ID"><input className="input mono" value={edit.clientId ?? ''} onChange={(e) => set('clientId', e.target.value.trim())} /></Field>
-              <Field label="Client Secret" hint={edit.id ? t('留空不修改') : undefined}><input className="input mono" type="password" autoComplete="off" value={edit.clientSecret ?? ''} onChange={(e) => set('clientSecret', e.target.value.trim())} /></Field>
+              <Field label="Client Secret" hint={edit.id ? t('留空不修改') : undefined}><input className="input mono" type="password" autoComplete="new-password" value={edit.clientSecret ?? ''} onChange={(e) => set('clientSecret', e.target.value.trim())} /></Field>
               <Field label="Scope" hint={edit.kind === 'oidc' ? t('默认 openid profile email') : t('按提供方要求填写')}><input className="input mono" value={edit.scopes ?? ''} onChange={(e) => set('scopes', e.target.value)} /></Field>
               <Field label={t('账号标识字段')} hint={edit.kind === 'oidc' ? t('默认 sub') : t('用户信息里唯一不变的字段，如 id')}><input className="input mono" value={edit.subjectField ?? ''} onChange={(e) => set('subjectField', e.target.value.trim())} /></Field>
               <Field label={t('显示名字段')} hint={t('如 preferred_username / email / login')}><input className="input mono" value={edit.loginField ?? ''} onChange={(e) => set('loginField', e.target.value.trim())} /></Field>
