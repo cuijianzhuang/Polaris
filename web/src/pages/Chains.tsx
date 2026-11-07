@@ -746,8 +746,8 @@ export default function Chains() {
       <div className="top">
         <div><h1>{t('链路与 CDN')}</h1><div className="sub">{t('入口 → 落地 → 出口；L4 发布中转入口，协议中转使用所选入站的协议和用户授权')}</div></div>
         <div className="row">
-          <button className="btn" type="button" onClick={() => setCdnDrawer('new')}>{t('+ CDN 配置档')}</button>
-          <button className="btn pri" type="button" disabled={nodes.length < 2} title={nodes.length < 2 ? t('至少需要两个节点') : undefined} onClick={() => setChainDrawer('new')}>{t('+ 新建链路')}</button>
+          {tab === 'cdn' && <button className="btn pri" type="button" onClick={() => setCdnDrawer('new')}>{t('+ CDN 配置档')}</button>}
+          {tab === 'chains' && <button className="btn pri" type="button" disabled={nodes.length < 2} title={nodes.length < 2 ? t('至少需要两个节点') : undefined} onClick={() => setChainDrawer('new')}>{t('+ 新建链路')}</button>}
         </div>
       </div>
       <div className="tabs" role="tablist" aria-label={t('视图')}>
@@ -756,19 +756,14 @@ export default function Chains() {
         ))}
       </div>
       {tab === 'chains' && (
-        <div className="split">
-          <div className="grow">
+        <div className="chain-list">
             {(chains.data ?? []).map((c) => <ChainCard key={c.id} c={c} nodes={nodes} inbounds={inbounds.data ?? []} chains={chains.data ?? []} onEdit={() => setChainDrawer(c)} onChanged={chains.reload} />)}
             {chains.data?.length === 0 && <div className="card"><Empty>{t('还没有链路。L4 转发适合线路优化；协议中转可在中转节点分流或换协议。')}</Empty></div>}
-          </div>
-          <aside className="aside">
-            {selCDN ? <CDNAside p={selCDN} onEdit={() => setCdnDrawer(selCDN)} onDelete={() => removeProfile(selCDN)} onChanged={cdn.reload} /> : <div className="card"><Empty>{t('还没有 CDN 配置档')}</Empty></div>}
-            <section className="note">{t('REALITY、Hysteria2、TUIC 不能走 CDN；添加 CDN 入口时只列出 WS / gRPC / HTTPUpgrade / XHTTP 入站。')}</section>
-          </aside>
         </div>
       )}
       {tab === 'cdn' && (
         <div className="cdn-page">
+            <section className="note">{t('REALITY、Hysteria2、TUIC 不能走 CDN；添加 CDN 入口时只列出 WS / gRPC / HTTPUpgrade / XHTTP 入站。')}</section>
             <CFTokenCard onSaved={cdn.reload} />
             <ShodanCard onSaved={cdn.reload} />
             <div className="card flush scroll">

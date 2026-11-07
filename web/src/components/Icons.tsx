@@ -43,6 +43,7 @@ export const Icon = {
   Reset: () => <Svg><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4" /></Svg>,
   Menu: () => <Svg size={20}><path d="M4 7h16M4 12h16M4 17h16" /></Svg>,
   More: () => <Svg><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></Svg>,
+  Logout: () => <Svg><path d="M9 4H4v16h5M12 12h9m-4-4 4 4-4 4" /></Svg>,
   Chevron: () => <Svg size={14}><path d="M9 6l6 6-6 6" /></Svg>,
   Pulse: () => <Svg><path d="M3 12h4l3-8 4 16 3-8h4" /></Svg>,
   Map: () => <Svg><path d="M9 4L3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5L9 4z" /><path d="M9 4v13.5M15 6.5V20" /></Svg>,

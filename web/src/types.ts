@@ -77,7 +77,7 @@ export interface User {
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; onlineDevices: OnlineDevice[]; remark: string; groupIds: string[]; createdAt: string
   onlineIpState?: 'available' | 'partial' | 'unavailable' | 'expired' | 'none'; onlineIpSeenAt?: string; onlineIpCount?: number
-  nodeIds: string[]; inboundIds: string[]; telegramId: number; email?: string; planId?: string; extraTraffic?: number
+  nodeIds: string[]; inboundIds: string[]; telegramId: number; email?: string; avatarURL?: string; planId?: string; extraTraffic?: number
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
 }
 export interface UserDevice { id: string; hwid: string; os: string; model: string; userAgent: string; ip: string; firstSeen: string; lastSeen: string }

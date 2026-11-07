@@ -168,6 +168,7 @@ func (s *Server) Router() http.Handler {
 	})
 	p.GET("/openapi.json", func(c *gin.Context) { c.JSON(http.StatusOK, s.openAPIFor(r, apiTokenOf(c))) })
 	p.GET("/auth/me", s.me)
+	p.PUT("/auth/avatar", s.setAvatar)
 	p.GET("/admins", s.listAdmins)
 	p.POST("/admins", s.requireSudo, s.createAdmin)
 	p.PUT("/admins/:id/access", s.requireSudo, s.updateAdminAccess)

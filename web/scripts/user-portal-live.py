@@ -1,5 +1,5 @@
 """Real user portal navigation, registration gates, ownership and responsive UI."""
-import json, os, shutil
+import json, os, shutil, hashlib
 from pathlib import Path
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
@@ -22,6 +22,7 @@ with sync_playwright() as p:
         # Existing sign-in when closed; explicit registration when open.
         context = browser.new_context(viewport=dict(width=390, height=844))
         page = context.new_page()
+        page.route('https://www.gravatar.com/**', lambda route: route.fulfill(content_type='image/svg+xml', body='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#258f8a"/></svg>'))
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.goto(base + '/u/register')
@@ -59,6 +60,14 @@ with sync_playwright() as p:
                 context = browser.new_context(viewport=dict(width=width, height=1000), color_scheme=theme)
                 context.add_cookies([dict(name='polaris_u',value=os.environ['POLARIS_PORTAL_TEST_COOKIE'],domain=urlsplit(base).hostname,path='/u',httpOnly=True,sameSite='Lax')])
                 page = context.new_page()
+                avatar_requests = []
+                def avatar_image(route):
+                    avatar_requests.append(route.request)
+                    assert not route.request.headers.get('referer'), 'avatar leaked the page URL'
+                    if theme == 'dark':
+                        return route.abort()
+                    route.fulfill(content_type='image/svg+xml', body='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#258f8a"/></svg>')
+                page.route('https://www.gravatar.com/**', avatar_image)
                 page.set_default_timeout(10000)
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(base + '/u')
@@ -68,6 +77,28 @@ with sync_playwright() as p:
                 fits(page)
                 page.locator('.p-heading h1').first.evaluate('(el, text) => el.textContent = text', original)
                 expect(page.get_by_role('heading', name='欢迎回来，alice')).to_be_visible()
+                avatar_hash = hashlib.sha256(b'alice.long.account.address.for.avatar@example.com').hexdigest()
+                expect(page.locator('.p-user-menu img')).to_have_attribute('src', 'https://www.gravatar.com/avatar/'+avatar_hash+'?s=128&d=identicon&r=g')
+                if theme == 'dark':
+                    expect(page.locator('.p-user-menu img')).to_be_hidden()
+                    expect(page.locator('.p-user-menu summary svg')).to_be_visible()
+                page.get_by_role('button', name='账号菜单', exact=True).click()
+                expect(page.locator('.p-user-menu')).to_have_attribute('open', '')
+                page.keyboard.press('Escape')
+                expect(page.locator('.p-user-menu')).not_to_have_attribute('open', '')
+                page.get_by_role('button', name='账号菜单', exact=True).click()
+                page.locator('.p-user-menu-panel a[href="/u#account"]').click()
+                expect(page.locator('[data-view="account"]')).to_be_visible()
+                page.get_by_role('button', name='账号菜单', exact=True).click()
+                expect(page.locator('.p-user-menu-panel')).to_be_visible()
+                page.locator('.p-user-menu-panel a[href="/u#orders"]').click()
+                expect(page.locator('[data-view="orders"]')).to_be_visible()
+                expect(page.locator('.p-user-menu')).not_to_have_attribute('open', '')
+                page.evaluate('location.hash = "overview"')
+                if width > 760:
+                    email = page.locator('.p-account-label small')
+                    assert email.evaluate('(el) => getComputedStyle(el).whiteSpace === "nowrap" && el.scrollWidth > el.clientWidth'), 'sidebar email is not truncated'
+
                 expect(page.locator('.p-subscription')).to_contain_text('84 GB')
                 expect(page.locator('a[href="/u/shop"]').first).to_have_attribute('href', '/u/shop')
                 fits(page)
@@ -111,7 +142,18 @@ with sync_playwright() as p:
                 expect(page.locator('.p-order-row')).to_contain_text('专业版月付')
                 assert context.request.get(base+'/u/shop/order/foreign-order').status == 404
                 page.evaluate('location.hash = "account"')
-                page.get_by_role('button', name='退出登录', exact=True).click()
+                if width > 760:
+                    logout = page.locator('.p-sidebar-logout')
+                else:
+                    page.get_by_role('button', name='账号菜单', exact=True).click()
+                    logout = page.locator('.p-user-menu-panel [data-portal-logout]')
+                # A failed logout retains the session and permits retry.
+                page.route('**/u/logout', lambda route: route.fulfill(status=503, json={'error':'temporary'}))
+                logout.click()
+                expect(page.locator('#p-session-error')).to_be_visible()
+                expect(logout).to_be_enabled()
+                page.unroute('**/u/logout')
+                logout.click()
                 expect(page.locator('#mgo')).to_be_visible()
                 assert not errors, errors
                 context.close()

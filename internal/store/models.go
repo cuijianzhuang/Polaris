@@ -196,6 +196,7 @@ type User struct {
 	IsService  bool   `gorm:"index" json:"isService"`      // chain service account
 	TelegramID int64  `gorm:"index" json:"telegramId"`     // bound Telegram chat
 	Email      string `gorm:"size:254;index" json:"email"` // lower case; "" = none
+	AvatarURL  string `gorm:"-" json:"avatarURL,omitempty"`
 	// SelfService marks an account the shop created for its buyer: the buyer
 	// may rename it (Telegram /rename, user center) when the shop allows it.
 	SelfService bool `json:"selfService"`
@@ -433,6 +434,7 @@ type ConfigRevision struct {
 
 // Admin is a panel administrator.
 type Admin struct {
+	AvatarEmail    string         `gorm:"size:254" json:"-"` // display preference, not a verified login/recovery address
 	Role           string         `gorm:"size:16" json:"role"`
 	NodeIDs        JSON[[]string] `json:"nodeIds"`
 	ID             string         `gorm:"primaryKey;size:32" json:"id"`
@@ -961,13 +963,14 @@ type SubProfile struct {
 // TGAdmin is a Telegram chat allowed to administer the panel. Owners see
 // everything; operators only the nodes they are bound to.
 type TGAdmin struct {
-	ID        string         `gorm:"primaryKey;size:32" json:"id"`
-	ChatID    int64          `gorm:"uniqueIndex" json:"chatId"`
-	Name      string         `gorm:"size:64" json:"name"`
-	Role      string         `gorm:"size:16" json:"role"` // owner / operator
-	NodeIDs   JSON[[]string] `json:"nodeIds"`
-	Notify    bool           `json:"notify"`
-	CreatedAt time.Time      `json:"createdAt"`
+	AvatarEmail string         `gorm:"size:254" json:"-"` // avatar preference only
+	ID          string         `gorm:"primaryKey;size:32" json:"id"`
+	ChatID      int64          `gorm:"uniqueIndex" json:"chatId"`
+	Name        string         `gorm:"size:64" json:"name"`
+	Role        string         `gorm:"size:16" json:"role"` // owner / operator
+	NodeIDs     JSON[[]string] `json:"nodeIds"`
+	Notify      bool           `json:"notify"`
+	CreatedAt   time.Time      `json:"createdAt"`
 }
 
 // AllModels lists every table for migration.

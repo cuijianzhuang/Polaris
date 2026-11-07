@@ -8,6 +8,7 @@ import { bytes, date, daysLeft, isOnline, userStatus } from '../format'
 import type { Group, User } from '../types'
 import { AdjustModal, BulkCreateModal, downloadJSON, ImportModal } from '../components/UserTools'
 import { t, tr } from '../i18n'
+import Avatar from '../components/Avatar'
 import { UserPlanModal } from '../components/Plans'
 import { BindNodesModal } from './users/BindNodesModal'
 import { GroupsModal } from './users/GroupsModal'
@@ -196,7 +197,7 @@ export default function Users() {
                 return (
                   <tr key={u.id} className="clickable" data-user-id={u.id} onClick={() => setSelected(u)}>
                     <td className="rt-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={t('选择 {name}', { name: u.username })} checked={checked.includes(u.id)} onChange={(e) => setChecked((x) => e.target.checked ? [...x, u.id] : x.filter((y) => y !== u.id))} /></td>
-                    <td className="rt-head"><div className="user-cell"><span className="avatar sm" style={{ background: avatarColor(u.username) }}>{(u.username[0] || '?').toUpperCase()}</span><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
+                    <td className="rt-head"><div className="user-cell"><Avatar name={u.username} src={u.avatarURL} size={28} style={{ background: avatarColor(u.username) }} /><div><div style={{ fontWeight: 550 }}>{u.username}</div><div className="mono small mute">{u.uuid.slice(0, 4)}…{u.uuid.slice(-4)}</div></div></div></td>
                     <td data-label={t('状态')} onClick={(e) => e.stopPropagation()}><div className="row" title={t('开关控制手动启用；到期和流量限制仍然生效')}><UserStateSwitch user={u} onSaved={list.reload} />{statusBadge(u)}</div></td>
                     <td data-label={t('授权')}><div className="user-grants">
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title={t('整台节点')}>{nname(n)}</span>)}

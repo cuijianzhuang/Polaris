@@ -31,6 +31,9 @@ var portalServicesCSS string
 //go:embed assets/portal.js
 var portalShellJS string
 
+//go:embed assets/portal-account.js
+var portalAccountJS string
+
 //go:embed assets/portal-cdn.html
 var portalCDNHTML string
 
@@ -38,11 +41,13 @@ var portalCDNHTML string
 var portalCDNScript string
 
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
-	"bytes":             HumanBytes,
-	"flagText":          flags.Text,
-	"portalStyle":       func() template.CSS { return template.CSS(portalShellCSS + "\n" + portalServicesCSS) },
-	"portalShellScript": func() template.JS { return template.JS(portalShellJS) },
-	"portalCDNScript":   func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
+	"bytes":               HumanBytes,
+	"flagText":            flags.Text,
+	"avatarURL":           AvatarURL,
+	"portalStyle":         func() template.CSS { return template.CSS(portalShellCSS + "\n" + portalServicesCSS) },
+	"portalShellScript":   func() template.JS { return template.JS(portalShellJS) },
+	"portalAccountScript": func() template.JS { return template.JS(portalAccountJS) },
+	"portalCDNScript":     func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
 }).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">

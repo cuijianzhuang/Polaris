@@ -8,6 +8,7 @@
 <symbol id="pi-help" viewBox="0 0 24 24"><path d="M4 18H2v-7a10 10 0 0 1 20 0v7h-4v-7h4M2 11h4v7H2m18 0v3h-6"/></symbol>
 <symbol id="pi-user" viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M3 22v-3a9 9 0 0 1 18 0v3"/></symbol>
 <symbol id="pi-book" viewBox="0 0 24 24"><path d="M12 4v17M12 4C8 1 3 2 2 3v16c3-2 7-1 10 2 3-3 7-4 10-2V3c-1-1-6-2-10 1Z"/></symbol>
+<symbol id="pi-logout" viewBox="0 0 24 24"><path d="M9 4H4v16h5M12 12h9m-4-4 4 4-4 4"/></symbol>
 </defs></svg>
 <div class="p-app">
 <aside class="p-sidebar" aria-label="用户中心导航">
@@ -28,10 +29,10 @@
 <a href="/u#help" data-view-link="help"><svg><use href="#pi-book"/></svg>使用教程</a>
 {{end}}
 </nav>
-<div class="p-side-bottom">{{if .PortalGuest}}<a href="/u/login"><svg><use href="#pi-user"/></svg>登录 / 注册</a><span class="mute">已有账号请登录后续费</span>{{else}}<a href="/u#account" data-view-link="account"{{if or (eq .PortalActive "account") (eq .PortalActive "orders")}} aria-current="page"{{end}}><svg><use href="#pi-user"/></svg>个人中心</a><span class="mute">{{if .Email}}{{.Email}}{{else}}{{.Username}}{{end}}</span>{{end}}</div>
+<div class="p-side-bottom">{{if .PortalGuest}}<a href="/u/login"><svg><use href="#pi-user"/></svg>登录 / 注册</a><span class="mute">已有账号请登录后续费</span>{{else}}<a class="p-account-card" href="/u#account" data-view-link="account" aria-label="个人中心"{{if or (eq .PortalActive "account") (eq .PortalActive "orders")}} aria-current="page"{{end}}><span class="p-account-icon"><svg><use href="#pi-user"/></svg>{{if avatarURL .Email}}<img data-avatar src="{{avatarURL .Email}}" alt="" referrerpolicy="no-referrer" loading="lazy" decoding="async">{{end}}</span><span class="p-account-label"><b>个人中心</b><small title="{{if .Email}}{{.Email}}{{else}}{{.Username}}{{end}}">{{if .Email}}{{.Email}}{{else}}{{.Username}}{{end}}</small></span></a><button class="p-sidebar-logout" data-portal-logout type="button"><svg><use href="#pi-logout"/></svg>退出登录</button>{{end}}</div>
 </aside>
 <div class="p-workspace">
-<header class="p-header"><a class="p-mobile-brand" href="{{if .PortalGuest}}/u/shop{{else}}/u{{end}}"><img src="/favicon.ico" alt="">{{.Title}}</a><span class="p-breadcrumb">{{if .PortalGuest}}服务中心{{else}}用户中心{{end}} <span>/</span> <b id="p-current-title">{{.PortalPageTitle}}</b></span><a class="p-avatar" href="{{if .PortalGuest}}/u/login{{else}}/u#account{{end}}" aria-label="{{if .PortalGuest}}登录用户中心{{else}}个人中心{{end}}"><svg><use href="#pi-user"/></svg></a></header>
+<header class="p-header"><a class="p-mobile-brand" href="{{if .PortalGuest}}/u/shop{{else}}/u{{end}}"><img src="/favicon.ico" alt="">{{.Title}}</a><span class="p-breadcrumb">{{if .PortalGuest}}服务中心{{else}}用户中心{{end}} <span>/</span> <b id="p-current-title">{{.PortalPageTitle}}</b></span>{{if .PortalGuest}}<a class="p-avatar" href="/u/login" aria-label="登录用户中心"><svg><use href="#pi-user"/></svg></a>{{else}}<details class="p-user-menu"><summary class="p-avatar" role="button" aria-label="账号菜单" title="账号菜单"><svg><use href="#pi-user"/></svg>{{if avatarURL .Email}}<img data-avatar src="{{avatarURL .Email}}" alt="" referrerpolicy="no-referrer" decoding="async">{{end}}</summary><div class="p-user-menu-panel" aria-label="账号操作"><div class="p-user-menu-identity"><b title="{{.Username}}">{{.Username}}</b>{{if .Email}}<small title="{{.Email}}">{{.Email}}</small>{{end}}</div><a href="/u#account"><svg><use href="#pi-user"/></svg>个人中心</a><a href="/u#orders"><svg><use href="#pi-file"/></svg>我的订单</a>{{if .PortalTicketsURL}}<a href="{{.PortalTicketsURL}}"><svg><use href="#pi-help"/></svg>我的工单</a>{{end}}<button type="button" data-portal-logout><svg><use href="#pi-logout"/></svg>退出登录</button></div></details>{{end}}</header>
 <main class="p-main" id="p-main" tabindex="-1">
 {{end}}
 
@@ -51,6 +52,7 @@
 <a href="/u#account" data-view-link="account"{{if or (eq .PortalActive "account") (eq .PortalActive "orders")}} aria-current="page"{{end}}><svg><use href="#pi-user"/></svg>我的</a>
 {{end}}
 </nav>
+{{if not .PortalGuest}}<p class="p-session-error" id="p-session-error" role="alert" hidden></p><script>{{portalAccountScript}}</script>{{end}}
 {{end}}
 
 {{define "portal-document"}}<!doctype html>

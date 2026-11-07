@@ -22,6 +22,7 @@ with sync_playwright() as p:
                 context = browser.new_context(viewport=dict(width=width,height=1000), color_scheme=theme)
                 context.add_cookies([dict(name='polaris_u',value=os.environ['POLARIS_PORTAL_TEST_COOKIE'],domain=urlsplit(base).hostname,path='/u',httpOnly=True,sameSite='Lax')])
                 page = context.new_page()
+                page.route('https://www.gravatar.com/**', lambda route: route.fulfill(content_type='image/svg+xml', body='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"/>'))
                 page.set_default_timeout(10000)
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
@@ -116,6 +117,7 @@ with sync_playwright() as p:
                 print(engine,width,theme,'checkout, quote reset, payment status, cancel, receipts and ticket lifecycle OK',flush=True)
         guest = browser.new_context(viewport=dict(width=360,height=1000))
         page = guest.new_page()
+        page.route('https://www.gravatar.com/**', lambda route: route.fulfill(content_type='image/svg+xml', body='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"/>'))
         page.goto(base+'/u/shop')
         expect(page.locator('.p-notice')).to_contain_text('未登录直接购买会创建新的账号')
         page.locator('.p-plan[data-id="switch-plan"] [data-checkout]').click()

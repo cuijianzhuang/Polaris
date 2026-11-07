@@ -1,4 +1,12 @@
 const m: Record<string, string> = {
+  '账号头像': 'Account avatar',
+  '头像邮箱': 'Avatar email',
+  '保存头像设置': 'Save avatar settings',
+  '使用头像邮箱对应的 Gravatar；未设置时显示默认头像。': 'Use the Gravatar for this email; show a default avatar when no email is set.',
+  '此邮箱仅用于头像显示，不作为登录或找回密码的地址。': 'This email is used only for your avatar, not for sign-in or account recovery.',
+  '账号菜单': 'Account menu',
+  '账号操作': 'Account actions',
+  '外观与语言': 'Appearance and language',
   '通用链接 (Base64)': 'Universal links (Base64)',
   '过滤': 'Filter',
   '重命名': 'Rename',

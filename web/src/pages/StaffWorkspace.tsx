@@ -3,6 +3,8 @@ import { get, post, setToken } from '../api'
 import { CopyBox, Field, QR, useAction, useLoad, usePoll } from '../components/ui'
 import { Sessions, RecoveryCodesModal } from '../components/SecurityCards'
 import Passkeys from '../components/Passkeys'
+import AvatarSettings from '../components/AvatarSettings'
+import Avatar from '../components/Avatar'
 import { roleDetails, roleLabels } from '../components/AdminAccounts'
 const Tickets = lazy(() => import('./Tickets'))
 import { bytes, datetime } from '../format'
@@ -15,7 +17,7 @@ export function StaffAccount() {
   const [code, setCode] = useState('')
   const [codes, setCodes] = useState<string[] | null>(null)
   const { busy, run } = useAction()
-  return <div style={{ display: 'grid', gap: 16 }}>
+  return <div style={{ display: 'grid', gap: 16 }}><AvatarSettings />
     <section className="card"><h2>{t('修改密码')}</h2><form style={{ display: 'grid', gap: 12 }} onSubmit={(e) => { e.preventDefault(); if (!busy && pw.next === pw.again) run(async () => { const r = await post<{ token: string }>('/auth/password', { old: pw.old, new: pw.next }); setToken(r.token); setPw({ old: '', next: '', again: '' }) }, t('密码已修改')) }}>
       <Field label={t('原密码')}><input className="input" type="password" autoComplete="current-password" required value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
       <Field label={t('新密码')}><input className="input" type="password" autoComplete="new-password" required minLength={12} maxLength={72} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
@@ -61,10 +63,10 @@ function FinanceSummary() {
   </>
 }
 
-export default function StaffWorkspace({ role, username, onLogout }: { role: string; username: string; onLogout: () => void }) {
+export default function StaffWorkspace({ role, username, avatarURL, onLogout }: { role: string; username: string; avatarURL?: string; onLogout: () => void }) {
   const [account, setAccount] = useState(false)
   return <main style={{ maxWidth: 1200, margin: 'auto', padding: 20, display: 'grid', gap: 16 }}>
-    <header className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}><div><h1>{roleLabels()[role]}</h1><div className="hint">{username} · {roleDetails()[role]}</div></div><div className="row"><button className="btn" onClick={() => setAccount(!account)}>{account ? t('返回工作台') : t('我的账号')}</button><button className="btn" onClick={onLogout}>{t('退出登录')}</button></div></header>
+    <header className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}><div><h1 className="staff-account-title"><Avatar src={avatarURL} name={username} />{roleLabels()[role]}</h1><div className="hint">{username} · {roleDetails()[role]}</div></div><div className="row"><button className="btn" onClick={() => setAccount(!account)}>{account ? t('返回工作台') : t('我的账号')}</button><button className="btn" onClick={onLogout}>{t('退出登录')}</button></div></header>
     {account ? <StaffAccount /> : role === 'viewer' ? <ViewerSummary /> : role === 'support' ? <><CustomerSummary /><Suspense fallback={t('加载中…')}><Tickets staff /></Suspense></> : <FinanceSummary />}
   </main>
 }

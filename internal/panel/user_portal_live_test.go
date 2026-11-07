@@ -30,7 +30,7 @@ func TestLiveUserPortalBrowser(t *testing.T) {
 			}
 			s.st.DB.Model(&store.Node{}).Where("id = ?", "rn").Updates(map[string]any{"name": "香港精品线路", "status": "online", "flag": "HK", "region": "Hong Kong", "traffic_rate": 2})
 			expire := time.Now().Add(30 * 24 * time.Hour)
-			s.st.DB.Model(&store.User{}).Where("id = ?", "ra").Updates(map[string]any{"email": "alice@example.com", "traffic_limit": 100 << 30, "used_down": 15 << 30, "used_up": 1 << 30, "expire_at": expire})
+			s.st.DB.Model(&store.User{}).Where("id = ?", "ra").Updates(map[string]any{"email": "alice.long.account.address.for.avatar@example.com", "traffic_limit": 100 << 30, "used_down": 15 << 30, "used_up": 1 << 30, "expire_at": expire})
 			for _, v := range []any{
 				&store.Node{ID: "tw-node", Name: "台湾备用线路-with-a-long-name", Address: "tw.example.com", Status: "offline", Flag: "TW", Region: "Taiwan"},
 				&store.Inbound{ID: "tw-in", NodeID: "tw-node", Tag: "trojan", Port: 443, Core: model.CoreSingbox, Enabled: true, Protocol: store.NewJSON(model.ProtocolSpec{Type: model.ProtoTrojan}), Security: store.NewJSON(model.SecuritySpec{Type: model.SecTLS, ServerName: "tw.example.com"})},
