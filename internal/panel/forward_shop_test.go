@@ -174,7 +174,7 @@ func TestPortalForwardsPage(t *testing.T) {
 	err := portalFwdTpl.Execute(&bytesWriter{b: &buf}, map[string]any{"Title": "P", "Rows": []portalFwdRow{{ID: "r1", Name: "a-30001", Node: "hk", Entry: "203.0.113.9:30001", Target: "1.1.1.1:443", Network: "tcp"}},
 		"Nodes": []portalFwdNode{{ID: "n1", Name: "hk"}}, "Max": 2, "Count": 1, "Lo": 30000, "Hi": 30100, "Used": "1.0 MB", "Quota": "10.00 GB", "State": "", "Speed": 8, "CanAdd": true})
 	html := string(buf)
-	for _, want := range []string{"203.0.113.9:30001", "1.1.1.1:443", "已用 1 / 2 条", "每条限速 8 Mbps", `id="add"`, `data-id="r1"`, "X-Polaris-Portal"} {
+	for _, want := range []string{"203.0.113.9:30001", "1.1.1.1:443", "1 / 2 条", "8 Mbps", `id="add"`, `data-id="r1"`, "X-Polaris-Portal"} {
 		if err != nil || !strings.Contains(html, want) {
 			t.Fatalf("missing %q (%v)", want, err)
 		}

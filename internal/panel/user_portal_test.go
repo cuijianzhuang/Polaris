@@ -109,14 +109,20 @@ func TestPortalUserDataScope(t *testing.T) {
 	// Auth pages must not render the dashboard at a second path: fragment
 	// navigation from there could otherwise keep stale UI after signing out.
 	canonical := &http.Client{Jar: b.hc.Jar, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
-	for _, path := range []string{"/u/login", "/u/register"} {
-		resp, err := canonical.Get(base + path)
+	for _, tc := range []struct{ path, want string }{
+		{"/u/login", "/u"}, {"/u/register", "/u"},
+		{"/u/login?next=/u/shop", "/u/shop"},
+		{"/u/login?next=https://example.com", "/u"},
+		{"/u/login?next=//example.com", "/u"},
+		{"/u/login?next=/u/login", "/u"},
+	} {
+		resp, err := canonical.Get(base + tc.path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		resp.Body.Close()
-		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != "/u" {
-			t.Fatal("noncanonical authenticated page", path, resp.StatusCode)
+		if resp.StatusCode != http.StatusFound || resp.Header.Get("Location") != tc.want {
+			t.Fatal("noncanonical authenticated page", tc.path, resp.StatusCode)
 		}
 	}
 	st, page := b.req("GET", "/u", nil, false)

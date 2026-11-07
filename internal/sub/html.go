@@ -19,8 +19,14 @@ import (
 //go:embed assets/portal.html
 var portalShellHTML string
 
+//go:embed assets/portal-layout.html
+var portalLayoutHTML string
+
 //go:embed assets/portal.css
 var portalShellCSS string
+
+//go:embed assets/portal-services.css
+var portalServicesCSS string
 
 //go:embed assets/portal.js
 var portalShellJS string
@@ -34,7 +40,7 @@ var portalCDNScript string
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"bytes":             HumanBytes,
 	"flagText":          flags.Text,
-	"portalStyle":       func() template.CSS { return template.CSS(portalShellCSS) },
+	"portalStyle":       func() template.CSS { return template.CSS(portalShellCSS + "\n" + portalServicesCSS) },
 	"portalShellScript": func() template.JS { return template.JS(portalShellJS) },
 	"portalCDNScript":   func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
 }).Parse(`<!doctype html>
@@ -146,6 +152,7 @@ fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'app
 </script></body></html>`))
 
 func init() {
+	template.Must(pageTpl.Parse(portalLayoutHTML))
 	template.Must(pageTpl.Parse(portalCDNHTML))
 	template.Must(pageTpl.Parse(portalShellHTML))
 }
@@ -218,6 +225,7 @@ func RenderPage(info Info) ([]byte, error) {
 		exp = ""
 	}
 	data := map[string]any{
+		"PortalActive": "overview", "PortalPageTitle": "仪表盘",
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": expiryText, "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": label, "AwaitingPlan": awaitingPlan, "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,

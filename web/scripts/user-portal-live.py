@@ -33,6 +33,7 @@ with sync_playwright() as p:
             expect(page.locator('[data-auth-mode="register"]')).to_have_count(0)
             result = context.request.post(base + '/u/email/code', data={'email':'bypass@example.com','purpose':'register'}, headers={'X-Polaris-Portal':'1'})
             assert result.status == 403 and result.json()['code'] == 'registration_closed'
+            page.goto(base + '/u/login?next=/u/shop')
         expect(page.get_by_role('link', name='管理员')).to_have_count(0)
         page.get_by_role('button', name='发送验证码', exact=True).click()
         expect(page.locator('#merr')).to_have_text('请填写正确的邮箱地址')
@@ -43,7 +44,10 @@ with sync_playwright() as p:
         fits(page)
         with page.expect_navigation():
             page.locator('#mgo').click()
-        expect(page.locator('[data-view="overview"]')).to_be_visible()
+        if registration:
+            expect(page.locator('[data-view="overview"]')).to_be_visible()
+        else:
+            expect(page.get_by_role('heading', name='购买套餐', exact=True)).to_be_visible()
         if registration:
             expect(page.locator('.p-subscription')).to_contain_text('待开通')
             expect(page.locator('.p-subscription')).not_to_contain_text('不限流量')

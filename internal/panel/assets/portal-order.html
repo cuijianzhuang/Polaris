@@ -1,0 +1,29 @@
+<section class="p-service-page">
+<div class="p-heading"><div><h1>订单详情</h1><p class="mute">查看付款进度与服务交付情况</p></div><a class="btn alt" href="/u/shop">返回商店</a></div>
+<section class="card p-order-hero"><div><span class="p-badge {{.Tone}}" id="st">{{.Status}}</span><h2>{{.O.PlanName}}</h2><p class="mute mono">订单号 {{.O.ID}}</p>{{if .O.Detail}}<p class="mute">{{.O.Detail}}</p>{{end}}</div><div class="p-order-total">{{.Amount}}</div></section>
+<section class="card"><ol class="p-order-steps" aria-label="订单进度"><li class="done">订单已创建</li><li{{if .Received}} class="done"{{end}}>确认付款</li><li{{if .Delivered}} class="done"{{end}}>服务已开通</li></ol></section>
+
+{{if .Pending}}<section class="card"><h2>完成付款</h2>
+{{if .Links}}<p class="mute">请选择付款方式，在 {{.Expires}} 前完成支付。到账后将自动开通。</p><div class="p-inline-actions">{{range .Links}}<a class="btn pri" href="{{.URL}}">{{.Name}} 付款</a>{{end}}</div>
+{{else if .USDTAddress}}<div class="p-payment"><div><p class="p-notice">仅支持 <b>{{.USDTNet}}</b> 网络的 USDT，转错网络无法到账。</p><dl class="p-definition"><div><dt>网络</dt><dd>{{.USDTNet}}</dd></div><div><dt>应付金额</dt><dd class="p-payment-value">{{.O.Amount}} USDT</dd></div></dl><p class="p-payment-address"><code>{{.USDTAddress}}</code></p><p class="mute">请精确转账以上金额（含小数），金额不符无法自动到账。在 {{.Expires}} 前完成，确认到账后自动开通。</p></div>{{if .USDTQR}}<img class="qr" src="{{.USDTQR}}" alt="收款地址二维码" width="200" height="200">{{end}}</div>
+{{else}}<p class="p-notice">在线付款暂不可用，请取消订单或联系售后。</p>{{end}}
+</section>{{else if .Processing}}<section class="p-notice" role="status"><b>款项已收到，正在交付</b><p>页面会自动更新。请勿重复付款，长时间未开通时请联系支持并提供订单号。</p></section>{{else if .TimedOut}}<section class="p-notice"><b>已过支付时限</b><p>请勿继续付款；如已付款，请联系支持核对。重新购买前请先确认原订单状态。</p></section>{{end}}
+
+<div class="p-order-actions"><button class="btn alt" id="check-order" type="button">刷新订单状态</button>{{if .Pending}}<button class="btn alt p-danger" id="cancel" type="button">取消订单</button>{{end}}<span class="mute" id="order-update" role="status"></span></div><p class="err" id="err" role="alert" hidden></p>
+
+{{if .Account}}<section class="card p-account-secret"><h2>服务已开通</h2><p>用户名：<b>{{.Account}}</b></p><p class="mute">将订阅导入客户端即可使用，请勿分享订阅链接。</p><label for="delivered-sub">订阅链接</label><div class="p-form-row"><input id="delivered-sub" type="password" readonly class="p-input" value="{{.SubURL}}" aria-label="已开通的订阅链接"><button class="btn alt" data-copy="{{.SubURL}}" type="button">复制订阅</button></div><div class="p-inline-actions"><a class="btn pri" href="{{.SubURL}}" target="_blank" rel="noopener noreferrer">打开订阅页</a>{{if .BindURL}}<a class="btn alt" href="{{.BindURL}}" target="_blank" rel="noopener noreferrer">绑定 Telegram</a>{{end}}{{if .SignedIn}}<a class="btn alt" href="/u">返回用户中心</a>{{end}}</div>{{if .BindURL}}<p class="mute">绑定 Telegram 后，可登录用户中心续费与加购流量包。</p>{{end}}</section>{{end}}
+
+{{if .SaveLink}}<section class="card p-order-credentials"><h2>保存订单凭据</h2><p class="mute">换浏览器或设备时，可用订单号与凭据找回本订单{{if .Account}}和账号{{end}}。请妥善保存，不要分享。</p><div>订单号：<code>{{.O.ID}}</code></div><div>凭据：<code>{{.Key}}</code></div><div><code>{{.SaveLink}}</code></div><button class="btn alt" type="button" data-copy="{{.SaveLink}}">复制订单查询链接</button></section>{{end}}
+{{if .Support}}<section class="card"><h2>订单支持</h2><p class="mute p-shop-terms">{{.Support}}</p>{{if .SignedIn}}<a href="/u#orders">返回我的订单 →</a>{{end}}</section>{{end}}
+</section>
+<script>
+(function(){
+  var current={{.O.Status}},watch={{.Watch}},expires={{.ExpiryMS}},base='/u/shop/order/'+{{.O.ID}},timer=0,busy=false,delay=4000,button=document.getElementById('check-order'),error=document.getElementById('err'),note=document.getElementById('order-update');
+  function message(text){error.textContent=text;error.hidden=!text}
+  function schedule(){clearTimeout(timer);if(watch&&!document.hidden)timer=setTimeout(function(){check(false)},delay)}
+  function check(manual){if(busy)return;if(document.hidden&&!manual){schedule();return}busy=true;button.disabled=true;if(manual)message('');fetch(base+'/status'+location.search,{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'暂时无法获取状态，请稍后刷新');return j})}).then(function(j){delay=4000;if(j.status!==current||(current==='pending'&&expires>0&&Date.now()>=expires&&watch)){location.reload();return}if(manual)note.textContent='状态已更新 · '+new Date().toLocaleTimeString()}).catch(function(e){delay=Math.min(delay*2,30000);if(manual)message(e.message)}).finally(function(){busy=false;button.disabled=false;schedule()})}
+  button.addEventListener('click',function(){check(true)});document.addEventListener('visibilitychange',function(){clearTimeout(timer);if(!document.hidden&&watch)check(false)});schedule();
+  var cancel=document.getElementById('cancel');if(cancel)cancel.addEventListener('click',function(){if(busy||!confirm('确定取消订单吗？取消后请不要再付款。'))return;busy=true;cancel.disabled=true;button.disabled=true;message('');fetch(base+'/cancel'+location.search,{method:'POST',headers:{'X-Polaris-Portal':'1'},credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'取消失败，请刷新状态后重试');location.reload()})}).catch(function(e){busy=false;cancel.disabled=false;button.disabled=false;message(e.message);schedule()})});
+  document.querySelectorAll('[data-copy]').forEach(function(b){b.addEventListener('click',function(){var value=b.dataset.copy,original=b.textContent;function copied(){b.textContent='已复制';setTimeout(function(){b.textContent=original},1500)}function fallback(){var input=document.createElement('textarea');input.value=value;input.style.cssText='position:fixed;opacity:0';document.body.appendChild(input);input.select();var ok=false;try{ok=document.execCommand('copy')}catch(e){}input.remove();if(ok)copied();else prompt('复制以下内容',value)}if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(value).then(copied,fallback);else fallback()})});
+})();
+</script>

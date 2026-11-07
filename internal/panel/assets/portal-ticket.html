@@ -1,0 +1,16 @@
+<section class="p-service-page">
+<div class="p-heading"><div class="p-ticket-heading"><h1>#{{.T.No}} {{.T.Subject}}</h1><p class="mute">{{.Status}}</p></div><a class="btn alt" href="/u/tickets">全部工单</a></div>
+{{if .Closed}}<div class="p-notice" role="status">此工单已关闭。如果问题仍未解决，继续回复即可重新打开。</div>{{end}}
+<section class="p-ticket-messages" aria-label="工单消息">{{range .Messages}}<article class="p-message{{if not .Admin}} me{{end}}"><div class="p-message-meta"><b>{{.Author}}</b><time>{{.When}}</time></div><div class="p-message-body">{{.Body}}</div></article>{{end}}</section>
+<section class="card"><h2>{{if .Closed}}继续回复{{else}}回复工单{{end}}</h2><div class="p-ticket-form"><div><label for="body">回复内容</label><textarea class="p-input" id="body" maxlength="4000" aria-describedby="ticket-count" placeholder="补充问题详情或回复客服"></textarea><p class="p-ticket-count" id="ticket-count">0 / 4000</p></div><div class="row"><button class="btn pri" id="send" type="button">发送回复</button>{{if not .Closed}}<button class="btn alt" id="close" type="button">问题已解决，关闭工单</button>{{end}}</div><p class="err" id="err" role="alert" hidden></p></div></section>
+</section>
+<script>
+(function(){
+  var no={{.T.No}},body=document.getElementById('body'),send=document.getElementById('send'),close=document.getElementById('close'),error=document.getElementById('err'),busy=false;
+  body.addEventListener('input',function(){document.getElementById('ticket-count').textContent=body.value.length+' / 4000'});
+  function message(text){error.textContent=text;error.hidden=!text}
+  function post(action){busy=true;send.disabled=true;if(close)close.disabled=true;message('');fetch('/u/tickets/'+no+'/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify({body:body.value}),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'操作失败，请稍后重试');location.reload()})}).catch(function(e){busy=false;send.disabled=false;if(close)close.disabled=false;message(e.message)})}
+  send.addEventListener('click',function(){if(busy)return;if(!body.value.trim()){message('请先填写回复内容');body.focus();return}post('reply')});
+  if(close)close.addEventListener('click',function(){if(busy||!confirm('确定关闭这个工单？'))return;post('close')});
+})();
+</script>

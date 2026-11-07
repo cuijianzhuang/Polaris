@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	_ "embed"
 	"encoding/hex"
 	"errors"
 	"html/template"
@@ -128,18 +129,15 @@ type webShopOrder struct {
 func (s *Server) webShopPage(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	data := map[string]any{"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")), "Open": s.webShopOn()}
-	if !s.webShopOn() {
-		s.renderWebShop(c, webShopTpl, data)
-		return
-	}
 	u := s.portalUser(c)
+	data["Viewer"] = u
 	var items []webShopItem
 	for _, p := range s.salePlans() {
 		it := webShopItem{Kind: "plan", ID: p.ID, Name: p.Name, Line: s.tgPlanLine(&p), Note: p.Price}
-		if a, _, ok := s.orderPrice(&p, payEPay); ok {
+		if a, _, ok := s.orderPrice(&p, payEPay); ok && s.epayOn() {
 			it.CNY = a
 		}
-		if _, _, ok := s.orderPrice(&p, payUSDT); ok {
+		if _, _, ok := s.orderPrice(&p, payUSDT); ok && s.usdtOn() {
 			it.USDT = strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64)
 		}
 		items = append(items, it)
@@ -147,10 +145,10 @@ func (s *Server) webShopPage(c *gin.Context) {
 	var packs []webShopItem
 	for _, p := range s.salePacks(u) {
 		it := webShopItem{Kind: "pack", ID: p.ID, Name: p.Name, Line: "本周期增加 " + sub.HumanBytes(p.Traffic)}
-		if a, _, ok := s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payEPay); ok {
+		if a, _, ok := s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payEPay); ok && s.epayOn() {
 			it.CNY = a
 		}
-		if _, _, ok := s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payUSDT); ok {
+		if _, _, ok := s.priceFor(p.PriceStars, p.PriceCNY, p.PriceUSDT, payUSDT); ok && s.usdtOn() {
 			it.USDT = strconv.FormatFloat(p.PriceUSDT, 'f', -1, 64)
 		}
 		if it.CNY != "" || it.USDT != "" {
@@ -165,18 +163,21 @@ func (s *Server) webShopPage(c *gin.Context) {
 	}
 	var os []store.Order
 	q := s.st.DB.Order("created_at desc").Limit(10)
-	if k := s.shopWebKey(c, false); k != "" && u != nil {
-		q = q.Where("web_key = ? OR user_id = ?", webKeyHash(k), u.ID)
-	} else if k != "" {
+	if u != nil {
+		// A shared browser may hold another buyer's receipt. The signed-in
+		// history belongs to this account, including its Telegram purchases.
+		q = q.Where("user_id = ?", u.ID)
+	} else if k := s.shopWebKey(c, false); k != "" {
 		q = q.Where("web_key = ?", webKeyHash(k))
-	} else if u != nil {
-		q = q.Where("user_id = ? AND web_key <> ''", u.ID)
 	} else {
 		q = nil
 	}
 	var orders []webShopOrder
 	if q != nil {
-		q.Find(&os)
+		if err := q.Find(&os).Error; err != nil {
+			serverError(c, err)
+			return
+		}
 		for _, o := range os {
 			orders = append(orders, webShopOrder{ID: o.ID, Name: o.PlanName, Amount: webAmount(&o), Status: orderStatusName[o.Status], When: o.CreatedAt.Format("01-02 15:04")})
 		}
@@ -223,12 +224,12 @@ func webAmount(o *store.Order) string {
 }
 
 func (s *Server) renderWebShop(c *gin.Context, t *template.Template, data map[string]any) {
-	var buf strings.Builder
-	if err := t.Execute(&buf, data); err != nil {
-		serverError(c, err)
-		return
+	active, title := "shop", "购买套餐"
+	if t == webShopOrderTpl {
+		active, title = "orders", "订单详情"
 	}
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(buf.String()))
+	u, _ := data["Viewer"].(*store.User)
+	s.renderPortalSection(c, http.StatusOK, active, title, t, data, u)
 }
 
 // webShopBuy is POST /u/shop/order {kind, id, method, type}.
@@ -355,12 +356,29 @@ func (s *Server) webShopOrderPage(c *gin.Context) {
 	c.Header("Referrer-Policy", "no-referrer")
 	o, viewer, ok := s.webOrder(c, c.Param("id"))
 	if !ok {
-		c.Data(http.StatusNotFound, "text/html; charset=utf-8", []byte(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>订单不存在</title><p style="font:16px sans-serif;text-align:center;margin-top:30vh">订单不存在，或订单号、凭据不正确。<br><a href="`+shopWebPath+`#lookup">重新查询</a> · <a href="`+shopWebPath+`">返回商店</a></p>`))
+		s.renderPortalSection(c, http.StatusNotFound, "orders", "查询订单", webShopOrderMissingTpl, nil, s.portalUser(c))
 		return
 	}
 	data := map[string]any{"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")), "O": o, "Amount": webAmount(o),
 		"Status": orderStatusName[o.Status], "Pending": o.Status == "pending" && time.Now().Before(o.ExpiresAt), "Paid": o.Status == "paid",
 		"Expires": o.ExpiresAt.In(time.FixedZone("CST", 8*3600)).Format("01-02 15:04（北京时间）"), "Support": strings.TrimSpace(s.st.GetSetting("shop_support", ""))}
+	data["Viewer"] = viewer
+	data["Tone"] = "unknown"
+	if o.Status == "paid" {
+		data["Tone"] = "verified"
+	}
+	if o.Status == "failed" || o.Status == "refund_pending" {
+		data["Tone"] = "unavailable"
+	}
+	data["Received"] = o.PaidAt != nil || o.Status == "paid" || o.Status == "processing" || o.Status == "failed" || o.Status == "refund_pending" || o.Status == "refunded"
+	data["Delivered"] = o.Status == "paid" || o.Status == "refund_pending" || o.Status == "refunded"
+	data["Processing"] = o.Status == "processing"
+	data["TimedOut"] = o.Status == "pending" && data["Pending"] != true
+	if data["TimedOut"] == true {
+		data["Status"] = "已过支付时限"
+	}
+	data["Watch"] = data["Pending"] == true || o.Status == "processing"
+	data["ExpiryMS"] = o.ExpiresAt.UnixMilli()
 	if data["Pending"] == true {
 		switch o.Method {
 		case payEPay:
@@ -429,107 +447,12 @@ func (s *Server) webShopCancel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-const webShopStyle = `<style>
-:root{--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--ok:#15803D;--bad:#B91C1C;--warn:#FEF3C7;--warnink:#92400E}
-@media (prefers-color-scheme:dark){:root{--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--ok:#4ADE80;--bad:#F87171;--warn:#3A2E12;--warnink:#FCD34D}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "IBM Plex Sans","Noto Sans SC",system-ui,sans-serif}
-main{max-width:640px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:14px}
-header{display:flex;justify-content:space-between;align-items:center;gap:8px}
-header a{color:var(--pri);text-decoration:none;font-size:13px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:10px}
-h1{font-size:22px;margin:0}h2{font-size:16px;margin:0}
-.mute{color:var(--mute);font-size:13px;margin:0}
-.note{background:var(--warn);color:var(--warnink);border-radius:8px;padding:10px 12px;font-size:13px}
-.row{display:flex;flex-wrap:wrap;gap:8px}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;text-decoration:none;font:inherit;font-weight:500;cursor:pointer;padding:0 14px}
-.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}
-.btn:disabled{opacity:.6;cursor:default}
-.price{font-weight:600}
-input{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);min-width:0;flex:1}
-code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;word-break:break-all}
-pre{white-space:pre-wrap;margin:0;font:inherit}
-.err{color:var(--bad);font-size:13px;margin:0}.ok{color:var(--ok)}
-table{width:100%;border-collapse:collapse;font-size:13px}td{padding:6px 4px;border-top:1px solid var(--line)}
-[hidden]{display:none!important}
-.qr{display:block;margin:8px auto;background:#fff;padding:6px;border-radius:8px;max-width:60vw;height:auto}
-</style>`
+//go:embed assets/portal-shop.html
+var portalShopHTML string
 
-var webShopTpl = template.Must(template.New("shop").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
-<title>{{.Title}} · 购买套餐</title>` + webShopStyle + `</head><body><main>
-<header><h1>购买套餐</h1><span><a href="#lookup">查询订单</a> · <a href="/u">用户中心 →</a></span></header>
-{{if not .Open}}<div class="card"><p class="mute">商店暂未开放。</p></div>{{else}}
-{{if .User}}<div class="card"><p class="mute">当前账号</p><div>{{.UserLine}}</div><p class="mute">购买同一套餐为续费（顺延到期时间）；换套餐会从今天开始计时并清零已用流量。</p></div>
-{{else}}<div class="card"><p class="mute">已有账号？{{if .Bot}}<a href="/u">登录用户中心</a>后可续费或加购流量包。{{else}}续费请联系管理员或使用 Telegram 机器人。{{end}}{{if .AutoCreate}}<br>没有账号也可以直接购买，付款后自动创建账号并显示订阅链接。{{end}}</p></div>{{end}}
-{{if not .Pay}}<div class="note">暂未开放在线付款。{{if .Code}}可以使用兑换码开通。{{else}}请联系管理员。{{end}}</div>{{end}}
-{{range .Items}}<div class="card" data-kind="{{.Kind}}" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}</p>{{if .Note}}<p class="mute">{{.Note}}</p>{{end}}
-{{if or .CNY .USDT}}<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div>{{end}}
-</div>{{else}}<div class="card"><p class="mute">暂时没有在售的套餐。</p></div>{{end}}
-{{if .Packs}}<h2>流量包</h2>{{range .Packs}}<div class="card" data-kind="pack" data-id="{{.ID}}"><h2>{{.Name}}</h2><p class="mute">{{.Line}}，下次流量重置或开始新周期时失效。</p>
-<div class="row">{{$it := .}}{{if .CNY}}{{range $.Types}}<button class="btn buy" type="button" data-method="epay" data-type="{{.ID}}">{{.Name}} ¥{{$it.CNY}}</button>{{end}}{{end}}{{if .USDT}}{{range $.Nets}}<button class="btn alt buy" type="button" data-method="usdt" data-type="{{.ID}}">USDT · {{.Short}} {{$it.USDT}}</button>{{end}}{{end}}</div></div>{{end}}{{end}}
-<div class="card"><h2>优惠码</h2><div class="row"><input id="coupon" placeholder="输入优惠码" autocomplete="off" maxlength="32"><button class="btn alt" id="capply" type="button">使用</button></div><p class="mute" id="cnote" hidden></p></div>
-{{if .Code}}<div class="card"><h2>兑换码</h2><div class="row"><input id="code" placeholder="输入兑换码" autocomplete="off" maxlength="32"><button class="btn" id="redeem" type="button">兑换</button></div></div>{{end}}
-<p class="err" id="err" hidden></p>
-{{if .Orders}}<div class="card"><h2>我的订单</h2><table>{{range .Orders}}<tr><td><a href="` + shopWebPath + `/order/{{.ID}}">{{.Name}}</a><div class="mute mono">{{.ID}}</div></td><td>{{.Amount}}</td><td>{{.Status}}</td><td class="mute">{{.When}}</td></tr>{{end}}</table></div>{{end}}
-<div class="card" id="lookup"><h2>查询订单</h2><p class="mute">换了浏览器或设备时，用下单时保存的订单号和订单凭据查询。请勿把凭据交给他人。</p>
-<input id="lid" placeholder="订单号" autocomplete="off" maxlength="32"><input id="lkey" placeholder="订单凭据（32 位）" autocomplete="off" maxlength="32"><div><button class="btn alt" id="lgo" type="button">查询订单</button></div><p class="err" id="lerr" hidden></p></div>
-{{if .Terms}}<div class="card"><h2>购买条款</h2><pre class="mute">{{.Terms}}</pre>{{if .Support}}<p class="mute">售后：{{.Support}}</p>{{end}}<p class="mute">付款即表示同意以上条款。</p></div>{{end}}
-{{end}}
-</main>
-<script>
-(function(){
-var err=document.getElementById('err');if(!err)return;
-function show(m){err.textContent=m;err.hidden=!m}
-var coupon='';
-document.querySelectorAll('.buy').forEach(function(b){b.dataset.label=b.textContent});
-var ca=document.getElementById('capply'),cn=document.getElementById('cnote');
-function note(m){cn.textContent=m;cn.hidden=!m}
-function applyQuote(j){document.querySelectorAll('[data-id]').forEach(function(card){var it=j&&j.items&&j.items[card.dataset.kind+':'+card.dataset.id];
-card.querySelectorAll('.buy').forEach(function(b){var l=b.dataset.label;if(it&&!it.error){var a=b.dataset.method==='usdt'?it.usdt:it.epay;if(a){var p=l.lastIndexOf(' ');l=l.slice(0,p+1)+(b.dataset.method==='usdt'?'':'¥')+(a==='0'?'免费':a)+'（原价 '+l.slice(p+1)+'）'}}b.textContent=l})})}
-if(ca)ca.addEventListener('click',function(){var c=document.getElementById('coupon').value.trim();show('');
-if(!c){coupon='';applyQuote(null);note('');return}ca.disabled=true;
-fetch('` + shopWebPath + `/coupon?code='+encodeURIComponent(c),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){ca.disabled=false;
-if(!j.ok){coupon='';applyQuote(null);note(j.error||'优惠码无效');return}coupon=j.code;applyQuote(j);note('已使用优惠码 '+j.code+'（'+j.label+'），价格已更新')}).catch(function(e){ca.disabled=false;note(e.message)})});
-function post(p,b){return fetch('` + shopWebPath + `/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
-document.querySelectorAll('.buy').forEach(function(b){b.addEventListener('click',function(){
-var card=b.closest('[data-id]');b.disabled=true;show('');
-post('order',{kind:card.dataset.kind,id:card.dataset.id,method:b.dataset.method,type:b.dataset.type||'',coupon:coupon}).then(function(j){location.href=j.pay||j.url}).catch(function(e){b.disabled=false;show(e.message)})})});
-var lg=document.getElementById('lgo');if(lg)lg.addEventListener('click',function(){var id=document.getElementById('lid').value.trim(),k=document.getElementById('lkey').value.trim().toLowerCase(),le=document.getElementById('lerr');
-if(!/^[a-z0-9]{8,32}$/.test(id)||!/^[0-9a-f]{32}$/.test(k)){le.textContent='请填写正确的订单号和 32 位订单凭据';le.hidden=false;return}
-location.href='` + shopWebPath + `/order/'+encodeURIComponent(id)+'?k='+k});
-var r=document.getElementById('redeem');if(r)r.addEventListener('click',function(){var c=document.getElementById('code').value.trim();if(!c)return;r.disabled=true;show('');
-post('redeem',{code:c}).then(function(j){location.href=j.url}).catch(function(e){r.disabled=false;show(e.message)})});
-})();
-</script></body></html>`))
+//go:embed assets/portal-order.html
+var portalOrderHTML string
 
-var webShopOrderTpl = template.Must(template.New("order").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
-<title>{{.Title}} · 订单</title>` + webShopStyle + `</head><body><main>
-<header><h1>订单</h1><a href="` + shopWebPath + `">← 返回商店</a></header>
-<div class="card"><h2>{{.O.PlanName}}</h2><div class="mono mute">{{.O.ID}}</div><div>金额：<span class="price">{{.Amount}}</span></div><div>状态：<b id="st" class="{{if .Paid}}ok{{end}}">{{.Status}}</b></div>
-{{if .O.Detail}}<p class="mute">{{.O.Detail}}</p>{{end}}</div>
-{{if .Pending}}<div class="card">
-{{if .Links}}<p class="mute">选择方式完成付款，到账后自动开通；请在 {{.Expires}} 前完成。</p><div class="row">{{range .Links}}<a class="btn" href="{{.URL}}">{{.Name}} 付款</a>{{end}}</div>
-{{else if .USDTAddress}}<p>网络：<b>{{.USDTNet}}</b></p><p class="note">只能用 <b>{{.USDTNet}}</b> 网络转 USDT，转错网络无法到账。</p>{{if .USDTQR}}<img class="qr" src="{{.USDTQR}}" alt="收款地址二维码" width="200" height="200">{{end}}<p>地址：<code>{{.USDTAddress}}</code></p><p>金额：<code>{{.O.Amount}}</code> USDT</p><p class="note">请精确转账上面的金额（含小数），金额不符无法自动到账。请在 {{.Expires}} 前完成，到账确认后自动开通。</p>
-{{else}}<p class="note">在线付款暂不可用，请取消订单或联系售后。</p>{{end}}
-<div><button class="btn alt" id="cancel" type="button">取消订单</button></div><p class="err" id="err" hidden></p></div>{{end}}
-{{if .Account}}<div class="card"><h2>你的账号</h2><div>用户名：<b>{{.Account}}</b></div><div>订阅链接：</div><code>{{.SubURL}}</code>
-<div class="row"><a class="btn" href="{{.SubURL}}" target="_blank" rel="noopener">打开订阅页</a>{{if .BindURL}}<a class="btn alt" href="{{.BindURL}}" target="_blank" rel="noopener">绑定 Telegram</a>{{end}}</div>
-<p class="mute">把订阅链接导入客户端即可使用。{{if .BindURL}}绑定 Telegram 后可以登录用户中心续费、加购流量包。{{end}}请妥善保管，不要分享给他人。</p></div>{{end}}
-{{if .SaveLink}}<div class="card"><h2>订单凭据</h2><p class="mute">保存订单号和凭据（或直接保存下面的链接），换浏览器或设备时可在商店的「查询订单」找回这个订单{{if .Account}}和账号{{end}}。请勿分享。</p>
-<div>订单号：<code>{{.O.ID}}</code></div><div>凭据：<code>{{.Key}}</code></div><code class="mute">{{.SaveLink}}</code></div>{{end}}
-{{if .Support}}<p class="mute">售后：{{.Support}}</p>{{end}}
-</main>
-{{if .Pending}}<script>
-(function(){
-var st=document.getElementById('st'),err=document.getElementById('err'),base='` + shopWebPath + `/order/{{.O.ID}}';
-function tick(){fetch(base+'/status'+location.search,{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j.status&&j.status!=='pending'){location.reload();return}setTimeout(tick,4000)}).catch(function(){setTimeout(tick,8000)})}
-setTimeout(tick,4000);
-document.getElementById('cancel').addEventListener('click',function(){if(!confirm('确定取消订单吗？取消后请不要再付款。'))return;
-fetch(base+'/cancel'+location.search,{method:'POST',headers:{'X-Polaris-Portal':'1'},credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);location.reload()})}).catch(function(e){err.textContent=e.message;err.hidden=false})});
-})();
-</script>{{end}}
-</body></html>`))
+var webShopTpl = template.Must(template.New("shop").Parse(portalShopHTML))
+var webShopOrderTpl = template.Must(template.New("order").Parse(portalOrderHTML))
+var webShopOrderMissingTpl = template.Must(template.New("missing-order").Parse(`<section class="p-service-page"><div class="p-heading"><div><h1>订单不存在</h1><p class="mute">订单不存在，或订单号、凭据不正确。</p></div></div><section class="card"><p>请检查订单号和下单时保存的凭据，或登录订单所属账号后重试。</p><div class="p-inline-actions"><a class="btn pri" href="/u/shop#lookup">重新查询</a><a class="btn alt" href="/u#orders">我的订单</a></div></section></section>`))

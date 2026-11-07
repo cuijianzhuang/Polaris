@@ -1,6 +1,7 @@
 package panel
 
 import (
+	_ "embed"
 	"fmt"
 	"html/template"
 	"net"
@@ -69,13 +70,7 @@ func (s *Server) portalForwards(c *gin.Context) {
 	data := map[string]any{"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")), "Rows": rows, "Nodes": opts,
 		"Max": u.FwdMax, "Count": len(rs), "Lo": lo, "Hi": hi, "Used": used, "Quota": quota, "State": state,
 		"Speed": u.FwdSpeedMbps, "CanAdd": u.FwdMax > len(rs) && len(opts) > 0 && s.fwdServes(u)}
-	var buf []byte
-	w := &bytesWriter{b: &buf}
-	if err := portalFwdTpl.Execute(w, data); err != nil {
-		serverError(c, err)
-		return
-	}
-	c.Data(http.StatusOK, "text/html; charset=utf-8", buf)
+	s.renderPortalSection(c, http.StatusOK, "account", "我的转发", portalFwdTpl, data, u)
 }
 
 type bytesWriter struct{ b *[]byte }
@@ -143,30 +138,7 @@ func (s *Server) portalForwardDelete(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-var portalFwdTpl = template.Must(template.New("forwards").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>{{.Title}} · 我的转发</title>` + ticketPageStyle + `</head><body><main>
-<header><h1>我的转发</h1><a href="/u">← 用户中心</a></header>
-<div class="card"><p class="mute">已用 {{.Count}} / {{.Max}} 条 · 本周期转发流量 {{.Used}} / {{.Quota}}{{if .Speed}} · 每条限速 {{.Speed}} Mbps{{end}} · 端口范围 {{.Lo}}–{{.Hi}}</p>
-{{if .State}}<p class="err">{{.State}}</p>{{end}}
-{{if .CanAdd}}<h2>添加转发</h2>
-<div class="row" style="flex-wrap:wrap;gap:8px">
-<select id="node">{{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
-<select id="net"><option value="tcp,udp">TCP + UDP</option><option value="tcp">TCP</option><option value="udp">UDP</option></select>
-<input id="target" placeholder="目标 地址:端口，如 example.com:443" style="flex:1;min-width:200px">
-<input id="port" type="number" min="{{.Lo}}" max="{{.Hi}}" placeholder="入口端口（留空自动）" style="width:150px">
-<input id="name" maxlength="64" placeholder="备注（可选）" style="width:140px">
-<button class="btn" id="add" type="button">添加</button></div>
-<p class="mute">目标必须是公网地址。域名在添加时解析一次并固定为 IP；目标 IP 变了请删除后重新添加。</p>
-<p class="err" id="err" hidden></p>{{end}}</div>
-<div class="card"><h2>转发列表</h2>
-{{if .Rows}}<table><tr><th>入口</th><th>目标</th><th>协议</th><th></th></tr>{{range .Rows}}<tr><td><code>{{.Entry}}</code><div class="mute">{{.Node}} · {{.Name}}</div></td><td><code>{{.Target}}</code></td><td class="mute">{{.Network}}</td><td><button class="btn alt del" data-id="{{.ID}}" type="button">删除</button></td></tr>{{end}}</table>
-{{else}}<p class="mute">还没有转发。</p>{{end}}</div>
-</main><script>
-function fpost(p,b){return fetch('/u/forwards'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b||{}),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
-function ferr(m){var e=document.getElementById('err');if(e){e.textContent=m;e.hidden=!m}else if(m){alert(m)}}
-var add=document.getElementById('add');if(add)add.addEventListener('click',function(){var b=this;b.disabled=true;ferr('');
-var port=parseInt(document.getElementById('port').value||'0',10)||0;
-fpost('',{nodeId:document.getElementById('node').value,network:document.getElementById('net').value,target:document.getElementById('target').value,listenPort:port,name:document.getElementById('name').value}).then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})});
-document.querySelectorAll('.del').forEach(function(b){b.addEventListener('click',function(){if(!confirm('删除这条转发？'))return;b.disabled=true;fpost('/'+b.dataset.id+'/delete').then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})})});
-</script></body></html>`))
+//go:embed assets/portal-forwards.html
+var portalForwardsHTML string
+
+var portalFwdTpl = template.Must(template.New("forwards").Parse(portalForwardsHTML))

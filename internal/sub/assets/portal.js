@@ -4,7 +4,8 @@
     var hash=location.hash.slice(1),view=hash==='cdn-preferences'?'preferences':hash==='qr'?'subscription':hash;
     if(!titles[view])view='overview';
     document.querySelectorAll('[data-view]').forEach(function(p){p.hidden=p.dataset.view!==view});
-    document.querySelectorAll('[data-view-link]').forEach(function(a){var selected=a.dataset.viewLink===view||(a.closest('.p-bottom')&&a.dataset.viewLink==='subscription'&&['nodes','preferences'].includes(view));if(selected)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+    var parent=view;if(view==='orders'||(view==='help'&&!document.querySelector('.p-bottom [data-view-link=help]')))parent='account';if(view==='preferences'||(view==='nodes'&&!document.querySelector('.p-bottom [data-view-link=nodes]')))parent='subscription';
+    document.querySelectorAll('[data-view-link]').forEach(function(a){var selected=a.closest('.p-bottom')?a.dataset.viewLink===parent:a.dataset.viewLink===view;if(selected)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
     document.getElementById('p-current-title').textContent=titles[view];
     document.title=titles[view]+' · 用户中心';
     if(hash==='qr'){document.getElementById('p-qr').open=true;document.getElementById('p-qr').scrollIntoView({block:'center'})}

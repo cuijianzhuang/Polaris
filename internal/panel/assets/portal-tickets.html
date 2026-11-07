@@ -1,0 +1,13 @@
+<section class="p-service-page">
+<div class="p-heading"><div><h1>我的工单</h1><p class="mute">查看支持记录，跟进客服回复</p></div><a class="btn alt" href="/u#help">使用教程</a></div>
+<details class="card" id="ticket-compose"{{if not .Tickets}} open{{end}}><summary>提交新工单</summary><div class="p-ticket-form"><div><label for="subject">标题（可选）</label><input class="p-input" id="subject" maxlength="120" placeholder="可留空，使用内容第一行"></div><div><label for="body">问题描述</label><textarea class="p-input" id="body" maxlength="4000" aria-describedby="ticket-tip ticket-count" placeholder="请描述客户端、节点和错误提示，便于我们排查。"></textarea><p class="p-ticket-count" id="ticket-count">0 / 4000</p></div><p class="mute" id="ticket-tip">不要提交密码、订阅链接或付款凭据。客服回复后会通过已绑定的 Telegram 或邮箱通知你。</p><div><button class="btn pri" id="send" type="button">提交工单</button></div><p class="err" id="err" role="alert" hidden></p></div></details>
+<section class="card"><h2>最近工单</h2>{{if .Tickets}}<div class="p-ticket-list">{{range .Tickets}}<a class="p-ticket-row" href="/u/tickets/{{.No}}"><div><b>#{{.No}} {{.Subject}}</b><span class="mute">{{.When}}</span>{{if .Unread}}<span class="p-badge verified">有新回复</span>{{end}}</div><span class="p-badge unknown">{{.Status}}</span></a>{{end}}</div>{{else}}<p class="p-empty mute">还没有工单。遇到问题时，可以先查看使用教程。</p>{{end}}</section>
+</section>
+<script>
+(function(){
+  var body=document.getElementById('body'),send=document.getElementById('send'),error=document.getElementById('err');
+  body.addEventListener('input',function(){document.getElementById('ticket-count').textContent=body.value.length+' / 4000'});
+  function message(text){error.textContent=text;error.hidden=!text}
+  send.addEventListener('click',function(){message('');if(!body.value.trim()){message('请先填写问题描述');body.focus();return}send.disabled=true;send.textContent='正在提交…';fetch('/u/tickets',{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify({subject:document.getElementById('subject').value,body:body.value}),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'提交失败，请稍后重试');location.href=j.url})}).catch(function(e){send.disabled=false;send.textContent='提交工单';message(e.message)})});
+})();
+</script>

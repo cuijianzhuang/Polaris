@@ -146,9 +146,13 @@ func (s *Server) portalGate(decoy, h gin.HandlerFunc) gin.HandlerFunc {
 // portalPage: GET /u — the user's info page, or the sign-in page.
 func (s *Server) portalPage(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
+	next := portalPath
+	if c.Query("next") == shopWebPath {
+		next = shopWebPath
+	}
 	u := s.portalUser(c)
 	if u != nil && c.Request.URL.Path != portalPath {
-		c.Redirect(http.StatusFound, portalPath)
+		c.Redirect(http.StatusFound, next)
 		return
 	}
 	if u == nil {
@@ -159,6 +163,7 @@ func (s *Server) portalPage(c *gin.Context) {
 			"Mail":         s.mailLoginOn(),
 			"Register":     s.mailRegisterOn(),
 			"RegisterMode": c.Request.URL.Path == portalPath+"/register" && s.mailRegisterOn(),
+			"Next":         next,
 			"Shop":         s.webShopOn(),
 		}); err != nil {
 			serverError(c, err)

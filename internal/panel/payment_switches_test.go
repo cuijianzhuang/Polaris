@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -143,7 +144,7 @@ func TestPaymentSwitchesBlockNewAndResumedPurchases(t *testing.T) {
 			}
 			if method != payStars {
 				buyer := newShopClient(t, srv.URL)
-				if _, body := buyer.req("GET", shopWebPath, nil, false); strings.Contains(body, `data-method="`+method+`"`) {
+				if _, body := buyer.req("GET", shopWebPath, nil, false); regexp.MustCompile(`<button\b[^>]*\bdata-method="` + regexp.QuoteMeta(method) + `"`).MatchString(body) {
 					t.Fatal("disabled method still offered by web shop")
 				}
 				if status, _ := buyer.req("POST", shopWebPath+"/order", map[string]any{"id": p.ID, "kind": "plan", "method": method, "type": "alipay"}, true); status != 400 {
