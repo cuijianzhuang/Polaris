@@ -26,8 +26,8 @@ export const targetLabel: Record<string, string> = { telegram: 'Telegram', webda
 // A restore restarts the panel.
 export function Backups() {
   const pushOK = useFeature('backup_push')
-  const info = useLoad(() => get<BackupInfo>('/backup'))
-  const drills = useLoad(() => get<RestoreDrill[]>('/backup/drills'))
+  const info = useLoad((signal) => get<BackupInfo>('/backup', signal))
+  const drills = useLoad((signal) => get<RestoreDrill[]>('/backup/drills', signal))
   const [drillAsk, setDrillAsk] = useState<string | null>(null)
   const drillLock = useRef(false)
   const [drillPass, setDrillPass] = useState('')

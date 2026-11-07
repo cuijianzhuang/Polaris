@@ -21,6 +21,7 @@ func TestBackupRestore(t *testing.T) {
 	s, srv, admin := newAdminClient(t)
 	restarted := make(chan struct{}, 1)
 	s.restartHook = func() { restarted <- struct{}{} }
+	s.st.DB.Create(&store.PortalSession{ID: "restore-session", UserID: "u1", ExpiresAt: time.Now().Add(time.Hour)})
 	s.st.DB.Create(&store.User{ID: "u1", Username: "before", UUID: "11111111-1111-1111-1111-111111111111", Password: "p", Status: "active", SubToken: "t1"})
 	s.st.DB.Create(&store.Node{ID: "net", Name: "net"})
 	anchoredExpiry := costTestDate(t, "2026-02-28")
@@ -108,6 +109,11 @@ func TestBackupRestore(t *testing.T) {
 	s2, err := New(s.cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	var sessionCount int64
+	s2.st.DB.Model(&store.PortalSession{}).Count(&sessionCount)
+	if sessionCount != 0 {
+		t.Fatal("restore retained or revived user-center sessions")
 	}
 	var u store.User
 	s2.st.DB.First(&u, "id = ?", "u1")

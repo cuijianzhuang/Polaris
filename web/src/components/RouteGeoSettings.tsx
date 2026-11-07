@@ -11,7 +11,7 @@ import { Field, Switch, useAction, useLoad } from './ui'
 type GeoInfo = { policy: { enabled: boolean; sha256: string; revision: number }; databaseState: string; database?: { databaseType: string; buildEpoch: number; ipVersion: number }; effectiveEnabled: boolean }
 type GeoLookup = { databaseSHA256: string; match: GeoLocation }
 export default function RouteGeoSettings() {
-  const info = useLoad(() => get<GeoInfo>('/tools/route-geo'))
+  const info = useLoad((signal) => get<GeoInfo>('/tools/route-geo', signal))
   const [file, setFile] = useState<File>()
   const [fileVersion, setFileVersion] = useState(0)
   const [ip, setIP] = useState('')

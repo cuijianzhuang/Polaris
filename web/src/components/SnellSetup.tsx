@@ -8,7 +8,7 @@ import { ErrorNote, Field, Modal, useLoad } from './ui'
 type Ready = { ready: boolean; minVersion: string; installedVersion: string; reasons: string[] }
 export default function SnellSetup({ nodes, initialNode, onClose, onCreate }: { nodes: Node[]; initialNode?: string; onClose: () => void; onCreate: (nodeId: string) => void }) {
   const [nodeId, setNodeId] = useState(initialNode || nodes.find((n) => n.cores.some((c) => c.type === 'singbox'))?.id || nodes[0]?.id || '')
-  const ready = useLoad(() => nodeId ? get<Ready>(`/nodes/${nodeId}/snell-readiness`) : Promise.resolve(null), [nodeId])
+  const ready = useLoad((signal) => nodeId ? get<Ready>(`/nodes/${nodeId}/snell-readiness`, signal) : Promise.resolve(null), [nodeId])
   return <Modal title={t('Snell 入站')} onClose={onClose} footer={<>
     <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
     <button className="btn pri" type="button" disabled={ready.loading || !ready.data?.ready} onClick={() => onCreate(nodeId)}>{t('配置 Snell 入站')}</button>

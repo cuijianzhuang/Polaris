@@ -27,7 +27,7 @@ export function UserIPCount({ user, onClick }: { user: User; onClick: () => void
 
 // Poll only the read-only online view. Never replace an open editor's form.
 export function UserOnlineDetails({ user }: { user: User }) {
-  const data = useLoad(() => get<User>(`/users/${user.id}`), [user.id])
+  const data = useLoad((signal) => get<User>(`/users/${user.id}`, signal), [user.id])
   usePoll(data.reload, 10000)
   const current = data.data ?? user
   const devices = current.onlineDevices ?? []

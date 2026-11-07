@@ -53,8 +53,8 @@ function TemplateEditor({ tpl, groups, onClose, onSaved }: { tpl?: InboundTempla
   const [tplGroups, setGroups] = useState<string[]>(tpl?.groups ?? [])
   const [labels, setLabels] = useState((tpl?.boundLabels ?? []).join(', '))
   const [idx, setIdx] = useState(0)
-  const caps = useLoad(() => get<CapSet[]>('/capabilities'))
-  const certificates = useLoad(() => get<Certificate[]>('/certificates'))
+  const caps = useLoad((signal) => get<CapSet[]>('/capabilities', signal))
+  const certificates = useLoad((signal) => get<Certificate[]>('/certificates', signal))
   const proxyCaps = (caps.data ?? []).filter((c) => c.combos?.length)
   const { busy, run } = useAction()
   const it = items[idx]
@@ -193,9 +193,9 @@ function SyncModal({ tpl, onClose }: { tpl: InboundTemplate; onClose: () => void
 
 export default function Templates() {
   const { nodes } = useNodes()
-  const tpls = useLoad(() => get<InboundTemplate[]>('/templates'))
-  const groups = useLoad(() => get<Group[]>('/groups'))
-  const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
+  const tpls = useLoad((signal) => get<InboundTemplate[]>('/templates', signal))
+  const groups = useLoad((signal) => get<Group[]>('/groups', signal))
+  const cdn = useLoad((signal) => get<CDNProfile[]>('/cdn-profiles', signal))
   const [step, setStep] = useState<Step>(1)
   const [tplId, setTplId] = useState<string>('')
   const [query, setQuery] = useState('')
@@ -477,7 +477,7 @@ function applyLabel(status: string) {
 }
 
 function TemplateHistory({ tpl, onClose }: { tpl: InboundTemplate; onClose: () => void }) {
-  const history = useLoad(() => get<{ runs: { id: string; createdAt: string; state: string }[] }>(`/templates/${tpl.id}/runs`))
+  const history = useLoad((signal) => get<{ runs: { id: string; createdAt: string; state: string }[] }>(`/templates/${tpl.id}/runs`, signal))
   const [selected, setSelected] = useState('')
   const [details, setDetails] = useState<TemplatePlan | null>(null)
   const [error, setError] = useState('')

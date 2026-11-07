@@ -753,6 +753,8 @@ func (arc *Archive) Validate(box *secret.Box) error {
 
 func RuntimeControlModel(m any) bool {
 	switch m.(type) {
+	case *store.PortalSession, *store.PortalSessionEpoch:
+		return true
 	case *store.RestoreDrill, *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus, *store.NotificationState, *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteScheduleState, *store.UpgradeRollout:
 		return true
 	}

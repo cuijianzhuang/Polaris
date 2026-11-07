@@ -167,6 +167,15 @@ func TestPortalNodeEvidence(t *testing.T) {
 		}
 	}
 	check("unknown", "尚未完成代理认证")
+	var connected sub.Info
+	if err := s.portalNodeDetails(&connected, []sub.Node{n}); err != nil {
+		t.Fatal(err)
+	}
+	if connected.Links[0].StateLabel != "连接通过" || connected.Links[0].Network != "passed" || connected.Links[0].Business != "unknown" {
+		t.Fatal("network check was not distinguished from business proof", connected.Links)
+	}
+	s.st.DB.Model(&store.InboundHealth{}).Where("inbound_id = ?", "in").Updates(map[string]any{"ok": true, "error": probeUDPReason})
+	check("unknown", "尚未执行")
 	s.st.DB.Model(&store.InboundHealth{}).Where("inbound_id = ?", "in").Updates(map[string]any{"ok": false, "error": "secret diagnostic internals"})
 	check("unavailable", "近期连接检查失败")
 	s.st.DB.Model(&store.InboundHealth{}).Where("inbound_id = ?", "in").Update("checked_at", now.Add(-time.Hour))
@@ -201,5 +210,30 @@ func TestPortalVerifiedRelayExpires(t *testing.T) {
 	}
 	if info.Links[0].State != "unknown" {
 		t.Fatal("expired result claimed success", info.Links)
+	}
+}
+
+func TestPortalNodeStatusRefreshIsScoped(t *testing.T) {
+	s, base, _ := cdnRegionFixture(t)
+	client := regionPortalClient(t, s, base, "ra")
+	code, body := client.req("GET", "/u/nodes/status?userId=rb", nil, false)
+	if code != 200 || !strings.Contains(body, `"items"`) {
+		t.Fatal(code, body)
+	}
+	for _, secret := range []string{"alice-region-subscription-token", "bob-region-subscription-token", "6f1d3c1c-7a0e-4a9f-9a52-6b8f6e4f1a01", "vless://", "regional", "inboundId"} {
+		if strings.Contains(body, secret) {
+			t.Fatal("status API leaked credentials or private configuration", secret)
+		}
+	}
+	if err := s.st.DB.Model(&store.User{}).Where("id = ?", "ra").Update("status", "disabled").Error; err != nil {
+		t.Fatal(err)
+	}
+	code, body = client.req("GET", "/u/nodes/status", nil, false)
+	if code != 200 || !strings.Contains(body, `"items":[]`) {
+		t.Fatal("disabled account kept published nodes", code, body)
+	}
+	anonymous := portalCookieClient(t, base, "")
+	if code, _ := anonymous.req("GET", "/u/nodes/status", nil, false); code != 401 {
+		t.Fatal("public status API accepted no session", code)
 	}
 }

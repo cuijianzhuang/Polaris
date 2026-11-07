@@ -33,7 +33,7 @@ export default function Audit() {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   useEffect(() => { const tm = setTimeout(() => { setQuery(q); setPage(0) }, 300); return () => clearTimeout(tm) }, [q])
-  const list = useLoad(() => get<{ items: AuditLog[]; total: number }>(`/audit-logs?limit=100&offset=${page * 100}&action=${action}&q=${encodeURIComponent(query)}`), [action, query, page])
+  const list = useLoad((signal) => get<{ items: AuditLog[]; total: number }>(`/audit-logs?limit=100&offset=${page * 100}&action=${action}&q=${encodeURIComponent(query)}`, signal), [action, query, page])
   const total = list.data?.total ?? 0
   const settings = useLoad(readSettings)
   const { busy, run } = useAction()

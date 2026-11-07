@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -311,46 +312,78 @@ func (s *Server) listSubTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, ts)
 }
 
+var errSubTemplateConflict = errors.New("模板已被其他窗口修改，请重新加载服务器内容；当前草稿已保留")
+
 func (s *Server) updateSubTemplate(c *gin.Context) {
-	var t store.SubTemplate
-	if err := s.st.DB.First(&t, "id = ?", c.Param("id")).Error; err != nil {
-		dbError(c, err)
-		return
-	}
 	var req struct {
-		Content   string `json:"content"`
-		Reset     bool   `json:"reset"`
-		Name      string `json:"name"`
-		IsDefault bool   `json:"isDefault"`
+		Content   string  `json:"content"`
+		Reset     bool    `json:"reset"`
+		Name      string  `json:"name"`
+		IsDefault bool    `json:"isDefault"`
+		Revision  *uint64 `json:"revision"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
 		return
 	}
-	if req.Reset {
-		req.Content = defaultTemplate(t.Format)
-	} else if req.Content == "" {
-		req.Content = t.Content // name / default-flag only
-	}
-	if req.Name != "" {
-		t.Name = req.Name
-	}
-	if req.IsDefault {
-		s.st.DB.Model(&store.SubTemplate{}).Where("format = ?", t.Format).Update("is_default", false)
-		t.IsDefault = true
-	}
-	// Validate by rendering with a sample node.
-	if r, ok := sub.Get(t.Format); ok {
-		sample := []sub.Node{{Name: "sample", Server: "203.0.113.1", Port: 443, Protocol: "trojan", Password: "x"}}
-		if _, err := r.Render(sample, sub.Info{URL: "https://example.com/sub/x"}, req.Content); err != nil {
-			badRequest(c, fmt.Errorf("模板无效: %w", err))
-			return
+	var result store.SubTemplate
+	var validationErr error
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		var current store.SubTemplate
+		if err := tx.First(&current, "id = ?", c.Param("id")).Error; err != nil {
+			return err
 		}
+		if req.Revision != nil && *req.Revision != current.Revision {
+			return errSubTemplateConflict
+		}
+		content := req.Content
+		if req.Reset {
+			content = defaultTemplate(current.Format)
+		} else if content == "" {
+			content = current.Content
+		}
+		if renderer, ok := sub.Get(current.Format); ok {
+			sample := []sub.Node{{Name: "sample", Server: "203.0.113.1", Port: 443, Protocol: "trojan", Password: "x"}}
+			if _, err := renderer.Render(sample, sub.Info{URL: "https://example.com/sub/x"}, content); err != nil {
+				validationErr = fmt.Errorf("模板无效: %w", err)
+				return validationErr
+			}
+		}
+		changes := map[string]any{"content": content, "updated_at": time.Now(), "revision": gorm.Expr("revision + 1")}
+		if req.Name != "" {
+			changes["name"] = req.Name
+		}
+		if req.IsDefault {
+			changes["is_default"] = true
+		}
+		changed := tx.Model(&store.SubTemplate{}).Where("id = ? AND revision = ?", current.ID, current.Revision).Updates(changes)
+		if changed.Error != nil {
+			return changed.Error
+		}
+		if changed.RowsAffected != 1 {
+			return errSubTemplateConflict
+		}
+		if req.IsDefault {
+			if err := tx.Model(&store.SubTemplate{}).Where("format = ? AND id <> ? AND is_default = ?", current.Format, current.ID, true).Updates(map[string]any{"is_default": false, "revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.First(&result, "id = ?", current.ID).Error
+	})
+	if errors.Is(err, errSubTemplateConflict) {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "code": "template_conflict"})
+		return
 	}
-	t.Content, t.UpdatedAt = req.Content, time.Now()
-	s.st.DB.Save(&t)
-	s.auditCtx(c, "sub_template.update", t.Format, "")
-	c.JSON(http.StatusOK, t)
+	if err != nil {
+		if validationErr != nil {
+			badRequest(c, validationErr)
+		} else {
+			dbError(c, err)
+		}
+		return
+	}
+	s.auditCtx(c, "sub_template.update", result.Format, "")
+	c.JSON(http.StatusOK, result)
 }
 
 func defaultTemplate(format string) string {
@@ -401,17 +434,38 @@ func (s *Server) createSubTemplate(c *gin.Context) {
 }
 
 func (s *Server) deleteSubTemplate(c *gin.Context) {
-	var t store.SubTemplate
-	if err := s.st.DB.First(&t, "id = ?", c.Param("id")).Error; err != nil {
+	var req struct {
+		Revision *uint64 `json:"revision"`
+	}
+	if c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			badRequest(c, err)
+			return
+		}
+	}
+	var current store.SubTemplate
+	if err := s.st.DB.First(&current, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
 		return
 	}
-	if t.IsDefault {
+	if req.Revision != nil && *req.Revision != current.Revision {
+		c.JSON(http.StatusConflict, gin.H{"error": errSubTemplateConflict.Error(), "code": "template_conflict"})
+		return
+	}
+	if current.IsDefault {
 		c.JSON(http.StatusConflict, gin.H{"error": "默认模板不能删除，请先把其他模板设为默认"})
 		return
 	}
-	s.st.DB.Delete(&t)
-	s.auditCtx(c, "sub_template.delete", t.Format+"/"+t.Name, "")
+	deleted := s.st.DB.Where("id = ? AND revision = ? AND is_default = ?", current.ID, current.Revision, false).Delete(&store.SubTemplate{})
+	if deleted.Error != nil {
+		serverError(c, deleted.Error)
+		return
+	}
+	if deleted.RowsAffected != 1 {
+		c.JSON(http.StatusConflict, gin.H{"error": errSubTemplateConflict.Error(), "code": "template_conflict"})
+		return
+	}
+	s.auditCtx(c, "sub_template.delete", current.Format+"/"+current.Name, "")
 	c.Status(http.StatusNoContent)
 }
 

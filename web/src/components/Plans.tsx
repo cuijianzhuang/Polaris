@@ -83,7 +83,7 @@ function planBody(e: Edit) {
 export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
   const speedOK = useFeature('speed_limit')
   const addonsOK = useFeature('plan_addons')
-  const plans = useLoad(() => get<Group[]>('/plans'))
+  const plans = useLoad((signal) => get<Group[]>('/plans', signal))
   const [edit, setEdit] = useState<Edit | null>(null)
   const onClose = () => setEdit(null)
   const { busy, run } = useAction()
@@ -288,7 +288,7 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
 
 // UserPlanModal starts or renews a plan for one user or a selection.
 export function UserPlanModal({ ids, current, onClose, onDone }: { ids: string[]; current?: string; onClose: () => void; onDone: () => void }) {
-  const plans = useLoad(() => get<Group[]>('/plans'))
+  const plans = useLoad((signal) => get<Group[]>('/plans', signal))
   const [planId, setPlanId] = useState(current ?? '')
   const [mode, setMode] = useState<'renew' | 'switch'>('renew')
   const { busy, run } = useAction()

@@ -12,7 +12,7 @@ const pad = (n: number) => String(n).padStart(2, '0')
 // NodeMetrics: CPU / memory and bandwidth history (5-minute averages, 30 days).
 export default function NodeMetrics({ nodeId }: { nodeId: string }) {
   const [hours, setHours] = useState(24)
-  const data = useLoad(() => get<{ points: Point[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`), [nodeId, hours])
+  const data = useLoad((signal) => get<{ points: Point[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`, signal), [nodeId, hours])
   usePoll(data.reload, 60000)
   const pts = data.data?.points ?? []
   const labels = pts.map((p) => { const d = new Date(p.t); return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` })

@@ -391,7 +391,7 @@ jobs:
               license-method-ui-smoke.py ui-details-ui-smoke.py
               settings-workflow-smoke.py restore-drill-ui-smoke.py admin-roles-ui-smoke.py
           - suite: settings-state
-            scripts: settings-state-ui-smoke.py mobile-layout-ui-smoke.py
+            scripts: settings-state-ui-smoke.py mobile-layout-ui-smoke.py drafts-refresh-ui-smoke.py
           - suite: cdn-addresses
             scripts: >-
               cdn-address-tools-ui-smoke.py cdn-schedule-ui-smoke.py

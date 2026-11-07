@@ -160,7 +160,7 @@ function TargetForm({ tg, nodes, onClose, onSaved }: { tg?: Target; nodes: PNode
 }
 
 function Targets({ nodes, onClose, onChanged }: { nodes: PNode[]; onClose: () => void; onChanged: () => void }) {
-  const list = useLoad(() => get<Target[]>('/probe/targets'))
+  const list = useLoad((signal) => get<Target[]>('/probe/targets', signal))
   const [edit, setEdit] = useState<Target | null | undefined>(undefined)
   const { run } = useAction()
   const confirm = useConfirm()

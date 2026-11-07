@@ -119,7 +119,7 @@ function SettingsModal({ s, onClose, onSaved }: { s: CostSettings; onClose: () =
 }
 
 export default function Costs() {
-  const data = useLoad(() => get<CostData>('/costs').then((d) => ({ ...d, items: d.items.map((it) => ({ ...it, netHealth: receivedNetHealth(it.netHealth) })) })))
+  const data = useLoad((signal) => get<CostData>('/costs', signal).then((d) => ({ ...d, items: d.items.map((it) => ({ ...it, netHealth: receivedNetHealth(it.netHealth) })) })))
   const [edit, setEdit] = useState<CostItem | null>(null)
   const [settings, setSettings] = useState(false)
   const { busy, run } = useAction()

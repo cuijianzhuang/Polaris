@@ -35,7 +35,7 @@ const normalizePolicy = (p: NotificationPolicy): NotificationPolicy => ({ ...p, 
 
 export function NotificationSettings() {
 	const [showNotices, setShowNotices] = useState(false)
-  const info = useLoad(() => get<PolicyInfo>('/notifications/policy'))
+  const info = useLoad((signal) => get<PolicyInfo>('/notifications/policy', signal))
   const { nodes } = useNodes()
   const [f, setF] = useState<NotificationPolicy>()
   const [baseline, setBaseline] = useState('')

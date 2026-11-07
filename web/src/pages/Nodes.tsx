@@ -135,7 +135,7 @@ const viaLabel = (v: string) => (v === 'node' ? t('整台节点') : v === 'inbou
 
 /** Users authorised on this node, how they got access, and their usage here. */
 function NodeUsers({ node }: { node: Node }) {
-  const list = useLoad(() => get<NodeUser[]>(`/nodes/${node.id}/users`), [node.id])
+  const list = useLoad((signal) => get<NodeUser[]>(`/nodes/${node.id}/users`, signal), [node.id])
   const [picking, setPicking] = useState(false)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -186,7 +186,7 @@ function NodeUsers({ node }: { node: Node }) {
 
 function PickUsers({ exclude, onClose, onPick }: { exclude: string[]; onClose: () => void; onPick: (ids: string[]) => void }) {
   const [q, setQ] = useState('')
-  const users = useLoad(() => get<{ items: User[] }>('/users?limit=1000'))
+  const users = useLoad((signal) => get<{ items: User[] }>('/users?limit=1000', signal))
   const [ids, setIds] = useState<string[]>([])
   const shown = (users.data?.items ?? []).filter((u) => !exclude.includes(u.id) && u.username.toLowerCase().includes(q.toLowerCase()))
   return (
@@ -410,8 +410,8 @@ export default function Nodes() {
   const confirm = useConfirm()
   const { busy, run } = useAction()
   const sel = useMemo(() => selId ? nodes.find((n) => n.id === selId) : nodes[0], [nodes, selId])
-  const caps = useLoad(() => (sel ? get<CapSet[]>('/capabilities?node=' + sel.id) : Promise.resolve([])), [sel?.id, sel?.cores.map((c) => c.version).join()])
-  const revs = useLoad(() => (sel ? get<Revision[]>(`/nodes/${sel.id}/revisions`) : Promise.resolve([])), [sel?.id, sel?.desiredRev, sel?.appliedRev])
+  const caps = useLoad((signal) => (sel ? get<CapSet[]>('/capabilities?node=' + sel.id, signal) : Promise.resolve([])), [sel?.id, sel?.cores.map((c) => c.version).join()])
+  const revs = useLoad((signal) => (sel ? get<Revision[]>(`/nodes/${sel.id}/revisions`, signal) : Promise.resolve([])), [sel?.id, sel?.desiredRev, sel?.appliedRev])
 
   useEffect(() => {
     setSelId(params.get('id'))
@@ -433,12 +433,12 @@ export default function Nodes() {
   }
 
   // Per-node traffic, refreshed every 10 s.
-  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)))
+  const traffic = useLoad((signal) => get<Record<string, NodeTraffic>>('/stats/nodes', signal).catch(() => ({} as Record<string, NodeTraffic>)))
   usePoll(traffic.reload, 10000)
-  const latest = useLoad(() => (scoped ? Promise.resolve({} as Record<string, string>) : get<Record<string, string>>('/core-latest')).catch(() => ({} as Record<string, string>)))
+  const latest = useLoad((signal) => (scoped ? Promise.resolve({} as Record<string, string>) : get<Record<string, string>>('/core-latest', signal)).catch(() => ({} as Record<string, string>)))
   const [batchCore, setBatchCore] = useState(false)
   // Agent upgrades: nodes whose agent differs from the panel version.
-  const info = useLoad(() => (scoped ? Promise.resolve({ version: '' }) : get<{ version: string }>('/info')))
+  const info = useLoad((signal) => (scoped ? Promise.resolve({ version: '' }) : get<{ version: string }>('/info', signal)))
   const panelVer = info.data?.version ?? ''
   const vnorm = (v: string) => v.replace(/^v/, '')
   const outdated = (n: Node) => !!panelVer && panelVer !== 'dev' && n.status === 'online' && !!n.agentVersion && vnorm(n.agentVersion) !== vnorm(panelVer)

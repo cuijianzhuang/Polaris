@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright, expect
 
 base = os.environ['POLARIS_PORTAL_TEST_URL']
+control = os.environ['POLARIS_PORTAL_TEST_CONTROL']
 registration = os.environ['POLARIS_PORTAL_REGISTRATION'] == 'true'
 codes = json.loads(os.environ['POLARIS_PORTAL_TEST_CODES'])
 artifacts = Path(os.environ.get('POLARIS_CDN_ARTIFACTS', '/tmp/polaris-user-portal'))
@@ -21,6 +22,7 @@ with sync_playwright() as p:
         browser = getattr(p, engine).launch(**options)
         # Existing sign-in when closed; explicit registration when open.
         context = browser.new_context(viewport=dict(width=390, height=844))
+        context.add_init_script("localStorage.setItem('polaris.portal.autoCheck','false')")
         page = context.new_page()
         page.route('https://www.gravatar.com/**', lambda route: route.fulfill(content_type='image/svg+xml', body='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#258f8a"/></svg>'))
         errors = []
@@ -58,7 +60,13 @@ with sync_playwright() as p:
         for width in [360, 1440]:
             for theme in ['light', 'dark']:
                 context = browser.new_context(viewport=dict(width=width, height=1000), color_scheme=theme)
-                context.add_cookies([dict(name='polaris_u',value=os.environ['POLARIS_PORTAL_TEST_COOKIE'],domain=urlsplit(base).hostname,path='/u',httpOnly=True,sameSite='Lax')])
+                context.add_init_script("localStorage.setItem('polaris.portal.autoCheck','false')")
+                credentials = context.request.post(control+'/session').json()
+                token = credentials['token']
+                other_context = browser.new_context()
+                other_context.add_cookies([dict(name='polaris_u',value=credentials['otherToken'],domain=urlsplit(base).hostname,path='/u',httpOnly=True,sameSite='Lax')])
+                context.request.post(control+'/node',data={'state':'online'})
+                context.add_cookies([dict(name='polaris_u',value=token,domain=urlsplit(base).hostname,path='/u',httpOnly=True,sameSite='Lax')])
                 page = context.new_page()
                 avatar_requests = []
                 def avatar_image(route):
@@ -113,7 +121,7 @@ with sync_playwright() as p:
                 expect(page.locator('[data-view="nodes"]')).to_be_visible()
                 expect(page.locator('.p-node-row')).to_have_count(2)
                 assert 'Secret purchase' not in page.content() and 'bob-region-subscription-token' not in page.content()
-                expect(page.locator('#p-node-counts')).to_have_text('已验证 0 · 未验证 1 · 暂不可用 1')
+                expect(page.locator('#p-node-counts')).to_have_text('业务已验证 0 · 连接通过 0 · 待检查 1 · 暂不可用 1')
                 page.locator('#p-node-state').select_option('unavailable')
                 expect(page.locator('.p-node-row:visible')).to_have_count(1)
                 page.get_by_role('button', name='查看原因').click()
@@ -129,6 +137,41 @@ with sync_playwright() as p:
                 page.locator('#p-node-search').fill('does-not-exist')
                 expect(page.locator('#p-node-empty')).to_be_visible()
                 page.locator('#p-node-search').fill('')
+                # Status refresh uses authoritative, user-scoped evidence without a full reload.
+                context.request.post(control+'/node',data={'state':'offline'})
+                page.get_by_role('button',name='刷新状态',exact=True).click()
+                expect(page.locator('#p-node-counts')).to_have_text('业务已验证 0 · 连接通过 0 · 待检查 0 · 暂不可用 2')
+                context.request.post(control+'/node',data={'state':'online'})
+                page.get_by_role('button',name='刷新状态',exact=True).click()
+                expect(page.locator('#p-node-counts')).to_have_text('业务已验证 0 · 连接通过 0 · 待检查 1 · 暂不可用 1')
+                page.locator('.p-node-row').first.get_by_role('button',name='查看详情',exact=True).click()
+                expect(page.locator('#p-proof-node')).to_have_text('在线')
+                expect(page.locator('#p-proof-business')).to_have_text('尚未验证')
+                checks=[]
+                def check_entry(route):
+                    assert route.request.headers.get('x-polaris-portal')=='1'
+                    assert set(route.request.post_data_json)=={'key'}
+                    checks.append(route.request.post_data_json['key'])
+                    route.fulfill(json=dict(state='passed',stage='tls',message='fixture TCP 与 TLS 检查通过；尚未验证代理认证',latencyMs=12,checkedAt='2026-11-07T12:00:00Z'))
+                page.route('**/u/nodes/check',check_entry)
+                page.get_by_role('button',name='检查连接',exact=True).click()
+                expect(page.locator('#p-dialog-check-result')).to_contain_text('尚未验证代理认证')
+                expect(page.locator('#p-proof-business')).to_have_text('尚未验证')
+
+                expect(page.locator('#p-dialog-code')).not_to_have_attribute('open','')
+                page.get_by_text('显示节点二维码',exact=True).click()
+                expect(page.locator('#p-dialog-qr')).to_be_visible()
+                fits(page)
+                if registration:page.screenshot(path=str(artifacts/f'user-node-detail-{engine}-{width}-{theme}.png'),full_page=True)
+                page.get_by_role('button',name='关闭节点详情',exact=True).click()
+                before_checks=len(checks)
+                page.locator('#p-nodes-auto').check()
+                expect(page.locator('#p-auto-check-status')).to_contain_text('最近自动检查：')
+                assert len(checks)>before_checks
+                page.locator('#p-nodes-auto').uncheck()
+                expect(page.locator('#p-auto-check-status')).to_contain_text('已暂停')
+                page.unroute('**/u/nodes/check')
+
                 if registration:
                     page.screenshot(path=str(artifacts / f'user-nodes-{engine}-{width}-{theme}.png'), full_page=True)
                 for view in ['orders', 'account', 'help', 'preferences']:
@@ -136,6 +179,14 @@ with sync_playwright() as p:
                     expect(page.locator(f'[data-view="{view}"]')).to_be_visible()
                     fits(page)
                 page.evaluate('location.hash = "account"')
+                expect(page.locator('#p-sessions-list')).to_contain_text('当前设备')
+                page.once('dialog',lambda dialog:dialog.accept())
+                page.get_by_role('button',name='退出其他设备',exact=True).click()
+                expect(page.get_by_role('button',name='退出其他设备',exact=True)).to_be_disabled()
+                assert other_context.request.get(base+'/u/sessions').status==401
+                assert context.request.get(base+'/u/sessions').status==200
+                token = next(c['value'] for c in context.cookies() if c['name']=='polaris_u')
+                other_context.close()
                 page.locator('.p-account-links a[href="#orders"]').click()
                 expect(page.locator('[data-view="orders"]')).to_be_visible()
                 expect(page.locator('.p-order-row')).to_have_count(1)
@@ -152,9 +203,14 @@ with sync_playwright() as p:
                 logout.click()
                 expect(page.locator('#p-session-error')).to_be_visible()
                 expect(logout).to_be_enabled()
+                assert context.request.get(base+'/u/sessions').status==200
                 page.unroute('**/u/logout')
                 logout.click()
                 expect(page.locator('#mgo')).to_be_visible()
+                replay = browser.new_context()
+                replay.add_cookies([dict(name='polaris_u',value=token,domain=urlsplit(base).hostname,path='/u',httpOnly=True,sameSite='Lax')])
+                assert replay.request.get(base+'/u/sessions').status==401, 'copied cookie survived logout'
+                replay.close()
                 assert not errors, errors
                 context.close()
                 print(engine, width, theme, 'registration gate, user-only data, navigation and filters OK', flush=True)

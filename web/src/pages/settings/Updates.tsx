@@ -33,7 +33,7 @@ export type UpdateInfo = { current: string; latest?: string; newer?: boolean; up
 // then every agent), and auto update. The panel restarts while updating;
 // the outcome arrives as a Telegram message and in the audit log.
 export function Updates() {
-  const info = useLoad(() => get<UpdateInfo>('/system/update?fresh=1'))
+  const info = useLoad((signal) => get<UpdateInfo>('/system/update?fresh=1', signal))
   const s = useLoad(readSettings)
   const [mode, setMode] = useState<string | null>(null)
   const [hour, setHour] = useState<string | null>(null)

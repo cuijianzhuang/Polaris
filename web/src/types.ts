@@ -139,7 +139,7 @@ export interface TemplatePlan { planId: string; expiresAt: string; state?: strin
 export interface Certificate { id: string; domain: string; provider: string; challenge?: string; nodeId?: string; cert: string; expireAt?: string; autoRenew: boolean; lastError: string; usedBy: number }
 export interface Revision { id: number; nodeId: string; rev: number; reason: string; status: string; method: string; error: string; createdAt: string }
 export interface AuditLog { id: number; admin: string; action: string; target: string; detail: string; ip: string; createdAt: string }
-export interface SubTemplate { id: string; format: string; name: string; content: string; isDefault: boolean; updatedAt: string }
+export interface SubTemplate { revision?: number; id: string; format: string; name: string; content: string; isDefault: boolean; updatedAt: string }
 
 export interface DNSProvider { id: string; name: string; kind: 'cloudflare' | 'webhook'; endpoint: string; hasToken: boolean }
 export interface DomainBinding {

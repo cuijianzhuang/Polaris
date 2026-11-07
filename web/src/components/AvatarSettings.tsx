@@ -8,7 +8,7 @@ import Avatar from './Avatar'
 type Profile = { username: string; avatarEmail?: string; avatarURL?: string }
 
 export default function AvatarSettings({ compact = false, onSaved }: { compact?: boolean; onSaved?: () => void }) {
-  const data = useLoad(() => get<Profile>('/auth/me'))
+  const data = useLoad((signal) => get<Profile>('/auth/me', signal))
   const [email, setEmail] = useState('')
   const [baseline, setBaseline] = useState<string | null>(null)
   const saver = useSettingsSave()

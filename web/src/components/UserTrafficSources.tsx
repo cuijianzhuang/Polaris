@@ -20,7 +20,7 @@ export default function UserTrafficSources({ userId }: { userId: string }) {
   const [hours, setHours] = useState(24)
   const [node, setNode] = useState('')
   const [offset, setOffset] = useState(0)
-  const data = useLoad(() => get<Result>(`/users/${userId}/traffic-sources?hours=${hours}&node=${encodeURIComponent(node)}&limit=${PAGE}&offset=${offset}`), [userId, hours, node, offset])
+  const data = useLoad((signal) => get<Result>(`/users/${userId}/traffic-sources?hours=${hours}&node=${encodeURIComponent(node)}&limit=${PAGE}&offset=${offset}`, signal), [userId, hours, node, offset])
   // useLoad retains the previous response while loading. Hide it so a newly
   // selected filter never displays the previous filter's rows or totals.
   const result = data.loading || data.error ? undefined : data.data

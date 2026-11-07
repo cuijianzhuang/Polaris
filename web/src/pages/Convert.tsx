@@ -19,8 +19,8 @@ const fmtLabel: Record<string, string> = { links: t('通用链接 (Base64)'), cl
 
 export default function Convert() {
   const [tab, setTab] = useState<Tab>('profiles')
-  const meta = useLoad(() => get<Meta>('/sub-meta'))
-  const sources = useLoad(() => get<SubSource[]>('/sub-sources'))
+  const meta = useLoad((signal) => get<Meta>('/sub-meta', signal))
+  const sources = useLoad((signal) => get<SubSource[]>('/sub-sources', signal))
   const ok = useFeature('sub_convert')
   return (
     <>
@@ -164,9 +164,9 @@ type ProfForm = Omit<SubProfile, 'id' | 'token' | 'downloads' | 'url'> & { id?: 
 const emptyProfile = (): ProfForm => ({ name: '', enabled: true, processingGroups: [], sourceIds: [], panelUserId: '', operators: [], useGlobalOps: true, templates: {}, converter: '', backend: '', backendConfig: '', scheme: '', skipCert: null, forceUdp: null, remark: '' })
 
 function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
-  const list = useLoad(() => get<SubProfile[]>('/sub-profiles'))
-  const tpls = useLoad(() => get<SubTemplate[]>('/sub-templates'))
-  const users = useLoad(() => get<{ items: User[] }>('/users?limit=1000'))
+  const list = useLoad((signal) => get<SubProfile[]>('/sub-profiles', signal))
+  const tpls = useLoad((signal) => get<SubTemplate[]>('/sub-templates', signal))
+  const users = useLoad((signal) => get<{ items: User[] }>('/users?limit=1000', signal))
   const [form, setForm] = useState<ProfForm | null>(null)
   const [share, setShare] = useState<SubProfile | null>(null)
   const [preview, setPreview] = useState<{ rows: NodeRow[]; info: any } | null>(null)

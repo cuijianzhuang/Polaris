@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -50,16 +51,16 @@ func subFingerprint(tok string) string {
 	return hex.EncodeToString(h[:8])
 }
 
-func (s *Server) issuePortalToken(u *store.User) (string, error) {
-	return s.issuePortalTokenVia(u, false)
+func (s *Server) issuePortalToken(u *store.User, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenVia(u, false, contexts...)
 }
 
 // issuePortalMailToken signs a session for an e-mail sign-in.
-func (s *Server) issuePortalMailToken(u *store.User) (string, error) {
-	return s.issuePortalTokenVia(u, true)
+func (s *Server) issuePortalMailToken(u *store.User, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenVia(u, true, contexts...)
 }
 
-func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool) (string, error) {
+func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool, contexts ...*gin.Context) (string, error) {
 	c := claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "u:" + u.ID,
@@ -74,19 +75,31 @@ func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool) (string, error
 	if viaMail {
 		c.Chat, c.MailFP = 0, mailFP(u.Email)
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
+	via := "telegram"
+	if viaMail {
+		via = "email"
+	}
+	if err := s.recordPortalSession(u, &c, via, contexts...); err != nil {
+		return "", err
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
+	return token, err
 }
 
 // portalClaims are the session's claims, or nil.
 func (s *Server) portalClaims(c *gin.Context) *claims {
+	if cached, ok := c.Get("portalClaims"); ok {
+		return cached.(*claims)
+	}
 	ck, err := c.Cookie(portalCookie)
 	if err != nil || ck == "" {
 		return nil
 	}
 	cl, err := s.parseToken(ck)
-	if err != nil || cl.User == "" {
+	if err != nil || cl.User == "" || !s.portalSessionAlive(cl) {
 		return nil
 	}
+	c.Set("portalClaims", cl)
 	return cl
 }
 
@@ -312,7 +325,7 @@ func (s *Server) portalLoginPoll(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "denied"})
 		return
 	}
-	tok, err := s.issuePortalToken(&u)
+	tok, err := s.issuePortalToken(&u, c)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -334,6 +347,25 @@ func portalWrite(c *gin.Context) bool {
 func (s *Server) portalLogout(c *gin.Context) {
 	if !portalWrite(c) {
 		return
+	}
+	// Storage failures must not look like a successful server-side revocation.
+	if token, err := c.Cookie(portalCookie); err == nil {
+		if cl, err := s.parseToken(token); err == nil && cl.User != "" && cl.SID != "" {
+			err = s.st.DB.Transaction(func(tx *gorm.DB) error {
+				epoch, e := lockPortalEpoch(tx, cl.User)
+				if e != nil {
+					return e
+				}
+				if epoch.Version != cl.PortalEpoch {
+					return nil
+				} // this cookie is already invalid
+				return tx.Model(&store.PortalSession{}).Where("id = ? AND user_id = ? AND epoch = ? AND sub_fp = ? AND identity_fp = ?", cl.SID, cl.User, cl.PortalEpoch, cl.SubFP, portalIdentity(cl)).Update("revoked", true).Error
+			})
+			if err != nil {
+				serverError(c, err)
+				return
+			}
+		}
 	}
 	s.setPortalCookie(c, "", -1)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
@@ -357,7 +389,7 @@ func (s *Server) portalReset(c *gin.Context) {
 	}
 	viaMail := s.portalViaMail(c)
 	s.audit(portalActor(u, viaMail), "user.reset_token", u.Username, "user center", clientIP(c.Request))
-	tok, err := s.issuePortalTokenVia(u, viaMail)
+	tok, err := s.issuePortalTokenVia(u, viaMail, c)
 	if err != nil {
 		serverError(c, err)
 		return

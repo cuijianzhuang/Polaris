@@ -169,8 +169,8 @@ function RuleDrawer({ rule, onClose, onSaved }: { rule?: Rule; onClose: () => vo
 
 export default function Forwards() {
   const { nodes } = useNodes()
-  const list = useLoad(() => get<Rule[]>('/forwards'))
-  const stats = useLoad(() => get<{ nodeId: string; tag: string; up: number; down: number }[]>('/stats/tags?kind=inbound').catch(() => []))
+  const list = useLoad((signal) => get<Rule[]>('/forwards', signal))
+  const stats = useLoad((signal) => get<{ nodeId: string; tag: string; up: number; down: number }[]>('/stats/tags?kind=inbound', signal).catch(() => []))
   const traffic = (r: Rule) => (stats.data ?? []).find((x) => x.nodeId === r.nodeId && x.tag === 'fwd-' + r.id)
   const [drawer, setDrawer] = useState<Rule | 'new' | null>(null)
   const toast = useToast()

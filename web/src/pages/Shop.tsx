@@ -60,8 +60,8 @@ function Orders() {
   const [limit, setLimit] = useState(100)
   const [checked, setChecked] = useState<string[]>([])
   const [open, setOpen] = useState<Order | null>(null)
-  const list = useLoad(() => get<{ items: Order[]; total: number; usernames: Record<string, string>; revenue: { currency: string; total: number; count: number }[]; status: ShopStatus; paymentRecovery: Record<string, Recovery>; refundRecovery: Record<string, Recovery> }>(
-    `/orders?limit=${limit}&status=${status}&method=${method}&q=${encodeURIComponent(q)}`), [status, method, q, limit])
+  const list = useLoad((signal) => get<{ items: Order[]; total: number; usernames: Record<string, string>; revenue: { currency: string; total: number; count: number }[]; status: ShopStatus; paymentRecovery: Record<string, Recovery>; refundRecovery: Record<string, Recovery> }>(
+    `/orders?limit=${limit}&status=${status}&method=${method}&q=${encodeURIComponent(q)}`, signal), [status, method, q, limit])
   useEffect(() => { setChecked([]); setLimit(100) }, [status, method, q])
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -190,11 +190,11 @@ function Codes() {
   const [used, setUsed] = useState('')
   const [q, setQ] = useState('')
   const [checked, setChecked] = useState<string[]>([])
-  const list = useLoad(() => get<{ items: Code[]; total: number; batches: string[]; usernames: Record<string, string>; orders: Record<string, string>; counts: { unused: number; used: number; expired: number } }>(
-    `/redeem-codes?limit=2000&batch=${encodeURIComponent(batch)}&used=${used}&q=${encodeURIComponent(q)}`), [batch, used, q])
+  const list = useLoad((signal) => get<{ items: Code[]; total: number; batches: string[]; usernames: Record<string, string>; orders: Record<string, string>; counts: { unused: number; used: number; expired: number } }>(
+    `/redeem-codes?limit=2000&batch=${encodeURIComponent(batch)}&used=${used}&q=${encodeURIComponent(q)}`, signal), [batch, used, q])
   useEffect(() => setChecked([]), [batch, used, q])
-  const plans = useLoad(() => get<Group[]>('/plans'))
-  const packs = useLoad(() => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs'))
+  const plans = useLoad((signal) => get<Group[]>('/plans', signal))
+  const packs = useLoad((signal) => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs', signal))
   const [gen, setGen] = useState<{ kind: 'plan' | 'pack'; planId: string; packId: string; count: string; batch: string; expireDays: string } | null>(null)
   const [made, setMade] = useState<string[] | null>(null)
   const { busy, run } = useAction()
@@ -330,8 +330,8 @@ function Codes() {
 type PackEdit = { id?: string; name: string; gb: string; planIds: string[]; sale: boolean; priceStars: string; priceCny: string; priceUsdt: string; sort: number }
 
 function Packs() {
-  const list = useLoad(() => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs'))
-  const plans = useLoad(() => get<Group[]>('/plans'))
+  const list = useLoad((signal) => get<{ items: TrafficPack[]; licensed: boolean }>('/traffic-packs', signal))
+  const plans = useLoad((signal) => get<Group[]>('/plans', signal))
   const [edit, setEdit] = useState<PackEdit | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -532,8 +532,8 @@ function couponState(c: Coupon): [string, string] {
 
 // Coupons: discount codes for the web shop and the bot (/coupon CODE).
 function Coupons() {
-  const list = useLoad(() => get<{ items: Coupon[] }>('/coupons'))
-  const plans = useLoad(() => get<Group[]>('/plans'))
+  const list = useLoad((signal) => get<{ items: Coupon[] }>('/coupons', signal))
+  const plans = useLoad((signal) => get<Group[]>('/plans', signal))
   const [f, setF] = useState<CouponForm | null>(null)
   const [made, setMade] = useState<string[] | null>(null)
   const [uses, setUses] = useState<{ code: string; orders: Order[]; usernames: Record<string, string> } | null>(null)
@@ -676,7 +676,7 @@ function Coupons() {
 export default function Shop() {
   const [params, setParams] = useSearchParams()
   const tab = params.get('tab') || 'orders'
-  const st = useLoad(() => get<{ status: ShopStatus }>('/orders?limit=1'))
+  const st = useLoad((signal) => get<{ status: ShopStatus }>('/orders?limit=1', signal))
   const s = st.data?.status
   const tabs = [{ id: 'orders', label: t('订单') }, { id: 'packs', label: t('流量包') }, { id: 'codes', label: t('兑换码') }, { id: 'coupons', label: t('优惠券') }, { id: 'pay', label: t('支付设置') }]
   return (

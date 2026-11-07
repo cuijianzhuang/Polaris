@@ -17,8 +17,8 @@ const roleLabel: Record<string, string> = { owner: t('超级管理员'), operato
 export default function Telegram() {
   const menuOK = useFeature('tg_menu')
   const { nodes } = useNodes()
-  const st = useLoad(() => get<Status>('/telegram'))
-  const admins = useLoad(() => get<{ admins: TGAdmin[]; boundUsers: number }>('/telegram/admins'))
+  const st = useLoad((signal) => get<Status>('/telegram', signal))
+  const admins = useLoad((signal) => get<{ admins: TGAdmin[]; boundUsers: number }>('/telegram/admins', signal))
   const { state: settings, fields: f, setFields: setF, dirty, reset } = useSettingsForm({ tg_enabled: 'false', tg_token: '', tg_api_base: '', tg_notify_users: 'true', remind_usage_pct: '80', remind_expire_days: '7,3,1', tg_daily_report: 'true', tg_daily_report_hour: '9' })
   const [bind, setBind] = useState<BindReq | null>(null)
   const [code, setCode] = useState<{ command: string; bot: string } | null>(null)

@@ -418,6 +418,7 @@ func (s *Server) startJobs() func() {
 	addLocal("*/30 * * * * *", "plugin-cache", s.renderCache.prune)
 	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
+	add("0 7 * * * *", "portal-sessions", s.prunePortalSessions)
 	add("*/30 * * * * *", "usdt", s.pollUSDT)
 	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)

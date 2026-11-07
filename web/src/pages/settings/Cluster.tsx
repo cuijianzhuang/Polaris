@@ -10,7 +10,7 @@ export type ClusterInfo = { operations: {id: string; kind: string; target: strin
 // is more than one). The leader runs the scheduled jobs; "update" updates
 // every running instance.
 export function Cluster() {
-  const info = useLoad(() => get<ClusterInfo>('/cluster'))
+  const info = useLoad((signal) => get<ClusterInfo>('/cluster', signal))
   useEffect(() => {
     const id = setInterval(() => info.reload(), 15000)
     return () => clearInterval(id)
@@ -56,7 +56,7 @@ export function Cluster() {
 }
 
 export function OperationalHealth() {
-  const info = useLoad(() => get<{ issues: {key: string; detail: string}[]; states: {key: string; lastSuccess?: string}[] }>('/operational-health'))
+  const info = useLoad((signal) => get<{ issues: {key: string; detail: string}[]; states: {key: string; lastSuccess?: string}[] }>('/operational-health', signal))
   useEffect(() => { const id = setInterval(() => info.reload(), 15000); return () => clearInterval(id) }, [])
   const backup = info.data?.states?.find((s) => s.key === 'backup')
   return <section className="card">

@@ -99,7 +99,7 @@ export function useSettingsSave() {
     catch (e) { setError(errMsg(e)); return false }
     finally { lock.current = false; setBusy(false) }
   }
-  return { busy, error, run }
+  return { busy, error, run, clearError: () => setError('') }
 }
 
 export function SettingsSaveBar({ dirty, busy, loading = false, error, disabled, onSave, label = t('保存') }: {

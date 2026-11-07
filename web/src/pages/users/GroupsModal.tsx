@@ -9,8 +9,8 @@ import { t } from '../../i18n'
 
 export function GroupsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const speedOK = useFeature('speed_limit')
-  const groups = useLoad(() => get<Group[]>('/groups'))
-  const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
+  const groups = useLoad((signal) => get<Group[]>('/groups', signal))
+  const inbounds = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
   const [edit, setEdit] = useState<{ id?: string; name: string; inboundIds: string[]; nodeIds: string[]; level: number; speedUpMbps: number; speedDownMbps: number } | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()

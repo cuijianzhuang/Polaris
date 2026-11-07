@@ -109,7 +109,7 @@ export default function Stats() {
   }
   const setRange = (f: string, t: string) => patch({ range: 'custom', from: f, to: t })
   const filterQ = (node ? `&node=${node}` : '') + (user ? `&user=${user}` : '')
-  const rep = useLoad(() => get<Report>(`/stats/report?from=${from}&to=${to}&limit=50${filterQ}`), [from, to, filterQ])
+  const rep = useLoad((signal) => get<Report>(`/stats/report?from=${from}&to=${to}&limit=50${filterQ}`, signal), [from, to, filterQ])
   const { busy, run } = useAction()
   const d = rep.data
   const total = d ? d.total.up + d.total.down : 0

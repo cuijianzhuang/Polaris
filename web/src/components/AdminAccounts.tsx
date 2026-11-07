@@ -15,9 +15,9 @@ type Admin = { id: string; username: string; role: string; nodeIds: string[] | n
 type Form = { id?: string; username: string; password: string; role: string; nodeIds: string[] }
 
 export default function AdminAccounts() {
-  const list = useLoad(() => get<Admin[]>('/admins'))
-  const nodes = useLoad(() => get<{ id: string; name: string }[]>('/nodes'))
-  const me = useLoad(() => get<{ id: string }>('/auth/me'))
+  const list = useLoad((signal) => get<Admin[]>('/admins', signal))
+  const nodes = useLoad((signal) => get<{ id: string; name: string }[]>('/nodes', signal))
+  const me = useLoad((signal) => get<{ id: string }>('/auth/me', signal))
   const [form, setForm] = useState<Form | null>(null)
   const [reset, setReset] = useState<Admin | null>(null)
   const [password, setPassword] = useState('')

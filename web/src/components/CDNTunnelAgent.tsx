@@ -9,8 +9,8 @@ const feature = 'cloudflare-tunnel-v1'
 const remoteFeature = 'cloudflare-tunnel-token-v1'
 
 export default function CDNTunnelAgent({ profile, onClose, onSaved }: { profile: CDNProfile; onClose: () => void; onSaved: () => void }) {
-  const state = useLoad(() => get<State>(`/cdn-profiles/${profile.id}/tunnel-agent`), [profile.id])
-  const nodes = useLoad(() => get<Node[]>('/nodes'))
+  const state = useLoad((signal) => get<State>(`/cdn-profiles/${profile.id}/tunnel-agent`, signal), [profile.id])
+  const nodes = useLoad((signal) => get<Node[]>('/nodes', signal))
   const [enabled, setEnabled] = useState(!!profile.tunnelManaged), [nodeId, setNodeId] = useState(profile.tunnelNodeId || '')
   const [mode, setMode] = useState(profile.tunnelCredentialMode === 'remote' ? 'remote' : 'local')
   const [token, setToken] = useState('')

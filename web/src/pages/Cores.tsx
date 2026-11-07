@@ -19,7 +19,7 @@ export default function Cores() {
   const { nodes, refresh } = useNodes()
   const [tick, setTick] = useState(0)
   const nav = useNavigate()
-  const latest = useLoad(() => get<Record<string, string>>('/core-latest').catch(() => ({} as Record<string, string>)))
+  const latest = useLoad((signal) => get<Record<string, string>>('/core-latest', signal).catch(() => ({} as Record<string, string>)))
   const [filter, setFilter] = useState<CoreType | 'all' | 'outdated'>('all')
   const [batch, setBatch] = useState(false)
   const [switching, setSwitching] = useState<Row | null>(null)

@@ -464,6 +464,10 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupfmt.Archive, box
 		if e := backupfmt.ImportAll(tx, arc.Tables, reseal); e != nil {
 			return e
 		}
+		// User-center sessions must never be revived by a database rollback.
+		if e := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&store.PortalSession{}).Error; e != nil {
+			return e
+		}
 		// Authentication challenges must never be revived from a backup.
 		if e := tx.Where("name LIKE ?", "passkey:%").Delete(&store.EphemeralKV{}).Error; e != nil {
 			return e

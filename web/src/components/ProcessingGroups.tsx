@@ -13,7 +13,7 @@ type Draft = { name: string; remark: string; operators: Operator[]; expectedRevi
 const draftFor = (g: SubProcessingGroup): Draft => ({ name: g.name, remark: g.remark, operators: structuredClone(g.operators ?? []), expectedRevision: g.revision })
 
 function RefRow({ value, groups, onChange, onRemove, move, first, last }: { value: SubProcessingRef; groups: SubProcessingGroup[]; onChange: (v: SubProcessingRef) => void; onRemove: () => void; move: (d: number) => void; first: boolean; last: boolean }) {
-  const versions = useLoad(() => get<{ versions: Version[] }>(`/sub-processing-groups/${encodeURIComponent(value.groupId)}/versions`), [value.groupId])
+  const versions = useLoad((signal) => get<{ versions: Version[] }>(`/sub-processing-groups/${encodeURIComponent(value.groupId)}/versions`, signal), [value.groupId])
   return <div className="ops-summary ops-stack">
     <select className="input" aria-label={t('选择处理组')} value={value.groupId} onChange={(e) => onChange({ groupId: e.target.value, revision: 0 })}>
       {!groups.some((g) => g.id === value.groupId) && <option value={value.groupId}>{t('不可用，请重新选择')} · {value.groupId}</option>}
@@ -29,7 +29,7 @@ function RefRow({ value, groups, onChange, onRemove, move, first, last }: { valu
 }
 
 export function ProcessingGroupPicker({ value, onChange }: { value: SubProcessingRef[]; onChange: (v: SubProcessingRef[]) => void }) {
-  const list = useLoad(() => get<SubProcessingGroup[]>('/sub-processing-groups'))
+  const list = useLoad((signal) => get<SubProcessingGroup[]>('/sub-processing-groups', signal))
   const available = (list.data ?? []).filter((g) => !value.some((ref) => ref.groupId === g.id))
   return <Field label={t('可复用处理组')} hint={t('执行顺序：全局规则 → 按顺序引用的处理组 → 本订阅步骤。处理组不增加节点来源或用户权限。')}>
     <div className="ops-stack"><ErrorNote error={list.error} />
@@ -40,14 +40,14 @@ export function ProcessingGroupPicker({ value, onChange }: { value: SubProcessin
 }
 
 function GroupHistory({ group, onClose, onRestore }: { group: SubProcessingGroup; onClose: () => void; onRestore: (operators: Operator[]) => void }) {
-  const list = useLoad(() => get<{ versions: Version[] }>(`/sub-processing-groups/${group.id}/versions`), [group.id])
+  const list = useLoad((signal) => get<{ versions: Version[] }>(`/sub-processing-groups/${group.id}/versions`, signal), [group.id])
   const [detail, setDetail] = useState<Version>()
   const { busy, run } = useAction()
   return <Modal title={t('处理组版本历史')} onClose={onClose} wide><div className="ops-stack"><ErrorNote error={list.error} /><div className="hint">{t('版本不可修改；恢复会以旧规则创建新版本，固定引用仍保留原版本。')}</div>{list.data?.versions.map((v) => <div className="row" key={v.revision}><b>v{v.revision}</b><span>{datetime(v.createdAt)}</span><button className="link" disabled={busy} onClick={() => run(async () => setDetail(await get<Version>(`/sub-processing-groups/${group.id}/versions/${v.revision}`)))}>{t('查看规则')}</button></div>)}{detail && <><pre className="code ops-raw">{JSON.stringify(detail.operators, null, 2)}</pre><button className="btn" onClick={() => onRestore(detail.operators ?? [])}>{t('以此版本编辑')}</button></>}</div></Modal>
 }
 
 export default function ProcessingGroups({ meta }: { meta?: { regions: { Code: string; Name: string }[] } }) {
-  const list = useLoad(() => get<SubProcessingGroup[]>('/sub-processing-groups'))
+  const list = useLoad((signal) => get<SubProcessingGroup[]>('/sub-processing-groups', signal))
   const [editing, setEditing] = useState<SubProcessingGroup | 'new'>()
   const [draft, setDraft] = useState<Draft>({ name: '', remark: '', operators: [], expectedRevision: 0 })
   const [impact, setImpact] = useState<Impact>()

@@ -9,8 +9,8 @@ const changes: Record<string, string> = { added: t('新增'), removed: t('移除
 const fields: Record<string, string> = { name: t('名称'), endpoint: t('地址'), transport: t('传输'), tls: 'TLS', credentials: t('凭据'), options: t('选项') }
 
 export default function SourceResources({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
-  const nodes = useLoad(() => get<SourceNode[]>(`/sub-sources/${id}/nodes`), [id])
-  const history = useLoad(() => get<SourceRefresh[]>(`/sub-sources/${id}/refreshes`), [id])
+  const nodes = useLoad((signal) => get<SourceNode[]>(`/sub-sources/${id}/nodes`, signal), [id])
+  const history = useLoad((signal) => get<SourceRefresh[]>(`/sub-sources/${id}/refreshes`, signal), [id])
   const [tab, setTab] = useState<'nodes' | 'history'>('nodes')
   const [removed, setRemoved] = useState(true)
   const [binding, setBinding] = useState<SourceNode | null>(null)
@@ -53,8 +53,8 @@ export default function SourceResources({ id, name, onClose }: { id: string; nam
 }
 
 function SourceReference({ node, onClose, onSaved }: { node: SourceNode; onClose: () => void; onSaved: () => void }) {
-  const nodes = useLoad(() => get<Node[]>('/nodes'))
-  const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
+  const nodes = useLoad((signal) => get<Node[]>('/nodes', signal))
+  const inbounds = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
   const [nodeId, setNodeId] = useState('')
   const [tag, setTag] = useState('source-' + node.id.slice(0, 8))
   const [inboundId, setInboundId] = useState('')

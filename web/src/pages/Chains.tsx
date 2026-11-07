@@ -413,8 +413,8 @@ function OutboundDrawer({ node, outbound, inbounds, outbounds, onClose, onSaved 
     }
   }
   const remote = inbounds.filter((i) => i.nodeId !== node.id)
-  const sourceNodes = useLoad(() => get<SourceNode[]>('/sub-source-nodes'))
-  const caps = useLoad(() => get<CapSet[]>('/capabilities?node=' + node.id), [node.id]).data ?? []
+  const sourceNodes = useLoad((signal) => get<SourceNode[]>('/sub-source-nodes', signal))
+  const caps = useLoad((signal) => get<CapSet[]>('/capabilities?node=' + node.id, signal), [node.id]).data ?? []
   const hasSingbox = node.cores.some((c) => c.type === 'singbox')
   const hasMihomo = node.cores.some((c) => c.type === 'mihomo')
   const isAutoGroup = f.type === 'balancer' || f.type === 'urltest'
@@ -542,18 +542,18 @@ function Routing({ nodes }: { nodes: Node[] }) {
   const [nodeId, setNodeId] = useState(nodes[0]?.id ?? '')
   const global = nodeId === '*'
   const node = nodes.find((n) => n.id === nodeId)
-  const outs = useLoad(() => (global
-    ? Promise.all(nodes.map((n) => get<Outbound[]>(`/nodes/${n.id}/outbounds`))).then((ls) => {
+  const outs = useLoad((signal) => (global
+    ? Promise.all(nodes.map((n) => get<Outbound[]>(`/nodes/${n.id}/outbounds`, signal))).then((ls) => {
       const seen = new Set<string>()
       return ls.flat().filter((o) => !o.chainId && !seen.has(o.tag) && !!seen.add(o.tag))
     })
-    : nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId, nodes.length])
-  const presets = useLoad(() => get<RulePreset[]>('/routing/presets'))
+    : nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`, signal) : Promise.resolve([])), [nodeId, nodes.length])
+  const presets = useLoad((signal) => get<RulePreset[]>('/routing/presets', signal))
   const [preset, setPreset] = useState<{ key: string; outbound: string; nodeIds: string[] } | null>(null)
-  const rules = useLoad(() => (nodeId ? get<RoutingRule[]>(`/nodes/${nodeId}/routing`) : Promise.resolve([])), [nodeId])
-  const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
-  const groups = useLoad(() => get<{ id: string; name: string }[]>('/groups'))
-  const ruleSets = useLoad(() => get<RuleSet[]>('/rulesets'))
+  const rules = useLoad((signal) => (nodeId ? get<RoutingRule[]>(`/nodes/${nodeId}/routing`, signal) : Promise.resolve([])), [nodeId])
+  const inbounds = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
+  const groups = useLoad((signal) => get<{ id: string; name: string }[]>('/groups', signal))
+  const ruleSets = useLoad((signal) => get<RuleSet[]>('/rulesets', signal))
   const [drawer, setDrawer] = useState<Outbound | 'new' | null>(null)
   const [geoPick, setGeoPick] = useState<'geosite' | 'geoip' | null>(null)
   const [warp, setWarp] = useState(false)
@@ -710,9 +710,9 @@ function Routing({ nodes }: { nodes: Node[] }) {
 export default function Chains() {
   const { nodes } = useNodes()
   const [tab, setTab] = useState<Tab>('chains')
-  const chains = useLoad(() => get<Chain[]>('/chains'))
-  const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
-  const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
+  const chains = useLoad((signal) => get<Chain[]>('/chains', signal))
+  const cdn = useLoad((signal) => get<CDNProfile[]>('/cdn-profiles', signal))
+  const inbounds = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
   const [chainDrawer, setChainDrawer] = useState<Chain | 'new' | null>(null)
   const [cdnDrawer, setCdnDrawer] = useState<CDNProfile | 'new' | null>(null)
   const [cdnSel, setCdnSel] = useState<string | null>(null)
@@ -905,7 +905,7 @@ type ShodanView = { enabled: boolean; query: string; defaultQuery: string; pages
 // ShodanCard turns on third-party reverse proxies found with Shodan as extra
 // candidates for the speed-test points (they test and report the good ones).
 function ShodanCard({ onSaved }: { onSaved: () => void }) {
-  const v = useLoad(() => get<ShodanView>('/cdn-shodan'))
+  const v = useLoad((signal) => get<ShodanView>('/cdn-shodan', signal))
   const { busy, run } = useAction()
   const [open, setOpen] = useState(false)
   const [f, setF] = useState<{ query: string; pages: number } | null>(null)

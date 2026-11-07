@@ -37,7 +37,7 @@ export default function CDNAddressTools({ p, onMaintain, onChanged }: { p: CDNPr
   const [scheduling, setScheduling] = useState(false)
   const signature = JSON.stringify([p.preferredIps, p.pinnedHosts, p.blockedHosts, p.portChecks, p.expandPerIp, p.ipTopN, p.stalePolicy, p.staleHours, p.regionSplit, p.carrierSplit])
   useEffect(() => setResult(undefined), [signature, endpoint, carrier, region])
-  const data = useLoad(() => get<Tools>(`/cdn-profiles/${p.id}/address-tools?endpoint=${encodeURIComponent(endpoint)}&carrier=${carrier}&region=${encodeURIComponent(region)}`), [p.id, endpoint, carrier, region, signature])
+  const data = useLoad((signal) => get<Tools>(`/cdn-profiles/${p.id}/address-tools?endpoint=${encodeURIComponent(endpoint)}&carrier=${carrier}&region=${encodeURIComponent(region)}`, signal), [p.id, endpoint, carrier, region, signature])
   usePoll(data.reload, data.data?.schedule?.intervalMinutes ? 10000 : 0)
   const { busy, run } = useAction()
   const contexts = data.data?.contexts ?? [], context = data.data?.context

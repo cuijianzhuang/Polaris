@@ -17,7 +17,7 @@ const groupLabel = (): Record<string, string> => ({ user: t('用户'), node: t('
 
 // Webhooks: push events to plugins, your own services or chat robots.
 export default function Webhooks() {
-  const list = useLoad(() => get<{ webhooks: Hook[]; events: string[]; formats: string[] }>('/webhooks'))
+  const list = useLoad((signal) => get<{ webhooks: Hook[]; events: string[]; formats: string[] }>('/webhooks', signal))
   const [form, setForm] = useState<Form | null>(null)
   const [secret, setSecret] = useState('')
   const [logs, setLogs] = useState<Hook | null>(null)
@@ -111,7 +111,7 @@ export default function Webhooks() {
 }
 
 function DeliveryLog({ hook, onClose }: { hook: Hook; onClose: () => void }) {
-  const ds = useLoad(() => get<Delivery[]>(`/webhooks/${hook.id}/deliveries`))
+  const ds = useLoad((signal) => get<Delivery[]>(`/webhooks/${hook.id}/deliveries`, signal))
   const [open, setOpen] = useState('')
   const { busy, run } = useAction()
   const sl = statusLabel()

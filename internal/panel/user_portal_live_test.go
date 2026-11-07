@@ -3,6 +3,7 @@ package panel
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strconv"
@@ -50,10 +51,49 @@ func TestLiveUserPortalBrowser(t *testing.T) {
 			}
 			var user store.User
 			s.st.DB.First(&user, "id = ?", "ra")
-			token, err := s.issuePortalMailToken(&user)
-			if err != nil {
-				t.Fatal(err)
-			}
+			control := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "POST" {
+					http.Error(w, "method", 405)
+					return
+				}
+				if r.URL.Path == "/session" {
+					var current store.User
+					if err := s.st.DB.First(&current, "id = ?", user.ID).Error; err != nil {
+						http.Error(w, "user", 500)
+						return
+					}
+					token, err := s.issuePortalMailToken(&current)
+					if err != nil {
+						http.Error(w, "session", 500)
+						return
+					}
+					other, err := s.issuePortalMailToken(&current)
+					if err != nil {
+						http.Error(w, "session", 500)
+						return
+					}
+					json.NewEncoder(w).Encode(map[string]string{"token": token, "otherToken": other})
+					return
+				}
+				if r.URL.Path == "/node" {
+					var input struct {
+						State string `json:"state"`
+					}
+					if json.NewDecoder(r.Body).Decode(&input) != nil || (input.State != "online" && input.State != "offline") {
+						http.Error(w, "state", 400)
+						return
+					}
+					if err := s.st.DB.Model(&store.Node{}).Where("id = ?", "rn").Update("status", input.State).Error; err != nil {
+						http.Error(w, "update", 500)
+						return
+					}
+					w.Write([]byte(`{"ok":true}`))
+					return
+				}
+				http.NotFound(w, r)
+			}))
+			defer control.Close()
+
 			codes := map[string]string{}
 			for _, engine := range []string{"chromium", "webkit"} {
 				addr := engine + "@example.com"
@@ -75,7 +115,7 @@ func TestLiveUserPortalBrowser(t *testing.T) {
 			}
 			encoded, _ := json.Marshal(codes)
 			cmd := exec.CommandContext(t.Context(), "python3", "../../web/scripts/user-portal-live.py")
-			cmd.Env = append(os.Environ(), "POLARIS_PORTAL_TEST_URL="+base, "POLARIS_PORTAL_TEST_COOKIE="+token, "POLARIS_PORTAL_TEST_CODES="+string(encoded), "POLARIS_PORTAL_REGISTRATION="+strconv.FormatBool(registration), "POLARIS_PORTAL_ADMIN_API="+s.cfg.APIBase())
+			cmd.Env = append(os.Environ(), "POLARIS_PORTAL_TEST_URL="+base, "POLARIS_PORTAL_TEST_CONTROL="+control.URL, "POLARIS_PORTAL_TEST_CODES="+string(encoded), "POLARIS_PORTAL_REGISTRATION="+strconv.FormatBool(registration), "POLARIS_PORTAL_ADMIN_API="+s.cfg.APIBase())
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("browser: %v\n%s", err, out)
