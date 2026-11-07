@@ -50,16 +50,50 @@ func (s *Server) backfillDaily() {
 	s.st.SetSetting("traffic_daily_backfilled", "true")
 }
 
-// reportRange reads ?from=&to= (YYYY-MM-DD, inclusive); default: last 7 days.
+// presetRange computes the from/to dates of a preset in the given time's
+// location (panel local time), matching the per-day buckets settleTraffic
+// writes, so an admin's browser timezone never skews "today" or the month
+// boundaries.
+func presetRange(now time.Time, preset string) (from, to string, ok bool) {
+	loc := now.Location()
+	switch preset {
+	case "today":
+		return now.Format(dayLayout), now.Format(dayLayout), true
+	case "7d":
+		return now.AddDate(0, 0, -6).Format(dayLayout), now.Format(dayLayout), true
+	case "30d":
+		return now.AddDate(0, 0, -29).Format(dayLayout), now.Format(dayLayout), true
+	case "90d":
+		return now.AddDate(0, 0, -89).Format(dayLayout), now.Format(dayLayout), true
+	case "month":
+		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc).Format(dayLayout), now.Format(dayLayout), true
+	case "last":
+		return time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, loc).Format(dayLayout),
+			time.Date(now.Year(), now.Month(), 0, 0, 0, 0, 0, loc).Format(dayLayout), true
+	case "year":
+		return time.Date(now.Year(), 1, 1, 0, 0, 0, 0, loc).Format(dayLayout), now.Format(dayLayout), true
+	}
+	return "", "", false
+}
+
+// reportRange reads ?range=today|7d|30d|90d|month|last|year or ?from=&to=
+// (YYYY-MM-DD, inclusive); default: last 7 days. Preset boundaries use the
+// panel's local timezone, not the browser's.
 func reportRange(c *gin.Context) (from, to string, err error) {
 	now := time.Now()
 	to = now.Format(dayLayout)
 	from = now.AddDate(0, 0, -6).Format(dayLayout)
-	if v := c.Query("from"); v != "" {
-		from = v
-	}
-	if v := c.Query("to"); v != "" {
-		to = v
+	if r := c.Query("range"); r != "" {
+		if f, t, ok := presetRange(now, r); ok {
+			from, to = f, t
+		}
+	} else {
+		if v := c.Query("from"); v != "" {
+			from = v
+		}
+		if v := c.Query("to"); v != "" {
+			to = v
+		}
 	}
 	f, err1 := time.ParseInLocation(dayLayout, from, time.Local)
 	t, err2 := time.ParseInLocation(dayLayout, to, time.Local)

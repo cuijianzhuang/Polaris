@@ -32,18 +32,13 @@ const presets = [
 ] as const
 type Preset = typeof presets[number]['k']
 
-function presetRange(k: Preset): [string, string] {
+// Preset boundaries are computed by the panel (reportRange) in its own
+// timezone, not from the browser clock, so "今天" matches the per-day buckets
+// settleTraffic writes. This helper only backs the custom-range defaults.
+function defaultCustomRange(): [string, string] {
   const now = new Date()
-  const back = (n: number) => { const d = new Date(now); d.setDate(d.getDate() - n); return ymd(d) }
-  switch (k) {
-    case 'today': return [ymd(now), ymd(now)]
-    case '30d': return [back(29), ymd(now)]
-    case '90d': return [back(89), ymd(now)]
-    case 'month': return [ymd(new Date(now.getFullYear(), now.getMonth(), 1)), ymd(now)]
-    case 'last': return [ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)), ymd(new Date(now.getFullYear(), now.getMonth(), 0))]
-    case 'year': return [ymd(new Date(now.getFullYear(), 0, 1)), ymd(now)]
-    default: return [back(6), ymd(now)]
-  }
+  const from = new Date(now); from.setDate(from.getDate() - 29)
+  return [ymd(from), ymd(now)]
 }
 
 // Delta shows the change against the previous period of the same length.
@@ -99,7 +94,8 @@ export default function Stats() {
   // Range, filters and tab live in the URL: shareable, survive reloads.
   const [sp, setSp] = useSearchParams()
   const preset = (presets.some((p) => p.k === sp.get('range')) ? sp.get('range') : (sp.get('from') ? 'custom' : '7d')) as Preset
-  const [from, to] = preset === 'custom' ? [sp.get('from') ?? presetRange('30d')[0], sp.get('to') ?? presetRange('30d')[1]] : presetRange(preset)
+  const from = sp.get('from') ?? defaultCustomRange()[0]
+  const to = sp.get('to') ?? defaultCustomRange()[1]
   const node = sp.get('node') ?? '', user = sp.get('user') ?? ''
   const tab = (sp.get('tab') ?? 'users') as 'users' | 'nodes' | 'inbounds'
   const patch = (kv: Record<string, string | null>) => {
@@ -109,7 +105,8 @@ export default function Stats() {
   }
   const setRange = (f: string, t: string) => patch({ range: 'custom', from: f, to: t })
   const filterQ = (node ? `&node=${node}` : '') + (user ? `&user=${user}` : '')
-  const rep = useLoad((signal) => get<Report>(`/stats/report?from=${from}&to=${to}&limit=50${filterQ}`, signal), [from, to, filterQ])
+  const rangeQ = preset === 'custom' ? `from=${from}&to=${to}` : `range=${preset}`
+  const rep = useLoad((signal) => get<Report>(`/stats/report?${rangeQ}&limit=50${filterQ}`, signal), [rangeQ, filterQ])
   const { busy, run } = useAction()
   const d = rep.data
   const total = d ? d.total.up + d.total.down : 0
@@ -130,7 +127,7 @@ export default function Stats() {
     <>
       <div className="top">
         <div><h1>{t('统计')}</h1><div className="sub">{t('任意时间段的流量趋势、节点占比与排行；在图上拖选可放大到那几天，点排行可按用户 / 节点筛选；按天的数据长期保留')}</div></div>
-        <button className="btn" type="button" disabled={busy} onClick={() => run(() => download(`/stats/export?from=${from}&to=${to}${filterQ}`, `traffic-${from}_${to}.csv`))}>{t('导出 CSV')}</button>
+        <button className="btn" type="button" disabled={busy} onClick={() => run(() => download(`/stats/export?from=${d?.from ?? from}&to=${d?.to ?? to}${filterQ}`, `traffic-${d?.from ?? from}_${d?.to ?? to}.csv`))}>{t('导出 CSV')}</button>
       </div>
       <section className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
         <span className="seg-mini" style={{ flexWrap: 'wrap' }}>
@@ -143,7 +140,7 @@ export default function Stats() {
             <span className="mute">{t('至')}</span>
             <input type="date" className="input" style={{ width: 'auto' }} value={to} min={from} onChange={(e) => e.target.value && setRange(from, e.target.value)} />
           </span>
-        ) : <span className="mono small mute">{from} ~ {to}</span>}
+        ) : <span className="mono small mute">{d?.from ?? from} ~ {d?.to ?? to}</span>}
         {(node || user) && <span className="row" style={{ gap: 6, marginLeft: 'auto' }}>
           <span className="small mute">{t('筛选')}</span>
           {node && <button type="button" className="chip on" onClick={() => patch({ node: null })} title={t('清除')}>{t('节点：{name}', { name: d?.filter.nodeName || node })} ✕</button>}
