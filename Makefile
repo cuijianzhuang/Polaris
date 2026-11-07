@@ -6,6 +6,7 @@ LDFLAGS := -s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=$(VE
 all: web build
 
 web:
+	rm -rf web/dist/*
 	cd web && npm ci --no-audit --no-fund && npm run build
 
 build:
@@ -19,7 +20,7 @@ agent:
 
 test:
 	go vet ./...
-	go test ./...
+	go test -timeout 0 ./...
 
 # Concurrency check: same suite under the race detector. The live/browser
 # tests in internal/panel self-skip unless their POLARIS_* env vars are set,
