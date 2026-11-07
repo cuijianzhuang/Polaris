@@ -315,6 +315,34 @@ func (a *Agent) send(m *polarisv1.AgentMessage) error {
 
 func (a *Agent) appliedRev() int64 { return a.rev.Load() }
 
+// featureSet lists the agent-level features this build advertises, derived
+// from the single table in model.AgentFeatures so the panel allowlist and the
+// agent advertisement stay in sync. Gated features are skipped on builds that
+// cannot satisfy them.
+func (a *Agent) featureSet() []string {
+	linux := runtime.GOOS == "linux"
+	parentBound := core.ParentBoundSupported()
+	out := make([]string, 0, len(model.AgentFeatures))
+	for _, f := range model.AgentFeatures {
+		switch f {
+		case model.AgentRollbackFeature:
+			if !(a.cfg.Supervised && linux) {
+				continue
+			}
+		case model.RouteTraceFeature, model.RouteTraceToolFeature:
+			if !linux {
+				continue
+			}
+		case model.ManagedTunnelFeature, model.RemoteTunnelFeature, model.RelayBusinessFeature, model.SingboxRelayBusinessFeature:
+			if !parentBound {
+				continue
+			}
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
 func (a *Agent) sendHeartbeat() error {
 	hb := &polarisv1.Heartbeat{AppliedRev: a.appliedRev(), AgentVersion: a.reportedVersion(), System: a.sys.Sample(), Arch: runtime.GOARCH, TrafficQueue: a.trafficQueueStatus()}
 	if a.ips != nil {
@@ -417,19 +445,7 @@ func (a *Agent) reconcileLoop(ctx context.Context) {
 			rev = 0
 		}
 		req := connect.NewRequest(&polarisv1.GetSpecRequest{Rev: rev})
-		features := model.WebsiteFeature + "," + model.RelayAccessFeature + "," + model.OutboundIPFeature + "," + model.SnellUsersFeature + "," + model.SnellPSKFeature
-		if a.cfg.Supervised && runtime.GOOS == "linux" {
-			features += "," + model.AgentRollbackFeature
-		}
-		if runtime.GOOS == "linux" {
-			features += "," + model.RouteTraceFeature + "," + model.RouteTraceToolFeature
-		}
-		if core.ParentBoundSupported() {
-			features += "," + model.ManagedTunnelFeature
-			features += "," + model.RemoteTunnelFeature
-			features += "," + model.RelayBusinessFeature + "," + model.SingboxRelayBusinessFeature
-		}
-		req.Header().Set("X-Polaris-Agent-Features", features)
+		req.Header().Set("X-Polaris-Agent-Features", strings.Join(a.featureSet(), ","))
 		resp, err := a.client.GetSpec(ctx, req)
 		if err != nil {
 			a.log.Error("fetch spec", "rev", rev, "err", err)
