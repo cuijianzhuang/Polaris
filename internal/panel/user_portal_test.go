@@ -174,6 +174,8 @@ func TestPortalNodeEvidence(t *testing.T) {
 	if connected.Links[0].StateLabel != "连接通过" || connected.Links[0].Network != "passed" || connected.Links[0].Business != "unknown" {
 		t.Fatal("network check was not distinguished from business proof", connected.Links)
 	}
+	s.st.DB.Model(&store.InboundHealth{}).Where("inbound_id = ?", "in").Updates(map[string]any{"ok": true, "error": probeUDPReason})
+	check("unknown", "尚未执行")
 	s.st.DB.Model(&store.InboundHealth{}).Where("inbound_id = ?", "in").Updates(map[string]any{"ok": false, "error": "secret diagnostic internals"})
 	check("unavailable", "近期连接检查失败")
 	s.st.DB.Model(&store.InboundHealth{}).Where("inbound_id = ?", "in").Update("checked_at", now.Add(-time.Hour))

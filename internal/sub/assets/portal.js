@@ -22,7 +22,7 @@
   function counts(){var totals={verified:0,reachable:0,unknown:0,unavailable:0};rows.forEach(function(r){totals[r.dataset.state in totals?r.dataset.state:'unknown']++});document.getElementById('p-node-counts').textContent='业务已验证 '+totals.verified+' · 连接通过 '+totals.reachable+' · 待检查 '+totals.unknown+' · 暂不可用 '+totals.unavailable;document.querySelector('.p-node-summary>b').textContent='共 '+rows.length+' 个节点'}
   counts();
   function checkedTime(value){var date=new Date(value);return value&&Number.isFinite(date.getTime())?date.toLocaleString():value}
-  function showDetails(row){
+  function showDetails(row,preserve){
     lastRow=row;
     var badge=row.querySelector('.p-badge'),qr=row.querySelector('.p-node-qr');
     document.getElementById('p-dialog-title').textContent=row.querySelector('.p-node-name b').textContent;
@@ -30,7 +30,8 @@
     document.getElementById('p-dialog-reason').textContent=row.querySelector('.p-node-reason').textContent;
     var at=row.querySelector('.p-node-time').textContent;document.getElementById('p-dialog-time').textContent=at?'最近检查：'+checkedTime(at):'暂无近期检查记录';
     document.getElementById('p-proof-node').textContent=nodeLabels[row.dataset.online]||'未上报';document.getElementById('p-proof-network').textContent=networkLabels[row.dataset.network]||'尚未检查';document.getElementById('p-proof-business').textContent=businessLabels[row.dataset.business]||'尚未验证';document.getElementById('p-proof-scope').textContent=row.dataset.scope||'暂无近期检查';
-    var code=document.getElementById('p-dialog-code');code.open=false;code.hidden=!qr;
+    var result=document.getElementById('p-dialog-check-result');result.textContent=row.dataset.entryCheck||'';result.hidden=!result.textContent;
+    var code=document.getElementById('p-dialog-code');if(!preserve)code.open=false;code.hidden=!qr;
     var image=document.getElementById('p-dialog-qr');if(qr)image.src=qr.src;else image.removeAttribute('src');
     document.getElementById('p-dialog-copy').setAttribute('data-copy',row.querySelector('[data-copy]').getAttribute('data-copy'));
   }
@@ -51,10 +52,37 @@
         row.querySelector('.p-text-button').textContent=item.state==='unavailable'?'查看原因':'查看详情';return true;
       });
       document.getElementById('p-node-list-change').hidden=!data.items.some(function(item){return !oldKeys.has(item.key)});
-      counts();filter();if(lastRow&&lastRow.isConnected)showDetails(lastRow);
+      counts();filter();if(lastRow&&lastRow.isConnected)showDetails(lastRow,true);
       document.getElementById('p-nodes-updated').textContent='状态更新于 '+checkedTime(data.at)+' · 后台检查记录，不是本地测速';
     }).catch(function(){error.textContent='节点状态更新失败，已保留上次结果，请重试';error.hidden=false}).finally(function(){clearTimeout(timeout);button.disabled=false;refreshing=false});
   }
+  var checkingEntry=false,checkButton=document.getElementById('p-dialog-check'),autoCheck=document.getElementById('p-nodes-auto'),autoStatus=document.getElementById('p-auto-check-status'),autoPausedUntil=0;
+  try{autoCheck.checked=localStorage.getItem('polaris.portal.autoCheck')!=='false'}catch(_){autoCheck.checked=true}
+  function runEntryCheck(row,automatic){
+    if(checkingEntry||!row)return;
+    var result=document.getElementById('p-dialog-check-result'),controller=new AbortController(),timeout=setTimeout(function(){controller.abort()},8000);
+    checkingEntry=true;row.dataset.entryAttempt=String(Date.now());checkButton.disabled=true;checkButton.textContent='检查中…';
+    if(!automatic){result.hidden=false;result.textContent='正在从面板检查订阅入口的 TCP／TLS 连接…'}
+    else autoStatus.textContent='自动检查中：'+row.querySelector('.p-node-name b').textContent;
+    fetch('/u/nodes/check',{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},credentials:'same-origin',cache:'no-store',signal:controller.signal,body:JSON.stringify({key:row.dataset.nodeKey})}).then(function(r){return r.json().then(function(data){if(!r.ok){if(r.status===429)autoPausedUntil=Date.now()+30000;if(r.status===401)location.replace('/u/login');throw new Error(data.error||'检查失败，请重试')}return data})}).then(function(data){
+      row.dataset.entryCheck=data.message+'（'+checkedTime(data.checkedAt)+(data.state==='passed'?' · '+data.latencyMs+' ms':'')+'）';
+      if(lastRow===row){result.textContent=row.dataset.entryCheck;result.hidden=false}
+      if(automatic)autoStatus.textContent='最近自动检查：'+row.querySelector('.p-node-name b').textContent+' · '+(data.state==='passed'?'连接通过':data.state==='unsupported'?'检查不适用':'连接失败');
+      refreshNodes();
+    }).catch(function(error){
+      var message=error.name==='AbortError'?'检查超时，请稍后重试':error.message;
+      if(lastRow===row){result.textContent=message;result.hidden=false}
+      if(automatic)autoStatus.textContent=message;
+    }).finally(function(){clearTimeout(timeout);checkingEntry=false;checkButton.disabled=false;checkButton.textContent='检查连接'});
+  }
+  checkButton.addEventListener('click',function(){runEntryCheck(lastRow,false)});
+  function autoTick(){
+    if(!autoCheck.checked||document.hidden||location.hash!=='#nodes'||dialog.open||checkingEntry||Date.now()<autoPausedUntil)return;
+    var row=rows.filter(function(row){return !row.hidden&&Date.now()-Number(row.dataset.entryAttempt||0)>=300000}).sort(function(a,b){return Number(a.dataset.entryAttempt||0)-Number(b.dataset.entryAttempt||0)})[0];
+    if(row)runEntryCheck(row,true);
+  }
+  autoCheck.addEventListener('change',function(){try{localStorage.setItem('polaris.portal.autoCheck',String(autoCheck.checked))}catch(_){}autoStatus.textContent=autoCheck.checked?'自动检查已开启，每 12 秒检查一个入口，5 分钟内不重复检查。':'自动检查已暂停，仍可在节点详情中手动检查。';if(autoCheck.checked)autoTick()});
+  setInterval(autoTick,12000);
   document.getElementById('p-nodes-refresh').addEventListener('click',refreshNodes);
   function nodesVisible(){if(location.hash==='#nodes'&&!document.hidden&&!dialog.open)refreshNodes()}
   window.addEventListener('hashchange',nodesVisible);document.addEventListener('visibilitychange',nodesVisible);setInterval(nodesVisible,30000);nodesVisible();

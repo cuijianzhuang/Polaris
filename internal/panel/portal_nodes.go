@@ -105,8 +105,7 @@ func (s *Server) portalNodeDetails(info *sub.Info, clientNodes []sub.Node) error
 			region = "其他地区"
 		}
 		link := sub.PageLink{Name: n.Name, Protocol: sub.ProtocolLabel(n), Link: sub.ShareLink(n), Region: region, Rate: "×" + strconv.FormatFloat(rate, 'f', -1, 64), State: "unknown", StateLabel: "待检查", Online: "unknown", Network: "unknown", Business: "unknown", CheckScope: "暂无近期检查", Reason: "尚未执行端到端业务验证，建议在客户端测试连接。"}
-		identity := sha256.Sum256([]byte(link.Name + "\x00" + link.Link))
-		link.Key = fmt.Sprintf("%x", identity[:16])
+		link.Key = portalNodeKey(n)
 		node, knownNode := nodes[n.PanelNodeID]
 		if knownNode {
 			if portalNodeUnavailable(node) {
@@ -176,7 +175,7 @@ func (s *Server) portalNodeDetails(info *sub.Info, clientNodes []sub.Node) error
 					}
 				}
 			}
-		} else if h, ok := health[n.PanelInboundID]; ok && (n.PanelKind == "direct" || n.PanelKind == "") && !h.CheckedAt.IsZero() && !h.CheckedAt.After(now) {
+		} else if h, ok := health[n.PanelInboundID]; ok && (n.PanelKind == "direct" || n.PanelKind == "") && !h.CheckedAt.IsZero() && !h.CheckedAt.After(now) && h.Error != probeUDPReason {
 			link.CheckedAt = h.CheckedAt.UTC().Format(time.RFC3339)
 			link.CheckScope = "服务端连接"
 			if now.Sub(h.CheckedAt) >= 5*time.Minute {
@@ -192,6 +191,11 @@ func (s *Server) portalNodeDetails(info *sub.Info, clientNodes []sub.Node) error
 		info.Links = append(info.Links, link)
 	}
 	return nil
+}
+
+func portalLinkKey(name, link string) string {
+	identity := sha256.Sum256([]byte(name + "\x00" + link))
+	return fmt.Sprintf("%x", identity[:16])
 }
 
 func portalNodeUnavailable(n store.Node) bool {
@@ -219,6 +223,7 @@ func (s *Server) portalNodeStatus(c *gin.Context) {
 			return
 		}
 	}
+	s.applyPortalEntryChecks(&info, u.ID)
 	items := make([]gin.H, 0, len(info.Links))
 	for _, link := range info.Links {
 		state := link.State

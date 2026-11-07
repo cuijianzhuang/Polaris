@@ -6,44 +6,10 @@ from playwright.sync_api import sync_playwright,expect
 
 source=Path(__file__).with_name('settings-workflow-smoke.py')
 scope={'__file__':str(source)}
-exec(source.read_text().split('\ndef wait_routes(page, fixture, predicate):
-    # Request events precede route callbacks. Pump the driver until the held
-    # route exists, independently of the page's controlled timer clock.
-    deadline=time.monotonic()+10
-    while not predicate(fixture.user_requests):
-        assert time.monotonic()<deadline,'expected held request was not routed'
-        page.wait_for_timeout(10)
-
-def close_page(page, fixture):
-    for route in fixture.user_requests:
-        try:route.abort()
-        except Exception:pass # already fulfilled or cancelled by the browser
-    for route,_ in fixture.pending_lists:
-        try:route.abort()
-        except Exception:pass
-    page.unroute_all(behavior='wait');page.close()
-
-with sync_playwright() as p:')[0],scope)
+exec(source.read_text().split('\nwith sync_playwright() as p:')[0],scope)
 online_source=Path(__file__).with_name('user-online-ui-smoke.py')
 online={'__file__':str(online_source)}
-exec(online_source.read_text().split('\ndef wait_routes(page, fixture, predicate):
-    # Request events precede route callbacks. Pump the driver until the held
-    # route exists, independently of the page's controlled timer clock.
-    deadline=time.monotonic()+10
-    while not predicate(fixture.user_requests):
-        assert time.monotonic()<deadline,'expected held request was not routed'
-        page.wait_for_timeout(10)
-
-def close_page(page, fixture):
-    for route in fixture.user_requests:
-        try:route.abort()
-        except Exception:pass # already fulfilled or cancelled by the browser
-    for route,_ in fixture.pending_lists:
-        try:route.abort()
-        except Exception:pass
-    page.unroute_all(behavior='wait');page.close()
-
-with sync_playwright() as p:')[0],online)
+exec(online_source.read_text().split('\nwith sync_playwright() as p:')[0],online)
 BASE=os.environ.get('POLARIS_WEB_TEST_URL','http://127.0.0.1:5187').rstrip('/')
 
 class Fixture(scope['Fixture']):
