@@ -201,7 +201,7 @@ func (s *Server) settleTraffic() error {
 	}
 	now := time.Now()
 	hour := now.UTC().Truncate(time.Hour)
-	day := now.Format("2006-01-02")
+	day := now.In(s.cfg.Location()).Format("2006-01-02")
 	rates := map[string]float64{}
 	var nodes []store.Node
 	s.st.DB.Select("id", "traffic_rate").Find(&nodes)

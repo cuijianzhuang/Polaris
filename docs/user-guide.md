@@ -1333,6 +1333,7 @@ polaris log
 | --- | --- |
 | `POLARIS_SECRET_KEY` | 必填，敏感字段加密与会话签名；至少 16 位随机字符，建议 `openssl rand -hex 32`；生成后持久保存、重启时复用。密钥派生唯一加密密钥，保护 CA 私钥、证书私钥、REALITY 私钥、SS master key、API 令牌等；丢失**或更换**后已加密数据不可解密，当前不支持原地轮换 |
 | `POLARIS_ADMIN_PATH` | 后台和管理 API 前缀，默认 `/` |
+| `POLARIS_TIMEZONE` | 可选。按天流量分桶与统计「今天 / 本月」等预设使用的时区（IANA 名称，如 `Asia/Shanghai`）；留空用服务器本地时区。建议设为管理员所在时区，否则日界会按服务器时区切分 |
 | `POLARIS_PUBLIC_URL` | 生成订阅、安装链接等使用的外部地址，包含 `http://` 或 `https://` |
 | `POLARIS_LISTEN` | 面板 HTTP 监听，默认 `:8080` |
 | `POLARIS_AGENT_LISTEN` | Agent mTLS 监听，默认 `:9443` |

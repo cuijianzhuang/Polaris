@@ -17,7 +17,7 @@ func init() {}
 
 // statsOverview feeds the dashboard KPIs, trend and core distribution.
 func (s *Server) statsOverview(c *gin.Context) {
-	now := time.Now()
+	now := time.Now().In(s.cfg.Location())
 	nodes := s.nodeViews()
 	online, timeout, failed := 0, 0, 0
 	var rx, tx uint64
@@ -75,7 +75,7 @@ func (s *Server) statsOverview(c *gin.Context) {
 	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("hour, SUM(up) AS up, SUM(down) AS down").
 		Where("hour >= ?", local.AddDate(0, 0, -n+1).UTC()).Group("hour").Scan(&rows)
 	for _, r := range rows {
-		if i, ok := idx[r.Hour.Local().Format("2006-01-02")]; ok {
+		if i, ok := idx[r.Hour.In(s.cfg.Location()).Format("2006-01-02")]; ok {
 			days[i].Up += r.Up
 			days[i].Down += r.Down
 		}
@@ -283,7 +283,7 @@ type nodeTraffic struct {
 }
 
 func (s *Server) nodeTrafficStats() map[string]*nodeTraffic {
-	now := time.Now()
+	now := time.Now().In(s.cfg.Location())
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UTC()
 	out := map[string]*nodeTraffic{}
 	get := func(id string) *nodeTraffic {
