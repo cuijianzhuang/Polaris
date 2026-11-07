@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<link rel="icon" href="/favicon.ico"><title>{{.Title}} · 用户中心</title>
+<style>
+:root{color-scheme:light dark;--bg:#f5f7fa;--card:#fff;--ink:#1d2837;--mute:#687588;--line:#e3e8ee;--pri:#177f7c;--on-pri:#fff;--soft:#edf7f5;--bad:#b42318}
+@media(prefers-color-scheme:dark){:root{--bg:#11161c;--card:#1a222c;--ink:#edf2f7;--mute:#a3afbd;--line:#334051;--pri:#54bdb5;--soft:#203b3a;--bad:#ff9690}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+a{color:var(--pri);text-decoration:none}button,input{font:inherit}button,a,input{touch-action:manipulation}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--pri);outline-offset:3px}
+header{height:76px;display:flex;align-items:center;padding:0 5vw;border-bottom:1px solid var(--line);background:var(--card)}.brand{display:flex;align-items:center;gap:10px;font-size:21px;font-weight:650;color:var(--ink)}.brand img{width:34px;height:34px;border-radius:9px}
+main{max-width:460px;margin:clamp(28px,8vh,84px) auto;padding:0 20px 36px}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px;box-shadow:0 8px 30px #15283c06}
+h1{margin:0;font-size:26px;letter-spacing:-.04em}.intro{margin:6px 0 26px;color:var(--mute);font-size:14px}.tabs{display:flex;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;margin-bottom:22px;gap:4px}.tabs a{flex:1;text-align:center;min-height:40px;display:grid;place-items:center;border-radius:8px;color:var(--mute)}.tabs a[aria-current="page"]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 5px #0000000b}
+.mail{display:grid;gap:18px}label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}input{width:100%;min-width:0;min-height:48px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:10px 13px}.code-row{display:flex;border:1px solid var(--line);border-radius:10px;min-width:0}.code-row input{border:0;flex:1;width:0}.code-row button{flex:none;border:0;background:none;padding:0 12px;color:var(--pri);cursor:pointer;font-size:13px;min-height:48px}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:10px;border:1px solid var(--pri);background:var(--pri);color:var(--on-pri);text-decoration:none;font:inherit;font-weight:600;cursor:pointer;padding:10px 14px}.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}button:disabled{opacity:.5;cursor:default}.mute{color:var(--mute);font-size:13px;margin:0}.err{color:var(--bad);font-size:13px;margin:0;overflow-wrap:anywhere}.notice{padding:12px 14px;background:var(--soft);border-radius:10px;font-size:13px;margin-bottom:20px}.divider{display:flex;align-items:center;gap:14px;color:var(--mute);font-size:13px;margin:24px 0 16px}.divider:before,.divider:after{content:"";height:1px;background:var(--line);flex:1}.num{font:650 44px/1.3 ui-monospace,monospace;color:var(--pri);letter-spacing:.08em;margin:10px 0}.tg-note{margin-top:12px;text-align:center}.shop{display:block;text-align:center;margin-top:22px}.foot{text-align:center;color:var(--mute);font-size:12px;margin-top:24px}[hidden]{display:none!important}
+@media(max-width:480px){header{height:64px;padding:0 20px}.card{padding:26px 22px;border-radius:16px}main{margin:28px auto}.code-row button{padding:0 10px}}
+</style></head><body>
+<header><a class="brand" href="/u"><img src="/favicon.ico" alt=""><span>{{.Title}}</span></a></header>
+<main><section class="card" aria-label="用户登录与注册">
+<h1 id="auth-title">{{if .RegisterMode}}创建账号{{else}}欢迎回来{{end}}</h1>
+<p class="intro" id="auth-intro">{{if .RegisterMode}}验证邮箱，开始使用用户中心{{else}}登录用户中心，管理订阅与流量{{end}}</p>
+{{if and .Register .Mail}}<nav class="tabs" aria-label="账号操作"><a href="/u/login" data-auth-mode="login"{{if not .RegisterMode}} aria-current="page"{{end}}>登录</a><a href="/u/register" data-auth-mode="register"{{if .RegisterMode}} aria-current="page"{{end}}>注册</a></nav>{{end}}
+<div class="notice" id="registration-notice"{{if .Register}} hidden{{end}}>暂未开放注册<br><span class="mute">已有账号可继续登录</span></div>
+{{if .Mail}}<div id="m1" class="mail">
+<div><label for="memail">邮箱地址</label><input id="memail" type="email" placeholder="name@example.com" autocomplete="email" maxlength="254" required></div>
+<div id="m2"><label for="mcode">邮箱验证码</label><div class="code-row"><input id="mcode" inputmode="numeric" pattern="[0-9]{6}" placeholder="请输入 6 位验证码" autocomplete="one-time-code" maxlength="6"><button id="msend" type="button">发送验证码</button></div></div>
+<p class="mute" id="mnote" role="status" hidden></p><p class="err" id="merr" role="alert" hidden></p>
+<button class="btn" id="mgo" type="button">{{if .RegisterMode}}注册并进入用户中心{{else}}登录用户中心{{end}}</button>
+</div>{{end}}
+<div id="tg-area"{{if .RegisterMode}} hidden{{end}}>
+{{if and .Mail .Bot}}<div class="divider">或</div>{{end}}
+{{if .Bot}}
+<div id="s1"><button class="btn alt" id="go" type="button">使用 Telegram 登录</button></div>
+<div id="s2" hidden><p class="mute">在 Telegram 中点击下面这个数字</p><div class="num" id="num"></div><a class="btn" id="open" href="#" target="_blank" rel="noopener">打开 Telegram</a><p class="mute tg-note" id="state">等待确认…</p></div>
+<p class="err" id="err" role="alert" hidden></p>
+<p class="mute tg-note">还没绑定 Telegram？打开订阅链接，点「Telegram 机器人绑定」。</p>
+{{else if not .Mail}}<p class="err">管理员尚未启用 Telegram 机器人或邮箱登录，暂时无法登录。</p>{{end}}
+</div>
+{{if .Shop}}<a class="shop" href="/u/shop">购买套餐</a>{{end}}
+</section><p class="foot">{{.Title}} 用户中心</p></main>
+{{if .Mail}}<script>
+(function(){
+var registrationAllowed={{.Register}},mode={{if .RegisterMode}}'register'{{else}}'login'{{end}},timer=0,busy=false;
+var em=document.getElementById('memail'),code=document.getElementById('mcode'),send=document.getElementById('msend'),go=document.getElementById('mgo'),note=document.getElementById('mnote'),err=document.getElementById('merr');
+function show(el,text){el.textContent=text;el.hidden=!text}
+function applyMode(next){mode=next==='register'&&registrationAllowed?'register':'login';clearInterval(timer);send.disabled=false;send.textContent='发送验证码';code.value='';show(err,'');window.dispatchEvent(new Event('portal-auth-mode'));show(note,'');document.getElementById('auth-title').textContent=mode==='register'?'创建账号':'欢迎回来';document.getElementById('auth-intro').textContent=mode==='register'?'验证邮箱，开始使用用户中心':'登录用户中心，管理订阅与流量';go.textContent=mode==='register'?'注册并进入用户中心':'登录用户中心';document.getElementById('tg-area').hidden=mode==='register';document.querySelectorAll('[data-auth-mode]').forEach(function(a){if(a.dataset.authMode===mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});history.replaceState(null,'',mode==='register'?'/u/register':'/u/login')}
+document.querySelectorAll('[data-auth-mode]').forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();if(!busy)applyMode(a.dataset.authMode)})});
+function post(path,body){return fetch('/u/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok){if(j.code==='registration_closed'){registrationAllowed=false;var tabs=document.querySelector('.tabs');if(tabs)tabs.hidden=true;document.getElementById('registration-notice').hidden=false;applyMode('login')}throw new Error(j.error||'操作失败，请重试')}return j})})}
+function cooldown(n){clearInterval(timer);send.disabled=true;send.textContent='重新发送（'+n+'）';timer=setInterval(function(){n--;if(n<=0){clearInterval(timer);send.disabled=false;send.textContent='重新发送'}else send.textContent='重新发送（'+n+'）'},1000)}
+send.addEventListener('click',function(){show(err,'');if(!em.value.trim()||!em.checkValidity()){show(err,'请填写正确的邮箱地址');em.focus();return}send.disabled=true;busy=true;var requested=mode;post('email/code',{email:em.value.trim(),purpose:requested}).then(function(j){busy=false;show(note,'如果这个邮箱可以继续操作，验证码已经发出，'+Math.round(j.ttl/60)+' 分钟内有效。请同时检查垃圾邮件。');code.focus();cooldown(j.cooldown||60)}).catch(function(e){busy=false;send.disabled=false;show(err,e.message)})});
+function login(){if(busy)return;show(err,'');if(!em.value.trim()||!em.checkValidity()){show(err,'请填写正确的邮箱地址');em.focus();return}if(!/^\d{6}$/.test(code.value.trim())){show(err,'请输入 6 位验证码');code.focus();return}busy=true;go.disabled=true;post('email/verify',{email:em.value.trim(),code:code.value.trim(),purpose:mode}).then(function(){location.replace('/u')}).catch(function(e){busy=false;go.disabled=false;show(err,e.message)})}
+go.addEventListener('click',login);code.addEventListener('keydown',function(e){if(e.key==='Enter')login()});
+})();
+</script>{{end}}
+{{if .Bot}}<script>
+(function(){
+var go=document.getElementById('go'),err=document.getElementById('err'),req=null,timer=0,attempt=0;
+function show(m){err.textContent=m;err.hidden=!m}
+function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:b?JSON.stringify(b):null,credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
+function reset(m){attempt++;clearTimeout(timer);req=null;document.getElementById('s1').hidden=false;document.getElementById('s2').hidden=true;go.disabled=false;show(m)}
+window.addEventListener('portal-auth-mode',function(){reset('')});
+function poll(){if(!req)return;var active=req;post('poll',{id:req.id,secret:req.secret}).then(function(j){if(req!==active)return;
+if(j.status==='ok'){location.replace('/u');return}
+if(j.status==='denied'){reset('登录已被拒绝，请重试');return}
+if(j.status==='expired'){reset('登录请求已过期，请重试');return}
+if(j.opened)document.getElementById('state').textContent='已在 Telegram 打开，请点击相同的数字';
+timer=setTimeout(poll,1500)}).catch(function(){if(req===active)timer=setTimeout(poll,3000)})}
+go.addEventListener('click',function(){go.disabled=true;show('');var id=++attempt;post('login').then(function(j){if(id!==attempt)return;req=j;
+document.getElementById('num').textContent=j.code;document.getElementById('open').href=j.url;
+document.getElementById('s1').hidden=true;document.getElementById('s2').hidden=false;timer=setTimeout(poll,1500);
+try{window.open(j.url,'_blank','noopener')}catch(e){}}).catch(function(e){if(id===attempt)reset(e.message||'登录失败')})});
+})();
+</script>{{end}}
+</body></html>

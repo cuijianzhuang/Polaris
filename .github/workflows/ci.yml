@@ -317,6 +317,12 @@ jobs:
           POLARIS_PORTAL_CDN_BROWSER_TEST: '1'
         run: |
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePortalCDNBrowser$'
+      - name: User portal registration, ownership and mobile navigation
+        working-directory: internal/panel
+        env:
+          POLARIS_USER_PORTAL_BROWSER_TEST: '1'
+        run: |
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLiveUserPortalBrowser$'
       - name: Personal CDN imports, probe pairing, expiry and stale editor protection
         working-directory: internal/panel
         env:

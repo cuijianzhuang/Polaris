@@ -19,7 +19,7 @@ with sync_playwright() as p:
     for path,body in [('cdn-preferences',dict(profileId='regional',addresses=[])),('region',dict(region='CN-31')),('carrier',dict(carrier='ct'))]:
      if path=='cdn-preferences': body['version']=context.request.get(base+'/u/cdn-state?profileId=regional').json()['version']
      result=context.request.post(base+'/u/'+path,data=body,headers={'X-Polaris-Portal':'1'});assert result.status==200
-    page.goto(base+'/u')
+    page.goto(base+'/u#preferences')
     panel=page.locator('#cdn-preferences')
     page.locator('#cdn-preferences > summary').click();expect(page.get_by_label('个人优选地址（一行一个，最多 32 个）')).to_be_visible()
     expect(page.locator('#cdn-profile')).to_have_value('regional')

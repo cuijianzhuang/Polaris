@@ -16,13 +16,27 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
+//go:embed assets/portal.html
+var portalShellHTML string
+
+//go:embed assets/portal.css
+var portalShellCSS string
+
+//go:embed assets/portal.js
+var portalShellJS string
+
+//go:embed assets/portal-cdn.html
+var portalCDNHTML string
+
 //go:embed assets/portal-cdn.js
 var portalCDNScript string
 
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
-	"bytes":           HumanBytes,
-	"flagText":        flags.Text,
-	"portalCDNScript": func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
+	"bytes":             HumanBytes,
+	"flagText":          flags.Text,
+	"portalStyle":       func() template.CSS { return template.CSS(portalShellCSS) },
+	"portalShellScript": func() template.JS { return template.JS(portalShellJS) },
+	"portalCDNScript":   func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
 }).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
@@ -66,32 +80,9 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 .who{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
 .carrier{display:inline-flex;align-items:center;gap:4px}.carrier select{font:inherit;padding:3px 6px;border-radius:8px;border:1px solid var(--line,#ccc);background:transparent;color:inherit}
 #cdn-preferences [hidden]{display:none!important}#cdn-preferences button:disabled{opacity:.5;cursor:default}#cdn-save{background:var(--pri);border-color:var(--pri);color:#fff}.cdn-intro{margin-top:12px}.cdn-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(110px,.45fr);gap:12px;margin:16px 0}.cdn-input{display:block;width:100%;min-width:0;padding:10px;margin:6px 0;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;font:inherit}.cdn-input:focus{outline:2px solid var(--pri);outline-offset:1px}.cdn-input:disabled{opacity:.6}select.cdn-input{-webkit-appearance:none;appearance:none;max-width:100%;overflow:hidden;text-overflow:ellipsis;padding-right:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;background-size:12px}.cdn-controls label{min-width:0}.cdn-section{border-top:1px solid var(--line);padding-top:16px;margin-top:18px}.cdn-section h2{margin:0}.cdn-section .row{gap:8px}.cdn-add-row{display:flex;gap:8px;align-items:center}.cdn-add-row input{flex:1}.cdn-add-row button{flex-shrink:0}.cdn-bulk{margin:12px 0}.cdn-bulk summary{cursor:pointer;margin-bottom:8px}.cdn-summary{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.cdn-item{border:1px solid var(--line);border-radius:8px;padding:12px;margin:10px 0;min-width:0}.cdn-item-address{display:block;font-family:ui-monospace,monospace;font-size:13px;overflow-wrap:anywhere}.cdn-item .row{margin-top:8px}.cdn-item p{margin:6px 0;overflow-wrap:anywhere}.cdn-item .st{font-size:11px}.cdn-item .bad{color:var(--bad)}.cdn-item .ok{color:var(--ok)}#cdn-command{font-family:ui-monospace,monospace;font-size:12px}#cdn-preferences-error{margin-top:14px;color:var(--bad)}@media(max-width:420px){.cdn-controls{grid-template-columns:minmax(0,1fr)}.cdn-add-row{flex-wrap:wrap}.cdn-add-row input{flex-basis:100%}}
-</style></head><body><main>
+</style>{{if .Portal}}<style>{{portalStyle}}</style>{{end}}</head><body>{{if .Portal}}{{template "portal" .}}{{else}}<main>
 {{if .Portal}}<div class="who"><span>👤 已通过 {{.LoginVia}} 登录{{if .Email}} · {{.Email}}{{end}}</span><span class="sp"></span>{{if .MailBind}}<button class="btn sm" type="button" data-portal="email">{{if .Email}}更换邮箱{{else}}绑定邮箱{{end}}</button>{{end}}{{if .Rename}}<button class="btn sm" type="button" data-portal="rename">修改用户名</button>{{end}}{{if .RegionPick}}<label class="carrier">地区 <select data-portal-region><option value="">自动</option>{{range .CDNRegions}}<option value="{{.Code}}"{{if eq $.Region .Code}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>{{end}}{{if .CarrierPick}}<label class="carrier" title="CDN 优选 IP 按所选运营商的测速结果下发">运营商 <select data-portal-carrier><option value=""{{if eq .Carrier ""}} selected{{end}}>自动</option><option value="ct"{{if eq .Carrier "ct"}} selected{{end}}>电信</option><option value="cu"{{if eq .Carrier "cu"}} selected{{end}}>联通</option><option value="cm"{{if eq .Carrier "cm"}} selected{{end}}>移动</option></select></label>{{end}}<button class="btn sm" type="button" data-portal="reset">重置订阅链接</button><button class="btn sm" type="button" data-portal="logout">退出</button></div>{{end}}
-{{if .CDNManage}}<details class="card" id="cdn-preferences"><summary><b>维护个人优选 IP／域名</b></summary>
-<p class="mute cdn-intro">个人池优先，公共池兜底。手动维护无需安装程序；本地自动测速不会覆盖手动地址。</p>
-<p class="mute">{{.CDNNetwork}}</p>
-{{if .CDNChoices}}<div class="cdn-controls"><label>CDN 配置<select id="cdn-profile" class="cdn-input">{{range .CDNChoices}}<option value="{{.ID}}" data-version="{{.PoolVersion}}" data-entries="{{.EntriesJSON}}" data-pool="{{.PoolJSON}}" data-ports="{{.PortsJSON}}" data-probe="{{.ProbePrefix}}" data-probe-port="{{.ProbePort}}" data-supported="{{.ProbeSupported}}" data-expanded="{{.Enabled}}" data-addresses="{{.Addresses}}" data-selection="{{.Selection}}">{{.Name}} · {{.Scheme}}:{{.Port}}</option>{{end}}</select></label><label>检测／测速端口<select id="cdn-port" class="cdn-input" aria-label="检测与测速端口"></select></label></div>
-<label>检测入口<select id="cdn-endpoint" class="cdn-input" aria-label="检测入口"></select></label><p class="mute" id="cdn-endpoint-target"></p>
-<p class="mute" id="cdn-selection"></p><p id="cdn-pool-warning" class="note" hidden>管理员尚未开启订阅展开。地址可正常维护，当前订阅仍使用入口指定地址或回源域名。</p>
-<div class="cdn-summary" id="cdn-summary" aria-live="polite"></div>
-<p id="cdn-preferences-error" role="alert" class="note bad" hidden></p><button type="button" class="btn sm" id="cdn-conflict-reload" hidden>重新加载服务器内容（先复制草稿）</button>
-<section class="cdn-section"><div class="row"><h2>手动地址</h2><span class="tag">自动刷新保留</span></div>
-<p class="mute">只填公网 IP 或完整域名，不带协议、端口或路径。最多 32 个地址，保存后更新客户端订阅。</p>
-<div class="cdn-add-row"><input id="cdn-add-address" class="cdn-input" aria-label="添加 IP 或域名" placeholder="输入 IP 或完整域名" autocomplete="off"><button type="button" class="btn sm" id="cdn-add">添加到手动列表</button></div>
-<details id="cdn-bulk-edit" class="cdn-bulk"><summary>批量编辑／导入</summary><label for="cdn-addresses">个人优选地址（一行一个，最多 32 个）</label><textarea id="cdn-addresses" class="cdn-input" rows="4" placeholder="104.16.1.1&#10;2606:4700::1111&#10;best.example.com"></textarea>
-<div class="row"><button type="button" class="btn sm" id="cdn-import-label">导入 TXT／CSV</button><input type="file" id="cdn-import" accept=".txt,.csv" hidden><span class="mute">支持换行、逗号或空格分隔</span></div></details>
-<div class="row"><button type="button" class="btn" id="cdn-save">保存个人优选地址</button><span id="cdn-draft" class="mute" role="status"></span></div></section>
-<section class="cdn-section"><div class="row"><h2>地址与检测状态</h2><span class="sp"></span><button type="button" class="btn sm" id="cdn-check-all">检测已启用地址</button><button type="button" class="btn sm" id="cdn-stop-checks" hidden>停止检测</button></div>
-<p class="mute">按当前端口展示手动和自动地址。禁用或检测失败的地址不进入订阅；未检测地址仍可使用。</p><p class="mute" id="cdn-check-progress" role="status"></p><div id="cdn-pool-items"></div>
-<p class="mute">按所选入口的协议、端口、SNI、Host 和路径检测。结果只影响这个入口；入口配置改变后需重新检测。传输握手通过不代表代理认证或实际业务通过。</p></section>
-<section class="cdn-section"><div class="row"><h2>自动优选</h2><span class="tag">官方 cf-ip-probe · 每小时测速</span></div>
-<p class="mute">在自己的 Linux 或 OpenWrt 网络运行，结果只更新本人的自动地址池。每个配置绑定一个测速端口。</p><div class="cdn-controls"><label>自动结果过期后<select id="cdn-stale-policy" class="cdn-input"><option value="keep">继续使用最近结果</option><option value="fallback">回退公共池</option></select></label><label>多久未上报算过期（小时）<input id="cdn-stale-hours" class="cdn-input" type="number" min="1" max="720" step="1"><span class="mute">1–720 小时，默认 24 小时</span></label></div><p id="cdn-freshness" class="mute" role="status"></p><p class="mute">按测速端口分别计算，手动地址不受过期策略影响。可单独保存过期设置，手动地址不会随自动结果过期。</p><button type="button" class="btn sm" id="cdn-save-policy">保存过期设置</button>
-<p id="cdn-probe-status" class="mute"></p>
-<div class="row"><button type="button" class="btn sm" id="cdn-pair">创建专用上报令牌</button><button type="button" class="btn sm" id="cdn-revoke">撤销令牌</button></div>
-<div id="cdn-install" hidden><p class="mute">安装命令仅此次显示。重置后旧令牌立即失效；复制到自己的机器运行，OpenWrt 去掉 sudo。撤销后停止上报，已有结果保留。</p><textarea id="cdn-command" class="cdn-input" readonly rows="5" aria-label="官方测速程序安装命令"></textarea><button type="button" class="btn sm" id="cdn-copy-command">复制安装命令</button><span class="mute" id="cdn-copy-status" role="status"></span></div></section>
-<section class="cdn-section"><div class="row"><h2>个人订阅地址预览</h2><span class="sp"></span><button type="button" class="btn sm" id="cdn-preview-refresh">刷新预览</button></div><p class="mute">显示已保存配置生成的地址和过滤原因；未保存草稿不参与预览。</p><div id="cdn-preview" aria-live="polite"></div></section>
-{{else}}<p class="mute">暂无有权限使用的 CDN 入口，请联系管理员。</p>{{end}}</details>{{end}}
+{{template "portal-cdn" .}}
 {{if .Announce}}<section class="note" role="note">📢 {{.Announce}}</section>{{end}}
 <section class="card">
 <div class="row"><h1>{{.Title}}</h1><span class="sp"></span>{{if .Status}}<span class="st {{.Status}}">{{.StatusLabel}}</span>{{end}}</div>
@@ -131,7 +122,7 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 {{if .BotURL}}<a class="btn" href="{{.BotURL}}">Telegram 机器人绑定</a>{{end}}
 {{if .SupportURL}}<a class="btn" href="{{.SupportURL}}">联系客服</a>{{end}}
 </div></section>{{end}}
-</main>
+</main>{{end}}
 <script>
 function legacyCopy(t){var a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.style.position='fixed';a.style.top='-1000px';a.style.opacity='0';document.body.appendChild(a);a.select();a.setSelectionRange(0,t.length);var ok=false;try{ok=document.execCommand('copy')}catch(x){}document.body.removeChild(a);return ok}
 function copyText(t){if(navigator.clipboard&&window.isSecureContext){return navigator.clipboard.writeText(t).catch(function(){if(!legacyCopy(t))throw 0})}return legacyCopy(t)?Promise.resolve():Promise.reject()}
@@ -141,17 +132,23 @@ copyText(t).then(function(){b.textContent='已复制';setTimeout(function(){b.te
 {{portalCDNScript}}
 function portalMail(b){var m=prompt('邮箱地址（会收到一封验证码邮件）',{{.Email}});if(m===null||!m.trim())return;m=m.trim();b.disabled=true;
 pj('email/code',{email:m,purpose:'bind'}).then(function(){var c=prompt('验证码已发到 '+m+'，请输入 6 位验证码');if(c===null||!c.trim())throw new Error('');
-return pj('email/verify',{email:m,code:c.trim(),purpose:'bind'})}).then(function(){location.replace('/u')}).catch(function(e){b.disabled=false;if(e.message)alert(e.message)})}
-document.addEventListener('change',function(e){var s=e.target.closest('[data-portal-region]');if(!s)return;s.disabled=true;pj('region',{region:s.value}).then(function(){location.replace('/u')}).catch(function(e){s.disabled=false;alert(e.message)})});
+return pj('email/verify',{email:m,code:c.trim(),purpose:'bind'})}).then(function(){location.reload()}).catch(function(e){b.disabled=false;if(e.message)alert(e.message)})}
+document.addEventListener('change',function(e){var s=e.target.closest('[data-portal-region]');if(!s)return;s.disabled=true;pj('region',{region:s.value}).then(function(){location.reload()}).catch(function(e){s.disabled=false;alert(e.message)})});
 document.addEventListener('change',function(e){var s=e.target.closest('[data-portal-carrier]');if(!s)return;s.disabled=true;
-fetch('/u/carrier',{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:JSON.stringify({carrier:s.value}),credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'');location.replace('/u')})}).catch(function(e){s.disabled=false;alert(e.message||'操作失败，请刷新后重试')})});
+fetch('/u/carrier',{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:JSON.stringify({carrier:s.value}),credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'');location.reload()})}).catch(function(e){s.disabled=false;alert(e.message||'操作失败，请刷新后重试')})});
 document.addEventListener('click',function(e){var b=e.target.closest('[data-portal]');if(!b)return;var a=b.getAttribute('data-portal');
 if(a==='email'){portalMail(b);return}
 if(a==='reset'&&!confirm('重置后旧订阅链接和已导入的节点立即失效，所有客户端都需要重新导入。确定重置？'))return;
 var body=null;if(a==='rename'){var n=prompt('新用户名（3–32 位字母、数字或 _ . -，7 天内只能改一次；订阅链接不受影响）',{{.Username}});if(n===null||!n.trim())return;body=JSON.stringify({username:n.trim()})}
 b.disabled=true;
-fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:body,credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'');location.replace('/u')})}).catch(function(e){b.disabled=false;alert(e.message||'操作失败，请刷新后重试')})});{{end}}
+fetch('/u/'+a,{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:body,credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'');if(a==='logout')location.replace('/u/login');else location.reload()})}).catch(function(e){b.disabled=false;alert(e.message||'操作失败，请刷新后重试')})});{{end}}
+{{if .Portal}}{{portalShellScript}}{{end}}
 </script></body></html>`))
+
+func init() {
+	template.Must(pageTpl.Parse(portalCDNHTML))
+	template.Must(pageTpl.Parse(portalShellHTML))
+}
 
 type pageClient struct {
 	Name string
@@ -212,11 +209,20 @@ func RenderPage(info Info) ([]byte, error) {
 		links = append(links, pl)
 	}
 	chart, max := dailyChart(info.Daily)
+	// Unprovisioned email accounts have an immediate expiry and zero quota;
+	// zero must not read as an unlimited, permanently valid subscription.
+	awaitingPlan := info.Portal && info.Status == "expired" && used == 0 && info.Total == 0 && info.ExpireAfterDays <= 0 && info.PlanName == ""
+	label, expiryText := statusLabel[info.Status], ExpiryLeft(info)
+	if awaitingPlan {
+		label, expiryText = "待开通", "尚未开通"
+		exp = ""
+	}
 	data := map[string]any{
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
-		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": ExpiryLeft(info), "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
-		"Status": info.Status, "StatusLabel": statusLabel[info.Status], "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,
+		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": expiryText, "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
+		"Status": info.Status, "StatusLabel": label, "AwaitingPlan": awaitingPlan, "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,
 		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "Rename": info.Portal && info.Rename, "CarrierPick": info.Portal && info.CarrierPick, "Carrier": info.Carrier, "RegionPick": info.Portal && info.RegionPick, "Region": info.Region, "CDNManage": info.Portal && info.CDNManage, "CDNChoices": info.CDNChoices, "CDNRegions": info.CDNRegions, "CDNNetwork": info.CDNNetwork,
+		"PortalShopURL": pageURL(info.PortalShopURL), "PortalTicketsURL": pageURL(info.PortalTicketsURL), "PortalOrders": info.PortalOrders, "PortalOrdersMore": info.PortalOrdersMore,
 		"LoginVia": orDefault(info.LoginVia, "Telegram"), "MailBind": info.Portal && info.MailBind, "Email": info.Email, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
 		"Clients": clientLinks(info), "Links": links, "Chart": chart, "ChartMax": max, "ChartDays": len(info.Daily),
@@ -238,15 +244,19 @@ type extraLink struct {
 func extraLinks(in []ExtraLink) []extraLink {
 	var out []extraLink
 	for _, l := range in {
-		u := safeURL(l.URL)
-		if u == "" && strings.HasPrefix(l.URL, "/") && !strings.HasPrefix(l.URL, "//") && !strings.ContainsAny(l.URL, "\\ ") {
-			u = template.URL(l.URL) // a page of this site (the shop, tickets)
-		}
+		u := pageURL(l.URL)
 		if u != "" && l.Title != "" {
 			out = append(out, extraLink{l.Title, u, !strings.HasPrefix(string(u), "/")})
 		}
 	}
 	return out
+}
+
+func pageURL(raw string) template.URL {
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") && !strings.ContainsAny(raw, "\\ \r\n\t") {
+		return template.URL(raw)
+	}
+	return safeURL(raw)
 }
 
 func safeURL(s string) template.URL {
