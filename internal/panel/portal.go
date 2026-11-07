@@ -2,6 +2,7 @@ package panel
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"html/template"
@@ -35,6 +36,11 @@ const (
 )
 
 func (s *Server) portalEnabled() bool { return s.st.GetSetting("portal_enabled", "false") == "true" }
+
+// Keep the portal login method visible while a configured bot reconnects.
+func (s *Server) portalTelegramConfigured() bool {
+	return s.st.GetSetting("tg_enabled", "false") == "true" && s.st.Box.MustOpen(s.st.GetSetting("tg_token", "")) != ""
+}
 
 // portalURL is the user center address shown to admins and users.
 func (s *Server) portalURL() string { return s.subBase() + portalPath }
@@ -159,7 +165,7 @@ func (s *Server) portalPage(c *gin.Context) {
 		var buf strings.Builder
 		if err := portalLoginTpl.Execute(&buf, map[string]any{
 			"Title":        s.subTitle(s.st.GetSetting("site_title", "Polaris")),
-			"Bot":          s.tgWebLoginEnabled(),
+			"Bot":          s.portalTelegramConfigured(),
 			"Mail":         s.mailLoginOn(),
 			"Register":     s.mailRegisterOn(),
 			"RegisterMode": c.Request.URL.Path == portalPath+"/register" && s.mailRegisterOn(),
@@ -251,11 +257,38 @@ func (s *Server) portalLoginStart(c *gin.Context) {
 	if !portalWrite(c) {
 		return
 	}
+	if !s.portalTelegramConfigured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "管理员尚未启用 Telegram 机器人登录"})
+		return
+	}
 	if !s.tgWebLoginEnabled() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Telegram 机器人未运行，请联系管理员"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Telegram 机器人暂时未就绪，请稍后重试或联系管理员"})
 		return
 	}
 	s.startWebLogin(c, &s.portalWeb, portalLoginPrefix)
+}
+
+// portalLoginCancel invalidates only the request owned by this browser secret.
+func (s *Server) portalLoginCancel(c *gin.Context) {
+	if !portalWrite(c) {
+		return
+	}
+	var req struct {
+		ID     string `json:"id" binding:"required"`
+		Secret string `json:"secret" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	var pending tgWebLogin
+	s.portalWeb.eph.update(s.portalWeb.key(req.ID), &pending, func() ephAction {
+		if subtle.ConstantTimeCompare([]byte(pending.Secret), []byte(req.Secret)) == 1 {
+			return ephDelete
+		}
+		return ephKeep
+	})
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
 // portalLoginPoll: POST /u/poll {id, secret}; sets the session cookie once
@@ -264,6 +297,10 @@ func (s *Server) portalLoginPoll(c *gin.Context) {
 	// The header stops a cross-site form from planting someone else's
 	// session (login CSRF).
 	if !portalWrite(c) {
+		return
+	}
+	if !s.portalTelegramConfigured() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "管理员已关闭 Telegram 机器人登录"})
 		return
 	}
 	userID, chat, ok := s.pollWebLogin(c, &s.portalWeb)

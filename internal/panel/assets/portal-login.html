@@ -11,7 +11,7 @@ header{height:76px;display:flex;align-items:center;padding:0 5vw;border-bottom:1
 main{max-width:460px;margin:clamp(28px,8vh,84px) auto;padding:0 20px 36px}.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px;box-shadow:0 8px 30px #15283c06}
 h1{margin:0;font-size:26px;letter-spacing:-.04em}.intro{margin:6px 0 26px;color:var(--mute);font-size:14px}.tabs{display:flex;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:11px;margin-bottom:22px;gap:4px}.tabs a{flex:1;text-align:center;min-height:40px;display:grid;place-items:center;border-radius:8px;color:var(--mute)}.tabs a[aria-current="page"]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 5px #0000000b}
 .mail{display:grid;gap:18px}label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}input{width:100%;min-width:0;min-height:48px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:10px 13px}.code-row{display:flex;border:1px solid var(--line);border-radius:10px;min-width:0}.code-row input{border:0;flex:1;width:0}.code-row button{flex:none;border:0;background:none;padding:0 12px;color:var(--pri);cursor:pointer;font-size:13px;min-height:48px}
-.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:10px;border:1px solid var(--pri);background:var(--pri);color:var(--on-pri);text-decoration:none;font:inherit;font-weight:600;cursor:pointer;padding:10px 14px}.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}button:disabled{opacity:.5;cursor:default}.mute{color:var(--mute);font-size:13px;margin:0}.err{color:var(--bad);font-size:13px;margin:0;overflow-wrap:anywhere}.notice{padding:12px 14px;background:var(--soft);border-radius:10px;font-size:13px;margin-bottom:20px}.divider{display:flex;align-items:center;gap:14px;color:var(--mute);font-size:13px;margin:24px 0 16px}.divider:before,.divider:after{content:"";height:1px;background:var(--line);flex:1}.num{font:650 44px/1.3 ui-monospace,monospace;color:var(--pri);letter-spacing:.08em;margin:10px 0}.tg-note{margin-top:12px;text-align:center}.shop{display:block;text-align:center;margin-top:22px}.foot{text-align:center;color:var(--mute);font-size:12px;margin-top:24px}[hidden]{display:none!important}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:10px;border:1px solid var(--pri);background:var(--pri);color:var(--on-pri);text-decoration:none;font:inherit;font-weight:600;cursor:pointer;padding:10px 14px}.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}button:disabled{opacity:.5;cursor:default}.mute{color:var(--mute);font-size:13px;margin:0}.err{color:var(--bad);font-size:13px;margin:0;overflow-wrap:anywhere}.notice{padding:12px 14px;background:var(--soft);border-radius:10px;font-size:13px;margin-bottom:20px}.divider{display:flex;align-items:center;gap:14px;color:var(--mute);font-size:13px;margin:24px 0 16px}.divider:before,.divider:after{content:"";height:1px;background:var(--line);flex:1}#s2{text-align:center}.num{font:650 44px/1.3 ui-monospace,monospace;color:var(--pri);letter-spacing:.08em;margin:10px 0}.tg-note{margin-top:12px;text-align:center}.tg-cancel{display:block;margin:12px auto 0;border:0;background:none;color:var(--mute);min-height:44px;padding:8px 12px;cursor:pointer}.tg-cancel:hover{color:var(--ink)}.shop{display:block;text-align:center;margin-top:22px}.foot{text-align:center;color:var(--mute);font-size:12px;margin-top:24px}[hidden]{display:none!important}
 @media(max-width:480px){header{height:64px;padding:0 20px}.card{padding:26px 22px;border-radius:16px}main{margin:28px auto}.code-row button{padding:0 10px}}
 </style></head><body>
 <header><a class="brand" href="/u"><img src="/favicon.ico" alt=""><span>{{.Title}}</span></a></header>
@@ -27,13 +27,13 @@ h1{margin:0;font-size:26px;letter-spacing:-.04em}.intro{margin:6px 0 26px;color:
 <button class="btn" id="mgo" type="button">{{if .RegisterMode}}注册并进入用户中心{{else}}登录用户中心{{end}}</button>
 </div>{{end}}
 <div id="tg-area"{{if .RegisterMode}} hidden{{end}}>
-{{if and .Mail .Bot}}<div class="divider">或</div>{{end}}
+{{if .Mail}}<div class="divider">或使用其他方式</div>{{end}}
+<div id="s1"><button class="btn alt" id="go" type="button"{{if not .Bot}} disabled{{end}}><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m21.6 3.6-3.2 16c-.2 1.1-.9 1.4-1.8.9l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.3-8.4c.4-.4-.1-.6-.6-.2L5.9 13.2 1 11.7c-1.1-.3-1.1-1.1.2-1.6L20.3 2.7c.9-.3 1.6.2 1.3.9Z"/></svg>使用 Telegram 登录</button></div>
 {{if .Bot}}
-<div id="s1"><button class="btn alt" id="go" type="button">使用 Telegram 登录</button></div>
-<div id="s2" hidden><p class="mute">在 Telegram 中点击下面这个数字</p><div class="num" id="num"></div><a class="btn" id="open" href="#" target="_blank" rel="noopener">打开 Telegram</a><p class="mute tg-note" id="state">等待确认…</p></div>
+<div id="s2" hidden><p class="mute">在 Telegram 中点击下面这个数字</p><div class="num" id="num"></div><a class="btn" id="open" href="#" target="_blank" rel="noopener">打开 Telegram</a><p class="mute tg-note" id="state" role="status">等待确认…</p><p class="mute tg-note" id="expires" aria-live="off"></p><button class="tg-cancel" id="tg-cancel" type="button">取消本次登录</button></div>
 <p class="err" id="err" role="alert" hidden></p>
 <p class="mute tg-note">还没绑定 Telegram？打开订阅链接，点「Telegram 机器人绑定」。</p>
-{{else if not .Mail}}<p class="err">管理员尚未启用 Telegram 机器人或邮箱登录，暂时无法登录。</p>{{end}}
+{{else}}<p class="mute tg-note">管理员尚未启用 Telegram 机器人登录，请联系管理员。{{if not .Mail}}邮箱登录也未配置，暂时无法登录。{{end}}</p>{{end}}
 </div>
 {{if .Shop}}<a class="shop" href="/u/shop">购买套餐</a>{{end}}
 </section><p class="foot">{{.Title}} 用户中心</p></main>
@@ -53,21 +53,55 @@ go.addEventListener('click',login);code.addEventListener('keydown',function(e){i
 </script>{{end}}
 {{if .Bot}}<script>
 (function(){
-var go=document.getElementById('go'),err=document.getElementById('err'),req=null,timer=0,attempt=0;
+var go=document.getElementById('go'),err=document.getElementById('err'),req=null,timer=0,tick=0,attempt=0,deadline=0;
+var state=document.getElementById('state'),expires=document.getElementById('expires');
 function show(m){err.textContent=m;err.hidden=!m}
-function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:b?JSON.stringify(b):null,credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
-function reset(m){attempt++;clearTimeout(timer);req=null;document.getElementById('s1').hidden=false;document.getElementById('s2').hidden=true;go.disabled=false;show(m)}
+function post(p,b){
+  var abort=new AbortController(),timeout=setTimeout(function(){abort.abort()},12000);
+  return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:b?JSON.stringify(b):null,credentials:'same-origin',signal:abort.signal}).then(function(r){
+    return r.json().then(function(j){if(!r.ok){var e=new Error(j.error||'操作失败，请重试');e.status=r.status;throw e}return j});
+  }).catch(function(e){if(e.status)throw e;throw new Error(e.name==='AbortError'?'连接超时，请稍后重试':'暂时无法连接，请稍后重试')}).finally(function(){clearTimeout(timeout)});
+}
+function pendingStep(active){var form=document.getElementById('m1'),divider=document.querySelector('#tg-area .divider');if(form)form.hidden=active;if(divider)divider.hidden=active}
+function cancel(active){if(active)post('login/cancel',{id:active.id,secret:active.secret}).catch(function(){})}
+function reset(m){
+  attempt++;clearTimeout(timer);clearInterval(tick);var active=req;req=null;cancel(active);
+  document.getElementById('s1').hidden=false;document.getElementById('s2').hidden=true;pendingStep(false);
+  document.getElementById('open').href='#';document.getElementById('num').textContent='';go.disabled=false;show(m);
+}
 window.addEventListener('portal-auth-mode',function(){reset('')});
-function poll(){if(!req)return;var active=req;post('poll',{id:req.id,secret:req.secret}).then(function(j){if(req!==active)return;
-if(j.status==='ok'){location.replace({{.Next}});return}
-if(j.status==='denied'){reset('登录已被拒绝，请重试');return}
-if(j.status==='expired'){reset('登录请求已过期，请重试');return}
-if(j.opened)document.getElementById('state').textContent='已在 Telegram 打开，请点击相同的数字';
-timer=setTimeout(poll,1500)}).catch(function(){if(req===active)timer=setTimeout(poll,3000)})}
-go.addEventListener('click',function(){go.disabled=true;show('');var id=++attempt;post('login').then(function(j){if(id!==attempt)return;req=j;
-document.getElementById('num').textContent=j.code;document.getElementById('open').href=j.url;
-document.getElementById('s1').hidden=true;document.getElementById('s2').hidden=false;timer=setTimeout(poll,1500);
-try{window.open(j.url,'_blank','noopener')}catch(e){}}).catch(function(e){if(id===attempt)reset(e.message||'登录失败')})});
+document.getElementById('tg-cancel').addEventListener('click',function(){reset('');go.focus()});
+function countdown(){
+  var seconds=Math.max(0,Math.ceil((deadline-Date.now())/1000));
+  if(!seconds){reset('登录请求已过期，请重试');return}
+  expires.textContent='请在 '+Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0')+' 内完成确认';
+}
+function poll(){
+  if(!req)return;var active=req;
+  post('poll',{id:active.id,secret:active.secret}).then(function(j){
+    if(req!==active)return;
+    if(j.status==='ok'){clearInterval(tick);req=null;location.replace({{.Next}});return}
+    if(j.status==='denied'){reset('登录已被拒绝或数字不匹配，请重试');return}
+    if(j.status==='expired'){reset('登录请求已过期，请重试');return}
+    state.textContent=j.opened?'已在 Telegram 打开，请点击与网页相同的数字':'等待机器人确认，仅已绑定的账号可以登录';
+    timer=setTimeout(poll,1500);
+  }).catch(function(e){
+    if(req!==active)return;
+    if(e.status===403||e.status===503){reset(e.message);return}
+    state.textContent='连接中断，正在重试，请在有效期内完成确认';timer=setTimeout(poll,3000);
+  });
+}
+go.addEventListener('click',function(){
+  go.disabled=true;show('');var id=++attempt;
+  post('login').then(function(j){
+    if(id!==attempt){cancel(j);return}
+    req=j;deadline=Date.now()+Math.min(180,Math.max(1,Number(j.expiresIn)||180))*1000;
+    document.getElementById('num').textContent=j.code;document.getElementById('open').href=j.url;
+    state.textContent='等待机器人确认，仅已绑定的账号可以登录';
+    document.getElementById('s1').hidden=true;document.getElementById('s2').hidden=false;pendingStep(true);
+    countdown();tick=setInterval(countdown,1000);timer=setTimeout(poll,1500);document.getElementById('open').focus();
+  }).catch(function(e){if(id===attempt)reset(e.message||'连接失败，请稍后重试')});
+});
 })();
 </script>{{end}}
 </body></html>
