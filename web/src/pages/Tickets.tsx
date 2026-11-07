@@ -36,7 +36,7 @@ function TicketSettings({ onSaved }: { onSaved: () => void }) {
 }
 
 function Thread({ id, onClose, onChanged, staff }: { id: string; onClose: () => void; onChanged: () => void; staff?: boolean }) {
-  const d = useLoad(() => get<{ ticket: Ticket; messages: Message[] }>('/tickets/' + id), [id])
+  const d = useLoad((signal) => get<{ ticket: Ticket; messages: Message[] }>('/tickets/' + id, signal), [id])
   const [body, setBody] = useState('')
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -76,7 +76,7 @@ export default function Tickets({ staff = false }: { staff?: boolean }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState<string | null>(null)
   const [settings, setSettings] = useState(false)
-  const list = useLoad(() => get<{ items: Ticket[]; counts: Record<string, number>; enabled: boolean }>(`/tickets?status=${status}&q=${encodeURIComponent(q)}`), [status, q])
+  const list = useLoad((signal) => get<{ items: Ticket[]; counts: Record<string, number>; enabled: boolean }>(`/tickets?status=${status}&q=${encodeURIComponent(q)}`, signal), [status, q])
   const items = list.data?.items ?? []
   const counts = list.data?.counts ?? {}
   return (

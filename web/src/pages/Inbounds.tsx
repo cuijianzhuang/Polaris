@@ -26,9 +26,9 @@ const emptyDraft = (): InboundDraft => ({
 
 function Endpoints({ inbound, onChanged, onPendingChange, onManageRelay, relayVersion }: { inbound: Inbound; onChanged: () => void; onPendingChange: (pending: boolean) => void; onManageRelay: () => void; relayVersion: number }) {
   const { nodes } = useNodes()
-  const eps = useLoad(() => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`), [inbound.id, relayVersion])
-  const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
-  const chains = useLoad(() => get<Chain[]>('/chains'), [relayVersion])
+  const eps = useLoad((signal) => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`, signal), [inbound.id, relayVersion])
+  const cdn = useLoad((signal) => get<CDNProfile[]>('/cdn-profiles', signal))
+  const chains = useLoad((signal) => get<Chain[]>('/chains', signal), [relayVersion])
   const [kind, setKind] = useState<'direct' | 'cdn' | 'relay'>(inbound.cdnCapable ? 'cdn' : 'direct')
   const [form, setForm] = useState({ cdnProfileId: '', relayChainId: '', address: '', port: '', sni: '', host: '', path: '', remark: '' })
   const [dirty, setDirty] = useState(false)
@@ -153,7 +153,7 @@ function CheckResult({ r }: { r: CDNCheck }) {
 
 // NewCDNEntry publishes a new inbound through a CDN profile as it is created.
 function NewCDNEntry({ value, onChange, grpc, tls, port }: { value: { profileId: string; only: boolean }; onChange: (v: { profileId: string; only: boolean }, tunnel?: boolean) => void; grpc: boolean; tls: boolean; port: number }) {
-  const cdn = useLoad(() => get<CDNProfile[]>('/cdn-profiles'))
+  const cdn = useLoad((signal) => get<CDNProfile[]>('/cdn-profiles', signal))
   const p = cdn.data?.find((c) => c.id === value.profileId)
   const clientPort = p ? cdnClientPort(p, port) : 0
   return (
@@ -313,10 +313,10 @@ function HealthDot({ h }: { h?: InboundHealth }) {
 function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; snellNode?: string; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
   const [nodeId, setNodeId] = useState(editing?.nodeId ?? snellNode ?? nodes[0]?.id ?? '')
   const node = nodes.find((n) => n.id === nodeId)
-  const caps = useLoad(() => (nodeId ? get<CapSet[]>('/capabilities?node=' + nodeId) : Promise.resolve([])), [nodeId])
-  const certs = useLoad(() => get<Certificate[]>('/certificates'))
-  const groups = useLoad(() => get<Group[]>('/groups'))
-  const nodeInbounds = useLoad(() => (nodeId ? get<Inbound[]>('/inbounds?node=' + nodeId) : Promise.resolve([])), [nodeId])
+  const caps = useLoad((signal) => (nodeId ? get<CapSet[]>('/capabilities?node=' + nodeId, signal) : Promise.resolve([])), [nodeId])
+  const certs = useLoad((signal) => get<Certificate[]>('/certificates', signal))
+  const groups = useLoad((signal) => get<Group[]>('/groups', signal))
+  const nodeInbounds = useLoad((signal) => (nodeId ? get<Inbound[]>('/inbounds?node=' + nodeId, signal) : Promise.resolve([])), [nodeId])
   const [draft, setDraft] = useState<InboundDraft>(() => editing ? {
     core: editing.core, protocol: editing.protocol, transport: editing.transport, security: editing.security, sniffing: editing.sniffing,
   } : snellNode ? { ...emptyDraft(),core: 'singbox', protocol: {type:'snell',snellVersion:5,snellAuth:'psk'},transport:{type:'tcp'},security:{type:'none'} } : emptyDraft())
@@ -338,14 +338,14 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const [relaysOpen, setRelaysOpen] = useState(false)
   const [endpointPending, setEndpointPending] = useState(false)
   const [relayVersion, setRelayVersion] = useState(0)
-  const protocolChains = useLoad(() => editing ? get<Chain[]>('/chains') : Promise.resolve([] as Chain[]), [editing?.id])
+  const protocolChains = useLoad((signal) => editing ? get<Chain[]>('/chains', signal) : Promise.resolve([] as Chain[]), [editing?.id])
   const boundChains = (protocolChains.data ?? []).filter((c) => c.mode === 'proxy' && c.hops.slice(0, -1).some((h) => h.inboundId === editing?.id))
   const [outboundTag, setOutboundTag] = useState(editing?.outboundTag ?? '')
   const [speedLimit, setSpeedLimit] = useState(editing?.speedLimitMbps ? String(editing.speedLimitMbps) : '')
   const [newCDN, setNewCDN] = useState({ profileId: '', only: false })
-  const cdnProfiles = useLoad(() => (editing ? Promise.resolve([] as CDNProfile[]) : get<CDNProfile[]>('/cdn-profiles')), [editing?.id])
+  const cdnProfiles = useLoad((signal) => (editing ? Promise.resolve([] as CDNProfile[]) : get<CDNProfile[]>('/cdn-profiles', signal)), [editing?.id])
   const draftCDNCapable = draft.security.type !== 'reality' && ['ws', 'httpupgrade', 'grpc', 'xhttp'].includes(draft.transport.type)
-  const outbounds = useLoad(() => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`) : Promise.resolve([])), [nodeId])
+  const outbounds = useLoad((signal) => (nodeId ? get<Outbound[]>(`/nodes/${nodeId}/outbounds`, signal) : Promise.resolve([])), [nodeId])
   const [preview, setPreview] = useState('')
   const { busy, run } = useAction()
   const toast = useToast()
@@ -516,7 +516,7 @@ export default function Inbounds() {
   const { nodes } = useNodes()
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<{ core?: CoreType; node?: string }>(params.get('node') ? { node: params.get('node')! } : {})
-  const list = useLoad(() => get<Inbound[]>('/inbounds'))
+  const list = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
   const [hidden, setHidden] = useState<string[]>([])
   const undo = useUndo()
   const removeInbound = (i: Inbound) => {
@@ -524,7 +524,7 @@ export default function Inbounds() {
     setDrawer(null)
     undo(t('已删除入站 {tag}', { tag: i.tag }), async () => { await del('/inbounds/' + i.id); list.reload() }, () => setHidden((h) => h.filter((x) => x !== i.id)))
   }
-  const tagStats = useLoad(() => get<TagTrafficRow[]>('/stats/tags?kind=inbound').catch(() => [] as TagTrafficRow[]))
+  const tagStats = useLoad((signal) => get<TagTrafficRow[]>('/stats/tags?kind=inbound', signal).catch(() => [] as TagTrafficRow[]))
   const trafficOf = useMemo(() => {
     const m = new Map<string, { up: number; down: number }>()
     for (const r of tagStats.data ?? []) m.set(r.nodeId + '/' + r.tag, { up: r.up, down: r.down })

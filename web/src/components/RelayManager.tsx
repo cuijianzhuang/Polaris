@@ -81,7 +81,7 @@ function RelayMetadata({ relay, base, onClose, onDone }: { relay: Relay; base: s
 
 export default function RelayManager({ inbound, nodes, onClose, onChanged }: { inbound: Inbound; nodes: Node[]; onClose: () => void; onChanged: () => void }) {
   const base = `/inbounds/${inbound.id}`
-  const list = useLoad(() => get<Relay[]>(base + '/relays'), [inbound.id])
+  const list = useLoad((signal) => get<Relay[]>(base + '/relays', signal), [inbound.id])
   usePoll(list.reload, 10000)
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Relay>()

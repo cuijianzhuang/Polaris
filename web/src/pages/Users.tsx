@@ -65,8 +65,8 @@ export default function Users() {
   const [sort, setSort] = useState<{ k: string; desc: boolean }>({ k: '', desc: true })
   const [page, setPage] = useState(0)
   useEffect(() => setPage(0), [query, filter, group, sort])
-  const list = useLoad(() => get<{ items: User[]; total: number; summary?: Record<string, number> }>(
-    `/users?limit=${PAGE}&offset=${page * PAGE}&q=${encodeURIComponent(query)}&filter=${filter}&group=${group}${sort.k ? `&sort=${sort.k}&order=${sort.desc ? 'desc' : 'asc'}` : ''}`),
+  const list = useLoad((signal) => get<{ items: User[]; total: number; summary?: Record<string, number> }>(
+    `/users?limit=${PAGE}&offset=${page * PAGE}&q=${encodeURIComponent(query)}&filter=${filter}&group=${group}${sort.k ? `&sort=${sort.k}&order=${sort.desc ? 'desc' : 'asc'}` : ''}`, signal),
   [query, filter, group, sort, page])
   const [refreshMs, setRefreshMs] = useRefresh(15000)
   usePoll(list.reload, refreshMs)
@@ -79,8 +79,8 @@ export default function Users() {
     </th>
   )
   const confirm = useConfirm()
-  const groups = useLoad(() => get<Group[]>('/groups'))
-  const settings = useLoad(() => get<{ public_url?: string; sub_base_url?: string }>('/settings'))
+  const groups = useLoad((signal) => get<Group[]>('/groups', signal))
+  const settings = useLoad((signal) => get<{ public_url?: string; sub_base_url?: string }>('/settings', signal))
   const base = settings.data?.sub_base_url || settings.data?.public_url
   if (base) subBase = base.replace(/\/$/, '')
   const [drawer, setDrawer] = useState<User | 'new' | null>(params.get('new') ? 'new' : null)
@@ -154,6 +154,7 @@ export default function Users() {
           <button className="btn pri" type="button" onClick={() => setDrawer('new')}>+ {t('新建用户')}</button>
         </div>
       </div>
+      {list.error && <div className="note bad" role="alert">{list.error}<button className="btn sm" type="button" onClick={list.reload}>{t('重试')}</button></div>}
       <div className="row list-toolbar">
         <label htmlFor="q" className="sr">{t('搜索用户')}</label>
         <input className="input search" id="q" placeholder={t('搜索用户名 / UUID / 备注')} value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 'auto' }} />

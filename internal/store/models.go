@@ -455,6 +455,31 @@ type Admin struct {
 	CreatedAt     time.Time      `json:"createdAt"`
 }
 
+// PortalSessionEpoch serializes user-center session revocation and renewal.
+// It is runtime authentication state and is not restored from backups.
+type PortalSessionEpoch struct {
+	UserID  string `gorm:"primaryKey;size:32"`
+	Version uint64 `gorm:"not null;default:1"`
+}
+
+func (PortalSessionEpoch) TableName() string { return "portal_session_epochs" }
+
+// PortalSession is one revocable user-center browser, never an admin session.
+type PortalSession struct {
+	Epoch      uint64    `gorm:"not null;default:1" json:"-"`
+	ID         string    `gorm:"primaryKey;size:32" json:"id"`
+	UserID     string    `gorm:"size:32;index" json:"-"`
+	Via        string    `gorm:"size:16" json:"via"`
+	SubFP      string    `gorm:"size:16" json:"-"`
+	IdentityFP string    `gorm:"size:80" json:"-"`
+	IP         string    `gorm:"size:64" json:"ip"`
+	UserAgent  string    `gorm:"size:255" json:"-"`
+	CreatedAt  time.Time `json:"createdAt"`
+	LastSeen   time.Time `json:"lastSeen"`
+	ExpiresAt  time.Time `gorm:"index" json:"expiresAt"`
+	Revoked    bool      `json:"-"`
+}
+
 // AdminSession is one signed-in browser (the JWT carries its id): listed in
 // the settings, revocable one by one. Sudo marks a recent re-verification
 // that unlocks sensitive actions for a few minutes.
@@ -867,6 +892,7 @@ type NotificationState struct {
 
 // SubTemplate is an editable rule template per subscription format.
 type SubTemplate struct {
+	Revision  uint64    `gorm:"not null;default:1" json:"revision"`
 	ID        string    `gorm:"primaryKey;size:32" json:"id"`
 	Format    string    `gorm:"size:16;index" json:"format"` // clash / singbox / surge
 	Name      string    `gorm:"size:64" json:"name"`
@@ -981,7 +1007,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},
 		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{}, &CDNIPReport{},

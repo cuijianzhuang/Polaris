@@ -60,7 +60,7 @@ const isActive = (r: Rollout) => ['running', 'paused', 'rolling_back'].includes(
 /** Show ongoing work first. Finished results are compact, expandable and
  * dismissible in this browser without changing the stored upgrade record. */
 export default function RolloutPanel({ nodes, refresh }: { nodes: Node[]; refresh?: number }) {
-  const list = useLoad(() => get<{ items: Rollout[] }>('/rollouts'), [refresh])
+  const list = useLoad((signal) => get<{ items: Rollout[] }>('/rollouts', signal), [refresh])
   const items = list.data?.items ?? []
   const r = items.find(isActive) ?? items[0]
   const active = !!r && isActive(r)

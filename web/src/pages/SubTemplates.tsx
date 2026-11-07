@@ -1,5 +1,6 @@
 import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
+import { SettingsSaveBar, useSettingsDraft, useSettingsLeave, useSettingsSave } from '../components/SettingsDrafts'
 import { del, get, post, put } from '../api'
 import { Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
 import { datetime } from '../format'
@@ -18,88 +19,113 @@ const formats: Record<string, { label: string; hint: string }> = {
 }
 
 export default function SubTemplates() {
-  const list = useLoad(() => get<SubTemplate[]>('/sub-templates'))
-  const settings = useLoad(() => get<Record<string, any>>('/settings'))
+  const list = useLoad((signal) => get<SubTemplate[]>('/sub-templates', signal))
   const [fmt, setFmt] = useState('clash')
   const [sel, setSel] = useState('')
-  const [content, setContent] = useState('')
-  const [nameTpl, setNameTpl] = useState('')
-  const [create, setCreate] = useState<{ name: string; copy: boolean } | null>(null)
-  const [rename, setRename] = useState<string | null>(null)
-  const { busy, run } = useAction()
-  const confirm = useConfirm()
-  const ofFmt = (list.data ?? []).filter((t) => t.format === fmt)
-  const cur = ofFmt.find((t) => t.id === sel) ?? ofFmt.find((t) => t.isDefault) ?? ofFmt[0]
-  useEffect(() => { if (cur) { setSel(cur.id); setContent(cur.content) } }, [cur?.id, cur?.content])
-  useEffect(() => { if (settings.data) setNameTpl(settings.data.sub_name_template ?? '') }, [settings.data])
-  const fmts = Object.keys(formats).filter((f) => (list.data ?? []).some((t) => t.format === f))
-
-  return (
-    <>
-      <div className="top">
-        <div><h1>{t('订阅设置')}</h1><div className="sub">{t('按客户端 UA 或 ?format= 输出：通用链接 · Clash · sing-box · Surge · Loon · Quantumult X；每种格式可维护多套规则模板，订阅组可分别选用')}</div></div>
-      </div>
-      <SubSettings />
-      <section className="card">
-        <h2>{t('节点名称模板')}</h2>
-        <div className="row name-template-row" style={{ marginTop: 12, alignItems: 'flex-end' }}>
-          <Field label={t('模板')} hint={t('变量：{flag} 旗帜 · {region} 地区 · {node} 节点名 · {protocol} 协议 · {tag} 入站标签 · {kind} 入口类型 · {rate} 流量倍率')}>
-            <input className="input mono" value={nameTpl} onChange={(e) => setNameTpl(e.target.value)} />
-          </Field>
-          <button className="btn" type="button" disabled={busy} onClick={() => run(() => put('/settings', { sub_name_template: nameTpl }), t('已保存'))}>{t('保存')}</button>
-        </div>
-      </section>
-      <div className="tabs" role="tablist">
-        {fmts.map((f) => (
-          <button key={f} type="button" role="tab" aria-selected={f === fmt} className={'tab' + (f === fmt ? ' on' : '')} onClick={() => { setFmt(f); setSel('') }}>{formats[f].label}</button>
-        ))}
-      </div>
+  const [saved, setSaved] = useState<Record<string, SubTemplate>>({})
+  const savedRef = useRef(saved)
+  const [draft, setDraft] = useState<{ id: string; value: string; base: string; revision?: number } | null>(null)
+  const [create, setCreate] = useState<{ name: string; copy: boolean; source: SubTemplate } | null>(null)
+  const [rename, setRename] = useState<{ name: string; source: SubTemplate } | null>(null)
+  const saver = useSettingsSave(), actions = useSettingsSave()
+  const busy = saver.busy || actions.busy
+  const confirm = useConfirm(), leave = useSettingsLeave()
+  const all = new Map((list.data ?? []).map((row) => [row.id, row]))
+  for (const row of Object.values(saved)) if (!all.has(row.id) || (all.get(row.id)?.revision ?? 0) <= (row.revision ?? 0)) all.set(row.id, row)
+  const ofFmt = [...all.values()].filter((row) => row.format === fmt)
+  const cur = ofFmt.find((row) => row.id === sel) ?? ofFmt.find((row) => row.isDefault) ?? ofFmt[0]
+  const editing = draft?.id === cur?.id ? draft : null
+  const content = editing?.value ?? cur?.content ?? ''
+  const dirty = !!editing && editing.value !== editing.base
+  const conflict = dirty && editing?.revision !== undefined && cur?.revision !== undefined && editing.revision !== cur.revision
+  const accept = (row: SubTemplate) => { savedRef.current = { ...savedRef.current, [row.id]: row }; setSaved(savedRef.current) }
+  const snapshot = (row: SubTemplate) => { const cached = savedRef.current[row.id]; return cached && (cached.revision ?? 0) >= (row.revision ?? 0) ? cached : row }
+  const save = async () => {
+    if (!dirty) return true
+    if (!cur || busy) return false
+    const id = cur.id, submitted = content, revision = editing?.revision
+    return saver.run(async () => {
+      const row = await put<SubTemplate>('/sub-templates/' + id, { content: submitted, revision })
+      accept(row)
+      setDraft((current) => current?.id !== id ? current : current.value === submitted ? null : { ...current, base: row.content, revision: row.revision })
+      list.reload()
+    }, t('模板已保存（保存前已用示例节点校验）'))
+  }
+  useSettingsDraft({ label: t('订阅规则模板'), dirty, busy, save, discard: () => setDraft(null) })
+  const select = async (format: string, id = '') => {
+    if (format === fmt && (!id || id === cur?.id)) return
+    if (!busy && await leave()) { setDraft(null); setFmt(format); setSel(id) }
+  }
+  const mutate = async (patch: Record<string, unknown>, message: string) => {
+    if (!cur || busy || !await leave()) return
+    const source = snapshot(cur)
+    await actions.run(async () => { accept(await put<SubTemplate>('/sub-templates/' + source.id, { ...patch, revision: source.revision })); list.reload() }, message)
+  }
+  const fmts = Object.keys(formats).filter((format) => [...all.values()].some((row) => row.format === format))
+  return <>
+    <div className="top"><div><h1>{t('订阅设置')}</h1><div className="sub">{t('按客户端 UA 或 ?format= 输出：通用链接 · Clash · sing-box · Surge · Loon · Quantumult X；每种格式可维护多套规则模板，订阅组可分别选用')}</div></div></div>
+    <SubSettings />
+    <NodeNameTemplate />
+    {list.error && <div className="note bad" role="alert">{list.error}<button className="btn sm" type="button" onClick={list.reload}>{t('重试')}</button></div>}
+    <div className="tabs" role="tablist">{fmts.map((format) => <button key={format} type="button" role="tab" aria-selected={format === fmt} className={'tab' + (format === fmt ? ' on' : '')} disabled={busy} onClick={() => void select(format)}>{formats[format].label}</button>)}</div>
+    <div className="row">{ofFmt.map((row) => <button key={row.id} type="button" className={'chip' + (row.id === cur?.id ? ' on' : '')} disabled={busy} onClick={() => void select(fmt, row.id)}>{tr(row.name)}{row.isDefault && row.name !== defaultName ? ' · ' + t('默认') : ''}</button>)}
+      <button className="btn sm" type="button" disabled={!cur || busy} onClick={async () => { if (cur && await leave()) setCreate({ name: '', copy: true, source: snapshot(cur) }) }}>+ {t('新模板')}</button>
+    </div>
+    {cur && <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="hint">{formats[cur.format]?.hint} · {t('Go text/template 语法')} · {t('最后修改 {time}', { time: datetime(cur.updatedAt) })}</div>
+      {conflict && <div className="note warn" role="status">{t('服务器模板已更新，当前草稿已保留。保存前请重新加载并核对。')}</div>}
+      <textarea className="input" style={{ minHeight: 460 }} spellCheck={false} value={content} disabled={actions.busy} onChange={(event) => {
+        const value = event.target.value
+        setDraft((current) => current?.id === cur.id ? { ...current, value } : { id: cur.id, value, base: cur.content, revision: cur.revision })
+      }} aria-label={t('模板内容')} />
+      <SettingsSaveBar dirty={dirty} busy={saver.busy} error={saver.error || actions.error} disabled={actions.busy} onSave={save} />
       <div className="row">
-        {ofFmt.map((tp) => (
-          <button key={tp.id} type="button" className={'chip' + (tp.id === cur?.id ? ' on' : '')} onClick={() => { setSel(tp.id); setContent(tp.content) }}>{tr(tp.name)}{tp.isDefault && tp.name !== defaultName ? ' · ' + t('默认') : ''}</button>
-        ))}
-        <button className="btn sm" type="button" onClick={() => setCreate({ name: '', copy: true })}>+ {t('新模板')}</button>
+        <button className="btn" type="button" disabled={busy} onClick={async () => {
+          if (dirty && !await confirm(t('重新加载会丢弃本模板尚未保存的内容，是否继续？'))) return
+          const next = { ...savedRef.current }; delete next[cur.id]; savedRef.current = next; setSaved(next); setDraft(null); saver.clearError(); actions.clearError(); list.reload()
+        }}>{t('重新加载服务器内容')}</button>
+        {!cur.isDefault && <button className="btn" type="button" disabled={busy} onClick={() => void mutate({ isDefault: true }, t('已设为默认'))}>{t('设为默认')}</button>}
+        <button className="btn" type="button" disabled={busy} onClick={async () => { if (await leave()) { const source = snapshot(cur); setRename({ name: source.name, source }) } }}>{t('重命名')}</button>
+        <button className="btn" type="button" disabled={busy} onClick={async () => { if (await confirm(t('恢复为内置默认内容？'))) await mutate({ reset: true }, t('已恢复默认')) }}>{t('恢复内置内容')}</button>
+        <span className="spacer" />
+        {!cur.isDefault && <button className="btn danger" type="button" disabled={busy} onClick={async () => {
+          if (!await leave() || !await confirm(t('删除模板「{name}」？使用它的订阅组会回落到默认模板。', { name: cur.name }), { danger: true })) return
+          const source = snapshot(cur)
+          await actions.run(async () => { await del('/sub-templates/' + source.id, { revision: source.revision }); const next = { ...savedRef.current }; delete next[source.id]; savedRef.current = next; setSaved(next); setSel(''); setDraft(null); list.reload() })
+        }}>{t('删除')}</button>}
       </div>
-      {cur && (
-        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="hint">{formats[cur.format]?.hint} · {t('Go text/template 语法')} · {t('最后修改 {time}', { time: datetime(cur.updatedAt) })}</div>
-          <textarea className="input" style={{ minHeight: 460 }} spellCheck={false} value={content} onChange={(e) => setContent(e.target.value)} aria-label={t('模板内容')} />
-          <div className="row">
-            <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => { await put('/sub-templates/' + cur.id, { content }); list.reload() }, t('模板已保存（保存前已用示例节点校验）'))}>{t('保存')}</button>
-            {!cur.isDefault && <button className="btn" type="button" disabled={busy} onClick={() => run(async () => { await put('/sub-templates/' + cur.id, { content, isDefault: true }); list.reload() }, t('已设为默认'))}>{t('设为默认')}</button>}
-            <button className="btn" type="button" onClick={() => setRename(cur.name)}>{t('重命名')}</button>
-            <button className="btn" type="button" disabled={busy} onClick={async () => {
-              if (await confirm(t('恢复为内置默认内容？'))) run(async () => { await put('/sub-templates/' + cur.id, { reset: true }); list.reload() }, t('已恢复默认'))
-            }}>{t('恢复内置内容')}</button>
-            <span className="spacer" />
-            {!cur.isDefault && <button className="btn danger" type="button" onClick={async () => {
-              if (await confirm(t('删除模板「{name}」？使用它的订阅组会回落到默认模板。', { name: cur.name }), { danger: true })) run(async () => { await del('/sub-templates/' + cur.id); setSel(''); list.reload() })
-            }}>{t('删除')}</button>}
-          </div>
-        </section>
-      )}
-      {create && (
-        <Modal title={t('新建 {format} 模板', { format: formats[fmt]?.label })} onClose={() => setCreate(null)} footer={<>
-          <button className="btn" type="button" onClick={() => setCreate(null)}>{t('取消')}</button>
-          <button className="btn pri" type="button" disabled={busy || !create.name} onClick={() => run(async () => {
-            const t = await post<SubTemplate>('/sub-templates', { format: fmt, name: create.name, content: create.copy ? content : '' })
-            setCreate(null); list.reload(); setSel(t.id)
-          }, t('已创建'))}>{t('创建')}</button>
-        </>}>
-          <Field label={t('名称')}><input className="input" value={create.name} onChange={(e) => setCreate({ ...create, name: e.target.value })} placeholder={t('精简规则 / 游戏分流')} /></Field>
-          <label className="chk"><input type="checkbox" checked={create.copy} onChange={(e) => setCreate({ ...create, copy: e.target.checked })} />{t('复制当前模板内容（不勾选则使用内置默认内容）')}</label>
-        </Modal>
-      )}
-      {rename !== null && cur && (
-        <Modal title={t('重命名模板')} onClose={() => setRename(null)} footer={<>
-          <button className="btn" type="button" onClick={() => setRename(null)}>{t('取消')}</button>
-          <button className="btn pri" type="button" disabled={busy || !rename} onClick={() => run(async () => { await put('/sub-templates/' + cur.id, { name: rename }); setRename(null); list.reload() })}>{t('保存')}</button>
-        </>}>
-          <Field label={t('名称')}><input className="input" value={rename} onChange={(e) => setRename(e.target.value)} /></Field>
-        </Modal>
-      )}
-    </>
-  )
+    </section>}
+    {create && <Modal title={t('新建 {format} 模板', { format: formats[fmt]?.label })} dismissDisabled={actions.busy} onClose={() => setCreate(null)} footer={<>
+      <button className="btn" type="button" disabled={actions.busy} onClick={() => setCreate(null)}>{t('取消')}</button>
+      <button className="btn pri" type="button" disabled={actions.busy || !create.name} onClick={() => actions.run(async () => {
+        const row = await post<SubTemplate>('/sub-templates', { format: fmt, name: create.name, content: create.copy ? create.source.content : '' }); accept(row); setCreate(null); setSel(row.id); setDraft(null); list.reload()
+      }, t('已创建'))}>{t('创建')}</button>
+    </>}><Field label={t('名称')}><input className="input" value={create.name} disabled={actions.busy} onChange={(event) => setCreate({ ...create, name: event.target.value })} placeholder={t('精简规则 / 游戏分流')} /></Field><label className="chk"><input type="checkbox" checked={create.copy} disabled={actions.busy} onChange={(event) => setCreate({ ...create, copy: event.target.checked })} />{t('复制当前模板内容（不勾选则使用内置默认内容）')}</label></Modal>}
+    {rename && <Modal title={t('重命名模板')} dismissDisabled={actions.busy} onClose={() => setRename(null)} footer={<>
+      <button className="btn" type="button" disabled={actions.busy} onClick={() => setRename(null)}>{t('取消')}</button>
+      <button className="btn pri" type="button" disabled={actions.busy || !rename.name} onClick={() => actions.run(async () => { accept(await put<SubTemplate>('/sub-templates/' + rename.source.id, { name: rename.name, revision: rename.source.revision })); setRename(null); list.reload() })}>{t('保存')}</button>
+    </>}><Field label={t('名称')}><input className="input" value={rename.name} disabled={actions.busy} onChange={(event) => setRename({ ...rename, name: event.target.value })} /></Field></Modal>}
+  </>
+}
+
+function NodeNameTemplate() {
+  const settings = useLoad((signal) => get<Record<string, unknown>>('/settings', signal))
+  const [saved, setSaved] = useState<string | null>(null)
+  const [draft, setDraft] = useState<{ value: string; base: string } | null>(null)
+  const initial = saved ?? String(settings.data?.sub_name_template ?? '')
+  const value = draft?.value ?? initial, dirty = !!draft && draft.value !== draft.base
+  const saver = useSettingsSave()
+  const save = async () => {
+    if (!dirty) return true
+    const submitted = value
+    return saver.run(async () => { await put('/settings', { sub_name_template: submitted }); setSaved(submitted); setDraft((current) => current?.value === submitted ? null : current && ({ ...current, base: submitted })) }, t('已保存'))
+  }
+  useSettingsDraft({ label: t('节点名称模板'), dirty, busy: saver.busy, save, discard: () => setDraft(null) })
+  return <section className="card"><h2>{t('节点名称模板')}</h2>
+    <Field label={t('模板')} hint={t('变量：{flag} 旗帜 · {region} 地区 · {node} 节点名 · {protocol} 协议 · {tag} 入站标签 · {kind} 入口类型 · {rate} 流量倍率')}><input className="input mono" value={value} disabled={!settings.data || !!settings.error} onChange={(event) => { const next = event.target.value; setDraft((current) => ({ value: next, base: current?.base ?? initial })) }} /></Field>
+    {settings.error && <p className="note bad" role="alert">{settings.error}<button className="btn sm" onClick={settings.reload}>{t('重试')}</button></p>}
+    <SettingsSaveBar dirty={dirty} busy={saver.busy} loading={!settings.data && settings.loading} error={saver.error} onSave={save} />
+  </section>
 }
 
 const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'portal_email_register', 'register_email_domains', 'register_trial_plan', 'register_ip_daily', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
@@ -115,16 +141,25 @@ const routingExample = `{
 }`
 
 function SubSettings() {
-  const plansQ = useLoad(() => get<{ id: string; name: string }[]>('/plans'))
+  const plansQ = useLoad((signal) => get<{ id: string; name: string }[]>('/plans', signal))
   const plans = plansQ.data ?? []
-  const { state: s, fields: f, setFields: setF } = useSettingsForm({ ...Object.fromEntries(settingKeys.map((key) => [key, ''])), sub_enabled: 'true', sub_show_bot: 'true', sub_show_rate: 'true', sub_host_strict: '1', sub_update_interval: '1' })
+  const { state: s, fields: f, setFields: setF, dirty, reset } = useSettingsForm({ ...Object.fromEntries(settingKeys.map((key) => [key, ''])), sub_enabled: 'true', sub_show_bot: 'true', sub_show_rate: 'true', sub_host_strict: '1', sub_update_interval: '1' })
   const { busy, run } = useAction()
   const confirm = useConfirm()
+  const saver = useSettingsSave()
+  const save = async () => {
+    if (!dirty) return true
+    return saver.run(async () => {
+      if (f.sub_routing_enabled === 'true' && f.sub_routing_rules && !f.sub_routing_rules.trim().startsWith('happ://')) JSON.parse(f.sub_routing_rules)
+      await put('/settings', f); s.reload()
+    }, t('订阅设置已保存'))
+  }
+  useSettingsDraft({ label: t('订阅与信息页'), dirty, busy: busy || saver.busy, save, discard: reset })
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
   const on = (k: string) => k === 'sub_enabled' ? f[k] !== 'false' : f[k] === 'true'
   return (
     <SettingsGate state={s}><section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <fieldset className="settings-fields" disabled={busy || s.loading}>
+      <fieldset className="settings-fields" disabled={busy || saver.busy || s.loading}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2>{t('订阅与信息页')}</h2>
         <label className="row small">{t('对外提供订阅')}<Switch label={t('启用订阅')} on={on('sub_enabled')} onChange={(v) => set('sub_enabled', String(v))} /></label>
@@ -172,11 +207,9 @@ function SubSettings() {
           <textarea className="input mono" style={{ minHeight: 140 }} spellCheck={false} value={f.sub_routing_rules ?? ''} onChange={(e) => set('sub_routing_rules', e.target.value)} placeholder={routingExample} />
         </Field>
       )}
+      {saver.error && <div className="note bad" role="alert">{saver.error}</div>}
       <div className="row">
-        <button className="btn pri" type="button" disabled={busy} onClick={() => run(async () => {
-          if (f.sub_routing_enabled === 'true' && f.sub_routing_rules && !f.sub_routing_rules.trim().startsWith('happ://')) JSON.parse(f.sub_routing_rules)
-          await put('/settings', f); s.reload()
-        }, t('订阅设置已保存'))}>{t('保存')}</button>
+        <button className="btn pri" type="button" disabled={busy || saver.busy || !dirty} onClick={save}>{saver.busy ? t('保存中…') : t('保存')}</button>
         <button className="btn" type="button" disabled={busy || !f.sub_announce?.trim()} onClick={async () => {
           if (await confirm(t('把当前公告通过 Telegram 推送给所有已绑定的用户？'))) run(async () => {
             const r = await post<{ queued: number }>('/telegram/broadcast', { text: f.sub_announce }); return r

@@ -8,7 +8,7 @@ import { CopyBox, ErrorNote, Field, Modal, useAction, useConfirm, useLoad } from
 type Key = { id: string; name: string; rpId: string; createdAt: string; lastUsedAt?: string }
 type State = { items: Key[]; available: boolean; reason?: string; origin: string; recoveryCodesLeft: number }
 export default function Passkeys() {
-  const state = useLoad(() => get<State>('/auth/passkeys'))
+  const state = useLoad((signal) => get<State>('/auth/passkeys', signal))
   const [name, setName] = useState('')
   const [codes, setCodes] = useState<string[] | null>(null)
   const { busy, run } = useAction()

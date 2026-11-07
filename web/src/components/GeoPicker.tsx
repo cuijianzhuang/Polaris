@@ -23,9 +23,9 @@ export default function GeoPicker({ kind, value, onChange, onClose }: {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState<string[]>(value)
   const [open, setOpen] = useState<string | null>(null)
-  const cats = useLoad(() => get<{ items: (SiteCat | IPCat)[] }>(`/routing/geo?type=${kind}`), [kind])
+  const cats = useLoad((signal) => get<{ items: (SiteCat | IPCat)[] }>(`/routing/geo?type=${kind}`, signal), [kind])
   const lookupQ = kind === 'geosite' && q.includes('.') && !q.includes(' ') ? q.trim() : ''
-  const lookup = useLoad(() => (lookupQ ? get<{ lookup?: string[] }>(`/routing/geo?type=geosite&q=${encodeURIComponent(lookupQ)}`) : Promise.resolve({ lookup: undefined })), [lookupQ])
+  const lookup = useLoad((signal) => (lookupQ ? get<{ lookup?: string[] }>(`/routing/geo?type=geosite&q=${encodeURIComponent(lookupQ)}`, signal) : Promise.resolve({ lookup: undefined })), [lookupQ])
   const items = cats.data?.items ?? []
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -100,7 +100,7 @@ export default function GeoPicker({ kind, value, onChange, onClose }: {
 }
 
 function GeoEntries({ name }: { name: string }) {
-  const r = useLoad(() => get<{ entries: Entry[]; total: number }>(`/routing/geo/geosite/${encodeURIComponent(name)}`), [name])
+  const r = useLoad((signal) => get<{ entries: Entry[]; total: number }>(`/routing/geo/geosite/${encodeURIComponent(name)}`, signal), [name])
   if (r.loading) return <div className="sub small geo-entries">{t('加载中…')}</div>
   const es = r.data?.entries ?? []
   return (

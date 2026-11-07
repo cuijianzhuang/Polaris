@@ -17,7 +17,7 @@ type Provider = { nodeId: string; kind: string; veid: string; sync: boolean; key
 type Resp = { configured: boolean; provider?: Provider }
 
 export default function NodeProvider({ nodeId, onSynced }: { nodeId: string; onSynced?: () => void }) {
-  const r = useLoad(() => get<Resp>(`/nodes/${nodeId}/provider`), [nodeId])
+  const r = useLoad((signal) => get<Resp>(`/nodes/${nodeId}/provider`, signal), [nodeId])
   const [editing, setEditing] = useState(false)
   const { busy, run } = useAction()
   const confirm = useConfirm()

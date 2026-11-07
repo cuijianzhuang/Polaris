@@ -22,8 +22,8 @@ const kinds: Record<string, string> = { 'panel-service': t('面板服务'), webs
 const sizeLabel = (size: number) => size < 1024 ? `${size} B` : size < 1024 * 1024 ? `${(size / 1024).toFixed(1)} KiB` : `${(size / (1024 * 1024)).toFixed(1)} MiB`
 
 export default function Websites() {
-  const list = useLoad(() => get<Listing>('/websites'))
-  const certs = useLoad(() => get<Certificate[]>('/certificates'))
+  const list = useLoad((signal) => get<Listing>('/websites', signal))
+  const certs = useLoad((signal) => get<Certificate[]>('/certificates', signal))
   const { nodes, refresh } = useNodes()
   const { busy, run } = useAction()
   const confirm = useConfirm()

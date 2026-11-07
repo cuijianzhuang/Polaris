@@ -20,7 +20,7 @@ type Lookup = {
 const maxSize = 64 * 1024 * 1024
 
 export function RouteASNSettings() {
-  const info = useLoad(() => get<ASNInfo>('/tools/route-asn'))
+  const info = useLoad((signal) => get<ASNInfo>('/tools/route-asn', signal))
   const [file, setFile] = useState<File>()
   const [fileVersion, setFileVersion] = useState(0)
   const [ip, setIP] = useState('')

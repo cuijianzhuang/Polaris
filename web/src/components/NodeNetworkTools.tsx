@@ -19,7 +19,7 @@ type Trace = { id: number; family: string; target: string; source: string; state
 const stateText = (v: string) => ({ reached: t('已到达'), partial: t('部分结果'), timeout: t('超时'), unavailable: t('不可用'), failed: t('失败'), running: t('运行中'), completed: t('已完成'), interrupted: t('已中断'), baseline: t('首次基线'), same: t('路径相同'), changed: t('路径变化'), not_comparable: t('不可比较'), scheduled: t('定时'), manual: t('手动'), disabled: t('已关闭'), ready: t('就绪') }[v] ?? v)
 
 function ProbePolicyEditor({ nodeId }: { nodeId: string }) {
-  const info = useLoad(() => get<ProbePolicy>(`/nodes/${nodeId}/probe-policy`), [nodeId])
+  const info = useLoad((signal) => get<ProbePolicy>(`/nodes/${nodeId}/probe-policy`, signal), [nodeId])
   const [mode, setMode] = useState<ProbePolicy['mode']>('inherit')
   const [targets, setTargets] = useState<ProbeTarget[]>([])
   const [candidate, setCandidate] = useState<ProbeTarget>({ name: '', carrier: '', addr: '' })
@@ -52,7 +52,7 @@ function ProbePolicyEditor({ nodeId }: { nodeId: string }) {
 
 function TraceDetail({ trace, nodeId, onClose }: { trace: Trace; nodeId: string; onClose: () => void }) {
   const r = trace.result
-  const previous = useLoad(() => trace.comparison.previousId ? get<Trace>(`/nodes/${nodeId}/route-traces/${trace.comparison.previousId}`) : Promise.resolve(undefined), [nodeId, trace.id, trace.comparison.previousId])
+  const previous = useLoad((signal) => trace.comparison.previousId ? get<Trace>(`/nodes/${nodeId}/route-traces/${trace.comparison.previousId}`, signal) : Promise.resolve(undefined), [nodeId, trace.id, trace.comparison.previousId])
   const hops = [...new Set([...(r.hops ?? []).map((h) => h.ttl), ...(previous.data?.result.hops ?? []).map((h) => h.ttl)])].sort((a, b) => a - b)
   return <Modal title={t('回程检测详情')} onClose={onClose} wide>
     <div className="ops-stack">
@@ -74,7 +74,7 @@ function TraceDetail({ trace, nodeId, onClose }: { trace: Trace; nodeId: string;
 }
 
 function RouteTools({ nodeId }: { nodeId: string }) {
-  const schedule = useLoad(() => get<Schedule>(`/nodes/${nodeId}/route-schedule`), [nodeId])
+  const schedule = useLoad((signal) => get<Schedule>(`/nodes/${nodeId}/route-schedule`, signal), [nodeId])
   const [targets, setTargets] = useState<Targets>({ ipv4: '', ipv6: '' })
   const [enabled, setEnabled] = useState(false)
   const [interval, setInterval] = useState(60)
@@ -82,7 +82,7 @@ function RouteTools({ nodeId }: { nodeId: string }) {
   const [targetFilter, setTargetFilter] = useState('')
   const [filterDraft, setFilterDraft] = useState('')
   const [before, setBefore] = useState<number>()
-  const history = useLoad(() => { const q = new URLSearchParams({ limit: '20' }); if (family) q.set('family', family); if (targetFilter.trim()) q.set('target', targetFilter.trim()); if (before) q.set('before', String(before)); return get<{ items: Trace[]; nextBefore?: number }>(`/nodes/${nodeId}/route-traces?${q}`) }, [nodeId, family, targetFilter, before])
+  const history = useLoad((signal) => { const q = new URLSearchParams({ limit: '20' }); if (family) q.set('family', family); if (targetFilter.trim()) q.set('target', targetFilter.trim()); if (before) q.set('before', String(before)); return get<{ items: Trace[]; nextBefore?: number }>(`/nodes/${nodeId}/route-traces?${q}`, signal) }, [nodeId, family, targetFilter, before])
   usePoll(history.reload, 15000)
   const [detail, setDetail] = useState<Trace>()
   const { busy, run } = useAction()

@@ -1,4 +1,10 @@
 const m: Record<string, string> = {
+  '请求超时，请重试': 'The request timed out. Please retry.',
+  '订阅规则模板': 'Subscription rule template',
+  '服务器模板已更新，当前草稿已保留。保存前请重新加载并核对。': 'The server template changed. Your draft is preserved. Reload and review before saving.',
+  '重新加载会丢弃本模板尚未保存的内容，是否继续？': 'Reloading discards unsaved changes to this template. Continue?',
+  '重新加载服务器内容': 'Reload server content',
+
   '账号头像': 'Account avatar',
   '头像邮箱': 'Avatar email',
   '保存头像设置': 'Save avatar settings',

@@ -24,10 +24,11 @@ const (
 
 type claims struct {
 	jwt.RegisteredClaims
-	Username string `json:"usr"`
-	Version  int    `json:"ver"`
-	TG       string `json:"tg,omitempty"`  // Telegram admin id for bot sign-ins
-	SID      string `json:"sid,omitempty"` // admin session (store.AdminSession)
+	Username    string `json:"usr"`
+	Version     int    `json:"ver"`
+	TG          string `json:"tg,omitempty"`  // Telegram admin id for bot sign-ins
+	PortalEpoch uint64 `json:"pe,omitempty"`  // user-center generation, independent of admin sessions
+	SID         string `json:"sid,omitempty"` // admin session (store.AdminSession)
 	// User center sessions (portal.go): never valid for the admin API.
 	User  string `json:"u,omitempty"`
 	Chat  int64  `json:"ch,omitempty"`

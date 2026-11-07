@@ -10,7 +10,7 @@ import type { Certificate } from '../types'
 const providers: Record<string, string> = { acme: 'ACME', selfsigned: t('自签'), manual: t('手动上传'), 'cf-origin': 'Cloudflare Origin' }
 
 export default function Certificates() {
-  const list = useLoad(() => get<Certificate[]>('/certificates'))
+  const list = useLoad((signal) => get<Certificate[]>('/certificates', signal))
   const settings = useLoad(readSettings)
   const { nodes } = useNodes()
   const [form, setForm] = useState<{ domain: string; provider: string; cert: string; key: string; challenge: string; nodeId: string } | null>(null)

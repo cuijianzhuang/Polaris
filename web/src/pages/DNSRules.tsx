@@ -55,7 +55,7 @@ function RuleSetDrawer({ rs, onClose, onSaved }: { rs?: RuleSet; onClose: () => 
 }
 
 export function RuleSets() {
-  const list = useLoad(() => get<RuleSet[]>('/rulesets'))
+  const list = useLoad((signal) => get<RuleSet[]>('/rulesets', signal))
   const [drawer, setDrawer] = useState<RuleSet | 'new' | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -178,12 +178,12 @@ function SpecEditor({ spec, onChange, tags }: { spec: DNSSpec; onChange: (s: DNS
 }
 
 export function DNSSettings({ nodes }: { nodes: Node[] }) {
-  const cfg = useLoad(() => get<{ global: DNSConfig; nodes: DNSConfig[] }>('/dns'))
+  const cfg = useLoad((signal) => get<{ global: DNSConfig; nodes: DNSConfig[] }>('/dns', signal))
   const [scope, setScope] = useState('*')
   const global = scope === '*'
-  const outs = useLoad(() => (global
+  const outs = useLoad((signal) => (global
     ? Promise.all(nodes.map((n) => get<Outbound[]>(`/nodes/${n.id}/outbounds`))).then((ls) => [...new Set(ls.flat().map((o) => o.tag))])
-    : get<Outbound[]>(`/nodes/${scope}/outbounds`).then((ls) => ls.map((o) => o.tag))), [scope, nodes.length])
+    : get<Outbound[]>(`/nodes/${scope}/outbounds`, signal).then((ls) => ls.map((o) => o.tag))), [scope, nodes.length])
   const current = global ? cfg.data?.global : cfg.data?.nodes.find((n) => n.scope === scope)
   const [mode, setMode] = useState('off')
   const [spec, setSpec] = useState<DNSSpec>(emptySpec())

@@ -120,23 +120,49 @@ export function useAction() {
 }
 
 // useLoad fetches data and exposes a reload function.
-export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []): { data: T | undefined; error: string; reload: () => void; loading: boolean } {
-  const [data, setData] = useState<T>()
+export function useLoad<T>(fn: (signal?: AbortSignal) => Promise<T>, deps: unknown[] = []): { data: T | undefined; error: string; reload: () => void; loading: boolean } {
+  const [snapshot, setSnapshot] = useState<{ value: T; deps: unknown[] }>()
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
-  const [tick, setTick] = useState(0)
   const fnRef = useRef(fn)
+  const loadRef = useRef<() => void>(() => {})
   fnRef.current = fn
   useEffect(() => {
-    let live = true
-    setLoading(true)
-    fnRef.current().then((d) => { if (live) { setData(d); setError('') } })
-      .catch((e) => { if (live) setError(errMsg(e)) })
-      .finally(() => { if (live) setLoading(false) })
-    return () => { live = false }
+    let live = true, pending: AbortController | null = null, queued = false
+    const load = async () => {
+      if (!live) return
+      if (pending) { queued = true; return }
+      const controller = new AbortController()
+      pending = controller
+      setLoading(true)
+      let timeout: ReturnType<typeof setTimeout> | undefined
+      const deadline = new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => { reject(new Error(t('请求超时，请重试'))); controller.abort() }, 20000)
+      })
+      try {
+        const result = await Promise.race([fnRef.current(controller.signal), deadline])
+        if (live) { setSnapshot({ value: result, deps: [...deps] }); setError('') }
+      } catch (e) {
+        if (live) setError(errMsg(e))
+      } finally {
+        clearTimeout(timeout)
+        pending = null
+        if (live) {
+          setLoading(false)
+          if (queued) { queued = false; void load() }
+        }
+      }
+    }
+    setError('')
+    loadRef.current = () => { void load() }
+    void load()
+    return () => { live = false; queued = false; pending?.abort(); loadRef.current = () => {} }
+    // Each dependency set owns its requests; manual/poll refreshes are serialized.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, ...deps])
-  return { data, error, loading, reload: () => setTick((t) => t + 1) }
+  }, deps)
+  const reload = useCallback(() => loadRef.current(), [])
+  const data = snapshot && snapshot.deps.length === deps.length && deps.every((value, index) => Object.is(value, snapshot.deps[index])) ? snapshot.value : undefined
+  return { data, error, loading, reload }
 }
 
 // Refresh interval of live pages, one setting for all of them (0 = off).

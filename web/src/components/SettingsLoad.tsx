@@ -4,8 +4,8 @@ import { t } from '../i18n'
 import { useLoad } from './ui'
 
 export type Settings = Record<string, any>
-export async function readSettings(): Promise<Settings> {
-  const data = await get<Settings>('/settings')
+export async function readSettings(signal?: AbortSignal): Promise<Settings> {
+  const data = await get<Settings>('/settings', signal)
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(t('设置响应格式无效，请重试。'))
   return Object.fromEntries(Object.entries(data).map(([key, value]) => {
     // Configuration values are strings. Credential/readiness indicators are

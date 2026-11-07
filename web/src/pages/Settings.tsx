@@ -30,10 +30,10 @@ const settingTabs = [
 ]
 
 export default function Settings() {
-  const s = useLoad(() => get<Record<string, any>>('/settings'))
-  const me = useLoad(() => get<{ username: string; totpEnabled: boolean; githubLogin?: string; recoveryCodesLeft?: number }>('/auth/me'))
+  const s = useLoad((signal) => get<Record<string, any>>('/settings', signal))
+  const me = useLoad((signal) => get<{ username: string; totpEnabled: boolean; githubLogin?: string; recoveryCodesLeft?: number }>('/auth/me', signal))
   const [codes, setCodes] = useState<string[] | null>(null)
-  const gh = useLoad(() => get<{ enabled: boolean; clientId: string; callbackUrl: string }>('/auth/github'))
+  const gh = useLoad((signal) => get<{ enabled: boolean; clientId: string; callbackUrl: string }>('/auth/github', signal))
   const [ghForm, setGhForm] = useState({ id: '', secret: '' })
   const toast = useToast()
   const confirm = useConfirm()

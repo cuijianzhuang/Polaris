@@ -21,7 +21,7 @@ export const recent = (l: { ok: boolean; at: string }) => {
 // out by the root side of the server (`polaris set-path` …), which restarts
 // the panel, so the page then moves to the new address.
 export function Access() {
-  const a = useLoad(() => get<AccessInfo>('/system/access'))
+  const a = useLoad((signal) => get<AccessInfo>('/system/access', signal))
   const [f, setF] = useState<{ path?: string; domain?: string; port?: string; url?: string; sub?: string }>({})
   const [moving, setMoving] = useState<{ to: string; note: string } | null>(null)
   const { busy, run } = useAction()

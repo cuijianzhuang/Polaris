@@ -31,7 +31,7 @@ export default function PluginMarket() {
   const [deploy, setDeploy] = useState<Entry | null>(null)
   const [source, setSource] = useState(false)
   const [refresh, setRefresh] = useState(0)
-  const reg = useLoad(() => get<Registry>('/plugin-registry' + (refresh ? '?refresh=1' : '')), [refresh])
+  const reg = useLoad((signal) => get<Registry>('/plugin-registry' + (refresh ? '?refresh=1' : ''), signal), [refresh])
   const [, setParams] = useSearchParams()
   const labels = scopeLabel()
   const cats = categories()

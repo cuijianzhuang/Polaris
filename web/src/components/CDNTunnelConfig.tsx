@@ -5,7 +5,7 @@ import { copyText, Modal, useLoad, useToast } from './ui'
 type TunnelConfig = { nodeId: string; tunnelId: string; dnsTarget: string; config: string; routes: { hostname?: string; path?: string; service: string; originRequest?: { httpHostHeader: string } }[] }
 
 export default function CDNTunnelConfig({ profileId, managed, credentialMode, onClose }: { profileId: string; managed?: boolean; credentialMode?: string; onClose: () => void }) {
-  const data = useLoad(() => get<TunnelConfig>(`/cdn-profiles/${profileId}/tunnel-config`), [profileId])
+  const data = useLoad((signal) => get<TunnelConfig>(`/cdn-profiles/${profileId}/tunnel-config`, signal), [profileId])
   const toast = useToast()
   return <Modal title={t('隧道回源配置')} onClose={onClose} footer={<button className="btn" type="button" onClick={onClose}>{t('关闭')}</button>}>
     <p className="hint">{credentialMode === 'remote' ? t('远程 Token 的路由由 Cloudflare 下发。下表仅为面板期望值，需要在 Cloudflare 配置；Agent 不会推送这些规则。') : managed ? t('此隧道由 Agent 自动维护配置和进程，无需手动部署以下路由。请在「Agent 托管」中查看应用和连接状态。') : t('在对应节点运行 cloudflared。面板不保存隧道密钥，也不会创建或启动隧道。先完成隧道连接和回源配置，再同步 DNS 并检测入口。')}</p>

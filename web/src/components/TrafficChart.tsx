@@ -23,8 +23,8 @@ export default function TrafficChart({ query, title }: { query: string; title: s
     if (r.hour) { d.setMinutes(0, 0, 0); d.setHours(d.getHours() - (r.n - 1)) } else { d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (r.n - 1)) }
     return d
   }, [r])
-  const data = useLoad(() => get<{ series: { t: string; up: number; down: number }[] }>(
-    `/stats/traffic?${query}&bucket=${r.hour ? 'hour' : 'day'}&from=${encodeURIComponent(from.toISOString())}`), [query, range])
+  const data = useLoad((signal) => get<{ series: { t: string; up: number; down: number }[] }>(
+    `/stats/traffic?${query}&bucket=${r.hour ? 'hour' : 'day'}&from=${encodeURIComponent(from.toISOString())}`, signal), [query, range])
   usePoll(data.reload, 30000)
   const pts = useMemo(() => {
     const m = new Map<string, { up: number; down: number }>()

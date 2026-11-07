@@ -168,6 +168,11 @@ type DayUsage struct {
 
 // PageLink is one node shown on the info page.
 type PageLink struct {
+	Key        string
+	Online     string
+	Network    string
+	Business   string
+	CheckScope string
 	Name       string
 	Protocol   string
 	Link       string

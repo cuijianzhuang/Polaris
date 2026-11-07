@@ -17,7 +17,7 @@ const allowance = (kbps: number) => (kbps ? bps(kbps * 1000) : t('不限'))
 // LimitedUsers: users under a per-user speed limit on the node, with their
 // current speed (from the agent's heartbeat). Hidden when nobody is limited.
 export default function LimitedUsers({ nodeId }: { nodeId: string }) {
-  const data = useLoad(() => get<Row[]>(`/nodes/${nodeId}/limited`), [nodeId])
+  const data = useLoad((signal) => get<Row[]>(`/nodes/${nodeId}/limited`, signal), [nodeId])
   usePoll(data.reload, 5000)
   const rows = data.data ?? []
   if (!rows.length) return null

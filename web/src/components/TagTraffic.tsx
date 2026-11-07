@@ -10,7 +10,7 @@ export interface TagTrafficRow { nodeId: string; nodeName: string; kind: 'inboun
 
 export default function TagTraffic() {
   const [kind, setKind] = useState<'inbound' | 'outbound'>('inbound')
-  const data = useLoad(() => get<TagTrafficRow[]>('/stats/tags?kind=' + kind), [kind])
+  const data = useLoad((signal) => get<TagTrafficRow[]>('/stats/tags?kind=' + kind, signal), [kind])
   usePoll(data.reload, 15000)
   const { busy, run } = useAction()
   const confirm = useConfirm()

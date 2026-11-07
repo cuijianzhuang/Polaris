@@ -19,7 +19,7 @@ export function Access({ groups, nodeIds, groupIds, inboundIds, onChange }: {
   onChange: (k: 'nodeIds' | 'groupIds' | 'inboundIds', v: string[]) => void
 }) {
   const { nodes } = useNodes()
-  const inbounds = useLoad(() => get<Inbound[]>('/inbounds'))
+  const inbounds = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
   const ins = (inbounds.data ?? []).filter((i) => i.enabled)
   const viaGroup = new Set(groups.filter((g) => groupIds.includes(g.id)).flatMap((g) => g.inboundIds))
   const effective = ins.filter((i) => nodeIds.includes(i.nodeId) || viaGroup.has(i.id) || inboundIds.includes(i.id))
@@ -306,7 +306,7 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
 
 // UserLinks lists one share link per node with copy and QR code.
 export function UserLinks({ userId }: { userId: string }) {
-  const data = useLoad(() => get<{ links: { name: string; uri: string }[] | null }>(`/users/${userId}/links`), [userId])
+  const data = useLoad((signal) => get<{ links: { name: string; uri: string }[] | null }>(`/users/${userId}/links`, signal), [userId])
   const [qr, setQr] = useState<string | null>(null)
   const links = data.data?.links ?? []
   return (
@@ -330,7 +330,7 @@ export function UserLinks({ userId }: { userId: string }) {
 // NodeQuotas: per-node traffic packs (node-only, spent before the account
 // quota, one-off) and per-node caps (each traffic period).
 export function NodeQuotas({ userId }: { userId: string }) {
-  const data = useLoad(() => get<NodeQuota[]>(`/users/${userId}/node-quotas`), [userId])
+  const data = useLoad((signal) => get<NodeQuota[]>(`/users/${userId}/node-quotas`, signal), [userId])
   const { nodes } = useNodes()
   const { busy, run } = useAction()
   const [f, setF] = useState({ nodeId: '', add: '', limit: '' })
@@ -382,7 +382,7 @@ export function NodeQuotas({ userId }: { userId: string }) {
 
 // Devices lists the HWIDs that fetched the subscription.
 export function Devices({ userId, limit }: { userId: string; limit: number }) {
-  const data = useLoad(() => get<UserDevice[]>(`/users/${userId}/devices`), [userId])
+  const data = useLoad((signal) => get<UserDevice[]>(`/users/${userId}/devices`, signal), [userId])
   const { run } = useAction()
   const ds = data.data ?? []
   if (!ds.length && !limit) return null

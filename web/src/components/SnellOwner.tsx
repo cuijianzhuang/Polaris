@@ -5,7 +5,7 @@ import { t } from '../i18n'
 
 export default function SnellOwner({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const [q, setQ] = useState('')
-  const users = useLoad(() => get<{ items: { id: string; username: string }[] }>(`/users?limit=20&q=${encodeURIComponent(q)}`), [q])
+  const users = useLoad((signal) => get<{ items: { id: string; username: string }[] }>(`/users?limit=20&q=${encodeURIComponent(q)}`, signal), [q])
   const items = users.data?.items ?? []
   return <>
     <Field label={t('搜索 Snell 专属用户')} htmlFor="snell-user-search">

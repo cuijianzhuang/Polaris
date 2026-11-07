@@ -311,7 +311,7 @@ func (s *Server) portalMailVerify(c *gin.Context) {
 		}
 		u, created = *nu, true
 	}
-	tok, err := s.issuePortalMailToken(&u)
+	tok, err := s.issuePortalMailToken(&u, c)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -350,7 +350,7 @@ func (s *Server) portalMailBind(c *gin.Context, addr, code string) {
 	s.audit(portalActor(u, viaMail), "user.email_bound", u.Username, addr, clientIP(c.Request))
 	s.wakeBusinessEvents()
 	// A session made from the old address would end: renew it.
-	tok, err := s.issuePortalTokenVia(u, viaMail)
+	tok, err := s.issuePortalTokenVia(u, viaMail, c)
 	if err != nil {
 		serverError(c, err)
 		return

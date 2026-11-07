@@ -141,9 +141,9 @@ export default function Dashboard() {
   const { nodes } = useNodes()
   const nav = useNavigate()
   const [days, setDays] = useState(7)
-  const overview = useLoad(() => get<Overview>('/stats/overview?days=' + days), [nodes.length, days])
+  const overview = useLoad((signal) => get<Overview>('/stats/overview?days=' + days, signal), [nodes.length, days])
   const data = overview.data
-  const traffic = useLoad(() => get<Record<string, NodeTraffic>>('/stats/nodes').catch(() => ({} as Record<string, NodeTraffic>)), [nodes.length])
+  const traffic = useLoad((signal) => get<Record<string, NodeTraffic>>('/stats/nodes', signal).catch(() => ({} as Record<string, NodeTraffic>)), [nodes.length])
   const [refreshMs, setRefreshMs] = useRefresh(10000)
   const reloadAll = () => { overview.reload(); traffic.reload() }
   usePoll(reloadAll, refreshMs)

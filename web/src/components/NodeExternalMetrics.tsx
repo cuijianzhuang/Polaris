@@ -11,7 +11,7 @@ const show = (m: Metric) => m.unit === 'bool' ? (m.value ? t('是') : t('否')) 
 // for the node. Shown as reported, with their source; nothing here comes
 // from the node's own agent.
 export default function NodeExternalMetrics({ nodeId }: { nodeId: string }) {
-  const data = useLoad(() => get<{ metrics: Metric[] }>(`/nodes/${nodeId}/metrics/external`), [nodeId])
+  const data = useLoad((signal) => get<{ metrics: Metric[] }>(`/nodes/${nodeId}/metrics/external`, signal), [nodeId])
   const ms = data.data?.metrics ?? []
   if (!ms.length) return null
   return (

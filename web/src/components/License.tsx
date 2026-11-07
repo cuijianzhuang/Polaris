@@ -48,7 +48,7 @@ function Meter({ label, used, max, icon }: { label: string; used: number; max: n
 // License: the plan in effect, usage against its limits, and installing,
 // activating or releasing a license.
 export default function License() {
-  const v = useLoad(() => get<LicenseView>('/license'))
+  const v = useLoad((signal) => get<LicenseView>('/license', signal))
   cached = null // a change here refreshes the locks elsewhere
   const [clock, setClock] = useState(Date.now)
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 1000); return () => window.clearInterval(timer) }, [])

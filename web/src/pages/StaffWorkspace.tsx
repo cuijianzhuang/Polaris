@@ -11,7 +11,7 @@ import { bytes, datetime } from '../format'
 import { t } from '../i18n'
 
 export function StaffAccount() {
-  const me = useLoad(() => get<{ totpEnabled: boolean }>('/auth/me'))
+  const me = useLoad((signal) => get<{ totpEnabled: boolean }>('/auth/me', signal))
   const [pw, setPw] = useState({ old: '', next: '', again: '' })
   const [totp, setTotp] = useState<{ secret: string; url: string } | null>(null)
   const [code, setCode] = useState('')
@@ -38,7 +38,7 @@ export function StaffAccount() {
 type StaffUser = { id: string; username: string; status: string; trafficLimit: number; usedUp: number; usedDown: number; expireAt?: string }
 function CustomerSummary() {
   const [q, setQ] = useState(''), [search, setSearch] = useState(''), [offset, setOffset] = useState(0)
-  const data = useLoad(() => get<StaffUser[]>(`/staff/users?q=${encodeURIComponent(search)}&offset=${offset}`), [search, offset])
+  const data = useLoad((signal) => get<StaffUser[]>(`/staff/users?q=${encodeURIComponent(search)}&offset=${offset}`, signal), [search, offset])
   return <section className="card"><h2>{t('用户摘要')}</h2>
     <form className="row" onSubmit={(e) => { e.preventDefault(); setSearch(q); setOffset(0) }}><input className="input" aria-label={t('搜索用户名')} value={q} onChange={(e) => setQ(e.target.value)} /><button className="btn">{t('搜索')}</button></form>
     {data.error && <div className="note bad" role="alert">{data.error}</div>}
@@ -48,15 +48,15 @@ function CustomerSummary() {
 }
 
 function ViewerSummary() {
-  const data = useLoad(() => get<{ id: string; name: string; status: string; cpu: number; mem: number; lastSeen?: string }[]>('/staff/nodes'))
+  const data = useLoad((signal) => get<{ id: string; name: string; status: string; cpu: number; mem: number; lastSeen?: string }[]>('/staff/nodes', signal))
   usePoll(data.reload, 2000)
   return <section className="card"><h2>{t('我的节点')}</h2>{data.error && <div className="note bad" role="alert">{data.error}</div>}<div className="scroll"><table><thead><tr><th>{t('节点')}</th><th>{t('状态')}</th><th>CPU / RAM</th><th>{t('最后在线')}</th></tr></thead><tbody>{(data.data ?? []).map((n) => <tr key={n.id}><td>{n.name}</td><td>{n.status}</td><td>{n.cpu}% / {n.mem}%</td><td>{datetime(n.lastSeen)}</td></tr>)}</tbody></table></div></section>
 }
 
 function FinanceSummary() {
   const [offset, setOffset] = useState(0)
-  const orders = useLoad(() => get<{ id: string; planName: string; amount: string; currency: string; status: string; method: string; createdAt: string }[]>(`/staff/orders?offset=${offset}`), [offset])
-  const costs = useLoad(() => get<{ nodeId: string; name: string; amount: number; currency: string; cycle: string; expireAt?: string }[]>('/staff/costs'))
+  const orders = useLoad((signal) => get<{ id: string; planName: string; amount: string; currency: string; status: string; method: string; createdAt: string }[]>(`/staff/orders?offset=${offset}`, signal), [offset])
+  const costs = useLoad((signal) => get<{ nodeId: string; name: string; amount: number; currency: string; cycle: string; expireAt?: string }[]>('/staff/costs', signal))
   return <>
     <section className="card"><h2>{t('订单摘要')}</h2>{orders.error && <div className="note bad" role="alert">{orders.error}</div>}<div className="scroll"><table><thead><tr><th>{t('订单')}</th><th>{t('套餐')}</th><th>{t('金额')}</th><th>{t('状态')}</th><th>{t('时间')}</th></tr></thead><tbody>{(orders.data ?? []).map((o) => <tr key={o.id}><td className="mono">{o.id}</td><td>{o.planName}</td><td>{o.amount} {o.currency}</td><td>{o.status} · {o.method}</td><td>{datetime(o.createdAt)}</td></tr>)}</tbody></table></div><div className="row"><button className="btn" disabled={!offset} onClick={() => setOffset(offset - 100)}>{t('上一页')}</button><button className="btn" disabled={orders.loading || (orders.data?.length ?? 0) < 100} onClick={() => setOffset(offset + 100)}>{t('下一页')}</button></div></section>
     <section className="card"><h2>{t('服务器成本')}</h2>{costs.error && <div className="note bad" role="alert">{costs.error}</div>}<div className="scroll"><table><thead><tr><th>{t('节点')}</th><th>{t('金额')}</th><th>{t('周期')}</th><th>{t('到期时间')}</th></tr></thead><tbody>{(costs.data ?? []).map((c) => <tr key={c.nodeId}><td>{c.name}</td><td>{c.amount} {c.currency}</td><td>{c.cycle}</td><td>{datetime(c.expireAt)}</td></tr>)}</tbody></table></div></section>

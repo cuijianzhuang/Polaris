@@ -16,8 +16,8 @@ const statusTag: Record<string, [string, string]> = { synced: [t('已同步'), '
 
 export default function Domains() {
   const { nodes, refresh } = useNodes()
-  const provs = useLoad(() => get<DNSProvider[]>('/dns-providers'))
-  const binds = useLoad(() => get<DomainBinding[]>('/domains'))
+  const provs = useLoad((signal) => get<DNSProvider[]>('/dns-providers', signal))
+  const binds = useLoad((signal) => get<DomainBinding[]>('/domains', signal))
   const ok = useFeature('ddns')
   const [pf, setPf] = useState<ProvForm | null>(null)
   const [bf, setBf] = useState<BindForm | null>(null)

@@ -6,7 +6,7 @@ import { useLoad, usePoll } from './ui'
 type Notice = { id: string; username: string; kind: string; channel: string; tier: number; status: string; attempts: number; lastError?: string; updatedAt: string }
 
 export default function UserNotices() {
-  const data = useLoad(() => get<{ items: Notice[] }>('/user-notices'))
+  const data = useLoad((signal) => get<{ items: Notice[] }>('/user-notices', signal))
   usePoll(data.reload, 15000)
   const status: Record<string, string> = { pending: t('等待发送或重试'), sent: t('已发送'), canceled: t('已失效') }
   return <div className="ops-stack">

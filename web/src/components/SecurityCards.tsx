@@ -33,7 +33,7 @@ const viaLabel: Record<string, string> = { password: t('密码'), github: 'GitHu
 
 // Sessions lists signed-in browsers; any can be ended.
 export function Sessions() {
-  const list = useLoad(() => get<Session[]>('/auth/sessions'))
+  const list = useLoad((signal) => get<Session[]>('/auth/sessions', signal))
   const { busy, run } = useAction()
   const confirm = useConfirm()
   const ss = list.data ?? []
@@ -65,7 +65,7 @@ type Info = { bans: Ban[]; allowlist: string; banFailures: number; trustedProxie
 
 // LoginProtection: per-IP bans, the allowlist and proxy trust.
 export function LoginProtection() {
-  const info = useLoad(() => get<Info>('/security'))
+  const info = useLoad((signal) => get<Info>('/security', signal))
   const [f, setF] = useState({ allow: '', fails: '' })
   const { busy, run } = useAction()
   const saver = useSettingsSave()
@@ -129,8 +129,8 @@ const ssoPresets: { label: string; f: ProviderForm }[] = [
 // SSOProviders: single sign-on buttons for the login page, and this admin's
 // bindings to them.
 export function SSOProviders() {
-  const list = useLoad(() => get<{ providers: Provider[]; callbackUrl: string }>('/sso/providers'))
-  const mine = useLoad(() => get<{ providerId: string; login: string }[]>('/auth/sso/bindings'))
+  const list = useLoad((signal) => get<{ providers: Provider[]; callbackUrl: string }>('/sso/providers', signal))
+  const mine = useLoad((signal) => get<{ providerId: string; login: string }[]>('/auth/sso/bindings', signal))
   const [edit, setEdit] = useState<ProviderForm | null>(null)
   const { busy, run } = useAction()
   const confirm = useConfirm()
@@ -210,7 +210,7 @@ export const scopeLabel = (): Record<string, string> => ({
 
 // APITokens: tokens for scripts and plugins to call the API without logging in.
 export function APITokens() {
-  const list = useLoad(() => get<{ tokens: APIToken[]; scopes: string[] }>('/tokens'))
+  const list = useLoad((signal) => get<{ tokens: APIToken[]; scopes: string[] }>('/tokens', signal))
   const [form, setForm] = useState<{ name: string; scopes: string[]; days: number } | null>(null)
   const [secret, setSecret] = useState('')
   const { busy, run } = useAction()
