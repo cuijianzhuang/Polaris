@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=$(VERSION) -X github.com/cuijianzhuang/polaris/internal/agent.Version=$(VERSION)
 
-.PHONY: all web build agent test test-cores proto lint clean
+.PHONY: all web build agent test test-race test-cores proto lint clean
 
 all: web build
 
@@ -20,6 +20,13 @@ agent:
 test:
 	go vet ./...
 	go test ./...
+
+# Concurrency check: same suite under the race detector. The live/browser
+# tests in internal/panel self-skip unless their POLARIS_* env vars are set,
+# so `test` and `test-race` are the everyday unit + integration runs.
+test-race:
+	go vet ./...
+	go test -race -timeout 0 ./...
 
 # Runs adapter, subscription and end-to-end tests against real core binaries:
 #   make test-cores XRAY=/path/to/xray SINGBOX=/path/to/sing-box
