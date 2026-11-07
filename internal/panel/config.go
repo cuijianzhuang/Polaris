@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
@@ -44,6 +45,11 @@ type Config struct {
 	} `koanf:"initial_admin"`
 	// SubRateLimit is the per-IP subscription request rate (requests/minute).
 	SubRateLimit int `koanf:"sub_rate_limit"`
+	// Timezone is the IANA name used for day boundaries (traffic daily
+	// buckets and report presets), e.g. "Asia/Shanghai". Empty: server local.
+	Timezone string `koanf:"timezone"`
+
+	loc *time.Location // parsed Timezone; see Location()
 	// TrustedProxies lists the reverse proxies (IPs or CIDRs) whose
 	// X-Forwarded-For is trusted. Empty: any loopback or private peer.
 	TrustedProxies []string `koanf:"trusted_proxies"`
@@ -109,6 +115,13 @@ func LoadConfig(path string) (*Config, error) {
 	if len(c.SecretKey) < 16 || strings.Contains(c.SecretKey, "change-me") {
 		return nil, fmt.Errorf("secret_key must be a random string of at least 16 characters, not the example value (generate one with: openssl rand -hex 32)")
 	}
+	if c.Timezone != "" {
+		loc, err := time.LoadLocation(c.Timezone)
+		if err != nil {
+			return nil, fmt.Errorf("timezone %q: %w", c.Timezone, err)
+		}
+		c.loc = loc
+	}
 	return c, nil
 }
 
@@ -125,4 +138,13 @@ func splitList(s string) []string {
 // APIBase is the prefix of the REST API.
 func (c *Config) APIBase() string {
 	return strings.TrimRight(c.AdminPath, "/") + "/api/v1"
+}
+
+// Location returns the timezone used for day boundaries, defaulting to the
+// server's local time when Timezone is empty.
+func (c *Config) Location() *time.Location {
+	if c.loc != nil {
+		return c.loc
+	}
+	return time.Local
 }

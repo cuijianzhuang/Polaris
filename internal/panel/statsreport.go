@@ -78,9 +78,10 @@ func presetRange(now time.Time, preset string) (from, to string, ok bool) {
 
 // reportRange reads ?range=today|7d|30d|90d|month|last|year or ?from=&to=
 // (YYYY-MM-DD, inclusive); default: last 7 days. Preset boundaries use the
-// panel's local timezone, not the browser's.
-func reportRange(c *gin.Context) (from, to string, err error) {
-	now := time.Now()
+// panel's configured timezone (Config.Timezone, default server local), not the
+// browser's.
+func (s *Server) reportRange(c *gin.Context) (from, to string, err error) {
+	now := time.Now().In(s.cfg.Location())
 	to = now.Format(dayLayout)
 	from = now.AddDate(0, 0, -6).Format(dayLayout)
 	if r := c.Query("range"); r != "" {
@@ -95,8 +96,8 @@ func reportRange(c *gin.Context) (from, to string, err error) {
 			to = v
 		}
 	}
-	f, err1 := time.ParseInLocation(dayLayout, from, time.Local)
-	t, err2 := time.ParseInLocation(dayLayout, to, time.Local)
+	f, err1 := time.ParseInLocation(dayLayout, from, s.cfg.Location())
+	t, err2 := time.ParseInLocation(dayLayout, to, s.cfg.Location())
 	if err1 != nil || err2 != nil || t.Before(f) {
 		return "", "", fmt.Errorf("日期格式应为 YYYY-MM-DD，且开始不晚于结束")
 	}
@@ -129,7 +130,7 @@ func (s *Server) names() (nodes, users map[string]string) {
 // statsReport: GET /stats/report?from=&to=&limit= — totals, daily trend,
 // traffic by node, and rankings of users, nodes and inbounds.
 func (s *Server) statsReport(c *gin.Context) {
-	from, to, err := reportRange(c)
+	from, to, err := s.reportRange(c)
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -233,7 +234,7 @@ func nonNil[T any](v []T) []T {
 // statsExport: GET /stats/export?from=&to= — CSV of each user's traffic on
 // each node over the period (for billing / reconciliation).
 func (s *Server) statsExport(c *gin.Context) {
-	from, to, err := reportRange(c)
+	from, to, err := s.reportRange(c)
 	if err != nil {
 		badRequest(c, err)
 		return
