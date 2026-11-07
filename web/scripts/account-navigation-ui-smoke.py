@@ -20,15 +20,24 @@ class Fixture(proxy['ProxyFixture']):
         self.cdn = cdn['Fixture']()
         self.cdn.profile['name'] = 'CDN dedicated fixture'
         self.email = ''
+        self.role = 'owner'
+        self.hold_after_save = False
+        self.pending_profiles = []
         self.name = 'administrator-with-a-long-display-name'
     def route(self, route):
         request = route.request
         path = urlparse(request.url).path.removeprefix('/api/v1')
         if path == '/auth/avatar' and request.method == 'PUT':
             self.email = request.post_data_json['email'].strip().lower()
+            self.hold_profile = self.hold_after_save
             return route.fulfill(json={'avatarEmail':self.email,'avatarURL':self.avatar()})
         if path == '/auth/me':
-            return route.fulfill(json={'username':self.name,'role':'owner','avatarEmail':self.email,'avatarURL':self.avatar()})
+            profile = {'username':self.name,'role':self.role,'avatarEmail':self.email,'avatarURL':self.avatar()}
+            if getattr(self,'hold_profile',False):
+                self.pending_profiles.append((route,profile)); return
+            return route.fulfill(json=profile)
+        if path in ['/staff/nodes','/auth/sessions']:return route.fulfill(json=[])
+        if path == '/auth/passkeys':return route.fulfill(json={'available':False,'items':[]})
         if path.startswith('/cdn'):
             return self.cdn.route(route)
         return super().route(route)
@@ -113,4 +122,32 @@ with sync_playwright() as p:
             assert not errors, errors
             page.close()
             print(engine,width,height,lang,mode,folded,'CDN isolation, account actions, Gravatar and fallback OK',flush=True)
+        # A delayed profile refresh after saving must not erase the next draft.
+        fixture = Fixture(); fixture.role = 'viewer'; fixture.hold_after_save = True
+        page = browser.new_page(viewport=dict(width=390,height=844))
+        page.add_init_script("localStorage.setItem('polaris.token','fixture');localStorage.setItem('polaris.lang','zh')")
+        page.route('**/api/v1/**',fixture.route)
+        page.route('https://www.gravatar.com/**',lambda route:route.abort())
+        page.goto(BASE+'/account')
+        page.get_by_role('button',name='我的账号',exact=True).click()
+        field=page.get_by_label('头像邮箱',exact=True)
+        save=page.get_by_role('button',name='保存头像设置',exact=True)
+        field.fill('saved@example.com')
+        with page.expect_request(lambda request:urlparse(request.url).path.endswith('/auth/me')):
+            save.click()
+        expect(page.locator('.avatar-settings')).to_have_attribute('aria-busy','false')
+        field.fill('next-draft@example.com')
+        expect(save).to_be_enabled()
+        with page.expect_response(lambda response:urlparse(response.url).path.endswith('/auth/me')) as refreshed:
+            fixture.hold_profile = False
+            for route,profile in fixture.pending_profiles:route.fulfill(json=profile)
+        refreshed.value.json()
+        expect(page.locator('.avatar-settings')).not_to_have_attribute('aria-busy','true')
+        # Wait for the preview response to be applied before inspecting the draft.
+        expect(page.locator('.avatar-settings-preview img')).to_have_count(0)
+        page.evaluate('() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+        expect(field).to_have_value('next-draft@example.com')
+        expect(save).to_be_enabled()
+        page.close()
+        print(engine,'late profile refresh preserves the next avatar draft',flush=True)
         browser.close()
