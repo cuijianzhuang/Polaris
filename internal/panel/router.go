@@ -114,6 +114,7 @@ func (s *Server) Router() http.Handler {
 		r.GET(portalPath+"/login", s.portalGate(decoy, s.portalPage))
 		r.GET(portalPath+"/register", s.portalGate(decoy, s.portalPage))
 		r.POST(portalPath+"/login", s.portalGate(decoy, s.portalLoginStart))
+		r.POST(portalPath+"/login/cancel", s.portalGate(decoy, s.portalLoginCancel))
 		r.POST(portalPath+"/poll", s.portalGate(decoy, s.portalLoginPoll))
 		r.POST(portalPath+"/logout", s.portalGate(decoy, s.portalLogout))
 		r.POST(portalPath+"/reset", s.portalGate(decoy, s.portalReset))
