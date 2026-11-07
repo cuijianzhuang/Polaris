@@ -88,6 +88,18 @@ Copyright © 2026 Polaris contributors.
 
 专业版在「许可证」页面联网激活或导入离线许可证。套餐、功能、数量上限、到期日和更新期限以该页面为准，详见[许可证管理](docs/user-guide.md#license)。
 
+## 相关仓库
+
+| 仓库 | 定位 | 可见性 |
+| --- | --- | --- |
+| [Polaris](https://github.com/cuijianzhuang/Polaris) | 主控 + Agent + Web（社区版核心） | 公开（AGPL-3.0） |
+| `polaris-pro` | 专业版功能源文件，`-tags pro` 编入 | 私有 |
+| `polaris-license` | 授权平台：签发 / 激活 / 续期 / 吊销 | 私有 |
+| [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins) | 插件框架：协议、Schema、SDK、registry 与示例（含 `cf-ip-probe`） | 公开 |
+| [Kaku](https://github.com/cuijianzhuang/Kaku) | 自托管发卡 / 售卡系统（专业版生态售卡渠道） | 公开 |
+
+授权链：Kaku（付款 / 发卡）→ `polaris-license`（签名 / 续期 / 吊销）→ Polaris（激活校验）。插件链：宿主 Polaris 管理权限、事件、Webhook 与页面，`polaris-plugins` 提供清单、签名、SDK 与示例。插件开发入口见「扩展 → 插件」。
+
 ## 快速开始
 
 ### 1. 安装主控
