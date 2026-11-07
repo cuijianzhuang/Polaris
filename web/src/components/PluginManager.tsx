@@ -45,7 +45,8 @@ export default function PluginManager() {
       await post(`/plugins/${p.id}/refresh`, { approve })
     } catch (e) {
       if (e instanceof ApiError && e.data?.needApproval) {
-        const more = [...(e.data.addScopes ?? []).map((s: string) => labels[s] ?? s), ...(e.data.addEvents ?? []), ...(e.data.addFormats ?? []).map((f: string) => t('订阅格式 {f}（会收到用户节点和连接凭据）', { f })), ...(e.data.addTransform ? [t('改写订阅节点（筛选、改名、排序）')] : [])]
+        const d = e.data as { addScopes?: string[]; addEvents?: string[]; addFormats?: string[]; addTransform?: boolean }
+        const more = [...(d.addScopes ?? []).map((s) => labels[s] ?? s), ...(d.addEvents ?? []), ...(d.addFormats ?? []).map((f) => t('订阅格式 {f}（会收到用户节点和连接凭据）', { f })), ...(d.addTransform ? [t('改写订阅节点（筛选、改名、排序）')] : [])]
         if (await confirm(t('新版本需要更多权限：{list}。允许并更新？', { list: more.join('、') }), { ok: t('允许并更新') })) { await post(`/plugins/${p.id}/refresh`, { approve: true }) } else return
       } else throw e
     }

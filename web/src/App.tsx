@@ -95,48 +95,53 @@ function NodesProvider({ children }: { children: ReactNode }) {
   return <NodesCtx.Provider value={{ nodes, refresh }}>{children}</NodesCtx.Provider>
 }
 
-type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; children?: { to: string; label: string; icon: ReactNode }[] }
+type NavItem = { to: string; label: string; icon: ReactNode; end?: boolean; element?: ComponentType; children?: { to: string; label: string; icon: ReactNode; element?: ComponentType }[] }
 
-// Sidebar: related pages share one collapsible group so the list stays short.
+// Sidebar + routes share this one table: related pages form one collapsible
+// group, and every leaf carries the lazy component it renders, so the <Routes>
+// below never drifts from the menu.
 const nav: NavItem[] = [
-  { to: '/', label: t('仪表盘'), icon: <Icon.Dashboard />, end: true },
-  { to: '/stats', label: t('统计'), icon: <Icon.Chart /> },
+  { to: '/', label: t('仪表盘'), icon: <Icon.Dashboard />, end: true, element: Dashboard },
+  { to: '/stats', label: t('统计'), icon: <Icon.Chart />, element: Stats },
   { to: '/nodes', label: t('节点'), icon: <Icon.Nodes />, children: [
-    { to: '/nodes', label: t('节点列表'), icon: <Icon.Server /> },
-    { to: '/map', label: t('节点地图'), icon: <Icon.Map /> },
-    { to: '/probe', label: t('探针'), icon: <Icon.Pulse /> },
-    { to: '/cores', label: t('内核'), icon: <Icon.Cpu /> },
-    { to: '/costs', label: t('服务器成本'), icon: <Icon.Wallet /> },
+    { to: '/nodes', label: t('节点列表'), icon: <Icon.Server />, element: Nodes },
+    { to: '/map', label: t('节点地图'), icon: <Icon.Map />, element: NodeMap },
+    { to: '/probe', label: t('探针'), icon: <Icon.Pulse />, element: Probe },
+    { to: '/cores', label: t('内核'), icon: <Icon.Cpu />, element: Cores },
+    { to: '/costs', label: t('服务器成本'), icon: <Icon.Wallet />, element: Costs },
   ] },
   { to: '/inbounds', label: t('入站与转发'), icon: <Icon.Inbound />, children: [
-    { to: '/inbounds', label: t('入站'), icon: <Icon.Inbound /> },
-    { to: '/templates', label: t('入站模板'), icon: <Icon.Template /> },
-    { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward /> },
+    { to: '/inbounds', label: t('入站'), icon: <Icon.Inbound />, element: Inbounds },
+    { to: '/templates', label: t('入站模板'), icon: <Icon.Template />, element: Templates },
+    { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward />, element: Forwards },
   ] },
-  { to: '/chains', label: t('链路与路由'), icon: <Icon.Chain /> },
+  { to: '/chains', label: t('链路与路由'), icon: <Icon.Chain />, element: Chains },
   { to: '/users', label: t('用户'), icon: <Icon.Users />, children: [
-    { to: '/users', label: t('用户'), icon: <Icon.Users /> },
-    { to: '/plans', label: t('套餐'), icon: <Icon.Package /> },
-    { to: '/shop', label: t('售卖'), icon: <Icon.Wallet /> },
-    { to: '/tickets', label: t('工单'), icon: <Icon.Mail /> },
+    { to: '/users', label: t('用户'), icon: <Icon.Users />, element: Users },
+    { to: '/plans', label: t('套餐'), icon: <Icon.Package />, element: Plans },
+    { to: '/shop', label: t('售卖'), icon: <Icon.Wallet />, element: Shop },
+    { to: '/tickets', label: t('工单'), icon: <Icon.Mail />, element: Tickets },
   ] },
   { to: '/sub-templates', label: t('订阅'), icon: <Icon.Sub />, children: [
-    { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub /> },
-    { to: '/convert', label: t('订阅转换'), icon: <Icon.Convert /> },
+    { to: '/sub-templates', label: t('订阅设置'), icon: <Icon.Sub />, element: SubTemplates },
+    { to: '/convert', label: t('订阅转换'), icon: <Icon.Convert />, element: Convert },
   ] },
   { to: '/domains', label: t('域名与证书'), icon: <Icon.Globe />, children: [
-    { to: '/domains', label: t('域名与 DDNS'), icon: <Icon.Globe /> },
-    { to: '/certificates', label: t('证书'), icon: <Icon.Lock /> },
-    { to: '/websites', label: t('网站与 443 入口'), icon: <Icon.Globe /> },
+    { to: '/domains', label: t('域名与 DDNS'), icon: <Icon.Globe />, element: Domains },
+    { to: '/certificates', label: t('证书'), icon: <Icon.Lock />, element: Certificates },
+    { to: '/websites', label: t('网站与 443 入口'), icon: <Icon.Globe />, element: Websites },
   ] },
-  { to: '/extensions', label: t('扩展'), icon: <Icon.Extension /> },
+  { to: '/extensions', label: t('扩展'), icon: <Icon.Extension />, element: Extensions },
   { to: '/settings', label: t('系统'), icon: <Icon.Gear />, children: [
-    { to: '/settings', label: t('设置'), icon: <Icon.Gear /> },
-    { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot /> },
-    { to: '/audit', label: t('审计日志'), icon: <Icon.Log /> },
+    { to: '/settings', label: t('设置'), icon: <Icon.Gear />, element: Settings },
+    { to: '/telegram', label: t('Telegram 机器人'), icon: <Icon.Bot />, element: Telegram },
+    { to: '/audit', label: t('审计日志'), icon: <Icon.Log />, element: Audit },
   ] },
-  { to: '/license', label: t('许可证'), icon: <Icon.Lock /> },
+  { to: '/license', label: t('许可证'), icon: <Icon.Lock />, element: LicensePage },
 ]
+
+// Route leaves derived from the nav table (groups expand to their children).
+const routeLeaves = nav.flatMap((n) => n.children ?? [n])
 
 // TopProgress is a thin bar shown while API requests are in flight (after a
 // short delay, so fast requests do not flicker).
@@ -373,32 +378,11 @@ function Session() {
                     </Routes>
                   ) : (
                     <Routes>
-                      <Route path="/" element={<Dashboard />} />
-                      <Route path="/stats" element={<Stats />} />
-                      <Route path="/nodes" element={<Nodes />} />
-                      <Route path="/map" element={<NodeMap />} />
-                      <Route path="/probe" element={<Probe />} />
-                      <Route path="/cores" element={<Cores />} />
-                      <Route path="/forwards" element={<Forwards />} />
-                      <Route path="/inbounds" element={<Inbounds />} />
-                      <Route path="/chains" element={<Chains />} />
-                      <Route path="/templates" element={<Templates />} />
-                      <Route path="/users" element={<Users />} />
-                      <Route path="/shop" element={<Shop />} />
-                      <Route path="/tickets" element={<Tickets />} />
-                      <Route path="/plans" element={<Plans />} />
-                      <Route path="/sub-templates" element={<SubTemplates />} />
-                      <Route path="/certificates" element={<Certificates />} />
-                      <Route path="/websites" element={<Websites />} />
-                      <Route path="/settings" element={<Settings />} />
-                      <Route path="/audit" element={<Audit />} />
-                      <Route path="/convert" element={<Convert />} />
-                      <Route path="/domains" element={<Domains />} />
-                      <Route path="/telegram" element={<Telegram />} />
-                      <Route path="/costs" element={<Costs />} />
-                      <Route path="/extensions" element={<Extensions />} />
+                      {routeLeaves.map((r) => {
+                        const El = r.element
+                        return <Route key={r.to} path={r.to} element={El ? <El /> : undefined} />
+                      })}
                       <Route path="/plugins/:id/:page" element={<PluginPage />} />
-                      <Route path="/license" element={<LicensePage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
                   )}

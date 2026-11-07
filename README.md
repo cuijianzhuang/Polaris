@@ -88,6 +88,18 @@ Copyright © 2026 Polaris contributors.
 
 专业版在「许可证」页面联网激活或导入离线许可证。套餐、功能、数量上限、到期日和更新期限以该页面为准，详见[许可证管理](docs/user-guide.md#license)。
 
+## 相关仓库
+
+| 仓库 | 定位 | 可见性 |
+| --- | --- | --- |
+| [Polaris](https://github.com/cuijianzhuang/Polaris) | 主控 + Agent + Web（社区版核心） | 公开（AGPL-3.0） |
+| `polaris-pro` | 专业版功能源文件，`-tags pro` 编入 | 私有 |
+| `polaris-license` | 授权平台：签发 / 激活 / 续期 / 吊销 | 私有 |
+| [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins) | 插件框架：协议、Schema、SDK、registry 与示例（含 `cf-ip-probe`） | 公开 |
+| [Kaku](https://github.com/cuijianzhuang/Kaku) | 自托管发卡 / 售卡系统（专业版生态售卡渠道） | 公开 |
+
+授权链：Kaku（付款 / 发卡）→ `polaris-license`（签名 / 续期 / 吊销）→ Polaris（激活校验）。插件链：宿主 Polaris 管理权限、事件、Webhook 与页面，`polaris-plugins` 提供清单、签名、SDK 与示例。插件开发入口见「扩展 → 插件」。
+
 ## 快速开始
 
 ### 1. 安装主控
@@ -197,7 +209,7 @@ scripts/pro.sh clean
 
 ## 安全部署与问题反馈
 
-- 使用 HTTPS，保存并备份 `POLARIS_SECRET_KEY`；丢失后无法解密已有敏感数据。
+- 使用 HTTPS，保存并备份 `POLARIS_SECRET_KEY`。它派生唯一加密密钥，保护 CA 私钥、证书私钥、REALITY 私钥、SS master key、API 令牌等敏感字段。丢失**或更换**该密钥后，已加密数据将无法解密，且当前不支持原地轮换。
 - 设置自定义后台路径、强密码和两步验证；反向代理只信任实际使用的代理地址。
 - 将订阅链接视为访问凭据。重置订阅同时更换用户 UUID 和密码，用户需要重新导入。
 - 管理员拥有高权限，配置模板、Webhook 和远程规则来源应由可信人员维护。

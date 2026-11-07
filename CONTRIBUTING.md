@@ -94,6 +94,14 @@ CI 的 PostgreSQL 16 服务把临时数据放在上限 2 GiB 的 tmpfs 中，减
 3. 确认 CI 全部通过；有失败先修，不要跳过或禁用测试。
 4. 涉及数据库结构、权限、计费或 Agent 协议的改动，在描述里单独说明兼容性和升级影响。
 
+## 版本与发布
+
+- 合并到 `main` 会自动按 patch 递增发版（见 `.github/workflows/release.yml`）；连续合并只发布最新一次。
+- 提交信息带 `[skip release]` 可跳过自动发版。**纯文档、CI、构建或格式化类改动建议加 `[skip release]`**，避免产生无功能变化的大量补丁版本。
+- 手动发版：在 Actions 里「Run workflow」选择 patch / minor / major；或推送 `v*` 标签（`v1.2.3-` 结尾为预发布）。
+- 提交信息使用约定式前缀（`feat` / `fix` / `docs` / `ci` / `perf` / `refactor` / `chore` / `test`），GitHub 自动 release notes 会按类型归类。破坏性改动建议用 minor/major 发版并在描述中说明升级影响。
+- 社区版与专业版同版本号发布，数据与配置通用（专业版源码在私有 `polaris-pro`）。
+
 ## 许可证
 
 本仓库采用 [AGPL-3.0-only](LICENSE)。提交贡献即表示你同意以该许可证发布你的代码。

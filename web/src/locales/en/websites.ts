@@ -54,7 +54,6 @@ export default {
   '上传静态网站': 'Upload a static site',
   '反代本机博客服务': 'Proxy a local blog',
   '静态网站 ZIP': 'Static site ZIP',
-  'ZIP 根目录须有 index.html；上传最多 4 MiB，解压后最多 8 MiB、2048 个文件。不执行 PHP 或其他服务端脚本。': 'Place index.html at the ZIP root. Maximum upload 4 MiB, expanded 8 MiB and 2,048 files. PHP and other server-side scripts are not executed.',
   '网站文件：{count} 个，共 {size}': 'Website bundle: {count} files, {size}',
   '本机博客地址': 'Local blog URL',
   '填写目标节点上的 HTTP 回环地址，例如 http://127.0.0.1:3000。': 'Enter an HTTP loopback URL on the target node, such as http://127.0.0.1:3000.',
