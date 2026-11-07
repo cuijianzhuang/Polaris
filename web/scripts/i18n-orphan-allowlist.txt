@@ -1,0 +1,104 @@
+# Intentional dictionary entries that never appear as string literals in the
+# frontend source. One key per line; blank lines and #-comments are ignored.
+# These are typically server messages translated via tr(), or keys referenced
+# dynamically. Run `node scripts/i18n-check.mjs` to see current orphans; move
+# entries that must be kept here, and delete the truly unused ones from the
+# locales/en/*.ts files.
+
+# Backend-origin strings surfaced through tr(): error messages, inbound
+# template descriptions and other server defaults. Kept intentionally.
+退出
+VLESS + Vision + REALITY，固定 443
+Hysteria2 与 TUIC v5，随机高位端口
+CDN WS 备用
+VLESS + WebSocket + TLS，走 CDN 入口
+全协议
+Vision TLS 直连
+VLESS + TCP + XTLS Vision + TLS，需要域名与证书（ACME），随机未占用端口
+VLESS TLS 直连
+VLESS + TCP + TLS（无 Vision），需要域名与证书，随机未占用端口
+Trojan TLS 直连
+Trojan + TCP + TLS，需要域名与证书，随机未占用端口
+gRPC TLS（可 CDN）
+VLESS / Trojan + gRPC + TLS，需要域名与证书，端口 2087 / 2083；Cloudflare 只在 443 端口代理 gRPC，要走 CDN 请把端口改为 443 或在配置档开启 Caddy 统一回源
+VLESS + gRPC / XHTTP + REALITY，无需域名，随机高位端口；XHTTP 仅 Xray / mihomo
+REALITY 防偷跑
+VLESS + Vision + REALITY，限速回落防止目标站被盗用，无需域名，固定 443，仅 Xray 生效
+VLESS Encryption 直连
+VLESS + Vision + VLESS Encryption（ML-KEM-768），裸 TCP 无需域名与证书，需 Xray 25.9.11+
+VMess 全家桶
+VMess TCP、TCP+HTTP 伪装、TCP+TLS、WS、WS+TLS（可 CDN）；TLS 项需要域名与证书
+VLESS / VMess + mKCP，UDP 随机高位端口，无需域名，仅 Xray
+Shadowsocks 2022（2022-blake3-aes-128-gcm）与 AEAD（aes-128-gcm），无需域名，随机高位端口
+使用入站
+已配置
+暂无
+兜底出站
+将在
+延迟
+此组合不能走 CDN
+超过 14 天未成功校验许可证，管理修改已暂停；已有代理继续运行，请联网校验或导入离线许可证
+授权服务器
+客户
+联网校验
+服务器成本已更新，请关闭编辑窗口并刷新后重试
+付费周期或续费日期无效
+续费日期超出支持范围
+在线设备
+收款地址
+还没有订单
+丢包率
+网速
+Cloudflare 需要在域名的 Network 设置里打开 gRPC
+没有入站需要换证书
+Origin 证书已下发
+Caddy 统一回源需要入站开启 TLS 并配置证书
+SSL 模式 Flexible 下 Cloudflare 用明文 HTTP 回源，开了 TLS 的入站接不上：把配置档的 SSL 模式改为 Full 或 Full (strict)
+SSL 模式 Full / Full (strict) 下 Cloudflare 用 HTTPS 回源，入站需要开启 TLS（或开启配置档的「Caddy 统一回源」）
+sing-box 真实业务诊断仅支持 VLESS + TCP + REALITY/Vision，且不能使用入站 JSON 覆盖或共享回落；此限制不影响当前协议的中转创建和转发
+落地 Agent 尚未声明 sing-box 安全临时授权能力，请更新或同步 Agent 后重试
+sing-box 真实业务诊断要求已上报的稳定内核版本不低于 1.13.5
+sing-box 真实业务诊断要求 with_v2ray_api 构建，以独立计量诊断流量
+sing-box VLESS + TCP + REALITY/Vision；诊断开始和结束时重启内核，现有连接会中断
+sing-box 尚未上报运行版本与计量能力，请等待 Agent 心跳
+无法读取 sing-box 运行版本与计量能力
+临时身份已撤销，但正式配置恢复失败
+落地 Agent 尚未声明真实业务诊断能力，请更新或同步 Agent 后重试
+网络诊断未执行代理认证、上下行或 UDP 端到端测试；请运行支持的真实业务诊断，或使用真实订阅验证业务
+回程检测未完成，请检查节点状态或稍后重试
+节点返回了无效的回程检测结果
+节点离线或已撤销，无法检查回程环境
+回程环境检查未完成，请检查 Agent 连接后重试
+Agent 返回了无效的回程环境状态
+仓库下载失败，请稍后重试或切换来源
+仓库数据库超过大小限制
+仓库文件 SHA-256 校验失败，请重试或切换来源
+不支持的数据库仓库来源
+仓库未找到匹配的 ASN 或 City 数据库
+请提供仓库来源和当前配置版本
+数据库配置已变化，请刷新后重试
+城市数据库不能为空，且不能超过 128 MiB
+城市数据库压缩文件不能超过 64 MiB
+无法读取城市数据库压缩文件
+城市数据库压缩文件损坏或不完整
+城市数据库解压后不能超过 128 MiB
+无法读取城市 MMDB 数据库
+需要包含国家、省份、城市字段的 City 类型 MMDB 数据库
+城市 MMDB 完整性验证失败
+城市数据库字段格式不兼容
+数据库未包含兼容的地理位置字段
+地理归属配置无效
+地理归属配置已变化，请刷新后重试
+请先向当前实例上传城市数据库
+数据库不能超过 128 MiB
+无法创建城市数据库目录
+无法暂存城市数据库
+写入城市数据库失败
+安装城市数据库失败
+无法读取
+未生效
+入口端口必须为 0（使用默认值）或 1–65535
+该中转线路已停用，请先在中转管理中启用
+该中转线路的落地与当前入站不匹配
+证书仍被入站或网站使用
+静态网站 ZIP

@@ -23,7 +23,6 @@ const m: Record<string, string> = {
   'Caddy 回源': 'Caddy origin',
   'Telegram 机器人': 'Telegram bot',
   'Telegram 登录': 'Telegram sign-in',
-  'Telegram 节点管理员 · 仅可查看分配给你的节点': 'Telegram node operator · only the nodes assigned to you',
   '{label}完成（{n} 项）': '{label}: done ({n} items)',
   '{label}完成，{failed} 项失败': '{label}: done, {failed} failed',
   '{n} 分钟': '{n} min',
