@@ -43,8 +43,8 @@
   --shadow-2: 0 8px 24px -8px rgba(15, 23, 42, .12), 0 2px 6px -2px rgba(15, 23, 42, .05);
   --shadow-3: 0 24px 64px -16px rgba(15, 23, 42, .28);
   --ring: 0 0 0 4px color-mix(in srgb, var(--pri) 16%, transparent);
-  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Segoe UI', 'Inter Variable', 'Inter', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --mono: var(--ui-mono);
+  --sans: var(--ui-font);
 }
 
 * { box-sizing: border-box; }
@@ -142,12 +142,12 @@ tr.group td { background: var(--soft); font-weight: 600; font-size: 12px; color:
 .empty { padding: 48px 16px; text-align: center; color: var(--mute); }
 
 /* buttons */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 38px; padding: 0 15px; border-radius: var(--r); border: 1px solid var(--input); background: var(--card); color: var(--ink); font-weight: 500; font-size: 13.5px; cursor: pointer; text-decoration: none; white-space: nowrap;
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--ui-control-height); padding: 0 15px; border-radius: var(--r); border: 1px solid var(--input); background: var(--card); color: var(--ink); font-weight: 500; font-size: 13.5px; cursor: pointer; text-decoration: none; white-space: nowrap;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .05); transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform .08s var(--ease); }
 .btn:hover { background: var(--soft-2); color: var(--ink); border-color: var(--input-strong); }
 .btn:active:not(:disabled) { transform: translateY(1px) scale(.985); }
 .btn:focus-visible { outline: none; box-shadow: var(--ring); border-color: var(--pri); }
-.btn.sm { min-height: 32px; padding: 0 11px; font-size: 13px; border-radius: var(--r-sm); }
+.btn.sm { min-height: var(--ui-control-compact); padding: 0 11px; font-size: 13px; border-radius: var(--r-sm); }
 .btn.pri { background: var(--pri); border-color: var(--pri); color: var(--on-pri); box-shadow: 0 1px 2px color-mix(in srgb, var(--pri) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, .16); }
 .btn.pri:hover { background: var(--pri-ink); border-color: var(--pri-ink); color: var(--on-pri); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--pri) 70%, transparent); }
 .btn.danger { color: var(--bad); }
@@ -186,7 +186,7 @@ tr.group td { background: var(--soft); font-weight: 600; font-size: 12px; color:
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .lbl { font-size: 13px; font-weight: 550; color: var(--ink-2); }
 .hint { font-size: 12px; color: var(--mute); }
-.input, select.input, textarea.input { width: 100%; min-height: 38px; border: 1px solid var(--input); border-radius: var(--r); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); padding: 0 12px; font: inherit; font-size: 13px; background: var(--card); color: var(--ink); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.input, select.input, textarea.input { width: 100%; min-height: var(--ui-control-height); border: 1px solid var(--input); border-radius: var(--r); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); padding: 0 12px; font: inherit; font-size: 13px; background: var(--card); color: var(--ink); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 .input:hover:not(:focus) { border-color: var(--input-strong); }
 .input.mono { font-family: var(--mono); }
 textarea.input { padding: 10px 12px; min-height: 120px; font-family: var(--mono); font-size: 12px; line-height: 1.6; resize: vertical; }
@@ -878,7 +878,7 @@ label.btn.disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
 html[data-style="blackgold"] {
   --gold: #EFBE96;
   --gold-grad: linear-gradient(135deg, #F7D7BC 0%, #EFBE96 50%, #DDA47C 100%);
-  --sans: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', 'Segoe UI', system-ui, sans-serif;
+  --sans: var(--ui-font);
   --bg: #181B24; --card: #1F222B; --ink: #E6E7EE; --ink-2: #C0C2CF; --mute: #8C8E99; --faint: #63656F;
   --line: #2A2D39; --line-2: #23262F; --input: #393C49; --input-strong: #4D505E; --soft: #262935; --soft-2: #232631; --on-ink: #181B24;
   --side: #242736; --side-ink: #C0C2CF; --side-hover: #383B48; --side-line: #2A2D3B;

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
@@ -26,6 +27,8 @@ type idleCore struct {
 
 // managed is one running core on this host.
 type managed struct {
+	meterMu sync.Mutex
+	meter   model.TrafficMeter
 	spec    model.CoreSpec
 	adapter core.CoreAdapter
 	cfgPath string

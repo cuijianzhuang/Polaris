@@ -1,3 +1,4 @@
+import TrafficMeterHealth from '../components/TrafficMeterHealth'
 import CountryFlag, { FlagText } from '../components/CountryFlag'
 import NodeNetworkTools from '../components/NodeNetworkTools'
 import { useEffect, useMemo, useState } from 'react'
@@ -554,6 +555,7 @@ export default function Nodes() {
                       <div className="caps">{capsSummary(cap).map((x) => <span key={x} className="tag">{x}</span>)}</div>
                       <div className="sub" style={{ margin: 0 }}>{t('用户变更：')}{cap?.hotUsers ? (c.type === 'xray' ? t('gRPC 热更新，不中断连接') : t('HTTP 认证回调，无需重载')) : c.type === 'singbox' ? t('SIGHUP 重载') : t('重启进程')}</div>
                       {c.error && <div className="note bad">{c.error}</div>}
+                      <TrafficMeterHealth core={c} connected={sel.connected} />
                       {c.noUserTraffic && <div className="note warn">{t('官方版 sing-box 不能按用户统计流量（只统计入站总量）。Polaris 构建的同版本发布后，重启 Agent 或切换版本即自动替换。')}</div>}
                       {!scoped && (() => {
                         const lv = latest.data?.[c.type]

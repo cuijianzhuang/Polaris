@@ -1,4 +1,17 @@
 const m: Record<string, string> = {
+  "未上报": "Not reported",
+  "不支持用户计量": "Per-user metering unavailable",
+  "计量已暂停": "Metering paused",
+  "最近采集失败": "Latest collection failed",
+  "采集结果较旧": "Collection is stale",
+  "采集状态未上报": "Collection status not reported",
+  "采集正常": "Collection healthy",
+  "活动连接采样": "Active connection sampling",
+  "内核用户计数": "Kernel user counters",
+  "活动连接快照可能漏掉短连接及关闭前的尾部流量，不等同于精确账单。": "Active connection snapshots may miss short connections and final bytes before closure. This is not exact billing.",
+  "最近成功采集": "Last successful collection",
+  "采样间隔 {n} 秒": "Sampling interval: {n} s",
+
   '请求超时，请重试': 'The request timed out. Please retry.',
   '订阅规则模板': 'Subscription rule template',
   '服务器模板已更新，当前草稿已保留。保存前请重新加载并核对。': 'The server template changed. Your draft is preserved. Reload and review before saving.',

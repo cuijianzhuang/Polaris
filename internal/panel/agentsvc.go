@@ -338,6 +338,9 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 	var kb strings.Builder
 	for _, c := range hb.Cores {
 		fmt.Fprintf(&kb, "%s|%s|%t|%d|%d|%s|%v|%t;", c.Type, c.Version, c.Running, c.Pid, c.StartedAt, c.Error, c.InstalledVersions, c.NoUserTraffic)
+		if c.TrafficMeter != nil {
+			fmt.Fprintf(&kb, "meter:%s:%d:%t:%t;", c.TrafficMeter.Mode, c.TrafficMeter.IntervalSeconds, c.TrafficMeter.ConsecutiveFailures > 0, c.TrafficMeter.LastSuccess > 0)
+		}
 	}
 	key := kb.String()
 	s.hbMu.Lock()
@@ -360,6 +363,21 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 		}
 		upd := map[string]any{"status": st, "pid": int(c.Pid), "error": c.Error,
 			"installed_versions": store.NewJSON(c.InstalledVersions), "running_version": c.Version, "no_user_traffic": c.NoUserTraffic}
+		meter := model.TrafficMeter{}
+		if v := c.TrafficMeter; v != nil {
+			meter.Mode = v.Mode
+			meter.IntervalSeconds = int(v.IntervalSeconds)
+			meter.ConsecutiveFailures = int(v.ConsecutiveFailures)
+			if v.LastSuccess > 0 {
+				at := time.Unix(v.LastSuccess, 0)
+				meter.LastSuccess = &at
+			}
+			if v.LastAttempt > 0 {
+				at := time.Unix(v.LastAttempt, 0)
+				meter.LastAttempt = &at
+			}
+		}
+		upd["traffic_meter"] = store.NewJSON(meter)
 		if c.StartedAt > 0 {
 			t := time.Unix(c.StartedAt, 0)
 			upd["started_at"] = &t

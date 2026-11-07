@@ -355,6 +355,31 @@ func (a *Agent) sendHeartbeat() error {
 		if r, ok := m.adapter.(interface{ PerUserTraffic() bool }); ok {
 			cs.NoUserTraffic = !r.PerUserTraffic()
 		}
+		m.meterMu.Lock()
+		meter := m.meter
+		m.meterMu.Unlock()
+		if reporter, ok := m.adapter.(interface{ TrafficMeterStatus() model.TrafficMeter }); ok {
+			meter = reporter.TrafficMeterStatus()
+		} else {
+			if meter.Mode == "" {
+				meter.Mode = "kernel_counter"
+			}
+			meter.IntervalSeconds = int(a.cfg.Traffic / time.Second)
+			if cs.NoUserTraffic {
+				meter.Mode = "unavailable"
+			}
+			if m.spec.Type == model.CoreGost || m.spec.Type == model.CoreCaddy || m.spec.Type == model.CoreCloudflared {
+				meter.Mode = "unavailable"
+			}
+		}
+		cs.TrafficMeter = &polarisv1.TrafficMeter{Mode: meter.Mode, IntervalSeconds: int32(meter.IntervalSeconds), ConsecutiveFailures: int32(meter.ConsecutiveFailures)}
+		if meter.LastSuccess != nil {
+			cs.TrafficMeter.LastSuccess = meter.LastSuccess.Unix()
+		}
+		if meter.LastAttempt != nil {
+			cs.TrafficMeter.LastAttempt = meter.LastAttempt.Unix()
+		}
+
 		if !st.StartedAt.IsZero() {
 			cs.StartedAt = st.StartedAt.Unix()
 		}
@@ -627,6 +652,20 @@ func (a *Agent) collectFrom(ctx context.Context, ms ...*managed) {
 	var all [][]model.TrafficDelta
 	for _, m := range ms {
 		ds, err := m.adapter.CollectTraffic(ctx)
+		now := time.Now().UTC()
+		m.meterMu.Lock()
+		m.meter.LastAttempt = &now
+		if err == nil {
+			m.meter.LastSuccess = &now
+			m.meter.Mode = "kernel_counter"
+			m.meter.ConsecutiveFailures = 0
+		} else {
+			m.meter.ConsecutiveFailures++
+			if errors.Is(err, core.ErrNotSupported) {
+				m.meter.Mode = "unavailable"
+			}
+		}
+		m.meterMu.Unlock()
 		if err != nil {
 			if !errors.Is(err, core.ErrNotSupported) {
 				a.warnCollect(string(m.spec.Type), err)

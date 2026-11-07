@@ -93,6 +93,7 @@ with sync_playwright() as p:
             saved = page.evaluate("JSON.parse(localStorage.getItem('polaris.theme'))")
             assert saved['mode']=='system' and saved['accent']=='blue' and saved['style']=='warm', saved
             page.reload()
+            expect(page.locator('.appearance-controls')).to_be_visible(timeout=15000)
             expect(root).to_have_attribute('data-accent','blue')
             expect(root).to_have_attribute('data-mode','dark')
             page.locator('.style-midnight').click()
@@ -100,6 +101,7 @@ with sync_playwright() as p:
             page.get_by_role('button',name='主题色：跟随风格' if language=='zh' else 'Accent color: Match style',exact=True).click()
             expect(root).to_have_attribute('data-accent','ice')
             page.reload()
+            expect(page.locator('.appearance-controls')).to_be_visible(timeout=15000)
             expect(root).to_have_attribute('data-accent','ice')
             expect(root).to_have_attribute('data-style','midnight')
             saved=page.evaluate("JSON.parse(localStorage.getItem('polaris.theme'))")

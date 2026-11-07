@@ -2,9 +2,10 @@
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
 <link rel="icon" href="/favicon.ico"><title>{{.Title}} · 用户中心</title>
-<style>
-:root{color-scheme:light dark;--bg:#f5f7fa;--card:#fff;--ink:#1d2837;--mute:#687588;--line:#e3e8ee;--pri:#177f7c;--on-pri:#fff;--soft:#edf7f5;--bad:#b42318}
-@media(prefers-color-scheme:dark){:root{--bg:#11161c;--card:#1a222c;--ink:#edf2f7;--mute:#a3afbd;--line:#334051;--pri:#54bdb5;--soft:#203b3a;--bad:#ff9690}}
+<style>{{uiTokens}}
+
+:root{color-scheme:light dark;--bg:var(--ui-light-bg);--card:var(--ui-light-card);--ink:var(--ui-light-ink);--mute:var(--ui-light-mute);--line:var(--ui-light-line);--pri:var(--ui-light-primary);--on-pri:#fff;--soft:var(--ui-light-note);--bad:var(--ui-light-bad)}
+@media(prefers-color-scheme:dark){:root{--bg:var(--ui-dark-bg);--card:var(--ui-dark-card);--ink:var(--ui-dark-ink);--mute:var(--ui-dark-mute);--line:var(--ui-dark-line);--pri:var(--ui-dark-primary);--on-pri:#10253e;--soft:var(--ui-dark-note);--bad:var(--ui-dark-bad)}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","PingFang SC","Segoe UI","Inter Variable","Inter","Microsoft YaHei",system-ui,sans-serif}
 a{color:var(--pri);text-decoration:none}button,input{font:inherit}button,a,input{touch-action:manipulation}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--pri);outline-offset:3px}
 header{height:76px;display:flex;align-items:center;padding:0 5vw;border-bottom:1px solid var(--line);background:var(--card)}.brand{display:flex;align-items:center;gap:10px;font-size:21px;font-weight:650;color:var(--ink)}.brand img{width:34px;height:34px;border-radius:9px}
@@ -13,6 +14,7 @@ h1{margin:0;font-size:26px;letter-spacing:-.04em}.intro{margin:6px 0 26px;color:
 .mail{display:grid;gap:18px}label{display:block;font-size:13px;font-weight:600;margin-bottom:7px}input{width:100%;min-width:0;min-height:48px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:10px 13px}.code-row{display:flex;border:1px solid var(--line);border-radius:10px;min-width:0}.code-row input{border:0;flex:1;width:0}.code-row button{flex:none;border:0;background:none;padding:0 12px;color:var(--pri);cursor:pointer;font-size:13px;min-height:48px}
 .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;border-radius:10px;border:1px solid var(--pri);background:var(--pri);color:var(--on-pri);text-decoration:none;font:inherit;font-weight:600;cursor:pointer;padding:10px 14px}.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}button:disabled{opacity:.5;cursor:default}.mute{color:var(--mute);font-size:13px;margin:0}.err{color:var(--bad);font-size:13px;margin:0;overflow-wrap:anywhere}.notice{padding:12px 14px;background:var(--soft);border-radius:10px;font-size:13px;margin-bottom:20px}.divider{display:flex;align-items:center;gap:14px;color:var(--mute);font-size:13px;margin:24px 0 16px}.divider:before,.divider:after{content:"";height:1px;background:var(--line);flex:1}#s2{text-align:center}.num{font:650 44px/1.3 ui-monospace,monospace;color:var(--pri);letter-spacing:.08em;margin:10px 0}.tg-note{margin-top:12px;text-align:center}.tg-cancel{display:block;margin:12px auto 0;border:0;background:none;color:var(--mute);min-height:44px;padding:8px 12px;cursor:pointer}.tg-cancel:hover{color:var(--ink)}.shop{display:block;text-align:center;margin-top:22px}.foot{text-align:center;color:var(--mute);font-size:12px;margin-top:24px}[hidden]{display:none!important}
 @media(max-width:480px){header{height:64px;padding:0 20px}.card{padding:26px 22px;border-radius:16px}main{margin:28px auto}.code-row button{padding:0 10px}}
+body{font-family:var(--ui-font)}.card{border-radius:var(--ui-radius-card)}button,input{border-radius:var(--ui-radius-control)}
 </style></head><body>
 <header><a class="brand" href="/u"><img src="/favicon.ico" alt=""><span>{{.Title}}</span></a></header>
 <main><section class="card" aria-label="用户登录与注册">
