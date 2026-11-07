@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
+	"github.com/cuijianzhuang/polaris/internal/sub"
 )
 
 const (
@@ -206,7 +207,7 @@ func (s *Server) login(c *gin.Context) {
 func (s *Server) me(c *gin.Context) {
 	if v, ok := c.Get("tgAdmin"); ok {
 		a := v.(*store.TGAdmin)
-		out := gin.H{"username": "tg:" + a.Name, "telegram": true, "role": a.Role}
+		out := gin.H{"username": "tg:" + a.Name, "telegram": true, "role": a.Role, "avatarEmail": a.AvatarEmail, "avatarURL": sub.AvatarURL(a.AvatarEmail)}
 		if a.Role != "owner" {
 			out["nodeIds"] = a.NodeIDs.V
 		}
@@ -219,6 +220,7 @@ func (s *Server) me(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": a.ID, "username": a.Username, "role": normalizedAdminRole(a.Role), "totpEnabled": a.TOTPEnabled, "githubLogin": a.GitHubLogin,
+		"avatarEmail": a.AvatarEmail, "avatarURL": sub.AvatarURL(a.AvatarEmail),
 		"lastLoginAt": a.LastLoginAt, "createdAt": a.CreatedAt, "recoveryCodesLeft": len(a.RecoveryCodes.V), "sudo": s.sudoOK(c), "assignedNodeIds": a.NodeIDs.V})
 }
 

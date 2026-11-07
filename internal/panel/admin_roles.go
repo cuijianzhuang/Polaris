@@ -28,6 +28,7 @@ func normalizedAdminRole(role string) string {
 
 var selfAccountRoutes = map[string]bool{
 	"GET /auth/me": true, "POST /auth/logout": true, "POST /auth/sudo": true, "POST /auth/password": true,
+	"PUT /auth/avatar":   true,
 	"GET /auth/sessions": true, "DELETE /auth/sessions/:id": true, "POST /auth/sessions/revoke-others": true,
 	"GET /auth/passkeys": true, "POST /auth/passkeys/register/begin": true, "POST /auth/passkeys/register/finish": true,
 	"DELETE /auth/passkeys/:pid": true, "POST /auth/account-recovery-codes": true,

@@ -13,6 +13,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
+	"github.com/cuijianzhuang/polaris/internal/sub"
 )
 
 type userReq struct {
@@ -47,6 +48,7 @@ func (s *Server) withGroups(us []store.User) {
 	ids := make([]string, len(us))
 	for i, u := range us {
 		ids[i] = u.ID
+		us[i].AvatarURL = sub.AvatarURL(u.Email)
 	}
 	var ugs []store.UserGroup
 	s.st.DB.Where("user_id IN ? AND group_id NOT IN (?)", ids, plansOnly(s.st.DB)).Find(&ugs)

@@ -2,6 +2,7 @@ import AdminAccounts from '../components/AdminAccounts'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from '../components/SettingsDrafts'
 import { useLocation, useNavigate } from 'react-router-dom'
 import Passkeys from '../components/Passkeys'
+import AvatarSettings from '../components/AvatarSettings'
 import { NotificationSettings, NetworkDatabaseSettings } from '../components/NetworkSettings'
 import { useEffect, useRef, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
@@ -156,6 +157,7 @@ export default function Settings() {
         {tab === 'backup' && <Backups />}
         {tab === 'mail' && <MailSettings />}
         {tab === 'security' && <>
+ <AvatarSettings />
  <Passkeys />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('修改密码')} · {me.data?.username}</h2>

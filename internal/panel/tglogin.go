@@ -105,6 +105,7 @@ func inScope(c *gin.Context, nodeID string) bool {
 // nodes plus the actions the bot already offers them (sync, rollback, core
 // restart). Everything else is refused.
 var scopedRoutes = map[string]bool{
+	"PUT /auth/avatar":                  true,
 	"GET /auth/me":                      true,
 	"POST /auth/logout":                 true,
 	"POST /auth/sudo":                   true,

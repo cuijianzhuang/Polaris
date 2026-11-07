@@ -12,6 +12,7 @@ import { useBrand } from './brand'
 import { useFeature } from './components/License'
 import { t } from './i18n'
 import LangToggle from './components/LangToggle'
+import SidebarAccount from './components/SidebarAccount'
 import { ConfirmProvider, ToastProvider } from './components/ui'
 import { useMobileKeyboard } from './components/useMobileKeyboard'
 import { useMenuDismiss } from './components/useMenuDismiss'
@@ -213,7 +214,7 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: Error | n
   }
 }
 
-function Layout({ user, onLogout, children }: { user: string; onLogout: () => void; children: ReactNode }) {
+function Layout({ user, avatarURL, onLogout, children }: { user: string; avatarURL?: string; onLogout: () => Promise<void>; children: ReactNode }) {
   useMobileKeyboard()
   useMenuDismiss()
   const leave = useSettingsLeave()
@@ -283,10 +284,10 @@ function Layout({ user, onLogout, children }: { user: string; onLogout: () => vo
             </>
           )}
         </div>
-        <div className="side-foot">
-          <span className="me"><span className="avatar" title={accountName}>{(accountName[0] || '?').toUpperCase()}</span><span className="me-text"><b title={accountName}>{accountName}</b><small title={accountRole}>{accountRole}</small></span></span>
-          <span className="side-actions"><LangToggle /><ThemeToggle themesOK={themesOK} /><button type="button" className="logout" title={t('退出登录')} aria-label={t('退出登录')} onClick={async () => { if (await leave()) onLogout() }}>{t('退出')}</button></span>
-        </div>
+        <SidebarAccount name={accountName} role={accountRole} avatarURL={avatarURL} folded={folded}
+          securityURL={scoped ? user.startsWith('tg:') ? undefined : '/account' : '/settings#security'}
+          preferences={<><LangToggle /><ThemeToggle themesOK={themesOK} /></>}
+          onLogout={async () => { if (await leave()) await onLogout() }} />
       </nav>
       <main className="main">
         <header className="workspace-bar">
@@ -318,10 +319,12 @@ function Session() {
   })
   const [scoped, setScoped] = useState(false)
   const [role, setRole] = useState<string | null>(null)
+  const [avatar, setAvatar] = useState({ username: '', url: '' })
+  const avatarURL = avatar.username === user ? avatar.url : ''
   const [accessError, setAccessError] = useState('')
   const [tgBusy, setTgBusy] = useState(() => !!takeOAuthResult().tg)
   useEffect(() => {
-    setUnauthorizedHandler(() => { setToken(null); setUser(null); setScoped(false); setRole(null) })
+    setUnauthorizedHandler(() => { setToken(null); setUser(null); setScoped(false); setRole(null); setAvatar({ username: '', url: '' }) })
     const r = takeOAuthResult()
     if (r.tg) {
       setToken(null)
@@ -333,9 +336,14 @@ function Session() {
   }, [])
   useEffect(() => {
     if (!user || !getToken()) return
-    get<{ username: string; role?: string; nodeIds?: string[] }>('/auth/me').then((m) => { setUser(m.username); setRole(m.role || 'owner'); setScoped(m.role === 'operator' || !!m.nodeIds); setAccessError('') }).catch((e) => setAccessError(String(e)))
+    get<{ username: string; role?: string; nodeIds?: string[]; avatarURL?: string }>('/auth/me').then((m) => { setUser(m.username); setAvatar({ username: m.username, url: m.avatarURL || '' }); setRole(m.role || 'owner'); setScoped(m.role === 'operator' || !!m.nodeIds); setAccessError('') }).catch((e) => setAccessError(String(e)))
   }, [user === null])
-  const logout = () => { post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false); setRole(null) }) }
+  useEffect(() => {
+    const refreshAvatar = () => { get<{ username: string; avatarURL?: string }>('/auth/me').then((m) => setAvatar({ username: m.username, url: m.avatarURL || '' })).catch(() => {}) }
+    window.addEventListener('polaris-avatar-updated', refreshAvatar)
+    return () => window.removeEventListener('polaris-avatar-updated', refreshAvatar)
+  }, [])
+  const logout = () => post('/auth/logout').catch(() => {}).finally(() => { setToken(null); setUser(null); setScoped(false); setRole(null); setAvatar({ username: '', url: '' }) })
   if (tgBusy) return <div className="login"><div className="card" style={{ alignItems: 'center' }}>{t('正在通过 Telegram 登录…')}</div></div>
   return (
     <ToastProvider>
@@ -351,11 +359,11 @@ function Session() {
           ) : !['owner', 'operator', 'viewer', 'support', 'finance'].includes(role) ? (
             <div className="card" style={{ margin: 20 }}><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={logout}>{t('退出登录')}</button></div>
           ) : ['viewer', 'support', 'finance'].includes(role) ? (
-            <StaffWorkspace role={role} username={user} onLogout={logout} />
+            <StaffWorkspace role={role} username={user} avatarURL={avatarURL} onLogout={logout} />
           ) : (
             <ScopeCtx.Provider value={{ scoped }}>
               <NodesProvider>
-                <Layout user={user} onLogout={logout}>
+                <Layout user={user} avatarURL={avatarURL} onLogout={logout}>
                   <Suspense fallback={<div className="sub" style={{ padding: 16 }}>{t('加载中…')}</div>}>
                   {scoped ? (
                     <Routes>
