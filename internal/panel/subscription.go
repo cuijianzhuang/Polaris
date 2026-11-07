@@ -162,6 +162,13 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 			m.Port, m.Security = mm.Port, mm.Security
 		}
 		base := s.clientNode(&m, node, u)
+		base.TrafficRate = node.TrafficRate
+		if rate := prates[node.ID]; rate > 0 {
+			base.TrafficRate = rate
+		}
+		if base.TrafficRate <= 0 {
+			base.TrafficRate = 1
+		}
 		base.Region, base.Source = node.Flag, "panel"
 		if in.Core == model.CoreXray && base.TLS.Type == model.SecReality && core.VersionAtLeast(xrayVer[node.ID], model.XrayPQRealityVersion) {
 			base.PQRealityOnly = true
@@ -215,6 +222,9 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 				continue
 			}
 			expanded := s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, carrier, audience)
+			for i := range expanded {
+				expanded[i].PanelEndpointID, expanded[i].PanelChainID, expanded[i].PanelKind = ep.ID, ep.RelayChainID, ep.Kind
+			}
 			if trace != nil {
 				trace[ep.ID] = append(trace[ep.ID], expanded...)
 			}
@@ -237,6 +247,7 @@ func rateLabel(rate float64) string {
 func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) sub.Node {
 	um := u.ToModel()
 	n := sub.Node{Server: nodeHost(node), Port: m.Port, Protocol: m.Protocol.Type, UUID: u.UUID, Password: u.Password,
+		PanelNodeID: node.ID, PanelInboundID: m.ID,
 		Username: u.ID, Flow: m.Protocol.Flow, VisionUDP443: m.Protocol.VisionUDP443, Transport: m.Transport,
 		UpMbps: m.Protocol.UpMbps, DownMbps: m.Protocol.DownMbps, Obfs: m.Protocol.Obfs, ObfsPassword: m.Protocol.ObfsPassword,
 		CongestionControl: m.Protocol.CongestionControl}
@@ -423,6 +434,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 				n.TLS.ServerName = base.Server
 			}
 			n.Server, n.Port = nodeHost(entry), ch.Hops.V[0].Port
+			n.PanelNodeID = entry.ID
 			n = apply(n)
 			v := map[string]string{}
 			for k, x := range vars {

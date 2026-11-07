@@ -2,6 +2,7 @@ package panel
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"html/template"
 	"net/http"
@@ -17,7 +18,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
 
-// User center: proxy users sign in at /u with Telegram — no passwords. The
+// User center: proxy users sign in at /u with an email code or Telegram. The
 // page shows a number, the user opens t.me/<bot>?start=ulogin_<id> and taps
 // the same number (the admin login page's flow, see tgweblogin.go). The
 // session is an HttpOnly cookie scoped to /u; it stays valid while the user
@@ -145,16 +146,29 @@ func (s *Server) portalGate(decoy, h gin.HandlerFunc) gin.HandlerFunc {
 // portalPage: GET /u — the user's info page, or the sign-in page.
 func (s *Server) portalPage(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
+	next := portalPath
+	if c.Query("next") == shopWebPath {
+		next = shopWebPath
+	}
 	u := s.portalUser(c)
+	if u != nil && c.Request.URL.Path != portalPath {
+		c.Redirect(http.StatusFound, next)
+		return
+	}
 	if u == nil {
 		var buf strings.Builder
-		_ = portalLoginTpl.Execute(&buf, map[string]any{
-			"Title":    s.subTitle(s.st.GetSetting("site_title", "Polaris")),
-			"Bot":      s.tgWebLoginEnabled(),
-			"Mail":     s.mailLoginOn(),
-			"Register": s.mailRegisterOn(),
-			"Shop":     s.webShopOn(),
-		})
+		if err := portalLoginTpl.Execute(&buf, map[string]any{
+			"Title":        s.subTitle(s.st.GetSetting("site_title", "Polaris")),
+			"Bot":          s.tgWebLoginEnabled(),
+			"Mail":         s.mailLoginOn(),
+			"Register":     s.mailRegisterOn(),
+			"RegisterMode": c.Request.URL.Path == portalPath+"/register" && s.mailRegisterOn(),
+			"Next":         next,
+			"Shop":         s.webShopOn(),
+		}); err != nil {
+			serverError(c, err)
+			return
+		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(buf.String()))
 		return
 	}
@@ -170,6 +184,26 @@ func (s *Server) portalPage(c *gin.Context) {
 	}
 	info.Title = s.subTitle(info.Title)
 	s.pageExtras(&info, u, nodes)
+	if len(info.Daily) > 7 {
+		info.Daily = info.Daily[len(info.Daily)-7:]
+	}
+	if err := s.portalNodeDetails(&info, nodes); err != nil {
+		serverError(c, err)
+		return
+	}
+	// Limit the initial page, while telling users when older orders exist.
+	var orders []store.Order
+	if err := s.st.DB.Where("user_id = ?", u.ID).Order("created_at DESC, id DESC").Limit(51).Find(&orders).Error; err != nil {
+		serverError(c, err)
+		return
+	}
+	info.PortalOrdersMore = len(orders) > 50
+	if info.PortalOrdersMore {
+		orders = orders[:50]
+	}
+	for _, o := range orders {
+		info.PortalOrders = append(info.PortalOrders, sub.PortalOrder{ID: o.ID, Name: orDefault(o.PlanName, "套餐订单"), Amount: webAmount(&o), Status: orDefault(orderStatusName[o.Status], "处理中"), CreatedAt: o.CreatedAt.Local().Format("2006-01-02 15:04")})
+	}
 	if u.TelegramID != 0 {
 		info.BotURL = "" // already bound
 	}
@@ -185,12 +219,14 @@ func (s *Server) portalPage(c *gin.Context) {
 		return
 	}
 	if s.webShopOn() {
+		info.PortalShopURL = shopWebPath
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🛒 购买 / 续费", URL: shopWebPath})
 	}
 	if u.FwdMax > 0 && s.license().Allow(license.FeaturePlanAddons) {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🔀 我的转发", URL: portalPath + "/forwards"})
 	}
 	if s.ticketsOn() {
+		info.PortalTicketsURL = portalPath + "/tickets"
 		title := "🎫 工单"
 		var unread int64
 		s.st.DB.Model(&store.Ticket{}).Where("user_id = ? AND user_unread = ?", u.ID, true).Count(&unread)
@@ -338,88 +374,7 @@ func (b *tgBot) portalLoginAnswer(chat, msg int64, reqID, pick string, id tgIden
 	b.loginResult(chat, msg, res, ip, "网页将自动进入用户中心。", answer)
 }
 
-var portalLoginTpl = template.Must(template.New("login").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
-<title>{{.Title}} · 用户中心</title>
-<style>
-:root{--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--bad:#B91C1C}
-@media (prefers-color-scheme:dark){:root{--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--bad:#F87171}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "IBM Plex Sans","Noto Sans SC",system-ui,sans-serif}
-main{max-width:420px;margin:0 auto;padding:12vh 16px 48px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:14px;text-align:center}
-h1{font-size:20px;margin:0}.mute{color:var(--mute);font-size:13px;margin:0}
-.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;text-decoration:none;font:inherit;font-weight:500;cursor:pointer;padding:0 14px}
-.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}
-.btn:disabled{opacity:.6;cursor:default}
-.num{font:600 44px/1 "IBM Plex Mono",ui-monospace,monospace;letter-spacing:.08em;color:var(--pri)}
-.err{color:var(--bad);font-size:13px;margin:0}
-.mail{display:flex;flex-direction:column;gap:10px}
-input{width:100%;min-height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;padding:0 12px}
-[hidden]{display:none!important}
-</style></head><body><main><div class="card">
-<h1>{{.Title}}</h1>
-<p class="mute">用户中心：查看流量、到期时间和订阅链接</p>
-{{if .Mail}}
-<div id="m1" class="mail">
-<input id="memail" type="email" placeholder="邮箱地址" autocomplete="email" maxlength="254">
-<div id="m2" hidden><input id="mcode" inputmode="numeric" placeholder="6 位验证码" autocomplete="one-time-code" maxlength="6"></div>
-<button class="btn" id="msend" type="button">发送验证码</button>
-<button class="btn" id="mgo" type="button" hidden>登录</button>
-<p class="mute" id="mnote" hidden></p>
-<p class="err" id="merr" hidden></p>
-{{if .Register}}<p class="mute">还没有账号？用邮箱验证后自动注册。</p>{{end}}
-</div>
-{{end}}
-{{if and .Mail .Bot}}<p class="mute">或</p>{{end}}
-{{if .Bot}}
-<div id="s1"><button class="btn{{if .Mail}} alt{{end}}" id="go" type="button">使用 Telegram 登录</button></div>
-<div id="s2" hidden>
-<p class="mute">在 Telegram 中点击下面这个数字</p>
-<div class="num" id="num"></div>
-<a class="btn" id="open" href="#" target="_blank" rel="noopener" style="margin-top:14px">打开 Telegram</a>
-<p class="mute" id="state" style="margin-top:10px">等待确认…</p>
-</div>
-<p class="err" id="err" hidden></p>
-<p class="mute">还没绑定 Telegram？打开订阅链接，点「Telegram 机器人绑定」。</p>
-{{else if not .Mail}}
-<p class="err">管理员尚未启用 Telegram 机器人或邮箱登录，暂时无法登录。</p>
-{{end}}
-{{if .Shop}}<a class="btn alt" href="/u/shop">🛒 购买套餐</a>{{end}}
-</div></main>
-{{if .Mail}}<script>
-(function(){
-var em=document.getElementById('memail'),code=document.getElementById('mcode'),send=document.getElementById('msend'),go=document.getElementById('mgo'),
-note=document.getElementById('mnote'),err=document.getElementById('merr'),timer=0;
-function show(el,m){el.textContent=m;el.hidden=!m}
-function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
-function wait(n){clearInterval(timer);send.disabled=true;send.textContent='重新发送（'+n+'）';timer=setInterval(function(){n--;if(n<=0){clearInterval(timer);send.disabled=false;send.textContent='重新发送';return}send.textContent='重新发送（'+n+'）'},1000)}
-send.addEventListener('click',function(){var m=em.value.trim();show(err,'');if(!m){show(err,'请填写邮箱地址');return}send.disabled=true;
-post('email/code',{email:m,purpose:'login'}).then(function(j){document.getElementById('m2').hidden=false;go.hidden=false;send.className='btn alt';
-show(note,'如果这个邮箱可以登录，验证码已经发出（'+Math.round(j.ttl/60)+' 分钟内有效）。没收到请看看垃圾邮件。');code.focus();wait(j.cooldown||60)}).catch(function(e){send.disabled=false;show(err,e.message)})});
-function login(){var c=code.value.trim();if(!/^\d{6}$/.test(c)){show(err,'请输入 6 位验证码');return}go.disabled=true;show(err,'');
-post('email/verify',{email:em.value.trim(),code:c,purpose:'login'}).then(function(){location.replace('/u')}).catch(function(e){go.disabled=false;show(err,e.message)})}
-go.addEventListener('click',login);code.addEventListener('keydown',function(e){if(e.key==='Enter')login()});
-})();
-</script>{{end}}
-{{if .Bot}}<script>
-(function(){
-var go=document.getElementById('go'),err=document.getElementById('err'),req=null,timer=0;
-function show(m){err.textContent=m;err.hidden=!m}
-function post(p,b){return fetch('/u/'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:b?JSON.stringify(b):null,credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
-function reset(m){clearTimeout(timer);req=null;document.getElementById('s1').hidden=false;document.getElementById('s2').hidden=true;go.disabled=false;show(m)}
-function poll(){if(!req)return;post('poll',{id:req.id,secret:req.secret}).then(function(j){
-if(j.status==='ok'){location.replace('/u');return}
-if(j.status==='denied'){reset('登录已被拒绝，请重试');return}
-if(j.status==='expired'){reset('登录请求已过期，请重试');return}
-if(j.opened)document.getElementById('state').textContent='已在 Telegram 打开，请点击相同的数字';
-timer=setTimeout(poll,1500)}).catch(function(){timer=setTimeout(poll,3000)})}
-go.addEventListener('click',function(){go.disabled=true;show('');post('login').then(function(j){req=j;
-document.getElementById('num').textContent=j.code;document.getElementById('open').href=j.url;
-document.getElementById('s1').hidden=true;document.getElementById('s2').hidden=false;timer=setTimeout(poll,1500);
-try{window.open(j.url,'_blank','noopener')}catch(e){}}).catch(function(e){reset(e.message||'登录失败')})});
-})();
-</script>{{end}}
-</body></html>`))
+//go:embed assets/portal-login.html
+var portalLoginHTML string
+
+var portalLoginTpl = template.Must(template.New("login").Parse(portalLoginHTML))

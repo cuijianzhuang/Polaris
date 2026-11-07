@@ -299,6 +299,22 @@ jobs:
           echo "POLARIS_PLAYWRIGHT_MODULE=$(python -c 'import pathlib, playwright; print(pathlib.Path(playwright.__file__).parent / "driver/package/index.mjs")')" >> "$GITHUB_ENV"
       - name: Compile browser integration tests once
         run: go test -c -o "$RUNNER_TEMP/polaris-browser.test" ./internal/panel
+      - name: Compile professional checkout tests when sources are available
+        env:
+          PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PRO_TOKEN" ]; then
+            echo "PRO_TOKEN not available: community portal and code-redemption tests still run; online checkout needs professional sources"
+            exit 0
+          fi
+          url="https://x-access-token:${PRO_TOKEN}@github.com/cuijianzhuang/polaris-pro.git"
+          git clone -q --depth 1 --branch "$BRANCH" "$url" "$RUNNER_TEMP/portal-pro" 2>/dev/null || git clone -q --depth 1 "$url" "$RUNNER_TEMP/portal-pro"
+          scripts/pro.sh copy "$RUNNER_TEMP/portal-pro"
+          trap 'scripts/pro.sh clean' EXIT
+          go test -tags pro -c -o "$RUNNER_TEMP/polaris-services.test" ./internal/panel
+          echo "POLARIS_SERVICES_PRO=true" >> "$GITHUB_ENV"
       - name: Real WebAuthn registration, replay rejection, revocation and recovery
         working-directory: internal/panel
         env:
@@ -317,6 +333,19 @@ jobs:
           POLARIS_PORTAL_CDN_BROWSER_TEST: '1'
         run: |
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLivePortalCDNBrowser$'
+      - name: User portal registration, ownership and mobile navigation
+        working-directory: internal/panel
+        env:
+          POLARIS_USER_PORTAL_BROWSER_TEST: '1'
+        run: |
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLiveUserPortalBrowser$'
+      - name: Real checkout, payment confirmation and support lifecycle
+        if: env.POLARIS_SERVICES_PRO == 'true'
+        working-directory: internal/panel
+        env:
+          POLARIS_PORTAL_SERVICES_BROWSER_TEST: '1'
+        run: |
+          "$RUNNER_TEMP/polaris-services.test" -test.v -test.timeout=4m -test.run '^TestLivePortalServicesBrowser$'
       - name: Personal CDN imports, probe pairing, expiry and stale editor protection
         working-directory: internal/panel
         env:

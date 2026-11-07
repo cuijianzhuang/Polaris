@@ -111,6 +111,8 @@ func (s *Server) Router() http.Handler {
 	}
 	if admin != portalPath { // user center (off by default: the decoy answers)
 		r.GET(portalPath, s.portalGate(decoy, s.portalPage))
+		r.GET(portalPath+"/login", s.portalGate(decoy, s.portalPage))
+		r.GET(portalPath+"/register", s.portalGate(decoy, s.portalPage))
 		r.POST(portalPath+"/login", s.portalGate(decoy, s.portalLoginStart))
 		r.POST(portalPath+"/poll", s.portalGate(decoy, s.portalLoginPoll))
 		r.POST(portalPath+"/logout", s.portalGate(decoy, s.portalLogout))

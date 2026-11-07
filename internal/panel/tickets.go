@@ -1,6 +1,7 @@
 package panel
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
@@ -384,12 +385,15 @@ func (s *Server) portalTickets(c *gin.Context) {
 		return
 	}
 	var ts []store.Ticket
-	s.st.DB.Where("user_id = ?", u.ID).Order("updated_at desc").Limit(50).Find(&ts)
+	if err := s.st.DB.Where("user_id = ?", u.ID).Order("updated_at desc").Limit(50).Find(&ts).Error; err != nil {
+		serverError(c, err)
+		return
+	}
 	rows := make([]ticketRow, 0, len(ts))
 	for _, t := range ts {
 		rows = append(rows, ticketRow{No: t.No, Subject: t.Subject, Status: ticketStatusName[t.Status], When: t.UpdatedAt.Local().Format("01-02 15:04"), Unread: t.UserUnread})
 	}
-	s.renderTicketPage(c, ticketListTpl, map[string]any{"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")), "Tickets": rows, "User": u.Username})
+	s.renderTicketPage(c, ticketListTpl, map[string]any{"Tickets": rows}, u)
 }
 
 type ticketMsgView struct {
@@ -411,11 +415,14 @@ func (s *Server) portalTicket(c *gin.Context) {
 		c.Redirect(http.StatusFound, portalPath+"/tickets")
 		return
 	}
+	var msgs []store.TicketMessage
+	if err := s.st.DB.Where("ticket_id = ?", t.ID).Order("created_at").Find(&msgs).Error; err != nil {
+		serverError(c, err)
+		return
+	}
 	if t.UserUnread {
 		s.st.DB.Model(t).UpdateColumn("user_unread", false)
 	}
-	var msgs []store.TicketMessage
-	s.st.DB.Where("ticket_id = ?", t.ID).Order("created_at").Find(&msgs)
 	views := make([]ticketMsgView, 0, len(msgs))
 	for _, m := range msgs {
 		author := "我"
@@ -425,16 +432,11 @@ func (s *Server) portalTicket(c *gin.Context) {
 		views = append(views, ticketMsgView{Admin: m.Admin, Author: author, When: m.CreatedAt.Local().Format("2006-01-02 15:04"), Body: m.Body})
 	}
 	s.renderTicketPage(c, ticketViewTpl, map[string]any{"Title": s.subTitle(s.st.GetSetting("site_title", "Polaris")), "T": t,
-		"Status": ticketStatusName[t.Status], "Closed": t.Status == ticketClosed, "Messages": views})
+		"Status": ticketStatusName[t.Status], "Closed": t.Status == ticketClosed, "Messages": views}, u)
 }
 
-func (s *Server) renderTicketPage(c *gin.Context, t *template.Template, data map[string]any) {
-	var buf strings.Builder
-	if err := t.Execute(&buf, data); err != nil {
-		serverError(c, err)
-		return
-	}
-	c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(buf.String()))
+func (s *Server) renderTicketPage(c *gin.Context, t *template.Template, data map[string]any, u *store.User) {
+	s.renderPortalSection(c, http.StatusOK, "tickets", "我的工单", t, data, u)
 }
 
 func (s *Server) ticketWriteUser(c *gin.Context) *store.User {
@@ -581,64 +583,14 @@ func (b *tgBot) ticketsView(id tgIdentity) (string, [][]button) {
 	return sb.String(), [][]button{backRow("")}
 }
 
-var ticketPageStyle = `<style>
-:root{--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--bad:#B91C1C;--me:#E6F3F6}
-@media (prefers-color-scheme:dark){:root{--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--bad:#F87171;--me:#14313A}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "IBM Plex Sans","Noto Sans SC",system-ui,sans-serif}
-main{max-width:640px;margin:0 auto;padding:24px 16px 48px;display:flex;flex-direction:column;gap:14px}
-header{display:flex;justify-content:space-between;align-items:center;gap:8px}h1{font-size:20px;margin:0}h2{font-size:16px;margin:0 0 8px}
-a{color:var(--pri)}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
-.mute{color:var(--mute);font-size:13px}.err{color:var(--bad);font-size:13px}
-input,textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;padding:8px 10px;margin:4px 0}
-textarea{min-height:110px;resize:vertical}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;font:inherit;padding:0 14px;cursor:pointer}
-.btn.alt{background:var(--card);color:var(--ink);border-color:var(--line)}.btn:disabled{opacity:.6}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-table{width:100%;border-collapse:collapse}td{padding:8px 4px;border-top:1px solid var(--line);vertical-align:top}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--bad);margin-right:6px}
-.msg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}.msg.me{background:var(--me)}
-.msg b{font-weight:600}[hidden]{display:none!important}
-</style>`
+//go:embed assets/portal-tickets.html
+var portalTicketsHTML string
 
-var ticketPageScript = `<script>
-function tpost(p,b){return fetch('/u/tickets'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b||{}),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
-function terr(m){var e=document.getElementById('err');e.textContent=m;e.hidden=!m}
-</script>`
+//go:embed assets/portal-ticket.html
+var portalTicketHTML string
 
-var ticketListTpl = template.Must(template.New("tickets").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>{{.Title}} · 工单</title>` + ticketPageStyle + `</head><body><main>
-<header><h1>工单</h1><a href="/u">← 用户中心</a></header>
-<div class="card"><h2>提交新工单</h2>
-<input id="subject" maxlength="120" placeholder="标题（可留空，取内容第一行）">
-<textarea id="body" maxlength="4000" placeholder="请描述遇到的问题：使用的客户端、节点、出现的提示等。不要填写密码。"></textarea>
-<div class="row"><button class="btn" id="send" type="button">提交</button><span class="mute">客服回复后会通过 Telegram 或邮件通知你。</span></div>
-<p class="err" id="err" hidden></p></div>
-<div class="card"><h2>我的工单</h2>
-{{if .Tickets}}<table>{{range .Tickets}}<tr><td>{{if .Unread}}<span class="dot" title="有新回复"></span>{{end}}<a href="/u/tickets/{{.No}}">#{{.No}} {{.Subject}}</a></td><td class="mute">{{.Status}}</td><td class="mute">{{.When}}</td></tr>{{end}}</table>
-{{else}}<p class="mute">还没有工单。</p>{{end}}</div>
-</main>` + ticketPageScript + `<script>
-document.getElementById('send').addEventListener('click',function(){var b=this;b.disabled=true;terr('');
-tpost('',{subject:document.getElementById('subject').value,body:document.getElementById('body').value}).then(function(j){location.href=j.url}).catch(function(e){b.disabled=false;terr(e.message)})});
-</script></body></html>`))
-
-var ticketViewTpl = template.Must(template.New("ticket").Parse(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>{{.Title}} · 工单 #{{.T.No}}</title>` + ticketPageStyle + `</head><body><main>
-<header><h1>#{{.T.No}} {{.T.Subject}}</h1><a href="/u/tickets">← 全部工单</a></header>
-<p class="mute">{{.Status}}</p>
-{{range .Messages}}<div class="msg{{if not .Admin}} me{{end}}"><div class="mute"><b>{{.Author}}</b> · {{.When}}</div>{{.Body}}</div>{{end}}
-<div class="card"><h2>{{if .Closed}}继续回复（会重新打开工单）{{else}}回复{{end}}</h2>
-<textarea id="body" maxlength="4000"></textarea>
-<div class="row"><button class="btn" id="send" type="button">发送</button>{{if not .Closed}}<button class="btn alt" id="close" type="button">问题已解决，关闭工单</button>{{end}}</div>
-<p class="err" id="err" hidden></p></div>
-</main>` + ticketPageScript + `<script>
-var no='{{.T.No}}';
-document.getElementById('send').addEventListener('click',function(){var b=this;b.disabled=true;terr('');
-tpost('/'+no+'/reply',{body:document.getElementById('body').value}).then(function(){location.reload()}).catch(function(e){b.disabled=false;terr(e.message)})});
-var c=document.getElementById('close');if(c)c.addEventListener('click',function(){if(!confirm('确定关闭这个工单？'))return;c.disabled=true;
-tpost('/'+no+'/close').then(function(){location.reload()}).catch(function(e){c.disabled=false;terr(e.message)})});
-</script></body></html>`))
+var ticketListTpl = template.Must(template.New("tickets").Parse(portalTicketsHTML))
+var ticketViewTpl = template.Must(template.New("ticket").Parse(portalTicketHTML))
 
 func ticketCreatedEvent(t *store.Ticket, u *store.User, body string) Event {
 	return Event{Kind: "ticket_new", Type: "ticket.created", Text: fmt.Sprintf("🎫 新工单 #%d（%s）：%s\n%s", t.No, u.Username, t.Subject, excerpt(body, 300)), Data: map[string]any{"ticket": ticketBrief(t), "user": userBrief(u)}}

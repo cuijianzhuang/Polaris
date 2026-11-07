@@ -1,0 +1,15 @@
+<section class="p-service-page">
+<div class="p-heading"><div><h1>我的转发</h1><p class="mute">管理套餐内的端口转发与目标地址</p></div><a class="btn alt" href="/u#account">个人中心</a></div>
+<section class="card"><h2>转发额度</h2><dl class="p-definition"><div><dt>规则数量</dt><dd>{{.Count}} / {{.Max}} 条</dd></div><div><dt>本周期流量</dt><dd>{{.Used}} / {{.Quota}}</dd></div><div><dt>端口范围</dt><dd>{{.Lo}}–{{.Hi}}</dd></div>{{if .Speed}}<div><dt>每条限速</dt><dd>{{.Speed}} Mbps</dd></div>{{end}}</dl>{{if .State}}<p class="err">{{.State}}</p>{{end}}</section>
+{{if .CanAdd}}<details class="card"><summary>添加转发</summary><div class="p-ticket-form"><div><label for="node">服务节点</label><select class="p-input" id="node">{{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></div><div><label for="net">协议</label><select class="p-input" id="net"><option value="tcp,udp">TCP + UDP</option><option value="tcp">TCP</option><option value="udp">UDP</option></select></div><div><label for="target">目标地址与端口</label><input class="p-input" id="target" placeholder="example.com:443"></div><div><label for="port">入口端口（留空自动分配）</label><input class="p-input" id="port" type="number" min="{{.Lo}}" max="{{.Hi}}" placeholder="入口端口"></div><div><label for="name">备注（可选）</label><input class="p-input" id="name" maxlength="64"></div><p class="mute">目标必须是公网地址。域名在添加时解析一次并固定为 IP；目标 IP 变化后请删除并重新添加。</p><div><button class="btn pri" id="add" type="button">添加转发</button></div></div></details>{{end}}
+<p class="err" id="err" role="alert" hidden></p>
+<section class="card"><h2>转发列表</h2>{{range .Rows}}<article class="p-forward-row"><div><b>{{.Name}}</b><p class="mute">{{.Node}} · {{.Network}}</p><dl class="p-definition"><div><dt>入口</dt><dd><code>{{.Entry}}</code></dd></div><div><dt>目标</dt><dd><code>{{.Target}}</code></dd></div></dl></div><button class="btn alt p-danger del" data-id="{{.ID}}" type="button">删除</button></article>{{else}}<p class="mute p-empty">还没有转发。</p>{{end}}</section>
+</section>
+<script>
+function fpost(p,b){return fetch('/u/forwards'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b||{}),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
+function ferr(m){var e=document.getElementById('err');if(e){e.textContent=m;e.hidden=!m}else if(m){alert(m)}}
+var add=document.getElementById('add');if(add)add.addEventListener('click',function(){var b=this;b.disabled=true;ferr('');
+var port=parseInt(document.getElementById('port').value||'0',10)||0;
+fpost('',{nodeId:document.getElementById('node').value,network:document.getElementById('net').value,target:document.getElementById('target').value,listenPort:port,name:document.getElementById('name').value}).then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})});
+document.querySelectorAll('.del').forEach(function(b){b.addEventListener('click',function(){if(!confirm('删除这条转发？'))return;b.disabled=true;fpost('/'+b.dataset.id+'/delete').then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})})});
+</script>

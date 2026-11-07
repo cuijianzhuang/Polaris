@@ -13,13 +13,19 @@ import (
 
 // Node is one client-side proxy entry (one endpoint of one inbound).
 type Node struct {
-	ResourceID string `json:",omitempty"` // stable external resource identity; never a client credential
-	Name       string
-	Region     string // ISO country code when known (panel nodes); otherwise detected from Name
-	Source     string // origin label (panel / source name), informational
-	Server     string
-	Port       int
-	Protocol   model.Protocol
+	PanelNodeID     string  `json:"-"`
+	PanelInboundID  string  `json:"-"`
+	PanelEndpointID string  `json:"-"`
+	PanelChainID    string  `json:"-"`
+	PanelKind       string  `json:"-"`
+	TrafficRate     float64 `json:"-"`
+	ResourceID      string  `json:",omitempty"` // stable external resource identity; never a client credential
+	Name            string
+	Region          string // ISO country code when known (panel nodes); otherwise detected from Name
+	Source          string // origin label (panel / source name), informational
+	Server          string
+	Port            int
+	Protocol        model.Protocol
 
 	UUID           string
 	Password       string
@@ -99,7 +105,11 @@ type Info struct {
 	SpeedNote  string // per-user speed limit, e.g. "↑ 10 Mbps · ↓ 50 Mbps"
 	// Portal renders the page as the signed-in user center (reset link and
 	// sign-out actions instead of the bot binding button).
-	Portal bool
+	Portal           bool
+	PortalShopURL    string
+	PortalTicketsURL string
+	PortalOrders     []PortalOrder
+	PortalOrdersMore bool
 	// Rename offers the signed-in user a username change (Portal pages only).
 	Rename bool
 	// CarrierPick offers choosing the carrier (ct / cu / cm, "" = automatic)
@@ -136,6 +146,12 @@ type Info struct {
 	Scheme *Scheme `json:"-"`
 }
 
+// PortalOrder contains only the public summary of an order owned by the
+// signed-in user; payment keys and provider details never enter the page.
+type PortalOrder struct {
+	ID, Name, Amount, Status, CreatedAt string
+}
+
 // NodeQuotaLine is one node's extra traffic on the info page.
 type NodeQuotaLine struct {
 	Node string
@@ -152,9 +168,15 @@ type DayUsage struct {
 
 // PageLink is one node shown on the info page.
 type PageLink struct {
-	Name     string
-	Protocol string
-	Link     string
+	Name       string
+	Protocol   string
+	Link       string
+	Region     string
+	Rate       string
+	State      string
+	StateLabel string
+	Reason     string
+	CheckedAt  string
 }
 
 // usage summarises the plan: used, total, left and percent.

@@ -5,6 +5,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -143,13 +144,13 @@ func TestPortalCarrier(t *testing.T) {
 	base, _ := url.Parse(srv.URL + portalPath)
 	jar.SetCookies(base, []*http.Cookie{{Name: portalCookie, Value: tok, Path: portalPath}})
 	page := &portalClient{t: t, base: srv.URL, hc: &http.Client{Jar: jar}}
-	if _, body := page.req("GET", "/u", nil, false); !strings.Contains(body, `data-portal="reset"`) || strings.Contains(body, "<select data-portal-carrier") {
+	if _, body := page.req("GET", "/u", nil, false); !strings.Contains(body, `data-portal="reset"`) || regexp.MustCompile(`<select\b[^>]*\bdata-portal-carrier\b`).MatchString(body) {
 		t.Fatal("not signed in, or carrier choice shown with no profile splitting by carrier")
 	}
 	if err := db.Create(&store.CDNProfile{ID: "cf", Name: "cf", OriginDomain: "cdn.example.com", CarrierSplit: true}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if _, body := page.req("GET", "/u", nil, false); !strings.Contains(body, "<select data-portal-carrier") {
+	if _, body := page.req("GET", "/u", nil, false); !regexp.MustCompile(`<select\b[^>]*\bdata-portal-carrier\b`).MatchString(body) {
 		t.Fatal("no carrier choice in the user center")
 	}
 	if st, _ := page.req("POST", "/u/carrier", map[string]string{"carrier": "cm"}, false); st != 403 {

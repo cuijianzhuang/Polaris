@@ -111,7 +111,7 @@ func randomCode() string {
 	return fmt.Sprintf("%06d", n.Int64())
 }
 
-// portalMailCode: POST /u/email/code {email, purpose: login|bind}.
+// portalMailCode: POST /u/email/code {email, purpose: login|register|bind}.
 func (s *Server) portalMailCode(c *gin.Context) {
 	if !portalWrite(c) {
 		return
@@ -138,6 +138,18 @@ func (s *Server) portalMailCode(c *gin.Context) {
 		return
 	}
 	purpose, userID := "login", ""
+	if req.Purpose == "register" {
+		if !s.mailRegisterOn() {
+			c.JSON(http.StatusForbidden, gin.H{"error": "注册暂未开放，已有账号可继续登录", "code": "registration_closed"})
+			return
+		}
+		purpose = "register"
+	} else if req.Purpose == "login" {
+		purpose = "signin"
+	} else if req.Purpose != "" && req.Purpose != "bind" {
+		badRequest(c, errors.New("无效的验证码用途"))
+		return
+	}
 	if req.Purpose == "bind" {
 		u := s.portalUser(c)
 		if u == nil {
@@ -163,7 +175,7 @@ func (s *Server) portalMailCode(c *gin.Context) {
 	if !send {
 		var n int64
 		s.st.DB.Model(&store.User{}).Where("email = ? AND is_service = ?", addr, false).Count(&n)
-		send = n > 0 || (s.mailRegisterOn() && s.registerDomainOK(addr))
+		send = n > 0 || (purpose != "signin" && s.mailRegisterOn() && s.registerDomainOK(addr))
 	}
 	res := gin.H{"ok": true, "ttl": int(mailCodeTTL.Seconds()), "cooldown": int(mailCodeCooldown.Seconds())}
 	// The cooldown and the daily cap apply whether or not a mail goes out:
@@ -188,6 +200,9 @@ func (s *Server) portalMailCode(c *gin.Context) {
 		return
 	}
 	title := "登录验证码"
+	if purpose == "register" {
+		title = "注册验证码"
+	}
 	if userID != "" {
 		title = "绑定邮箱验证码"
 	}
@@ -265,14 +280,27 @@ func (s *Server) portalMailVerify(c *gin.Context) {
 		s.portalMailBind(c, addr, req.Code)
 		return
 	}
-	if err := s.checkMailCode("login", addr, req.Code); err != nil {
+	purpose := "login" // Compatibility for existing API callers.
+	if req.Purpose == "register" {
+		if !s.mailRegisterOn() {
+			c.JSON(http.StatusForbidden, gin.H{"error": "注册暂未开放，已有账号可继续登录", "code": "registration_closed"})
+			return
+		}
+		purpose = "register"
+	} else if req.Purpose == "login" {
+		purpose = "signin"
+	} else if req.Purpose != "" {
+		badRequest(c, errors.New("无效的验证码用途"))
+		return
+	}
+	if err := s.checkMailCode(purpose, addr, req.Code); err != nil {
 		badRequest(c, err)
 		return
 	}
 	var u store.User
 	created := false
 	if s.st.DB.First(&u, "email = ? AND is_service = ?", addr, false).Error != nil {
-		if !s.mailRegisterOn() || !s.registerDomainOK(addr) {
+		if purpose == "signin" || !s.mailRegisterOn() || !s.registerDomainOK(addr) {
 			badRequest(c, errors.New("这个邮箱没有绑定账号"))
 			return
 		}
