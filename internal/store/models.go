@@ -92,22 +92,23 @@ type SystemInfo struct {
 
 // Core is a core instance installed (or desired) on a node.
 type Core struct {
-	ID                string         `gorm:"primaryKey;size:32" json:"id"`
-	NodeID            string         `gorm:"size:32;uniqueIndex:idx_core_node_type" json:"nodeId"`
-	Type              model.CoreType `gorm:"size:16;uniqueIndex:idx_core_node_type" json:"type"`
-	Version           string         `gorm:"size:32" json:"version"`
-	Status            string         `gorm:"size:16" json:"status"` // running / stopped / installing / error
-	PID               int            `gorm:"column:pid" json:"pid"`
-	IsDefault         bool           `json:"isDefault"`
-	StartedAt         *time.Time     `json:"startedAt"`
-	Error             string         `gorm:"size:2000" json:"error"`
-	InstalledVersions JSON[[]string] `json:"installedVersions"`
-	RunningVersion    string         `gorm:"size:32" json:"runningVersion"` // version the agent reports running
-	PrevVersion       string         `gorm:"size:32" json:"prevVersion"`    // version before the last switch (rollback target)
-	NoUserTraffic     bool           `json:"noUserTraffic"`                 // core reports no per-user traffic (official sing-box)
-	Inbounds          int            `gorm:"-" json:"inbounds"`
-	CreatedAt         time.Time      `json:"createdAt"`
-	UpdatedAt         time.Time      `json:"updatedAt"`
+	ID                string                   `gorm:"primaryKey;size:32" json:"id"`
+	NodeID            string                   `gorm:"size:32;uniqueIndex:idx_core_node_type" json:"nodeId"`
+	Type              model.CoreType           `gorm:"size:16;uniqueIndex:idx_core_node_type" json:"type"`
+	Version           string                   `gorm:"size:32" json:"version"`
+	Status            string                   `gorm:"size:16" json:"status"` // running / stopped / installing / error
+	PID               int                      `gorm:"column:pid" json:"pid"`
+	IsDefault         bool                     `json:"isDefault"`
+	StartedAt         *time.Time               `json:"startedAt"`
+	Error             string                   `gorm:"size:2000" json:"error"`
+	InstalledVersions JSON[[]string]           `json:"installedVersions"`
+	RunningVersion    string                   `gorm:"size:32" json:"runningVersion"` // version the agent reports running
+	PrevVersion       string                   `gorm:"size:32" json:"prevVersion"`    // version before the last switch (rollback target)
+	NoUserTraffic     bool                     `json:"noUserTraffic"`                 // core reports no per-user traffic (official sing-box)
+	TrafficMeter      JSON[model.TrafficMeter] `json:"trafficMeter"`
+	Inbounds          int                      `gorm:"-" json:"inbounds"`
+	CreatedAt         time.Time                `json:"createdAt"`
+	UpdatedAt         time.Time                `json:"updatedAt"`
 }
 
 // Inbound is the persisted form of model.Inbound.

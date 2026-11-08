@@ -127,6 +127,16 @@ message CoreState {
   // no_user_traffic: the core cannot attribute traffic to users (an official
   // sing-box build without v2ray_api). Older agents never set it.
   bool no_user_traffic = 9;
+  TrafficMeter traffic_meter = 10;
+}
+
+// Optional, absent on older agents. Never infer success from a heartbeat alone.
+message TrafficMeter {
+ string mode = 1;
+ int32 interval_seconds = 2;
+ int64 last_success = 3;
+ int64 last_attempt = 4;
+ int32 consecutive_failures = 5;
 }
 
 message ApplyResult {

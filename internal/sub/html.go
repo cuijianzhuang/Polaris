@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/flags"
+	"github.com/cuijianzhuang/polaris/internal/uitheme"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -41,10 +42,12 @@ var portalCDNHTML string
 var portalCDNScript string
 
 var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
-	"bytes":               HumanBytes,
-	"flagText":            flags.Text,
-	"avatarURL":           AvatarURL,
-	"portalStyle":         func() template.CSS { return template.CSS(portalShellCSS + "\n" + portalServicesCSS) },
+	"bytes":     HumanBytes,
+	"flagText":  flags.Text,
+	"avatarURL": AvatarURL,
+	"portalStyle": func() template.CSS {
+		return template.CSS(uitheme.CSS + "\n" + portalShellCSS + "\n" + portalServicesCSS)
+	},
 	"portalShellScript":   func() template.JS { return template.JS(portalShellJS) },
 	"portalAccountScript": func() template.JS { return template.JS(portalAccountJS) },
 	"portalCDNScript":     func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only

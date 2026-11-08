@@ -21,8 +21,12 @@ class Fixture(BaseFixture):
         self.hold_save = False
         self.pending_save = None
         self.save_count = 0
+        self.github=dict(enabled=False,clientId='',callbackUrl='')
+        self.hold_github=False;self.pending_github=[];self.providers=[]
     def route(self, route):
         path = urlparse(route.request.url).path.removeprefix('/panel')
+        if path == '/api/v1/auth/github' and self.hold_github:
+            self.pending_github.append(route);return
         if path == '/api/v1/settings':
             if route.request.method == 'PUT':
                 self.save_count += 1
@@ -33,15 +37,16 @@ class Fixture(BaseFixture):
                     self.pending_save = (route, body)
                     return
                 self.settings.update(body)
+                if 'github_client_id' in body:self.github.update(clientId=body['github_client_id'])
             return route.fulfill(content_type='application/json',body=json.dumps(self.settings))
         extra = {
             '/api/v1/operational-health':dict(issues=[],states=[]),
             '/api/v1/system/update':dict(current='1.0',latest='1.0',newer=False,updater=True),
             '/api/v1/cluster':dict(members=[],operations=[],deliveries=[],shared=False),
             '/api/v1/security':dict(allowlist=self.settings.get('login_allowlist',''),banFailures=int(self.settings.get('login_ban_failures','10')),bans=[],trustedProxies=[],yourIp='127.0.0.1'),
-            '/api/v1/sso/providers':dict(providers=[],callbackUrl=''),
+            '/api/v1/sso/providers':dict(providers=self.providers,callbackUrl=''),
             '/api/v1/auth/passkeys':dict(available=False,reason='Fixture',items=[],recoveryCodesLeft=0),
-            '/api/v1/auth/github':dict(enabled=False,clientId='',callbackUrl=''),
+            '/api/v1/auth/github':self.github,
         }
         if path in extra:
             return route.fulfill(content_type='application/json',body=json.dumps(extra[path]))
@@ -169,10 +174,63 @@ with sync_playwright() as p:
                 expect(advanced).to_have_count(4)  # Shodan joined the general form
                 for item in advanced.all(): assert not item.evaluate('(e)=>e.open')
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
+                # Viewing security, password-manager verification input, and
+                # passkey labels are not pending account changes.
+                tab('账号安全','Account security')
+                current_password=page.locator('input[autocomplete="current-password"]')
+                expect(current_password).to_be_visible()
+                assert page.evaluate("window.dispatchEvent(new Event('beforeunload',{cancelable:true}))")
+                current_password.fill('synthetic-autofilled-current-password')
+                page.locator('#passkey-name').fill('admin')
+                tab('邮件','Mail');expect(page).to_have_url(BASE+'/settings#mail');expect(modal()).to_be_hidden()
+                tab('账号安全','Account security')
+                password_card=page.locator('section.card').filter(has=current_password)
+                new_password=password_card.locator('input[autocomplete="new-password"]').first
+                new_password.fill('actual-new-password')
+                tab('邮件','Mail');expect(modal()).to_be_visible();decision('继续编辑','Continue editing')
+                new_password.fill('')
+                tab('邮件','Mail');expect(page).to_have_url(BASE+'/settings#mail');expect(modal()).to_be_hidden()
+                # Empty/unchanged OAuth values stay clean; accepted saves are
+                # clean even while the subsequent server read is delayed.
+                tab('账号安全','Account security')
+                github_id=page.locator('.field').filter(has=page.get_by_text('Client ID',exact=True)).locator('input')
+                expect(github_id).to_be_enabled();github_id.fill('temporary-client');github_id.fill('')
+                tab('邮件','Mail');expect(page).to_have_url(BASE+'/settings#mail')
+                tab('账号安全','Account security');github_id.fill('saved-client')
+                f.hold_github=True
+                oauth=page.locator('details.more').filter(has=github_id)
+                oauth.get_by_role('button',name='保存' if language=='zh' else 'Save',exact=True).click()
+                expect(oauth.get_by_role('button',name='保存' if language=='zh' else 'Save',exact=True)).to_be_disabled()
+                expect(github_id).to_have_value('saved-client')
+                expect(github_id).to_be_enabled()  # the write was acknowledged, not merely submitted
+                assert page.evaluate("window.dispatchEvent(new Event('beforeunload',{cancelable:true}))")
+                github_id.fill('next-draft')
+                for route in f.pending_github:route.fulfill(json=f.github)
+                f.pending_github=[];f.hold_github=False
+                expect(github_id).to_have_value('next-draft')
+                tab('邮件','Mail');expect(modal()).to_be_visible();decision('继续编辑','Continue editing')
+                github_id.fill('saved-client')
+                tab('邮件','Mail');expect(page).to_have_url(BASE+'/settings#mail')
                 assert not errors, errors
                 page.screenshot(path=str(OUT/f'settings-{engine}-{width}-{language}.png'),animations='disabled')
                 page.close()
                 print(engine,width,language,'draft decisions, failed saves, duplicate lock, commands, Back and mobile viewport passed',flush=True)
+        # Empty optional provider fields and open/close are not SSO changes.
+        f=Fixture();f.providers=[dict(id='fixture-sso',name='Fixture SSO',kind='oidc',issuer='https://sso.example.test',clientId='fixture-client',enabled=True)]
+        page=browser.new_page(viewport=dict(width=390,height=900))
+        page.add_init_script("localStorage.setItem('polaris.token','fixture');localStorage.setItem('polaris.lang','zh');localStorage.setItem('polaris.refresh','0')")
+        page.route('**/api/v1/**',f.route);page.goto(BASE+'/settings#security')
+        sso=page.locator('section.card').filter(has=page.locator('.ctitle').get_by_text('单点登录',exact=True))
+        sso.get_by_role('button',name='编辑',exact=True).click()
+        editor=page.get_by_role('dialog',name='编辑 Fixture SSO',exact=True)
+        scope_field=editor.locator('.field').filter(has=page.get_by_text('Scope',exact=True)).locator('input')
+        assert page.evaluate("window.dispatchEvent(new Event('beforeunload',{cancelable:true}))")
+        scope_field.fill('openid email')
+        assert page.evaluate("!window.dispatchEvent(new Event('beforeunload',{cancelable:true}))")
+        scope_field.fill('')
+        assert page.evaluate("window.dispatchEvent(new Event('beforeunload',{cancelable:true}))")
+        editor.get_by_role('button',name='取消',exact=True).click()
+        page.close();print(engine,'security autofill, OAuth drafts and SSO optional-field baselines passed',flush=True)
         # Shared guard/save behavior on the other persistent settings forms.
         f=Fixture();page=browser.new_page(viewport=dict(width=390,height=900),is_mobile=True,has_touch=True)
         secondary_errors=[];page.on('pageerror',lambda e: secondary_errors.append(str(e)))

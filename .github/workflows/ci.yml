@@ -18,6 +18,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      go: ${{ steps.scope.outputs.go }}
+      postgres: ${{ steps.scope.outputs.postgres }}
+      redis: ${{ steps.scope.outputs.redis }}
+      pro: ${{ steps.scope.outputs.pro }}
+      protocols: ${{ steps.scope.outputs.protocols }}
+      web: ${{ steps.scope.outputs.web }}
+      portal: ${{ steps.scope.outputs.portal }}
+      browser: ${{ steps.scope.outputs.browser }}
+      matrix: ${{ steps.scope.outputs.matrix }}
+      full: ${{ steps.scope.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          CI_SCOPE_EVENT: ${{ github.event_name }}
+          CI_SCOPE_BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 .github/scripts/ci-scope.py
   mirror-tests:
     runs-on: ubuntu-24.04
     permissions:
@@ -28,6 +52,8 @@ jobs:
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
   # The Go suites run as parallel jobs (they took ~22 minutes back to back).
   go:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -90,7 +116,8 @@ jobs:
       - name: Firewall test with real iptables (isolated network namespace)
         run: go test -c -o /tmp/agent.test ./internal/agent && sudo env POLARIS_FW_REAL=1 unshare -n /tmp/agent.test -test.run TestFirewallIptablesReal -test.v
   go-postgres:
-    if: inputs.reuse_validated_checks != true
+    needs: changes
+    if: needs.changes.outputs.postgres == 'true' && inputs.reuse_validated_checks != true
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -118,6 +145,8 @@ jobs:
         env:
           POLARIS_TEST_ALL_POSTGRES: '1'
   go-redis:
+    needs: changes
+    if: needs.changes.outputs.redis == 'true'
     runs-on: ubuntu-latest
     services:
       redis:
@@ -137,6 +166,8 @@ jobs:
         env:
           POLARIS_TEST_ALL_REDIS: '1'
   go-pro:
+    needs: changes
+    if: needs.changes.outputs.pro == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -188,6 +219,8 @@ jobs:
           go test -count=1 -tags pro ./internal/panel/ ./internal/agent/ ./internal/license/
           scripts/pro.sh clean
   singbox-diagnostics:
+    needs: changes
+    if: needs.changes.outputs.protocols == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -205,6 +238,8 @@ jobs:
         env:
           POLARIS_SINGBOX_DIAGNOSTIC_BIN: /tmp/diagnostic-singbox
   snell:
+    needs: changes
+    if: needs.changes.outputs.protocols == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -244,6 +279,8 @@ jobs:
           go test -tags pro -count=1 -v ./internal/agent -run Snell
           scripts/pro.sh clean
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -263,12 +300,16 @@ jobs:
         working-directory: web
       # The Docker frontend stage above already builds the production UI.
   passkeys:
-    if: inputs.reuse_validated_checks != true
+    needs: changes
+    if: needs.changes.outputs.portal == 'true' && inputs.reuse_validated_checks != true
     container: mcr.microsoft.com/playwright/python:v1.56.0-noble
     defaults:
       run:
         shell: bash
     env:
+      POLARIS_BROWSER_DIAGNOSTICS: '1'
+      POLARIS_BROWSER_ARTIFACTS: /tmp/polaris-browser-artifacts
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts/browser_support
       POLARIS_CDN_ARTIFACTS: /tmp/polaris-portal-cdn-screenshots
       # SQLite uses the pure Go driver; no compiler/apt installation is needed.
       CGO_ENABLED: '0'
@@ -372,8 +413,20 @@ jobs:
           name: portal-cdn-layout
           path: /tmp/polaris-portal-cdn-screenshots
           if-no-files-found: ignore
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-passkeys
+          path: |
+            /tmp/polaris-browser-artifacts
+            /tmp/browser-vite.log
+          retention-days: 7
+          if-no-files-found: ignore
+
   browser-ui:
-    if: inputs.reuse_validated_checks != true
+    needs: changes
+    if: needs.changes.outputs.browser == 'true' && inputs.reuse_validated_checks != true
     container: mcr.microsoft.com/playwright/python:v1.56.0-noble
     defaults:
       run:
@@ -383,27 +436,11 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - suite: settings
-            scripts: >-
-              probe-refresh-ui-smoke.py appearance-ui-smoke.py
-              license-method-ui-smoke.py ui-details-ui-smoke.py
-              settings-workflow-smoke.py restore-drill-ui-smoke.py admin-roles-ui-smoke.py
-          - suite: settings-state
-            scripts: settings-state-ui-smoke.py mobile-layout-ui-smoke.py drafts-refresh-ui-smoke.py
-          - suite: cdn-addresses
-            scripts: >-
-              cdn-address-tools-ui-smoke.py cdn-schedule-ui-smoke.py
-              cdn-domains-ui-smoke.py cdn-check-ports-ui-smoke.py
-          - suite: cdn-tunnels
-            scripts: >-
-              cdn-tunnel-ui-smoke.py cdn-tunnel-agent-ui-smoke.py
-              cdn-tunnel-remote-ui-smoke.py cdn-scheme-ui-smoke.py
-          - suite: nodes-users
-            scripts: >-
-              rollout-result-ui-smoke.py nodes-browser-ui-smoke.py
-              user-online-ui-smoke.py user-state-ui-smoke.py relay-endpoint-ui-smoke.py proxy-chain-ui-smoke.py account-navigation-ui-smoke.py
+      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
+    env:
+      POLARIS_BROWSER_DIAGNOSTICS: '1'
+      POLARIS_BROWSER_ARTIFACTS: /tmp/polaris-browser-artifacts
+      PYTHONPATH: ${{ github.workspace }}/.github/scripts/browser_support
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -439,12 +476,22 @@ jobs:
             fi
             echo "::endgroup::"
           done
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-evidence-browser-ui${{ strategy.job-index }}
+          path: |
+            /tmp/polaris-browser-artifacts
+            /tmp/browser-vite.log
+          retention-days: 7
+          if-no-files-found: ignore
 
   pr-proof:
     # Only completed PR browser/PostgreSQL checks can be reused by a release.
     # Record the checked-out merge tree, not just the PR head commit.
-    needs: [passkeys, browser-ui, go-postgres]
-    if: github.event_name == 'pull_request'
+    needs: [changes, passkeys, browser-ui, go-postgres]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read

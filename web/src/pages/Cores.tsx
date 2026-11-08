@@ -1,3 +1,4 @@
+import TrafficMeterHealth from '../components/TrafficMeterHealth'
 // Cores across every node: versions, status, upgrades and rollbacks in one
 // place (per-node management stays on the node page).
 import { useMemo, useState } from 'react'
@@ -118,6 +119,7 @@ export default function Cores() {
                         <span className={'st ' + (running ? 'ok' : coreInstalling(c, n) && n.connected ? 'warn' : 'off')}>{running ? t('● 运行中') : coreInstalling(c, n) ? (n.connected ? t('安装中') : t('等待节点上线')) : c.inbounds ? t('已停止') : t('空闲')}</span>
                         {!n.connected && !coreInstalling(c, n) && <div className="small mute">{t('节点离线')}</div>}
                         {n.progress?.active && n.progress.stage.includes(c.type) && <div style={{ marginTop: 4, maxWidth: 260 }}><NodeActivity n={n} compact /></div>}
+                        <TrafficMeterHealth core={c} connected={n.connected} />
                         {c.error && <div className="small" style={{ color: 'var(--bad)', maxWidth: 260 }}>{c.error}</div>}
                       </td>
                       <td className="mono">{c.inbounds}</td>

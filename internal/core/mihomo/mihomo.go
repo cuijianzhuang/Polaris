@@ -40,7 +40,8 @@ type Adapter struct {
 
 	mu    sync.Mutex
 	last  *model.NodeSpec
-	conns map[string][2]int64 // connection id -> last seen up/down
+	conns map[string][2]int64 // guarded by meter.mu
+	meter trafficMeter
 }
 
 func New(o core.Options) *Adapter {
@@ -509,10 +510,15 @@ func (a *Adapter) Start(ctx context.Context) error {
 	if a.proc == nil {
 		return fmt.Errorf("mihomo binary not configured")
 	}
-	return a.proc.Start(ctx)
+	if err := a.proc.Start(ctx); err != nil {
+		return err
+	}
+	a.startMeter()
+	return nil
 }
 
 func (a *Adapter) Stop(ctx context.Context) error {
+	a.stopMeter()
 	if a.proc == nil {
 		return nil
 	}
@@ -556,10 +562,14 @@ func (a *Adapter) Reload(ctx context.Context) error {
 		return fmt.Errorf("mihomo binary not configured")
 	}
 	if !a.proc.Running() {
-		return a.proc.Start(ctx)
+		return a.Start(ctx)
 	}
 	if err := a.api(ctx, http.MethodPut, "/configs?force=true", map[string]string{"path": a.configPath()}, nil); err != nil {
-		return a.proc.Restart(ctx)
+		if e := a.proc.Restart(ctx); e != nil {
+			return e
+		}
+		a.startMeter()
+		return nil
 	}
 	return nil
 }
@@ -586,34 +596,23 @@ func (a *Adapter) connections(ctx context.Context) ([]connection, error) {
 	return resp.Connections, err
 }
 
-// CollectTraffic diffs per-connection byte counters by inbound user. Bytes
-// a connection moves between its last poll and closing are not counted.
+// CollectTraffic drains observations exactly once into the agent's durable
+// queue. Successful earlier samples remain deliverable during an API outage.
 func (a *Adapter) CollectTraffic(ctx context.Context) ([]model.TrafficDelta, error) {
-	conns, err := a.connections(ctx)
-	if err != nil {
-		return nil, err
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	per := map[string][2]int64{}
-	seen := map[string][2]int64{}
-	for _, c := range conns {
-		prev := a.conns[c.ID]
-		seen[c.ID] = [2]int64{c.Upload, c.Download}
-		if c.Metadata.InboundUser == "" {
-			continue
+	err := a.sampleTraffic(ctx)
+	a.meter.mu.Lock()
+	defer a.meter.mu.Unlock()
+	out := make([]model.TrafficDelta, 0, len(a.meter.pending))
+	for id, v := range a.meter.pending {
+		if v[0] > 0 || v[1] > 0 {
+			out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
 		}
-		v := per[c.Metadata.InboundUser]
-		v[0] += c.Upload - prev[0]
-		v[1] += c.Download - prev[1]
-		per[c.Metadata.InboundUser] = v
 	}
-	a.conns = seen
-	var out []model.TrafficDelta
-	for id, v := range per {
-		out = append(out, model.TrafficDelta{UserID: id, Up: v[0], Down: v[1]})
+	a.meter.pending = map[string][2]int64{}
+	if len(out) > 0 {
+		return out, nil
 	}
-	return out, nil
+	return out, err
 }
 
 func (a *Adapter) OnlineIPs(ctx context.Context) (map[string][]string, error) {

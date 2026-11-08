@@ -16,6 +16,7 @@ import (
 // authorized subscription. Network success alone never becomes business success.
 func (s *Server) portalNodeDetails(info *sub.Info, clientNodes []sub.Node) error {
 	info.Links = nil
+	info.TrafficMeterNote = ""
 	if len(clientNodes) == 0 {
 		return nil
 	}
@@ -85,6 +86,12 @@ func (s *Server) portalNodeDetails(info *sub.Info, clientNodes []sub.Node) error
 	nodeCores := map[string][]store.Core{}
 	for _, cr := range cores {
 		nodeCores[cr.NodeID] = append(nodeCores[cr.NodeID], cr)
+	}
+	for _, client := range clientNodes {
+		if in, ok := inbounds[client.PanelInboundID]; ok && in.Core == "mihomo" {
+			info.TrafficMeterNote = "部分节点使用活动连接采样，可能漏掉短连接和连接关闭前的尾部流量；展示用量不等同于精确网络账单。"
+			break
+		}
 	}
 	regions := map[string]string{}
 	for _, r := range sub.Regions() {

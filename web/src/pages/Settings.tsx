@@ -34,7 +34,11 @@ export default function Settings() {
   const me = useLoad((signal) => get<{ username: string; totpEnabled: boolean; githubLogin?: string; recoveryCodesLeft?: number }>('/auth/me', signal))
   const [codes, setCodes] = useState<string[] | null>(null)
   const gh = useLoad((signal) => get<{ enabled: boolean; clientId: string; callbackUrl: string }>('/auth/github', signal))
-  const [ghForm, setGhForm] = useState({ id: '', secret: '' })
+  const [ghForm, setGhForm] = useState<{ id: string | null; secret: string }>({ id: null, secret: '' })
+  const [ghSavedId, setGhSavedId] = useState<string | null>(null)
+  const ghBaselineId = ghSavedId ?? gh.data?.clientId ?? ''
+  const ghId = ghForm.id ?? ghBaselineId
+  const ghDirty = !!ghForm.secret || (ghForm.id !== null && ghForm.id !== ghBaselineId)
   const toast = useToast()
   const confirm = useConfirm()
   useEffect(() => {
@@ -45,7 +49,6 @@ export default function Settings() {
     r.bound = r.error = r.ssoBound = undefined // shown once, not on every visit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => { if (gh.data) setGhForm((x) => ({ ...x, id: gh.data!.clientId })) }, [gh.data])
   const [f, setF] = useState<Record<string, string>>({})
   const [generalBaseline, setGeneralBaseline] = useState('')
   const generalSaver = useSettingsSave()
@@ -72,8 +75,10 @@ export default function Settings() {
     return generalSaver.run(async () => { await put('/settings', f); setGeneralBaseline(JSON.stringify(f)); s.reload(); refreshBrand() })
   }
   useSettingsDraft({ label: t('常规'), dirty: tab === 'general' && generalDirty, busy: generalSaver.busy, save: saveGeneral, discard: () => setF(JSON.parse(generalBaseline || '{}')) })
-  useSettingsDraft({ label: t('账号安全'), dirty: tab === 'security' && (Object.values(pw).some(Boolean) || !!code || !!ghForm.secret || (!!gh.data && ghForm.id !== gh.data.clientId)), busy: tab === 'security' && busy,
-    discard: () => { setPw({ old: '', new: '', again: '' }); setCode(''); setGhForm({ id: gh.data?.clientId || '', secret: '' }) } })
+  // Browsers may autofill the current password while merely viewing this page.
+  // It is verification input, not a pending password change on its own.
+  useSettingsDraft({ label: t('账号安全'), dirty: tab === 'security' && (!!pw.new || !!pw.again || !!code || ghDirty), busy: tab === 'security' && busy,
+    discard: () => { setPw({ old: '', new: '', again: '' }); setCode(''); setGhForm({ id: null, secret: '' }) } })
   const go = (id: string) => { if (id !== tab) void navigate({ hash: '#' + id }, { replace: true }) }
   const settingsNav = useRef<HTMLElement>(null)
   const [moreTabs, setMoreTabs] = useState(false)
@@ -181,7 +186,7 @@ export default function Settings() {
             <>
               <QR text={totp.url} size={180} />
               <CopyBox text={totp.secret} />
-              <Field label={t('验证码')}><input className="input mono" inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} /></Field>
+              <Field label={t('验证码')}><input className="input mono" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value)} /></Field>
               <div className="row">
                 <button className="btn pri" type="button" disabled={busy || code.length < 6} onClick={() => run(async () => { const r = await post<{ recoveryCodes: string[] }>('/auth/totp/enable', { code, enable: true }); setTotp(null); setCode(''); me.reload(); setCodes(r.recoveryCodes) }, t('二次验证已开启'))}>{t('开启')}</button>
               </div>
@@ -208,18 +213,18 @@ export default function Settings() {
               <div className="hint">{t('在 GitHub → Settings → Developer settings → OAuth Apps 新建应用，「Authorization callback URL」填写下方地址，然后填入 Client ID 与 Client Secret。')}</div>
               <CopyBox text={gh.data?.callbackUrl ?? ''} />
               <div className="form-grid">
-                <Field label="Client ID"><input className="input mono" value={ghForm.id} onChange={(e) => setGhForm({ ...ghForm, id: e.target.value.trim() })} /></Field>
-                <Field label="Client Secret" hint={gh.data?.enabled ? t('已保存（留空不修改）') : undefined}><input className="input mono" type="password" autoComplete="off" value={ghForm.secret} onChange={(e) => setGhForm({ ...ghForm, secret: e.target.value.trim() })} /></Field>
+                <Field label="Client ID"><input className="input mono" autoComplete="off" disabled={busy || !gh.data} value={ghId} onChange={(e) => setGhForm({ ...ghForm, id: e.target.value.trim() })} /></Field>
+                <Field label="Client Secret" hint={gh.data?.enabled ? t('已保存（留空不修改）') : undefined}><input className="input mono" type="password" autoComplete="new-password" disabled={busy || !gh.data} value={ghForm.secret} onChange={(e) => setGhForm({ ...ghForm, secret: e.target.value.trim() })} /></Field>
               </div>
-              <div><button className="btn sm pri" type="button" disabled={busy || !ghForm.id} onClick={() => run(async () => {
-                await put('/settings', ghForm.secret ? { github_client_id: ghForm.id, github_client_secret: ghForm.secret } : { github_client_id: ghForm.id })
-                setGhForm((x) => ({ ...x, secret: '' })); gh.reload()
+              <div><button className="btn sm pri" type="button" disabled={busy || !gh.data || !ghId || !ghDirty} onClick={() => run(async () => {
+                await put('/settings', ghForm.secret ? { github_client_id: ghId, github_client_secret: ghForm.secret } : { github_client_id: ghId })
+                setGhSavedId(ghId); setGhForm({ id: null, secret: '' }); gh.reload()
               }, t('GitHub 登录配置已保存'))}>{t('保存')}</button></div>
             </div>
           </details>
           {me.data?.totpEnabled && !totp && (
             <div className="row" style={{ marginTop: 4 }}>
-              <input className="input mono" style={{ width: 140 }} placeholder={t('验证码')} value={code} onChange={(e) => setCode(e.target.value)} />
+              <input className="input mono" style={{ width: 140 }} placeholder={t('验证码')} autoComplete="one-time-code" inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value)} />
               <button className="btn danger" type="button" disabled={busy || code.length < 6} onClick={() => run(async () => { await post('/auth/totp/enable', { code, enable: false }); setCode(''); me.reload() }, t('已关闭'))}>{t('关闭二次验证')}</button>
             </div>
           )}

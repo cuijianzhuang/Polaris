@@ -1,21 +1,21 @@
 /* Console surfaces and layout. Colours continue to come from the selected
    Polaris palette; compact navigation and work areas follow a panel layout. */
 :root {
-  --bg: #F5F5F7;
+  --bg: var(--ui-light-bg);
   --soft: #F5F5F7;
   --soft-2: #FAFAFC;
-  --line: #E5E5EA;
+  --line: var(--ui-light-line);
   --line-2: #EFEFF2;
   --input: #D9D9E0;
   --side: #F0F1F4;
   --side-hover: color-mix(in srgb, var(--ink) 5%, var(--side));
   --side-line: var(--line);
-  --r-sm: 6px;
-  --r: 10px;
-  --r-lg: 14px;
+  --r-sm: var(--ui-radius-sm);
+  --r: var(--ui-radius-control);
+  --r-lg: var(--ui-radius-card);
   --ring: 0 0 0 3px color-mix(in srgb, var(--pri) 14%, transparent);
   --workspace-header-height: 56px;
-  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter Variable', 'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --sans: var(--ui-font);
 }
 
 .app .side {
@@ -108,7 +108,7 @@ html[data-mode="dark"] .chip.on { background: var(--pri-soft); color: var(--pri-
 .page-content .kpi .val { color: var(--pri-ink); }
 .page-content .kpi .val .small, .page-content .kpi .val .of { color: var(--mute); }
 
-.btn { min-height: 36px; box-shadow: none; }
+.btn { min-height: var(--ui-control-height); box-shadow: none; }
 .btn:not(:disabled):hover { transform: none; box-shadow: none; }
 .page-content .btn.pri { box-shadow: none; }
 .chip { border-radius: var(--r); background: var(--soft-2); box-shadow: none; }
@@ -210,8 +210,8 @@ tr.sel td { background: var(--pri-soft); }
 
 /* Shared mobile controls must wrap as groups, with one consistent touch size. */
 .refresh-picker { gap: 6px; flex-wrap: nowrap; }
-.refresh-picker > .btn { flex: none; min-height: 36px; }
-.refresh-picker > select.input { width: auto; min-width: 0; min-height: 36px; flex: 1; }
+.refresh-picker > .btn { flex: none; min-height: var(--ui-control-compact); }
+.refresh-picker > select.input { width: auto; min-width: 0; min-height: var(--ui-control-compact); flex: 1; }
 .nm-pop { overflow-y: auto; overscroll-behavior: contain; }
 .nm-pop-h { align-items: flex-start; }
 .nm-pop-h > .icon-btn { flex: none; }
@@ -278,3 +278,11 @@ tr.sel td { background: var(--pri-soft); }
   .page-content .btn, .page-content .icon-btn { min-width: 44px; min-height: 44px; }
   .rtable .rt-actions :is(button.link, a.link) { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 6px 10px; }
 }
+
+/* Use the shared neutral surfaces; named styles and accent choices still win. */
+html:not([data-style])[data-mode="light"] { --bg:var(--ui-light-bg);--card:var(--ui-light-card);--ink:var(--ui-light-ink);--mute:var(--ui-light-mute);--line:var(--ui-light-line) }
+html:not([data-style])[data-mode="dark"] { --bg:var(--ui-dark-bg);--card:var(--ui-dark-card);--ink:var(--ui-dark-ink);--mute:var(--ui-dark-mute);--line:var(--ui-dark-line) }
+.app .card { border-radius:var(--ui-radius-card) }
+@media(max-width:760px){.app .btn,.app .input,.app .btn.sm,.app .input.sm{min-height:var(--ui-touch-height)}}
+
+.meter-health{max-width:420px;overflow-wrap:anywhere;margin:8px 0;line-height:1.6}.meter-health .hint{margin-top:4px}

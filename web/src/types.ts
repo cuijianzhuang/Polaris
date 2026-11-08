@@ -38,6 +38,7 @@ export interface Core {
   id: string; nodeId: string; type: CoreType; version: string; status: string; pid: number; isDefault: boolean
   startedAt?: string; error: string; installedVersions: string[]; inbounds: number
   runningVersion?: string; prevVersion?: string; noUserTraffic?: boolean
+  trafficMeter?: { mode: string; intervalSeconds: number; lastSuccess?: string; lastAttempt?: string; consecutiveFailures: number }
 }
 export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; lat?: number | null; lng?: number | null; labels: string[]

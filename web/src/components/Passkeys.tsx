@@ -21,7 +21,7 @@ export default function Passkeys() {
  {state.data?.origin && <div className="hint mono">{state.data.origin}</div>}
     {state.data && !state.data.available && <div className="note warn">{state.data.reason}</div>}
     {!supported && <div className="note warn">{t('当前浏览器或连接不支持通行密钥，请使用 HTTPS 和支持 WebAuthn 的浏览器。')}</div>}
-    <Field label={t('通行密钥名称')} htmlFor="passkey-name"><input id="passkey-name" className="input" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} placeholder={t('例如：我的手机或安全密钥')} /></Field>
+    <Field label={t('通行密钥名称')} htmlFor="passkey-name"><input id="passkey-name" className="input" autoComplete="off" value={name} maxLength={64} onChange={(e) => setName(e.target.value)} placeholder={t('例如：我的手机或安全密钥')} /></Field>
     <div><button className="btn pri" type="button" disabled={busy || !name.trim() || !supported || !state.data?.available} onClick={() => run(async () => {
       const begin = await post<{ challengeId: string; options: any }>('/auth/passkeys/register/begin', { name })
       const credential = await createPasskey(begin.options)

@@ -18,6 +18,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/license"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
+	"github.com/cuijianzhuang/polaris/internal/uitheme"
 )
 
 // User center: proxy users sign in at /u with an email code or Telegram. The
@@ -446,4 +447,4 @@ func (b *tgBot) portalLoginAnswer(chat, msg int64, reqID, pick string, id tgIden
 //go:embed assets/portal-login.html
 var portalLoginHTML string
 
-var portalLoginTpl = template.Must(template.New("login").Parse(portalLoginHTML))
+var portalLoginTpl = template.Must(template.New("login").Funcs(template.FuncMap{"uiTokens": func() template.CSS { return template.CSS(uitheme.CSS) }}).Parse(portalLoginHTML))
