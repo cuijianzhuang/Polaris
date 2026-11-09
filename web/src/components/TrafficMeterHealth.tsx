@@ -4,7 +4,7 @@ import type { Core } from '../types'
 
 export default function TrafficMeterHealth({ core, connected }: { core: Core; connected: boolean }) {
   const meter = core.trafficMeter
-  const sampled = meter?.mode === 'connection_sampled' || core.type === 'mihomo'
+  const sampled = meter?.mode === 'connection_sampled' || (core.type === 'mihomo' && meter?.mode !== 'kernel_counter')
   const at = meter?.lastSuccess ? Date.parse(meter.lastSuccess) : NaN
   const stale = Number.isFinite(at) && Date.now() - at > 180000
   const failed = (meter?.consecutiveFailures ?? 0) > 0

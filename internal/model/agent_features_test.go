@@ -19,6 +19,7 @@ func TestAgentFeaturesRegistered(t *testing.T) {
 		RemoteTunnelFeature,
 		RelayBusinessFeature,
 		SingboxRelayBusinessFeature,
+		ExtendedRelayBusinessFeature,
 	}
 	for _, w := range want {
 		if !IsAgentFeature(w) {

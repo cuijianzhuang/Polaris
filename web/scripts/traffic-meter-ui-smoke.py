@@ -19,6 +19,8 @@ with sync_playwright() as p:
    page.reload();expect(meter).to_contain_text('最近采集失败')
    node['cores'][0]['trafficMeter'].update(consecutiveFailures=0,lastSuccess=(datetime.now(timezone.utc)-timedelta(minutes=10)).isoformat())
    page.reload();expect(meter).to_contain_text('采集结果较旧')
+   node['cores'][0]['trafficMeter'].update(mode='kernel_counter',lastSuccess=datetime.now(timezone.utc).isoformat())
+   page.reload();expect(meter).to_contain_text('内核用户计数');expect(meter).not_to_contain_text('活动连接采样');expect(meter).to_contain_text('采集正常')
    node['cores'][0].pop('trafficMeter')
    page.reload();expect(meter).to_contain_text('采集状态未上报')
    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')

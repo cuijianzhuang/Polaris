@@ -218,6 +218,27 @@ jobs:
           go vet -tags pro ./...
           go test -count=1 -tags pro ./internal/panel/ ./internal/agent/ ./internal/license/
           scripts/pro.sh clean
+  mihomo-accounting:
+    needs: changes
+    if: needs.changes.outputs.protocols == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build reviewed mihomo cumulative accounting core
+        run: |
+          git clone --depth 1 --branch v1.19.15 https://github.com/MetaCubeX/mihomo.git /tmp/mihomo-src
+          python3 .github/scripts/apply-mihomo-meter.py /tmp/mihomo-src
+          cd /tmp/mihomo-src
+          go test -race ./tunnel/statistic -run TestPolaris -count=1
+          go build -tags with_gvisor -trimpath -ldflags '-X github.com/metacubex/mihomo/constant.Version=v1.19.15' -o /tmp/mihomo-counters .
+      - name: Verify closed TCP connections, UDP and epoch deduplication
+        run: go test -race ./internal/core/mihomo -run '^TestNative' -count=1 -v
+        env:
+          POLARIS_MIHOMO_COUNTER_BIN: /tmp/mihomo-counters
   singbox-diagnostics:
     needs: changes
     if: needs.changes.outputs.protocols == 'true'
@@ -232,7 +253,7 @@ jobs:
           git clone --depth 1 --branch v1.13.5 https://github.com/SagerNet/sing-box.git /tmp/diagnostic-singbox-src
           test "$(git -C /tmp/diagnostic-singbox-src rev-parse HEAD)" = 7ffdc48b49718d6aeee19ede523a31d1286724cf
           cd /tmp/diagnostic-singbox-src
-          go build -tags with_v2ray_api,with_utls,with_clash_api -ldflags '-X github.com/sagernet/sing-box/constant.Version=1.13.5' -o /tmp/diagnostic-singbox ./cmd/sing-box
+          go build -tags with_v2ray_api,with_utls,with_clash_api,with_quic -ldflags '-X github.com/sagernet/sing-box/constant.Version=1.13.5' -o /tmp/diagnostic-singbox ./cmd/sing-box
       - name: Verify real relay authentication, traffic and credential revocation
         run: go test -race -count=1 -v ./internal/core/singbox -run 'TestLiveSingbox|TestDiagnosticRefuses'
         env:

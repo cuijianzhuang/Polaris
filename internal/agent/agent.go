@@ -333,7 +333,7 @@ func (a *Agent) featureSet() []string {
 			if !linux {
 				continue
 			}
-		case model.ManagedTunnelFeature, model.RemoteTunnelFeature, model.RelayBusinessFeature, model.SingboxRelayBusinessFeature:
+		case model.ManagedTunnelFeature, model.RemoteTunnelFeature, model.RelayBusinessFeature, model.SingboxRelayBusinessFeature, model.ExtendedRelayBusinessFeature:
 			if !parentBound {
 				continue
 			}

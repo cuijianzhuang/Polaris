@@ -89,6 +89,16 @@ func (s *Server) portalNodeDetails(info *sub.Info, clientNodes []sub.Node) error
 	}
 	for _, client := range clientNodes {
 		if in, ok := inbounds[client.PanelInboundID]; ok && in.Core == "mihomo" {
+			cumulative := false
+			for _, cr := range nodeCores[in.NodeID] {
+				if cr.Type == in.Core && cr.TrafficMeter.V.Mode == "kernel_counter" {
+					cumulative = true
+					break
+				}
+			}
+			if cumulative {
+				continue
+			}
 			info.TrafficMeterNote = "部分节点使用活动连接采样，可能漏掉短连接和连接关闭前的尾部流量；展示用量不等同于精确网络账单。"
 			break
 		}

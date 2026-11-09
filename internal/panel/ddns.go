@@ -59,12 +59,14 @@ func (s *Server) saveDNSProvider(c *gin.Context) {
 		badRequest(c, fmt.Errorf("kind must be cloudflare or webhook"))
 		return
 	}
-	p := store.DNSProvider{ID: store.NewID()}
+	var p store.DNSProvider
 	if id := c.Param("id"); id != "" {
 		if err := s.st.DB.First(&p, "id = ?", id).Error; err != nil {
 			dbError(c, err)
 			return
 		}
+	} else {
+		p.ID = store.NewID()
 	}
 	p.Name, p.Kind, p.Endpoint = req.Name, req.Kind, req.Endpoint
 	if req.Token != "" {

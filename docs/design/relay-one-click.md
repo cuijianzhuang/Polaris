@@ -180,9 +180,9 @@ Agent 在启动 / 修改内核之前原子提交过渡规则：旧、新配置�
 
 诊断的网络检查支持请求取消并共用 15 秒超时，结果即时返回，不修改入站告警或落地路由健康，也不使用、创建用户凭据。旧链路定时探测同样对原样 UDP 返回 `skipped: true`，不再因对应 TCP 端口关闭把落地节点判为故障，此时仍以心跳状态判断节点在线。
 
-### 真实代理业务诊断（Linux + Xray / sing-box VLESS）
+### 真实代理业务诊断（Linux + Xray / sing-box）
 
-管理员调用 `POST /inbounds/:id/relays/:rid/diagnose/business`。此接口与前面的只读分层诊断分开，会短暂向正在运行的 Xray 添加专用身份，启动受控客户端并回收身份。支持新 Linux Agent 管理的 Xray VLESS，以及下述限定范围的 sing-box VLESS；旧 Agent、其他内核/协议及未完成部署的线路明确返回 `unsupported` 或 `not_ready`，不借用真实用户凭据。需先升级落地 Agent，使其上报 `relay-business-v1`。
+管理员调用 `POST /inbounds/:id/relays/:rid/diagnose/business`。此接口与前面的只读分层诊断分开，会短暂向正在运行的 Xray 添加专用身份，启动受控客户端并回收身份。支持新 Linux Agent 管理的 Xray VLESS/VMess/Trojan，以及下述 sing-box 协议；旧 Agent、其他内核/协议及未完成部署的线路明确返回 `unsupported` 或 `not_ready`，不借用真实用户凭据。需先升级落地 Agent，使其上报 `relay-business-v1`。
 
 正文可省略，或指定测试服务：
 
@@ -195,7 +195,7 @@ Agent 在启动 / 修改内核之前原子提交过渡规则：旧、新配置�
 
 TCP 测试发送带随机标记的 HTTP(S) 请求，要求 2xx 响应并读取返回数据；HTTPS 使用正常证书校验。UDP 测试发送随机名称的 DNS 查询，校验回复 ID、问题名称、类型及响应码，不把任意 UDP 数据当成功。这里验证的是请求/回包，不是吞吐量压测。目标应选择节点实际允许访问的服务；目标服务故障或路由禁止该目标也会导致诊断失败。
 
-受控 Xray 客户端只监听本机两个固定目标转发端口，只有一个指向线路入口的 VLESS 出站，没有直连回退或公开 SOCKS 入口。它使用当前分享地址/端口覆盖值，经实际中转进入原落地入站。TLS 使用入站证书作为额外信任材料，REALITY 使用该入站的客户端公钥信息；不关闭证书检查，也不复制服务端私钥到客户端。已在 Xray 26.3.27、26.4.15、26.5.9 实测普通 TCP、TLS、TLS + Vision、REALITY + Vision，以及 GOST 多跳 WS 隧道。
+受控 Xray 客户端只监听本机两个固定目标转发端口，只有一个指向线路入口的对应协议出站，没有直连回退或公开 SOCKS 入口。它使用当前分享地址/端口覆盖值，经实际中转进入原落地入站。TLS 使用入站证书作为额外信任材料，REALITY 使用该入站的客户端公钥信息；不关闭证书检查，也不复制服务端私钥到客户端。已在 Xray 26.3.27、26.4.15、26.5.9 实测普通 TCP、TLS、TLS + Vision、REALITY + Vision，以及 GOST 多跳 WS 隧道。
 
 Xray 临时身份采用独立的 `#diag:` 命名空间和随机 UUID，只通过内核热接口存在于内存，不写入用户表、正式 NodeSpec 或正式内核配置。接口不返回 UUID 或密码，临时客户端文件权限为 0600，正常结束时删除，Agent 恢复创建 Xray 适配器时清理遗留目录。受控客户端限制本次发出的流量目标，不为该临时身份额外创建服务端用户 ACL；拥有主机 root 权限仍属于节点本身的信任边界。
 
@@ -209,9 +209,9 @@ Xray 临时身份采用独立的 `#diag:` 命名空间和随机 UUID，只通过
 
 Agent 阻止诊断用户计数进入持久上报队列及在线用户报告，面板入账再次排除该命名空间，避免未知身份或回退路径造成用户扣量。网卡、入站/出站物理计数仍反映这些真实网络数据，不应把它们当作客户计费用量。诊断开始和结果写入审计，保持原只读诊断与生产健康状态独立。
 
-#### sing-box VLESS + TCP + REALITY/Vision
+#### sing-box 多协议与传输诊断
 
-此适配要求 Linux、落地 Agent 声明 `relay-business-singbox-v2`、心跳上报稳定运行版本 **1.13.5 或更新**，且二进制包含 `with_v2ray_api`。仅允许 VLESS、TCP、REALITY 和 `xtls-rprx-vision` 的组合；入站 JSON 覆盖、共享回落和 PROXY 协议不在首批范围内。面板使用实际 `runningVersion` 与逐用户计量能力校验，未知版本、旧 Agent 和普通无逐用户统计构建均不能运行。
+此适配要求 Linux、落地 Agent 声明 `relay-business-singbox-v2`、心跳上报稳定运行版本 **1.13.5 或更新**，且二进制包含 `with_v2ray_api`。旧 v2 能力仅允许 VLESS + TCP + REALITY/Vision；新 `relay-business-protocols-v3` 扩展允许 VLESS/VMess/Trojan 的 TCP、WS、gRPC、HTTPUpgrade，以及 AnyTLS TCP、Hysteria2/TUIC QUIC。TLS 始终校验证书，Hysteria2/TUIC 构建需包含 `with_quic`。入站 JSON 覆盖、共享回落和 PROXY 协议仍不支持。面板使用实际 `runningVersion` 与逐用户计量能力校验，未知版本、旧 Agent 和普通无逐用户统计构建均不能运行。
 
 **运行诊断会在开始和结束时重启该 sing-box，现有连接会中断。** sing-box 没有公开的 VLESS 动态用户接口，因此不把诊断 UUID 写入正式 `singbox.json` 再 SIGHUP。Agent 复制当前已应用配置到权限受限的 `diagnostic-*` 目录，只在这个临时副本中增加随机 `#diag:` 用户和计数项。正式用户、路由与出站保留；正式 NodeSpec、用户表和重启配置不包含诊断身份。
 
@@ -221,7 +221,7 @@ Agent 阻止诊断用户计数进入持久上报队列及在线用户报告，�
 
 Agent 在替换共享进程前采集正式用户计数，并在销毁临时进程前保留期间的正式用户增量，避免正常完成时丢失普通用户流量；诊断身份计数仅进入诊断结果，不进入客户扣量队列。异常终止仍可能丢失尚未采集的正常流量尾部。临时进程已停止但正式配置恢复失败时，`cleanupVerified` 可为 true，但整体结果仍为 failed，Agent 按原有恢复流程继续处理。
 
-真实 sing-box 1.13.5 的测试覆盖中转后的 REALITY/Vision、受信 HTTPS、不受信证书拒绝、UDP 内容校验、错误入口、会话取消、租约到期、撤销后 UUID 重放拒绝、普通用户流量保留和 Agent SIGKILL 后重启。可设置 `POLARIS_SINGBOX_DIAGNOSTIC_BIN`，运行 `go test -race ./internal/core/singbox -run 'TestLiveSingbox|TestDiagnosticRefuses'`。测试二进制需包含 `with_v2ray_api,with_utls`。CI 使用固定提交的 1.13.5 源码单独构建并运行原生诊断竞态检查；通用内核测试允许缺少这些能力的官方构建跳过诊断，专用诊断变量指向不兼容构建时则明确失败。
+真实 sing-box 1.13.5 的测试覆盖中转后的 REALITY/Vision、受信 HTTPS、不受信证书拒绝、UDP 内容校验、错误入口、会话取消、租约到期、撤销后 UUID 重放拒绝、普通用户流量保留和 Agent SIGKILL 后重启。可设置 `POLARIS_SINGBOX_DIAGNOSTIC_BIN`，运行 `go test -race ./internal/core/singbox -run 'TestLiveSingbox|TestDiagnosticRefuses'`。测试二进制需包含 `with_v2ray_api,with_utls,with_quic`。CI 使用固定提交的 1.13.5 源码单独构建并运行原生诊断竞态检查；通用内核测试允许缺少这些能力的官方构建跳过诊断，专用诊断变量指向不兼容构建时则明确失败。
 
 
 ## 参考截图的功能映射
@@ -304,4 +304,6 @@ POLARIS_NFT_DOCKER_TEST=1 go test ./internal/agent -run TestLiveAccessFirewall -
 
 网络诊断响应包含 `kind: network`，真实业务诊断响应包含 `kind: business`。网络检查通过时，界面只显示“已执行的网络检查通过”，同时明确代理业务未测试；`proxy_business: not_tested` 不再显示为业务失败。真实业务的 `unsupported`、`not_ready` 以中性状态展示；实际执行未通过仍保留警告，只有服务端确认业务与临时凭据清理证据后才显示业务已验证。
 
-线路列表提供 `businessDiagnostic: {supported, reason, scope, requiresRestart}`，由与真实业务诊断入口相同的校验函数生成。支持 Xray VLESS 和上述 sing-box VLESS TCP REALITY/Vision 组合，均要求落地 Agent 声明相应能力；sing-box 还校验已上报的运行版本与计量能力。页面在执行前明确提示 sing-box 重启影响。前端在不支持或线路未应用时禁用业务诊断按钮并展示原因，网络诊断和中转创建继续可用。列表后的配置/能力变化仍由执行接口再次校验，过期的可用状态不会绕过服务端限制。
+线路列表提供 `businessDiagnostic: {supported, reason, scope, requiresRestart}`，由与真实业务诊断入口相同的校验函数生成。支持 Xray VLESS/VMess/Trojan 和上述 sing-box 组合，均要求落地 Agent 声明相应能力；sing-box 还校验已上报的运行版本与计量能力。页面在执行前明确提示 sing-box 重启影响。前端在不支持或线路未应用时禁用业务诊断按钮并展示原因，网络诊断和中转创建继续可用。列表后的配置/能力变化仍由执行接口再次校验，过期的可用状态不会绕过服务端限制。
+
+扩展原生回归覆盖 sing-box VLESS TLS/WS、VMess WS、Trojan gRPC、AnyTLS、Hysteria2、TUIC 的 TCP/UDP 往返、独立诊断计数、正式配置不变、临时凭据撤销后重放拒绝和普通用户恢复。Xray 增加 VMess WS、Trojan TLS 和 VLESS gRPC。旧 Agent 不会被当作支持新协议；未知组合仍明确返回 unsupported。

@@ -29,13 +29,23 @@ func TestLiveRelayBusinessDiagnostic(t *testing.T) {
 	if bin == "" {
 		t.Skip("POLARIS_XRAY_BIN not set")
 	}
-	for _, security := range []string{"none", "tls", "tls-default-sni", "vision", "reality"} {
+	for _, security := range []string{"none", "tls", "tls-default-sni", "vision", "reality", "vmess-ws", "trojan-tls", "vless-grpc"} {
 		t.Run(security, func(t *testing.T) {
 			dir := t.TempDir()
 			a := New(core.Options{Version: "26.3.27", BinPath: bin, WorkDir: dir, APIListen: net.JoinHostPort("127.0.0.1", itoa(freePort(t))), BindToParent: true})
 			port := freePort(t)
 			in := coretest.Inbound(model.CoreXray, "entry", port, model.ProtocolSpec{Type: model.ProtoVLESS}, model.TransportSpec{}, model.SecuritySpec{})
 			in.Listen = "127.0.0.1"
+			if security == "vmess-ws" {
+				in.Protocol.Type = model.ProtoVMess
+				in.Transport = model.TransportSpec{Type: model.TransWS, Path: "/diagnostic"}
+			}
+			if security == "trojan-tls" {
+				in.Protocol.Type = model.ProtoTrojan
+			}
+			if security == "vless-grpc" {
+				in.Transport = model.TransportSpec{Type: model.TransGRPC, ServiceName: "diagnostic"}
+			}
 			if security != "none" {
 				in.Security = coretest.TLS(t, "test.example")
 				in.Security.ServerName = "test.example"
@@ -83,7 +93,7 @@ func TestLiveRelayBusinessDiagnostic(t *testing.T) {
 				if len(paths) == 1 {
 					b, _ := os.ReadFile(paths[0])
 					var conf map[string]any
-					if json.Unmarshal(b, &conf) == nil {
+					if json.Unmarshal(b, &conf) == nil && in.Protocol.Type != model.ProtoTrojan {
 						credential.Store(conf["outbounds"].([]any)[0].(map[string]any)["settings"].(map[string]any)["vnext"].([]any)[0].(map[string]any)["users"].([]any)[0].(map[string]any)["id"].(string))
 					}
 				}

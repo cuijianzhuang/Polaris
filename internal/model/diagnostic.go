@@ -7,6 +7,7 @@ import (
 
 const RelayBusinessFeature = "relay-business-v1"
 const SingboxRelayBusinessFeature = "relay-business-singbox-v2"
+const ExtendedRelayBusinessFeature = "relay-business-protocols-v3"
 const SingboxRelayBusinessMinVersion = "1.13.5"
 const DiagnosticUserPrefix = "#diag:"
 
@@ -42,6 +43,34 @@ func SingboxRelayBusinessInbound(in Inbound) bool {
 		in.Transport.Type == TransTCP && in.Security.Type == SecReality &&
 		in.Protocol.Flow == "xtls-rprx-vision" && (extra == "" || extra == "null" || extra == "{}") &&
 		len(in.Protocol.Fallbacks) == 0 && !in.Transport.AcceptProxyProtocol
+}
+
+// The extended diagnostic still excludes native overrides and shared
+// fallback listeners. Temporary credentials must be independently revocable.
+func ExtendedRelayBusinessInbound(in Inbound) bool {
+	in.Normalize()
+	extra := strings.TrimSpace(string(in.Extra))
+	if (extra != "" && extra != "null" && extra != "{}") || len(in.Protocol.Fallbacks) != 0 || in.Transport.AcceptProxyProtocol {
+		return false
+	}
+	if in.Core == CoreXray {
+		return in.Protocol.Type == ProtoVLESS || in.Protocol.Type == ProtoVMess || in.Protocol.Type == ProtoTrojan
+	}
+	if in.Core != CoreSingbox {
+		return false
+	}
+	switch in.Protocol.Type {
+	case ProtoHysteria2, ProtoTUIC:
+		return in.Transport.Type == TransQUIC && in.Security.Type == SecTLS
+	case ProtoAnyTLS:
+		return in.Transport.Type == TransTCP && in.Security.Type == SecTLS
+	case ProtoVLESS, ProtoVMess, ProtoTrojan:
+		switch in.Transport.Type {
+		case TransTCP, TransWS, TransGRPC, TransHTTPUpgrade:
+			return in.Security.Type == SecNone || in.Security.Type == SecTLS || (in.Security.Type == SecReality && in.Protocol.Type != ProtoVMess)
+		}
+	}
+	return false
 }
 
 type RelayBusinessResult struct {

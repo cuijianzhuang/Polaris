@@ -36,8 +36,8 @@ func (a *Adapter) RunRelayDiagnostic(ctx context.Context, req model.RelayBusines
 	if err != nil {
 		return result, err
 	}
-	if in.Protocol.Type != model.ProtoVLESS {
-		return result, fmt.Errorf("business diagnostics currently support Xray VLESS only")
+	if !model.ExtendedRelayBusinessInbound(*in) {
+		return result, fmt.Errorf("business diagnostics support Xray VLESS, VMess and Trojan without native overrides or shared fallback")
 	}
 	if !a.proc.Running() {
 		return result, fmt.Errorf("Xray is not running")
@@ -199,8 +199,8 @@ func (a *Adapter) diagnosticClient(in *model.Inbound, req model.RelayBusinessReq
 	if sec.Type == model.SecTLS && sec.ServerName == "" {
 		sec.ServerName = orDefault(req.ServerName, req.EntryAddress)
 	}
-	settings, _ := json.Marshal(model.OutboundSettings{Server: req.EntryAddress, Port: req.EntryPort, UUID: user.UUID, Flow: in.Protocol.Flow, Encryption: in.Protocol.Encryption, Transport: &t, Security: sec})
-	outs, _, _, err := renderOutbounds([]model.Outbound{{Tag: "diagnostic", Type: model.OutVLESS, Settings: settings}}, !core.VersionAtLeast(a.opt.Version, "26.5.9"))
+	settings, _ := json.Marshal(model.OutboundSettings{Server: req.EntryAddress, Port: req.EntryPort, UUID: user.UUID, Password: user.Password, Flow: in.Protocol.Flow, Encryption: in.Protocol.Encryption, Transport: &t, Security: sec})
+	outs, _, _, err := renderOutbounds([]model.Outbound{{Tag: "diagnostic", Type: model.OutboundType(in.Protocol.Type), Settings: settings}}, !core.VersionAtLeast(a.opt.Version, "26.5.9"))
 	if err != nil {
 		return nil, err
 	}

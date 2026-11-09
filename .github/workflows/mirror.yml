@@ -10,7 +10,7 @@ on:
   # Releases created by GITHUB_TOKEN do not trigger another release workflow.
   # Reconcile after the producer completes, including partial build failures.
   workflow_run:
-    workflows: [release, cf-ip-probe, ci]
+    workflows: [release, cf-ip-probe, ci, 'sing-box builds', 'mihomo counters']
     types: [completed]
   schedule:
     - cron: '17 * * * *'
