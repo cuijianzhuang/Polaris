@@ -23,10 +23,14 @@ type relayBusinessSupport struct {
 }
 
 func relayBusinessAvailability(in store.Inbound, landing store.Node, installed ...store.Core) relayBusinessSupport {
+	m := model.Inbound{Core: in.Core, Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V, Extra: in.Extra}
+	extended := contains(landing.AgentFeatures.V, model.ExtendedRelayBusinessFeature)
 	if in.Core == model.CoreSingbox {
-		m := model.Inbound{Core: in.Core, Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V, Extra: in.Extra}
-		if !model.SingboxRelayBusinessInbound(m) {
-			return relayBusinessSupport{Reason: "sing-box 真实业务诊断仅支持 VLESS + TCP + REALITY/Vision，且不能使用入站 JSON 覆盖或共享回落；此限制不影响当前协议的中转创建和转发"}
+		if !model.ExtendedRelayBusinessInbound(m) {
+			return relayBusinessSupport{Reason: "sing-box 业务诊断支持 VLESS、VMess、Trojan、AnyTLS、Hysteria2、TUIC；不支持此传输组合、JSON 覆盖或共享回落。此限制不影响当前协议的中转创建和转发"}
+		}
+		if !model.SingboxRelayBusinessInbound(m) && !extended {
+			return relayBusinessSupport{Reason: "当前 Agent 尚未声明扩展协议诊断能力，请更新 Agent 后重试；不影响当前协议的中转创建和转发"}
 		}
 		if !contains(landing.AgentFeatures.V, model.SingboxRelayBusinessFeature) {
 			return relayBusinessSupport{Reason: "落地 Agent 尚未声明 sing-box 安全临时授权能力，请更新或同步 Agent 后重试"}
@@ -42,12 +46,15 @@ func relayBusinessAvailability(in store.Inbound, landing store.Node, installed .
 			if cr.NoUserTraffic {
 				return relayBusinessSupport{Reason: "sing-box 真实业务诊断要求 with_v2ray_api 构建，以独立计量诊断流量"}
 			}
-			return relayBusinessSupport{Supported: true, RequiresRestart: true, Scope: "sing-box VLESS + TCP + REALITY/Vision；诊断开始和结束时重启内核，现有连接会中断"}
+			return relayBusinessSupport{Supported: true, RequiresRestart: true, Scope: "sing-box " + string(in.Protocol.V.Type) + "；验证临时身份、TCP 数据、UDP DNS 和身份撤销；诊断开始和结束时重启内核，现有连接会中断"}
 		}
 		return relayBusinessSupport{Reason: "sing-box 尚未上报运行版本与计量能力，请等待 Agent 心跳"}
 	}
-	if in.Core != model.CoreXray || in.Protocol.V.Type != model.ProtoVLESS {
-		return relayBusinessSupport{Reason: "真实业务诊断支持 Xray VLESS 和 sing-box VLESS TCP REALITY/Vision；此限制不影响当前协议的中转创建和转发"}
+	if in.Core != model.CoreXray || !model.ExtendedRelayBusinessInbound(m) {
+		return relayBusinessSupport{Reason: "真实业务诊断支持 Xray VLESS/VMess/Trojan 和 sing-box 已支持的协议组合；此限制不影响当前协议的中转创建和转发"}
+	}
+	if in.Protocol.V.Type != model.ProtoVLESS && !extended {
+		return relayBusinessSupport{Reason: "当前 Agent 尚未声明扩展协议诊断能力，请更新 Agent 后重试"}
 	}
 	if !contains(landing.AgentFeatures.V, model.RelayBusinessFeature) {
 		return relayBusinessSupport{Reason: "落地 Agent 尚未声明真实业务诊断能力，请更新或同步 Agent 后重试"}

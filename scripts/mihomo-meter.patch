@@ -1,0 +1,261 @@
+diff --git a/tunnel/statistic/manager.go b/tunnel/statistic/manager.go
+index 9db4601..2fccf9b 100644
+--- a/tunnel/statistic/manager.go
++++ b/tunnel/statistic/manager.go
+@@ -26,6 +26,7 @@ func init() {
+ }
+ 
+ type Manager struct {
++	polaris       polarisMeter
+ 	connections   xsync.Map[string, Tracker]
+ 	uploadTemp    atomic.Int64
+ 	downloadTemp  atomic.Int64
+@@ -84,10 +85,11 @@ func (m *Manager) Snapshot() *Snapshot {
+ 		return true
+ 	})
+ 	return &Snapshot{
+-		UploadTotal:   m.uploadTotal.Load(),
+-		DownloadTotal: m.downloadTotal.Load(),
+-		Connections:   connections,
+-		Memory:        m.memory,
++		PolarisUserTraffic: m.polaris.snapshot(),
++		UploadTotal:        m.uploadTotal.Load(),
++		DownloadTotal:      m.downloadTotal.Load(),
++		Connections:        connections,
++		Memory:             m.memory,
+ 	}
+ }
+ 
+@@ -118,8 +120,9 @@ func (m *Manager) handle() {
+ }
+ 
+ type Snapshot struct {
+-	DownloadTotal int64          `json:"downloadTotal"`
+-	UploadTotal   int64          `json:"uploadTotal"`
+-	Connections   []*TrackerInfo `json:"connections"`
+-	Memory        uint64         `json:"memory"`
++	PolarisUserTraffic polarisSnapshot `json:"polarisUserTraffic"`
++	DownloadTotal      int64           `json:"downloadTotal"`
++	UploadTotal        int64           `json:"uploadTotal"`
++	Connections        []*TrackerInfo  `json:"connections"`
++	Memory             uint64          `json:"memory"`
+ }
+diff --git a/tunnel/statistic/polaris.go b/tunnel/statistic/polaris.go
+new file mode 100644
+index 0000000..07a496b
+--- /dev/null
++++ b/tunnel/statistic/polaris.go
+@@ -0,0 +1,61 @@
++package statistic
++
++import (
++	"crypto/rand"
++	"encoding/hex"
++	C "github.com/metacubex/mihomo/constant"
++	"sync"
++)
++
++// Counters belong to the core lifetime, not connection snapshots. Record at
++// every native TCP/UDP accounting path, including initial buffered payload and
++// zero-copy callbacks. Closing a connection never erases its user's totals.
++// Only the outer tracker counts: detours must not bill the same payload twice.
++type polarisMeter struct {
++	mu    sync.Mutex
++	epoch string
++	users map[string]polarisTotals
++}
++type polarisTotals struct {
++	Up   int64 `json:"up"`
++	Down int64 `json:"down"`
++}
++type polarisSnapshot struct {
++	Version int                      `json:"version"`
++	Epoch   string                   `json:"epoch"`
++	Users   map[string]polarisTotals `json:"users"`
++}
++
++func (m *polarisMeter) init() {
++	if m.users != nil {
++		return
++	}
++	var nonce [16]byte
++	if _, err := rand.Read(nonce[:]); err != nil {
++		panic("cannot initialize traffic counter epoch")
++	}
++	m.epoch = hex.EncodeToString(nonce[:])
++	m.users = make(map[string]polarisTotals)
++}
++func (m *polarisMeter) add(metadata *C.Metadata, outer bool, up, down int64) {
++	if !outer || metadata == nil || metadata.InUser == "" || up < 0 || down < 0 {
++		return
++	}
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.init()
++	value := m.users[metadata.InUser]
++	value.Up += up
++	value.Down += down
++	m.users[metadata.InUser] = value
++}
++func (m *polarisMeter) snapshot() polarisSnapshot {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.init()
++	users := make(map[string]polarisTotals, len(m.users))
++	for user, value := range m.users {
++		users[user] = value
++	}
++	return polarisSnapshot{Version: 1, Epoch: m.epoch, Users: users}
++}
+diff --git a/tunnel/statistic/polaris_test.go b/tunnel/statistic/polaris_test.go
+new file mode 100644
+index 0000000..32b8c34
+--- /dev/null
++++ b/tunnel/statistic/polaris_test.go
+@@ -0,0 +1,54 @@
++package statistic
++
++import (
++	C "github.com/metacubex/mihomo/constant"
++	"sync"
++	"testing"
++)
++
++func TestPolarisClosedAndConcurrentUsers(t *testing.T) {
++	manager := &Manager{}
++	var wg sync.WaitGroup
++	for _, user := range []string{"alice", "bob"} {
++		wg.Add(1)
++		go func(user string) {
++			defer wg.Done()
++			for n := 0; n < 1000; n++ {
++				metadata := &C.Metadata{InUser: user}
++				// Exercise the native zero-copy callbacks. There is never a live
++				// connection in the controller snapshot when it is read below.
++				tr := &tcpTracker{manager: manager, TrackerInfo: &TrackerInfo{Metadata: metadata}, pushToManager: true}
++				_, writes := tr.UnwrapWriter()
++				_, reads := tr.UnwrapReader()
++				writes[0](7)
++				reads[0](11)
++				// Inner proxy/limiter trackers must not double bill.
++				tr.pushToManager = false
++				writes[0](7)
++				reads[0](11)
++			}
++		}(user)
++	}
++	wg.Wait()
++	snapshot := manager.Snapshot()
++	if len(snapshot.Connections) != 0 {
++		t.Fatal("expected closed connections")
++	}
++	for _, user := range []string{"alice", "bob"} {
++		if v := snapshot.PolarisUserTraffic.Users[user]; v.Up != 7000 || v.Down != 11000 {
++			t.Fatalf("%s: %+v", user, v)
++		}
++	}
++	manager.ResetStatistic()
++	if next := manager.Snapshot(); next.PolarisUserTraffic.Epoch != snapshot.PolarisUserTraffic.Epoch || next.PolarisUserTraffic.Users["alice"].Up != 7000 {
++		t.Fatal("controller reset erased billing counters")
++	}
++	snapshot.PolarisUserTraffic.Users["alice"] = polarisTotals{}
++	if manager.Snapshot().PolarisUserTraffic.Users["alice"].Up != 7000 {
++		t.Fatal("snapshot aliases mutable counters")
++	}
++	other := (&Manager{}).Snapshot()
++	if other.PolarisUserTraffic.Epoch == snapshot.PolarisUserTraffic.Epoch {
++		t.Fatal("new core reused counter epoch")
++	}
++}
+diff --git a/tunnel/statistic/tracker.go b/tunnel/statistic/tracker.go
+index ffa2e71..cd2968e 100644
+--- a/tunnel/statistic/tracker.go
++++ b/tunnel/statistic/tracker.go
+@@ -54,6 +54,7 @@ func (tt *tcpTracker) Read(b []byte) (int, error) {
+ 	if tt.pushToManager {
+ 		tt.manager.PushDownloaded(download)
+ 	}
++	tt.manager.polaris.add(tt.Metadata, tt.pushToManager, 0, download)
+ 	tt.DownloadTotal.Add(download)
+ 	return n, err
+ }
+@@ -64,6 +65,7 @@ func (tt *tcpTracker) ReadBuffer(buffer *buf.Buffer) (err error) {
+ 	if tt.pushToManager {
+ 		tt.manager.PushDownloaded(download)
+ 	}
++	tt.manager.polaris.add(tt.Metadata, tt.pushToManager, 0, download)
+ 	tt.DownloadTotal.Add(download)
+ 	return
+ }
+@@ -73,6 +75,7 @@ func (tt *tcpTracker) UnwrapReader() (io.Reader, []N.CountFunc) {
+ 		if tt.pushToManager {
+ 			tt.manager.PushDownloaded(download)
+ 		}
++		tt.manager.polaris.add(tt.Metadata, tt.pushToManager, 0, download)
+ 		tt.DownloadTotal.Add(download)
+ 	}}
+ }
+@@ -83,6 +86,7 @@ func (tt *tcpTracker) Write(b []byte) (int, error) {
+ 	if tt.pushToManager {
+ 		tt.manager.PushUploaded(upload)
+ 	}
++	tt.manager.polaris.add(tt.Metadata, tt.pushToManager, upload, 0)
+ 	tt.UploadTotal.Add(upload)
+ 	return n, err
+ }
+@@ -93,6 +97,7 @@ func (tt *tcpTracker) WriteBuffer(buffer *buf.Buffer) (err error) {
+ 	if tt.pushToManager {
+ 		tt.manager.PushUploaded(upload)
+ 	}
++	tt.manager.polaris.add(tt.Metadata, tt.pushToManager, upload, 0)
+ 	tt.UploadTotal.Add(upload)
+ 	return
+ }
+@@ -102,6 +107,7 @@ func (tt *tcpTracker) UnwrapWriter() (io.Writer, []N.CountFunc) {
+ 		if tt.pushToManager {
+ 			tt.manager.PushUploaded(upload)
+ 		}
++		tt.manager.polaris.add(tt.Metadata, tt.pushToManager, upload, 0)
+ 		tt.UploadTotal.Add(upload)
+ 	}}
+ }
+@@ -147,6 +153,7 @@ func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.R
+ 		t.TrackerInfo.RulePayload = rule.Payload()
+ 	}
+ 
++	manager.polaris.add(metadata, pushToManager, uploadTotal, downloadTotal)
+ 	manager.Join(t)
+ 	return t
+ }
+@@ -173,6 +180,7 @@ func (ut *udpTracker) ReadFrom(b []byte) (int, net.Addr, error) {
+ 	if ut.pushToManager {
+ 		ut.manager.PushDownloaded(download)
+ 	}
++	ut.manager.polaris.add(ut.Metadata, ut.pushToManager, 0, download)
+ 	ut.DownloadTotal.Add(download)
+ 	return n, addr, err
+ }
+@@ -183,6 +191,7 @@ func (ut *udpTracker) WaitReadFrom() (data []byte, put func(), addr net.Addr, er
+ 	if ut.pushToManager {
+ 		ut.manager.PushDownloaded(download)
+ 	}
++	ut.manager.polaris.add(ut.Metadata, ut.pushToManager, 0, download)
+ 	ut.DownloadTotal.Add(download)
+ 	return
+ }
+@@ -193,6 +202,7 @@ func (ut *udpTracker) WriteTo(b []byte, addr net.Addr) (int, error) {
+ 	if ut.pushToManager {
+ 		ut.manager.PushUploaded(upload)
+ 	}
++	ut.manager.polaris.add(ut.Metadata, ut.pushToManager, upload, 0)
+ 	ut.UploadTotal.Add(upload)
+ 	return n, err
+ }
+@@ -238,6 +248,7 @@ func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, ru
+ 		ut.TrackerInfo.RulePayload = rule.Payload()
+ 	}
+ 
++	manager.polaris.add(metadata, pushToManager, uploadTotal, downloadTotal)
+ 	manager.Join(ut)
+ 	return ut
+ }

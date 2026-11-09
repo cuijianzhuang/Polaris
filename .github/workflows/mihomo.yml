@@ -1,0 +1,56 @@
+name: mihomo counters
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/mihomo.yml', '.github/scripts/apply-mihomo-meter.py', 'scripts/mihomo-meter.patch']
+permissions:
+  contents: write
+concurrency:
+  group: mihomo-counter-build
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.repository_owner == 'cuijianzhuang'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fetch reviewed source and apply cumulative user counters
+        run: |
+          git clone --depth 1 --branch v1.19.15 https://github.com/MetaCubeX/mihomo.git /tmp/mihomo-src
+          python3 .github/scripts/apply-mihomo-meter.py /tmp/mihomo-src
+      - name: Test native accounting and build supported architectures
+        working-directory: /tmp/mihomo-src
+        run: |
+          set -euo pipefail
+          go test -race ./tunnel/statistic -run TestPolaris -count=1
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -tags with_gvisor -trimpath -ldflags '-s -w -X github.com/metacubex/mihomo/constant.Version=v1.19.15' -o "/tmp/mihomo-$arch" .
+            gzip -c "/tmp/mihomo-$arch" > "$GITHUB_WORKSPACE/dist/mihomo-linux-$arch-v1.19.15.gz"
+          done
+          cp LICENSE "$GITHUB_WORKSPACE/dist/LICENSE-mihomo"
+          tar --exclude=.git -czf "$GITHUB_WORKSPACE/dist/mihomo-v1.19.15-source.tar.gz" .
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum *.gz LICENSE-mihomo > checksums.txt
+      - name: Verify closed short connections and UDP through the real core
+        run: go test -race ./internal/core/mihomo -run '^TestNativeCumulative' -count=1 -v
+        env:
+          POLARIS_MIHOMO_COUNTER_BIN: /tmp/mihomo-amd64
+      - name: Publish immutable counter build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=mihomo-v1.19.15
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'Counter build already published; do not overwrite existing binaries or tags.'
+            exit 0
+          fi
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --prerelease --latest=false \
+            --title 'mihomo 1.19.15 (cumulative user counters)' \
+            --notes 'Built from MetaCubeX/mihomo c5fe3670eff8ac030702959099505522aa7c0caa with the Polaris accounting patch. TCP and UDP payload counters survive connection closure and controller resets for the core lifetime. Agent collection and durable queue handle upload retries. Core crashes can lose uncollected in-memory bytes. Corresponding patched source and GPL license are attached; build instructions are in this workflow. Not a Polaris panel release.'

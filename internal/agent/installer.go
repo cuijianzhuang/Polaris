@@ -45,7 +45,7 @@ type Installer struct {
 	viaPanel atomic.Bool
 
 	mu    sync.Mutex
-	tried map[string]bool // sing-box versions already offered the stats build this run
+	tried map[string]bool // core versions already offered the stats build this run
 }
 
 // StatsBuildRepo publishes sing-box built with v2ray_api (per-user traffic),
@@ -132,9 +132,18 @@ func releaseFor(t model.CoreType, ver string) (*release, error) {
 		}, nil
 	case model.CoreMihomo:
 		asset := fmt.Sprintf("mihomo-linux-%s-v%s.gz", arch, v)
-		return &release{
+		upstream := &release{
 			url: "https://github.com/MetaCubeX/mihomo/releases/download/v" + v + "/" + asset, binary: "mihomo",
 			repo: "MetaCubeX/mihomo", tag: "v" + v, digest: githubDigest,
+		}
+		// Only the pinned, native-tested version has a maintained counter patch.
+		if v != "1.19.15" {
+			return upstream, nil
+		}
+		return &release{
+			url:    "https://github.com/" + StatsBuildRepo + "/releases/download/mihomo-v" + v + "/" + asset,
+			binary: "mihomo", repo: StatsBuildRepo, tag: "mihomo-v" + v, digest: githubDigest,
+			fallback: upstream, marker: statsMarker,
 		}, nil
 	case model.CoreCaddy:
 		if v == "" {

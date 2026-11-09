@@ -58,4 +58,11 @@ func TestPortalMeterWarningOnlyForAuthorizedInbound(t *testing.T) {
 	if info.TrafficMeterNote == "" {
 		t.Fatal("sampled user traffic had no precision notice")
 	}
+	s.st.DB.Model(&store.Core{}).Where("id = ?", "unrelated-mihomo").Update("traffic_meter", store.NewJSON(model.TrafficMeter{Mode: "kernel_counter"}))
+	if err := s.portalNodeDetails(&info, []sub.Node{node}); err != nil {
+		t.Fatal(err)
+	}
+	if info.TrafficMeterNote != "" {
+		t.Fatal("native counter build mislabeled as sampling")
+	}
 }

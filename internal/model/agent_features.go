@@ -18,6 +18,7 @@ var AgentFeatures = []string{
 	RemoteTunnelFeature,
 	RelayBusinessFeature,
 	SingboxRelayBusinessFeature,
+	ExtendedRelayBusinessFeature,
 }
 
 // IsAgentFeature reports whether name is a known agent feature flag.

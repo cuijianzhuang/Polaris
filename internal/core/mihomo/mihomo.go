@@ -1,7 +1,8 @@
 // Package mihomo adapts mihomo (Clash.Meta) as a server core. Inbounds become
 // `listeners`, outbounds and routing become proxies / proxy-groups / rules.
 // mihomo has no user API, so user changes reload the config through the
-// external controller; traffic is derived from /connections (per inbound user).
+// external controller. Polaris builds expose lifetime per-user counters in
+// /connections; upstream builds retain explicitly reported connection sampling.
 package mihomo
 
 import (
@@ -589,11 +590,28 @@ type connection struct {
 }
 
 func (a *Adapter) connections(ctx context.Context) ([]connection, error) {
-	var resp struct {
-		Connections []connection `json:"connections"`
-	}
-	err := a.api(ctx, http.MethodGet, "/connections", nil, &resp)
+	resp, err := a.connectionSnapshot(ctx)
 	return resp.Connections, err
+}
+
+type userTotals struct {
+	Up   int64 `json:"up"`
+	Down int64 `json:"down"`
+}
+
+type connectionSnapshot struct {
+	Connections []connection `json:"connections"`
+	UserTraffic *struct {
+		Version int                   `json:"version"`
+		Epoch   string                `json:"epoch"`
+		Users   map[string]userTotals `json:"users"`
+	} `json:"polarisUserTraffic"`
+}
+
+func (a *Adapter) connectionSnapshot(ctx context.Context) (connectionSnapshot, error) {
+	var resp connectionSnapshot
+	err := a.api(ctx, http.MethodGet, "/connections", nil, &resp)
+	return resp, err
 }
 
 // CollectTraffic drains observations exactly once into the agent's durable

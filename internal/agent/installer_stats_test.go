@@ -170,3 +170,52 @@ func TestInstallViaPanelRelay(t *testing.T) {
 		t.Fatalf("relay not used: %v", relayed)
 	}
 }
+
+func TestMihomoCounterBuildAndUpstreamFallback(t *testing.T) {
+	gh := &fakeGitHub{assets: map[string][]byte{}}
+	srv := httptest.NewServer(gh)
+	defer srv.Close()
+	target, _ := url.Parse(srv.URL)
+	client := &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		r = r.Clone(r.Context())
+		r.Host = r.URL.Host
+		r.URL.Scheme, r.URL.Host = target.Scheme, target.Host
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+	gzipBinary := func(body string) []byte {
+		var b bytes.Buffer
+		w := gzip.NewWriter(&b)
+		w.Write([]byte(body))
+		w.Close()
+		return b.Bytes()
+	}
+	version := "1.19.15"
+	asset := fmt.Sprintf("mihomo-linux-%s-v%s.gz", runtime.GOARCH, version)
+	gh.add("MetaCubeX/mihomo", "v"+version, asset, gzipBinary("upstream"))
+	cs := model.CoreSpec{Type: model.CoreMihomo, Version: version}
+	installer := &Installer{Dir: t.TempDir(), HTTP: client}
+	bin, err := installer.Ensure(t.Context(), cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(bin); string(b) != "upstream" {
+		t.Fatalf("upstream fallback: %q", b)
+	}
+	if _, err = os.Stat(filepath.Join(filepath.Dir(bin), statsMarker)); !os.IsNotExist(err) {
+		t.Fatal("upstream was labeled cumulative")
+	}
+	gh.add(StatsBuildRepo, "mihomo-v"+version, asset, gzipBinary("native-counters"))
+	bin, err = installer.Ensure(t.Context(), cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(bin); string(b) != "native-counters" {
+		t.Fatalf("existing upstream not upgraded: %q", b)
+	}
+	if _, err = os.Stat(filepath.Join(filepath.Dir(bin), statsMarker)); err != nil {
+		t.Fatal(err)
+	}
+	if rel, _ := releaseFor(model.CoreMihomo, "1.19.14"); rel.fallback != nil || rel.marker != "" {
+		t.Fatal("unreviewed version offered counter build")
+	}
+}

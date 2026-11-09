@@ -1,6 +1,7 @@
 package singbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -41,8 +42,8 @@ func (a *Adapter) RunRelayDiagnostic(ctx context.Context, req model.RelayBusines
 		}
 	}
 	a.mu.Unlock()
-	if in == nil || !model.SingboxRelayBusinessInbound(*in) {
-		return result, fmt.Errorf("sing-box diagnostics support VLESS TCP REALITY/Vision without inbound overrides only")
+	if in == nil || !model.ExtendedRelayBusinessInbound(*in) {
+		return result, fmt.Errorf("sing-box diagnostic protocol/transport is unsupported or has native overrides")
 	}
 	if !a.proc.Running() {
 		return result, fmt.Errorf("sing-box is not running")
@@ -80,7 +81,7 @@ func (a *Adapter) RunRelayDiagnostic(ctx context.Context, req model.RelayBusines
 	if err != nil {
 		return result, fmt.Errorf("cannot read stable sing-box configuration")
 	}
-	user := model.User{ID: model.DiagnosticUserPrefix + pki.Token(16), UUID: pki.UUID()}
+	user := model.User{ID: model.DiagnosticUserPrefix + pki.Token(16), UUID: pki.UUID(), Password: pki.Password(24)}
 	serverConfig, err := diagnosticServer(stable, *in, user)
 	if err != nil {
 		return result, err
@@ -230,14 +231,25 @@ func diagnosticServer(stable []byte, in model.Inbound, user model.User) ([]byte,
 		if inbound["tag"] != in.Tag {
 			continue
 		}
-		// Refuse stale/uncommitted adapter metadata or native overrides.
-		tls, _ := inbound["tls"].(map[string]any)
-		reality, _ := tls["reality"].(map[string]any)
-		if found || inbound["type"] != "vless" || inbound["transport"] != nil || inbound["listen_port"] != float64(in.Port) || reality["private_key"] != in.Security.RealityPrivateKey {
+		// Compare the entire active listener, including its credentials and
+		// transport, against the adapter metadata before replacing any users.
+		expected, err := renderInbound(in)
+		if err != nil {
+			return nil, err
+		}
+		activeJSON, _ := json.Marshal(inbound)
+		expectedJSON, _ := json.Marshal(expected)
+		if found || !bytes.Equal(activeJSON, expectedJSON) {
 			return nil, fmt.Errorf("active sing-box inbound does not match diagnostic scope")
 		}
+		diagnostic := in
+		diagnostic.Users = []model.User{user}
+		added, err := renderInbound(diagnostic)
+		if err != nil {
+			return nil, err
+		}
 		users, _ := inbound["users"].([]any)
-		inbound["users"] = append(users, map[string]any{"name": user.ID, "uuid": user.UUID, "flow": in.Protocol.Flow})
+		inbound["users"] = append(users, added["users"].([]any)...)
 		found = true
 	}
 	if !found {
@@ -257,17 +269,55 @@ func diagnosticServer(stable []byte, in model.Inbound, user model.User) ([]byte,
 
 func diagnosticClient(in model.Inbound, req model.RelayBusinessRequest, user model.User, tcpLocal, udpLocal int, tcpHost string, tcpPort int, udpHost string, udpPort int) ([]byte, error) {
 	sec := in.Security
-	if sec.RealityPublicKey == "" || len(sec.RealityServerNames) == 0 || len(sec.RealityShortIDs) == 0 {
-		return nil, fmt.Errorf("incomplete REALITY configuration")
+	clientTLS := &model.ClientTLS{Type: sec.Type, ServerName: sec.ServerName, ALPN: sec.ALPN}
+	if sec.Type == model.SecReality {
+		if sec.RealityPublicKey == "" || len(sec.RealityServerNames) == 0 || len(sec.RealityShortIDs) == 0 {
+			return nil, fmt.Errorf("incomplete REALITY configuration")
+		}
+		clientTLS.ServerName, clientTLS.PublicKey, clientTLS.ShortID, clientTLS.Fingerprint = sec.RealityServerNames[0], sec.RealityPublicKey, sec.RealityShortIDs[0], "chrome"
+	} else if sec.Type == model.SecTLS && clientTLS.ServerName == "" {
+		clientTLS.ServerName = req.ServerName
+		if clientTLS.ServerName == "" {
+			clientTLS.ServerName = req.EntryAddress
+		}
 	}
-	tls := renderClientTLS(&model.ClientTLS{Type: model.SecReality, ServerName: sec.RealityServerNames[0], PublicKey: sec.RealityPublicKey, ShortID: sec.RealityShortIDs[0], Fingerprint: "chrome"})
+	proxy := map[string]any{"type": string(in.Protocol.Type), "tag": "diagnostic", "server": req.EntryAddress, "server_port": req.EntryPort}
+	if tls := renderClientTLS(clientTLS); tls != nil {
+		if sec.Type == model.SecTLS && sec.CertPEM != "" {
+			tls["certificate"] = core.PEMLines(sec.CertPEM)
+		}
+		proxy["tls"] = tls
+	}
+	if transport := renderTransport(in.Transport); transport != nil {
+		proxy["transport"] = transport
+	}
+	switch in.Protocol.Type {
+	case model.ProtoVLESS:
+		proxy["uuid"], proxy["flow"], proxy["packet_encoding"] = user.UUID, in.Protocol.Flow, "xudp"
+	case model.ProtoVMess:
+		proxy["uuid"], proxy["security"], proxy["packet_encoding"] = user.UUID, "auto", "xudp"
+	case model.ProtoTrojan, model.ProtoAnyTLS:
+		proxy["password"] = user.Password
+	case model.ProtoHysteria2:
+		proxy["password"] = user.Password
+		if in.Protocol.Obfs != "" {
+			proxy["obfs"] = map[string]any{"type": in.Protocol.Obfs, "password": in.Protocol.ObfsPassword}
+		}
+	case model.ProtoTUIC:
+		proxy["uuid"], proxy["password"], proxy["congestion_control"] = user.UUID, user.Password, orDefault(in.Protocol.CongestionControl, "bbr")
+		if tls, ok := proxy["tls"].(map[string]any); ok && tls["alpn"] == nil {
+			tls["alpn"] = []string{"h3"}
+		}
+	default:
+		return nil, fmt.Errorf("unsupported diagnostic protocol")
+	}
 	return json.Marshal(map[string]any{
 		"log": map[string]any{"disabled": true},
 		"inbounds": []any{
 			map[string]any{"type": "direct", "tag": "tcp", "listen": "127.0.0.1", "listen_port": tcpLocal, "network": "tcp", "override_address": tcpHost, "override_port": tcpPort},
 			map[string]any{"type": "direct", "tag": "udp", "listen": "127.0.0.1", "listen_port": udpLocal, "network": "udp", "override_address": udpHost, "override_port": udpPort},
 		},
-		"outbounds": []any{map[string]any{"type": "vless", "tag": "diagnostic", "server": req.EntryAddress, "server_port": req.EntryPort, "uuid": user.UUID, "flow": in.Protocol.Flow, "tls": tls, "packet_encoding": "xudp"}},
+		"outbounds": []any{proxy},
 		"route":     map[string]any{"final": "diagnostic"},
 	})
 }
