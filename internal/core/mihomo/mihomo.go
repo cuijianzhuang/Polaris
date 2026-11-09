@@ -39,10 +39,11 @@ type Adapter struct {
 	proc   *core.Process
 	secret string
 
-	mu    sync.Mutex
-	last  *model.NodeSpec
-	conns map[string][2]int64 // guarded by meter.mu
-	meter trafficMeter
+	mu      sync.Mutex
+	last    *model.NodeSpec
+	userIDs map[string]string   // TUIC reports the authenticated UUID, not its panel ID
+	conns   map[string][2]int64 // guarded by meter.mu
+	meter   trafficMeter
 }
 
 func New(o core.Options) *Adapter {
@@ -54,7 +55,7 @@ func New(o core.Options) *Adapter {
 	}
 	b := make([]byte, 12)
 	_, _ = rand.Read(b)
-	a := &Adapter{opt: o, secret: hex.EncodeToString(b), conns: map[string][2]int64{}}
+	a := &Adapter{opt: o, secret: hex.EncodeToString(b), conns: map[string][2]int64{}, userIDs: map[string]string{}}
 	if o.BinPath != "" {
 		a.proc = core.NewProcess("mihomo", o.BinPath, o.WorkDir, o.Logger, "-d", o.WorkDir, "-f", a.configPath())
 		a.proc.BindToParent = o.BindToParent
@@ -146,6 +147,15 @@ func (a *Adapter) Render(spec *model.NodeSpec) ([]byte, error) {
 		return nil, err
 	}
 	a.mu.Lock()
+	// Retain mappings across reloads so an existing connection's final bytes
+	// still belong to the same user after that user leaves the active spec.
+	for _, in := range ins {
+		if in.Protocol.Type == model.ProtoTUIC {
+			for _, u := range in.Users {
+				a.userIDs[strings.ToLower(u.UUID)] = u.ID
+			}
+		}
+	}
 	a.last = spec.Clone()
 	a.mu.Unlock()
 	return out, nil
@@ -640,7 +650,7 @@ func (a *Adapter) OnlineIPs(ctx context.Context) (map[string][]string, error) {
 	}
 	set := map[string]map[string]bool{}
 	for _, c := range conns {
-		if u := c.Metadata.InboundUser; u != "" && c.Metadata.SourceIP != "" {
+		if u := a.userIdentity(c.Metadata.InboundUser); u != "" && c.Metadata.SourceIP != "" {
 			if set[u] == nil {
 				set[u] = map[string]bool{}
 			}
@@ -654,6 +664,15 @@ func (a *Adapter) OnlineIPs(ctx context.Context) (map[string][]string, error) {
 		}
 	}
 	return out, nil
+}
+
+func (a *Adapter) userIdentity(wire string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if id := a.userIDs[strings.ToLower(wire)]; id != "" {
+		return id
+	}
+	return wire
 }
 
 func (a *Adapter) Health(context.Context) model.CoreStatus {

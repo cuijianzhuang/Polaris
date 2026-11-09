@@ -201,3 +201,28 @@ func TestNativeCounterEpochAndFailures(t *testing.T) {
 		t.Fatal("native API loss silently fell back to sampling", out, err)
 	}
 }
+
+func TestTUICCountersAndOnlineIPsUsePanelIdentity(t *testing.T) {
+	in := coretest.Inbound(model.CoreMihomo, "tuic", 12345, model.ProtocolSpec{Type: model.ProtoTUIC}, model.TransportSpec{}, coretest.TLS(t, "test.example"))
+	user := in.Users[0]
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c := connection{ID: "tuic-connection"}
+		c.Metadata.InboundUser, c.Metadata.SourceIP = user.UUID, "192.0.2.10"
+		json.NewEncoder(w).Encode(map[string]any{"connections": []connection{c}, "polarisUserTraffic": map[string]any{"version": 1, "epoch": strings.Repeat("c", 32), "users": map[string]userTotals{user.UUID: {Up: 7, Down: 11}, user.ID: {Up: 3, Down: 5}}}})
+	}))
+	defer server.Close()
+	a := New(core.Options{APIListen: strings.TrimPrefix(server.URL, "http://")})
+	if _, err := a.Render(&model.NodeSpec{Inbounds: []model.Inbound{in}}); err != nil {
+		t.Fatal(err)
+	}
+	// Final closed-connection readings can arrive after the user is removed.
+	if _, err := a.Render(&model.NodeSpec{}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := a.CollectTraffic(t.Context()); err != nil || len(out) != 1 || out[0].UserID != user.ID || out[0].Up != 10 || out[0].Down != 16 {
+		t.Fatal("TUIC credentials were billed as a UUID", out, err)
+	}
+	if ips, err := a.OnlineIPs(t.Context()); err != nil || len(ips[user.ID]) != 1 || ips[user.ID][0] != "192.0.2.10" {
+		t.Fatal("TUIC online IP belonged to wrong user", ips, err)
+	}
+}

@@ -115,10 +115,11 @@ func (a *Adapter) sampleTraffic(ctx context.Context) error {
 		if c.Metadata.InboundUser == "" {
 			continue
 		}
-		v := a.meter.pending[c.Metadata.InboundUser]
+		userID := a.userIdentity(c.Metadata.InboundUser)
+		v := a.meter.pending[userID]
 		v[0] += max(0, c.Upload-prev[0])
 		v[1] += max(0, c.Download-prev[1])
-		a.meter.pending[c.Metadata.InboundUser] = v
+		a.meter.pending[userID] = v
 	}
 	a.conns = seen
 	return nil
@@ -161,10 +162,11 @@ func (a *Adapter) recordNativeTraffic(snapshot connectionSnapshot) error {
 		if sameEpoch {
 			previous = a.meter.nativeTotals[id]
 		}
-		pending := a.meter.pending[id]
+		userID := a.userIdentity(id)
+		pending := a.meter.pending[userID]
 		pending[0] += value.Up - previous.Up
 		pending[1] += value.Down - previous.Down
-		a.meter.pending[id] = pending
+		a.meter.pending[userID] = pending
 	}
 	a.meter.nativeEpoch, a.meter.nativeTotals = native.Epoch, native.Users
 	return nil
