@@ -18,6 +18,11 @@ func bindingPlaceholder(t *testing.T, s *Server, name, email string, chat int64)
 	if err := s.st.DB.Create(&u).Error; err != nil {
 		t.Fatal(err)
 	}
+	// Compare later with the persisted representation: PostgreSQL stores
+	// timestamps at microsecond precision, unlike the in-memory fixture.
+	if err := s.st.DB.First(&u, "id = ?", u.ID).Error; err != nil {
+		t.Fatal(err)
+	}
 	return u
 }
 func bindingSubscriber(t *testing.T, s *Server, name string) store.User {
@@ -27,6 +32,9 @@ func bindingSubscriber(t *testing.T, s *Server, name string) store.User {
 	u.PlanID = "paid-plan"
 	u.UsedUp, u.UsedDown = 10, 20
 	if err := s.st.DB.Create(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.First(&u, "id = ?", u.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	return u
