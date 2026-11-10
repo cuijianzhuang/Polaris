@@ -61,7 +61,9 @@ with sync_playwright() as p:
                 for (const e of document.querySelectorAll('button.switch')) {
                     if (!e.getClientRects().length) continue;
                     const r=e.getBoundingClientRect();
-                    if (r.width<44 || r.height<44) issues.push('switch touch area too small');
+                    // Transformed ancestors can report 43.99998 for a 44px
+                    // CSS target. Tolerate only subpixel arithmetic error.
+                    if (r.width<43.99 || r.height<43.99) issues.push('switch touch area too small: ' + e.getAttribute('aria-label') + ' ' + r.width + 'x' + r.height);
                 }
             }
             return issues;
