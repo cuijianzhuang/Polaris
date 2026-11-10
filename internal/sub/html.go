@@ -35,6 +35,9 @@ var portalShellJS string
 //go:embed assets/portal-account.js
 var portalAccountJS string
 
+//go:embed assets/portal-binding.js
+var portalBindingJS string
+
 //go:embed assets/portal-cdn.html
 var portalCDNHTML string
 
@@ -50,6 +53,7 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	},
 	"portalShellScript":   func() template.JS { return template.JS(portalShellJS) },
 	"portalAccountScript": func() template.JS { return template.JS(portalAccountJS) },
+	"portalBindingScript": func() template.JS { return template.JS(portalBindingJS) },
 	"portalCDNScript":     func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
 }).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
@@ -132,7 +136,8 @@ details summary{cursor:pointer;list-style:none}details summary::-webkit-details-
 {{if and .Portal .Extras}}<section class="card"><h2>更多服务</h2><div class="grid">
 {{range .Extras}}<a class="btn" href="{{.URL}}"{{if .External}} target="_blank" rel="noopener"{{end}}>{{.Title}}</a>{{end}}
 </div></section>{{end}}
-{{if or .SupportURL .BotURL}}<section class="card"><div class="grid">
+{{if or .SupportURL .BotURL .AccountBindURL}}<section class="card"><div class="grid">
+{{if .AccountBindURL}}<a class="btn" href="{{.AccountBindURL}}">关联已有账号</a>{{end}}
 {{if .BotURL}}<a class="btn" href="{{.BotURL}}">Telegram 机器人绑定</a>{{end}}
 {{if .SupportURL}}<a class="btn" href="{{.SupportURL}}">联系客服</a>{{end}}
 </div></section>{{end}}
@@ -144,9 +149,7 @@ document.addEventListener('click',function(e){var b=e.target.closest('[data-copy
 copyText(t).then(function(){b.textContent='已复制';setTimeout(function(){b.textContent=l},1500)},function(){prompt('复制以下内容',t)})});
 {{if .Portal}}function pj(p,o){return fetch('/u/'+p,{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:JSON.stringify(o),credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'操作失败');return j})})}
 {{portalCDNScript}}
-function portalMail(b){var m=prompt('邮箱地址（会收到一封验证码邮件）',{{.Email}});if(m===null||!m.trim())return;m=m.trim();b.disabled=true;
-pj('email/code',{email:m,purpose:'bind'}).then(function(){var c=prompt('验证码已发到 '+m+'，请输入 6 位验证码');if(c===null||!c.trim())throw new Error('');
-return pj('email/verify',{email:m,code:c.trim(),purpose:'bind'})}).then(function(){location.reload()}).catch(function(e){b.disabled=false;if(e.message)alert(e.message)})}
+function portalMail(b){if(window.portalEmailBinding)window.portalEmailBinding(b)}
 document.addEventListener('change',function(e){var s=e.target.closest('[data-portal-region]');if(!s)return;s.disabled=true;pj('region',{region:s.value}).then(function(){location.reload()}).catch(function(e){s.disabled=false;alert(e.message)})});
 document.addEventListener('change',function(e){var s=e.target.closest('[data-portal-carrier]');if(!s)return;s.disabled=true;
 fetch('/u/carrier',{method:'POST',headers:{'X-Polaris-Portal':'1','Content-Type':'application/json'},body:JSON.stringify({carrier:s.value}),credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'');location.reload()})}).catch(function(e){s.disabled=false;alert(e.message||'操作失败，请刷新后重试')})});
@@ -237,7 +240,7 @@ func RenderPage(info Info) ([]byte, error) {
 		"Title": info.Title, "Username": info.Username, "Used": used, "Upload": info.Upload, "Download": info.Download,
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": expiryText, "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": label, "AwaitingPlan": awaitingPlan, "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,
-		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "Portal": info.Portal, "Rename": info.Portal && info.Rename, "CarrierPick": info.Portal && info.CarrierPick, "Carrier": info.Carrier, "RegionPick": info.Portal && info.RegionPick, "Region": info.Region, "CDNManage": info.Portal && info.CDNManage, "CDNChoices": info.CDNChoices, "CDNRegions": info.CDNRegions, "CDNNetwork": info.CDNNetwork,
+		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "AccountBindURL": safeURL(info.AccountBindURL), "TelegramBound": info.TelegramBound, "TelegramBind": info.TelegramBind, "Portal": info.Portal, "Rename": info.Portal && info.Rename, "CarrierPick": info.Portal && info.CarrierPick, "Carrier": info.Carrier, "RegionPick": info.Portal && info.RegionPick, "Region": info.Region, "CDNManage": info.Portal && info.CDNManage, "CDNChoices": info.CDNChoices, "CDNRegions": info.CDNRegions, "CDNNetwork": info.CDNNetwork,
 		"PortalShopURL": pageURL(info.PortalShopURL), "PortalTicketsURL": pageURL(info.PortalTicketsURL), "PortalOrders": info.PortalOrders, "PortalOrdersMore": info.PortalOrdersMore,
 		"LoginVia": orDefault(info.LoginVia, "Telegram"), "MailBind": info.Portal && info.MailBind, "Email": info.Email, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),

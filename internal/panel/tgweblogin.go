@@ -38,13 +38,14 @@ type tgWebLogins struct {
 func (w *tgWebLogins) key(id string) string { return w.name + ":" + id }
 
 type tgWebLogin struct {
-	Secret  string `json:"s"`
-	Code    int    `json:"c"`
-	IP      string `json:"ip"`
-	UA      string `json:"ua"`
-	Chat    int64  `json:"ch,omitempty"` // chat that opened it; 0 = not yet
-	Subject string `json:"su,omitempty"` // who signed in (Telegram admin or user id), set once approved
-	Denied  bool   `json:"d,omitempty"`
+	Secret  string  `json:"s"`
+	Code    int     `json:"c"`
+	IP      string  `json:"ip"`
+	UA      string  `json:"ua"`
+	Chat    int64   `json:"ch,omitempty"` // chat that opened it; 0 = not yet
+	Subject string  `json:"su,omitempty"` // who signed in (Telegram admin or user id), set once approved
+	Denied  bool    `json:"d,omitempty"`
+	Owner   *claims `json:"owner,omitempty"` // authenticated portal request, binding pool only
 }
 
 func (s *Server) tgWebLoginEnabled() bool {
@@ -65,15 +66,22 @@ func (s *Server) tgWebLoginStart(c *gin.Context) {
 
 // startWebLogin opens a sign-in request in w; the bot is reached with
 // /start <prefix><id>. Shared by the admin login page and the user center.
-func (s *Server) startWebLogin(c *gin.Context, w *tgWebLogins, prefix string) {
+func (s *Server) startWebLogin(c *gin.Context, w *tgWebLogins, prefix string, owner ...*claims) {
 	// Per IP first: one client alone must not fill the shared cap and lock
 	// everyone else out of Telegram sign-in.
-	if w.eph.count(w.name+":") >= tgWebLoginMax || !s.countWindow(w.name+"-ip:"+clientIP(c.Request), tgWebLoginPerIP, tgWebLoginTTL) {
+	limitKey := w.name + "-ip:" + clientIP(c.Request)
+	if len(owner) > 0 && owner[0] != nil {
+		limitKey = w.name + "-owner:" + owner[0].User
+	}
+	if w.eph.count(w.name+":") >= tgWebLoginMax || !s.countWindow(limitKey, tgWebLoginPerIP, tgWebLoginTTL) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "登录请求过多，请稍后再试"})
 		return
 	}
 	id := pki.Token(12)
 	req := &tgWebLogin{Secret: pki.Token(24), Code: 10 + rand.IntN(90), IP: clientIP(c.Request), UA: c.Request.UserAgent()}
+	if len(owner) > 0 {
+		req.Owner = owner[0]
+	}
 	if err := w.eph.put(w.key(id), req, tgWebLoginTTL); err != nil {
 		serverError(c, err)
 		return
@@ -113,7 +121,7 @@ func (s *Server) tgWebLoginPoll(c *gin.Context) {
 // pollWebLogin answers a poll for a request in w. Until the request is
 // approved it writes the response itself and returns ok=false; once approved
 // (single use) it returns the subject and the chat that approved it.
-func (s *Server) pollWebLogin(c *gin.Context, w *tgWebLogins) (subject string, chat int64, ok bool) {
+func (s *Server) pollWebLogin(c *gin.Context, w *tgWebLogins, guards ...func(tgWebLogin) bool) (subject string, chat int64, ok bool) {
 	var r struct {
 		ID     string `json:"id" binding:"required"`
 		Secret string `json:"secret" binding:"required"`
@@ -127,6 +135,9 @@ func (s *Server) pollWebLogin(c *gin.Context, w *tgWebLogins) (subject string, c
 	found := w.eph.update(w.key(r.ID), &req, func() ephAction {
 		switch {
 		case subtle.ConstantTimeCompare([]byte(req.Secret), []byte(r.Secret)) != 1:
+			status = "expired"
+			return ephKeep
+		case len(guards) > 0 && !guards[0](req):
 			status = "expired"
 			return ephKeep
 		case req.Denied:
@@ -201,8 +212,12 @@ func (b *tgBot) loginPrompt(w *tgWebLogins, chat int64, reqID, cb, title, extra,
 	for i, n := range choices {
 		nums[i] = button{Text: fmt.Sprint(n), Data: fmt.Sprintf("%s:%s:%d", cb, reqID, n)}
 	}
-	text := fmt.Sprintf("🔐 <b>%s</b>\n%s\n🌐 IP：<code>%s</code>\n💻 设备：%s\n%s\n\n请点击<b>网页上显示的数字</b>完成登录。\n不是你本人操作？点「拒绝」。",
-		title, tgRule, esc(orDefault(ip, "未知")), esc(shortUA(ua)), extra)
+	action := "完成登录"
+	if cb == "ub" {
+		action = "确认绑定"
+	}
+	text := fmt.Sprintf("🔐 <b>%s</b>\n%s\n🌐 IP：<code>%s</code>\n💻 设备：%s\n%s\n\n请点击<b>网页上显示的数字</b>%s。\n不是你本人操作？点「拒绝」。",
+		title, tgRule, esc(orDefault(ip, "未知")), esc(shortUA(ua)), extra, action)
 	b.send(chat, text, nums, []button{{Text: "❌ 拒绝", Data: cb + ":" + reqID + ":x"}})
 }
 

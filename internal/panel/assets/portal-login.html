@@ -39,6 +39,16 @@ body{font-family:var(--ui-font)}.card{border-radius:var(--ui-radius-card)}button
 </div>
 {{if .Shop}}<a class="shop" href="/u/shop">购买套餐</a>{{end}}
 </section><p class="foot">{{.Title}} 用户中心</p></main>
+<script>
+(function(){
+ if(location.hash.indexOf('#bind-subscription=')!==0)return;
+ var token=location.hash.slice(19);
+ if(!/^[A-Za-z0-9_-]{16,64}$/.test(token))return;
+ try{sessionStorage.setItem('polaris.pendingSubscription',JSON.stringify({token:token,expires:Date.now()+600000}))}catch(_){}
+ history.replaceState(null,'',location.pathname+location.search);
+ var note=document.createElement('p');note.className='mute';note.textContent='登录已有账号后即可关联这条订阅，无需重复注册。';document.querySelector('.intro').after(note);
+})();
+</script>
 {{if .Mail}}<script>
 (function(){
 var registrationAllowed={{.Register}},mode={{if .RegisterMode}}'register'{{else}}'login'{{end}},timer=0,busy=false;

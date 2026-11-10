@@ -181,7 +181,7 @@ func (s *Server) openCouponOrder(o *store.Order, usdtBase float64, free bool) (*
 	}
 	o.Method, o.Amount, o.Chain = payCoupon, "0", ""
 	o.ExpiresAt = o.CreatedAt
-	if err := s.st.DB.Create(o).Error; err != nil {
+	if err := s.createAccountOrder(o); err != nil {
 		return nil, err
 	}
 	// A non-nil pre: an undeliverable free order is removed, not kept as paid.

@@ -80,7 +80,7 @@ func (s *Server) reserveUSDTOrder(o *store.Order, price float64, now time.Time) 
 			if r.RowsAffected == 0 {
 				return errUSDTQuoteConflict
 			}
-			return tx.Create(o).Error
+			return createBindingAwareOrder(tx, o)
 		})
 		if errors.Is(err, errUSDTQuoteConflict) {
 			continue
