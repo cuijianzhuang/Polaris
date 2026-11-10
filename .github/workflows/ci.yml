@@ -400,7 +400,7 @@ jobs:
         env:
           POLARIS_USER_PORTAL_BROWSER_TEST: '1'
         run: |
-          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLiveUserPortalBrowser$'
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLive(UserPortalBrowser|AccountBindingBrowser)$'
       - name: Real checkout, payment confirmation and support lifecycle
         if: env.POLARIS_SERVICES_PRO == 'true'
         working-directory: internal/panel

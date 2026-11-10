@@ -228,6 +228,8 @@ func (s *Server) portalPage(c *gin.Context) {
 		info.BotURL = "" // already bound
 	}
 	info.Portal = true
+	info.TelegramBound = u.TelegramID != 0
+	info.TelegramBind = s.portalTelegramConfigured()
 	info.LoginVia, info.MailBind, info.Email = "Telegram", s.mailLoginOn(), u.Email
 	if s.portalViaMail(c) {
 		info.LoginVia = "邮箱"

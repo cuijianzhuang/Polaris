@@ -56,6 +56,7 @@ type Server struct {
 	eph                 *ephStore   // short-lived values shared by every instance (sign-in codes, OAuth states)
 	tgWeb               tgWebLogins // login-page Telegram sign-in requests
 	portalWeb           tgWebLogins // user center Telegram sign-in requests
+	portalBindWeb       tgWebLogins // authenticated user-center account binding
 	hbMu                sync.Mutex
 	probeBusy           atomic.Bool // a probe round is running
 	cdnAddressCheckBusy atomic.Bool
@@ -178,6 +179,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.callbacks = callbackStore{eph: s.eph}
 	s.tgWeb = tgWebLogins{eph: s.eph, name: "tgweb"}
 	s.portalWeb = tgWebLogins{eph: s.eph, name: "portalweb"}
+	s.portalBindWeb = tgWebLogins{eph: s.eph, name: "portalbind"}
 	s.leader.Store(s.tryLease()) // SQLite: always; PostgreSQL: if no live leader holds the lease
 	s.presAt, s.specAt, s.shareAt = map[string]time.Time{}, map[string]time.Time{}, map[string]time.Time{}
 	if st.DB.Dialector.Name() == "postgres" {

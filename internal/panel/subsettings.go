@@ -160,6 +160,9 @@ func (s *Server) pageExtras(info *sub.Info, u *store.User, nodes []sub.Node) {
 		return
 	}
 	info.Status = u.Status
+	if s.portalEnabled() {
+		info.AccountBindURL = s.portalURL() + "#bind-subscription=" + u.SubToken
+	}
 	if u.PlanID != "" {
 		var p store.Group
 		if s.st.DB.First(&p, "id = ? AND plan = ?", u.PlanID, true).Error == nil {

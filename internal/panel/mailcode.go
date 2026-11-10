@@ -156,10 +156,8 @@ func (s *Server) portalMailCode(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "请重新登录"})
 			return
 		}
-		if _, err := checkUserEmail(s.st.DB, addr, u.ID); err != nil {
-			badRequest(c, err)
-			return
-		}
+		// Disclose account conflicts only after proof of mailbox ownership.
+		// The send response must not reveal whether another account has a plan.
 		purpose, userID = "bind:"+u.ID, u.ID
 	}
 	key := mailKey(purpose, addr)
@@ -331,26 +329,45 @@ func (s *Server) portalMailBind(c *gin.Context, addr, code string) {
 		badRequest(c, err)
 		return
 	}
-	if _, err := checkUserEmail(s.st.DB, addr, u.ID); err != nil {
-		badRequest(c, err)
-		return
-	}
 	viaMail := s.portalViaMail(c)
+	var kept store.User
 	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(u).Update("email", addr).Error; err != nil {
+		if err := lockAccountBindings(tx); err != nil {
 			return err
 		}
-		u.Email = addr
-		return s.queueUserEvent(tx, "user.updated", u, map[string]any{"via": "portal", "email": addr})
+		var otherIDs []string
+		if err := tx.Model(&store.User{}).Where("email = ?", addr).Pluck("id", &otherIDs).Error; err != nil {
+			return err
+		}
+		users, err := lockBindingUsers(tx, append(otherIDs, u.ID)...)
+		if err != nil {
+			return err
+		}
+		current := users[u.ID]
+		if err = bindingSession(tx, s.portalClaims(c), current); err != nil {
+			return err
+		}
+		plan, err := planVerifiedMailBinding(tx, current, addr)
+		if err != nil {
+			return err
+		}
+		if plan.Retire.ID != "" {
+			kept, err = s.applyAccountBinding(tx, plan)
+			return err
+		}
+		kept = plan.Keep
+		if err = tx.Model(&store.User{}).Where("id = ?", kept.ID).Update("email", addr).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.updated", &kept, map[string]any{"via": "portal", "email": addr})
 	}); err != nil {
-		serverError(c, err)
+		bindingError(c, err)
 		return
 	}
-	u.Email = addr
-	s.audit(portalActor(u, viaMail), "user.email_bound", u.Username, addr, clientIP(c.Request))
+	s.audit(portalActor(u, viaMail), "user.email_bound", kept.Username, addr, clientIP(c.Request))
 	s.wakeBusinessEvents()
 	// A session made from the old address would end: renew it.
-	tok, err := s.issuePortalTokenVia(u, viaMail, c)
+	tok, err := s.issuePortalTokenVia(&kept, viaMail, c)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -393,6 +410,9 @@ func (s *Server) registerByMail(addr, ip string) (*store.User, error) {
 	now := time.Now()
 	var u store.User
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockAccountBindings(tx); err != nil {
+			return err
+		}
 		var n int64
 		tx.Model(&store.User{}).Where("email = ?", addr).Count(&n)
 		if n > 0 {

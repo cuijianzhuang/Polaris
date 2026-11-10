@@ -96,14 +96,17 @@ type Info struct {
 	URL              string // the subscription URL itself
 
 	// Extras shown on the browser info page only.
-	Status     string // active / limited / expired / disabled
-	Announce   string // announcement text
-	SupportURL string // support / contact link
-	BotURL     string // Telegram deep link for one-tap binding
-	ResetNote  string // e.g. "每月 1 日重置"
-	PlanName   string // the user's plan ("" = none)
-	PlanNext   string // the plan the user moves to on expiry
-	SpeedNote  string // per-user speed limit, e.g. "↑ 10 Mbps · ↓ 50 Mbps"
+	Status         string // active / limited / expired / disabled
+	Announce       string // announcement text
+	SupportURL     string // support / contact link
+	BotURL         string // Telegram deep link for one-tap binding
+	AccountBindURL string // user-center entry for associating this personal subscription
+	TelegramBound  bool
+	TelegramBind   bool
+	ResetNote      string // e.g. "每月 1 日重置"
+	PlanName       string // the user's plan ("" = none)
+	PlanNext       string // the plan the user moves to on expiry
+	SpeedNote      string // per-user speed limit, e.g. "↑ 10 Mbps · ↓ 50 Mbps"
 	// Portal renders the page as the signed-in user center (reset link and
 	// sign-out actions instead of the bot binding button).
 	Portal           bool

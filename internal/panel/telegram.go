@@ -464,6 +464,10 @@ func (b *tgBot) handle(u tgUpdate) {
 	id := b.identify(chat)
 	switch cmd {
 	case "/start", "/menu":
+		if cmd == "/start" && strings.HasPrefix(arg, portalTelegramBindPrefix) {
+			b.portalTelegramBindPrompt(chat, strings.TrimPrefix(arg, portalTelegramBindPrefix))
+			return
+		}
 		if cmd == "/start" && strings.HasPrefix(arg, portalLoginPrefix) { // user center
 			b.portalLoginPrompt(chat, strings.TrimPrefix(arg, portalLoginPrefix), id)
 			return
@@ -610,13 +614,17 @@ func (b *tgBot) bind(chat int64, from tgUser, arg string, id tgIdentity) {
 		b.send(chat, "✅ 已绑定为"+map[string]string{"owner": "超级管理员", "operator": "节点管理员"}[code.Role]+"。", backRow(""))
 		return
 	}
-	u, problem := b.s.userFromSubLink(arg)
-	if u == nil {
-		b.send(chat, problem)
+	personal, err := personalSubscription(b.s.st.DB, arg)
+	if err != nil {
+		b.send(chat, "绑定失败："+esc(err.Error()))
 		return
 	}
-	b.s.st.DB.Model(&store.User{}).Where("telegram_id = ?", chat).Update("telegram_id", 0)
-	b.s.st.DB.Model(u).Update("telegram_id", chat)
+	bound, err := b.s.bindTelegramSubscription(chat, personal.ID)
+	if err != nil {
+		b.send(chat, "绑定失败："+esc(err.Error()))
+		return
+	}
+	u := &bound
 	b.s.audit("telegram", "tg.user_bind", u.Username, fmt.Sprintf("chat %d", chat), "")
 	u.TelegramID = chat
 	b.send(chat, "✅ 已绑定账号 <b>"+esc(u.Username)+"</b>\n\n"+b.userCard(u), b.userButtons(u)...)
@@ -648,7 +656,7 @@ const tgProText = "🔒 <b>管理菜单需要专业版</b>\n" + tgRule + "\n节�
 // self-service, sign-in, alerts and the home screen stay free.
 func tgAdvanced(parts []string) bool {
 	switch parts[0] {
-	case "me", "ul", "wl", "m", "s": // self-service, user center and panel sign-in, alert toggle, shop
+	case "me", "ul", "wl", "ub", "m", "s": // self-service, user center and panel sign-in, binding, alert toggle, shop
 		return false
 	case "v":
 		if len(parts) < 2 {
@@ -680,6 +688,12 @@ func (b *tgBot) onCallback(cbID string, chat, msg int64, data string, from tgUse
 		return
 	}
 	switch parts[0] {
+	case "ub":
+		if len(parts) != 3 {
+			answer("请求无效")
+			return
+		}
+		b.portalTelegramBindAnswer(chat, msg, parts[1], parts[2], answer)
 	case "me":
 		if id.user == nil {
 			answer("尚未绑定账号")

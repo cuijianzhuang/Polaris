@@ -52,7 +52,7 @@
 <a href="/u#account" data-view-link="account"{{if or (eq .PortalActive "account") (eq .PortalActive "orders")}} aria-current="page"{{end}}><svg><use href="#pi-user"/></svg>我的</a>
 {{end}}
 </nav>
-{{if not .PortalGuest}}<p class="p-session-error" id="p-session-error" role="alert" hidden></p><script>{{portalAccountScript}}</script>{{end}}
+{{if not .PortalGuest}}<p class="p-session-error" id="p-session-error" role="alert" hidden></p><script>{{portalAccountScript}}</script><script>{{portalBindingScript}}</script>{{end}}
 {{end}}
 
 {{define "portal-document"}}<!doctype html>

@@ -178,8 +178,11 @@ func TestMailBind(t *testing.T) {
 	if _, page := b.req("GET", portalPath, nil, false); !strings.Contains(page, "绑定邮箱") {
 		t.Fatal("no bind button")
 	}
-	if st, body := b.req("POST", portalPath+"/email/code", map[string]any{"email": "jay@example.com", "purpose": "bind"}, true); st != 400 || !strings.Contains(body, "其他用户") {
-		t.Fatalf("taken address %d %s", st, body)
+	if st, body := b.req("POST", portalPath+"/email/code", map[string]any{"email": "jay@example.com", "purpose": "bind"}, true); st != 200 {
+		t.Fatalf("code request revealed another account's state: %d %s", st, body)
+	}
+	if st, body := b.req("POST", portalPath+"/email/verify", map[string]any{"email": "jay@example.com", "purpose": "bind", "code": lastCode(t, m, "jay@example.com", 1)}, true); st != 409 || !strings.Contains(body, "其他用户") {
+		t.Fatalf("provisioned-account conflict: %d %s", st, body)
 	}
 	if st, _ := b.req("POST", portalPath+"/email/code", map[string]any{"email": "ivy@example.com", "purpose": "bind"}, true); st != 200 {
 		t.Fatal("bind code")

@@ -303,7 +303,7 @@ func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order,
 	if o.Method == payUSDT {
 		return s.reserveUSDTOrder(o, usdtPrice, now)
 	}
-	if err := s.st.DB.Create(o).Error; err != nil {
+	if err := s.createAccountOrder(o); err != nil {
 		return nil, err
 	}
 	return o, nil
@@ -559,7 +559,7 @@ func (s *Server) redeemFor(b shopBuyer, code string) (*store.Order, *store.User,
 		}
 		o.PlanID, o.PlanName = p.ID, p.Name
 	}
-	if err := s.st.DB.Create(o).Error; err != nil {
+	if err := s.createAccountOrder(o); err != nil {
 		return nil, nil, err
 	}
 	o, u, _, err := s.fulfil(o.ID, "code:"+code, func(tx *gorm.DB) error {
