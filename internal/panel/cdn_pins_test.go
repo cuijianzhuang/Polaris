@@ -39,7 +39,7 @@ func TestCDNManualDomains(t *testing.T) {
 	}
 	// Manual domains don't consume the top-N budget, and the TLS/Host identity
 	// remains the origin rather than the preferred connection address.
-	expanded := s.expandEndpoint(sub.Node{Port: 443}, store.Endpoint{Kind: "cdn", CDNProfileID: id}, map[string]string{}, "{kind}", nil, nil, &model.Inbound{Transport: model.TransportSpec{Type: model.TransWS}, Port: 443}, "")
+	expanded := s.expandEndpoint(sub.Node{Port: 443}, store.Endpoint{Kind: "cdn", CDNProfileID: id}, map[string]string{}, "{kind}", nil, nil, &model.Inbound{Transport: model.TransportSpec{Type: model.TransWS}, Port: 443}, nil, nil, "")
 	if len(expanded) != 3 || expanded[0].Server != "104.16.1.1" || expanded[1].Server != "best.example.com" || expanded[2].Server != "second.example.com" || expanded[1].TLS.ServerName != "cdn.example.com" {
 		t.Fatalf("expanded = %+v", expanded)
 	}
@@ -184,7 +184,7 @@ func TestCDNFixedIPsAndDomains(t *testing.T) {
 		t.Fatal("report dropped pins", p.PinnedHosts.V)
 	}
 	for _, port := range []int{443, 8443} {
-		expanded := s.expandEndpoint(sub.Node{Port: port}, store.Endpoint{Kind: "cdn", CDNProfileID: id, Port: port}, map[string]string{}, "{kind}", nil, nil, &model.Inbound{Transport: model.TransportSpec{Type: model.TransWS}, Port: 443}, "ct")
+		expanded := s.expandEndpoint(sub.Node{Port: port}, store.Endpoint{Kind: "cdn", CDNProfileID: id, Port: port}, map[string]string{}, "{kind}", nil, nil, &model.Inbound{Transport: model.TransportSpec{Type: model.TransWS}, Port: 443}, nil, nil, "ct")
 		if len(expanded) != 4 {
 			t.Fatalf("port %d top-N: %+v", port, expanded)
 		}

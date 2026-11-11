@@ -498,7 +498,7 @@ func (s *Server) refreshRemoteRuleSets() {
 
 // refreshRuleSet fetches a remote list into rs and republishes on change.
 func (s *Server) refreshRuleSet(ctx context.Context, rs *store.RuleSet) {
-	now := time.Now()
+	now := time.Now().UTC()
 	rs.FetchedAt = &now
 	parsed, err := fetchRuleList(ctx, rs.SourceURL)
 	if err != nil {

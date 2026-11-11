@@ -290,7 +290,7 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 	if err := s.st.DB.First(&n, "id = ?", nodeID).Error; err != nil {
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	s.observeTrafficQueue(nodeID, n.Name, hb.TrafficQueue)
 	s.presenceTouch(nodeID)
 	status := "online"

@@ -105,7 +105,7 @@ func TestRefundUnknownResultReconcilesOriginalBot(t *testing.T) {
 	s.tg.token = "another-bot"
 	s.tg.mu.Unlock()
 	retry := func() {
-		s.st.DB.Model(&store.RefundJob{}).Where("order_id = ?", o.ID).Updates(map[string]any{"next_at": time.Now().Add(-time.Second), "lease_until": time.Time{}})
+		s.st.DB.Model(&store.RefundJob{}).Where("order_id = ?", o.ID).Updates(map[string]any{"next_at": time.Now().UTC().Add(-time.Second), "lease_until": time.Time{}})
 		s.processRefund(o.ID)
 	}
 	retry()

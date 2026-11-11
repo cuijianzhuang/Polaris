@@ -195,7 +195,7 @@ func (s *Server) putNodeQuota(c *gin.Context) {
 	if req.ResetUsed {
 		q.Used = 0
 	}
-	q.UpdatedAt = time.Now()
+	q.UpdatedAt = time.Now().UTC()
 	if err := s.st.DB.Save(&q).Error; err != nil {
 		serverError(c, err)
 		return

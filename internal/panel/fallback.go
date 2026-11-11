@@ -99,9 +99,17 @@ func resolveFallbacks(ins []model.Inbound) {
 
 // fallbackMasters maps child inbound id -> its master, for the given nodes.
 func (s *Server) fallbackMasters(nodeIDs []string) map[string]*store.Inbound {
+	m, _ := s.fallbackMastersFor(nodeIDs)
+	return m
+}
+
+// fallbackMastersFor is fallbackMasters plus the enabled inbounds it read,
+// so callers that need the same rows (subscription prefetch) do not query
+// them a second time.
+func (s *Server) fallbackMastersFor(nodeIDs []string) (map[string]*store.Inbound, []store.Inbound) {
 	out := map[string]*store.Inbound{}
 	if len(nodeIDs) == 0 {
-		return out
+		return out, nil
 	}
 	var ins []store.Inbound
 	s.st.DB.Where("node_id IN ? AND enabled = ?", nodeIDs, true).Find(&ins)
@@ -110,7 +118,7 @@ func (s *Server) fallbackMasters(nodeIDs []string) map[string]*store.Inbound {
 			out[f.InboundID] = &ins[i]
 		}
 	}
-	return out
+	return out, ins
 }
 
 // referencingMaster returns the tag of a master that falls back to id.

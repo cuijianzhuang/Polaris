@@ -375,7 +375,7 @@ func (s *Server) finishPasskeyLogin(c *gin.Context) {
 		if e != nil {
 			return e
 		}
-		now := time.Now()
+		now := time.Now().UTC()
 		if e = tx.Model(&store.Passkey{}).Where("id = ?", keyID).Updates(map[string]any{"data": s.st.Box.Seal(string(raw)), "last_used_at": now}).Error; e != nil {
 			return e
 		}

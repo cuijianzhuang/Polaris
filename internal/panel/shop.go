@@ -245,7 +245,7 @@ func (s *Server) newOrderFor(b shopBuyer, planID, method, chain string) (*store.
 	if !ok {
 		return nil, errors.New("这个套餐不支持该付款方式")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: b.UserID, WebKey: b.WebKey, PlanID: p.ID, PlanName: p.Name,
 		Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL()), Entitlements: freezePlan(&p)}
 	if cp != nil {
@@ -263,7 +263,7 @@ func (s *Server) newOrderFor(b shopBuyer, planID, method, chain string) (*store.
 func (s *Server) openShopOrder(o *store.Order, usdtPrice float64) (*store.Order, error) {
 	s.shopMu.Lock()
 	defer s.shopMu.Unlock()
-	now := time.Now()
+	now := time.Now().UTC()
 	// PostgreSQL keeps microseconds: the returned order must equal what a
 	// later read of it gives.
 	o.CreatedAt, o.ExpiresAt = o.CreatedAt.Truncate(time.Microsecond), o.ExpiresAt.Truncate(time.Microsecond)
@@ -331,7 +331,7 @@ func (s *Server) fulfil(id, payRef string, pre func(tx *gorm.DB) error) (o *stor
 	var before []string
 	var created bool
 	var detail string
-	now := time.Now()
+	now := time.Now().UTC()
 	o, u = &store.Order{}, &store.User{}
 	if s.st.DB.First(o, "id = ?", id).Error == nil && o.UserID != "" {
 		before = s.nodesForUsers(o.UserID)
@@ -532,7 +532,7 @@ func (s *Server) redeemFor(b shopBuyer, code string) (*store.Order, *store.User,
 	if s.st.DB.First(&rc, "code = ?", code).Error != nil {
 		return nil, nil, errors.New("兑换码无效")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	o := &store.Order{ID: store.NewID(), TelegramID: tgID, TGName: truncate(tgName, 64), UserID: userID, WebKey: b.WebKey,
 		Method: payCode, Amount: code, Status: "pending", CreatedAt: now, ExpiresAt: now}
 	if rc.PackID != "" {
@@ -584,7 +584,7 @@ func (s *Server) redeemFor(b shopBuyer, code string) (*store.Order, *store.User,
 // expireOrders closes unpaid orders past their time. A payment arriving
 // later still fulfils the order.
 func (s *Server) expireOrders() {
-	s.st.DB.Model(&store.Order{}).Where("status = ? AND expires_at < ?", "pending", time.Now()).Update("status", "expired")
+	s.st.DB.Model(&store.Order{}).Where("status = ? AND expires_at < ?", "pending", time.Now().UTC()).Update("status", "expired")
 }
 
 // cancelOrder cancels an unpaid order. tgID limits it to that buyer's
@@ -654,7 +654,7 @@ func (s *Server) listOrders(c *gin.Context) {
 	}
 	sums := []sum{} // [] rather than null when nothing was sold
 	var paid []store.Order
-	s.st.DB.Where("status = ? AND paid_at > ? AND method IN ?", "paid", time.Now().AddDate(0, 0, -30), []string{payStars, payEPay, payUSDT}).Find(&paid)
+	s.st.DB.Where("status = ? AND paid_at > ? AND method IN ?", "paid", time.Now().UTC().AddDate(0, 0, -30), []string{payStars, payEPay, payUSDT}).Find(&paid)
 	for _, o := range paid {
 		v, _ := strconv.ParseFloat(o.Amount, 64)
 		i := slices.IndexFunc(sums, func(x sum) bool { return x.Currency == o.Currency })
@@ -691,7 +691,7 @@ func (s *Server) listOrders(c *gin.Context) {
 			refunds[r.OrderID] = r
 		}
 	}
-	cut := time.Now().Add(-orderDeleteGrace)
+	cut := time.Now().UTC().Add(-orderDeleteGrace)
 	for i := range os {
 		os[i].Web = os[i].WebKey != ""
 		_, hasReceipt := receipts[os[i].ID]
@@ -706,7 +706,7 @@ func (s *Server) ordersToday() (n int, revenue map[string]float64) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	var os []store.Order
-	s.st.DB.Where("status = ? AND paid_at >= ?", "paid", start).Find(&os)
+	s.st.DB.Where("status = ? AND paid_at >= ?", "paid", start.UTC()).Find(&os)
 	revenue = map[string]float64{}
 	for _, o := range os {
 		if o.Currency != "" {
@@ -771,7 +771,7 @@ func (s *Server) deleteOrders(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 	// A day's grace: an EPay callback or a USDT transfer for an order that
 	// just closed still pays it, and needs the order to be there.
-	q := s.st.DB.Where("status IN ? AND pay_ref IS NULL AND expires_at < ? AND id NOT IN (?)", deletableOrders, time.Now().Add(-orderDeleteGrace), s.st.DB.Model(&store.PaymentReceipt{}).Select("order_id"))
+	q := s.st.DB.Where("status IN ? AND pay_ref IS NULL AND expires_at < ? AND id NOT IN (?)", deletableOrders, time.Now().UTC().Add(-orderDeleteGrace), s.st.DB.Model(&store.PaymentReceipt{}).Select("order_id"))
 	switch st := c.Query("status"); {
 	case len(req.IDs) > 0:
 		if len(req.IDs) > 5000 {
@@ -782,7 +782,7 @@ func (s *Server) deleteOrders(c *gin.Context) {
 	case slices.Contains(deletableOrders, st):
 		q = q.Where("status = ?", st)
 		if days := atoiDefault(c.Query("days"), 0); days > 0 {
-			q = q.Where("created_at < ?", time.Now().AddDate(0, 0, -days))
+			q = q.Where("created_at < ?", time.Now().UTC().AddDate(0, 0, -days))
 		}
 	default:
 		badRequest(c, errors.New("只能删除已过期或已取消的订单"))
@@ -821,7 +821,7 @@ func (s *Server) codesQuery(batch, state, text string) *gorm.DB {
 	if batch != "" {
 		q = q.Where("batch = ?", batch)
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	switch state {
 	case "yes":
 		q = q.Where("used_at IS NOT NULL")
@@ -917,7 +917,7 @@ func (s *Server) createCodes(c *gin.Context) {
 	}
 	var exp *time.Time
 	if req.ExpireDays > 0 {
-		e := time.Now().AddDate(0, 0, req.ExpireDays)
+		e := time.Now().UTC().AddDate(0, 0, req.ExpireDays)
 		exp = &e
 	}
 	rc.ExpiresAt = exp

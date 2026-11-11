@@ -19,7 +19,7 @@ func (s *Server) observePublicIP(n *store.Node, v4, v6 string) {
 	if (v4 == "" || v4 == n.PublicIPv4) && (v6 == "" || v6 == n.PublicIPv6) {
 		return
 	}
-	upd := map[string]any{"ip_changed_at": time.Now()}
+	upd := map[string]any{"ip_changed_at": time.Now().UTC()}
 	if v4 != "" {
 		upd["public_ipv4"] = v4
 	}

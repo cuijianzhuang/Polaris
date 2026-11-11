@@ -484,7 +484,7 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupfmt.Archive, box
 			return e
 		}
 		if tx.Dialector.Name() == "postgres" {
-			now := time.Now()
+			now := time.Now().UTC()
 			_, e := saveClusterOperation(tx, store.ClusterOperation{ID: store.NewID(), Kind: "restore", CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}, memberID, "", false)
 			return e
 		}

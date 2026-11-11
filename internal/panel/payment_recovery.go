@@ -19,7 +19,7 @@ func (s *Server) acceptPayment(o *store.Order, ref string) error {
 	if ref == "" || len(ref) > 128 || !strings.HasPrefix(ref, o.Method+":") {
 		return errors.New("invalid payment reference")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		// Serialize callbacks and cleanup before reading the order. A concurrent
 		// cleaner must recheck its expired/unpaid predicate after this commits.
@@ -61,7 +61,7 @@ func (s *Server) acceptPayment(o *store.Order, ref string) error {
 }
 
 func (s *Server) processPaymentReceipt(ref string) {
-	now := time.Now()
+	now := time.Now().UTC()
 	token := store.NewID()
 	r := s.st.DB.Model(&store.PaymentReceipt{}).Where("ref = ? AND status = ? AND next_at <= ? AND lease_until <= ?", ref, "pending", now, now).
 		Updates(map[string]any{"lease_until": now.Add(time.Minute), "lease_token": token, "attempts": gorm.Expr("attempts + 1"), "updated_at": now})
@@ -86,7 +86,7 @@ func (s *Server) processPaymentReceipt(ref string) {
 	} else if o.Status != "paid" && o.Status != "refund_pending" && o.Status != "refunded" {
 		state, detail = "review", "付款已记录，订单需要人工处理"
 	}
-	update := map[string]any{"status": state, "last_error": detail, "lease_until": time.Time{}, "lease_token": "", "updated_at": time.Now(), "next_at": now.Add(time.Duration(min(job.Attempts, 30)) * 10 * time.Second)}
+	update := map[string]any{"status": state, "last_error": detail, "lease_until": time.Time{}, "lease_token": "", "updated_at": time.Now().UTC(), "next_at": now.Add(time.Duration(min(job.Attempts, 30)) * 10 * time.Second)}
 	if e := s.st.DB.Model(&store.PaymentReceipt{}).Where("ref = ? AND lease_token = ?", ref, token).Updates(update).Error; e != nil {
 		s.log.Error("save payment recovery result", "order", job.OrderID, "err", e)
 	}
@@ -94,7 +94,7 @@ func (s *Server) processPaymentReceipt(ref string) {
 
 func (s *Server) retryPayments() {
 	var jobs []store.PaymentReceipt
-	if e := s.st.DB.Where("status = ? AND next_at <= ? AND lease_until <= ?", "pending", time.Now(), time.Now()).Order("created_at").Limit(50).Find(&jobs).Error; e != nil {
+	if e := s.st.DB.Where("status = ? AND next_at <= ? AND lease_until <= ?", "pending", time.Now().UTC(), time.Now().UTC()).Order("created_at").Limit(50).Find(&jobs).Error; e != nil {
 		s.log.Warn("load payment recovery tasks", "err", e)
 		return
 	}
@@ -124,7 +124,7 @@ func (s *Server) retryOrderPayment(id string) error {
 		if e := tx.Model(&o).Updates(map[string]any{"status": "processing", "pay_ref": nil}).Error; e != nil {
 			return e
 		}
-		return tx.Model(&p).Updates(map[string]any{"status": "pending", "next_at": time.Now(), "last_error": ""}).Error
+		return tx.Model(&p).Updates(map[string]any{"status": "pending", "next_at": time.Now().UTC(), "last_error": ""}).Error
 	})
 }
 

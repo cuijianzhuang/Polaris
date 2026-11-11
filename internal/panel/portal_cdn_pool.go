@@ -105,9 +105,9 @@ func (s *Server) personalCDNReport(c *gin.Context, token *store.APIToken) {
 				pool.PortReports[oldPort] = store.PersonalCDNReportMeta{At: *pool.ReportedAt}
 			}
 		}
-		pool.PortReports[strconv.Itoa(req.Port)] = store.PersonalCDNReportMeta{At: time.Now(), Scheme: req.Scheme}
+		pool.PortReports[strconv.Itoa(req.Port)] = store.PersonalCDNReportMeta{At: time.Now().UTC(), Scheme: req.Scheme}
 		pool.Automatic[strconv.Itoa(req.Port)] = addresses
-		now := time.Now()
+		now := time.Now().UTC()
 		pool.ReportedAt = &now
 		return nil
 	})

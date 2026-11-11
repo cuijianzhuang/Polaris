@@ -35,7 +35,7 @@ func TestCDNSchemePortsAndSubscriptions(t *testing.T) {
 		if problem := cdnProblem(&m, &p, 0, false); problem != "" {
 			t.Errorf("port %d: %s", port, problem)
 		}
-		nodes := s.expandEndpoint(sub.Node{Port: port}, store.Endpoint{Kind: "cdn", CDNProfileID: id}, map[string]string{}, "{kind}", nil, nil, &m, "")
+		nodes := s.expandEndpoint(sub.Node{Port: port}, store.Endpoint{Kind: "cdn", CDNProfileID: id}, map[string]string{}, "{kind}", nil, nil, &m, nil, nil, "")
 		if len(nodes) != 1 || nodes[0].Port != port || nodes[0].TLS.Type != model.SecNone || nodes[0].Transport.Host != "cdn.example.com" {
 			t.Fatalf("HTTP subscription on %d: %+v", port, nodes)
 		}

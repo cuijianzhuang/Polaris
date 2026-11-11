@@ -349,7 +349,7 @@ func (s *Server) updateSubTemplate(c *gin.Context) {
 				return validationErr
 			}
 		}
-		changes := map[string]any{"content": content, "updated_at": time.Now(), "revision": gorm.Expr("revision + 1")}
+		changes := map[string]any{"content": content, "updated_at": time.Now().UTC(), "revision": gorm.Expr("revision + 1")}
 		if req.Name != "" {
 			changes["name"] = req.Name
 		}
@@ -364,7 +364,7 @@ func (s *Server) updateSubTemplate(c *gin.Context) {
 			return errSubTemplateConflict
 		}
 		if req.IsDefault {
-			if err := tx.Model(&store.SubTemplate{}).Where("format = ? AND id <> ? AND is_default = ?", current.Format, current.ID, true).Updates(map[string]any{"is_default": false, "revision": gorm.Expr("revision + 1"), "updated_at": time.Now()}).Error; err != nil {
+			if err := tx.Model(&store.SubTemplate{}).Where("format = ? AND id <> ? AND is_default = ?", current.Format, current.ID, true).Updates(map[string]any{"is_default": false, "revision": gorm.Expr("revision + 1"), "updated_at": time.Now().UTC()}).Error; err != nil {
 				return err
 			}
 		}
@@ -418,7 +418,7 @@ func (s *Server) createSubTemplate(c *gin.Context) {
 		badRequest(c, fmt.Errorf("format %s has no templates", req.Format))
 		return
 	}
-	t := store.SubTemplate{ID: store.NewID(), Format: req.Format, Name: req.Name, Content: orDefault(req.Content, defaultTemplate(req.Format)), UpdatedAt: time.Now()}
+	t := store.SubTemplate{ID: store.NewID(), Format: req.Format, Name: req.Name, Content: orDefault(req.Content, defaultTemplate(req.Format)), UpdatedAt: time.Now().UTC()}
 	if r, ok := sub.Get(t.Format); ok {
 		if _, err := r.Render(nil, sub.Info{}, t.Content); err != nil {
 			badRequest(c, fmt.Errorf("模板无效: %w", err))

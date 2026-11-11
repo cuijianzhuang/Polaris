@@ -40,10 +40,10 @@ func DrillRestore(ctx context.Context, cfg *Config, path, pass string) (*store.R
 }
 
 func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pass, source string) (result *store.RestoreDrill) {
-	result = &store.RestoreDrill{ID: store.NewID(), Source: source, Status: "failed", StartedAt: time.Now(),
+	result = &store.RestoreDrill{ID: store.NewID(), Source: source, Status: "failed", StartedAt: time.Now().UTC(),
 		Checks: store.NewJSON([]store.RestoreDrillCheck{}), Counts: store.NewJSON(map[string]int64{})}
 	defer func() {
-		result.FinishedAt = time.Now()
+		result.FinishedAt = time.Now().UTC()
 		result.DurationMS = time.Since(result.StartedAt).Milliseconds()
 	}()
 	check := func(name string, fn func() error) bool {

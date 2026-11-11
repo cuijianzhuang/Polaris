@@ -14,7 +14,7 @@ import (
 )
 
 func (s *Server) recordOperationalResult(key, detail string, err error) {
-	now := time.Now()
+	now := time.Now().UTC()
 	st := store.OperationalStatus{Key: key, FirstSeen: now, UpdatedAt: now, Failed: err != nil}
 	updates := map[string]any{"failed": st.Failed, "updated_at": now, "detail": ""}
 	if err != nil {
@@ -80,13 +80,13 @@ func (s *Server) operationalIssues() ([]operationalIssue, error) {
 		var err error
 		switch q.name {
 		case "payment-pending":
-			err = s.st.DB.Model(&store.PaymentReceipt{}).Where("status = ? AND created_at < ?", "pending", time.Now().Add(-time.Minute)).Count(q.count).Error
+			err = s.st.DB.Model(&store.PaymentReceipt{}).Where("status = ? AND created_at < ?", "pending", time.Now().UTC().Add(-time.Minute)).Count(q.count).Error
 		case "payment-review":
 			err = s.st.DB.Model(&store.PaymentReceipt{}).Where("status = ?", "review").Count(q.count).Error
 		case "refund-pending":
-			err = s.st.DB.Model(&store.RefundJob{}).Where("status <> ? AND created_at < ?", "done", time.Now().Add(-time.Minute)).Count(q.count).Error
+			err = s.st.DB.Model(&store.RefundJob{}).Where("status <> ? AND created_at < ?", "done", time.Now().UTC().Add(-time.Minute)).Count(q.count).Error
 		case "cluster-pending":
-			err = s.st.DB.Model(&store.ClusterDelivery{}).Where("status = ? AND operation_id IN (?)", "pending", s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("created_at < ?", time.Now().Add(-time.Minute))).Count(q.count).Error
+			err = s.st.DB.Model(&store.ClusterDelivery{}).Where("status = ? AND operation_id IN (?)", "pending", s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("created_at < ?", time.Now().UTC().Add(-time.Minute))).Count(q.count).Error
 		}
 		if err != nil {
 			return nil, err
@@ -114,7 +114,7 @@ func (s *Server) operationalIssues() ([]operationalIssue, error) {
 		var st store.OperationalStatus
 		r := s.st.DB.Where("key = ?", "backup").First(&st)
 		if r.Error != nil {
-			now := time.Now()
+			now := time.Now().UTC()
 			s.warnWrite("backup status", s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.OperationalStatus{Key: "backup", FirstSeen: now, UpdatedAt: now}).Error)
 		} else {
 			last := st.FirstSeen

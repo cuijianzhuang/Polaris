@@ -31,7 +31,7 @@ func loadMemberID(dir string) (string, error) {
 }
 
 func (s *Server) queueClusterOperation(kind, target string, includeSelf bool) (string, error) {
-	now := time.Now()
+	now := time.Now().UTC()
 	op := store.ClusterOperation{ID: store.NewID(), Kind: kind, Target: target, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}
 	legacy := false
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
@@ -77,7 +77,7 @@ func (s *Server) processClusterOperations() {
 	s.opsMu.Lock()
 	defer s.opsMu.Unlock()
 	var ds []store.ClusterDelivery
-	now := time.Now()
+	now := time.Now().UTC()
 	if e := s.st.DB.Where("member_id = ? AND status = ? AND next_at <= ?", s.memberID, "pending", now).Order("next_at").Limit(20).Find(&ds).Error; e != nil {
 		return
 	}
@@ -129,7 +129,7 @@ func (s *Server) processClusterOperations() {
 
 func (s *Server) hasClusterDelivery(kind, target string) bool {
 	var n int64
-	return s.st.DB.Model(&store.ClusterDelivery{}).Where("member_id = ? AND operation_id IN (?)", s.memberID, s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("kind = ? AND target = ? AND expires_at > ?", kind, target, time.Now())).Count(&n).Error == nil && n > 0
+	return s.st.DB.Model(&store.ClusterDelivery{}).Where("member_id = ? AND operation_id IN (?)", s.memberID, s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("kind = ? AND target = ? AND expires_at > ?", kind, target, time.Now().UTC())).Count(&n).Error == nil && n > 0
 }
 
 // saveClusterOperation runs in the same transaction as a restore when needed.

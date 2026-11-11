@@ -123,7 +123,7 @@ func (s *Server) ingestTraffic(nodeID string, batches []*polarisv1.TrafficBatch,
 		}
 		return ds
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		dup = 0
 		var all []model.TrafficDelta
@@ -199,7 +199,7 @@ func (s *Server) settleTraffic() error {
 	if err != nil || len(data) == 0 {
 		return err
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	hour := now.UTC().Truncate(time.Hour)
 	day := now.In(s.cfg.Location()).Format("2006-01-02")
 	rates := map[string]float64{}
@@ -380,6 +380,12 @@ func (s *Server) settleTraffic() error {
 	if len(fwdAdd) > 0 {
 		s.capForwards(fwdAdd)
 	}
+	// Enforce here so usage-based limits apply in the same round as the
+	// settlement. This is intentionally NOT the only call: settleTraffic
+	// returns early (without enforcing) when the inbox is empty, taken by
+	// another instance, or the transaction fails, so the "settle" cron job
+	// in startJobs enforces again to cover those paths. Removing either
+	// call would leave time-based expiry unenforced on idle/failed rounds.
 	s.enforceLimits()
 	return nil
 }
@@ -413,7 +419,7 @@ func addToUsers(tx *gorm.DB, vals map[string][]int64, cols []string, set map[str
 		ids = ids[n:]
 		list, args := valuesList(chunk, func(id string) []int64 { return vals[id] })
 		r := tx.Exec("UPDATE users SET updated_at = ?"+setSQL+" FROM (VALUES "+list+") AS v WHERE users.id = v.column1",
-			append(append([]any{time.Now()}, setArgs...), args...)...)
+			append(append([]any{time.Now().UTC()}, setArgs...), args...)...)
 		if r.Error != nil {
 			return r.Error
 		}
@@ -521,7 +527,7 @@ func (s *Server) capForwards(charged map[string]int64) {
 // enforceLimits moves users between active / limited / expired and lifts
 // temporary IP bans, rebuilding the specs of every affected node.
 func (s *Server) enforceLimits() {
-	now := time.Now()
+	now := time.Now().UTC()
 	var changed []string
 	var users []store.User
 	s.st.DB.Where("status IN ? AND is_service = ?", []string{"active", "limited", "expired"}, false).Find(&users)
@@ -747,7 +753,7 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		}
 		updates := map[string]any{"online_ips": store.NewJSON(list)}
 		if len(ips) > 0 {
-			updates["online_at"] = time.Now()
+			updates["online_at"] = time.Now().UTC()
 		}
 		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(updates)
 		if user.IPLimit > 0 && counted > user.IPLimit {
@@ -756,7 +762,7 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 				s.notify(Event{Kind: "ip_limit", UserID: user.ID, Text: fmt.Sprintf("🚨 用户 %s 同时在线 IP %d 个（不含受信任地址），超过限制 %d", user.Username, counted, user.IPLimit)})
 			}
 			if banMinutes > 0 && user.BannedUntil == nil {
-				until := time.Now().Add(time.Duration(banMinutes) * time.Minute)
+				until := time.Now().UTC().Add(time.Duration(banMinutes) * time.Minute)
 				s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Update("banned_until", until)
 				s.MarkDirty("ip limit ban", s.nodesForUsers(user.ID)...)
 			}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -39,8 +40,103 @@ func (s *Server) statsOverview(c *gin.Context) {
 			peak, peakRate = n.Name, r
 		}
 	}
+	// Trend over ?days= (default 7, max 90).
+	n := min(max(atoiDefault(c.Query("days"), 7), 1), 90)
+	agg := s.statsOverviewAggregates(now, n)
+	out := gin.H{
+		"nodes":       gin.H{"online": online, "total": len(nodes), "timeout": timeout, "error": failed},
+		"users":       agg.users,
+		"today":       agg.today,
+		"month":       agg.month,
+		"topUsers":    agg.topUsers,
+		"attention":   agg.attention,
+		"rate":        gin.H{"rxBps": rx, "txBps": tx, "peakNode": peak},
+		"trend":       agg.trend,
+		"cores":       agg.cores,
+		"nodeList":    nodes,
+		"generatedAt": now,
+	}
+	// Traffic-read tokens already access this route; do not expand that scope
+	// to payment, refund or diagnostic information. The dedicated endpoint is
+	// administrator-session only by default.
+	if apiTokenOf(c) == nil {
+		operational, err := s.loadOperationalOverview(now)
+		if err != nil {
+			s.log.Warn("operational overview unavailable", "error", err)
+		}
+		out["operational"] = operational
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// statsOverviewTTL bounds how long dashboard aggregates are trusted: the
+// dashboard is polled repeatedly, and re-running a dozen aggregate
+// queries per poll is the cost this cache removes.
+const statsOverviewTTL = 30 * time.Second
+
+type statsDay struct {
+	Date string `json:"date"`
+	Up   int64  `json:"up"`
+	Down int64  `json:"down"`
+}
+
+type statsTopUser struct {
+	UserID   string `json:"userId"`
+	Username string `json:"username"`
+	Up       int64  `json:"up"`
+	Down     int64  `json:"down"`
+}
+
+// statsOverviewAggregates is the database-derived part of the dashboard:
+// everything except live node status/rate and the operational overview.
+// Callers must not mutate the returned slices and maps: they may be
+// shared with concurrent requests serving the same cache entry.
+//
+// The cache is deliberately TTL-only, with no active invalidation on
+// traffic settlement: settle runs every 10s, so invalidating there
+// would make the cache useless. Thirty seconds of staleness on dashboard
+// KPIs is the accepted trade-off, same class as the 60s Setting cache.
+// The key carries the local date so a midnight rollover recomputes
+// instead of serving yesterday's buckets.
+type statsOverviewAggregates struct {
+	users     gin.H
+	today     struct{ Up, Down int64 }
+	month     struct{ Up, Down int64 }
+	trend     []statsDay
+	topUsers  []statsTopUser
+	attention gin.H
+	cores     map[model.CoreType]int
+}
+
+type statsOvKey struct {
+	days int
+	date string // local YYYY-MM-DD of the request
+}
+
+type statsOvSnap struct {
+	at  time.Time
+	key statsOvKey
+	agg statsOverviewAggregates
+}
+
+func (s *Server) statsOverviewAggregates(now time.Time, days int) statsOverviewAggregates {
+	key := statsOvKey{days: days, date: now.Format("2006-01-02")}
+	if sn := s.statsOvCache.Load(); sn != nil && sn.key == key && time.Since(sn.at) < statsOverviewTTL {
+		return sn.agg
+	}
+	s.statsOvMu.Lock()
+	defer s.statsOvMu.Unlock()
+	if sn := s.statsOvCache.Load(); sn != nil && sn.key == key && time.Since(sn.at) < statsOverviewTTL {
+		return sn.agg
+	}
+	agg := s.computeStatsOverviewAggregates(now, days)
+	s.statsOvCache.Store(&statsOvSnap{at: time.Now(), key: key, agg: agg})
+	return agg
+}
+
+func (s *Server) computeStatsOverviewAggregates(now time.Time, n int) statsOverviewAggregates {
 	var onlineUsers, activeUsers, totalUsers int64
-	s.st.DB.Model(&store.User{}).Where("is_service = ? AND online_at > ?", false, now.Add(-2*time.Minute)).Count(&onlineUsers)
+	s.st.DB.Model(&store.User{}).Where("is_service = ? AND online_at > ?", false, now.Add(-2*time.Minute).UTC()).Count(&onlineUsers)
 	s.st.DB.Model(&store.User{}).Where("is_service = ? AND status = ?", false, "active").Count(&activeUsers)
 	s.st.DB.Model(&store.User{}).Where("is_service = ?", false).Count(&totalUsers)
 
@@ -54,15 +150,9 @@ func (s *Server) statsOverview(c *gin.Context) {
 	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("COALESCE(SUM(up),0) AS up, COALESCE(SUM(down),0) AS down").
 		Where("hour >= ?", monthStart).Scan(&month)
 
-	// Trend over ?days= (default 7, max 90), bucketed by local day.
-	n := min(max(atoiDefault(c.Query("days"), 7), 1), 90)
+	// Trend over n days, bucketed by local day.
 	local := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
-	type day struct {
-		Date string `json:"date"`
-		Up   int64  `json:"up"`
-		Down int64  `json:"down"`
-	}
-	days := make([]day, n)
+	days := make([]statsDay, n)
 	idx := map[string]int{}
 	for i := range days {
 		days[i].Date = local.AddDate(0, 0, i-n+1).Format("2006-01-02")
@@ -81,20 +171,24 @@ func (s *Server) statsOverview(c *gin.Context) {
 		}
 	}
 
-	// Today's heaviest users.
-	type topUser struct {
-		UserID   string `json:"userId"`
-		Username string `json:"username"`
-		Up       int64  `json:"up"`
-		Down     int64  `json:"down"`
-	}
-	tops := []topUser{}
+	// Today's heaviest users: usernames resolved with one IN query, not
+	// one First per user.
+	tops := []statsTopUser{}
 	realUsers(s.st.DB.Model(&store.TrafficHourly{})).Select("user_id, SUM(up) AS up, SUM(down) AS down").
 		Where("hour >= ? AND user_id <> ''", dayStart).Group("user_id").Order("SUM(up+down) DESC").Limit(5).Scan(&tops)
-	for i := range tops {
-		var u store.User
-		if s.st.DB.Select("username").First(&u, "id = ?", tops[i].UserID).Error == nil {
-			tops[i].Username = u.Username
+	if len(tops) > 0 {
+		ids := make([]string, 0, len(tops))
+		for _, t := range tops {
+			ids = append(ids, t.UserID)
+		}
+		var us []store.User
+		s.st.DB.Select("id", "username").Where("id IN ?", ids).Find(&us)
+		names := map[string]string{}
+		for _, u := range us {
+			names[u.ID] = u.Username
+		}
+		for i := range tops {
+			tops[i].Username = names[tops[i].UserID]
 		}
 	}
 
@@ -115,30 +209,15 @@ func (s *Server) statsOverview(c *gin.Context) {
 	for _, cr := range cores {
 		dist[cr.Type]++
 	}
-	out := gin.H{
-		"nodes":       gin.H{"online": online, "total": len(nodes), "timeout": timeout, "error": failed},
-		"users":       gin.H{"online": onlineUsers, "active": activeUsers, "total": totalUsers},
-		"today":       today,
-		"month":       month,
-		"topUsers":    tops,
-		"attention":   attention,
-		"rate":        gin.H{"rxBps": rx, "txBps": tx, "peakNode": peak},
-		"trend":       days,
-		"cores":       dist,
-		"nodeList":    nodes,
-		"generatedAt": now,
+	return statsOverviewAggregates{
+		users:     gin.H{"online": onlineUsers, "active": activeUsers, "total": totalUsers},
+		today:     today,
+		month:     month,
+		trend:     days,
+		topUsers:  tops,
+		attention: attention,
+		cores:     dist,
 	}
-	// Traffic-read tokens already access this route; do not expand that scope
-	// to payment, refund or diagnostic information. The dedicated endpoint is
-	// administrator-session only by default.
-	if apiTokenOf(c) == nil {
-		operational, err := s.loadOperationalOverview(now)
-		if err != nil {
-			s.log.Warn("operational overview unavailable", "error", err)
-		}
-		out["operational"] = operational
-	}
-	c.JSON(http.StatusOK, out)
 }
 
 // statsTraffic returns a series: ?user=&node=&from=&to=&bucket=hour|day.
@@ -161,8 +240,19 @@ func (s *Server) statsTraffic(c *gin.Context) {
 	} else {
 		q = realUsers(q)
 	}
-	var rows []store.TrafficHourly
-	if err := q.Find(&rows).Error; err != nil {
+	// Series: aggregate per hour in SQL instead of loading every
+	// TrafficHourly row and summing in memory. The day bucket below
+	// still runs over the (far fewer) hourly rows, so its output is
+	// unchanged. Each query gets its own Session clone of the base
+	// conditions: reusing one chain would leak the first query's
+	// GROUP BY into the second.
+	type hourRow struct {
+		Hour     time.Time
+		Up, Down int64
+	}
+	var hours []hourRow
+	if err := q.Session(&gorm.Session{}).Model(&store.TrafficHourly{}).Select("hour, SUM(up) AS up, SUM(down) AS down").
+		Group("hour").Order("hour").Scan(&hours).Error; err != nil {
 		serverError(c, err)
 		return
 	}
@@ -173,7 +263,7 @@ func (s *Server) statsTraffic(c *gin.Context) {
 		Down int64     `json:"down"`
 	}
 	m := map[int64]*point{}
-	for _, r := range rows {
+	for _, r := range hours {
 		t := r.Hour
 		if bucket == "day" {
 			l := t.Local()
@@ -192,28 +282,37 @@ func (s *Server) statsTraffic(c *gin.Context) {
 		out = append(out, *p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].T.Before(out[j].T) })
-	// Top users in range.
+	// Top users in range: aggregate and sort in SQL, then resolve the
+	// usernames with a single IN query instead of one First per user.
 	type top struct {
 		UserID   string `json:"userId"`
 		Username string `json:"username"`
 		Total    int64  `json:"total"`
 	}
-	agg := map[string]int64{}
-	for _, r := range rows {
-		agg[r.UserID] += r.Up + r.Down
-	}
+	n, _ := strconv.Atoi(c.DefaultQuery("top", "10"))
 	var tops []top
-	for id, t := range agg {
-		tops = append(tops, top{UserID: id, Total: t})
+	if n <= 0 {
+		// top=0 asks for no users (the old tops[:0]); a negative
+		// value used to panic on the same slice.
+		tops = []top{}
+	} else if err := q.Session(&gorm.Session{}).Model(&store.TrafficHourly{}).Select("user_id, SUM(up+down) AS total").
+		Group("user_id").Order("SUM(up+down) DESC").Limit(n).Scan(&tops).Error; err != nil {
+		serverError(c, err)
+		return
 	}
-	sort.Slice(tops, func(i, j int) bool { return tops[i].Total > tops[j].Total })
-	if n, _ := strconv.Atoi(c.DefaultQuery("top", "10")); len(tops) > n {
-		tops = tops[:n]
-	}
-	for i := range tops {
-		var u store.User
-		if s.st.DB.Select("username").First(&u, "id = ?", tops[i].UserID).Error == nil {
-			tops[i].Username = u.Username
+	if len(tops) > 0 {
+		ids := make([]string, 0, len(tops))
+		for _, t := range tops {
+			ids = append(ids, t.UserID)
+		}
+		var us []store.User
+		s.st.DB.Select("id", "username").Where("id IN ?", ids).Find(&us)
+		names := map[string]string{}
+		for _, u := range us {
+			names[u.ID] = u.Username
+		}
+		for i := range tops {
+			tops[i].Username = names[tops[i].UserID]
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"series": out, "top": tops})

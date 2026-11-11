@@ -13,7 +13,7 @@ import (
 func TestRedeemCodeAdmin(t *testing.T) {
 	s, _, admin := newAdminClient(t)
 	db := s.st.DB
-	now := time.Now()
+	now := time.Now().UTC()
 	past, future := now.Add(-time.Hour), now.Add(24*time.Hour)
 	db.Create(&store.User{ID: "u1", Username: "alice", UUID: "u1", SubToken: "u1-token-xxxxxxxx"})
 	db.Create(&store.RedeemCode{Code: "AAAA-1111", PlanID: "p", Batch: "b1"})
@@ -68,7 +68,7 @@ func TestRedeemCodeAdmin(t *testing.T) {
 func TestOrderDelete(t *testing.T) {
 	s, _, admin := newAdminClient(t)
 	db := s.st.DB
-	now := time.Now()
+	now := time.Now().UTC()
 	old, recent := now.Add(-48*time.Hour), now.Add(-time.Hour)
 	ref := "epay:T1"
 	for _, o := range []store.Order{

@@ -81,7 +81,7 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 		out = append(out, problem)
 	}
 	target := s.cdnTargetFor(ep, &m, p)
-	if target.Port != cdnDefaultPort(p) && len(sharedCDNReports(s.st.DB, p, time.Now().Add(-cdnStaleAfter(p)), "")) > 0 && len(cdnReportsForPort(s.st.DB, p, target.Port, time.Now().Add(-cdnStaleAfter(p)), "")) == 0 {
+	if target.Port != cdnDefaultPort(p) && len(sharedCDNReports(s.st.DB, p, time.Now().UTC().Add(-cdnStaleAfter(p)), "")) > 0 && len(cdnReportsForPort(s.st.DB, p, target.Port, time.Now().UTC().Add(-cdnStaleAfter(p)), "")) == 0 {
 		out = append(out, fmt.Sprintf("当前入口端口 %d 没有对应测速结果，其他端口的测速不能证明该端口可用", target.Port))
 	}
 	host := orDefault(ep.Host, p.OriginDomain)
@@ -161,9 +161,7 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 	}
 	var node store.Node
 	s.st.DB.First(&node, "id = ?", row.NodeID)
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-	defer cancel()
-	res := probeCDN(ctx, t, m.Transport.Type, nodeOrigin(&node))
+	res := probeCDNTarget(c.Request.Context(), t, m.Transport.Type, nodeOrigin(&node))
 	if !res.OK && (res.Status == 521 || res.Status == 522 || res.Status == 523) {
 		// Cloudflare could not reach the origin: see where its record
 		// points and whether the node answers on that port at all.
@@ -310,6 +308,15 @@ func cdnWebSocketAccept(key string) string {
 
 func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) cdnCheck {
 	return probeCDNWithNetwork(ctx, t, transport, nodeIP, &net.Dialer{Timeout: 8 * time.Second}, net.DefaultResolver.LookupHost, true)
+}
+
+// probeCDNTarget probes one CDN endpoint like a client, with the 20s
+// timeout the panel's own checks use. The personal pool uses a custom
+// dialer and a shorter timeout, so it calls probeCDNWithDialer directly.
+func probeCDNTarget(ctx context.Context, t cdnTarget, transport model.Transport, origin string) cdnCheck {
+	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	return probeCDN(probeCtx, t, transport, origin)
 }
 func probeCDNWithDialer(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string, dialer *net.Dialer) cdnCheck {
 	return probeCDNWithNetwork(ctx, t, transport, nodeIP, dialer, net.DefaultResolver.LookupHost, false)

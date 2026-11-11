@@ -74,7 +74,7 @@ func (s *Server) openTicket(u *store.User, subject, body string) (*store.Ticket,
 	if maxOpen > 0 && open >= int64(maxOpen) {
 		return nil, fmt.Errorf("最多同时有 %d 个未关闭的工单，请先在已有工单里继续沟通", maxOpen)
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	t := &store.Ticket{ID: store.NewID(), UserID: u.ID, Subject: subject, Status: ticketOpen, AdminUnread: true, CreatedAt: now, UpdatedAt: now}
 	var err2 error
 	for range 5 { // the number is unique; two at once retry
@@ -124,7 +124,7 @@ func (s *Server) userReply(u *store.User, t *store.Ticket, body string) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&store.TicketMessage{ID: store.NewID(), TicketID: t.ID, Author: u.Username, Body: body, CreatedAt: now}).Error; err != nil {
 			return err
@@ -149,7 +149,7 @@ func (s *Server) adminReply(t *store.Ticket, admin, body string, closeIt bool) e
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	status := ticketAnswered
 	var closed *time.Time
 	if closeIt {
@@ -191,7 +191,7 @@ func (s *Server) adminReply(t *store.Ticket, admin, body string, closeIt bool) e
 
 // closeTicket closes a ticket (by its user or an admin).
 func (s *Server) closeTicket(t *store.Ticket, by string) error {
-	now := time.Now()
+	now := time.Now().UTC()
 	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(t).Updates(map[string]any{"status": ticketClosed, "closed_at": now, "updated_at": now}).Error; err != nil {
 			return err
@@ -217,7 +217,7 @@ func (s *Server) autoCloseTickets() {
 	if days <= 0 {
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	s.st.DB.Model(&store.Ticket{}).Where("status = ? AND updated_at < ?", ticketAnswered, now.AddDate(0, 0, -days)).
 		Updates(map[string]any{"status": ticketClosed, "closed_at": now})
 }
@@ -332,7 +332,7 @@ func (s *Server) setTicketStatus(closeIt bool) gin.HandlerFunc {
 				return
 			}
 		} else {
-			if err := s.st.DB.Model(t).Updates(map[string]any{"status": ticketOpen, "closed_at": nil, "updated_at": time.Now()}).Error; err != nil {
+			if err := s.st.DB.Model(t).Updates(map[string]any{"status": ticketOpen, "closed_at": nil, "updated_at": time.Now().UTC()}).Error; err != nil {
 				dbError(c, err)
 				return
 			}

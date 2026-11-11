@@ -258,7 +258,7 @@ func (s *Server) certForPolicy(policy, domain string) (*store.Certificate, strin
 // certificate limit) and pushes them to every node that uses them.
 func (s *Server) renewCertificates() {
 	var cs []store.Certificate
-	s.st.DB.Where("auto_renew = ? AND expire_at < ?", true, time.Now().Add(30*24*time.Hour)).Find(&cs)
+	s.st.DB.Where("auto_renew = ? AND expire_at < ?", true, time.Now().UTC().Add(30*24*time.Hour)).Find(&cs)
 	for i := range cs {
 		if !renewDue(&cs[i], time.Now()) {
 			continue

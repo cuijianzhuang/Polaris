@@ -190,14 +190,14 @@ func (s *Server) unpaidCount(chat int64) int64 {
 		return 0
 	}
 	var n int64
-	s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", chat, "pending", time.Now()).Count(&n)
+	s.st.DB.Model(&store.Order{}).Where("telegram_id = ? AND status = ? AND expires_at > ?", chat, "pending", time.Now().UTC()).Count(&n)
 	return n
 }
 
 // unpaidView lists the chat's open orders with buttons to pay or cancel.
 func (b *tgBot) unpaidView(chat int64) (string, [][]button) {
 	var os []store.Order
-	b.s.st.DB.Where("telegram_id = ? AND status = ? AND expires_at > ?", chat, "pending", time.Now()).Order("created_at desc").Find(&os)
+	b.s.st.DB.Where("telegram_id = ? AND status = ? AND expires_at > ?", chat, "pending", time.Now().UTC()).Order("created_at desc").Find(&os)
 	var sb strings.Builder
 	sb.WriteString("⏳ <b>未付款订单</b>\n" + tgRule + "\n")
 	if len(os) == 0 {

@@ -33,7 +33,7 @@ func (s *Server) requestRefund(id, who string) error {
 	if o.StarsBotID != 0 && o.StarsBotID != botID {
 		return errors.New("请连接签发此订单的原机器人后重试")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	return s.st.DB.Transaction(func(tx *gorm.DB) error {
 		r := tx.Model(&store.Order{}).Where("id = ? AND status = ? AND pay_ref = ?", id, "paid", *o.PayRef).Update("status", "refund_pending")
 		if r.Error != nil {
@@ -51,7 +51,7 @@ func (s *Server) requestRefund(id, who string) error {
 }
 
 func (s *Server) processRefund(id string) {
-	now := time.Now()
+	now := time.Now().UTC()
 	token := store.NewID()
 	r := s.st.DB.Model(&store.RefundJob{}).Where("order_id = ? AND status <> ? AND next_at <= ? AND lease_until <= ?", id, "done", now, now).
 		Updates(map[string]any{"lease_token": token, "lease_until": now.Add(2 * time.Minute), "attempts": gorm.Expr("attempts + 1"), "updated_at": now})
@@ -119,7 +119,7 @@ func (s *Server) finishRefund(j store.RefundJob) {
 		// Both records commit together. Confirmed tasks can finish after restart
 		// without calling Telegram a second time.
 		r := tx.Model(&store.RefundJob{}).Where("order_id = ? AND lease_token = ? AND status = ?", j.OrderID, j.LeaseToken, "confirmed").
-			Updates(map[string]any{"status": "done", "last_error": "", "lease_until": time.Time{}, "lease_token": "", "updated_at": time.Now()})
+			Updates(map[string]any{"status": "done", "last_error": "", "lease_until": time.Time{}, "lease_token": "", "updated_at": time.Now().UTC()})
 		if r.Error != nil {
 			return r.Error
 		}
@@ -142,11 +142,11 @@ func (s *Server) finishRefund(j store.RefundJob) {
 }
 func (s *Server) deferRefund(j store.RefundJob, state, detail string) {
 	s.st.DB.Model(&store.RefundJob{}).Where("order_id = ? AND lease_token = ?", j.OrderID, j.LeaseToken).
-		Updates(map[string]any{"status": state, "last_error": detail, "next_at": time.Now().Add(time.Minute), "lease_until": time.Time{}, "lease_token": "", "updated_at": time.Now()})
+		Updates(map[string]any{"status": state, "last_error": detail, "next_at": time.Now().UTC().Add(time.Minute), "lease_until": time.Time{}, "lease_token": "", "updated_at": time.Now().UTC()})
 }
 func (s *Server) retryRefunds() {
 	var jobs []store.RefundJob
-	if e := s.st.DB.Where("status <> ? AND next_at <= ? AND lease_until <= ?", "done", time.Now(), time.Now()).Order("created_at").Limit(20).Find(&jobs).Error; e != nil {
+	if e := s.st.DB.Where("status <> ? AND next_at <= ? AND lease_until <= ?", "done", time.Now().UTC(), time.Now().UTC()).Order("created_at").Limit(20).Find(&jobs).Error; e != nil {
 		return
 	}
 	for _, j := range jobs {

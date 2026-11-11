@@ -47,7 +47,7 @@ func (s *Server) couponFor(code, kind, productID string, b shopBuyer) (*store.Co
 	if !couponCodeRe.MatchString(code) || s.st.DB.First(&c, "code = ?", code).Error != nil || !c.Enabled {
 		return nil, errors.New("优惠码无效")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	if c.StartsAt != nil && now.Before(*c.StartsAt) {
 		return nil, errors.New("优惠码还未到使用时间")
 	}
@@ -312,7 +312,7 @@ func (s *Server) createCoupons(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	base := store.Coupon{CreatedBy: c.GetString("admin"), CreatedAt: time.Now()}
+	base := store.Coupon{CreatedBy: c.GetString("admin"), CreatedAt: time.Now().UTC()}
 	if err := s.applyCouponReq(&r, &base); err != nil {
 		badRequest(c, err)
 		return

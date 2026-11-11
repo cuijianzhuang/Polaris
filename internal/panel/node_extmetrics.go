@@ -160,7 +160,7 @@ func (s *Server) postNodeMetrics(c *gin.Context) {
 // listNodeMetrics is GET /nodes/:id/metrics/external.
 func (s *Server) listNodeMetrics(c *gin.Context) {
 	var out []store.NodeExternalMetric
-	s.st.DB.Where("node_id = ? AND at > ?", c.Param("id"), time.Now().Add(-extMetricsKeep)).Order("source, name").Find(&out)
+	s.st.DB.Where("node_id = ? AND at > ?", c.Param("id"), time.Now().UTC().Add(-extMetricsKeep)).Order("source, name").Find(&out)
 	if out == nil {
 		out = []store.NodeExternalMetric{}
 	}

@@ -10,7 +10,7 @@ import { setPremiumThemes, useTheme } from './theme'
 import { usePlugins } from './plugins'
 import { useBrand } from './brand'
 import { useFeature } from './components/License'
-import { t } from './i18n'
+import { ensurePageDict, loadRestInBackground, onDictReady, t } from './i18n'
 import LangToggle from './components/LangToggle'
 import SidebarAccount from './components/SidebarAccount'
 import { ConfirmProvider, ToastProvider } from './components/ui'
@@ -22,8 +22,8 @@ import type { Node } from './types'
 import Login from './pages/Login'
 // Pages load on demand. After a panel upgrade the old chunk names are gone:
 // a failed load reloads the page once to pick up the new build.
-function page<T extends { default: ComponentType }>(load: () => Promise<T>) {
-  return lazy(() => load().then((m) => {
+function page<T extends { default: ComponentType }>(id: string, load: () => Promise<T>) {
+  return lazy(() => ensurePageDict(id).then(load).then((m) => {
     try { sessionStorage.removeItem('polaris-chunk-reload') } catch { /* storage may be blocked */ }
     return m
   }, (err) => {
@@ -34,32 +34,32 @@ function page<T extends { default: ComponentType }>(load: () => Promise<T>) {
   }))
 }
 
-const PluginPage = page(() => import('./pages/PluginPage'))
-const Dashboard = page(() => import('./pages/Dashboard'))
-const Stats = page(() => import('./pages/Stats'))
-const Nodes = page(() => import('./pages/Nodes'))
-const NodeMap = page(() => import('./pages/NodeMap'))
-const Probe = page(() => import('./pages/Probe'))
-const Cores = page(() => import('./pages/Cores'))
-const Forwards = page(() => import('./pages/Forwards'))
-const Inbounds = page(() => import('./pages/Inbounds'))
-const Chains = page(() => import('./pages/Chains'))
-const Templates = page(() => import('./pages/Templates'))
-const Users = page(() => import('./pages/Users'))
-const Shop = page(() => import('./pages/Shop'))
-const Tickets = page(() => import('./pages/Tickets'))
-const Plans = page(() => import('./pages/Plans'))
-const SubTemplates = page(() => import('./pages/SubTemplates'))
-const Certificates = page(() => import('./pages/Certificates'))
-const Websites = page(() => import('./pages/Websites'))
-const Settings = page(() => import('./pages/Settings'))
-const Audit = page(() => import('./pages/Audit'))
-const Convert = page(() => import('./pages/Convert'))
-const Domains = page(() => import('./pages/Domains'))
-const Telegram = page(() => import('./pages/Telegram'))
-const Costs = page(() => import('./pages/Costs'))
-const LicensePage = page(() => import('./pages/LicensePage'))
-const Extensions = page(() => import('./pages/Extensions'))
+const PluginPage = page('PluginPage', () => import('./pages/PluginPage'))
+const Dashboard = page('Dashboard', () => import('./pages/Dashboard'))
+const Stats = page('Stats', () => import('./pages/Stats'))
+const Nodes = page('Nodes', () => import('./pages/Nodes'))
+const NodeMap = page('NodeMap', () => import('./pages/NodeMap'))
+const Probe = page('Probe', () => import('./pages/Probe'))
+const Cores = page('Cores', () => import('./pages/Cores'))
+const Forwards = page('Forwards', () => import('./pages/Forwards'))
+const Inbounds = page('Inbounds', () => import('./pages/Inbounds'))
+const Chains = page('Chains', () => import('./pages/Chains'))
+const Templates = page('Templates', () => import('./pages/Templates'))
+const Users = page('Users', () => import('./pages/Users'))
+const Shop = page('Shop', () => import('./pages/Shop'))
+const Tickets = page('Tickets', () => import('./pages/Tickets'))
+const Plans = page('Plans', () => import('./pages/Plans'))
+const SubTemplates = page('SubTemplates', () => import('./pages/SubTemplates'))
+const Certificates = page('Certificates', () => import('./pages/Certificates'))
+const Websites = page('Websites', () => import('./pages/Websites'))
+const Settings = page('Settings', () => import('./pages/Settings'))
+const Audit = page('Audit', () => import('./pages/Audit'))
+const Convert = page('Convert', () => import('./pages/Convert'))
+const Domains = page('Domains', () => import('./pages/Domains'))
+const Telegram = page('Telegram', () => import('./pages/Telegram'))
+const Costs = page('Costs', () => import('./pages/Costs'))
+const LicensePage = page('LicensePage', () => import('./pages/LicensePage'))
+const Extensions = page('Extensions', () => import('./pages/Extensions'))
 
 // Scope of the session: Telegram node operators see only their own nodes.
 const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
@@ -316,6 +316,15 @@ function Layout({ user, avatarURL, onLogout, children }: { user: string; avatarU
 }
 
 function Session() {
+  // The English dictionary loads in two phases: the shell dictionaries
+  // before first paint, the rest in the background (see i18n.ts). When
+  // the rest arrives, re-render once so any label that briefly fell back
+  // to Chinese shows its English translation.
+  const [, setDictTick] = useState(0)
+  useEffect(() => {
+    loadRestInBackground()
+    return onDictReady(() => setDictTick((x) => x + 1))
+  }, [])
   const [user, setUser] = useState<string | null>(() => {
     const r = takeOAuthResult() // GitHub sign-in lands here with a session token
     if (r.token) { setToken(r.token); return r.user ?? '…' }

@@ -150,7 +150,7 @@ func TestPortalSessionFailureAndLegacyCookies(t *testing.T) {
 	if _, ok := files["portal_sessions"]; ok {
 		t.Fatal("portal sessions were exported")
 	}
-	s.st.DB.Model(&store.PortalSession{}).Where("id = ?", originalSID).Update("expires_at", time.Now().Add(-time.Hour))
+	s.st.DB.Model(&store.PortalSession{}).Where("id = ?", originalSID).Update("expires_at", time.Now().UTC().Add(-time.Hour))
 	if code, _ := client.req("GET", "/u/sessions", nil, false); code != 401 {
 		t.Fatal("expired session record remained valid")
 	}

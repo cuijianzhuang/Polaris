@@ -102,7 +102,6 @@ const m: Record<string, string> = {
   '删除模板「{name}」？已生成的入站会保留。': 'Delete template "{name}"? Generated inbounds are kept.',
   '到期：{v}': 'Expires: {v}',
   '加密方式': 'Cipher',
-  '加载中…': 'Loading…',
   '协议': 'Protocol',
   '协议与传输': 'Protocol and transport',
   '原样合并进内核配置的 JSON': 'JSON merged into the core config as-is',

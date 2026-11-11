@@ -214,7 +214,7 @@ func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
 	}
 	tok := pki.Token(24)
 	if err := st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
-		"token_hash": hashToken(tok), "token_expires": time.Now().Add(time.Hour)}).Error; err != nil {
+		"token_hash": hashToken(tok), "token_expires": time.Now().UTC().Add(time.Hour)}).Error; err != nil {
 		return "", false, err
 	}
 	st.DB.Create(&store.AuditLog{Admin: "cli", Action: "node.install_token", Target: n.Name})

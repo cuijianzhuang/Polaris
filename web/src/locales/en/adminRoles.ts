@@ -1,7 +1,4 @@
 const adminRoles: Record<string, string> = {
-  "仅可操作分配给你的节点": "Access is limited to assigned nodes",
-  "我的账号": "My account",
-  "无法读取账号权限": "Unable to load account permissions",
   "节点运维": "Node operator",
   "只读运维": "Read-only operations",
   "客服": "Support",

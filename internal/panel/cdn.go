@@ -644,7 +644,7 @@ func (s *Server) deleteCDN(c *gin.Context) {
 		if len(gone) == 0 {
 			return nil
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now(), reportIPs(gone))
+		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), reportIPs(gone))
 		return err
 	})
 	if err != nil {
@@ -952,7 +952,7 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile, a
 			return nil
 		}
 		ips = withPinned(ips, current.PinnedHosts.V)
-		return tx.Model(&current).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": time.Now(), "last_error": ""}).Error
+		return tx.Model(&current).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": time.Now().UTC(), "last_error": ""}).Error
 	}); err != nil {
 		return nil, err
 	}
@@ -964,7 +964,7 @@ func cdnAutoSourceNeeded(db *gorm.DB, before, current *store.CDNProfile) bool {
 	if current.IPSourceURL != before.IPSourceURL || current.Provider != before.Provider || cdnScheme(current) != cdnScheme(before) || cdnDefaultPort(current) != cdnDefaultPort(before) {
 		return false
 	}
-	if len(sharedCDNReports(db, current, time.Now().Add(-cdnStaleAfter(current)), "")) > 0 {
+	if len(sharedCDNReports(db, current, time.Now().UTC().Add(-cdnStaleAfter(current)), "")) > 0 {
 		return false
 	}
 	return current.StalePolicy != "keep" || len(sharedCDNReports(db, current, time.Time{}, "")) == 0

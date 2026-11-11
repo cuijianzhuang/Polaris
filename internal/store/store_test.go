@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/secret"
@@ -80,5 +81,39 @@ func TestOpenAndJSON(t *testing.T) {
 	dup := Inbound{ID: NewID(), NodeID: "n", Tag: "a", Port: 444}
 	if err := s.DB.Create(&dup).Error; !IsDuplicate(err) {
 		t.Fatalf("want duplicate error, got %v", err)
+	}
+}
+
+// TestOpenStoresUTCTimestamps proves the NowFunc fix: GORM's automatic
+// CreatedAt/UpdatedAt must be stored as UTC, even when the process runs in
+// a non-UTC zone. Before the fix they were local-time strings, which SQLite
+// compares lexicographically against UTC values and gets wrong by the UTC
+// offset.
+func TestOpenStoresUTCTimestamps(t *testing.T) {
+	t.Setenv("TZ", "Asia/Shanghai")
+	box, _ := secret.New("k")
+	s, err := Open(filepath.Join(t.TempDir(), "tz.db"), box, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	u := User{ID: NewID(), Username: "tzuser", UUID: NewID(), SubToken: NewID(), Status: "active"}
+	if err := s.DB.Create(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := s.DB.Raw("SELECT created_at FROM users WHERE id = ?", u.ID).Scan(&raw).Error; err != nil {
+		t.Fatal(err)
+	}
+	// modernc sqlite stores time.Time as RFC3339, e.g.
+	// "2026-11-11T17:19:59.729793698Z" for UTC or
+	// "2026-11-12T01:19:49.632899293+08:00" for Shanghai time. Parse it and
+	// require a zero UTC offset.
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		t.Fatalf("created_at %q does not parse as RFC3339: %v", raw, err)
+	}
+	if _, offset := parsed.Zone(); offset != 0 {
+		t.Fatalf("created_at stored as %q, want a UTC timestamp", raw)
 	}
 }

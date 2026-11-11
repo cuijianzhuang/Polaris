@@ -310,7 +310,7 @@ func (s *Server) inboundUsers(inboundIDs []string, packIDs ...string) (map[strin
 		store.User
 	}
 	var rows []row
-	now := time.Now()
+	now := time.Now().UTC()
 	err := s.st.DB.Table("users").
 		Select("DISTINCT grants.inbound_id AS inbound_id, users.*").
 		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.user_id = users.id").

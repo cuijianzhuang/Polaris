@@ -152,7 +152,7 @@ func (s *Server) retryUserNotices() {
 	}
 	defer s.userNoticeBusy.Store(false)
 	var jobs []store.UserNotice
-	now := time.Now()
+	now := time.Now().UTC()
 	if err := s.st.DB.Where("status = ? AND next_at <= ? AND lease_until <= ?", "pending", now, now).Order("next_at").Limit(50).Find(&jobs).Error; err != nil {
 		return
 	}
@@ -173,7 +173,7 @@ func (s *Server) retryUserNotices() {
 }
 
 func (s *Server) deliverUserNotice(id string) {
-	now, token := time.Now(), store.NewID()
+	now, token := time.Now().UTC(), store.NewID()
 	r := s.st.DB.Model(&store.UserNotice{}).Where("id = ? AND status = ? AND next_at <= ? AND lease_until <= ?", id, "pending", now, now).
 		Updates(map[string]any{"lease_token": token, "lease_until": now.Add(time.Minute), "attempts": gorm.Expr("attempts + 1"), "updated_at": now})
 	if r.Error != nil || r.RowsAffected != 1 {
@@ -186,7 +186,7 @@ func (s *Server) deliverUserNotice(id string) {
 	finish := func(status, detail string) {
 		delay := time.Duration(1<<min(j.Attempts, 8)) * time.Minute
 		s.st.DB.Model(&store.UserNotice{}).Where("id = ? AND lease_token = ?", id, token).
-			Updates(map[string]any{"status": status, "last_error": detail, "next_at": now.Add(delay), "lease_token": "", "lease_until": time.Time{}, "updated_at": time.Now()})
+			Updates(map[string]any{"status": status, "last_error": detail, "next_at": now.Add(delay), "lease_token": "", "lease_until": time.Time{}, "updated_at": time.Now().UTC()})
 	}
 	var recipientErr, textErr error
 	j.Recipient, recipientErr = s.st.Box.Open(j.Recipient)

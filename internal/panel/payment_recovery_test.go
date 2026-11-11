@@ -17,13 +17,13 @@ func recoveryOrder(t *testing.T, s *Server, id, user, method string) *store.Orde
 		t.Fatal(e)
 	}
 	if user != "" {
-		exp := time.Now().Add(24 * time.Hour)
+		exp := time.Now().UTC().Add(24 * time.Hour)
 		u := store.User{ID: user, Username: user, UUID: user, SubToken: user, Status: "active", PlanID: p.ID, ExpireAt: &exp, TrafficLimit: 100 << 30, TelegramID: 700}
 		if e := s.st.DB.Where("id = ?", user).FirstOrCreate(&u).Error; e != nil {
 			t.Fatal(e)
 		}
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	o := &store.Order{ID: id, UserID: user, TelegramID: 700, PlanID: p.ID, PlanName: p.Name, Method: method, Amount: "15.00", Currency: "CNY", Status: "pending", CreatedAt: now, ExpiresAt: now.Add(time.Hour), Entitlements: freezePlan(&p)}
 	if method == payStars {
 		o.Amount, o.Currency, o.StarsBotID = "10", "XTR", 1
@@ -66,7 +66,7 @@ func TestPaymentReceiptSurvivesDeliveryFailure(t *testing.T) {
 		t.Fatalf("receipt/order: %+v %+v", p, current)
 	}
 	s.st.DB.Callback().Update().Remove("test:delivery-write")
-	s.st.DB.Model(&p).Update("next_at", time.Now().Add(-time.Second))
+	s.st.DB.Model(&p).Update("next_at", time.Now().UTC().Add(-time.Second))
 	s.retryPayments()
 	s.st.DB.First(&p, "ref = ?", p.Ref)
 	s.st.DB.First(&current, "id = ?", o.ID)
@@ -243,7 +243,7 @@ func TestPaymentPendingExtraReceiptRequiresReview(t *testing.T) {
 	s := newTestServer(t)
 	o := recoveryOrder(t, s, "concurrent-receipts", "u", payEPay)
 	// Both callbacks can persist before either worker has delivered the order.
-	now := time.Now()
+	now := time.Now().UTC()
 	for _, ref := range []string{"epay:first", "epay:second"} {
 		if e := s.st.DB.Create(&store.PaymentReceipt{Ref: ref, OrderID: o.ID, Method: payEPay, Amount: o.Amount, Currency: o.Currency, Status: "pending", NextAt: now, CreatedAt: now}).Error; e != nil {
 			t.Fatal(e)
@@ -260,7 +260,7 @@ func TestPaymentPendingExtraReceiptRequiresReview(t *testing.T) {
 
 func TestPaymentReceiptPreventsOrderCleanup(t *testing.T) {
 	s, _, admin := newAdminClient(t)
-	old := time.Now().Add(-48 * time.Hour)
+	old := time.Now().UTC().Add(-48 * time.Hour)
 	o := store.Order{ID: "receipt-protected", Method: payEPay, Status: "expired", ExpiresAt: old, CreatedAt: old}
 	if e := s.st.DB.Create(&o).Error; e != nil {
 		t.Fatal(e)

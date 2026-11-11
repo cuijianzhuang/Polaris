@@ -97,7 +97,7 @@ func (s *Server) recordIPFailure(ip, reason string) {
 	if ip == "" || s.ipAllowlisted(ip) {
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	var b store.LoginBan
 	if s.st.DB.First(&b, "ip = ?", ip).Error != nil {
 		b = store.LoginBan{IP: ip}
@@ -151,7 +151,7 @@ func (s *Server) loginGuard(c *gin.Context) {
 
 // newSession records a signed-in browser and returns its id.
 func (s *Server) newSession(c *gin.Context, adminID, username, via string, ttl time.Duration) string {
-	now := time.Now()
+	now := time.Now().UTC()
 	ip := clientIP(c.Request)
 	sess := store.AdminSession{ID: store.NewID(), AdminID: adminID, Username: username, Via: via, IP: ip,
 		UserAgent: truncate(c.Request.UserAgent(), 250), CreatedAt: now, LastSeen: now, ExpiresAt: now.Add(ttl)}
@@ -178,7 +178,7 @@ func (s *Server) sessionAlive(sid string) (*store.AdminSession, bool) {
 		return nil, false
 	}
 	if time.Since(sess.LastSeen) > time.Minute {
-		s.st.DB.Model(&store.AdminSession{}).Where("id = ?", sid).Update("last_seen", time.Now())
+		s.st.DB.Model(&store.AdminSession{}).Where("id = ?", sid).Update("last_seen", time.Now().UTC())
 	}
 	return &sess, true
 }
@@ -208,7 +208,7 @@ type sessionView struct {
 
 // listSessions: GET /auth/sessions — active sessions.
 func (s *Server) listSessions(c *gin.Context) {
-	q := s.st.DB.Where("revoked = ? AND expires_at > ?", false, time.Now()).Order("last_seen DESC")
+	q := s.st.DB.Where("revoked = ? AND expires_at > ?", false, time.Now().UTC()).Order("last_seen DESC")
 	if !seesAllSessions(c) {
 		q = q.Where("admin_id = ?", sessionOwner(c))
 	}
@@ -323,7 +323,7 @@ func (s *Server) sudo(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": msg})
 		return
 	}
-	until := time.Now().Add(sudoTTL)
+	until := time.Now().UTC().Add(sudoTTL)
 	s.st.DB.Model(&store.AdminSession{}).Where("id = ?", c.GetString("sid")).Update("sudo_until", until)
 	c.JSON(http.StatusOK, gin.H{"until": until})
 }
@@ -400,7 +400,7 @@ func (s *Server) regenRecoveryCodes(c *gin.Context) {
 // securityInfo: GET /security — bans, allowlist and proxy trust.
 func (s *Server) securityInfo(c *gin.Context) {
 	var bans []store.LoginBan
-	s.st.DB.Where("until > ? OR (failures > 0 AND updated_at > ?)", time.Now(), time.Now().Add(-ipFailWindow)).
+	s.st.DB.Where("until > ? OR (failures > 0 AND updated_at > ?)", time.Now().UTC(), time.Now().UTC().Add(-ipFailWindow)).
 		Order("updated_at DESC").Limit(200).Find(&bans)
 	proxies := []string{}
 	for _, n := range trustedProxies {

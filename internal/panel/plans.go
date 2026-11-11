@@ -413,7 +413,7 @@ func (s *Server) planAction(actor, userID, planID string, renew bool) (string, e
 	before := s.nodesForUsers(userID)
 	var u store.User
 	var detail string
-	now := time.Now()
+	now := time.Now().UTC()
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.First(&u, "id = ? AND is_service = ?", userID, false).Error; err != nil {
 			return err

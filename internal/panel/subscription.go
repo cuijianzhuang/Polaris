@@ -133,10 +133,16 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 	var chains []store.Chain
 	s.st.DB.Find(&chains)
 	nodeIDs := make([]string, 0, len(ins))
+	seenNodeIDs := map[string]bool{}
 	for _, in := range ins {
+		if seenNodeIDs[in.NodeID] {
+			continue
+		}
+		seenNodeIDs[in.NodeID] = true
 		nodeIDs = append(nodeIDs, in.NodeID)
 	}
-	masters := s.fallbackMasters(nodeIDs)
+	masters, allInbounds := s.fallbackMastersFor(nodeIDs)
+	pre := s.buildSubPrefetch(ins, allInbounds)
 	var xrayCores []store.Core
 	s.st.DB.Where("node_id IN ? AND type = ?", nodeIDs, model.CoreXray).Find(&xrayCores)
 	xrayVer := map[string]string{}
@@ -182,8 +188,7 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 			}
 			vars["rate"] = rateLabel(rate)
 		}
-		var eps []store.Endpoint
-		s.st.DB.Where("inbound_id = ?", in.ID).Order("sort_order, created_at").Find(&eps)
+		eps := pre.endpoints[in.ID]
 		// Old protocol chains reused a listener without creating an endpoint.
 		// Publish the explicit chain entry (or an in-memory equivalent for old
 		// records), never a misleading direct/CDN alias of the same path.
@@ -221,7 +226,7 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 			if in.RelayOnly && ep.Kind != "relay" {
 				continue
 			}
-			expanded := s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, carrier, audience)
+			expanded := s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, &in, pre, carrier, audience)
 			for i := range expanded {
 				expanded[i].PanelEndpointID, expanded[i].PanelChainID, expanded[i].PanelKind = ep.ID, ep.RelayChainID, ep.Kind
 			}
@@ -285,7 +290,7 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 }
 
 func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[string]string, nameTpl string,
-	nodes map[string]*store.Node, chains []store.Chain, m *model.Inbound, carrier string, audience ...cdnAudience) []sub.Node {
+	nodes map[string]*store.Node, chains []store.Chain, m *model.Inbound, src *store.Inbound, pre *subPrefetch, carrier string, audience ...cdnAudience) []sub.Node {
 	name := func(kind string) string {
 		v := map[string]string{}
 		for k, x := range vars {
@@ -325,7 +330,13 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 	switch ep.Kind {
 	case "cdn":
 		var p store.CDNProfile
-		if err := s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error; err != nil || !m.CDNCapable() {
+		if pre != nil {
+			var ok bool
+			p, ok = pre.profiles[ep.CDNProfileID]
+			if !ok || !m.CDNCapable() {
+				return nil
+			}
+		} else if err := s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error; err != nil || !m.CDNCapable() {
 			return nil
 		}
 		if cdnTunnel(&p) && cdnTunnelProblem(m, &p, ep.Port) != "" {
@@ -336,7 +347,12 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		host := orDefault(ep.Host, p.OriginDomain)
 		n := base
 		n.Server = host
-		_, fronted := s.frontFor(m.ID)
+		var fronted bool
+		if pre != nil {
+			_, fronted = pre.frontByID(m.ID)
+		} else {
+			_, fronted = s.frontFor(m.ID)
+		}
 		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
 		if p.Provider == "cloudflare" && !cdnTunnel(&p) && ep.Port == 0 && !(fronted && p.CaddyFronting) && m.Port != cdnOriginPort(&p, n.Port) {
 			return nil
@@ -358,11 +374,18 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		excluded := false
 		if len(p.AddressChecks.V) > 0 || len(p.AddressFailures.V) > 0 || (len(audience) > 0 && len(audience[0].Pools[p.ID].EndpointChecks) > 0) {
 			var row store.Inbound
-			if err := s.st.DB.First(&row, "id = ?", m.ID).Error; err != nil {
+			if src != nil {
+				row = *src
+			} else if err := s.st.DB.First(&row, "id = ?", m.ID).Error; err != nil {
 				return nil
 			}
 			revision := cdnHealthRevision(row, &p)
-			target := s.cdnTargetFor(&ep, m, &p)
+			var target cdnTarget
+			if pre != nil {
+				target = pre.cdnTarget(&ep, m, &p)
+			} else {
+				target = s.cdnTargetFor(&ep, m, &p)
+			}
 			keep = func(address string) bool {
 				target.Server = address
 				if cdnAddressFailureAt(&p, ep.ID, target, m.Transport.Type, revision) != nil || (len(audience) > 0 && personalCDNFailure(audience[0].Pools[p.ID], ep.ID, target, m.Transport.Type, revision) != nil) {
@@ -381,7 +404,12 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			n.Name = name("CDN")
 			return []sub.Node{n}
 		}
-		ips := s.selectedCDNIPsWhere(&p, n.Port, carrier, keep, audience...)
+		var ips []string
+		if pre != nil {
+			ips = pre.selectedCDNIPs(&p, n.Port, carrier, keep, audience...)
+		} else {
+			ips = s.selectedCDNIPsWhere(&p, n.Port, carrier, keep, audience...)
+		}
 		if len(ips) == 0 {
 			if excluded {
 				return nil
@@ -418,7 +446,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 				// Preserve the entry's TLS/Caddy handling and user credentials.
 				direct := ep
 				direct.Kind = "direct"
-				return s.expandEndpoint(base, direct, v, nameTpl, nodes, nil, m, carrier, audience...)
+				return s.expandEndpoint(base, direct, v, nameTpl, nodes, nil, m, src, pre, carrier, audience...)
 			}
 			if ch.Mode != "l4" || ch.Hops.V[len(ch.Hops.V)-1].InboundID != m.ID || ch.Hops.V[len(ch.Hops.V)-1].NodeID != m.NodeID {
 				continue
@@ -451,7 +479,14 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		return nil
 	default:
 		n := base
-		if fi, ok := s.frontFor(m.ID); ok {
+		var fi frontInfo
+		var ok bool
+		if pre != nil {
+			fi, ok = pre.frontByID(m.ID)
+		} else {
+			fi, ok = s.frontFor(m.ID)
+		}
+		if ok {
 			// Fronted inbounds are only reachable through Caddy's public port.
 			n.Port = fi.Port
 			n.TLS.ServerName = fi.Domain

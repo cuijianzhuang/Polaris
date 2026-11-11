@@ -138,7 +138,7 @@ func userFilter(q *gorm.DB, filter string, now time.Time, warn time.Duration) *g
 // ?tg=yes|no and ?sort=…&order=asc|desc; it also returns per-status counts.
 func (s *Server) listUsers(c *gin.Context) {
 	base := s.st.DB.Model(&store.User{}).Where("is_service = ?", false)
-	now := time.Now()
+	now := time.Now().UTC()
 	warn := time.Duration(max(atoiDefault(s.st.GetSetting("expire_warn_days", "7"), 7), 1)) * 24 * time.Hour
 	summary := map[string]int64{}
 	for _, f := range []string{"active", "online", "expiring", "near", "limited", "expired", "disabled"} {
@@ -437,7 +437,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			}
 		case "reset-traffic":
 			affected = req.IDs
-			if err := tx.Model(&store.User{}).Where("id IN ?", req.IDs).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
+			if err := tx.Model(&store.User{}).Where("id IN ?", req.IDs).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now().UTC()}).Error; err != nil {
 				return err
 			}
 			if err := tx.Model(&store.UserNodeQuota{}).Where("user_id IN ?", req.IDs).Update("used", 0).Error; err != nil {
@@ -449,7 +449,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			tx.Where("id IN ?", req.IDs).Find(&us)
 			for _, u := range us {
 				if req.Days != 0 && u.ExpireAt != nil { // unlimited stays unlimited
-					base := time.Now()
+					base := time.Now().UTC()
 					if u.ExpireAt.After(base) {
 						base = *u.ExpireAt
 					}
@@ -506,7 +506,7 @@ func (s *Server) bulkUsers(c *gin.Context) {
 			}
 			var us []store.User
 			tx.Where("id IN ? AND is_service = ?", req.IDs, false).Find(&us)
-			now := time.Now()
+			now := time.Now().UTC()
 			for i := range us {
 				if _, err := applyPlan(tx, &us[i], p, req.Mode != "switch", now); err != nil {
 					return err
@@ -703,7 +703,7 @@ func (s *Server) resetUserTraffic(c *gin.Context) {
 		return
 	}
 	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now()}).Error; err != nil {
+		if err := tx.Model(&u).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": time.Now().UTC()}).Error; err != nil {
 			return err
 		}
 		if err := tx.Model(&store.UserNodeQuota{}).Where("user_id = ?", u.ID).Update("used", 0).Error; err != nil {

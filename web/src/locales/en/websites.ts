@@ -22,7 +22,6 @@ export default {
   '打包要求': 'Bundle requirements',
   '最多 2048 个文件；请打包网站目录内的文件。不支持隐藏文件、符号链接或服务端脚本执行。': 'Up to 2,048 files. ZIP the contents of the site folder. Hidden files, symlinks and server-side script execution are not supported.',
 
-  '网站与 443 入口': 'Websites & HTTPS entry',
   '网站': 'Website',
   '管理后台': 'Admin panel',
   '关闭编辑？未保存的网站配置将丢失。': 'Close the editor? Unsaved website changes will be lost.',

@@ -46,7 +46,7 @@ func (s *Server) cdnAddressesForPort(p *store.CDNProfile, port int) []string {
 	list := p.PreferredIPs.V
 	reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), "")
 	if len(reports) > 0 {
-		list = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
+		list = cdnMergedReportIPs(p, reports)
 	}
 	return list
 }
@@ -57,7 +57,7 @@ func cdnSelectionCutoff(p *store.CDNProfile) time.Time {
 	if p.StalePolicy == "keep" {
 		return time.Time{}
 	}
-	return time.Now().Add(-cdnStaleAfter(p))
+	return time.Now().UTC().Add(-cdnStaleAfter(p))
 }
 
 func (s *Server) cdnIPsForPort(p *store.CDNProfile, port int) []string {
@@ -136,7 +136,7 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 	reports, _ := s.cdnAudienceReports(p, port, carrier, audienceRegion(audience))
 	ips := s.cdnAddressesForPort(p, port)
 	if len(reports) > 0 {
-		ips = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
+		ips = cdnMergedReportIPs(p, reports)
 	}
 	ips = usableCDNIPsAt(p, filter(ips), port)
 	if p.IPTopN > 0 {

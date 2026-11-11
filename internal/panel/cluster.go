@@ -180,7 +180,7 @@ func (c *clusterHub) online(nodeID string) bool {
 	defer c.mu.Unlock()
 	if time.Since(c.seenAt) > 2*time.Second {
 		var rows []store.AgentPresence
-		c.s.st.DB.Where("instance_id <> ? AND seen_at > ?", c.s.procID, time.Now().Add(-presenceTTL)).Find(&rows)
+		c.s.st.DB.Where("instance_id <> ? AND seen_at > ?", c.s.procID, time.Now().UTC().Add(-presenceTTL)).Find(&rows)
 		c.present = map[string]bool{}
 		for _, r := range rows {
 			c.present[r.NodeID] = true
@@ -234,7 +234,7 @@ func (s *Server) presenceUp(nodeID string) {
 	if s.hub.remote == nil {
 		return
 	}
-	s.warnWrite("agent presence", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now()}).Error)
+	s.warnWrite("agent presence", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now().UTC()}).Error)
 }
 
 // presenceTouch refreshes the row on heartbeats, at most every presenceTouch.
@@ -249,7 +249,7 @@ func (s *Server) presenceTouch(nodeID string) {
 	}
 	s.presMu.Unlock()
 	if due {
-		s.warnWrite("agent presence", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now()}).Error)
+		s.warnWrite("agent presence", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.AgentPresence{NodeID: nodeID, InstanceID: s.procID, SeenAt: time.Now().UTC()}).Error)
 	}
 }
 

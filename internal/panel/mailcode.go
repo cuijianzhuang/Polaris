@@ -407,7 +407,7 @@ func (s *Server) registerByMail(addr, ip string) (*store.User, error) {
 		return nil, errUserCap
 	}
 	trialID := strings.TrimSpace(s.st.GetSetting("register_trial_plan", ""))
-	now := time.Now()
+	now := time.Now().UTC()
 	var u store.User
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAccountBindings(tx); err != nil {

@@ -364,7 +364,7 @@ func (s *Server) handshake(ctx context.Context, p *store.Plugin, installKey stri
 		p.LastError = truncate(fmt.Sprintf("安装请求返回 HTTP %d：%s", resp.StatusCode, strings.TrimSpace(string(msg))), 500)
 		return "manual", p.LastError
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	p.Status, p.LastError, p.LastSeenAt = "online", "", &now
 	return "ok", ""
 }
@@ -670,7 +670,7 @@ func (s *Server) checkPlugins() {
 			defer cancel()
 			code, _, err := s.callPlugin(ctx, p, http.MethodGet, "/polaris/health", nil)
 			ok := err == nil && code >= 200 && code < 300
-			now := time.Now()
+			now := time.Now().UTC()
 			upd := map[string]any{}
 			switch {
 			case ok:

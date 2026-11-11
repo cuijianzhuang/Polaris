@@ -136,7 +136,7 @@ func TestCDNPortMeasurementsAndChecks(t *testing.T) {
 		t.Fatalf("port checks mixed: %+v", p.PortChecks.V)
 	}
 	m := model.Inbound{ID: "i1", NodeID: "n1", Port: 8443, Transport: model.TransportSpec{Type: model.TransWS}, Security: model.SecuritySpec{Type: model.SecTLS}}
-	nodes := s.expandEndpoint(sub.Node{}, store.Endpoint{Kind: "cdn", CDNProfileID: p.ID}, map[string]string{}, "{kind}", nil, nil, &m, "")
+	nodes := s.expandEndpoint(sub.Node{}, store.Endpoint{Kind: "cdn", CDNProfileID: p.ID}, map[string]string{}, "{kind}", nil, nil, &m, nil, nil, "")
 	if len(nodes) != 1 || nodes[0].Server != "104.16.2.2" || nodes[0].Port != 8443 {
 		t.Fatalf("8443 subscription did not use matching checks: %+v", nodes)
 	}
