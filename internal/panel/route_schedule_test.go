@@ -91,7 +91,7 @@ func TestRouteScheduleAPI(t *testing.T) {
 		t.Fatal(st, out)
 	}
 	state := enableRouteSchedule(t, s, c)
-	if state.NextAt.Before(time.Now().Add(4 * time.Minute)) {
+	if state.NextAt.Before(time.Now().UTC().Add(4 * time.Minute)) {
 		t.Fatal("schedule ran immediately", state)
 	}
 	next := enableRouteSchedule(t, s, c)
@@ -120,7 +120,7 @@ func TestRouteScheduleRunsOnceAndPauses(t *testing.T) {
 	var calls atomic.Int32
 	defer fakeScheduledTracer(t, s, &calls)()
 	// Use real server time for trace timestamps; change only the cursor.
-	due := time.Now().Add(-time.Second)
+	due := time.Now().UTC().Add(-time.Second)
 	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", due)
 	now := time.Now().UTC()
 	s.runDueRouteTraces(t.Context(), now)
@@ -139,12 +139,12 @@ func TestRouteScheduleRunsOnceAndPauses(t *testing.T) {
 	}
 	s.st.DB.Model(&state).Update("next_at", due)
 	s.st.SetSetting("probe_enabled", "false")
-	s.runDueRouteTraces(t.Context(), time.Now())
+	s.runDueRouteTraces(t.Context(), time.Now().UTC())
 	if calls.Load() != 1 {
 		t.Fatal("global pause ignored")
 	}
 	s.st.SetSetting("probe_enabled", "true")
-	s.runDueRouteTraces(t.Context(), time.Now())
+	s.runDueRouteTraces(t.Context(), time.Now().UTC())
 	if calls.Load() != 2 {
 		t.Fatal("global resume failed")
 	}
@@ -198,7 +198,7 @@ func TestRouteScheduleClaimAcrossInstances(t *testing.T) {
 	// claims themselves must still be serialized through shared database state.
 	conn := other.hub.register("trace")
 	defer other.hub.unregister(conn)
-	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", time.Now().Add(-time.Second))
+	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", time.Now().UTC().Add(-time.Second))
 	var wg sync.WaitGroup
 	claimed := make(chan []store.NodeRouteTrace, 2)
 	now := time.Now().UTC()
@@ -265,8 +265,8 @@ func TestRouteScheduleChangedPolicySuppressesInFlightNotice(t *testing.T) {
 	enableRouteSchedule(t, s, c)
 	var calls atomic.Int32
 	defer fakeScheduledTracer(t, s, &calls)()
-	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", time.Now().Add(-time.Second))
-	_, rows, err := s.claimScheduledRoute("trace", time.Now())
+	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", time.Now().UTC().Add(-time.Second))
+	_, rows, err := s.claimScheduledRoute("trace", time.Now().UTC())
 	if err != nil || len(rows) != 1 {
 		t.Fatal(rows, err)
 	}
@@ -288,7 +288,7 @@ func TestRouteScheduleWorkerCancellation(t *testing.T) {
 	enableRouteSchedule(t, s, c)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	s.runDueRouteTraces(ctx, time.Now().Add(time.Hour))
+	s.runDueRouteTraces(ctx, time.Now().UTC().Add(time.Hour))
 	var count int64
 	s.st.DB.Model(&store.NodeRouteTrace{}).Count(&count)
 	if count != 0 {
@@ -301,11 +301,11 @@ func TestRouteScheduleBudgetAndBusyManualProbe(t *testing.T) {
 	enableRouteSchedule(t, s, c)
 	var calls atomic.Int32
 	defer fakeScheduledTracer(t, s, &calls)()
-	due := time.Now().Add(-time.Second)
+	due := time.Now().UTC().Add(-time.Second)
 	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", due)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	s.runDueRouteTraces(ctx, time.Now())
+	s.runDueRouteTraces(ctx, time.Now().UTC())
 	if calls.Load() != 0 {
 		t.Fatal("short job budget dispatched a truncated probe")
 	}
@@ -313,7 +313,7 @@ func TestRouteScheduleBudgetAndBusyManualProbe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, rows, err := s.claimScheduledRoute("trace", time.Now())
+	_, rows, err := s.claimScheduledRoute("trace", time.Now().UTC())
 	if err != nil || len(rows) != 0 {
 		t.Fatal(rows, err)
 	}
@@ -330,7 +330,7 @@ func TestRouteScheduleClaimRollback(t *testing.T) {
 	enableRouteSchedule(t, s, c)
 	var calls atomic.Int32
 	defer fakeScheduledTracer(t, s, &calls)()
-	due := time.Now().Add(-time.Second).UTC()
+	due := time.Now().UTC().Add(-time.Second)
 	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", due)
 	hook := "test:scheduled-attempt-create-failure"
 	s.st.DB.Callback().Create().Before("gorm:create").Register(hook, func(tx *gorm.DB) {
@@ -338,7 +338,7 @@ func TestRouteScheduleClaimRollback(t *testing.T) {
 			tx.AddError(fmt.Errorf("injected creation failure"))
 		}
 	})
-	_, _, err := s.claimScheduledRoute("trace", time.Now())
+	_, _, err := s.claimScheduledRoute("trace", time.Now().UTC())
 	s.st.DB.Callback().Create().Remove(hook)
 	if err == nil {
 		t.Fatal("creation failure ignored")
@@ -457,8 +457,8 @@ func TestRouteScheduleGlobalPauseSuppressesInFlightNotice(t *testing.T) {
 	enableRouteSchedule(t, s, c)
 	var calls atomic.Int32
 	defer fakeScheduledTracer(t, s, &calls)()
-	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", time.Now().Add(-time.Second))
-	_, rows, err := s.claimScheduledRoute("trace", time.Now())
+	s.st.DB.Model(&store.NodeRouteScheduleState{}).Where("node_id = ?", "trace").Update("next_at", time.Now().UTC().Add(-time.Second))
+	_, rows, err := s.claimScheduledRoute("trace", time.Now().UTC())
 	if err != nil || len(rows) != 1 {
 		t.Fatal(rows, err)
 	}

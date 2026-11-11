@@ -109,36 +109,66 @@ func TestCDNAddressToolsPreviewAndCheck(t *testing.T) {
 	}
 }
 func TestCDNStructuredPhases(t *testing.T) {
-	stage := func(r cdnCheck, kind string) cdnStage {
+	// The probe must not depend on real DNS: this sandbox's resolver answers
+	// *.invalid with a wildcard address instead of NXDOMAIN, so a lookup of
+	// missing-cdn-address.invalid would otherwise reach a transparent proxy
+	// and fail at TLS instead of DNS. The fake resolver fails .invalid
+	// deterministically and answers everything else locally.
+	fakeLookup := func(ctx context.Context, host string) ([]string, error) {
+		if strings.HasSuffix(host, ".invalid") {
+			return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+		}
+		return []string{"127.0.0.1"}, nil
+	}
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	probe := func(ctx context.Context, target cdnTarget) cdnCheck {
+		return probeCDNWithNetwork(ctx, target, model.TransWS, "", dialer, fakeLookup, true)
+	}
+	stage := func(t *testing.T, r cdnCheck, kind string) (cdnStage, bool) {
+		t.Helper()
 		for _, s := range r.Stages {
 			if s.Kind == kind {
-				return s
+				return s, true
 			}
 		}
-		t.Fatal("missing phase", kind)
-		return cdnStage{}
+		t.Errorf("missing phase %s in %+v", kind, r)
+		return cdnStage{}, false
 	}
-	target := cdnTarget{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	r := probeCDN(ctx, target, model.TransWS, "")
-	if stage(r, "tcp").State != "failed" || stage(r, "tls").State != "not_tested" {
-		t.Fatal("TCP refusal confused with TLS", r)
+	check := func(t *testing.T, r cdnCheck, want map[string]string) {
+		t.Helper()
+		for kind, state := range want {
+			s, ok := stage(t, r, kind)
+			if !ok {
+				continue
+			}
+			if s.State != state {
+				t.Errorf("phase %s: got %q, want %q (check=%+v)", kind, s.State, state, r)
+			}
+		}
 	}
-	target.Server = "missing-cdn-address.invalid"
-	r = probeCDN(ctx, target, model.TransWS, "")
-	if stage(r, "address_dns").State != "failed" || stage(r, "tcp").State != "not_tested" {
-		t.Fatal("DNS failure not isolated", r)
-	}
-	edge := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) }))
-	defer edge.Close()
-	_, port, _ := net.SplitHostPort(edge.Listener.Addr().String())
-	target.Port, _ = strconv.Atoi(port)
-	target.Server = "127.0.0.1"
-	r = probeCDN(context.Background(), target, model.TransWS, "")
-	if stage(r, "tcp").State != "passed" || stage(r, "tls").State != "failed" || stage(r, "http").State != "not_tested" {
-		t.Fatal("untrusted TLS passed", r)
-	}
+	// Each phase runs as its own subtest so a failure in one does not abort
+	// the others (the old t.Fatal in stage() hid the TLS case whenever the
+	// DNS case failed first).
+	t.Run("tcp refusal is not a TLS failure", func(t *testing.T) {
+		target := cdnTarget{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		check(t, probe(ctx, target), map[string]string{"tcp": "failed", "tls": "not_tested"})
+	})
+	t.Run("DNS failure is isolated", func(t *testing.T) {
+		target := cdnTarget{Scheme: "https", Provider: "other", Server: "missing-cdn-address.invalid", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		check(t, probe(ctx, target), map[string]string{"address_dns": "failed", "tcp": "not_tested"})
+	})
+	t.Run("untrusted TLS does not pass", func(t *testing.T) {
+		edge := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) }))
+		defer edge.Close()
+		_, port, _ := net.SplitHostPort(edge.Listener.Addr().String())
+		pn, _ := strconv.Atoi(port)
+		target := cdnTarget{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: pn, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
+		check(t, probe(context.Background(), target), map[string]string{"tcp": "passed", "tls": "failed", "http": "not_tested"})
+	})
 }
 func TestCDNStalePoliciesAndFreshReportRace(t *testing.T) {
 	s, _, admin := newAdminClient(t)

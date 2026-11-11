@@ -32,6 +32,10 @@ func lockRouteNode(tx *gorm.DB, nodeID string) error {
 }
 
 func createRouteTraceRows(tx *gorm.DB, nodeID string, req model.RouteTraceRequest, now time.Time, source string, revision int64) ([]store.NodeRouteTrace, error) {
+	// See runDueRouteTraces: normalise to UTC so the stale-running cutoff
+	// below compares the same instant as the UTC StartedAt values stored
+	// by beginRouteTrace / claimScheduledRouteContext.
+	now = now.UTC()
 	rows := []store.NodeRouteTrace{}
 	if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND state = ? AND started_at < ?", nodeID, "running", now.Add(-model.RouteTraceStaleAfter)).Updates(map[string]any{"state": "interrupted", "finished_at": now, "comparison": store.NewJSON(store.RouteTraceComparison{State: "not_comparable", Reason: "interrupted", ChangedTTLs: []int{}})}).Error; err != nil {
 		return nil, err
@@ -237,7 +241,7 @@ func (s *Server) nodeRouteHistory(c *gin.Context) {
 		}
 		limit = n
 	}
-	q := s.st.DB.Where("node_id = ? AND started_at >= ?", n.ID, time.Now().Add(-routeTraceKeep))
+	q := s.st.DB.Where("node_id = ? AND started_at >= ?", n.ID, time.Now().UTC().Add(-routeTraceKeep))
 	if v, exists := c.GetQuery("before"); exists {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id < 1 {
@@ -288,7 +292,7 @@ func (s *Server) nodeRouteDetail(c *gin.Context) {
 		return
 	}
 	var row store.NodeRouteTrace
-	if err := s.st.DB.First(&row, "id = ? AND node_id = ? AND started_at >= ?", id, c.Param("id"), time.Now().Add(-routeTraceKeep)).Error; err != nil {
+	if err := s.st.DB.First(&row, "id = ? AND node_id = ? AND started_at >= ?", id, c.Param("id"), time.Now().UTC().Add(-routeTraceKeep)).Error; err != nil {
 		dbError(c, err)
 		return
 	}

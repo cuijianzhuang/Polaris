@@ -17,7 +17,7 @@ RUN rm -rf dist/* && npm run build
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build go mod download
 COPY . .
 COPY --from=web /src/web/dist ./web/dist
 ARG VERSION=dev
@@ -27,7 +27,7 @@ ARG LICENSE_PUBKEYS=
 ARG LICENSE_SERVER=
 # "pro" when the polaris-pro sources were added (scripts/pro.sh copy); empty = community edition.
 ARG TAGS=
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -tags "${TAGS}" -ldflags "-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=$(date -u +%F) -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS} -X github.com/cuijianzhuang/polaris/internal/panel.DefaultLicenseServer=${LICENSE_SERVER}" -o /out/polaris ./cmd/panel \
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath -tags "${TAGS}" -ldflags "-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=$(date -u +%F) -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS} -X github.com/cuijianzhuang/polaris/internal/panel.DefaultLicenseServer=${LICENSE_SERVER}" -o /out/polaris ./cmd/panel \
  && for arch in amd64 arm64; do \
       CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "${TAGS}" -ldflags "-s -w -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}" -o /out/downloads/polaris-agent-linux-$arch ./cmd/agent; \
     done

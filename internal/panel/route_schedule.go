@@ -168,6 +168,11 @@ func (s *Server) runScheduledRouteTraces() {
 }
 
 func (s *Server) runDueRouteTraces(ctx context.Context, now time.Time) {
+	// SQLite stores time.Time as an RFC3339 string preserving its offset
+	// and compares those strings lexicographically, so a local "now" and a
+	// UTC-stored NextAt (or vice versa) are off by the UTC offset. Normalise
+	// here so every DB comparison in this path uses UTC.
+	now = now.UTC()
 	if !s.probeEnabled() || ctx.Err() != nil {
 		return
 	}
@@ -231,6 +236,10 @@ func (s *Server) claimScheduledRoute(nodeID string, now time.Time) (model.RouteT
 }
 
 func (s *Server) claimScheduledRouteContext(ctx context.Context, nodeID string, now time.Time) (model.RouteTraceRequest, []store.NodeRouteTrace, error) {
+	// See runDueRouteTraces: SQLite compares stored RFC3339 strings, so
+	// "now" must be UTC for the NextAt / started_at comparisons below to
+	// mean the same instant as the UTC values the server stores.
+	now = now.UTC()
 	// Presence may query shared storage; never re-enter the pool while holding
 	// a node transaction. Dispatch still handles disconnects after this snapshot.
 	online := s.hub.Online(nodeID)
