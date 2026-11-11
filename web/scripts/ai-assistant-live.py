@@ -1,0 +1,79 @@
+"""Optional AI: real APIs and UI against a local provider; no external AI calls."""
+import os, re, shutil
+from pathlib import Path
+from playwright.sync_api import sync_playwright, expect
+
+base=os.environ['POLARIS_AI_TEST_URL']
+control=os.environ['POLARIS_AI_TEST_CONTROL']
+shots=Path(os.environ.get('POLARIS_AI_ARTIFACTS','/tmp/polaris-ai-browser'))
+shots.mkdir(parents=True,exist_ok=True)
+
+def fits(page):
+    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2'), 'horizontal overflow'
+
+with sync_playwright() as p:
+    for engine in os.environ.get('POLARIS_TEST_ENGINES','chromium,webkit').split(','):
+        options=dict(headless=True)
+        if engine=='chromium':options.update(executable_path=os.environ.get('POLARIS_CHROMIUM_BIN')or shutil.which('chromium'),args=['--no-sandbox','--disable-dev-shm-usage'])
+        browser=getattr(p,engine).launch(**options)
+        for width in [320,390,1440]:
+            request=p.request.new_context();fixture=request.post(control+'/fixture').json();request.dispose()
+            context=browser.new_context(viewport=dict(width=width,height=960),locale='zh-CN')
+            context.add_init_script("localStorage.setItem('polaris.lang','zh');localStorage.setItem('polaris.refresh','0');localStorage.setItem('polaris.theme','light')")
+            context.route('https://www.gravatar.com/**',lambda route:route.abort())
+            page=context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+            page.goto(base+'/')
+            page.locator('#u').fill(fixture['username']);page.locator('#p').fill(fixture['password']);page.locator('form button[type=submit]').click()
+            expect(page.locator('.page-content h1')).to_be_visible()
+            page.goto(base+'/settings#ai')
+            expect(page.get_by_role('heading',name='AI 助手',exact=True)).to_be_visible()
+            expect(page.locator('#ai-model-list option')).to_have_count(2)
+            expect(page.locator('input[list=ai-model-list]')).to_have_value('test-chat')
+            expect(page.locator('input[type=password]')).to_have_value('')
+            fits(page)
+            page.get_by_role('button',name=re.compile('^常规')).click()
+            expect(page.get_by_role('heading',name='AI 助手',exact=True)).to_have_count(0)
+            expect(page.get_by_text('有尚未保存的更改',exact=True)).to_have_count(0)
+            page.get_by_role('button',name=re.compile('^AI 助手')).click()
+            expect(page.get_by_role('heading',name='AI 运维助手',exact=True)).to_be_visible()
+            page.locator('#ai-prompt-summary').fill('汇总当前异常和近期工单。')
+            page.get_by_role('button',name='开始分析',exact=True).click()
+            expect(page.locator('.ai-answer')).to_contain_text('请先更新订阅')
+            expect(page.locator('.ai-answer img')).to_have_count(0)
+            page.get_by_text('知识库来源',exact=True).click();expect(page.locator('.ai-answer')).to_contain_text('docs/')
+            fits(page)
+            if width==390:page.screenshot(path=str(shots/(engine+'-admin.png')))
+            page.goto(base+'/inbounds')
+            page.get_by_role('button',name='+ 新建入站',exact=True).click()
+            page.get_by_text('AI 辅助创建与检查',exact=True).click()
+            original_tag=page.locator('#ib-tag').input_value()
+            page.locator('#ai-prompt-draft').fill('创建 REALITY 入站，选择当前内核支持的协议。')
+            page.get_by_role('button',name='生成入站草稿',exact=True).click()
+            expect(page.get_by_role('button',name='应用到入站表单')).to_be_visible()
+            expect(page.locator('#ib-tag')).to_have_value(original_tag)
+            page.get_by_role('button',name='应用到入站表单').click()
+            expect(page.locator('#ib-tag')).to_have_value(re.compile('vless-tcp-ai-'))
+            fits(page)
+            context.close()
+            portal=browser.new_context(viewport=dict(width=width,height=960))
+            portal.route('https://www.gravatar.com/**',lambda route:route.abort())
+            portal.add_cookies([dict(name='polaris_u',value=fixture['cookie'],url=base+'/u')])
+            page=portal.new_page();page.on('pageerror',lambda error:errors.append(str(error)))
+            page.goto(base+'/u')
+            expect(page.get_by_role('link',name='AI 客服',exact=True).first).to_be_visible()
+            page.goto(base+'/u/assistant')
+            expect(page.get_by_role('heading',name='AI 客服',exact=True)).to_be_visible()
+            page.locator('#ai-prompt').fill('我的订阅如何更新？')
+            page.locator('#ai-send').click()
+            expect(page.locator('#ai-messages')).to_contain_text('请先更新订阅')
+            expect(page.locator('#ai-messages img')).to_have_count(0)
+            page.locator('#ai-messages summary').click();expect(page.locator('#ai-messages')).to_contain_text('客户端')
+            fits(page)
+            if width==390:page.screenshot(path=str(shots/(engine+'-customer.png')))
+            page.locator('#ai-human').click();expect(page.locator('#ai-ticket-body')).not_to_have_value('')
+            page.locator('#ai-ticket-send').click();page.wait_for_url('**/u/tickets/*')
+            expect(page.locator('h1')).to_contain_text('我的订阅如何更新')
+            assert not errors,errors
+            portal.close()
+            print(engine,width,'models, draft protection, operations, inbound draft, customer chat and handoff passed')
+        browser.close()

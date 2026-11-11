@@ -1,0 +1,30 @@
+<section class="p-service-page p-ai-page">
+<div class="p-heading"><div><h1>AI 客服</h1><p class="mute">结合项目知识库和本人的服务状态，协助解决使用问题</p></div><a class="btn alt" href="/u#help">使用教程</a></div>
+<section class="card p-ai-chat">
+<p class="mute">消息及本人的服务状态会发送至管理员配置的 AI 服务。请勿粘贴密码、订阅链接或付款凭据；AI 建议请结合实际检测结果确认。</p>
+<div class="p-ai-messages" id="ai-messages" role="log" aria-label="客服对话" aria-live="polite"><p class="mute">可以描述客户端、连接现象和错误提示，例如“节点显示在线，但 REALITY 认证失败”。</p></div>
+<form id="ai-form" class="p-ai-form"><label for="ai-prompt">你的问题</label><textarea class="p-input" id="ai-prompt" rows="3" maxlength="1800" placeholder="描述问题，AI 将结合当前账号状态和知识库回答" required></textarea><div class="p-inline-actions"><button class="btn pri" id="ai-send" type="submit">发送</button><button class="btn alt" id="ai-stop" type="button" hidden>停止回答</button><button class="btn alt" id="ai-clear" type="button">新对话</button>{{if .Tickets}}<button class="btn alt" id="ai-human" type="button">转人工客服</button>{{end}}</div></form>
+<p class="err" id="ai-error" role="alert" hidden></p>
+</section>
+{{if .Tickets}}<details class="card" id="ai-ticket"><summary>提交人工工单</summary><div class="p-ticket-form"><label for="ai-ticket-subject">标题</label><input class="p-input" id="ai-ticket-subject" maxlength="120"><label for="ai-ticket-body">问题描述（请核对后提交）</label><textarea class="p-input" id="ai-ticket-body" rows="7" maxlength="4000"></textarea><button class="btn pri" id="ai-ticket-send" type="button">提交工单</button><p class="err" id="ai-ticket-error" role="alert" hidden></p></div></details>{{end}}
+</section>
+<script>
+(function(){
+  var form=document.getElementById('ai-form'),prompt=document.getElementById('ai-prompt'),messages=document.getElementById('ai-messages'),send=document.getElementById('ai-send'),stop=document.getElementById('ai-stop'),clear=document.getElementById('ai-clear'),error=document.getElementById('ai-error'),history=[],controller=null,sequence=0,ticketDraft=null;
+  function message(el,text){el.textContent=text;el.hidden=!text}
+  function busy(on){send.disabled=on;prompt.disabled=on;clear.disabled=on;stop.hidden=!on;send.textContent=on?'正在回答…':'发送'}
+  function add(who,text){var article=document.createElement('article'),label=document.createElement('b'),body=document.createElement('div');article.className='p-ai-message';label.textContent=who;body.className='p-ai-text';body.textContent=text;article.append(label,body);messages.append(article);messages.scrollTop=messages.scrollHeight;return article}
+  function sources(article,list){if(!list||!list.length)return;var details=document.createElement('details'),title=document.createElement('summary');title.textContent='知识库来源';details.append(title);list.forEach(function(source){var item=document.createElement('div'),heading=document.createElement('b'),excerpt=document.createElement('p');heading.textContent='['+source.id+'] '+source.title;excerpt.textContent=source.excerpt;item.append(heading,excerpt);details.append(item)});article.append(details)}
+  function post(path,body,signal){return fetch('/u/'+path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body),signal:signal}).then(function(response){return response.json().then(function(data){if(!response.ok){if(response.status===401)location.replace('/u/login');throw new Error(data.error||'请求失败，请重试')}return data})})}
+  form.addEventListener('submit',function(event){event.preventDefault();if(controller||!prompt.value.trim())return;var question=prompt.value.trim(),seq=++sequence;controller=new AbortController();var current=controller,timer=setTimeout(function(){current.abort()},55000);message(error,'');busy(true);add('你',question);
+    post('assistant/chat',{prompt:question,history:history.slice(-6)},current.signal).then(function(answer){if(seq!==sequence)return;var article=add('AI 客服',answer.text);sources(article,answer.sources);history.push({role:'user',content:question},{role:'assistant',content:answer.text.slice(0,1800)});history=history.slice(-6);prompt.value='';ticketDraft=answer.ticketDraft||null}).catch(function(e){if(seq===sequence)message(error,e.name==='AbortError'?'回答已停止或请求超时，可以重新发送。':e.message)}).finally(function(){clearTimeout(timer);if(seq===sequence){controller=null;busy(false);prompt.focus()}})
+  });
+  stop.addEventListener('click',function(){if(controller)controller.abort()});
+  clear.addEventListener('click',function(){history=[];ticketDraft=null;messages.replaceChildren();prompt.value='';message(error,'');prompt.focus()});
+  window.addEventListener('pagehide',function(){sequence++;if(controller)controller.abort()});
+  var human=document.getElementById('ai-human');if(human){var ticket=document.getElementById('ai-ticket'),subject=document.getElementById('ai-ticket-subject'),body=document.getElementById('ai-ticket-body'),submit=document.getElementById('ai-ticket-send'),ticketError=document.getElementById('ai-ticket-error');
+    human.addEventListener('click',function(){ticket.open=true;if(ticketDraft&&!body.value.trim()){subject.value=ticketDraft.subject;body.value=ticketDraft.body}ticket.scrollIntoView({behavior:'smooth',block:'center'});body.focus()});
+    submit.addEventListener('click',function(){if(submit.disabled)return;if(!body.value.trim()){message(ticketError,'请填写问题描述');return}submit.disabled=true;message(ticketError,'');var abort=new AbortController(),timer=setTimeout(function(){abort.abort()},20000);post('tickets',{subject:subject.value,body:body.value},abort.signal).then(function(result){location.href=result.url}).catch(function(e){message(ticketError,e.name==='AbortError'?'提交结果尚未确认，请先在工单列表查看，避免重复提交。':e.message);submit.disabled=false}).finally(function(){clearTimeout(timer)})})
+  }
+})();
+</script>

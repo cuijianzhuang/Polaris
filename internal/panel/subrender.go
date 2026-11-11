@@ -78,6 +78,10 @@ func sourceProxy(allowPrivate bool, proxy func(*http.Request) (*url.URL, error),
 // safeClient refuses to connect to private ranges unless allowed (SSRF guard).
 func (s *Server) safeClient(timeout time.Duration) *http.Client {
 	allowPrivate := s.st.GetSetting("allow_private_sources", "false") == "true"
+	return safeClientWithPrivatePolicy(timeout, allowPrivate)
+}
+
+func safeClientWithPrivatePolicy(timeout time.Duration, allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {

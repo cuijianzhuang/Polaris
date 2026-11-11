@@ -1,4 +1,5 @@
 import SnellSetup from '../components/SnellSetup'
+import { AIInbound } from '../components/AIAssistant'
 import OutboundIPField from '../components/OutboundIPField'
 import RelayManager, { RelayAccessFields } from '../components/RelayManager'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -427,6 +428,10 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
       {endpointPending && <span className="hint" role="status">{t('请先添加入口，或取消本次添加，再保存入站。')}</span>}
       <button className="btn pri" type="button" disabled={busy || endpointPending || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
     </>}>
+      <AIInbound nodeId={nodeId} inboundId={editing?.id} draft={{ core: draft.core, protocol: draft.protocol.type, transport: draft.transport.type, security: draft.security.type, port: Number(port), tag, serverName: draft.security.serverName || draft.security.realityServerNames?.[0] || draft.security.realityDest?.replace(/:\d+$/, '') }} onApply={(plan) => {
+        setDraft({ core: plan.core, protocol: { type: plan.protocol }, transport: { type: plan.transport }, security: plan.security === 'reality' ? { type: 'reality', realityDest: plan.serverName + ':443', realityServerNames: [plan.serverName || ''] } : { type: plan.security, serverName: plan.serverName, certificateId: plan.certificateId }, sniffing: { enabled: true } })
+        setTag(plan.tag || tag); setPort(String(plan.port)); toast(t('AI 草稿已填入，请核对后保存'))
+      }} />
       {!editing && <div className="note row" style={{ justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ flex: '1 1 200px' }}>{t('一键按 CDN 配置档设置协议、传输、回源安全和可用端口，订阅仅发布 CDN 入口。')}</span>
         <button className="btn sm pri" type="button" onClick={oneClickCDN}>{t('一键配置 CDN')}</button>

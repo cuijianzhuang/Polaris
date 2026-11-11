@@ -112,6 +112,7 @@ type Info struct {
 	Portal           bool
 	PortalShopURL    string
 	PortalTicketsURL string
+	PortalAIURL      string
 	PortalOrders     []PortalOrder
 	PortalOrdersMore bool
 	// Rename offers the signed-in user a username change (Portal pages only).

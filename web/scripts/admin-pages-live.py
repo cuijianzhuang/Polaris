@@ -14,7 +14,7 @@ routes = ['/', '/stats', '/nodes', '/map', '/probe', '/cores', '/forwards', '/in
           '/convert', '/domains', '/telegram', '/costs', '/extensions', '/license',
           # Every settings tab, and the new-user drawer.
           '/settings#security', '/settings#update', '/settings#backup', '/settings#network', '/settings#notifications',
-          '/settings#mail', '/settings#appearance', '/settings#system', '/users?new=1',
+          '/settings#mail', '/settings#ai', '/settings#appearance', '/settings#system', '/users?new=1',
           '/extensions?tab=market']
 # Messages that are not page faults: requests cancelled by navigation, the
 # live-update socket closing when the page changes, and 502-504 answers,

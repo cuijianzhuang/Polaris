@@ -410,6 +410,13 @@ jobs:
           POLARIS_USER_PORTAL_BROWSER_TEST: '1'
         run: |
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=5m -test.run '^TestLive(UserPortalBrowser|AccountBindingBrowser)$'
+      - name: AI providers, project knowledge, inbound drafts and customer support
+        working-directory: internal/panel
+        env:
+          POLARIS_AI_BROWSER_TEST: '1'
+          POLARIS_AI_ARTIFACTS: /tmp/polaris-browser-artifacts/ai
+        run: |
+          "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=4m -test.run '^TestLiveAIAssistantBrowser$'
       - name: Real checkout, payment confirmation and support lifecycle
         if: env.POLARIS_SERVICES_PRO == 'true'
         working-directory: internal/panel

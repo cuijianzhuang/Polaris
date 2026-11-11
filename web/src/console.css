@@ -246,6 +246,18 @@ tr.sel td { background: var(--pri-soft); }
 }
 
 /* Touch-sized hit areas keep the visual switch track compact. */
+.ai-settings, .ai-workbench, .ai-composer, .ai-answer { display: grid; gap: 14px; min-width: 0; }
+.ai-settings fieldset { min-width: 0; }
+.ai-settings .row > input { flex: 1 1 230px; min-width: 0; }
+.ai-inline { border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px; margin-bottom: 14px; min-width: 0; }
+.ai-inline > summary { cursor: pointer; font-weight: 600; }
+.ai-inline[open] > summary { margin-bottom: 14px; }
+.ai-answer { padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--soft); }
+.ai-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; }
+.ai-answer article { padding-top: 12px; border-top: 1px solid var(--line); margin-top: 12px; }
+.ai-answer li { margin-block: 6px; overflow-wrap: anywhere; }
+.ai-answer .kv { grid-template-columns: 90px minmax(0, 1fr); }
+.ai-answer .kv dd { overflow-wrap: anywhere; }
 @media (max-width: 760px), (pointer: coarse) {
   :is(.page-content, .overlay, .login) :is(input.input, select.input) { min-height: 44px; }
   .switch, .switch.on { width: 44px; height: 44px; background: transparent; }

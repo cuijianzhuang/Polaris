@@ -20,8 +20,9 @@ import cdnTunnelAgent from './cdnTunnelAgent'
 import cdnRemoteToken from './cdnRemoteToken'
 import cdnPoolEditor from './cdnPoolEditor'
 import websites from './websites'
+import ai from './ai'
 
 // English UI strings keyed by the Chinese source text, split by area so
 // files can be edited independently.
-const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8, ...g9, ...operations, ...appearance, ...recovery, ...adminRoles, ...nodeBrowser, ...userOnline, ...cdnSchedule, ...cdnTunnel, ...cdnTunnelAgent, ...cdnRemoteToken, ...cdnPoolEditor, ...websites }
+const en: Record<string, string> = { ...core, ...g1, ...g2, ...g3, ...g4, ...g5, ...g6, ...g7, ...g8, ...g9, ...operations, ...appearance, ...recovery, ...adminRoles, ...nodeBrowser, ...userOnline, ...cdnSchedule, ...cdnTunnel, ...cdnTunnelAgent, ...cdnRemoteToken, ...cdnPoolEditor, ...websites, ...ai }
 export default en

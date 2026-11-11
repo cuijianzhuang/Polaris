@@ -9,7 +9,7 @@ import (
 // guest checkout. Feature links are supplied by the server's effective switches.
 type PortalNavigation struct {
 	Title, Username, Email, Active, PageTitle string
-	ShopURL, TicketsURL                       string
+	ShopURL, TicketsURL, AIURL                string
 	Guest, Registration                       bool
 }
 
@@ -25,6 +25,7 @@ func RenderPortalSection(nav PortalNavigation, body *template.Template, data any
 		"Title": nav.Title, "Username": nav.Username, "Email": nav.Email,
 		"PortalActive": nav.Active, "PortalPageTitle": nav.PageTitle,
 		"PortalShopURL": pageURL(nav.ShopURL), "PortalTicketsURL": pageURL(nav.TicketsURL),
+		"PortalAIURL": pageURL(nav.AIURL),
 		"PortalGuest": nav.Guest, "PortalRegistration": nav.Registration,
 		"Content": template.HTML(fragment.String()), // escaped static application template above
 	}
