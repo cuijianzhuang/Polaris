@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "rm -rf dist/*",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
     "i18n:check": "node scripts/i18n-check.mjs"

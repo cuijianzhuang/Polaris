@@ -55,6 +55,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16
@@ -79,6 +80,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Fetch real cores for integration tests
         run: |
           mkdir -p /tmp/cores && cd /tmp/cores
@@ -138,6 +140,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Panel tests on PostgreSQL
         # Each fixture migrates its own schema; the whole suite can exceed
         # Go's default 10-minute package timeout on slower runners.
@@ -161,6 +164,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Panel tests with Redis shared state
         run: go test -count=1 ./internal/panel/
         env:
@@ -193,6 +197,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Fetch real cores for integration tests
         run: |
           mkdir -p /tmp/cores && cd /tmp/cores
@@ -228,6 +233,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Build reviewed mihomo cumulative accounting core
         run: |
           git clone --depth 1 --branch v1.19.15 https://github.com/MetaCubeX/mihomo.git /tmp/mihomo-src
@@ -248,6 +254,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Build pinned sing-box with diagnostic prerequisites
         run: |
           git clone --depth 1 --branch v1.13.5 https://github.com/SagerNet/sing-box.git /tmp/diagnostic-singbox-src
@@ -267,6 +274,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - name: Build pinned Snell multi-user core with real traffic counters
         run: |
           git clone --depth 1 --branch v1.14.4 https://github.com/SagerNet/sing-box.git /tmp/snell-src
@@ -343,6 +351,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@v4
         with:
           node-version: 22

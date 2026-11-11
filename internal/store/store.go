@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -46,6 +47,74 @@ type cachedSetting struct {
 // writes that bypass SetSetting, such as a restored database).
 const settingTTL = time.Minute
 
+// requiredSQLitePragmas are applied to every SQLite DSN, whether or not the
+// caller already supplied query parameters. A caller-supplied pragma with the
+// same name wins: it is kept and the default is not appended, so an operator
+// who deliberately chose e.g. journal_mode(DELETE) is not silently
+// overridden.
+//
+// synchronous and cache_size are deliberately not forced here: with WAL,
+// SQLite's default synchronous=NORMAL is the documented safe setting for
+// the journal (durable across process crashes; FULL only adds protection
+// against OS/power failure at a write cost), and there is no evidence of
+// cache pressure that would justify a non-default cache_size.
+var requiredSQLitePragmas = []string{
+	"busy_timeout(5000)",
+	"journal_mode(WAL)",
+	"foreign_keys(1)",
+}
+
+// withSQLitePragmas returns dsn with every required pragma present. The
+// original DSN is otherwise left byte-for-byte intact.
+func withSQLitePragmas(dsn string) string {
+	_, query, found := strings.Cut(dsn, "?")
+	if !found {
+		return dsn + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
+	}
+	present := map[string]bool{}
+	for _, part := range strings.Split(query, "&") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok || key != "_pragma" {
+			continue
+		}
+		if v, err := url.QueryUnescape(value); err == nil {
+			value = v
+		}
+		present[sqlitePragmaName(value)] = true
+	}
+	var missing []string
+	for _, p := range requiredSQLitePragmas {
+		if !present[sqlitePragmaName(p)] {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) == 0 {
+		return dsn
+	}
+	sep := "&"
+	if query == "" {
+		sep = ""
+	}
+	var b strings.Builder
+	b.WriteString(dsn)
+	b.WriteString(sep)
+	for i, p := range missing {
+		if i > 0 {
+			b.WriteString("&")
+		}
+		b.WriteString("_pragma=")
+		b.WriteString(p)
+	}
+	return b.String()
+}
+
+// sqlitePragmaName returns the lower-cased pragma name, e.g. "journal_mode"
+// for "journal_mode(WAL)" (also tolerates a leading space).
+func sqlitePragmaName(pragma string) string {
+	name, _, _ := strings.Cut(strings.TrimSpace(pragma), "(")
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
 // Open connects and migrates. PostgreSQL DSNs are recognised by
 // IsPostgresDSN; anything else is a SQLite file path.
 func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
@@ -53,10 +122,7 @@ func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 	if IsPostgresDSN(dsn) {
 		dial = postgres.Open(dsn)
 	} else {
-		if !strings.Contains(dsn, "?") {
-			dsn += "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
-		}
-		dial = sqlite.Open(dsn)
+		dial = sqlite.Open(withSQLitePragmas(dsn))
 	}
 	lvl := logger.Silent
 	if debug {

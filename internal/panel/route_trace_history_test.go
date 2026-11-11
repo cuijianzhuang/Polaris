@@ -28,7 +28,7 @@ func traceHistoryFixture(t *testing.T) (*Server, *apiClient) {
 }
 
 func traceResult(target string, path ...string) model.RouteTraceResult {
-	r := model.RouteTraceResult{Family: "ipv4", Target: target, CheckedAt: time.Now(), State: "reached", Raw: "private-network-evidence", Hops: []model.RouteTraceHop{}}
+	r := model.RouteTraceResult{Family: "ipv4", Target: target, CheckedAt: time.Now().UTC(), State: "reached", Raw: "private-network-evidence", Hops: []model.RouteTraceHop{}}
 	for i, p := range path {
 		r.Hops = append(r.Hops, model.RouteTraceHop{TTL: i + 1, Addresses: []string{p}})
 	}
@@ -114,11 +114,11 @@ func TestRouteTraceHistoryComparison(t *testing.T) {
 
 func TestRouteTraceComparisonEvidenceRules(t *testing.T) {
 	r := traceResult("1.1.1.1", "10.0.0.1", "1.1.1.1")
-	finished := time.Now().Add(-30 * time.Second)
-	prev := store.NodeRouteTrace{ID: 1, NodeID: "n", Target: r.Target, Family: r.Family, Profile: routeTraceProfile, State: "completed", FinishedAt: &finished, StartedAt: time.Now().Add(-time.Minute), Result: store.NewJSON(r)}
+	finished := time.Now().UTC().Add(-30 * time.Second)
+	prev := store.NodeRouteTrace{ID: 1, NodeID: "n", Target: r.Target, Family: r.Family, Profile: routeTraceProfile, State: "completed", FinishedAt: &finished, StartedAt: time.Now().UTC().Add(-time.Minute), Result: store.NewJSON(r)}
 	current := prev
 	current.ID = 2
-	current.StartedAt = time.Now()
+	current.StartedAt = time.Now().UTC()
 	for _, tc := range []struct {
 		name   string
 		edit   func(*store.NodeRouteTrace)
@@ -156,9 +156,9 @@ func TestRouteTraceComparisonEvidenceRules(t *testing.T) {
 	prev.Result = store.NewJSON(v6)
 	current = prev
 	current.ID = 2
-	current.StartedAt = time.Now()
+	current.StartedAt = time.Now().UTC()
 	current.Result.V.Raw = "different RTTs"
-	current.Result.V.CheckedAt = time.Now().Add(time.Hour)
+	current.Result.V.CheckedAt = time.Now().UTC().Add(time.Hour)
 	if c := compareRouteTrace(current, prev); c.State != "same" {
 		t.Fatal(c)
 	}
@@ -218,7 +218,7 @@ func TestRouteTraceHistoryLateResultsAndDeletion(t *testing.T) {
 
 func TestRouteTraceHistoryRetentionAndRestore(t *testing.T) {
 	s, admin := traceHistoryFixture(t)
-	now := time.Now()
+	now := time.Now().UTC()
 	var rows []store.NodeRouteTrace
 	for i := 0; i < 105; i++ {
 		rows = append(rows, store.NodeRouteTrace{NodeID: "trace", Family: "ipv4", Target: "1.1.1.1", State: "completed", StartedAt: now, Profile: routeTraceProfile})
@@ -389,7 +389,7 @@ func TestRouteTraceHistoryExpiredAttemptCannotBecomeSuccessful(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.st.DB.Model(&store.NodeRouteTrace{}).Where("id = ?", rows[0].ID).Update("started_at", time.Now().Add(-time.Minute)).Error; err != nil {
+	if err := s.st.DB.Model(&store.NodeRouteTrace{}).Where("id = ?", rows[0].ID).Update("started_at", time.Now().UTC().Add(-time.Minute)).Error; err != nil {
 		t.Fatal(err)
 	}
 	saved, err := s.finishRouteTrace(rows, []model.RouteTraceResult{traceResult("1.1.1.1", "1.1.1.1")}, "completed")
