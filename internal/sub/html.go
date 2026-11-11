@@ -241,7 +241,7 @@ func RenderPage(info Info) ([]byte, error) {
 		"Total": info.Total, "Left": left, "Percent": pct, "Expire": exp, "ExpiryText": expiryText, "ExpireLevel": expLevel, "Level": level, "URL": info.URL,
 		"Status": info.Status, "StatusLabel": label, "AwaitingPlan": awaitingPlan, "Announce": info.Announce, "ResetNote": info.ResetNote, "PlanName": info.PlanName, "PlanNext": info.PlanNext, "SpeedNote": info.SpeedNote,
 		"SupportURL": safeURL(info.SupportURL), "BotURL": safeURL(info.BotURL), "AccountBindURL": safeURL(info.AccountBindURL), "TelegramBound": info.TelegramBound, "TelegramBind": info.TelegramBind, "Portal": info.Portal, "Rename": info.Portal && info.Rename, "CarrierPick": info.Portal && info.CarrierPick, "Carrier": info.Carrier, "RegionPick": info.Portal && info.RegionPick, "Region": info.Region, "CDNManage": info.Portal && info.CDNManage, "CDNChoices": info.CDNChoices, "CDNRegions": info.CDNRegions, "CDNNetwork": info.CDNNetwork,
-		"PortalShopURL": pageURL(info.PortalShopURL), "PortalTicketsURL": pageURL(info.PortalTicketsURL), "PortalOrders": info.PortalOrders, "PortalOrdersMore": info.PortalOrdersMore,
+		"PortalShopURL": pageURL(info.PortalShopURL), "PortalTicketsURL": pageURL(info.PortalTicketsURL), "PortalAIURL": pageURL(info.PortalAIURL), "PortalOrders": info.PortalOrders, "PortalOrdersMore": info.PortalOrdersMore,
 		"LoginVia": orDefault(info.LoginVia, "Telegram"), "MailBind": info.Portal && info.MailBind, "Email": info.Email, "NodeQuotas": info.NodeQuotas, "Extras": extraLinks(info.Extras),
 		"QR":      template.URL("data:image/png;base64," + base64.StdEncoding.EncodeToString(png)),
 		"Clients": clientLinks(info), "Links": links, "Chart": chart, "ChartMax": max, "ChartDays": len(info.Daily),

@@ -247,6 +247,9 @@ func (s *Server) portalPage(c *gin.Context) {
 	if u.FwdMax > 0 && s.license().Allow(license.FeaturePlanAddons) {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🔀 我的转发", URL: portalPath + "/forwards"})
 	}
+	if s.aiPortalOn() {
+		info.PortalAIURL = portalPath + "/assistant"
+	}
 	if s.ticketsOn() {
 		info.PortalTicketsURL = portalPath + "/tickets"
 		title := "🎫 工单"

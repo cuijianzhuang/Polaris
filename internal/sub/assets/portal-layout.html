@@ -26,6 +26,7 @@
 {{if .PortalShopURL}}<a href="{{.PortalShopURL}}"{{if eq .PortalActive "shop"}} aria-current="page"{{end}}><svg><use href="#pi-cart"/></svg>购买套餐</a>{{end}}
 <a href="/u#orders" data-view-link="orders"{{if eq .PortalActive "orders"}} aria-current="page"{{end}}><svg><use href="#pi-file"/></svg>我的订单</a>
 {{if .PortalTicketsURL}}<a href="{{.PortalTicketsURL}}"{{if eq .PortalActive "tickets"}} aria-current="page"{{end}}><svg><use href="#pi-help"/></svg>我的工单</a>{{end}}
+{{if .PortalAIURL}}<a href="{{.PortalAIURL}}"{{if eq .PortalActive "assistant"}} aria-current="page"{{end}}><svg><use href="#pi-help"/></svg>AI 客服</a>{{end}}
 <a href="/u#help" data-view-link="help"><svg><use href="#pi-book"/></svg>使用教程</a>
 {{end}}
 </nav>

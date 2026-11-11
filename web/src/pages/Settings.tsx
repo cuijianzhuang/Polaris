@@ -17,6 +17,7 @@ import { Backups } from './settings/Backups'
 import { Cluster, OperationalHealth } from './settings/Cluster'
 import { MailSettings } from './settings/MailSettings'
 import { DefaultVersion, Updates } from './settings/Updates'
+import AISettings from './settings/AISettings'
 
 const settingTabs = [
   { id: 'general', label: t('常规'), hint: t('访问地址、标题、默认内核'), icon: <Icon.Gear /> },
@@ -26,6 +27,7 @@ const settingTabs = [
   { id: 'network', label: t('网络检测'), hint: t('ASN、国家省市归属'), icon: <Icon.Globe /> },
   { id: 'notifications', label: t('通知策略'), hint: t('事件渠道、维护静默、告警合并'), icon: <Icon.Mail /> },
   { id: 'mail', label: t('邮件'), hint: t('SMTP、邮件提醒'), icon: <Icon.Mail /> },
+  { id: 'ai', label: t('AI 助手'), hint: t('模型、知识库、诊断与客服'), icon: <Icon.Globe /> },
   { id: 'appearance', label: t('外观'), hint: t('主题与配色'), icon: <Icon.Sun /> },
 ]
 
@@ -161,6 +163,7 @@ export default function Settings() {
         {tab === 'appearance' && <Appearance />}
         {tab === 'backup' && <Backups />}
         {tab === 'mail' && <MailSettings />}
+        {tab === 'ai' && <AISettings />}
         {tab === 'security' && <>
  <AvatarSettings />
  <Passkeys />

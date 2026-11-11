@@ -19,6 +19,9 @@ func (s *Server) renderPortalSection(c *gin.Context, status int, active, title s
 	if s.ticketsOn() {
 		nav.TicketsURL = portalPath + "/tickets"
 	}
+	if user != nil && s.aiPortalOn() {
+		nav.AIURL = portalPath + "/assistant"
+	}
 	page, err := sub.RenderPortalSection(nav, tpl, data)
 	if err != nil {
 		serverError(c, err)

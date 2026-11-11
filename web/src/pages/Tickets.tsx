@@ -4,6 +4,7 @@ import { del, get, post, put } from '../api'
 import { Empty, Field, Modal, Switch, useAction, useConfirm, useLoad } from '../components/ui'
 import { datetime } from '../format'
 import { t } from '../i18n'
+import { AITicket } from '../components/AIAssistant'
 
 // Tickets: support requests from users (user center /u/tickets or the bot's
 // /ticket). Admins read and answer them here; users are told on Telegram
@@ -61,6 +62,7 @@ function Thread({ id, onClose, onChanged, staff }: { id: string; onClose: () => 
         ))}
       </div>
       <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+        {!staff && <AITicket id={id} onReply={async (text) => { if (!body.trim() || await confirm(t('用 AI 草稿替换当前回复内容？'))) setBody(text) }} />}
         <textarea className="input" rows={4} value={body} placeholder={t('回复内容，用户会在 Telegram 和邮件里收到')} onChange={(e) => setBody(e.target.value)} />
         <div className="row">
           <button className="btn pri" type="button" disabled={busy || !body.trim()} onClick={() => reply(false)}>{t('回复')}</button>
