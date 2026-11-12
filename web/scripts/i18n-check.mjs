@@ -23,13 +23,27 @@ const walk = (d) => readdirSync(d).flatMap((f) => {
 const files = cliFiles.length > 0 ? cliFiles.slice().map((f) => join(process.cwd(), f)) : walk(root)
 
 // Dictionary: Chinese key -> declaring file under locales/en.
+// A key declared twice with different translations is a conflict: the
+// dictionary loads in phases (eager, per-page, background), so whichever
+// file loads last wins and the label flips with load timing. Keep the
+// first declaration and fail, so the duplicate gets removed instead.
 const dict = new Map()
+const dictVal = new Map()
+const conflicts = []
 for (const f of readdirSync(join(root, 'locales/en'))) {
   const src = readFileSync(join(root, 'locales/en', f), 'utf8')
-  for (const m of src.matchAll(/^\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:/gm)) {
-    dict.set((m[1] ?? m[2]).replace(/\\(['"\\])/g, '$1'), f)
+  for (const m of src.matchAll(/^\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")\s*:\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)")/gm)) {
+    const k = (m[1] ?? m[2]).replace(/\\(['"\\])/g, '$1')
+    const v = (m[3] ?? m[4] ?? '').replace(/\\(['"\\])/g, '$1')
+    if (dict.has(k) && dictVal.get(k) !== v) {
+      conflicts.push(`${k}: ${dict.get(k)}=${JSON.stringify(dictVal.get(k))} vs ${f}=${JSON.stringify(v)}`)
+    } else if (!dict.has(k)) {
+      dict.set(k, f)
+      dictVal.set(k, v)
+    }
   }
 }
+for (const c of conflicts) console.log(`conflict ${c}`)
 
 // Intentional dictionary entries that are not literals in the frontend source
 // (for example server messages translated via tr()).
@@ -67,5 +81,5 @@ const orphans = [...dict.entries()].filter(([k]) => han.test(k) && !used.has(k) 
 for (const [k, f] of orphans) console.log(`orphan   ${f}: ${k}`)
 const orphanCount = orphans.length
 
-console.log(`\n${missing} missing translations, ${raw} lines with untranslated Chinese, ${orphanCount} orphaned dictionary entries${allow.size ? ` (${allow.size} allowlisted)` : ''}`)
-process.exit(missing || raw || (failOrphans && orphanCount) ? 1 : 0)
+console.log(`\n${missing} missing translations, ${raw} lines with untranslated Chinese, ${conflicts.length} conflicting dictionary entries, ${orphanCount} orphaned dictionary entries${allow.size ? ` (${allow.size} allowlisted)` : ''}`)
+process.exit(missing || raw || conflicts.length || (failOrphans && orphanCount) ? 1 : 0)

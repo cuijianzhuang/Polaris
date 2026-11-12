@@ -256,7 +256,6 @@ const m: Record<string, string> = {
   '个用户流量用了 80% 以上': ' users have used over 80% of traffic',
   '需要关注': 'Needs attention',
   'CPU / 内存': 'CPU / memory',
-  '实时速率': 'Live speed',
   '今日流量': 'Today\'s traffic',
   '配置版本': 'Config version',
   '添加节点': 'Add node',

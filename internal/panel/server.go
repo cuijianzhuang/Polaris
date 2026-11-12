@@ -136,6 +136,7 @@ type Server struct {
 
 // New opens the database, loads or creates the CA and seeds defaults.
 func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
+	cfg.applyJobDefaults() // a Config built in code has zero job intervals; see config.go
 	if cfg.AdminPath == "/" {
 		log.Warn("admin UI is served at / — set POLARIS_ADMIN_PATH to a hard-to-guess path so scanners only see 404 or the decoy site")
 	}
@@ -391,6 +392,13 @@ func (s *Server) agentServer() (*http.Server, error) {
 // ("*/N"); minute-scale intervals keep their second offset so jobs stay
 // staggered instead of all firing at :00.
 func jobCronSpec(d time.Duration, second int) string {
+	// A zero or negative interval must never reach the cron parser as
+	// "*/0 * * * * *": AddFunc rejects it and the job silently never
+	// runs. applyJobDefaults should have filled it in; fall back to
+	// 10s so a missed default degrades to a working schedule.
+	if d <= 0 {
+		d = 10 * time.Second
+	}
 	if d < time.Minute {
 		return fmt.Sprintf("*/%d * * * * *", int(d/time.Second))
 	}
@@ -412,15 +420,21 @@ func (s *Server) startJobs() func() {
 		fn()
 	}
 	add := func(spec, name string, fn func()) {
-		_, _ = c.AddFunc(spec, func() {
+		if _, err := c.AddFunc(spec, func() {
 			if s.isLeader() { // otherwise another instance runs the scheduled jobs
 				run(name, fn)
 			}
-		})
+		}); err != nil {
+			// Never ignore this: an invalid spec means the job never runs,
+			// and the failure is otherwise completely silent.
+			s.log.Error("schedule job failed", "job", name, "spec", spec, "err", err)
+		}
 	}
 	// addLocal runs on every instance: work on this machine's own files.
 	addLocal := func(spec, name string, fn func()) {
-		_, _ = c.AddFunc(spec, func() { run(name, fn) })
+		if _, err := c.AddFunc(spec, func() { run(name, fn) }); err != nil {
+			s.log.Error("schedule job failed", "job", name, "spec", spec, "err", err)
+		}
 	}
 	add(jobCronSpec(s.cfg.Jobs.Settle, 0), "settle", func() { // keeps usage, quotas and the dashboard near real time
 		err := s.settleTraffic()

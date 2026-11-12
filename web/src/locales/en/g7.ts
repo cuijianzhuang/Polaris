@@ -223,7 +223,6 @@ const m: Record<string, string> = {
   '权限范围': 'Scopes',
   '1 年': '1 year',
   '令牌已创建': 'Token created',
-  '令牌': 'The token',
   '，请立即复制保存。丢失后只能吊销重建。': '; copy and store it now. If lost, revoke it and create a new one.',
   '+ 添加 Webhook': '+ Add webhook',
   'JSON（插件 / 自建服务，带签名）': 'JSON (plugins / your own service, signed)',

@@ -110,27 +110,13 @@ func LoadConfig(path string) (*Config, error) {
 	// Job intervals: keep the historical defaults unless configured.
 	// Validation runs here (not at schedule time) so a bad value fails
 	// startup with a clear error instead of silently never running.
+	// Defaults live in applyJobDefaults, not only here: panel.New also
+	// calls it, because a Config built in code (every test, any embedder)
+	// never goes through LoadConfig, and a zero interval used to render
+	// as the invalid cron spec "*/0 * * * * *", silently killing all
+	// fifteen configurable jobs (traffic settlement included).
+	c.applyJobDefaults()
 	j := &c.Jobs
-	setDefault := func(p *time.Duration, d time.Duration) {
-		if *p == 0 {
-			*p = d
-		}
-	}
-	setDefault(&j.Settle, 10*time.Second)
-	setDefault(&j.PaymentRecovery, 10*time.Second)
-	setDefault(&j.LatencyProbes, 10*time.Second)
-	setDefault(&j.Offline, 15*time.Second)
-	setDefault(&j.RefundRecovery, 15*time.Second)
-	setDefault(&j.Rollouts, 15*time.Second)
-	setDefault(&j.UserReminders, 15*time.Second)
-	setDefault(&j.ForwardFailover, 20*time.Second)
-	setDefault(&j.UpdateResult, 20*time.Second)
-	setDefault(&j.Webhooks, 30*time.Second)
-	setDefault(&j.PluginCache, 30*time.Second)
-	setDefault(&j.USDT, 30*time.Second)
-	setDefault(&j.RouteTraces, 30*time.Second)
-	setDefault(&j.Health, time.Minute)
-	setDefault(&j.InboundProbe, 2*time.Minute)
 	for name, d := range map[string]time.Duration{
 		"settle": j.Settle, "payment-recovery": j.PaymentRecovery, "latency-probes": j.LatencyProbes,
 		"offline": j.Offline, "refund-recovery": j.RefundRecovery, "rollouts": j.Rollouts,
@@ -187,6 +173,33 @@ func LoadConfig(path string) (*Config, error) {
 		c.loc = loc
 	}
 	return c, nil
+}
+
+// applyJobDefaults fills any unset job interval with its historical
+// hard-coded value. Called from LoadConfig and from panel.New, so a
+// Config built in code gets the same schedules as one loaded from file.
+func (c *Config) applyJobDefaults() {
+	j := &c.Jobs
+	setDefault := func(p *time.Duration, d time.Duration) {
+		if *p == 0 {
+			*p = d
+		}
+	}
+	setDefault(&j.Settle, 10*time.Second)
+	setDefault(&j.PaymentRecovery, 10*time.Second)
+	setDefault(&j.LatencyProbes, 10*time.Second)
+	setDefault(&j.Offline, 15*time.Second)
+	setDefault(&j.RefundRecovery, 15*time.Second)
+	setDefault(&j.Rollouts, 15*time.Second)
+	setDefault(&j.UserReminders, 15*time.Second)
+	setDefault(&j.ForwardFailover, 20*time.Second)
+	setDefault(&j.UpdateResult, 20*time.Second)
+	setDefault(&j.Webhooks, 30*time.Second)
+	setDefault(&j.PluginCache, 30*time.Second)
+	setDefault(&j.USDT, 30*time.Second)
+	setDefault(&j.RouteTraces, 30*time.Second)
+	setDefault(&j.Health, time.Minute)
+	setDefault(&j.InboundProbe, 2*time.Minute)
 }
 
 // validateJobInterval rejects intervals the cron scheduler cannot
