@@ -97,7 +97,12 @@ func TestReportUsageStats(t *testing.T) {
 	if hits.Load() != 1 {
 		t.Fatalf("hits %d, want 1", hits.Load())
 	}
-	if !strings.HasPrefix(lastBody["instance"], "inst_") || lastBody["version"] != Version || lastBody["edition"] != "community" {
+	// The reported edition follows the build tag: "pro" under -tags pro.
+	wantEdition := "community"
+	if proBuild {
+		wantEdition = "pro"
+	}
+	if !strings.HasPrefix(lastBody["instance"], "inst_") || lastBody["version"] != Version || lastBody["edition"] != wantEdition {
 		t.Fatalf("payload %+v", lastBody)
 	}
 	// Opted out: no further pings.
