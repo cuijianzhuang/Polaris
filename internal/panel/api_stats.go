@@ -56,6 +56,11 @@ func (s *Server) statsOverview(c *gin.Context) {
 		"nodeList":    nodes,
 		"generatedAt": now,
 	}
+	// Global usage count, best-effort: the card is hidden when no license
+	// server is configured or it cannot be reached.
+	if uc, ok := s.globalUsageCounts(); ok {
+		out["usage"] = gin.H{"instances30d": uc.Instances30d, "instances7d": uc.Instances7d, "pro30d": uc.Pro30d, "community30d": uc.Community30d}
+	}
 	// Traffic-read tokens already access this route; do not expand that scope
 	// to payment, refund or diagnostic information. The dedicated endpoint is
 	// administrator-session only by default.

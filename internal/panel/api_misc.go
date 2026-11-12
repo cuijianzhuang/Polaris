@@ -144,6 +144,7 @@ var editableSettings = map[string]bool{
 	"shop_usdt_address": true, "shop_usdt_apikey": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,
 	"shop_usdt_rpc_bsc": true, "shop_usdt_rpc_polygon": true, "shop_usdt_rpc_arbitrum": true, "shop_terms": true, "shop_support": true,
 	"ddns_auto_provider": true, "ddns_auto_zone": true, "ddns_auto_family": true, "ddns_auto_address": true,
+	"usage_stats": true,
 }
 
 // Report effective switch defaults only for absent rows. Explicit values,
@@ -157,6 +158,7 @@ var switchSettingDefaults = map[string]string{
 	"sub_update_interval": "1", "sub_enabled": "true", "sub_routing_enabled": "false", "sub_show_bot": "true", "sub_show_rate": "true", "sub_host_strict": "1",
 	"converter_for_users": "false", "sub_apply_ops_users": "false", "allow_private_sources": "false", "sub_skip_cert": "false", "sub_force_udp": "false",
 	"audit_changes": "false", "inbound_probe": "true",
+	"usage_stats":  "true",
 	"shop_enabled": "false", "shop_web_enabled": "false", "shop_auto_create": "true", "shop_user_rename": "true", "shop_stars": "false",
 	"shop_epay_enabled": "true", "shop_usdt_enabled": "true", "shop_code_enabled": "true",
 	"ddns_auto_address": "true",

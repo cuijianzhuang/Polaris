@@ -63,10 +63,13 @@ type Server struct {
 	hbMu                sync.Mutex
 	probeBusy           atomic.Bool // a probe round is running
 	cdnAddressCheckBusy atomic.Bool
-	statusCache         atomic.Pointer[statusSnap]          // public status page data
-	statusBuildMu       sync.Mutex                          // coalesce concurrent status rebuilds
-	statsOvCache        atomic.Pointer[statsOvSnap]         // dashboard aggregates (api_stats.go)
-	statsOvMu           sync.Mutex                          // coalesce concurrent stats rebuilds
+	statusCache         atomic.Pointer[statusSnap]  // public status page data
+	statusBuildMu       sync.Mutex                  // coalesce concurrent status rebuilds
+	statsOvCache        atomic.Pointer[statsOvSnap] // dashboard aggregates (api_stats.go)
+	statsOvMu           sync.Mutex                  // coalesce concurrent stats rebuilds
+	usageMu             sync.Mutex                  // guards the global usage-count cache
+	usageCached         usageCounts                 // license server /usage.json (usage_stats.go)
+	usageCachedAt       time.Time
 	restartHook         func()                              // tests: replaces the re-exec after a restore
 	hbCores             map[string]hbCoreState              // last core state written per node
 	progress            map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
@@ -483,6 +486,7 @@ func (s *Server) startJobs() func() {
 	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
+	add("0 53 3 * * *", "usage-stats", s.reportUsageStats) // one anonymous usage ping a day; no-op when telemetry is off
 	add("0 23 4 * * *", "certs", s.renewCertificates)
 	add("0 7 */6 * * *", "preferred-ips", s.refreshAllPreferredIPs)
 	add("0 37 */6 * * *", "cdn-dns", s.autoSyncCDNDNS)
