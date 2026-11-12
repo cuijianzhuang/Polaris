@@ -161,7 +161,7 @@ export default function Dashboard() {
           <button className="btn pri" type="button" onClick={() => nav('/users?new=1')}>{t('新建用户')}</button>
         </div>
       </div>
-      <section className="grid g4 dashboard-metrics" aria-label={t('概览')}>
+      <section className="grid dashboard-metrics" aria-label={t('概览')}>
         <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">{t('在线节点')}</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? t('{n} 个离线', { n: data.nodes.timeout }) : t('全部在线')}{data?.nodes.error ? ' · ' + t('{n} 个下发失败', { n: data.nodes.error }) : ''}</div></Link>
         <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">{t('在线用户')}</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">{t('有效 {active} · 共 {total} 个用户', { active: data?.users.active ?? 0, total: data?.users.total ?? 0 })}</div></Link>
         {data?.usage && <div className="card kpi"><span className="kpi-ico violet"><Icon.Globe /></span><div className="label">{t('在用实例')}</div><div className="val">{data.usage.instances30d}</div><div className="foot">{t('30 天内活跃 · Pro {pro} · 社区版 {community}', { pro: data.usage.pro30d, community: data.usage.community30d })}</div></div>}
