@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -62,7 +61,8 @@ const (
 var (
 	ErrNeedPassphrase = errors.New("这是加密备份，请输入备份口令")
 	ErrBadPassphrase  = errors.New("备份口令错误，或文件已损坏")
-	SealedValue       = regexp.MustCompile(`enc:v1:[A-Za-z0-9+/]+`)
+	// SealedValue matches any sealed token, v1 or v2; see secret.SealedValue.
+	SealedValue = secret.SealedValue
 )
 
 func init() {
@@ -77,6 +77,9 @@ type Manifest struct {
 	DB      string         `json:"db"`
 	Tables  map[string]int `json:"tables"`
 	WithKey bool           `json:"withKey"`
+	// KeyVersion is the kid the archive's sealed values were written
+	// with (empty for archives written before rotation support).
+	KeyVersion string `json:"keyVersion,omitempty"`
 }
 
 // --- rows ---
@@ -349,7 +352,7 @@ func InsertRows(tx *gorm.DB, m any, sch *schema.Schema, rows []map[string]any) (
 				if !ok || utf8.RuneCountInString(v) <= f.Size {
 					continue
 				}
-				if strings.Contains(v, "enc:v1:") {
+				if secret.ContainsSealed(v) {
 					return nil, fmt.Errorf("%s.%s: 加密内容超过列长度 %d，无法截断", sch.Table, f.DBName, f.Size)
 				}
 				r[f.DBName] = string([]rune(v)[:f.Size])
@@ -392,12 +395,12 @@ func ResetSequences(tx *gorm.DB, sch *schema.Schema) error {
 }
 
 // Resealer re-encrypts values sealed with from so that to opens them.
-func Resealer(from, to *secret.Box) func(string) string {
+func Resealer(from, to *secret.BoxSet) func(string) string {
 	if from == to {
 		return func(s string) string { return s }
 	}
 	return func(s string) string {
-		if !strings.Contains(s, "enc:v1:") {
+		if !secret.ContainsSealed(s) {
 			return s
 		}
 		return SealedValue.ReplaceAllStringFunc(s, func(m string) string {
@@ -583,7 +586,7 @@ func WriteArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass, versio
 		return err
 	}
 	man, _ := json.MarshalIndent(Manifest{Format: Format, Created: time.Now(), Version: version,
-		DB: st.DB.Dialector.Name(), Tables: counts, WithKey: pass != ""}, "", "  ")
+		DB: st.DB.Dialector.Name(), Tables: counts, WithKey: pass != "", KeyVersion: secret.KidFor(secretKey)}, "", "  ")
 	if err := add("manifest.json", man); err != nil {
 		return err
 	}
@@ -617,7 +620,7 @@ func WriteArchive(w io.Writer, st *store.Store, dataDir, secretKey, pass, versio
 }
 
 // ReadArchive reads a backup (encrypted or not, format 1 or 2) into memory.
-func ReadArchive(r io.Reader, pass string, box *secret.Box) (*Archive, error) {
+func ReadArchive(r io.Reader, pass string, box *secret.BoxSet) (*Archive, error) {
 	head := make([]byte, 16)
 	n, _ := io.ReadFull(r, head)
 	r = io.MultiReader(bytes.NewReader(head[:n]), io.LimitReader(r, MaxArchiveBytes))
@@ -699,7 +702,7 @@ func ReadArchive(r io.Reader, pass string, box *secret.Box) (*Archive, error) {
 	return arc, nil
 }
 
-func convertLegacyDB(db []byte, box *secret.Box) (map[string][]byte, map[string]int, error) {
+func convertLegacyDB(db []byte, box *secret.BoxSet) (map[string][]byte, map[string]int, error) {
 	dir, err := os.MkdirTemp("", "polaris-restore-")
 	if err != nil {
 		return nil, nil, err
@@ -721,28 +724,32 @@ func convertLegacyDB(db []byte, box *secret.Box) (map[string][]byte, map[string]
 	return ExportAll(st.DB)
 }
 
-// SourceBox is the box that opens the archive's sealed values: its own key
-// when it carries one, else this panel's — checked against the CA key.
-func (arc *Archive) SourceBox(box *secret.Box) (*secret.Box, error) {
-	src := box
+// SourceBoxSet is the box set that opens the archive's sealed values:
+// the panel's own keys, plus the archive's embedded key when it carries
+// one (encrypted backups), plus an explicitly supplied previous key
+// (restoring an old backup after a rotation). The archive's recorded key
+// version, when present, must be one the set knows; the CA key must open.
+func (arc *Archive) SourceBoxSet(box *secret.BoxSet, extraPrevious string) (*secret.BoxSet, error) {
+	src := box.WithKey(extraPrevious)
 	if arc.Key != "" {
-		b, err := secret.New(arc.Key)
-		if err != nil {
-			return nil, err
-		}
-		src = b
+		src = src.WithKey(arc.Key)
+	}
+	if arc.Manifest.KeyVersion != "" && !src.KnowsKid(arc.Manifest.KeyVersion) {
+		return nil, fmt.Errorf("备份使用密钥版本 %s（secret_key），当前面板不知道这个密钥；恢复时提供旧密钥（polaris restore --previous-secret-key …，或设 POLARIS_SECRET_KEY_PREVIOUS）", arc.Manifest.KeyVersion)
 	}
 	if arc.CAKey != nil {
-		if _, err := src.Open(strings.TrimSpace(string(arc.CAKey))); err != nil && strings.HasPrefix(strings.TrimSpace(string(arc.CAKey)), "enc:v1:") {
-			return nil, errors.New("无法解密备份：它来自使用不同 secret_key 的面板。请在原面板设置备份口令后重新备份（加密备份会附带密钥，可恢复到任何服务器）")
+		if _, err := src.Open(strings.TrimSpace(string(arc.CAKey))); err != nil {
+			return nil, errors.New("无法解密备份：它来自使用不同 secret_key 的面板。请在原面板设置备份口令后重新备份（加密备份会附带密钥，可恢复到任何服务器），或恢复时提供旧密钥（polaris restore --previous-secret-key …）")
 		}
 	}
 	return src, nil
 }
 
 // Validate checks an archive can be restored into this panel.
-func (arc *Archive) Validate(box *secret.Box) error {
-	if _, err := arc.SourceBox(box); err != nil {
+// extraPrevious is an old key supplied explicitly for a pre-rotation
+// backup (the panel's configured previous key is already in box).
+func (arc *Archive) Validate(box *secret.BoxSet, extraPrevious string) error {
+	if _, err := arc.SourceBoxSet(box, extraPrevious); err != nil {
 		return err
 	}
 	if len(arc.Tables["admins"]) == 0 {

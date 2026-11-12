@@ -54,7 +54,7 @@ func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box); err != nil {
+	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box, ""); err != nil {
 		t.Fatal(err)
 	}
 	sqlDB, _ := dst.DB.DB()
@@ -106,7 +106,7 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	}
 	db, _ := dst.DB.DB()
 	defer db.Close()
-	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box); err != nil {
+	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {

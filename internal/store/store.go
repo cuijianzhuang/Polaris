@@ -23,10 +23,11 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/secret"
 )
 
-// Store wraps the database and the column-encryption box.
+// Store wraps the database and the column-encryption box set (current key
+// plus, during a rotation, the previous key).
 type Store struct {
 	DB  *gorm.DB
-	Box *secret.Box
+	Box *secret.BoxSet
 
 	// Settings are read on hot paths (every subscription request, request
 	// middleware); SetSetting is the only writer, so reads come from memory.
@@ -117,7 +118,7 @@ func sqlitePragmaName(pragma string) string {
 
 // Open connects and migrates. PostgreSQL DSNs are recognised by
 // IsPostgresDSN; anything else is a SQLite file path.
-func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
+func Open(dsn string, box *secret.BoxSet, debug bool) (*Store, error) {
 	var dial gorm.Dialector
 	if IsPostgresDSN(dsn) {
 		dial = postgres.Open(dsn)
@@ -267,6 +268,17 @@ func (s *Store) GetSetting(key, def string) string {
 }
 
 // SetSetting upserts a setting.
+// InvalidateSettingsCache drops the cached settings so the next GetSetting
+// re-reads them from the database. The secret-key migration updates the
+// settings table directly (not through SetSetting), so it invalidates the
+// cache when it finishes; without this, reads would serve the old
+// ciphertext for up to settingTTL.
+func (s *Store) InvalidateSettingsCache() {
+	s.setMu.Lock()
+	s.settings = nil
+	s.setMu.Unlock()
+}
+
 func (s *Store) SetSetting(key, value string) error {
 	err := s.DB.Save(&Setting{Key: key, Value: value}).Error
 	s.setMu.Lock()

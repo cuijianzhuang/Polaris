@@ -243,7 +243,7 @@ func TestCDNRegionMetadataAndPersonalBackup(t *testing.T) {
 	}
 	db, _ := dst.DB.DB()
 	defer db.Close()
-	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box); err != nil {
+	if err = restoreArchive(dst, dir, &backupfmt.Archive{Tables: files, Manifest: backupfmt.Manifest{Format: 2}}, s.st.Box, ""); err != nil {
 		t.Fatal(err)
 	}
 	var restored store.User

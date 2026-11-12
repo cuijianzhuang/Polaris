@@ -198,7 +198,7 @@ func (s *Server) revokePortalSession(others bool) gin.HandlerFunc {
 				}
 				fresh := *cl
 				fresh.PortalEpoch = epoch.Version
-				renewed, e = jwt.NewWithClaims(jwt.SigningMethodHS256, fresh).SignedString(s.jwtKey)
+				renewed, e = s.signToken(jwt.NewWithClaims(jwt.SigningMethodHS256, fresh))
 				return e
 			}
 			return nil

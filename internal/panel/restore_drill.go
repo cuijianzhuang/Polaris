@@ -26,20 +26,20 @@ import (
 // DrillRestore works even when the production database is unavailable. It only
 // reads the archive and configuration key; stdout can be saved as a JSON report.
 // No Server, workers, listeners, payment clients or notification sinks are built.
-func DrillRestore(ctx context.Context, cfg *Config, path, pass string) (*store.RestoreDrill, error) {
+func DrillRestore(ctx context.Context, cfg *Config, path, pass, previousKey string) (*store.RestoreDrill, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	box, err := secret.New(cfg.SecretKey)
+	box, err := secret.NewBoxSet(cfg.SecretKey, cfg.SecretKeyPrevious)
 	if err != nil {
 		return nil, err
 	}
-	return runRestoreDrill(ctx, box, f, pass, filepath.Base(path)), nil
+	return runRestoreDrill(ctx, box.WithKey(previousKey), f, pass, filepath.Base(path)), nil
 }
 
-func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pass, source string) (result *store.RestoreDrill) {
+func runRestoreDrill(ctx context.Context, sourceBox *secret.BoxSet, r io.Reader, pass, source string) (result *store.RestoreDrill) {
 	result = &store.RestoreDrill{ID: store.NewID(), Source: source, Status: "failed", StartedAt: time.Now().UTC(),
 		Checks: store.NewJSON([]store.RestoreDrillCheck{}), Counts: store.NewJSON(map[string]int64{})}
 	defer func() {
@@ -82,12 +82,12 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 			age := max(int64(0), int64(time.Since(t).Seconds()))
 			result.RecoveryPointAgeSeconds = &age
 		}
-		return arc.Validate(sourceBox)
+		return arc.Validate(sourceBox, "")
 	}) {
 		return
 	}
 	if !check("source_secrets", func() error {
-		src, err := arc.SourceBox(sourceBox)
+		src, err := arc.SourceBoxSet(sourceBox, "")
 		if err != nil {
 			return err
 		}
@@ -133,7 +133,7 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 	defer os.RemoveAll(dir)
 	box := sourceBox // plain archives require the original installation key
 	if arc.Key != "" {
-		box, _ = secret.New(pki.Token(32))
+		box, _ = secret.NewBoxSet(pki.Token(32), "")
 	} // encrypted archives prove re-sealing for a new host
 	var isolated *store.Store
 	defer func() {
@@ -149,7 +149,7 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 			return errors.New("cannot open isolated database")
 		}
 		isolated.DB = isolated.DB.WithContext(ctx)
-		if err = restoreArchive(isolated, dir, arc, box); err != nil {
+		if err = restoreArchive(isolated, dir, arc, box, ""); err != nil {
 			return fmt.Errorf("isolated restore failed: %w", err)
 		}
 		return nil
@@ -277,8 +277,8 @@ func runRestoreDrill(ctx context.Context, sourceBox *secret.Box, r io.Reader, pa
 	return
 }
 
-func verifyDrillSecrets(box *secret.Box, text string) error {
-	if !strings.Contains(text, "enc:v1:") {
+func verifyDrillSecrets(box *secret.BoxSet, text string) error {
+	if !secret.ContainsSealed(text) {
 		return nil
 	}
 	values := backupfmt.SealedValue.FindAllString(text, -1)

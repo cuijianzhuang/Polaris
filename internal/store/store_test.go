@@ -27,7 +27,7 @@ func TestSQLitePragmasMergedIntoDSN(t *testing.T) {
 }
 
 func TestOpenAppliesPragmasWithQueryDSN(t *testing.T) {
-	box, _ := secret.New("k")
+	box, _ := secret.NewBoxSet("k", "")
 	// The old code only added pragmas when the DSN had no "?"; a DSN with
 	// an unrelated parameter must still end up in WAL with FKs on.
 	s, err := Open(filepath.Join(t.TempDir(), "p.db")+"?cache=shared", box, false)
@@ -61,7 +61,7 @@ func TestOpenAppliesPragmasWithQueryDSN(t *testing.T) {
 }
 
 func TestOpenAndJSON(t *testing.T) {
-	box, _ := secret.New("k")
+	box, _ := secret.NewBoxSet("k", "")
 	s, err := Open(filepath.Join(t.TempDir(), "p.db"), box, false)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestOpenAndJSON(t *testing.T) {
 // offset.
 func TestOpenStoresUTCTimestamps(t *testing.T) {
 	t.Setenv("TZ", "Asia/Shanghai")
-	box, _ := secret.New("k")
+	box, _ := secret.NewBoxSet("k", "")
 	s, err := Open(filepath.Join(t.TempDir(), "tz.db"), box, false)
 	if err != nil {
 		t.Fatal(err)

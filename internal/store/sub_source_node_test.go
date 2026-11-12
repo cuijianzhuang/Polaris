@@ -9,7 +9,7 @@ import (
 )
 
 func TestLegacySubscriptionSecretsEncryptedOnOpen(t *testing.T) {
-	box, _ := secret.New("storage-key")
+	box, _ := secret.NewBoxSet("storage-key", "")
 	path := filepath.Join(t.TempDir(), "old.db")
 	st, e := Open(path, box, false)
 	if e != nil {
@@ -32,7 +32,7 @@ func TestLegacySubscriptionSecretsEncryptedOnOpen(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, v := range []string{row.URL, row.Content, row.Cache} {
-		if !strings.HasPrefix(v, "enc:v1:") {
+		if !secret.IsSealed(v) {
 			t.Fatal("legacy plaintext", v)
 		}
 	}
@@ -40,7 +40,7 @@ func TestLegacySubscriptionSecretsEncryptedOnOpen(t *testing.T) {
 		t.Fatal("migration changed data")
 	}
 	b, _ := json.Marshal(row)
-	if strings.Contains(string(b), "enc:v1:") || strings.Contains(string(b), "secret-") || strings.Contains(string(b), "url\"") {
+	if strings.Contains(string(b), "enc:v1:") || strings.Contains(string(b), "enc:v2:") || strings.Contains(string(b), "secret-") || strings.Contains(string(b), "url\"") {
 		t.Fatal("sensitive columns escaped through API", string(b))
 	}
 }

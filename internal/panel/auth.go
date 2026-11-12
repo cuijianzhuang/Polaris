@@ -1,6 +1,8 @@
 package panel
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -51,7 +53,50 @@ func (s *Server) issueToken(a *store.Admin, gc *gin.Context, via string) (string
 		Username: a.Username,
 		Version:  a.TokenVersion,
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
+	return s.signToken(jwt.NewWithClaims(jwt.SigningMethodHS256, c))
+}
+
+// signToken signs a token with the current key and stamps the key id in
+// the header, so verification can pick the right key during a rotation.
+func (s *Server) signToken(t *jwt.Token) (string, error) {
+	if s.jwtKid != "" {
+		t.Header["kid"] = s.jwtKid
+	}
+	return t.SignedString(s.jwtKey)
+}
+
+// jwtKeyForKid returns the signing key for a kid header: the current key,
+// or the previous key during a rotation. A kid outside the configured
+// set is rejected, never trusted.
+func (s *Server) jwtKeyForKid(kid string) ([]byte, bool) {
+	switch kid {
+	case s.jwtKid:
+		return s.jwtKey, true
+	case s.jwtPrevKid:
+		if s.jwtPrevKey != nil {
+			return s.jwtPrevKey, true
+		}
+	}
+	return nil, false
+}
+
+// tokenKid reads the kid header of a token without verifying it.
+func tokenKid(tok string) string {
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	head, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return ""
+	}
+	var h struct {
+		Kid string `json:"kid"`
+	}
+	if err := json.Unmarshal(head, &h); err != nil {
+		return ""
+	}
+	return h.Kid
 }
 
 func (s *Server) parseToken(tok string) (*claims, error) {
@@ -60,12 +105,32 @@ func (s *Server) parseToken(tok string) (*claims, error) {
 		if t.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("unexpected signing method")
 		}
+		if kid, ok := t.Header["kid"].(string); ok && kid != "" {
+			if key, ok := s.jwtKeyForKid(kid); ok {
+				return key, nil
+			}
+			return nil, errors.New("unknown token key id")
+		}
 		return s.jwtKey, nil
 	})
-	if err != nil {
-		return nil, err
+	if err == nil {
+		return &c, nil
 	}
-	return &c, nil
+	// Tokens issued before rotation carry no kid and may have been signed
+	// with the previous key; retry with it. A token WITH a kid is never
+	// retried against the other key: the kid is the selector.
+	if s.jwtPrevKey != nil && tokenKid(tok) == "" {
+		var c2 claims
+		if _, err2 := jwt.ParseWithClaims(tok, &c2, func(t *jwt.Token) (any, error) {
+			if t.Method != jwt.SigningMethodHS256 {
+				return nil, errors.New("unexpected signing method")
+			}
+			return s.jwtPrevKey, nil
+		}); err2 == nil {
+			return &c2, nil
+		}
+	}
+	return nil, err
 }
 
 // authRequired validates the bearer token. Browsers cannot set headers on

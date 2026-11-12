@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/cuijianzhuang/polaris/internal/backupfmt"
+	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -107,7 +108,7 @@ func TestPasskeyRevokeKillsOnlyKeySessions(t *testing.T) {
 	}
 	code, out = c.do("GET", "/auth/passkeys", nil)
 	raw, _ := json.Marshal(out)
-	if code != 200 || strings.Contains(string(raw), "private-metadata") || strings.Contains(string(raw), "enc:v1:") || strings.Contains(string(raw), "lookup") {
+	if code != 200 || strings.Contains(string(raw), "private-metadata") || secret.ContainsSealed(string(raw)) || strings.Contains(string(raw), "lookup") {
 		t.Fatal("key metadata leaked", code, string(raw))
 	}
 	if code, out = c.do("DELETE", "/auth/passkeys/key", nil); code != 204 {
@@ -206,7 +207,7 @@ func TestPasskeyChallengesDoNotSurviveBackupRestore(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box); e != nil {
+	if e = restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box, ""); e != nil {
 		t.Fatal(e)
 	}
 	if s.eph.take("passkey:login:"+id, &consumed) {

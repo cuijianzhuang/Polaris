@@ -203,7 +203,7 @@ func TestRelayMetadataBackupRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored := newTestServer(t)
-	if err := restoreArchive(restored.st, restored.cfg.DataDir, arc, restored.st.Box); err != nil {
+	if err := restoreArchive(restored.st, restored.cfg.DataDir, arc, restored.st.Box, ""); err != nil {
 		t.Fatal(err)
 	}
 	var ep store.Endpoint

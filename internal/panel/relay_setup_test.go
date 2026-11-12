@@ -23,6 +23,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/core/coretest"
 	"github.com/cuijianzhuang/polaris/internal/core/gost"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -93,7 +94,7 @@ func TestOneClickRelayLifecycle(t *testing.T) {
 			if !ch.Managed || len(ch.Hops.V) != 3 || ch.Hops.V[2].InboundID != "in" {
 				t.Fatalf("chain %+v", ch)
 			}
-			if mode == "tunnel" && !strings.HasPrefix(ch.TunnelAuth, "enc:v1:") {
+			if mode == "tunnel" && !secret.IsSealed(ch.TunnelAuth) {
 				t.Fatal("tunnel secret is not sealed")
 			}
 			body, _ := json.Marshal(ch)

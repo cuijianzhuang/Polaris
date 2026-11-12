@@ -38,6 +38,11 @@ type Config struct {
 	RedisURL string `koanf:"redis_url"`
 	// SecretKey encrypts sensitive columns and signs JWTs. Required.
 	SecretKey string `koanf:"secret_key"`
+	// SecretKeyPrevious is the key being rotated away from, supplied only
+	// during a rotation (POLARIS_SECRET_KEY_PREVIOUS). It is never written
+	// to the database or to backups; remove it from the environment once
+	// the rotation completes. See docs/design/secret-key-rotation.md.
+	SecretKeyPrevious string `koanf:"secret_key_previous"`
 	// InitialAdmin is created on first start if no admin exists.
 	InitialAdmin struct {
 		Username string `koanf:"username"`
@@ -162,8 +167,16 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("secret_key (POLARIS_SECRET_KEY) is required")
 	}
 	// The key encrypts stored secrets and signs sessions; reject guessable ones.
-	if len(c.SecretKey) < 16 || strings.Contains(c.SecretKey, "change-me") {
-		return nil, fmt.Errorf("secret_key must be a random string of at least 16 characters, not the example value (generate one with: openssl rand -hex 32)")
+	if err := validateSecretKey(c.SecretKey); err != nil {
+		return nil, fmt.Errorf("secret_key: %w", err)
+	}
+	if c.SecretKeyPrevious != "" {
+		if err := validateSecretKey(c.SecretKeyPrevious); err != nil {
+			return nil, fmt.Errorf("secret_key_previous: %w", err)
+		}
+		if c.SecretKeyPrevious == c.SecretKey {
+			return nil, fmt.Errorf("secret_key_previous is the same as secret_key")
+		}
 	}
 	if c.Timezone != "" {
 		loc, err := time.LoadLocation(c.Timezone)
@@ -173,6 +186,15 @@ func LoadConfig(path string) (*Config, error) {
 		c.loc = loc
 	}
 	return c, nil
+}
+
+// validateSecretKey rejects guessable keys: the key encrypts stored
+// secrets and signs sessions.
+func validateSecretKey(v string) error {
+	if len(v) < 16 || strings.Contains(v, "change-me") {
+		return fmt.Errorf("must be a random string of at least 16 characters, not the example value (generate one with: openssl rand -hex 32)")
+	}
+	return nil
 }
 
 // applyJobDefaults fills any unset job interval with its historical

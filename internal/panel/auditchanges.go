@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/schema"
 
+	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -247,7 +248,7 @@ func shown(f *schema.Field, v any) any {
 	if b, ok := v.([]byte); ok {
 		v = string(b)
 	}
-	if str, ok := v.(string); ok && (sensitiveFields[f.Name] || strings.Contains(str, "enc:v1:")) {
+	if str, ok := v.(string); ok && (sensitiveFields[f.Name] || secret.ContainsSealed(str)) {
 		return "（已隐藏）"
 	}
 	if t, ok := v.(time.Time); ok {
