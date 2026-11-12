@@ -268,7 +268,7 @@ func (s *Server) personalCDNPreviewResponse(c *gin.Context, u *store.User, p *st
 			add(a, "automatic")
 		}
 		// Include the exact public audience and retained list, plus all selected fallbacks.
-		reports, _ := s.cdnAudienceReports(p, port, carrier, region)
+		reports, _, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, p, port, carrier, region)
 		public := s.cdnAddressesForPort(p, port)
 		if len(reports) > 0 {
 			public = cdnkit.MergedReportIPs(p, reports)

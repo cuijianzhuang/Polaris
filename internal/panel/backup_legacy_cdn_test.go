@@ -77,7 +77,7 @@ func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
 		t.Fatal("legacy domain not pinned", p.PinnedHosts.V)
 	}
 	dst.DB.Create(&store.CDNIPReport{Scheme: cdnkit.Scheme(&p), Port: cdnkit.DefaultPort(&p), ProfileID: p.ID, Source: "review", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.16.2.2", LatencyMs: 10}})})
-	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := rebuildCDNLists(tx, &p, time.Now(), nil); return e }); err != nil {
+	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now(), nil); return e }); err != nil {
 		t.Fatal(err)
 	}
 	if err = dst.DB.First(&p, "id = ?", "legacy").Error; err != nil {
@@ -125,7 +125,7 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	if err = dst.DB.Create(&store.CDNIPReport{ProfileID: p.ID, Source: "restored", Port: 443, Scheme: "https", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.17.1.1"}})}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := rebuildCDNLists(tx, &p, time.Now(), nil); return e }); err != nil {
+	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now(), nil); return e }); err != nil {
 		t.Fatal(err)
 	}
 	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {

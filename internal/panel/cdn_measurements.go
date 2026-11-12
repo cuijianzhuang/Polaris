@@ -15,20 +15,11 @@ func (s *Server) cdnAddressesForPort(p *store.CDNProfile, port int) []string {
 		return p.PreferredIPs.V
 	}
 	list := p.PreferredIPs.V
-	reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), "")
+	reports, _ := cdnkit.ReportsForPort(dbStore{s.st.DB}, p, port, cdnkit.SelectionCutoff(p), "")
 	if len(reports) > 0 {
 		list = cdnkit.MergedReportIPs(p, reports)
 	}
 	return list
-}
-
-// A keep policy retains the last results for each port and carrier, rather
-// than silently replacing an expired port with the default port's list.
-func cdnSelectionCutoff(p *store.CDNProfile) time.Time {
-	if p.StalePolicy == "keep" {
-		return time.Time{}
-	}
-	return time.Now().UTC().Add(-cdnkit.StaleAfter(p))
 }
 
 func (s *Server) cdnIPsForPort(p *store.CDNProfile, port int) []string {
@@ -90,7 +81,7 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 	}
 	// Apply exact-entry diagnostics to raw candidates before node filtering,
 	// so a known failure still suppresses origin fallback when all nodes fail.
-	reports, _ := s.cdnAudienceReports(p, port, carrier, cdnkit.AudienceRegion(audience))
+	reports, _, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, p, port, carrier, cdnkit.AudienceRegion(audience))
 	ips := s.cdnAddressesForPort(p, port)
 	if len(reports) > 0 {
 		ips = cdnkit.MergedReportIPs(p, reports)

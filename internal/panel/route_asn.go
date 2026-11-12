@@ -47,7 +47,7 @@ func decodeRouteASNPolicy(value string) (routedb.Policy, error) {
 }
 
 func readRouteASNPolicy(db *gorm.DB) (routedb.Policy, error) {
-	return readRouteDatabasePolicy(db, routeASNPolicyKey, errRouteASNInvalid)
+	return routedb.ReadPolicy(dbStore{db}, routeASNPolicyKey, errRouteASNInvalid)
 }
 
 func (s *Server) loadRouteASN(hash string) (*asn.Database, string) {

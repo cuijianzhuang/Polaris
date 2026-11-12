@@ -60,18 +60,8 @@ type routeDatabaseKind[DB any] struct {
 	invalidPolicyJSON bool
 }
 
-func readRouteDatabasePolicy(db *gorm.DB, key string, invalid error) (routedb.Policy, error) {
-	var row store.Setting
-	err := db.First(&row, "key = ?", key).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return routedb.Policy{}, nil
-	}
-	if err != nil {
-		return routedb.Policy{}, err
-	}
-	return routedb.DecodePolicy(row.Value, invalid)
-}
-
+// readRouteDatabasePolicy lives in routedb now (store.go); the SQL is
+// dbStore in db_store.go.
 func lockRouteDatabasePolicy(tx *gorm.DB, key string) (store.Setting, error) {
 	row := store.Setting{Key: key, Value: `{"enabled":false,"sha256":"","revision":0}`}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
@@ -120,7 +110,7 @@ func loadRouteDatabase[DB any](s *Server, kind routeDatabaseKind[DB], hash strin
 }
 
 func getRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKind[DB], load func(string) (DB, string)) {
-	p, err := readRouteDatabasePolicy(s.st.DB, kind.policyKey, kind.invalidPolicy)
+	p, err := routedb.ReadPolicy(dbStore{s.st.DB}, kind.policyKey, kind.invalidPolicy)
 	if err != nil {
 		if kind.invalidPolicyJSON && errors.Is(err, kind.invalidPolicy) {
 			c.JSON(http.StatusOK, gin.H{"policy": routedb.Policy{}, "databaseState": "invalid_policy", "database": nil, "effectiveEnabled": false})
@@ -152,7 +142,7 @@ func lookupRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKi
 		badRequest(c, errors.New("请输入有效的 IPv4 或 IPv6 地址"))
 		return
 	}
-	p, err := readRouteDatabasePolicy(s.st.DB, kind.policyKey, kind.invalidPolicy)
+	p, err := routedb.ReadPolicy(dbStore{s.st.DB}, kind.policyKey, kind.invalidPolicy)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -178,7 +168,7 @@ func putRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKind[
 		badRequest(c, errors.New("expectedRevision 无效"))
 		return
 	}
-	prior, readErr := readRouteDatabasePolicy(s.st.DB, kind.policyKey, kind.invalidPolicy)
+	prior, readErr := routedb.ReadPolicy(dbStore{s.st.DB}, kind.policyKey, kind.invalidPolicy)
 	if req.Enabled {
 		if readErr != nil {
 			serverError(c, readErr)

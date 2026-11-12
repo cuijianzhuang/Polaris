@@ -69,8 +69,12 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 		out = append(out, problem)
 	}
 	target := s.cdnTargetFor(ep, &m, p)
-	if target.Port != cdnkit.DefaultPort(p) && len(sharedCDNReports(s.st.DB, p, time.Now().UTC().Add(-cdnkit.StaleAfter(p)), "")) > 0 && len(cdnReportsForPort(s.st.DB, p, target.Port, time.Now().UTC().Add(-cdnkit.StaleAfter(p)), "")) == 0 {
-		out = append(out, fmt.Sprintf("当前入口端口 %d 没有对应测速结果，其他端口的测速不能证明该端口可用", target.Port))
+	if target.Port != cdnkit.DefaultPort(p) {
+		if fresh, _ := cdnkit.SharedReports(dbStore{s.st.DB}, p, time.Now().UTC().Add(-cdnkit.StaleAfter(p)), ""); len(fresh) > 0 {
+			if portReports, _ := cdnkit.ReportsForPort(dbStore{s.st.DB}, p, target.Port, time.Now().UTC().Add(-cdnkit.StaleAfter(p)), ""); len(portReports) == 0 {
+				out = append(out, fmt.Sprintf("当前入口端口 %d 没有对应测速结果，其他端口的测速不能证明该端口可用", target.Port))
+			}
+		}
 	}
 	host := orDefault(ep.Host, p.OriginDomain)
 	if w := s.cdnCertProblem(&m, p, host); w != "" {

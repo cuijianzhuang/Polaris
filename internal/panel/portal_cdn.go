@@ -47,7 +47,7 @@ func (s *Server) cdnSelectionText(p *store.CDNProfile, carrier, region string, p
 		available := cdnkit.UsableIPsAt(p, personal, port)
 		return fmt.Sprintf("个人优选：%d 个手动候选，%d 个通过公共规则筛选；实际订阅同时过滤个人禁用和检测失败的地址，无可用个人地址时使用公共池", len(personal), len(available))
 	}
-	_, mode := s.cdnAudienceReports(p, port, carrier, region)
+	_, mode, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, p, port, carrier, region)
 	switch mode {
 	case "region_carrier":
 		return "已匹配同地区、同运营商的测速结果"

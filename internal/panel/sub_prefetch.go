@@ -32,7 +32,7 @@ type subPrefetch struct {
 	// Report cutoff per profile, fixed at build time so every cached
 	// report fetch in this render uses the same instant.
 	cutoffs map[string]time.Time
-	// CDN report cache, keyed by the exact inputs of cdnReportsForPort.
+	// CDN report cache, keyed by the exact inputs of cdnkit.ReportsForPort.
 	reports map[cdnReportKey][]store.CDNIPReport
 	// cdnAddressesForPort results, keyed the same way (carrier/region "").
 	addresses map[cdnReportKey][]string
@@ -104,7 +104,7 @@ func (s *Server) buildSubPrefetch(ins []store.Inbound, all []store.Inbound) *sub
 		s.st.DB.Where("id IN ?", profileIDs).Find(&ps)
 		for _, p := range ps {
 			pre.profiles[p.ID] = p
-			pre.cutoffs[p.ID] = cdnSelectionCutoff(&p)
+			pre.cutoffs[p.ID] = cdnkit.SelectionCutoff(&p)
 		}
 	}
 	for _, in := range ins {
@@ -181,7 +181,7 @@ func (pre *subPrefetch) frontBlocker(in *store.Inbound, port int) string {
 	return ""
 }
 
-// reportsForPort mirrors cdnReportsForPort, cached per (profile, port,
+// reportsForPort mirrors cdnkit.ReportsForPort, cached per (profile, port,
 // carrier, region) for the lifetime of this render.
 func (pre *subPrefetch) reportsForPort(p *store.CDNProfile, port int, carrier, region string) []store.CDNIPReport {
 	key := cdnReportKey{profileID: p.ID, port: port, carrier: carrier, region: region}
@@ -192,12 +192,12 @@ func (pre *subPrefetch) reportsForPort(p *store.CDNProfile, port int, carrier, r
 	if region != "" {
 		regions = []string{region}
 	}
-	rs := cdnReportsForPort(pre.s.st.DB, p, port, pre.cutoffs[p.ID], carrier, regions...)
+	rs, _ := cdnkit.ReportsForPort(dbStore{pre.s.st.DB}, p, port, pre.cutoffs[p.ID], carrier, regions...)
 	pre.reports[key] = rs
 	return rs
 }
 
-// audienceReports mirrors Server.cdnAudienceReports, reading reports from
+// audienceReports mirrors cdnkit.AudienceReports, reading reports from
 // the per-render cache instead of the database.
 func (pre *subPrefetch) audienceReports(p *store.CDNProfile, port int, carrier, region string) ([]store.CDNIPReport, string) {
 	if p.RegionSplit && region != "" {

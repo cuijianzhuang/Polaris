@@ -62,35 +62,8 @@ func (s *Server) subRegion(r *http.Request, u *store.User) string {
 	return s.regionOfIP(clientIP(r))
 }
 
-// Reports are isolated by the actual protocol and port before audience ranking.
-// Known carrier: exact province+carrier, then that carrier nationwide, then merged.
-// Unknown carrier: the province's reports, then merged. Old unlabeled reports
-// still participate in the merged pool, or infer province from their source name.
-func (s *Server) cdnAudienceReports(p *store.CDNProfile, port int, carrier, region string) ([]store.CDNIPReport, string) {
-	if p.RegionSplit && region != "" {
-		filterCarrier := ""
-		if p.CarrierSplit {
-			filterCarrier = carrier
-		}
-		reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), filterCarrier, region)
-		if len(reports) > 0 {
-			if filterCarrier != "" {
-				return reports, "region_carrier"
-			}
-			return reports, "region"
-		}
-	}
-	if p.CarrierSplit && carrier != "" {
-		reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), carrier)
-		if len(reports) > 0 {
-			return reports, "carrier"
-		}
-	}
-	return nil, "merged"
-}
-
 func (s *Server) cdnAudienceIPs(p *store.CDNProfile, port int, carrier, region string) []string {
-	rs, _ := s.cdnAudienceReports(p, port, carrier, region)
+	rs, _, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, p, port, carrier, region)
 	if len(rs) == 0 {
 		return nil
 	}

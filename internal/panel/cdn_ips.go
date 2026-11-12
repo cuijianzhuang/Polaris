@@ -120,7 +120,7 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 			return err
 		}
 		var err error
-		lists, recovered, err = rebuildCDNLists(tx, &p, now, nil)
+		lists, recovered, err = cdnkit.RebuildLists(dbStore{tx}, &p, now, nil)
 		return err
 	})
 	if err != nil {
@@ -151,97 +151,8 @@ func lockCDNReports(tx *gorm.DB) error {
 	return tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", "polaris-cdn-reports").Error
 }
 
-// rebuildCDNLists rebuilds the preferred lists that origin's reports feed:
-// Cloudflare profiles using the same HTTP/HTTPS scheme, or origin alone
-// for another provider. A profile with
-// fresh reports gets them merged, plus its typed-in domains; one with none
-// keeps its list without the removed addresses (a retired point's). It
-// returns the new lists and the profiles whose stale alert it cleared.
-func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, removed []string, removedPorts ...int) (map[string][]string, []store.CDNProfile, error) {
-	var targets []store.CDNProfile
-	q := tx.Where("id = ?", origin.ID)
-	if origin.Provider == "cloudflare" {
-		q = tx.Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnkit.Scheme(origin))
-	}
-	if err := q.Find(&targets).Error; err != nil {
-		return nil, nil, err
-	}
-	lists := map[string][]string{}
-	var recovered []store.CDNProfile
-	for i := range targets {
-		t := &targets[i]
-		var upd map[string]any
-		if reports := sharedCDNReports(tx, t, now.Add(-cdnkit.StaleAfter(t)), ""); len(reports) > 0 {
-			list := cdnkit.MergedReportIPs(t, reports)
-			upd = map[string]any{"preferred_ips": store.NewJSON(list), "last_refresh_at": now, "last_error": "", "stale_alerted": false}
-			lists[t.ID] = list
-			if t.StaleAlerted {
-				recovered = append(recovered, *t)
-			}
-		} else if len(removed) > 0 && (len(removedPorts) == 0 || slices.Contains(removedPorts, cdnkit.DefaultPort(t))) {
-			kept := slices.DeleteFunc(slices.Clone(t.PreferredIPs.V), func(ip string) bool {
-				return slices.Contains(removed, ip) && !slices.Contains(t.PinnedHosts.V, ip)
-			})
-			upd = map[string]any{"preferred_ips": store.NewJSON(nonNilStrs(kept))}
-			lists[t.ID] = kept
-		} else {
-			continue
-		}
-		if err := tx.Model(t).Updates(upd).Error; err != nil {
-			return nil, nil, err
-		}
-	}
-	return lists, recovered, nil
-}
-
-// sharedCDNReports is the reports a profile's list is built from since a
-// time: Cloudflare profiles with the same HTTP/HTTPS scheme (its own
-// otherwise), the newest per speed-test point, optionally of one carrier.
-func sharedCDNReports(db *gorm.DB, p *store.CDNProfile, since time.Time, carrier string) []store.CDNIPReport {
-	return cdnReportsForPort(db, p, cdnkit.DefaultPort(p), since, carrier)
-}
-
-func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Time, carrier string, regions ...string) []store.CDNIPReport {
-	q := db.Model(&store.CDNIPReport{}).Where("at > ?", since)
-	q = q.Where("COALESCE(NULLIF(port,0),443) = ?", port).Where("COALESCE(NULLIF(scheme,''),'https') = ?", cdnkit.Scheme(p))
-	if p.Provider == "cloudflare" {
-		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnkit.Scheme(p)))
-	} else {
-		q = q.Where("profile_id = ?", p.ID)
-	}
-	if carrier != "" {
-		q = q.Where("carrier = ?", carrier)
-	}
-	var rs []store.CDNIPReport
-	q.Order("at DESC").Find(&rs)
-	seen := map[string]bool{}
-	out := rs[:0]
-	for _, r := range rs {
-		if len(regions) > 0 && regions[0] != "" && cdnkit.EffectiveRegion(r) != regions[0] {
-			continue
-		}
-		if !seen[r.Source] {
-			seen[r.Source] = true
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
-// cdnReports returns the reports of the given profiles, newest first.
-func (s *Server) cdnReports(ids []string) map[string][]store.CDNIPReport {
-	out := map[string][]store.CDNIPReport{}
-	if len(ids) == 0 {
-		return out
-	}
-	var rs []store.CDNIPReport
-	s.st.DB.Where("profile_id IN ?", ids).Order("at DESC").Find(&rs)
-	for _, r := range rs {
-		r.Region = cdnkit.EffectiveRegion(r)
-		out[r.ProfileID] = append(out[r.ProfileID], r)
-	}
-	return out
-}
+// rebuildCDNLists lives in cdnkit now (lists.go); the SQL is dbStore in
+// db_store.go. The callers below pass the transaction through it.
 
 // deleteCDNIPReport is DELETE /cdn-profiles/:id/ip-reports/:source: forget
 // a speed-test point that was retired, and revoke its paired token.
@@ -277,7 +188,7 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 		for _, r := range gone {
 			ports = append(ports, cdnkit.EffectiveReportPort(r))
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), cdnkit.ReportIPs(gone), ports...)
+		_, _, err := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now().UTC(), cdnkit.ReportIPs(gone), ports...)
 		return err
 	})
 	if err != nil {
@@ -291,7 +202,8 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 // cdnFreshReport reports whether a speed-test point reported within the
 // stale window: the scheduled URL refresh then leaves the list alone.
 func (s *Server) cdnFreshReport(p *store.CDNProfile, now time.Time) bool {
-	return len(sharedCDNReports(s.st.DB, p, now.Add(-cdnkit.StaleAfter(p)), "")) > 0
+	rs, _ := cdnkit.SharedReports(dbStore{s.st.DB}, p, now.Add(-cdnkit.StaleAfter(p)), "")
+	return len(rs) > 0
 }
 
 // checkCDNReportsStale alerts once per profile whose speed-test points all
@@ -304,7 +216,7 @@ func (s *Server) checkCDNReportsStale() {
 		p := &ps[i]
 		// The newest report this profile's list is built from: its own or,
 		// for a Cloudflare profile, any Cloudflare profile's.
-		rs := sharedCDNReports(s.st.DB, p, time.Time{}, "")
+		rs, _ := cdnkit.SharedReports(dbStore{s.st.DB}, p, time.Time{}, "")
 		if len(rs) == 0 {
 			continue // no speed-test point: nothing to watch
 		}

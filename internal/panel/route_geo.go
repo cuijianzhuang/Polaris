@@ -49,7 +49,7 @@ func decodeRouteGeoPolicy(value string) (routedb.Policy, error) {
 }
 
 func readRouteGeoPolicy(db *gorm.DB) (routedb.Policy, error) {
-	return readRouteDatabasePolicy(db, routeGeoPolicyKey, errRouteGeoPolicy)
+	return routedb.ReadPolicy(dbStore{db}, routeGeoPolicyKey, errRouteGeoPolicy)
 }
 
 func (s *Server) loadRouteGeo(hash string) (*geoip.Database, string) {

@@ -384,7 +384,7 @@ func (s *Server) listCDN(c *gin.Context) {
 	}
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
 	serves := s.cdnServes(ids)
-	reports := s.cdnReports(ids)
+	reports, _ := cdnkit.ReportsByProfiles(dbStore{s.st.DB}, ids)
 	probes := s.cdnProbes(ids)
 	// Read once: list queries stay flat.
 	cdnTok, dnsTok := s.st.GetSetting("cdn_cf_token", "") != "", s.st.GetSetting("acme_cf_token", "") != ""
@@ -645,7 +645,7 @@ func (s *Server) deleteCDN(c *gin.Context) {
 		if len(gone) == 0 {
 			return nil
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), cdnkit.ReportIPs(gone))
+		_, _, err := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now().UTC(), cdnkit.ReportIPs(gone))
 		return err
 	})
 	if err != nil {
@@ -965,10 +965,12 @@ func cdnAutoSourceNeeded(db *gorm.DB, before, current *store.CDNProfile) bool {
 	if current.IPSourceURL != before.IPSourceURL || current.Provider != before.Provider || cdnkit.Scheme(current) != cdnkit.Scheme(before) || cdnkit.DefaultPort(current) != cdnkit.DefaultPort(before) {
 		return false
 	}
-	if len(sharedCDNReports(db, current, time.Now().UTC().Add(-cdnkit.StaleAfter(current)), "")) > 0 {
+	fresh, _ := cdnkit.SharedReports(dbStore{db}, current, time.Now().UTC().Add(-cdnkit.StaleAfter(current)), "")
+	if len(fresh) > 0 {
 		return false
 	}
-	return current.StalePolicy != "keep" || len(sharedCDNReports(db, current, time.Time{}, "")) == 0
+	any, _ := cdnkit.SharedReports(dbStore{db}, current, time.Time{}, "")
+	return current.StalePolicy != "keep" || len(any) == 0
 }
 
 // A failed old fetch must not restore an error already cleared by a fresh report.
@@ -1032,7 +1034,14 @@ func (s *Server) refreshAllPreferredIPs() {
 	s.st.DB.Where("ip_source_url <> ''").Find(&ps)
 	now := time.Now()
 	for i := range ps {
-		if s.cdnFreshReport(&ps[i], now) || (ps[i].StalePolicy == "keep" && len(sharedCDNReports(s.st.DB, &ps[i], time.Time{}, "")) > 0) {
+		fresh := s.cdnFreshReport(&ps[i], now)
+		if !fresh && ps[i].StalePolicy == "keep" {
+			// A keep policy with any report at all is still maintained
+			// by its speed-test points, however old.
+			rs, _ := cdnkit.SharedReports(dbStore{s.st.DB}, &ps[i], time.Time{}, "")
+			fresh = len(rs) > 0
+		}
+		if fresh {
 			continue // speed-test points maintain this list
 		}
 		if _, err := s.refreshPreferredIPs(context.Background(), &ps[i], true); err != nil {

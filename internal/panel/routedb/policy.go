@@ -1,8 +1,10 @@
 // Package routedb holds the Server-independent policy of a route MMDB
 // database (ASN or city/geo): its on-disk snapshot is named by SHA-256,
 // and the stored policy says whether it is enabled and which snapshot is
-// installed. Loading, uploading and serving the database stay in package
-// panel; only the policy encoding lives here.
+// installed. The settings row is read through the SettingStore interface
+// (store.go), which package panel implements with gorm. Loading,
+// uploading and serving the database stay in package panel; only the
+// policy encoding lives here.
 package routedb
 
 import (

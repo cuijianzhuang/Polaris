@@ -123,7 +123,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 	if !p.CarrierSplit {
 		reportCarrier = ""
 	}
-	reports := cdnReportsForPort(s.st.DB, &p, port, time.Time{}, reportCarrier)
+	reports, _ := cdnkit.ReportsForPort(dbStore{s.st.DB}, &p, port, time.Time{}, reportCarrier)
 	seen := map[string]bool{}
 	items := []cdnAddressRow{}
 	for _, a := range addresses {
@@ -195,7 +195,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		}
 		items = append(items, row)
 	}
-	_, matchMode := s.cdnAudienceReports(&p, port, carrier, region)
+	_, matchMode, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, &p, port, carrier, region)
 	c.JSON(200, gin.H{"schedule": cdnAddressSchedule(&p), "contexts": contexts, "region": region, "regions": s.cdnRegionOptions(), "matchMode": matchMode, "selectionMessage": s.cdnSelectionText(&p, carrier, region, nil, port), "context": chosen, "items": items, "selected": selected, "scheme": cdnkit.Scheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnkit.StaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
 }
 func (s *Server) checkCDNAddress(c *gin.Context) {
