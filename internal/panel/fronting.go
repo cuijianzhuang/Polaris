@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -63,7 +64,7 @@ func frontProfile(db *gorm.DB, inboundID string) (frontInfo, bool) {
 	db.Where("inbound_id = ? AND kind = ?", inboundID, "cdn").Find(&eps)
 	for _, ep := range eps {
 		var p store.CDNProfile
-		if db.First(&p, "id = ?", ep.CDNProfileID).Error != nil || !p.CaddyFronting || cdnScheme(&p) == "http" {
+		if db.First(&p, "id = ?", ep.CDNProfileID).Error != nil || !p.CaddyFronting || cdnkit.Scheme(&p) == "http" {
 			continue
 		}
 		port := ep.Port

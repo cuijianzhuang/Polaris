@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -84,7 +85,7 @@ func TestCDNAddressToolsPreviewAndCheck(t *testing.T) {
 	s.st.DB.First(&current, "id = ?", p.ID)
 	current.NodeCheck = true
 	current.BadIPs = store.NewJSON([]string{"104.16.1.1"})
-	if got := usableCDNIPsAt(&current, []string{"127.0.0.1", "keep.example.com"}, pn); len(got) != 0 {
+	if got := cdnkit.UsableIPsAt(&current, []string{"127.0.0.1", "keep.example.com"}, pn); len(got) != 0 {
 		t.Fatal("fail-open bypassed blacklist", got)
 	}
 	if code, _ := admin.do("PUT", "/cdn-profiles/tools/address-policy", map[string]any{"stalePolicy": "keep"}); code != 400 {
@@ -121,10 +122,10 @@ func TestCDNStructuredPhases(t *testing.T) {
 		return []string{"127.0.0.1"}, nil
 	}
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
-	probe := func(ctx context.Context, target cdnTarget) cdnCheck {
+	probe := func(ctx context.Context, target cdnkit.Target) cdnkit.Check {
 		return probeCDNWithNetwork(ctx, target, model.TransWS, "", dialer, fakeLookup, true)
 	}
-	stage := func(t *testing.T, r cdnCheck, kind string) (cdnStage, bool) {
+	stage := func(t *testing.T, r cdnkit.Check, kind string) (cdnkit.Stage, bool) {
 		t.Helper()
 		for _, s := range r.Stages {
 			if s.Kind == kind {
@@ -132,9 +133,9 @@ func TestCDNStructuredPhases(t *testing.T) {
 			}
 		}
 		t.Errorf("missing phase %s in %+v", kind, r)
-		return cdnStage{}, false
+		return cdnkit.Stage{}, false
 	}
-	check := func(t *testing.T, r cdnCheck, want map[string]string) {
+	check := func(t *testing.T, r cdnkit.Check, want map[string]string) {
 		t.Helper()
 		for kind, state := range want {
 			s, ok := stage(t, r, kind)
@@ -150,13 +151,13 @@ func TestCDNStructuredPhases(t *testing.T) {
 	// the others (the old t.Fatal in stage() hid the TLS case whenever the
 	// DNS case failed first).
 	t.Run("tcp refusal is not a TLS failure", func(t *testing.T) {
-		target := cdnTarget{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
+		target := cdnkit.Target{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		check(t, probe(ctx, target), map[string]string{"tcp": "failed", "tls": "not_tested"})
 	})
 	t.Run("DNS failure is isolated", func(t *testing.T) {
-		target := cdnTarget{Scheme: "https", Provider: "other", Server: "missing-cdn-address.invalid", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
+		target := cdnkit.Target{Scheme: "https", Provider: "other", Server: "missing-cdn-address.invalid", Port: 1, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		check(t, probe(ctx, target), map[string]string{"address_dns": "failed", "tcp": "not_tested"})
@@ -166,7 +167,7 @@ func TestCDNStructuredPhases(t *testing.T) {
 		defer edge.Close()
 		_, port, _ := net.SplitHostPort(edge.Listener.Addr().String())
 		pn, _ := strconv.Atoi(port)
-		target := cdnTarget{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: pn, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
+		target := cdnkit.Target{Scheme: "https", Provider: "other", Server: "127.0.0.1", Port: pn, SNI: "127.0.0.1", Host: "localhost", Path: "/ws"}
 		check(t, probe(context.Background(), target), map[string]string{"tcp": "passed", "tls": "failed", "http": "not_tested"})
 	})
 }

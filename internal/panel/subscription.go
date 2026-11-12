@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -54,7 +54,7 @@ func (s *Server) subscription(c *gin.Context) {
 	title := s.st.GetSetting("site_title", "Polaris")
 	info := sub.Info{Title: title, Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown, Total: u.TrafficLimit,
 		Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
-	info.URL = cdnExplicitSelectionURL(info.URL, c.Request)
+	info.URL = cdnkit.ExplicitSelectionURL(info.URL, c.Request.URL.Query())
 	var nodes []sub.Node
 	if s.servedUser(&u) && deviceOK {
 		var err error
@@ -100,7 +100,7 @@ func (s *Server) subNodesFor(u *store.User, carrier string, regions ...string) (
 }
 
 func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace map[string][]sub.Node) ([]sub.Node, error) {
-	audience := cdnAudience{Region: region, Personal: u.CDNPreferred.V, Pools: u.CDNPool.V}
+	audience := cdnkit.Audience{Region: region, Personal: u.CDNPreferred.V, Pools: u.CDNPool.V}
 	var ins []store.Inbound
 	err := s.st.DB.Table("inbounds").Select("DISTINCT inbounds.*").
 		Joins("JOIN ("+store.GrantsSQL+") grants ON grants.inbound_id = inbounds.id").
@@ -290,7 +290,7 @@ func (s *Server) clientNode(m *model.Inbound, node *store.Node, u *store.User) s
 }
 
 func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[string]string, nameTpl string,
-	nodes map[string]*store.Node, chains []store.Chain, m *model.Inbound, src *store.Inbound, pre *subPrefetch, carrier string, audience ...cdnAudience) []sub.Node {
+	nodes map[string]*store.Node, chains []store.Chain, m *model.Inbound, src *store.Inbound, pre *subPrefetch, carrier string, audience ...cdnkit.Audience) []sub.Node {
 	name := func(kind string) string {
 		v := map[string]string{}
 		for k, x := range vars {
@@ -339,7 +339,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		} else if err := s.st.DB.First(&p, "id = ?", ep.CDNProfileID).Error; err != nil || !m.CDNCapable() {
 			return nil
 		}
-		if cdnTunnel(&p) && cdnTunnelProblem(m, &p, ep.Port) != "" {
+		if cdnkit.Tunnel(&p) && cdnkit.TunnelProblem(m, &p, ep.Port) != "" {
 			return nil
 		}
 		// The entry's own Host (one per node sharing the profile) is the
@@ -353,11 +353,11 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		} else {
 			_, fronted = s.frontFor(m.ID)
 		}
-		n.Port = cdnNodePort(&p, m.Port, fronted && p.CaddyFronting)
-		if p.Provider == "cloudflare" && !cdnTunnel(&p) && ep.Port == 0 && !(fronted && p.CaddyFronting) && m.Port != cdnOriginPort(&p, n.Port) {
+		n.Port = cdnkit.NodePort(&p, m.Port, fronted && p.CaddyFronting)
+		if p.Provider == "cloudflare" && !cdnkit.Tunnel(&p) && ep.Port == 0 && !(fronted && p.CaddyFronting) && m.Port != cdnkit.OriginPort(&p, n.Port) {
 			return nil
 		}
-		if cdnScheme(&p) == "http" {
+		if cdnkit.Scheme(&p) == "http" {
 			n.TLS = model.ClientTLS{Type: model.SecNone}
 		} else {
 			if n.TLS.Type == model.SecNone || n.TLS.Type == "" {
@@ -379,8 +379,8 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			} else if err := s.st.DB.First(&row, "id = ?", m.ID).Error; err != nil {
 				return nil
 			}
-			revision := cdnHealthRevision(row, &p)
-			var target cdnTarget
+			revision := cdnkit.HealthRevision(row, &p)
+			var target cdnkit.Target
 			if pre != nil {
 				target = pre.cdnTarget(&ep, m, &p)
 			} else {
@@ -388,7 +388,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 			}
 			keep = func(address string) bool {
 				target.Server = address
-				if cdnAddressFailureAt(&p, ep.ID, target, m.Transport.Type, revision) != nil || (len(audience) > 0 && personalCDNFailure(audience[0].Pools[p.ID], ep.ID, target, m.Transport.Type, revision) != nil) {
+				if cdnkit.AddressFailureAt(&p, ep.ID, target, m.Transport.Type, revision) != nil || (len(audience) > 0 && personalCDNFailure(audience[0].Pools[p.ID], ep.ID, target, m.Transport.Type, revision) != nil) {
 					excluded = true
 					return false
 				}
@@ -398,7 +398,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 		// An entry with its own address uses it, not the preferred IPs.
 		if !p.ExpandPerIP || ep.Address != "" {
 			personalAllowed := len(audience) == 0 || personalCDNAllowed(audience[0].Pools[p.ID], n.Server, n.Port)
-			if !personalAllowed || len(usableCDNIPsAt(&p, []string{n.Server}, n.Port)) == 0 || (keep != nil && !keep(n.Server)) {
+			if !personalAllowed || len(cdnkit.UsableIPsAt(&p, []string{n.Server}, n.Port)) == 0 || (keep != nil && !keep(n.Server)) {
 				return nil
 			}
 			n.Name = name("CDN")
@@ -415,7 +415,7 @@ func (s *Server) expandEndpoint(base sub.Node, ep store.Endpoint, vars map[strin
 				return nil
 			}
 			personalAllowed := len(audience) == 0 || personalCDNAllowed(audience[0].Pools[p.ID], n.Server, n.Port)
-			if !personalAllowed || len(usableCDNIPsAt(&p, []string{n.Server}, n.Port)) == 0 || (keep != nil && !keep(n.Server)) {
+			if !personalAllowed || len(cdnkit.UsableIPsAt(&p, []string{n.Server}, n.Port)) == 0 || (keep != nil && !keep(n.Server)) {
 				return nil
 			}
 			n.Name = name("CDN")
@@ -577,16 +577,4 @@ func (s *Server) agentSHA(arch string) string {
 	sum := hex.EncodeToString(h.Sum(nil))
 	agentSHACache.Store(p, shaEntry{fi.ModTime(), fi.Size(), sum})
 	return sum
-}
-
-// cdnNodePort keeps ports proxied for the selected client scheme; otherwise
-// it uses the profile's first port (for fronting / explicit origin rewrites).
-func cdnNodePort(p *store.CDNProfile, inboundPort int, fronted bool) int {
-	if cdnTunnel(p) {
-		return 443
-	}
-	if fronted || !slices.Contains(cdnClientPorts(p), inboundPort) {
-		return cdnDefaultPort(p)
-	}
-	return inboundPort
 }

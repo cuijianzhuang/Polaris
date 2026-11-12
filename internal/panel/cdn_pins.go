@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -76,7 +77,7 @@ func normalizeCDNBlockedHosts(input []string) ([]string, error) {
 func setCDNPinnedHosts(p *store.CDNProfile, hosts, oldPinned []string) {
 	list := slices.DeleteFunc(slices.Clone(p.PreferredIPs.V), func(a string) bool { return slices.Contains(oldPinned, a) })
 	p.PinnedHosts = store.NewJSON(hosts)
-	p.PreferredIPs = store.NewJSON(nonNilStrs(withPinned(list, hosts)))
+	p.PreferredIPs = store.NewJSON(nonNilStrs(cdnkit.WithPinned(list, hosts)))
 }
 
 // This narrow update never submits an old copy of the speed-test results or

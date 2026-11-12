@@ -11,11 +11,9 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
-
-// cloudflareHTTPSPorts are the HTTPS ports Cloudflare proxies.
-var cloudflareHTTPSPorts = []int{443, 2053, 2083, 2087, 2096, 8443}
 
 // createCDNSibling is POST /inbounds/:id/cdn-sibling {cdnProfileId}: for an
 // inbound that cannot go through a CDN (TCP, REALITY, UDP protocols), add a
@@ -58,8 +56,8 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	}
 	// A port the CDN proxies that nothing on the node uses: the profile's
 	// own ports first, then the ports for the selected client scheme.
-	candidates := append(slices.Clone(p.Ports.V), cdnClientPorts(&p)...)
-	if cdnTunnel(&p) {
+	candidates := append(slices.Clone(p.Ports.V), cdnkit.ClientPorts(&p)...)
+	if cdnkit.Tunnel(&p) {
 		m.Listen = "127.0.0.1"
 		candidates = nil
 		for port := 18080; port < 19080; port++ {
@@ -75,19 +73,19 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	for _, port := range candidates {
 		originPort := port
 		if p.Provider == "cloudflare" {
-			originPort = cdnOriginPort(&p, port)
+			originPort = cdnkit.OriginPort(&p, port)
 		}
 		if port <= 0 || used[originPort] {
 			continue
 		}
 		m.Port = originPort
 		m.Security = model.SecuritySpec{Type: model.SecTLS, ServerName: host}
-		if !cdnOriginTLSAt(&p, port) {
+		if !cdnkit.OriginTLSAt(&p, port) {
 			m.Security = model.SecuritySpec{Type: model.SecNone}
 		}
 		if s.portConflict(node.ID, &m, "") == nil {
 			clientPort = port
-			if cdnTunnel(&p) {
+			if cdnkit.Tunnel(&p) {
 				clientPort = 443
 			}
 			break
@@ -104,7 +102,7 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 		groups = []string{} // the source had none: keep it that way rather than the defaults
 	}
 	remark := "CDN · " + orDefault(src.Remark, src.Tag)
-	if cdnTunnel(&p) {
+	if cdnkit.Tunnel(&p) {
 		row, err := s.insertInbound(&node, &m, inboundMeta{Remark: remark, OutboundTag: src.OutboundTag, SpeedLimitMbps: src.SpeedLimitMbps, CDNProfileID: p.ID, CDNOnly: true}, groups)
 		if err != nil {
 			badRequest(c, err)
@@ -125,7 +123,7 @@ func (s *Server) createCDNSibling(c *gin.Context) {
 	// origin address in subscriptions.
 	s.st.DB.Where("inbound_id = ? AND kind = ?", row.ID, "direct").Delete(&store.Endpoint{})
 	sib := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: "cdn", CDNProfileID: p.ID}
-	if cdnNodePort(&p, m.Port, false) != clientPort {
+	if cdnkit.NodePort(&p, m.Port, false) != clientPort {
 		sib.Port = clientPort
 	}
 	assignCDNHost(s.st.DB, &sib, node.ID)

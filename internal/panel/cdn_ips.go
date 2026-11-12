@@ -1,17 +1,12 @@
 package panel
 
 import (
-	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
-	"net/netip"
-	"regexp"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -36,16 +32,9 @@ import (
 // check finds them working again.
 
 const (
-	cdnReportMaxIPs     = 200
-	cdnStaleDefault     = 24 // hours
 	cdnNodeCheckNodes   = 3
 	cdnNodeCheckMaxIPs  = 60
 	cdnNodeCheckWorkers = 8
-)
-
-var (
-	cdnSourceRe = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,39}$`)
-	cdnColoRe   = regexp.MustCompile(`^[A-Z0-9]{2,5}$`)
 )
 
 type cdnIPReportReq struct {
@@ -55,104 +44,6 @@ type cdnIPReportReq struct {
 	Region  string              `json:"region"`
 	Carrier string              `json:"carrier"` // ct / cu / cm; "" = infer from source
 	IPs     []store.CDNIPResult `json:"ips"`
-}
-
-// checkCDNReport validates and ranks a report: lowest loss first, then
-// fastest download (points that ran one), then lowest latency; duplicates
-// keep their best result.
-func checkCDNReport(req cdnIPReportReq) ([]store.CDNIPResult, error) {
-	if !cdnSourceRe.MatchString(req.Source) {
-		return nil, errors.New("source 为测速点名称，例如「上海电信」，最长 40 个字符")
-	}
-	if len(req.IPs) == 0 || len(req.IPs) > cdnReportMaxIPs {
-		return nil, fmt.Errorf("每次上报 1–%d 个 IP", cdnReportMaxIPs)
-	}
-	seen := map[string]int{}
-	out := make([]store.CDNIPResult, 0, len(req.IPs))
-	for _, r := range req.IPs {
-		addr, err := netip.ParseAddr(strings.TrimSpace(r.IP))
-		if err != nil {
-			return nil, fmt.Errorf("%q 不是 IP 地址", r.IP)
-		}
-		addr = addr.Unmap()
-		if !addr.IsGlobalUnicast() || addr.IsPrivate() {
-			return nil, fmt.Errorf("%s 不是公网 IP", addr)
-		}
-		if r.LatencyMs < 0 || r.LatencyMs > 60000 || r.Loss < 0 || r.Loss > 1 {
-			return nil, fmt.Errorf("%s 的延迟或丢包率不合理（latencyMs 0–60000，loss 0–1）", addr)
-		}
-		if r.Speed < 0 || r.Speed > 100000 {
-			return nil, fmt.Errorf("%s 的下载速度不合理（speed 为 MB/s，0–100000）", addr)
-		}
-		colo := strings.ToUpper(strings.TrimSpace(r.Colo))
-		if colo != "" && !cdnColoRe.MatchString(colo) {
-			return nil, fmt.Errorf("%s 的机房代码 %q 不合理（例如 HKG）", addr, r.Colo)
-		}
-		ip := addr.String()
-		result := store.CDNIPResult{IP: ip, LatencyMs: r.LatencyMs, Loss: r.Loss, Speed: r.Speed, Colo: colo}
-		if i, exists := seen[ip]; exists {
-			if compareCDNIPResults(result, out[i]) < 0 {
-				out[i] = result
-			}
-			continue
-		}
-		seen[ip] = len(out)
-		out = append(out, result)
-	}
-
-	slices.SortStableFunc(out, compareCDNIPResults)
-	return out, nil
-}
-
-// Deduplication and sorting must use the same loss/speed/latency ranking.
-func compareCDNIPResults(a, b store.CDNIPResult) int {
-	return cmp.Or(cmp.Compare(a.Loss, b.Loss), cmp.Compare(b.Speed, a.Speed), cmp.Compare(a.LatencyMs, b.LatencyMs))
-}
-
-// cdnMergedReportIPs merges speed-test reports into the preferred list,
-// with pinned hosts kept in place. Shared by subscription rendering, the
-// operator preview and the scheduled list rebuild.
-func cdnMergedReportIPs(p *store.CDNProfile, reports []store.CDNIPReport) []string {
-	return withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
-}
-
-// cdnUsableReportIPs is cdnMergedReportIPs with the node-check filter applied.
-func cdnUsableReportIPs(p *store.CDNProfile, reports []store.CDNIPReport, port int) []string {
-	return usableCDNIPsAt(p, cdnMergedReportIPs(p, reports), port)
-}
-
-// mergeCDNReports builds the preferred list from several points: their
-// best IPs in turn (first of each, then second of each...), so every
-// carrier's favourites come early. Sources are taken in name order.
-func mergeCDNReports(reports []store.CDNIPReport) []string {
-	slices.SortFunc(reports, func(a, b store.CDNIPReport) int { return strings.Compare(a.Source, b.Source) })
-	seen := map[string]bool{}
-	var out []string
-	for i := 0; ; i++ {
-		more := false
-		for _, r := range reports {
-			if i >= len(r.IPs.V) {
-				continue
-			}
-			more = true
-			if ip := r.IPs.V[i].IP; !seen[ip] {
-				seen[ip] = true
-				out = append(out, ip)
-			}
-		}
-		if !more {
-			return out
-		}
-	}
-}
-
-// cdnStaleAfter is how long a profile may go without a report.
-func cdnStaleAfter(p *store.CDNProfile) time.Duration {
-	h := p.StaleHours
-	if h <= 0 {
-		h = cdnStaleDefault
-	}
-	return time.Duration(h) * time.Hour
 }
 
 // postCDNIPReport is POST /cdn-profiles/:id/preferred-ips {source, ips}.
@@ -172,17 +63,17 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	ips, err := checkCDNReport(req)
+	ips, err := cdnkit.CheckReport(req.Source, req.IPs)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	carrier, err := reportCarrier(req)
+	carrier, err := cdnkit.ReportCarrier(req.Carrier, req.Source)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	region, err := reportRegion(req)
+	region, err := cdnkit.ReportRegion(req.Region, req.Source)
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -205,7 +96,7 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		}
 		req.Port = token.CDNPort
 		if req.Scheme == "" {
-			req.Scheme = cdnScheme(&p)
+			req.Scheme = cdnkit.Scheme(&p)
 		}
 	}
 	now := time.Now().UTC()
@@ -219,7 +110,7 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 		if err := tx.First(&p, "id = ?", p.ID).Error; err != nil {
 			return err
 		}
-		port, scheme, targetErr := cdnReportTarget(req, &p)
+		port, scheme, targetErr := cdnkit.ReportTarget(req.Port, req.Scheme, &p)
 		if targetErr != nil {
 			reportProblem = targetErr
 			return targetErr
@@ -270,7 +161,7 @@ func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, remov
 	var targets []store.CDNProfile
 	q := tx.Where("id = ?", origin.ID)
 	if origin.Provider == "cloudflare" {
-		q = tx.Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnScheme(origin))
+		q = tx.Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnkit.Scheme(origin))
 	}
 	if err := q.Find(&targets).Error; err != nil {
 		return nil, nil, err
@@ -280,14 +171,14 @@ func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, remov
 	for i := range targets {
 		t := &targets[i]
 		var upd map[string]any
-		if reports := sharedCDNReports(tx, t, now.Add(-cdnStaleAfter(t)), ""); len(reports) > 0 {
-			list := cdnMergedReportIPs(t, reports)
+		if reports := sharedCDNReports(tx, t, now.Add(-cdnkit.StaleAfter(t)), ""); len(reports) > 0 {
+			list := cdnkit.MergedReportIPs(t, reports)
 			upd = map[string]any{"preferred_ips": store.NewJSON(list), "last_refresh_at": now, "last_error": "", "stale_alerted": false}
 			lists[t.ID] = list
 			if t.StaleAlerted {
 				recovered = append(recovered, *t)
 			}
-		} else if len(removed) > 0 && (len(removedPorts) == 0 || slices.Contains(removedPorts, cdnDefaultPort(t))) {
+		} else if len(removed) > 0 && (len(removedPorts) == 0 || slices.Contains(removedPorts, cdnkit.DefaultPort(t))) {
 			kept := slices.DeleteFunc(slices.Clone(t.PreferredIPs.V), func(ip string) bool {
 				return slices.Contains(removed, ip) && !slices.Contains(t.PinnedHosts.V, ip)
 			})
@@ -303,29 +194,18 @@ func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, remov
 	return lists, recovered, nil
 }
 
-// reportIPs lists the addresses of reports.
-func reportIPs(rs []store.CDNIPReport) []string {
-	var out []string
-	for _, r := range rs {
-		for _, x := range r.IPs.V {
-			out = append(out, x.IP)
-		}
-	}
-	return out
-}
-
 // sharedCDNReports is the reports a profile's list is built from since a
 // time: Cloudflare profiles with the same HTTP/HTTPS scheme (its own
 // otherwise), the newest per speed-test point, optionally of one carrier.
 func sharedCDNReports(db *gorm.DB, p *store.CDNProfile, since time.Time, carrier string) []store.CDNIPReport {
-	return cdnReportsForPort(db, p, cdnDefaultPort(p), since, carrier)
+	return cdnReportsForPort(db, p, cdnkit.DefaultPort(p), since, carrier)
 }
 
 func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Time, carrier string, regions ...string) []store.CDNIPReport {
 	q := db.Model(&store.CDNIPReport{}).Where("at > ?", since)
-	q = q.Where("COALESCE(NULLIF(port,0),443) = ?", port).Where("COALESCE(NULLIF(scheme,''),'https') = ?", cdnScheme(p))
+	q = q.Where("COALESCE(NULLIF(port,0),443) = ?", port).Where("COALESCE(NULLIF(scheme,''),'https') = ?", cdnkit.Scheme(p))
 	if p.Provider == "cloudflare" {
-		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnScheme(p)))
+		q = q.Where("profile_id IN (?)", db.Model(&store.CDNProfile{}).Select("id").Where("provider = ?", "cloudflare").Where("COALESCE(NULLIF(scheme, ''), 'https') = ?", cdnkit.Scheme(p)))
 	} else {
 		q = q.Where("profile_id = ?", p.ID)
 	}
@@ -337,7 +217,7 @@ func cdnReportsForPort(db *gorm.DB, p *store.CDNProfile, port int, since time.Ti
 	seen := map[string]bool{}
 	out := rs[:0]
 	for _, r := range rs {
-		if len(regions) > 0 && regions[0] != "" && effectiveCDNRegion(r) != regions[0] {
+		if len(regions) > 0 && regions[0] != "" && cdnkit.EffectiveRegion(r) != regions[0] {
 			continue
 		}
 		if !seen[r.Source] {
@@ -357,7 +237,7 @@ func (s *Server) cdnReports(ids []string) map[string][]store.CDNIPReport {
 	var rs []store.CDNIPReport
 	s.st.DB.Where("profile_id IN ?", ids).Order("at DESC").Find(&rs)
 	for _, r := range rs {
-		r.Region = effectiveCDNRegion(r)
+		r.Region = cdnkit.EffectiveRegion(r)
 		out[r.ProfileID] = append(out[r.ProfileID], r)
 	}
 	return out
@@ -395,9 +275,9 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 		}
 		ports := []int{}
 		for _, r := range gone {
-			ports = append(ports, effectiveCDNReportPort(r))
+			ports = append(ports, cdnkit.EffectiveReportPort(r))
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), reportIPs(gone), ports...)
+		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), cdnkit.ReportIPs(gone), ports...)
 		return err
 	})
 	if err != nil {
@@ -411,7 +291,7 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 // cdnFreshReport reports whether a speed-test point reported within the
 // stale window: the scheduled URL refresh then leaves the list alone.
 func (s *Server) cdnFreshReport(p *store.CDNProfile, now time.Time) bool {
-	return len(sharedCDNReports(s.st.DB, p, now.Add(-cdnStaleAfter(p)), "")) > 0
+	return len(sharedCDNReports(s.st.DB, p, now.Add(-cdnkit.StaleAfter(p)), "")) > 0
 }
 
 // checkCDNReportsStale alerts once per profile whose speed-test points all
@@ -429,7 +309,7 @@ func (s *Server) checkCDNReportsStale() {
 			continue // no speed-test point: nothing to watch
 		}
 		last := rs[0]
-		if now.Sub(last.At) < cdnStaleAfter(p) {
+		if now.Sub(last.At) < cdnkit.StaleAfter(p) {
 			continue
 		}
 		if err := s.st.DB.Model(p).Update("stale_alerted", true).Error; err != nil {
@@ -499,7 +379,7 @@ func (s *Server) checkCDNIPsFromNodes() {
 		}
 		if changed {
 			upd := map[string]any{"port_checks": store.NewJSON(checks)}
-			if check, ok := checks[strconv.Itoa(cdnDefaultPort(p))]; ok {
+			if check, ok := checks[strconv.Itoa(cdnkit.DefaultPort(p))]; ok {
 				upd["bad_ips"] = store.NewJSON(check.BadIPs)
 				upd["checked_at"] = check.At
 			}
@@ -516,7 +396,7 @@ func (s *Server) checkCDNIPsFromNodes() {
 // cdnUnreachable returns the IPs (of the first cdnNodeCheckMaxIPs) that
 // failed from every node.
 func (s *Server) cdnUnreachable(ctx context.Context, p *store.CDNProfile, nodes []string) []string {
-	bad, _ := s.cdnUnreachablePort(ctx, p, nodes, cdnDefaultPort(p))
+	bad, _ := s.cdnUnreachablePort(ctx, p, nodes, cdnkit.DefaultPort(p))
 	return bad
 }
 func (s *Server) cdnUnreachablePort(ctx context.Context, p *store.CDNProfile, nodes []string, port int) ([]string, bool) {
@@ -561,10 +441,4 @@ func nonNilReports(rs []store.CDNIPReport) []store.CDNIPReport {
 		return []store.CDNIPReport{}
 	}
 	return rs
-}
-
-// usableCDNIPs is the profile's preferred list without the IPs the node
-// check marked bad.
-func usableCDNIPs(p *store.CDNProfile) []string {
-	return usableCDNIPsAt(p, p.PreferredIPs.V, cdnDefaultPort(p))
 }

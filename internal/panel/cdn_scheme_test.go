@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -27,12 +28,12 @@ func TestCDNSchemePortsAndSubscriptions(t *testing.T) {
 	id := out["id"].(string)
 	var p store.CDNProfile
 	s.st.DB.First(&p, "id = ?", id)
-	if p.Scheme != "http" || !slices.Equal(p.Ports.V, cloudflareHTTPPorts) {
+	if p.Scheme != "http" || !slices.Equal(p.Ports.V, cdnkit.HTTPPorts) {
 		t.Fatalf("HTTP defaults: %+v", p)
 	}
-	for _, port := range cloudflareHTTPPorts {
+	for _, port := range cdnkit.HTTPPorts {
 		m := model.Inbound{Port: port, Transport: model.TransportSpec{Type: model.TransWS}, Security: model.SecuritySpec{Type: model.SecNone}}
-		if problem := cdnProblem(&m, &p, 0, false); problem != "" {
+		if problem := cdnkit.Problem(&m, &p, 0, false); problem != "" {
 			t.Errorf("port %d: %s", port, problem)
 		}
 		nodes := s.expandEndpoint(sub.Node{Port: port}, store.Endpoint{Kind: "cdn", CDNProfileID: id}, map[string]string{}, "{kind}", nil, nil, &m, nil, nil, "")
@@ -43,16 +44,16 @@ func TestCDNSchemePortsAndSubscriptions(t *testing.T) {
 		if target.Scheme != "http" || target.Port != port {
 			t.Fatalf("HTTP probe target: %+v", target)
 		}
-		for _, badPort := range cloudflareHTTPSPorts {
-			if cdnProblem(&m, &p, badPort, false) == "" {
+		for _, badPort := range cdnkit.HTTPSPorts {
+			if cdnkit.Problem(&m, &p, badPort, false) == "" {
 				t.Errorf("HTTP accepts HTTPS port %d", badPort)
 			}
 		}
 	}
 	for _, scheme := range []string{"http", "https", ""} {
-		ports := cloudflareHTTPSPorts
+		ports := cdnkit.HTTPSPorts
 		if scheme == "http" {
-			ports = cloudflareHTTPPorts
+			ports = cdnkit.HTTPPorts
 		}
 		req := cdnReq{Name: "x", OriginDomain: "cdn.example.com", Scheme: scheme, Ports: ports}
 		if err := req.normalize(); err != nil {
@@ -77,11 +78,11 @@ func TestCDNSchemePortsAndSubscriptions(t *testing.T) {
 	tls.Security.Type = model.SecTLS
 	httpP := &store.CDNProfile{Scheme: "http", Provider: "cloudflare"}
 	httpsP := &store.CDNProfile{Scheme: "https", Provider: "cloudflare", TLSMode: "full"}
-	if cdnProblem(&tls, httpP, 8080, false) == "" || cdnProblem(plain, httpsP, 443, false) == "" {
+	if cdnkit.Problem(&tls, httpP, 8080, false) == "" || cdnkit.Problem(plain, httpsP, 443, false) == "" {
 		t.Fatal("origin TLS mismatch accepted")
 	}
 	plain.Transport.Type = model.TransGRPC
-	if cdnProblem(plain, httpP, 80, false) == "" {
+	if cdnkit.Problem(plain, httpP, 80, false) == "" {
 		t.Fatal("Cloudflare gRPC over HTTP accepted")
 	}
 	req := cdnReq{Name: "bad", OriginDomain: "cdn.example.com", Scheme: "http", CaddyFronting: true}
@@ -154,7 +155,7 @@ func TestProbeCDNHTTP(t *testing.T) {
 	defer srv.Close()
 	host, ps, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	port, _ := strconv.Atoi(ps)
-	target := cdnTarget{Scheme: "http", Server: host, Port: port, SNI: host, Host: "cdn.example.com", Path: "/ws"}
+	target := cdnkit.Target{Scheme: "http", Server: host, Port: port, SNI: host, Host: "cdn.example.com", Path: "/ws"}
 	result := probeCDN(context.Background(), target, model.TransWS, "")
 	if !result.OK || result.Status != 101 || !strings.Contains(strings.Join(result.Steps, " "), "HTTP 连上") {
 		t.Fatalf("HTTP handshake: %+v", result)

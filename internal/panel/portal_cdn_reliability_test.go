@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
 )
@@ -163,7 +164,7 @@ func TestPersonalCDNEntryScopedResultsAndPreview(t *testing.T) {
 	}
 	target := entry.Target
 	target.Server = "104.20.9.9"
-	pool := store.PersonalCDNPool{EndpointChecks: map[string]store.PersonalCDNCheck{cdnFailureSlot("re", target.Server): {At: time.Now(), Failed: true, Fingerprint: cdnCheckKey("re", target, entry.Transport, entry.Revision)}}}
+	pool := store.PersonalCDNPool{EndpointChecks: map[string]store.PersonalCDNCheck{cdnkit.FailureSlot("re", target.Server): {At: time.Now(), Failed: true, Fingerprint: cdnkit.CheckKey("re", target, entry.Transport, entry.Revision)}}}
 	s.st.DB.Model(&u).Update("cdn_pool", store.NewJSON(map[string]store.PersonalCDNPool{"regional": pool}))
 	code, body := a.req("POST", "/u/cdn-pool", map[string]any{"profileId": "regional", "action": "preview"}, true)
 	if code != 200 {
@@ -226,7 +227,7 @@ func TestPersonalCDNExactTransportProbe(t *testing.T) {
 	defer func() { cdnProbeRoots = previous }()
 	host, portText, _ := net.SplitHostPort(strings.TrimPrefix(edge.URL, "https://"))
 	port, _ := strconv.Atoi(portText)
-	target := cdnTarget{Provider: "other", Scheme: "https", Server: host, Port: port, SNI: "example.com", Host: "host.example.com", Path: "/actual-path"}
+	target := cdnkit.Target{Provider: "other", Scheme: "https", Server: host, Port: port, SNI: "example.com", Host: "host.example.com", Path: "/actual-path"}
 	// httptest's default certificate covers example.com; use an explicit DNS name
 	// and verify the exact Host/path and validated SNI sent over the connection.
 	result := probeCDNWithNetwork(context.Background(), target, model.TransWS, "", &net.Dialer{Timeout: time.Second}, func(_ context.Context, host string) ([]string, error) {

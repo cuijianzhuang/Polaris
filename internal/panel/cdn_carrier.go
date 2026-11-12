@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -20,9 +21,6 @@ import (
 // database (Settings → network checks). When none of these is known, or no
 // fresh report from that carrier exists, the profile's merged list is used.
 
-// Carriers: China Telecom, China Unicom, China Mobile.
-var cdnCarriers = map[string]string{"ct": "电信", "cu": "联通", "cm": "移动"}
-
 // carrierASNs maps the main mainland backbone and metro ASNs to a carrier.
 var carrierASNs = map[uint32]string{
 	4134: "ct", 4809: "ct", 4812: "ct", 4811: "ct", 4813: "ct", 4816: "ct", 23724: "ct", 134774: "ct", 136188: "ct", 140061: "ct", 58466: "ct", 137693: "ct", 134420: "ct",
@@ -30,44 +28,16 @@ var carrierASNs = map[uint32]string{
 	9808: "cm", 56040: "cm", 56041: "cm", 56042: "cm", 56044: "cm", 56046: "cm", 56047: "cm", 56048: "cm", 24400: "cm", 24444: "cm", 24445: "cm", 24547: "cm", 38019: "cm", 132525: "cm", 134810: "cm",
 }
 
-// carrierFromName reads a carrier from a speed-test point's name, e.g.
-// "上海电信" or "Beijing Unicom".
-func carrierFromName(name string) string {
-	n := strings.ToLower(name)
-	switch {
-	case strings.Contains(n, "电信") || strings.Contains(n, "telecom") || strings.Contains(n, "chinanet"):
-		return "ct"
-	case strings.Contains(n, "联通") || strings.Contains(n, "unicom"):
-		return "cu"
-	case strings.Contains(n, "移动") || strings.Contains(n, "mobile") || strings.Contains(n, "cmcc"):
-		return "cm"
-	}
-	return ""
-}
-
-// reportCarrier is the carrier a report counts for: the one it names, or
-// the one its source name implies.
-func reportCarrier(req cdnIPReportReq) (string, error) {
-	c := strings.ToLower(strings.TrimSpace(req.Carrier))
-	if c == "" {
-		return carrierFromName(req.Source), nil
-	}
-	if _, ok := cdnCarriers[c]; !ok {
-		return "", errors.New("carrier 只能是 ct（电信）、cu（联通）、cm（移动）或留空")
-	}
-	return c, nil
-}
-
 // subCarrier resolves the carrier for a subscription request.
 func (s *Server) subCarrier(r *http.Request, u *store.User) string {
 	if c := strings.ToLower(r.URL.Query().Get("carrier")); c != "" {
-		if _, ok := cdnCarriers[c]; ok {
+		if cdnkit.ValidCarrier(c) {
 			return c
 		}
 		if c != "auto" {
 			return ""
 		}
-	} else if _, ok := cdnCarriers[u.CDNCarrier]; ok {
+	} else if cdnkit.ValidCarrier(u.CDNCarrier) {
 		return u.CDNCarrier
 	}
 	return s.carrierOfIP(clientIP(r))
@@ -94,7 +64,7 @@ func (s *Server) carrierOfIP(ip string) string {
 // that carrier's speed-test points, merged and filtered like the main list.
 // nil when there is none, and the caller falls back to the main list.
 func (s *Server) carrierCDNIPs(p *store.CDNProfile, carrier string, ports ...int) []string {
-	port := cdnDefaultPort(p)
+	port := cdnkit.DefaultPort(p)
 	if len(ports) > 0 {
 		port = ports[0]
 	}
@@ -122,7 +92,7 @@ func (s *Server) portalCarrier(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	if _, ok := cdnCarriers[req.Carrier]; !ok && req.Carrier != "" {
+	if !cdnkit.ValidCarrier(req.Carrier) && req.Carrier != "" {
 		badRequest(c, errors.New("请选择电信、联通、移动或自动"))
 		return
 	}

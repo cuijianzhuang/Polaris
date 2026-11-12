@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -101,12 +102,12 @@ func (s *Server) cdnScheduledTasks(p *store.CDNProfile) ([]cdnScheduledTask, str
 			addresses = append(addresses, entry.Target.Server)
 		}
 		for _, address := range addresses {
-			if address == "" || cdnAddressBlocked(p, address) {
+			if address == "" || cdnkit.AddressBlocked(p, address) {
 				continue
 			}
 			target := entry.Target
 			target.Server = address
-			key := cdnCheckKey(entry.EndpointID, target, entry.Transport, entry.Revision)
+			key := cdnkit.CheckKey(entry.EndpointID, target, entry.Transport, entry.Revision)
 			if seen[key] {
 				continue
 			}
@@ -200,8 +201,8 @@ func (s *Server) runCDNAddressCheckBatch(parent context.Context, p store.CDNProf
 		}
 		target := task.context.Target
 		target.Server = task.address
-		result := cdnAddressResult{Target: target, EndpointID: task.context.EndpointID, CheckedAt: time.Now(), Viewpoint: "panel"}
-		result.cdnCheck = probeCDNTarget(ctx, target, task.context.Transport, task.origin)
+		result := cdnkit.AddressResult{Target: target, EndpointID: task.context.EndpointID, CheckedAt: time.Now(), Viewpoint: "panel"}
+		result.Check = probeCDNTarget(ctx, target, task.context.Transport, task.origin)
 		if ctx.Err() != nil {
 			break
 		} // shutdown/batch timeout is not an address failure

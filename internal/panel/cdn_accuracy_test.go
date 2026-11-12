@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -44,7 +45,7 @@ func TestCDNProbeVerdicts(t *testing.T) {
 	defer srv.Close()
 	host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	pn, _ := strconv.Atoi(port)
-	target := cdnTarget{Scheme: "http", Server: host, Port: pn, SNI: host, Host: "cdn.example.com", Path: "/ws"}
+	target := cdnkit.Target{Scheme: "http", Server: host, Port: pn, SNI: host, Host: "cdn.example.com", Path: "/ws"}
 	for _, tr := range []model.Transport{model.TransWS, model.TransHTTPUpgrade, model.TransGRPC, model.TransXHTTP} {
 		for _, code := range []int{301, 401, 403, 429, 500, 522} {
 			status.Store(int32(code))
@@ -140,7 +141,7 @@ func TestCDNPortMeasurementsAndChecks(t *testing.T) {
 	if len(nodes) != 1 || nodes[0].Server != "104.16.2.2" || nodes[0].Port != 8443 {
 		t.Fatalf("8443 subscription did not use matching checks: %+v", nodes)
 	}
-	if got := usableCDNIPsAt(&p, p.PreferredIPs.V, 2053); len(got) != 2 {
+	if got := cdnkit.UsableIPsAt(&p, p.PreferredIPs.V, 2053); len(got) != 2 {
 		t.Fatalf("443 verdict leaked into unmeasured port: %v", got)
 	}
 	stop()
@@ -191,24 +192,24 @@ func TestCDNPairedMeasurementPort(t *testing.T) {
 func TestCDNRejectsImplicitOriginPortRewrite(t *testing.T) {
 	p := &store.CDNProfile{Provider: "cloudflare", Ports: store.NewJSON([]int{443})}
 	m := &model.Inbound{Port: 31000, Transport: model.TransportSpec{Type: model.TransWS}, Security: model.SecuritySpec{Type: model.SecTLS}}
-	if got := cdnProblem(m, p, 0, false); !strings.Contains(got, "不能自动映射") {
+	if got := cdnkit.Problem(m, p, 0, false); !strings.Contains(got, "不能自动映射") {
 		t.Fatalf("implicit rewrite accepted: %s", got)
 	}
-	if got := cdnProblem(m, p, 443, false); got != "" {
+	if got := cdnkit.Problem(m, p, 443, false); got != "" {
 		t.Fatalf("explicit external rule rejected: %s", got)
 	}
-	if got := cdnProblem(m, p, 0, true); got != "" {
+	if got := cdnkit.Problem(m, p, 0, true); got != "" {
 		t.Fatalf("managed Caddy rejected: %s", got)
 	}
 	p.TLSMode = "flexible"
 	m.Port = 80
 	m.Security.Type = model.SecNone
-	if got := cdnProblem(m, p, 0, false); got != "" {
+	if got := cdnkit.Problem(m, p, 0, false); got != "" {
 		t.Fatalf("native Flexible 443 -> 80 rejected: %s", got)
 	}
 	m.Port = 8443
 	m.Security.Type = model.SecTLS
-	if got := cdnProblem(m, p, 0, false); got != "" {
+	if got := cdnkit.Problem(m, p, 0, false); got != "" {
 		t.Fatalf("Flexible non-443 Full fallback rejected: %s", got)
 	}
 }

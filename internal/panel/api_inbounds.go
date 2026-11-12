@@ -12,6 +12,7 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -226,7 +227,7 @@ func (s *Server) createInbound(c *gin.Context) {
 func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundMeta, groupIDs []string) (store.Inbound, error) {
 	if meta.CDNProfileID != "" {
 		var p store.CDNProfile
-		if s.st.DB.First(&p, "id = ?", meta.CDNProfileID).Error == nil && cdnTunnel(&p) && !meta.CDNOnly {
+		if s.st.DB.First(&p, "id = ?", meta.CDNProfileID).Error == nil && cdnkit.Tunnel(&p) && !meta.CDNOnly {
 			return store.Inbound{}, fmt.Errorf("Tunnel 入站必须选择只走 CDN，不能同时发布直连入口")
 		}
 	}
@@ -676,7 +677,7 @@ func (s *Server) deleteEndpoint(c *gin.Context) {
 			return res.Error
 		}
 		deleted = res.RowsAffected > 0
-		if deleted && cdnTunnel(&p) {
+		if deleted && cdnkit.Tunnel(&p) {
 			var remaining int64
 			if err := tx.Model(&store.Endpoint{}).Where("inbound_id = ?", endpoint.InboundID).Count(&remaining).Error; err != nil {
 				return err
@@ -779,7 +780,7 @@ func (s *Server) checkCDNEndpoint(m *model.Inbound, inboundID string, relayAcces
 	if problem := s.cdnEndpointProblem(m, inboundID, &p, port); problem != "" {
 		return errors.New(problem)
 	}
-	if cdnTunnel(&p) {
+	if cdnkit.Tunnel(&p) {
 		if relayAccess {
 			return fmt.Errorf("Tunnel 回源不能同时启用中转来源限制")
 		}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -146,7 +147,7 @@ func (pre *subPrefetch) frontProfile(inboundID string) (frontInfo, bool) {
 			continue
 		}
 		p, ok := pre.profiles[ep.CDNProfileID]
-		if !ok || !p.CaddyFronting || cdnScheme(&p) == "http" {
+		if !ok || !p.CaddyFronting || cdnkit.Scheme(&p) == "http" {
 			continue
 		}
 		port := ep.Port
@@ -229,12 +230,12 @@ func (pre *subPrefetch) addressesForPort(p *store.CDNProfile, port int) []string
 		return list
 	}
 	var list []string
-	if port == cdnDefaultPort(p) {
+	if port == cdnkit.DefaultPort(p) {
 		list = p.PreferredIPs.V
 	} else {
 		list = p.PreferredIPs.V
 		if reports := pre.reportsForPort(p, port, "", ""); len(reports) > 0 {
-			list = cdnMergedReportIPs(p, reports)
+			list = cdnkit.MergedReportIPs(p, reports)
 		}
 	}
 	pre.addresses[key] = list
@@ -243,13 +244,13 @@ func (pre *subPrefetch) addressesForPort(p *store.CDNProfile, port int) []string
 
 // cdnIPsForPort mirrors Server.cdnIPsForPort on the cached addresses.
 func (pre *subPrefetch) cdnIPsForPort(p *store.CDNProfile, port int) []string {
-	return usableCDNIPsAt(p, pre.addressesForPort(p, port), port)
+	return cdnkit.UsableIPsAt(p, pre.addressesForPort(p, port), port)
 }
 
 // selectedCDNIPs mirrors Server.selectedCDNIPsWhere, except the report
 // and address lookups come from the per-render cache. The personal
 // audience branch, keep filtering and top-N/pin handling are unchanged.
-func (pre *subPrefetch) selectedCDNIPs(p *store.CDNProfile, port int, carrier string, keep func(string) bool, audience ...cdnAudience) []string {
+func (pre *subPrefetch) selectedCDNIPs(p *store.CDNProfile, port int, carrier string, keep func(string) bool, audience ...cdnkit.Audience) []string {
 	filter := func(ips []string) []string {
 		if keep == nil {
 			return ips
@@ -258,13 +259,13 @@ func (pre *subPrefetch) selectedCDNIPs(p *store.CDNProfile, port int, carrier st
 	}
 	if len(audience) > 0 {
 		personal := slices.Clone(audience[0].Personal[p.ID])
-		for _, address := range personalCDNAutomatic(audience[0].Pools[p.ID], port, cdnScheme(p), time.Now()) {
+		for _, address := range personalCDNAutomatic(audience[0].Pools[p.ID], port, cdnkit.Scheme(p), time.Now()) {
 			if !slices.Contains(personal, address) {
 				personal = append(personal, address)
 			}
 		}
 		personal = slices.DeleteFunc(personal, func(address string) bool { return !personalCDNAllowed(audience[0].Pools[p.ID], address, port) })
-		if ips := usableCDNIPsAt(p, filter(personal), port); len(ips) > 0 {
+		if ips := cdnkit.UsableIPsAt(p, filter(personal), port); len(ips) > 0 {
 			return ips
 		}
 	}
@@ -275,12 +276,12 @@ func (pre *subPrefetch) selectedCDNIPs(p *store.CDNProfile, port int, carrier st
 		}
 		return len(audience) == 0 || personalCDNAllowed(audience[0].Pools[p.ID], a, port)
 	}
-	reports, _ := pre.audienceReports(p, port, carrier, audienceRegion(audience))
+	reports, _ := pre.audienceReports(p, port, carrier, cdnkit.AudienceRegion(audience))
 	ips := pre.addressesForPort(p, port)
 	if len(reports) > 0 {
-		ips = cdnMergedReportIPs(p, reports)
+		ips = cdnkit.MergedReportIPs(p, reports)
 	}
-	ips = usableCDNIPsAt(p, filter(ips), port)
+	ips = cdnkit.UsableIPsAt(p, filter(ips), port)
 	if p.IPTopN > 0 {
 		var automatic, pinned []string
 		for _, a := range ips {
@@ -297,10 +298,10 @@ func (pre *subPrefetch) selectedCDNIPs(p *store.CDNProfile, port int, carrier st
 
 // cdnTarget mirrors Server.cdnTargetFor, except the fronting lookup and
 // the preferred-IP lookup come from the prefetch instead of the database.
-func (pre *subPrefetch) cdnTarget(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnTarget {
+func (pre *subPrefetch) cdnTarget(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnkit.Target {
 	front, fronted := pre.frontByID(m.ID)
 	host := orDefault(ep.Host, p.OriginDomain)
-	t := cdnTarget{Provider: p.Provider, OriginPort: m.Port, Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
+	t := cdnkit.Target{Provider: p.Provider, OriginPort: m.Port, Scheme: cdnkit.Scheme(p), Server: host, Port: cdnkit.NodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
 	if m.Transport.Type == model.TransGRPC {
 		t.Path = "/" + m.Transport.ServiceName
 	}

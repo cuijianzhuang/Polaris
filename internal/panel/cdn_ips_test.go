@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -174,11 +175,11 @@ func TestCDNIPsNodeCheck(t *testing.T) {
 	if fmt.Sprint(p.BadIPs.V) != "[104.16.0.3]" || p.CheckedAt == nil {
 		t.Fatalf("bad IPs = %v checked=%v", p.BadIPs.V, p.CheckedAt)
 	}
-	if got := usableCDNIPs(&p); fmt.Sprint(got) != "[104.16.0.1 104.16.0.2]" {
+	if got := cdnkit.UsableIPs(&p); fmt.Sprint(got) != "[104.16.0.1 104.16.0.2]" {
 		t.Fatalf("usable = %v", got)
 	}
 	p.NodeCheck = false
-	if got := usableCDNIPs(&p); len(got) != 3 {
+	if got := cdnkit.UsableIPs(&p); len(got) != 3 {
 		t.Fatalf("check off still filters: %v", got)
 	}
 	stop1()
@@ -190,7 +191,7 @@ func TestCDNIPsNodeCheck(t *testing.T) {
 	s.st.DB.Model(&store.Node{}).Where("id = ?", "n2").Update("status", "offline")
 	s.checkCDNIPsFromNodes()
 	s.st.DB.First(&p, "id = ?", "cf")
-	if len(p.BadIPs.V) != 3 || len(usableCDNIPs(&p)) != 0 {
+	if len(p.BadIPs.V) != 3 || len(cdnkit.UsableIPs(&p)) != 0 {
 		t.Fatalf("all-unreachable check revived failed IPs: %v", p.BadIPs.V)
 	}
 }
@@ -270,7 +271,7 @@ func TestCDNDuplicateReportsKeepBestResult(t *testing.T) {
 				if reverse {
 					ips[0], ips[1] = ips[1], ips[0]
 				}
-				out, err := checkCDNReport(cdnIPReportReq{Source: "duplicate", IPs: ips})
+				out, err := cdnkit.CheckReport("duplicate", ips)
 				if err != nil || len(out) != 1 {
 					t.Fatalf("%+v %v", out, err)
 				}
@@ -284,7 +285,7 @@ func TestCDNDuplicateReportsKeepBestResult(t *testing.T) {
 		})
 	}
 	// Every duplicate is still validated; malformed metrics cannot hide behind one valid entry.
-	if _, err := checkCDNReport(cdnIPReportReq{Source: "invalid", IPs: []store.CDNIPResult{{IP: "104.16.1.1"}, {IP: "104.16.1.1", Loss: 2}}}); err == nil {
+	if _, err := cdnkit.CheckReport("invalid", []store.CDNIPResult{{IP: "104.16.1.1"}, {IP: "104.16.1.1", Loss: 2}}); err == nil {
 		t.Fatal("accepted invalid duplicate")
 	}
 }

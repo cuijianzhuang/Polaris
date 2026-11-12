@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -59,9 +60,9 @@ func personalCDNAutomatic(pool store.PersonalCDNPool, port int, scheme string, n
 	}
 	return pool.Automatic[strconv.Itoa(port)]
 }
-func personalCDNFailure(pool store.PersonalCDNPool, ep string, target cdnTarget, tr model.Transport, revision string) *store.PersonalCDNCheck {
-	r, ok := pool.EndpointChecks[cdnFailureSlot(ep, target.Server)]
-	if !ok || r.Fingerprint != cdnCheckKey(ep, target, tr, revision) || !r.Failed {
+func personalCDNFailure(pool store.PersonalCDNPool, ep string, target cdnkit.Target, tr model.Transport, revision string) *store.PersonalCDNCheck {
+	r, ok := pool.EndpointChecks[cdnkit.FailureSlot(ep, target.Server)]
+	if !ok || r.Fingerprint != cdnkit.CheckKey(ep, target, tr, revision) || !r.Failed {
 		return nil
 	}
 	return &r
@@ -70,7 +71,7 @@ func recordPersonalCDNVerdict(pool *store.PersonalCDNPool, ep, address string, r
 	if pool.EndpointChecks == nil {
 		pool.EndpointChecks = map[string]store.PersonalCDNCheck{}
 	}
-	slot := cdnFailureSlot(ep, address)
+	slot := cdnkit.FailureSlot(ep, address)
 	previous := pool.EndpointChecks[slot]
 	if previous.At.After(result.At) {
 		return previous
@@ -122,17 +123,17 @@ func (s *Server) personalCDNEntries(db *gorm.DB, u *store.User, p *store.CDNProf
 		if err := db.First(&node, "id = ?", row.NodeID).Error; err != nil {
 			return nil, err
 		}
-		entry := personalCDNEntry{cdnCheckContext: cdnCheckContext{EndpointID: ep.ID, InboundID: row.ID, Label: node.Name + " / " + row.Tag, ExplicitAddress: ep.Address, Transport: m.Transport.Type, Revision: cdnHealthRevision(row, p), Target: s.cdnTargetFor(&ep, &m, p)}, Checks: map[string]store.PersonalCDNCheck{}}
+		entry := personalCDNEntry{cdnCheckContext: cdnCheckContext{EndpointID: ep.ID, InboundID: row.ID, Label: node.Name + " / " + row.Tag, ExplicitAddress: ep.Address, Transport: m.Transport.Type, Revision: cdnkit.HealthRevision(row, p), Target: s.cdnTargetFor(&ep, &m, p)}, Checks: map[string]store.PersonalCDNCheck{}}
 		signatureTarget := entry.Target
 		signatureTarget.Server = ""
-		entry.Context = cdnCheckKey(ep.ID, signatureTarget, m.Transport.Type, entry.Revision)
+		entry.Context = cdnkit.CheckKey(ep.ID, signatureTarget, m.Transport.Type, entry.Revision)
 		pool := u.CDNPool.V[p.ID]
 		candidates := append(slices.Clone(u.CDNPreferred.V[p.ID]), pool.Automatic[strconv.Itoa(entry.Target.Port)]...)
 		candidates = append(candidates, entry.Target.Server)
 		for _, address := range candidates {
 			target := entry.Target
 			target.Server = address
-			if r, ok := pool.EndpointChecks[cdnFailureSlot(ep.ID, address)]; ok && r.Fingerprint == cdnCheckKey(ep.ID, target, m.Transport.Type, entry.Revision) {
+			if r, ok := pool.EndpointChecks[cdnkit.FailureSlot(ep.ID, address)]; ok && r.Fingerprint == cdnkit.CheckKey(ep.ID, target, m.Transport.Type, entry.Revision) {
 				entry.Checks[address] = r
 			}
 		}
@@ -183,7 +184,7 @@ type personalCDNPreviewRow struct {
 type personalCDNPreviewEntry struct {
 	EndpointID string                  `json:"endpointId"`
 	Label      string                  `json:"label"`
-	Target     cdnTarget               `json:"target"`
+	Target     cdnkit.Target           `json:"target"`
 	Mode       string                  `json:"mode"`
 	Selected   []string                `json:"selected"`
 	Rows       []personalCDNPreviewRow `json:"rows"`
@@ -211,7 +212,7 @@ func (s *Server) personalCDNPreviewResponse(c *gin.Context, u *store.User, p *st
 		if !p.ExpandPerIP || entry.ExplicitAddress != "" {
 			mode = "entry"
 		} else {
-			current := append(slices.Clone(u.CDNPreferred.V[p.ID]), personalCDNAutomatic(pool, port, cdnScheme(p), time.Now())...)
+			current := append(slices.Clone(u.CDNPreferred.V[p.ID]), personalCDNAutomatic(pool, port, cdnkit.Scheme(p), time.Now())...)
 			if slices.ContainsFunc(selected, func(a string) bool { return slices.Contains(current, a) }) {
 				mode = "personal"
 			}
@@ -241,17 +242,17 @@ func (s *Server) personalCDNPreviewResponse(c *gin.Context, u *store.User, p *st
 				}
 			case slices.Contains(pool.Disabled, address):
 				reason = "disabled"
-			case cdnAddressBlocked(p, address):
+			case cdnkit.AddressBlocked(p, address):
 				reason = "public_blocked"
 			case personalCDNFailure(pool, entry.EndpointID, target, entry.Transport, entry.Revision) != nil:
 				reason = "check_failed"
-			case cdnAddressFailureAt(p, entry.EndpointID, target, entry.Transport, entry.Revision) != nil:
+			case cdnkit.AddressFailureAt(p, entry.EndpointID, target, entry.Transport, entry.Revision) != nil:
 				reason = "public_check_failed"
-			case len(usableCDNIPsAt(p, []string{address}, port)) == 0:
+			case len(cdnkit.UsableIPsAt(p, []string{address}, port)) == 0:
 				reason = "node_check_failed"
 			case mode == "entry":
 				reason = "entry_override"
-			case source == "automatic" && !slices.Contains(personalCDNAutomatic(pool, port, cdnScheme(p), time.Now()), address):
+			case source == "automatic" && !slices.Contains(personalCDNAutomatic(pool, port, cdnkit.Scheme(p), time.Now()), address):
 				reason = "automatic_expired_or_protocol_changed"
 			case mode == "personal" && source == "public":
 				reason = "personal_preferred"
@@ -270,7 +271,7 @@ func (s *Server) personalCDNPreviewResponse(c *gin.Context, u *store.User, p *st
 		reports, _ := s.cdnAudienceReports(p, port, carrier, region)
 		public := s.cdnAddressesForPort(p, port)
 		if len(reports) > 0 {
-			public = cdnMergedReportIPs(p, reports)
+			public = cdnkit.MergedReportIPs(p, reports)
 		}
 		for _, a := range public {
 			add(a, "public")

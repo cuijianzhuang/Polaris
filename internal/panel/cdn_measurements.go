@@ -1,52 +1,23 @@
 package panel
 
 import (
-	"fmt"
-	"net/netip"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
-
-func cdnReportTarget(req cdnIPReportReq, p *store.CDNProfile) (int, string, error) {
-	if req.Port == 0 && req.Scheme == "" && cdnScheme(p) == "https" {
-		return 0, "", nil
-	}
-	if req.Scheme != "" && req.Scheme != cdnScheme(p) {
-		return 0, "", fmt.Errorf("测速协议与 CDN 配置档不一致")
-	}
-	if req.Port < 1 || req.Port > 65535 || (p.Provider == "cloudflare" && !slices.Contains(cdnClientPorts(p), req.Port)) {
-		return 0, "", fmt.Errorf("请上报当前 CDN 协议支持的实际测速端口")
-	}
-	return req.Port, cdnScheme(p), nil
-}
-
-func effectiveCDNReportPort(r store.CDNIPReport) int {
-	if r.Port == 0 {
-		return 443
-	}
-	return r.Port
-}
-func effectiveCDNReportScheme(r store.CDNIPReport) string {
-	if r.Scheme == "" {
-		return "https"
-	}
-	return r.Scheme
-}
 
 // A list measured on a different port remains a fallback, never evidence that
 // this port was measured. Matching reports replace it when available.
 func (s *Server) cdnAddressesForPort(p *store.CDNProfile, port int) []string {
-	if port == cdnDefaultPort(p) {
+	if port == cdnkit.DefaultPort(p) {
 		return p.PreferredIPs.V
 	}
 	list := p.PreferredIPs.V
 	reports := cdnReportsForPort(s.st.DB, p, port, cdnSelectionCutoff(p), "")
 	if len(reports) > 0 {
-		list = cdnMergedReportIPs(p, reports)
+		list = cdnkit.MergedReportIPs(p, reports)
 	}
 	return list
 }
@@ -57,15 +28,15 @@ func cdnSelectionCutoff(p *store.CDNProfile) time.Time {
 	if p.StalePolicy == "keep" {
 		return time.Time{}
 	}
-	return time.Now().UTC().Add(-cdnStaleAfter(p))
+	return time.Now().UTC().Add(-cdnkit.StaleAfter(p))
 }
 
 func (s *Server) cdnIPsForPort(p *store.CDNProfile, port int) []string {
-	return usableCDNIPsAt(p, s.cdnAddressesForPort(p, port), port)
+	return cdnkit.UsableIPsAt(p, s.cdnAddressesForPort(p, port), port)
 }
 
 func (s *Server) cdnCheckPorts(p *store.CDNProfile) []int {
-	ports := []int{cdnDefaultPort(p)}
+	ports := []int{cdnkit.DefaultPort(p)}
 	var rows []struct {
 		InboundID   string
 		InboundPort int
@@ -76,7 +47,7 @@ func (s *Server) cdnCheckPorts(p *store.CDNProfile) []int {
 		port := row.Port
 		if port == 0 {
 			_, fronted := s.frontFor(row.InboundID)
-			port = cdnNodePort(p, row.InboundPort, fronted && p.CaddyFronting)
+			port = cdnkit.NodePort(p, row.InboundPort, fronted && p.CaddyFronting)
 		}
 		if port > 0 && !slices.Contains(ports, port) {
 			ports = append(ports, port)
@@ -85,27 +56,13 @@ func (s *Server) cdnCheckPorts(p *store.CDNProfile) []int {
 	return ports
 }
 
-func cdnAddressBlocked(p *store.CDNProfile, address string) bool {
-	for _, a := range p.BlockedHosts.V {
-		ai, ae := netip.ParseAddr(a)
-		bi, be := netip.ParseAddr(address)
-		if ae == nil && be == nil && ai.Unmap() == bi.Unmap() {
-			return true
-		}
-		if strings.EqualFold(strings.TrimSuffix(a, "."), strings.TrimSuffix(address, ".")) {
-			return true
-		}
-	}
-	return false
-}
-
 // This selection is shared by subscription output and the operator preview.
-func (s *Server) selectedCDNIPs(p *store.CDNProfile, port int, carrier string, audience ...cdnAudience) []string {
+func (s *Server) selectedCDNIPs(p *store.CDNProfile, port int, carrier string, audience ...cdnkit.Audience) []string {
 	return s.selectedCDNIPsWhere(p, port, carrier, nil, audience...)
 }
 
 // Apply endpoint diagnostics before Top N so failed entries do not consume slots.
-func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier string, keep func(string) bool, audience ...cdnAudience) []string {
+func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier string, keep func(string) bool, audience ...cdnkit.Audience) []string {
 	filter := func(ips []string) []string {
 		if keep == nil {
 			return ips
@@ -114,13 +71,13 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 	}
 	if len(audience) > 0 {
 		personal := slices.Clone(audience[0].Personal[p.ID])
-		for _, address := range personalCDNAutomatic(audience[0].Pools[p.ID], port, cdnScheme(p), time.Now()) {
+		for _, address := range personalCDNAutomatic(audience[0].Pools[p.ID], port, cdnkit.Scheme(p), time.Now()) {
 			if !slices.Contains(personal, address) {
 				personal = append(personal, address)
 			}
 		}
 		personal = slices.DeleteFunc(personal, func(address string) bool { return !personalCDNAllowed(audience[0].Pools[p.ID], address, port) })
-		if ips := usableCDNIPsAt(p, filter(personal), port); len(ips) > 0 {
+		if ips := cdnkit.UsableIPsAt(p, filter(personal), port); len(ips) > 0 {
 			return ips
 		}
 	}
@@ -133,12 +90,12 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 	}
 	// Apply exact-entry diagnostics to raw candidates before node filtering,
 	// so a known failure still suppresses origin fallback when all nodes fail.
-	reports, _ := s.cdnAudienceReports(p, port, carrier, audienceRegion(audience))
+	reports, _ := s.cdnAudienceReports(p, port, carrier, cdnkit.AudienceRegion(audience))
 	ips := s.cdnAddressesForPort(p, port)
 	if len(reports) > 0 {
-		ips = cdnMergedReportIPs(p, reports)
+		ips = cdnkit.MergedReportIPs(p, reports)
 	}
-	ips = usableCDNIPsAt(p, filter(ips), port)
+	ips = cdnkit.UsableIPsAt(p, filter(ips), port)
 	if p.IPTopN > 0 {
 		var automatic, pinned []string
 		for _, a := range ips {
@@ -151,19 +108,4 @@ func (s *Server) selectedCDNIPsWhere(p *store.CDNProfile, port int, carrier stri
 		ips = append(automatic[:min(len(automatic), p.IPTopN)], pinned...)
 	}
 	return ips
-}
-
-func usableCDNIPsAt(p *store.CDNProfile, list []string, port int) []string {
-	list = slices.DeleteFunc(slices.Clone(list), func(a string) bool { return cdnAddressBlocked(p, a) })
-	if !p.NodeCheck {
-		return list
-	}
-	var bad []string
-	if check, ok := p.PortChecks.V[strconv.Itoa(port)]; ok {
-		bad = check.BadIPs
-	} else if port == cdnDefaultPort(p) {
-		bad = p.BadIPs.V
-	}
-	out := slices.DeleteFunc(slices.Clone(list), func(ip string) bool { return slices.Contains(bad, ip) })
-	return out
 }

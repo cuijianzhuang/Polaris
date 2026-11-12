@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -80,7 +81,7 @@ func (s *Server) templateReferences(tpl *store.InboundTemplate, opt *planOptions
 				if err := s.st.DB.First(&profile, "id = ?", id).Error; err != nil {
 					return "", err
 				}
-				if cdnTunnel(&profile) {
+				if cdnkit.Tunnel(&profile) {
 					return "", fmt.Errorf("Tunnel 配置档当前不支持模板部署，请在入站页面创建 WS 入口")
 				}
 				values = append(values, profile)
