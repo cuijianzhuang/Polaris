@@ -241,7 +241,14 @@ func TestSnellNativeAuthTrafficAndRevocation(t *testing.T) {
 						counts[d.UserID] = v
 					}
 				}
-				if counts["u1"][1] >= int64(len(down)+len(payload)) && counts["u2"][1] >= int64(len(down)+len(payload)) {
+				// Wait for both directions to settle: the up counters can lag
+				// the down counters (the failed run saw u2 at 63177/131264
+				// against a 65728/131264 want), so breaking on down alone
+				// asserts while up is still flushing. Exact equality below
+				// still catches double billing: overshoot breaks out here
+				// immediately and fails the != check.
+				wantUp, wantDown := int64(len(up)+len(payload)), int64(len(down)+len(payload))
+				if counts["u1"][0] >= wantUp && counts["u1"][1] >= wantDown && counts["u2"][0] >= wantUp && counts["u2"][1] >= wantDown {
 					break
 				}
 				time.Sleep(20 * time.Millisecond)
