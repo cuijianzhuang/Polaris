@@ -17,6 +17,7 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/pki"
+	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -319,7 +320,7 @@ func (s *Server) createInboundRelay(c *gin.Context) {
 	}
 	raw, err := s.st.Box.Open(req.PlanToken)
 	var plan relaySetupPlan
-	if err != nil || !strings.HasPrefix(req.PlanToken, "enc:v1:") || json.Unmarshal([]byte(raw), &plan) != nil || plan.Version != 1 || plan.InboundID != c.Param("id") || plan.Owner == "" || plan.Owner != idempotencyIdentity(c) {
+	if err != nil || !secret.IsSealed(req.PlanToken) || json.Unmarshal([]byte(raw), &plan) != nil || plan.Version != 1 || plan.InboundID != c.Param("id") || plan.Owner == "" || plan.Owner != idempotencyIdentity(c) {
 		badRequest(c, fmt.Errorf("无效的中转预览，请重新预览"))
 		return
 	}

@@ -23,7 +23,7 @@ import (
 //   - endpoints by CDN profile + kind (cdn_address_tools.go)
 //   - sub_profiles by panel user (account_binding.go)
 func TestNewIndexesUsed(t *testing.T) {
-	box, _ := secret.New("k")
+	box, _ := secret.NewBoxSet("k", "")
 	s, err := Open(filepath.Join(t.TempDir(), "idx.db"), box, false)
 	if err != nil {
 		t.Fatal(err)

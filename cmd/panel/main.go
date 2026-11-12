@@ -67,8 +67,12 @@ const usage = `usage:
                                             show, install or release this panel's license
   polaris backup FILE [-passphrase P]       backup archive (SQLite or PostgreSQL); encrypted with a
                                             passphrase it carries the secret key and restores anywhere
-  polaris restore-drill FILE [-passphrase P]  validate an isolated restore and print a JSON report
-  polaris restore FILE [-passphrase P]      replace the data with a backup (stop the panel first)
+  polaris restore-drill FILE [-passphrase P] [-previous-secret-key K]
+                                            validate an isolated restore and print a JSON report
+  polaris restore FILE [-passphrase P] [-previous-secret-key K]
+                                            replace the data with a backup (stop the panel first);
+                                            -previous-secret-key supplies the old key for a backup
+                                            made before a secret-key rotation
   polaris migrate -to DSN [-replace]       copy all data to another database (e.g. SQLite ->
                                             postgres://user:pass@host/db); stop the panel first
   polaris node-token [-n NAME]              one-time install token for a node on this server
@@ -83,6 +87,7 @@ func maintenance(cmd string, args []string) int {
 	pass := fs.String("p", "", "new password (default: random)")
 	nodeName := fs.String("n", "", "node name (default: 本机)")
 	passphrase := fs.String("passphrase", os.Getenv("POLARIS_BACKUP_PASSPHRASE"), "backup passphrase")
+	previousKey := fs.String("previous-secret-key", "", "restore: the old POLARIS_SECRET_KEY for a backup made before a secret-key rotation (also accepted via POLARIS_SECRET_KEY_PREVIOUS)")
 	to := fs.String("to", "", "migrate: target database DSN")
 	replace := fs.Bool("replace", false, "migrate: overwrite a target that already has data")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
@@ -128,7 +133,7 @@ func maintenance(cmd string, args []string) int {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		result, err := panel.DrillRestore(ctx, cfg, pos[0], *passphrase)
+		result, err := panel.DrillRestore(ctx, cfg, pos[0], *passphrase, *previousKey)
 		if err != nil {
 			return fail(err)
 		}
@@ -143,7 +148,7 @@ func maintenance(cmd string, args []string) int {
 			fs.Usage()
 			return 2
 		}
-		snap, err := panel.Restore(cfg, pos[0], *passphrase)
+		snap, err := panel.Restore(cfg, pos[0], *passphrase, *previousKey)
 		if err != nil {
 			return fail(err)
 		}

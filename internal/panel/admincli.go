@@ -28,7 +28,7 @@ import (
 // panel is up (SQLite WAL + busy timeout, or PostgreSQL).
 
 func openStore(cfg *Config) (*store.Store, error) {
-	box, err := secret.New(cfg.SecretKey)
+	box, err := secret.NewBoxSet(cfg.SecretKey, cfg.SecretKeyPrevious)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,8 @@ func Backup(cfg *Config, path, pass string) error {
 
 // Restore replaces the database and CA with a backup's (stop the panel
 // first). A snapshot of the current data is written next to the backups.
-func Restore(cfg *Config, path, pass string) (string, error) {
+// previousKey is an old key supplied explicitly for a pre-rotation backup.
+func Restore(cfg *Config, path, pass, previousKey string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -159,7 +160,7 @@ func Restore(cfg *Config, path, pass string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := arc.Validate(st.Box); err != nil {
+	if err := arc.Validate(st.Box, previousKey); err != nil {
 		return "", err
 	}
 	snap := filepath.Join(cfg.DataDir, backupDir, backupName("prerestore", false))
@@ -173,7 +174,7 @@ func Restore(cfg *Config, path, pass string) (string, error) {
 			return "", fmt.Errorf("snapshot before restore: %w", err)
 		}
 	}
-	return snap, restoreArchive(st, cfg.DataDir, arc, st.Box)
+	return snap, restoreArchive(st, cfg.DataDir, arc, st.Box, previousKey)
 }
 
 // LocalNodeToken creates (or reuses) a node record for an agent on the panel

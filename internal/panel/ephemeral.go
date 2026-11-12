@@ -16,7 +16,7 @@ import (
 // be redeemed on another. Expired rows are ignored and swept.
 type ephStore struct {
 	db  *gorm.DB
-	box *secret.Box
+	box *secret.BoxSet
 }
 
 // ephAction is what an update callback decides.

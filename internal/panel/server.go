@@ -73,7 +73,10 @@ type Server struct {
 	limited             map[string][]*polarisv1.LimitedUser // per-user speed limits in effect per node (hbMu)
 	lic                 atomic.Pointer[licenseState]        // license in effect (see license.go)
 	licKeys             []ed25519.PublicKey                 // overrides the built-in license keys (tests)
-	jwtKey              []byte
+	jwtKey              []byte                              // "jwt:"+SecretKey: signs new tokens
+	jwtPrevKey          []byte                              // "jwt:"+SecretKeyPrevious, during a rotation; nil otherwise
+	jwtKid              string                              // kid of SecretKey, stamped on new tokens
+	jwtPrevKid          string                              // kid of SecretKeyPrevious, or ""
 	rt                  *realtime
 
 	licenseMu              sync.Mutex           // serializes checks, installation and deactivation
@@ -143,7 +146,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}
-	box, err := secret.New(cfg.SecretKey)
+	box, err := secret.NewBoxSet(cfg.SecretKey, cfg.SecretKeyPrevious)
 	if err != nil {
 		return nil, err
 	}
@@ -152,15 +155,27 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		return nil, err
 	}
 	restored := applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
+	// Refuse to start when the database names a key version this panel
+	// does not know: a half-finished rotation from a newer key would
+	// otherwise silently lose data. The setting is written by the
+	// rotation migration (and by a restore); an absent setting means a
+	// pre-rotation database, which simply adopts this key.
+	if err := validateKeyVersion(st, box); err != nil {
+		return nil, err
+	}
 	ca, err := loadOrCreateCA(st, cfg.DataDir, box)
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{
 		cfg: cfg, st: st, ca: ca, log: log, hub: newHub(),
-		jwtKey: []byte("jwt:" + cfg.SecretKey), rt: newRealtime(),
+		jwtKey: []byte("jwt:" + cfg.SecretKey), jwtKid: box.CurrentKid(),
+		jwtPrevKid: box.PreviousKid(), rt: newRealtime(),
 		dirty: map[string]string{}, kick: make(chan struct{}, 1),
 		webFS: web, bg: context.Background(),
+	}
+	if cfg.SecretKeyPrevious != "" {
+		s.jwtPrevKey = []byte("jwt:" + cfg.SecretKeyPrevious)
 	}
 	s.rt.snap = func() any { return s.nodeViews() }
 	s.tg = newTGBot(s)
@@ -238,7 +253,7 @@ func (s *Server) Store() *store.Store { return s.st }
 // panel instance on it shares one CA; older installs had it only in the
 // data directory, which is imported once. The files are kept in step (the
 // backup format carries them).
-func loadOrCreateCA(st *store.Store, dir string, box *secret.Box) (*pki.CA, error) {
+func loadOrCreateCA(st *store.Store, dir string, box *secret.BoxSet) (*pki.CA, error) {
 	certPath, keyPath := filepath.Join(dir, "ca.crt"), filepath.Join(dir, "ca.key")
 	fromDB := func() (cert, key string) {
 		var rows []store.ClusterSecret
@@ -322,6 +337,9 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLicenseChecks(licenseCtx)
 	stopJobs := s.startJobs()
 	defer stopJobs()
+	// A rotation in progress resumes here; the tick is a no-op once the
+	// migration is done and no previous key is configured.
+	go s.secretMigrationTick()
 
 	httpSrv := &http.Server{Addr: s.cfg.Listen, Handler: s.Router(), ReadHeaderTimeout: 10 * time.Second}
 
@@ -458,6 +476,7 @@ func (s *Server) startJobs() func() {
 	add(jobCronSpec(s.cfg.Jobs.UserReminders, 0), "user-reminders", s.retryUserNotices)
 	addLocal(jobCronSpec(s.cfg.Jobs.PluginCache, 0), "plugin-cache", s.renderCache.prune)
 	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
+	add("0 */15 * * * *", "secret-migration", s.secretMigrationTick) // resumes a key rotation; no-op when done
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
 	add("0 7 * * * *", "portal-sessions", s.prunePortalSessions)
 	add(jobCronSpec(s.cfg.Jobs.USDT, 0), "usdt", s.pollUSDT)

@@ -1,9 +1,11 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -179,13 +181,25 @@ func (s *Server) scheduledBackup() {
 
 func stagedPath(dataDir string) string { return filepath.Join(dataDir, restoreDir, "staged.gob") }
 
-// stageRestore reads and checks an archive, then stages it for the next start.
-func (s *Server) stageRestore(r io.Reader, pass string) error {
+// stageRestore reads and checks an archive, re-seals it with this panel's
+// current key, then stages it for the next start. previousKey is an old
+// key supplied explicitly for a pre-rotation backup (the restore form or
+// --previous-secret-key); the panel's configured previous key is already
+// in the box set. Re-sealing happens here, not at apply time, because the
+// restart that applies the restore cannot carry request parameters.
+func (s *Server) stageRestore(r io.Reader, pass, previousKey string) error {
 	arc, err := backupfmt.ReadArchive(r, pass, s.st.Box)
 	if err != nil {
 		return err
 	}
-	if err := arc.Validate(s.st.Box); err != nil {
+	if err := arc.Validate(s.st.Box, previousKey); err != nil {
+		return err
+	}
+	src, err := arc.SourceBoxSet(s.st.Box, previousKey)
+	if err != nil {
+		return err
+	}
+	if err := resealArchive(arc, src, s.st.Box); err != nil {
 		return err
 	}
 	dir := filepath.Join(s.cfg.DataDir, restoreDir)
@@ -210,7 +224,7 @@ func (s *Server) stageRestore(r io.Reader, pass string) error {
 // applyStagedRestore applies a staged restore once the database is open:
 // first a snapshot of the current data (kept, never pruned), then the
 // archive, in one transaction. On failure the current data stays.
-func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog.Logger) bool {
+func applyStagedRestore(st *store.Store, cfg *Config, box *secret.BoxSet, log *slog.Logger) bool {
 	path := stagedPath(cfg.DataDir)
 	f, err := os.Open(path)
 	if err != nil {
@@ -225,12 +239,66 @@ func applyStagedRestore(st *store.Store, cfg *Config, box *secret.Box, log *slog
 		return false
 	}
 	snap := snapshotBeforeRestore(st, cfg, log)
-	if err := restoreArchive(st, cfg.DataDir, &arc, box); err != nil {
+	if err := restoreArchive(st, cfg.DataDir, &arc, box, ""); err != nil {
 		log.Error("restore failed; current data kept", "err", err)
 		return false
 	}
 	log.Warn("restored backup", "from_format", arc.Manifest.Format, "created", arc.Manifest.Created, "snapshot", snap)
 	return true
+}
+
+// resealArchive re-encrypts an archive's sealed values with dst (this
+// panel's current key) so the staged archive no longer needs the source
+// key. It also re-seals the CA key, drops the source panel's migration
+// progress (this panel tracks its own), and records this panel's key
+// version in the manifest and the settings. Values that cannot be opened
+// with src are left as they are: they stay unreadable rather than being
+// silently destroyed, and the migration job reports them.
+func resealArchive(arc *backupfmt.Archive, src, dst *secret.BoxSet) error {
+	reseal := backupfmt.Resealer(src, dst)
+	for table, data := range arc.Tables {
+		dec := gob.NewDecoder(bytes.NewReader(data))
+		var out bytes.Buffer
+		enc := gob.NewEncoder(&out)
+		for {
+			var rows []map[string]any
+			if err := dec.Decode(&rows); err == io.EOF {
+				break
+			} else if err != nil {
+				return fmt.Errorf("cannot decode table %s: %w", table, err)
+			}
+			kept := rows[:0]
+			for _, row := range rows {
+				if table == "settings" {
+					switch row["key"] {
+					case "secret_key_version":
+						row["value"] = dst.CurrentKid()
+					case "secret_key_migration":
+						continue // this panel tracks its own migration
+					}
+				}
+				for col, v := range row {
+					switch x := v.(type) {
+					case string:
+						row[col] = reseal(x)
+					case []byte:
+						row[col] = []byte(reseal(string(x)))
+					}
+				}
+				kept = append(kept, row)
+			}
+			if err := enc.Encode(kept); err != nil {
+				return fmt.Errorf("cannot re-encode table %s: %w", table, err)
+			}
+		}
+		arc.Tables[table] = out.Bytes()
+	}
+	if arc.CAKey != nil {
+		arc.CAKey = []byte(reseal(string(arc.CAKey)))
+	}
+	arc.Key = "" // the source key is no longer needed (and must not be kept)
+	arc.Manifest.KeyVersion = dst.CurrentKid()
+	return nil
 }
 
 // snapshotBeforeRestore saves the current data as a "-prerestore" archive in
@@ -384,6 +452,7 @@ func (s *Server) backupRestore(c *gin.Context) {
 	var r io.Reader
 	src := ""
 	pass := c.PostForm("passphrase")
+	prevKey := c.PostForm("previous_secret_key")
 	if c.Param("name") != "" {
 		rc, _, ok := s.openBackup(c)
 		if !ok {
@@ -391,11 +460,15 @@ func (s *Server) backupRestore(c *gin.Context) {
 		}
 		defer rc.Close()
 		var body struct {
-			Passphrase string `json:"passphrase"`
+			Passphrase        string `json:"passphrase"`
+			PreviousSecretKey string `json:"previousSecretKey"`
 		}
 		_ = c.ShouldBindJSON(&body)
 		if body.Passphrase != "" {
 			pass = body.Passphrase
+		}
+		if body.PreviousSecretKey != "" {
+			prevKey = body.PreviousSecretKey
 		}
 		if pass == "" && strings.HasSuffix(c.Param("name"), ".enc") {
 			pass = s.backupPassphrase() // made here with the current passphrase
@@ -415,7 +488,7 @@ func (s *Server) backupRestore(c *gin.Context) {
 		defer f.Close()
 		r, src = f, "upload: "+fh.Filename
 	}
-	if err := s.stageRestore(r, pass); err != nil {
+	if err := s.stageRestore(r, pass, prevKey); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "needPassphrase": errors.Is(err, backupfmt.ErrNeedPassphrase) || errors.Is(err, backupfmt.ErrBadPassphrase)})
 		return
 	}
@@ -449,9 +522,11 @@ func (s *Server) restart() {
 }
 
 // restoreArchive replaces the database (and CA files in dataDir) with the
-// archive's, all or nothing for the database.
-func restoreArchive(st *store.Store, dataDir string, arc *backupfmt.Archive, box *secret.Box) error {
-	src, err := arc.SourceBox(box)
+// archive's, all or nothing for the database. previousKey is an old key
+// supplied explicitly for a pre-rotation backup; the staged-restore path
+// passes "" because stageRestore already re-sealed the archive.
+func restoreArchive(st *store.Store, dataDir string, arc *backupfmt.Archive, box *secret.BoxSet, previousKey string) error {
+	src, err := arc.SourceBoxSet(box, previousKey)
 	if err != nil {
 		return err
 	}
@@ -499,6 +574,11 @@ func restoreArchive(st *store.Store, dataDir string, arc *backupfmt.Archive, box
 		if err := os.WriteFile(filepath.Join(dataDir, "ca.key"), []byte(reseal(string(arc.CAKey))), 0o600); err != nil {
 			return err
 		}
+	}
+	// The restored rows now belong to this panel's key: record its version
+	// so a later start can refuse a database from an unknown key.
+	if err := st.SetSetting("secret_key_version", box.CurrentKid()); err != nil {
+		return err
 	}
 	return nil
 }

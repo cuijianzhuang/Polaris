@@ -83,7 +83,7 @@ func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool, contexts ...*g
 	if err := s.recordPortalSession(u, &c, via, contexts...); err != nil {
 		return "", err
 	}
-	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
+	token, err := s.signToken(jwt.NewWithClaims(jwt.SigningMethodHS256, c))
 	return token, err
 }
 

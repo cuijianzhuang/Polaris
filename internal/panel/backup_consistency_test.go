@@ -61,7 +61,7 @@ func TestBackupConsistentTrafficSnapshot(t *testing.T) {
 			t.Fatalf("backup contains %d of 100 bytes", got)
 		}
 		restored := newTestServer(t)
-		if e := restoreArchive(restored.st, restored.cfg.DataDir, arc, restored.st.Box); e != nil {
+		if e := restoreArchive(restored.st, restored.cfg.DataDir, arc, restored.st.Box, ""); e != nil {
 			t.Fatal(e)
 		}
 		if got := usedUp(t, restored); got != 100 {

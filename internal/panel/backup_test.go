@@ -179,7 +179,7 @@ func TestBackupRestore(t *testing.T) {
 	}
 	f, _ := os.Open(foreign)
 	defer f.Close()
-	if err := s2.stageRestore(f, ""); err == nil || !strings.Contains(err.Error(), "secret_key") {
+	if err := s2.stageRestore(f, "", ""); err == nil || !strings.Contains(err.Error(), "secret_key") {
 		t.Fatalf("foreign-key backup accepted: %v", err)
 	}
 
@@ -190,14 +190,14 @@ func TestBackupRestore(t *testing.T) {
 	}
 	for _, pass := range []string{"", "wrong"} {
 		f, _ := os.Open(enc)
-		err := s2.stageRestore(f, pass)
+		err := s2.stageRestore(f, pass, "")
 		f.Close()
 		if err == nil {
 			t.Fatalf("passphrase %q accepted", pass)
 		}
 	}
 	f2, _ := os.Open(enc)
-	if err := s2.stageRestore(f2, "correct horse"); err != nil {
+	if err := s2.stageRestore(f2, "correct horse", ""); err != nil {
 		t.Fatal(err)
 	}
 	f2.Close()
@@ -241,7 +241,7 @@ func TestLegacyBackupRestore(t *testing.T) {
 	if err != nil || arc.Manifest.Format != 1 {
 		t.Fatalf("legacy archive: %v %+v", err, arc)
 	}
-	if err := restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box); err != nil {
+	if err := restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box, ""); err != nil {
 		t.Fatal(err)
 	}
 	var u store.User

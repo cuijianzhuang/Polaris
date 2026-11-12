@@ -47,7 +47,7 @@ func Migrate(cfg *Config, targetDSN string, replace bool) (*MigrateResult, error
 			return nil, fmt.Errorf("当前数据库 %s 不存在（数据目录或 POLARIS_DB_DSN 是否正确？）", path)
 		}
 	}
-	box, err := secret.New(cfg.SecretKey)
+	box, err := secret.NewBoxSet(cfg.SecretKey, cfg.SecretKeyPrevious)
 	if err != nil {
 		return nil, err
 	}

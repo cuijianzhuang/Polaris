@@ -1,9 +1,12 @@
 # Secret key rotation
 
-Status: design only — no code in this batch changes encryption or JWT
-signing. This document records the current state and a rotation design
-that can be implemented later without changing the on-disk format of
-anything except the sealed values themselves.
+Status: implemented (2026-11-12, branch `feature/secret-key-rotation`) —
+`secret.BoxSet` + `enc:v2:<kid>:` format, dual-key JWT, the leader-only
+re-encryption migration, backup key version + `--previous-secret-key`
+restore, and the operator runbook in the user guide (§13.1). The
+"Current state" section below describes the pre-rotation code; the
+"Implementation notes" section at the end records where the
+implementation deliberately deviates from this design.
 
 ## Current state (2026-11-12, commit e30b35f)
 
@@ -60,10 +63,17 @@ anything except the sealed values themselves.
 
 ### Key versions and the sealed format
 
-- Introduce a key id, e.g. `k1`, `k2`, … (monotonic, stored in the
-  settings table as `secret_key_version`). The sealed format gains the
-  id: `enc:v2:<kid>:<base64(nonce‖ciphertext)>`. `enc:v1:` values keep
-  their old meaning (key id `k1`, the pre-rotation key).
+- Key ids are derived deterministically from the passphrase: the first 8
+  hex characters of `SHA256("kid:"+passphrase)` (`secret.KidFor`). This
+  deviates from the sequential `k1`, `k2`, … ids in the original design:
+  a kid can then be computed at construction time without reading the
+  database, and two panels with the same key always agree on the kid.
+  The id is not secret; it only selects which key opens a value. The
+  settings table still records the current version as
+  `secret_key_version` (the kid, not a sequence number).
+- The sealed format gains the id:
+  `enc:v2:<kid>:<base64(nonce‖ciphertext)>`. `enc:v1:` values keep their
+  old meaning (no id; the key that sealed them is unknown).
 - `secret.Box` becomes a `BoxSet`: `{ current, previous *Box }`.
   - `Seal` always uses `current` and writes `enc:v2:<current-id>:`.
   - `Open` picks the box by the `kid` in the prefix; for `enc:v1:`
@@ -190,7 +200,92 @@ anything except the sealed values themselves.
    verify (restore-drill + un-migrated row count = 0), wait 24h,
    remove previous key, restart, verify again.
 
+## Implementation notes (2026-11-12)
+
+What was built, and where it deliberately differs from the design above.
+
+- **BoxSet** (`internal/secret/boxset.go`): `{ current, previous *Box }`
+  plus extra keys added with `WithKey` (restore source keys). It keeps
+  the `Box` signatures (`Seal`/`Open`/`MustOpen`), so the ~70 call sites
+  did not change; only the construction sites and the `Store.Box` field
+  type changed. `Seal` always writes `enc:v2:<current-kid>:` and
+  upgrades an openable sealed value to the current key; a value that
+  cannot be opened is returned unchanged, never destroyed. `Reseal` /
+  `ResealText` are the migration primitives: plaintext is returned
+  unchanged, an already-current v2 value is a no-op, an unopenable
+  token is an error. `Box` itself is unchanged and still backs the set.
+- **Config**: `SecretKeyPrevious` (`POLARIS_SECRET_KEY_PREVIOUS`,
+  mapped automatically by the `POLARIS_` prefix handling), validated
+  like the main key (≥16 chars, no `change-me`) and rejected when equal
+  to the main key. `NewBoxSet` enforces the same rule, so a Config
+  built in code (tests, embedders) gets it too.
+- **Startup validation** (`validateKeyVersion`, called in `panel.New`
+  after `store.Open` and after any staged restore is applied): the
+  settings `secret_key_version` must name the current or the previous
+  kid, otherwise the panel refuses to start. An absent setting means a
+  pre-rotation database, which adopts the current kid. The design's
+  "refuse when any `enc:v2:` row has an unknown kid" is implemented via
+  this setting rather than by scanning rows at startup.
+- **Migration** (`internal/panel/secret_migration.go`): leader-only
+  (the `startJobs` leader guard, plus a goroutine in `Run` at startup),
+  500 rows per batch, resumable progress in the settings table
+  (`secret_key_migration`: `{kid, table, last_id, updated, failed,
+  failed_rows, done}`). The 18 migrated tables are enumerated in
+  `secretMigrationTargets` (settings, cluster_secrets, certificates,
+  config_revisions, admins, passkeys, plugins, sub_sources,
+  sub_source_nodes, node_providers, sso_providers, dns_providers,
+  cdn_profiles, chains, webhooks, refund_jobs, ephemeral_kvs,
+  inbounds) — ephemeral short-lived rows are included so a code issued
+  before rotation still redeems after it. JSON columns (inbound
+  protocol/transport/security/extra, plugin settings) are handled by
+  the same token replacement inside the JSON text. Updates are guarded
+  (`WHERE id = ? AND col = <old value>`) so a concurrent write wins.
+  The CA key file is re-encrypted first (temp file + rename, old copy
+  kept as `ca.key.prev` until the migration succeeds).
++- **Settings cache**: the migration updates the settings table directly,
+  not through `SetSetting`, so `runSecretMigration` invalidates the
+  settings cache on every exit path (`Store.InvalidateSettingsCache`);
+  otherwise reads would serve the old ciphertext for up to `settingTTL`
+  (1 minute) after the migration. The old ciphertext still opens while
+  the previous key is configured, so this is a freshness fix, not a
+  correctness one — covered by
+  `TestSecretKeyMigrationRefreshesSettingsCache`.
+- **Failed rows**: a run that ends with failures stays `done=false`,
+  so the next 15-minute tick or restart retries it; the failed rows
+  are logged and listed in the progress setting, and never
+  overwritten. There is no config for a *third* key: a row sealed with
+  a key outside `{current, previous}` stays failed and preserved, and
+  the operator must re-create that credential.
+- **One-time convergence**: the migration also runs once on a panel
+  that never rotated (no previous key configured), upgrading pre-rotation
+  `enc:v1:` rows sealed with the current key to `enc:v2:`. After that
+  first run it is a no-op until the next rotation.
+- **JWT**: `signToken` stamps `kid` on every new token (admin, Telegram,
+  user center, session renewal); `parseToken` verifies with the key the
+  kid names, falls back to the previous key only for tokens without a
+  kid, and never retries a token whose kid names the wrong key. The
+  rule-set HMAC (`schemes.go`) keeps using the current key bytes, no kid.
+- **Backups**: new archives record the kid in `manifest.json`
+  (`keyVersion`). Restoring an old backup accepts the old key via
+  `polaris restore --previous-secret-key …` (or
+  `POLARIS_SECRET_KEY_PREVIOUS`, or the restore form's
+  `previousSecretKey` field). The API path re-seals the archive at
+  *stage* time — the restart that applies the restore cannot carry
+  request parameters — and the staged archive no longer contains the
+  old key; the CLI path re-seals at restore time. The old key is never
+  written into a new backup. The staged transform also drops the source
+  panel's migration progress and records this panel's key version.
+- **Not implemented**: non-leader instances do *not* reload their
+  `BoxSet` from the settings table (the design's "learn the new
+  version" poll). The supported rollout is the one in the design's
+  "simplest safe rollout": deploy both keys to every instance, restart
+  them all, then let the leader migrate. A running instance that never
+  restarts keeps serving with the keys it started with.
+
 ## Test plan (for the implementation PR)
+
+Implemented in `internal/secret/boxset_test.go` and
+`internal/panel/secret_rotation_test.go` (all passing, see the branch):
 
 - Unit: `BoxSet` opens v1/v2/plaintext, seals with current, rejects
   unknown `kid`; JWT verifies with both keys, rejects unknown `kid`.
@@ -200,3 +295,11 @@ anything except the sealed values themselves.
   previous key, assert everything still works.
 - Failure: kill mid-migration, restart, assert resume + no lost rows;
   restore an old backup with and without the previous key.
+
+Covered as written, except the mid-migration kill is approximated by
+running the migration twice (second run is a no-op) and by the
+unopenable-row test (failed rows are reported, retried, and never
+overwritten); no test actually kills the process mid-run. The backup
+restore is covered both ways: without the old key the stage is
+refused, with `--previous-secret-key` (the `previousKey` argument) it
+restores and re-seals with the new key.

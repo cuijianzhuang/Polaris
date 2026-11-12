@@ -2,7 +2,6 @@ package store
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/secret"
@@ -63,7 +62,7 @@ func ReserveSourceResources(tx *gorm.DB) error {
 
 // SealLegacySubSources upgrades old databases before any request is served.
 // Restore uses the same pass so older backups cannot reintroduce plaintext.
-func SealLegacySubSources(db *gorm.DB, box *secret.Box) error {
+func SealLegacySubSources(db *gorm.DB, box *secret.BoxSet) error {
 
 	var rows []SubSource
 	if e := db.Find(&rows).Error; e != nil {
@@ -74,7 +73,7 @@ func SealLegacySubSources(db *gorm.DB, box *secret.Box) error {
 	}
 	for _, r := range rows {
 		for col, v := range map[string]string{"url": r.URL, "content": r.Content, "cache": r.Cache} {
-			if v == "" || strings.HasPrefix(v, "enc:v1:") {
+			if v == "" || secret.IsSealed(v) {
 				continue
 			}
 			if e := db.Model(&SubSource{}).Where("id = ? AND "+col+" = ?", r.ID, v).UpdateColumn(col, box.Seal(v)).Error; e != nil {

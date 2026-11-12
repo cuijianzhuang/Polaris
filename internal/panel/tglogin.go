@@ -60,7 +60,7 @@ func (s *Server) issueTGToken(a *store.TGAdmin, gc *gin.Context) (string, error)
 		Username: "tg:" + a.Name,
 		TG:       a.ID,
 	}
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, c).SignedString(s.jwtKey)
+	return s.signToken(jwt.NewWithClaims(jwt.SigningMethodHS256, c))
 }
 
 // tgLogin exchanges a one-time code: POST /auth/tg {code}.

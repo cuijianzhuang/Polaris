@@ -79,7 +79,7 @@ func TestBackupDoesNotReplayRuntimeOperations(t *testing.T) {
 			t.Fatal("runtime control in archive", name)
 		}
 	}
-	if e = restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box); e != nil {
+	if e = restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box, ""); e != nil {
 		t.Fatal(e)
 	}
 	var n int64
@@ -106,7 +106,7 @@ func TestRestoreCommitsClusterOperationAtomically(t *testing.T) {
 			tx.AddError(fmt.Errorf("operation storage unavailable"))
 		}
 	})
-	if e = restoreArchive(a.st, a.cfg.DataDir, arc, a.st.Box); e == nil {
+	if e = restoreArchive(a.st, a.cfg.DataDir, arc, a.st.Box, ""); e == nil {
 		t.Fatal("restored without durable peer restart")
 	}
 	var n int64
@@ -115,7 +115,7 @@ func TestRestoreCommitsClusterOperationAtomically(t *testing.T) {
 		t.Fatal("failed restore changed business data")
 	}
 	a.st.DB.Callback().Create().Remove("test:restore-op")
-	if e = restoreArchive(a.st, a.cfg.DataDir, arc, a.st.Box); e != nil {
+	if e = restoreArchive(a.st, a.cfg.DataDir, arc, a.st.Box, ""); e != nil {
 		t.Fatal(e)
 	}
 	var op store.ClusterOperation

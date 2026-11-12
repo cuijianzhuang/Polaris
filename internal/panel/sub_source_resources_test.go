@@ -51,7 +51,7 @@ func TestSourceResourceIdentityRotationAndDiff(t *testing.T) {
 	}
 	var row store.SubSourceNode
 	s.st.DB.First(&row, "id = ?", ids[0])
-	if !strings.HasPrefix(row.Payload, "enc:v1:") || strings.Contains(row.Payload, "rotated-password") || !strings.HasPrefix(src.Cache, "enc:v1:") {
+	if !secret.IsSealed(row.Payload) || strings.Contains(row.Payload, "rotated-password") || !secret.IsSealed(src.Cache) {
 		t.Fatal("plaintext at rest")
 	}
 	out, e = s.commitSourceRefresh(src, out[:1], store.SubTraffic{})
@@ -206,13 +206,13 @@ func TestSourceResourceBackupResealsCredentials(t *testing.T) {
 		t.Fatal(e)
 	}
 	restored := newTestServer(t)
-	box, _ := secret.New("different-panel-key")
+	box, _ := secret.NewBoxSet("different-panel-key", "")
 	restored.st.Box = box
 	arc, e := backupfmt.ReadArchive(bytes.NewReader(archive.Bytes()), "archive-password", box)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = restoreArchive(restored.st, restored.cfg.DataDir, arc, box); e != nil {
+	if e = restoreArchive(restored.st, restored.cfg.DataDir, arc, box, ""); e != nil {
 		t.Fatal(e)
 	}
 	var row store.SubSourceNode
@@ -228,7 +228,7 @@ func TestSourceResourceBackupResealsCredentials(t *testing.T) {
 	}
 	var after store.SubSource
 	restored.st.DB.First(&after, "id = ?", src.ID)
-	if box.MustOpen(after.URL) != "https://provider.example/?token=backup-secret" || !strings.HasPrefix(after.Cache, "enc:v1:") {
+	if box.MustOpen(after.URL) != "https://provider.example/?token=backup-secret" || !secret.IsSealed(after.Cache) {
 		t.Fatal("backup lost sealed source")
 	}
 }

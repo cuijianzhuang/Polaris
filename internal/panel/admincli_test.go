@@ -47,10 +47,10 @@ func TestAdminMaintenanceCommands(t *testing.T) {
 		t.Fatal("backup overwrote an existing file")
 	}
 	s.st.DB.Model(&store.Admin{}).Where("username = ?", "root").Update("username", "renamed")
-	if _, err := Restore(s.cfg, out, "wrong"); err == nil {
+	if _, err := Restore(s.cfg, out, "wrong", ""); err == nil {
 		t.Fatal("wrong passphrase restored")
 	}
-	if _, err := Restore(s.cfg, out, "pw"); err != nil {
+	if _, err := Restore(s.cfg, out, "pw", ""); err != nil {
 		t.Fatal(err)
 	}
 	var b store.Admin

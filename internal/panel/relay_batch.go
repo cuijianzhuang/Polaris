@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 )
@@ -142,7 +143,7 @@ func (s *Server) createInboundRelayBatch(c *gin.Context) {
 	}
 	raw, e := s.st.Box.Open(req.PlanToken)
 	var batch relayBatchPlan
-	if e != nil || !strings.HasPrefix(req.PlanToken, "enc:v1:") || json.Unmarshal([]byte(raw), &batch) != nil || batch.Version != 2 || batch.ID == "" || batch.Owner == "" || batch.Owner != idempotencyIdentity(c) || batch.InboundID != c.Param("id") || len(batch.Plans) < 1 || len(batch.Plans) > maxRelayEntries {
+	if e != nil || !secret.IsSealed(req.PlanToken) || json.Unmarshal([]byte(raw), &batch) != nil || batch.Version != 2 || batch.ID == "" || batch.Owner == "" || batch.Owner != idempotencyIdentity(c) || batch.InboundID != c.Param("id") || len(batch.Plans) < 1 || len(batch.Plans) > maxRelayEntries {
 		badRequest(c, fmt.Errorf("无效的多入口预览，请重新预览"))
 		return
 	}

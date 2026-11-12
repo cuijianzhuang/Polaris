@@ -75,7 +75,7 @@ func TestRestoreDrillIsolatedEncryptedAndRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box); err != nil {
+	if err := restoreArchive(s.st, s.cfg.DataDir, arc, s.st.Box, ""); err != nil {
 		t.Fatal(err)
 	}
 	var n int64
@@ -97,7 +97,7 @@ func TestRestoreDrillRejectsDamagedSecretsAndDoesNotNeedLiveDB(t *testing.T) {
 	}
 	cfg := *s.cfg
 	cfg.DB.DSN = "postgres://unreachable.invalid/must-not-connect"
-	result, err := DrillRestore(context.Background(), &cfg, path, "")
+	result, err := DrillRestore(context.Background(), &cfg, path, "", "")
 	if err != nil || result.Status != "passed" {
 		t.Fatal("drill required live database", err, result.Error)
 	}
