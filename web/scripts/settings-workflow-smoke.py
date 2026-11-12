@@ -171,7 +171,7 @@ with sync_playwright() as p:
                     page.evaluate("delete visualViewport.height;visualViewport.dispatchEvent(new Event('resize'))")
                 tab('常规','General'); decision('放弃修改','Discard changes')
                 advanced=page.locator('details.settings-disclosure')
-                expect(advanced).to_have_count(4)  # Shodan joined the general form
+                expect(advanced).to_have_count(5)  # Shodan and usage stats joined the general form
                 for item in advanced.all(): assert not item.evaluate('(e)=>e.open')
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+1')
                 # Viewing security, password-manager verification input, and
