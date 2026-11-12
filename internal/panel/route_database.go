@@ -16,26 +16,16 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/routedb"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-// routeDatabasePolicy is the stored policy shared by both route databases:
-// same JSON shape, different setting keys.
-type routeDatabasePolicy struct {
-	Enabled  bool   `json:"enabled"`
-	SHA256   string `json:"sha256"`
-	Revision int64  `json:"revision"`
-}
-
-var routeDatabaseHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // routeDatabaseEntry is one loaded MMDB snapshot, keyed by its SHA-256.
 type routeDatabaseEntry[DB any] struct {
@@ -70,32 +60,8 @@ type routeDatabaseKind[DB any] struct {
 	invalidPolicyJSON bool
 }
 
-func decodeRouteDatabasePolicy(value string, invalid error) (routeDatabasePolicy, error) {
-	var p routeDatabasePolicy
-	if value == "" {
-		return p, nil
-	}
-	if err := json.Unmarshal([]byte(value), &p); err != nil {
-		return p, invalid
-	}
-	if p.Revision < 0 || (p.SHA256 != "" && !routeDatabaseHash.MatchString(p.SHA256)) || (p.Enabled && p.SHA256 == "") {
-		return p, invalid
-	}
-	return p, nil
-}
-
-func readRouteDatabasePolicy(db *gorm.DB, key string, invalid error) (routeDatabasePolicy, error) {
-	var row store.Setting
-	err := db.First(&row, "key = ?", key).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return routeDatabasePolicy{}, nil
-	}
-	if err != nil {
-		return routeDatabasePolicy{}, err
-	}
-	return decodeRouteDatabasePolicy(row.Value, invalid)
-}
-
+// readRouteDatabasePolicy lives in routedb now (store.go); the SQL is
+// dbStore in db_store.go.
 func lockRouteDatabasePolicy(tx *gorm.DB, key string) (store.Setting, error) {
 	row := store.Setting{Key: key, Value: `{"enabled":false,"sha256":"","revision":0}`}
 	if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row).Error; err != nil {
@@ -110,7 +76,7 @@ func lockRouteDatabasePolicy(tx *gorm.DB, key string) (store.Setting, error) {
 
 func loadRouteDatabase[DB any](s *Server, kind routeDatabaseKind[DB], hash string, mu *sync.Mutex, cache **routeDatabaseEntry[DB]) (DB, string) {
 	var zero DB
-	if !routeDatabaseHash.MatchString(hash) {
+	if !routedb.Hash.MatchString(hash) {
 		return zero, "not_configured"
 	}
 	mu.Lock()
@@ -144,10 +110,10 @@ func loadRouteDatabase[DB any](s *Server, kind routeDatabaseKind[DB], hash strin
 }
 
 func getRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKind[DB], load func(string) (DB, string)) {
-	p, err := readRouteDatabasePolicy(s.st.DB, kind.policyKey, kind.invalidPolicy)
+	p, err := routedb.ReadPolicy(dbStore{s.st.DB}, kind.policyKey, kind.invalidPolicy)
 	if err != nil {
 		if kind.invalidPolicyJSON && errors.Is(err, kind.invalidPolicy) {
-			c.JSON(http.StatusOK, gin.H{"policy": routeDatabasePolicy{}, "databaseState": "invalid_policy", "database": nil, "effectiveEnabled": false})
+			c.JSON(http.StatusOK, gin.H{"policy": routedb.Policy{}, "databaseState": "invalid_policy", "database": nil, "effectiveEnabled": false})
 			return
 		}
 		serverError(c, err)
@@ -176,7 +142,7 @@ func lookupRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKi
 		badRequest(c, errors.New("请输入有效的 IPv4 或 IPv6 地址"))
 		return
 	}
-	p, err := readRouteDatabasePolicy(s.st.DB, kind.policyKey, kind.invalidPolicy)
+	p, err := routedb.ReadPolicy(dbStore{s.st.DB}, kind.policyKey, kind.invalidPolicy)
 	if err != nil {
 		serverError(c, err)
 		return
@@ -202,7 +168,7 @@ func putRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKind[
 		badRequest(c, errors.New("expectedRevision 无效"))
 		return
 	}
-	prior, readErr := readRouteDatabasePolicy(s.st.DB, kind.policyKey, kind.invalidPolicy)
+	prior, readErr := routedb.ReadPolicy(dbStore{s.st.DB}, kind.policyKey, kind.invalidPolicy)
 	if req.Enabled {
 		if readErr != nil {
 			serverError(c, readErr)
@@ -219,12 +185,12 @@ func putRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKind[
 		if err != nil {
 			return err
 		}
-		p, err := decodeRouteDatabasePolicy(row.Value, kind.invalidPolicy)
+		p, err := routedb.DecodePolicy(row.Value, kind.invalidPolicy)
 		if err != nil {
 			if req.Enabled {
 				return err
 			}
-			p = routeDatabasePolicy{}
+			p = routedb.Policy{}
 		}
 		if req.ExpectedRevision != nil && *req.ExpectedRevision != p.Revision {
 			return kind.conflict
@@ -323,9 +289,9 @@ func uploadRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKi
 		if err != nil {
 			return err
 		}
-		p, decodeErr := decodeRouteDatabasePolicy(row.Value, kind.invalidPolicy)
+		p, decodeErr := routedb.DecodePolicy(row.Value, kind.invalidPolicy)
 		if decodeErr != nil {
-			p = routeDatabasePolicy{}
+			p = routedb.Policy{}
 		} // repair defaults off
 		if expected != nil && *expected != p.Revision {
 			return kind.conflict
@@ -351,7 +317,7 @@ func uploadRouteDatabase[DB any](c *gin.Context, s *Server, kind routeDatabaseKi
 					continue
 				}
 				candidate := name[:len(name)-len(".mmdb")]
-				if routeDatabaseHash.MatchString(candidate) && candidate != oldHash && candidate != hash {
+				if routedb.Hash.MatchString(candidate) && candidate != oldHash && candidate != hash {
 					_ = os.Remove(filepath.Join(dir, name))
 				}
 			}

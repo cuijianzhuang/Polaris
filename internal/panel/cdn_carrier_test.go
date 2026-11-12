@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -115,14 +116,14 @@ func TestSubCarrier(t *testing.T) {
 		t.Fatalf("bogus carrier = %q", c)
 	}
 	for name, want := range map[string]string{"上海电信": "ct", "Beijing Unicom": "cu", "广州移动 2": "cm", "香港": ""} {
-		if got := carrierFromName(name); got != want {
-			t.Errorf("carrierFromName(%q) = %q, want %q", name, got, want)
+		if got := cdnkit.CarrierFromName(name); got != want {
+			t.Errorf("cdnkit.CarrierFromName(%q) = %q, want %q", name, got, want)
 		}
 	}
-	if _, err := reportCarrier(cdnIPReportReq{Source: "x", Carrier: "att"}); err == nil {
+	if _, err := cdnkit.ReportCarrier("att", "x"); err == nil {
 		t.Fatal("unknown carrier accepted")
 	}
-	if c, _ := reportCarrier(cdnIPReportReq{Source: "上海电信", Carrier: "CM"}); c != "cm" {
+	if c, _ := cdnkit.ReportCarrier("CM", "上海电信"); c != "cm" {
 		t.Fatalf("explicit carrier = %q", c)
 	}
 }

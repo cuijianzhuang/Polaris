@@ -9,15 +9,12 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
-
-func cdnTunnel(p *store.CDNProfile) bool { return p.OriginMode == "tunnel" }
-
-var cdnTunnelID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 func normalizeCDNTunnel(r *cdnReq) error {
 	mode := "direct"
@@ -38,7 +35,7 @@ func normalizeCDNTunnel(r *cdnReq) error {
 	if r.TunnelID != nil {
 		id = strings.ToLower(strings.TrimSpace(*r.TunnelID))
 	}
-	if !cdnTunnelID.MatchString(id) {
+	if !cdnkit.ValidTunnelID(id) {
 		return fmt.Errorf("请填写 Cloudflare Tunnel UUID，不是 Token 或 URL")
 	}
 	r.TunnelID = &id
@@ -54,35 +51,10 @@ func normalizeCDNTunnel(r *cdnReq) error {
 	return nil
 }
 
-func cdnTunnelProblem(m *model.Inbound, p *store.CDNProfile, port int) string {
-	if p.Provider != "cloudflare" || cdnScheme(p) != "https" || p.CaddyFronting || !cdnTunnelID.MatchString(p.TunnelID) {
-		return "Tunnel 配置无效：需要 Cloudflare、HTTPS 和有效 Tunnel UUID，且不能启用 Caddy"
-	}
-	if port != 0 && port != 443 {
-		return "Tunnel 模式当前只支持客户端 HTTPS 443 端口"
-	}
-	if len(p.Ports.V) > 0 && (len(p.Ports.V) != 1 || p.Ports.V[0] != 443) {
-		return "Tunnel 配置档客户端端口必须为 443"
-	}
-	if len(m.Extra) > 0 && string(m.Extra) != "null" && string(m.Extra) != "{}" {
-		return "Tunnel 模式暂不支持 Extra 覆盖配置，避免覆盖回环监听或 TLS 设置"
-	}
-	if m.Transport.Type != model.TransWS || m.Security.Type != model.SecNone {
-		return "Tunnel 模式当前支持 WS 明文回源：请使用 WS 并关闭入站 TLS；客户端仍使用 HTTPS"
-	}
-	if m.Listen != "127.0.0.1" {
-		return "Tunnel 入站必须监听 127.0.0.1，让同机 cloudflared 回源，避免公开入站端口"
-	}
-	if m.Transport.AcceptProxyProtocol {
-		return "Tunnel HTTP 回源不支持 PROXY protocol，请关闭该选项"
-	}
-	return ""
-}
-
 // One named tunnel belongs to one profile and one node. Sharing its UUID
 // between unrelated connectors would load-balance requests to the wrong VPS.
 func validateCDNTunnel(db *gorm.DB, p *store.CDNProfile) error {
-	if !cdnTunnel(p) {
+	if !cdnkit.Tunnel(p) {
 		return nil
 	}
 	if p.TunnelManaged && (p.TunnelNodeID == "" || p.TunnelCredential == "" || p.TunnelCredentialVersion == "") {
@@ -107,7 +79,7 @@ func validateCDNTunnel(db *gorm.DB, p *store.CDNProfile) error {
 			return err
 		}
 		m := model.Inbound{NodeID: row.NodeID, Listen: row.Listen, Port: row.Port, Transport: row.Transport.V, Security: row.Security.V, Extra: row.Extra}
-		if problem := cdnTunnelProblem(&m, p, ep.Port); problem != "" {
+		if problem := cdnkit.TunnelProblem(&m, p, ep.Port); problem != "" {
 			return cdnSchemeProblem(row.Tag + ": " + problem)
 		}
 		if node != "" && node != row.NodeID {
@@ -185,7 +157,7 @@ func (s *Server) inboundTunnel(m *model.Inbound, id string) (bool, error) {
 		return false, err
 	}
 	for _, p := range profiles {
-		if problem := cdnTunnelProblem(m, &p, 0); problem != "" {
+		if problem := cdnkit.TunnelProblem(m, &p, 0); problem != "" {
 			return false, fmt.Errorf("%s: %s", m.Tag, problem)
 		}
 		if err := checkTunnelAttachments(s.st.DB, &p, id, m.NodeID); err != nil {
@@ -260,7 +232,7 @@ func (s *Server) cdnTunnelConfig(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	if !cdnTunnel(&p) {
+	if !cdnkit.Tunnel(&p) {
 		badRequest(c, fmt.Errorf("此配置档未启用 Tunnel 模式"))
 		return
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -66,16 +67,16 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		return
 	}
 	source := strings.TrimSpace(req.Source)
-	if !cdnSourceRe.MatchString(source) {
+	if !cdnkit.ValidSourceName(source) {
 		badRequest(c, errors.New("测速点名称例如「上海电信」：字母、数字、汉字开头，最长 40 个字符"))
 		return
 	}
-	region, err := reportRegion(cdnIPReportReq{Source: source, Region: req.Region})
+	region, err := cdnkit.ReportRegion(req.Region, source)
 	if err != nil {
 		badRequest(c, err)
 		return
 	}
-	carrier, err := reportCarrier(cdnIPReportReq{Source: source, Carrier: req.Carrier})
+	carrier, err := cdnkit.ReportCarrier(req.Carrier, source)
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -96,9 +97,9 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 		}
 
 		if req.Port == 0 {
-			req.Port = cdnDefaultPort(&p)
+			req.Port = cdnkit.DefaultPort(&p)
 		}
-		if req.Port < 1 || req.Port > 65535 || (p.Provider == "cloudflare" && !slices.Contains(cdnClientPorts(&p), req.Port)) {
+		if req.Port < 1 || req.Port > 65535 || (p.Provider == "cloudflare" && !slices.Contains(cdnkit.ClientPorts(&p), req.Port)) {
 			return cdnSchemeProblem("测速端口不属于当前 CDN 协议的可用端口")
 		}
 		if err := tx.Where("cdn_profile_id = ? AND cdn_source = ? AND (cdn_user_id = ? OR cdn_user_id IS NULL)", p.ID, source, "").Delete(&store.APIToken{}).Error; err != nil {
@@ -120,7 +121,7 @@ func (s *Server) pairCDNProbe(c *gin.Context) {
 	}
 	s.auditCtx(c, "cdn.probe_pair", p.Name, source)
 	c.JSON(http.StatusCreated, gin.H{"region": region, "carrier": carrier, "port": req.Port, "source": source, "tokenId": tok.ID, "token": secret,
-		"scheme": cdnScheme(&p), "instance": fmt.Sprintf("cdn-%x", sha256.Sum256([]byte(p.ID+"/"+source)))[:20],
+		"scheme": cdnkit.Scheme(&p), "instance": fmt.Sprintf("cdn-%x", sha256.Sum256([]byte(p.ID+"/"+source)))[:20],
 		"mirror": strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/")})
 }
 

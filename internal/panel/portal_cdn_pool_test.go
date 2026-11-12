@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -122,7 +123,7 @@ func TestPersonalCDNFilteringFallbackAndNodeSettings(t *testing.T) {
 	entries, _ := s.personalCDNEntries(s.st.DB, &owner, &profile)
 	target := entries[0].Target
 	target.Server = "104.20.9.9"
-	pool.EndpointChecks = map[string]store.PersonalCDNCheck{cdnFailureSlot("re", "104.20.9.9"): {OK: false, Failed: true, At: time.Now(), Fingerprint: cdnCheckKey("re", target, entries[0].Transport, entries[0].Revision)}}
+	pool.EndpointChecks = map[string]store.PersonalCDNCheck{cdnkit.FailureSlot("re", "104.20.9.9"): {OK: false, Failed: true, At: time.Now(), Fingerprint: cdnkit.CheckKey("re", target, entries[0].Transport, entries[0].Revision)}}
 	s.st.DB.Model(&store.User{}).Where("id = ?", "ra").Update("cdn_pool", store.NewJSON(map[string]store.PersonalCDNPool{"regional": pool}))
 	if got := regionServers(t, s, "ra", "ct", "CN-31"); !slices.Equal(got, []string{"104.16.1.1"}) {
 		t.Fatal("personal failures did not fall back", got)
@@ -150,7 +151,7 @@ func TestPersonalCDNFilteringFallbackAndNodeSettings(t *testing.T) {
 	var p store.CDNProfile
 	p.NodeCheck = true
 	p.BadIPs = store.NewJSON([]string{"104.20.9.9"})
-	if got := usableCDNIPsAt(&p, []string{"104.20.9.9"}, cdnDefaultPort(&p)); len(got) != 0 {
+	if got := cdnkit.UsableIPsAt(&p, []string{"104.20.9.9"}, cdnkit.DefaultPort(&p)); len(got) != 0 {
 		t.Fatal("all-bad fallback revived address", got)
 	}
 }

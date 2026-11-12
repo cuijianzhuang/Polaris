@@ -7,6 +7,7 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -119,7 +120,7 @@ func (s *Server) updateTunnelAgent(c *gin.Context) {
 			return err
 		}
 		oldNode = p.TunnelNodeID
-		if !cdnTunnel(&p) {
+		if !cdnkit.Tunnel(&p) {
 			return cdnSchemeProblem("请先选择 Cloudflare Tunnel 回源模式")
 		}
 		if *req.Enabled {

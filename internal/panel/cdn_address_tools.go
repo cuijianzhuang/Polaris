@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -25,49 +25,26 @@ type cdnCheckContext struct {
 	InboundID       string          `json:"inboundId"`
 	Label           string          `json:"label"`
 	Transport       model.Transport `json:"transport"`
-	Target          cdnTarget       `json:"target"`
+	Target          cdnkit.Target   `json:"target"`
 	Warnings        []string        `json:"warnings"`
 }
-type cdnAddressResult struct {
-	cdnCheck
-	Target           cdnTarget `json:"target"`
-	EndpointID       string    `json:"endpointId"`
-	CheckedAt        time.Time `json:"checkedAt"`
-	Viewpoint        string    `json:"viewpoint"`
-	BusinessVerified bool      `json:"businessVerified"`
-}
 type cdnAddressRow struct {
-	BlockKey    string             `json:"blockKey,omitempty"`
-	Address     string             `json:"address"`
-	Type        string             `json:"type"`
-	Source      string             `json:"source"`
-	Fixed       bool               `json:"fixed"`
-	Blocked     bool               `json:"blocked"`
-	Selected    bool               `json:"selected"`
-	Reason      string             `json:"reason"`
-	Sources     []string           `json:"sources"`
-	ReportedAt  *time.Time         `json:"reportedAt,omitempty"`
-	Measurement *store.CDNIPResult `json:"measurement,omitempty"`
-	Stale       bool               `json:"stale"`
-	Check       *cdnAddressResult  `json:"check,omitempty"`
-	FailedAt    *time.Time         `json:"failedAt,omitempty"`
+	BlockKey    string                `json:"blockKey,omitempty"`
+	Address     string                `json:"address"`
+	Type        string                `json:"type"`
+	Source      string                `json:"source"`
+	Fixed       bool                  `json:"fixed"`
+	Blocked     bool                  `json:"blocked"`
+	Selected    bool                  `json:"selected"`
+	Reason      string                `json:"reason"`
+	Sources     []string              `json:"sources"`
+	ReportedAt  *time.Time            `json:"reportedAt,omitempty"`
+	Measurement *store.CDNIPResult    `json:"measurement,omitempty"`
+	Stale       bool                  `json:"stale"`
+	Check       *cdnkit.AddressResult `json:"check,omitempty"`
+	FailedAt    *time.Time            `json:"failedAt,omitempty"`
 }
 
-func cdnHealthRevision(row store.Inbound, p *store.CDNProfile) string {
-	parts := []any{row.Transport, row.Security, p.TLSMode, p.CaddyFronting}
-	if cdnTunnel(p) {
-		parts = append(parts, "tunnel", p.TunnelID)
-		if p.TunnelCredentialMode == "remote" {
-			parts = append(parts, "remote")
-		}
-	}
-	b, _ := json.Marshal(parts)
-	return fmt.Sprintf("%x", sha256.Sum256(b))
-}
-func cdnCheckKey(ep string, t cdnTarget, tr model.Transport, revision string) string {
-	b, _ := json.Marshal([]any{ep, t, tr, revision})
-	return fmt.Sprintf("%x", sha256.Sum256(b))
-}
 func (s *Server) cdnContexts(p *store.CDNProfile) []cdnCheckContext {
 	var es []store.Endpoint
 	s.st.DB.Where("cdn_profile_id = ? AND kind = ?", p.ID, "cdn").Order("id").Find(&es)
@@ -83,7 +60,7 @@ func (s *Server) cdnContexts(p *store.CDNProfile) []cdnCheckContext {
 		}
 		var n store.Node
 		s.st.DB.First(&n, "id = ?", row.NodeID)
-		out = append(out, cdnCheckContext{Revision: cdnHealthRevision(row, p), ExplicitAddress: ep.Address, EndpointID: ep.ID, InboundID: row.ID, Label: n.Name + " / " + row.Tag, Transport: m.Transport.Type, Target: s.cdnTargetFor(&ep, &m, p), Warnings: s.cdnEndpointWarnings(&ep, &row, p)})
+		out = append(out, cdnCheckContext{Revision: cdnkit.HealthRevision(row, p), ExplicitAddress: ep.Address, EndpointID: ep.ID, InboundID: row.ID, Label: n.Name + " / " + row.Tag, Transport: m.Transport.Type, Target: s.cdnTargetFor(&ep, &m, p), Warnings: s.cdnEndpointWarnings(&ep, &row, p)})
 	}
 	return out
 }
@@ -96,7 +73,7 @@ func (s *Server) cdnPreview(p *store.CDNProfile, ctx cdnCheckContext, carrier st
 		return nil
 	}
 	m := s.toModelInbound(&row)
-	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport}, ep, map[string]string{}, "{kind}", nil, nil, &m, &row, nil, carrier, cdnAudience{Region: region})
+	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport}, ep, map[string]string{}, "{kind}", nil, nil, &m, &row, nil, carrier, cdnkit.Audience{Region: region})
 	out := []string{}
 	for _, n := range nodes {
 		out = append(out, n.Server)
@@ -111,12 +88,12 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 	}
 	carrier := c.Query("carrier")
 	if carrier != "" {
-		if _, ok := cdnCarriers[carrier]; !ok {
+		if !cdnkit.ValidCarrier(carrier) {
 			badRequest(c, fmt.Errorf("carrier 只能是 ct、cu、cm 或留空"))
 			return
 		}
 	}
-	region, err := normalizeCDNRegion(c.Query("region"))
+	region, err := cdnkit.NormalizeRegion(c.Query("region"))
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -133,7 +110,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		badRequest(c, fmt.Errorf("请选择当前配置档的有效 CDN 入口"))
 		return
 	}
-	port := cdnDefaultPort(&p)
+	port := cdnkit.DefaultPort(&p)
 	selected := []string{}
 	if chosen != nil {
 		port = chosen.Target.Port
@@ -146,7 +123,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 	if !p.CarrierSplit {
 		reportCarrier = ""
 	}
-	reports := cdnReportsForPort(s.st.DB, &p, port, time.Time{}, reportCarrier)
+	reports, _ := cdnkit.ReportsForPort(dbStore{s.st.DB}, &p, port, time.Time{}, reportCarrier)
 	seen := map[string]bool{}
 	items := []cdnAddressRow{}
 	for _, a := range addresses {
@@ -154,7 +131,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 			continue
 		}
 		seen[a] = true
-		row := cdnAddressRow{Address: a, Type: "domain", Source: "retained", Fixed: slices.Contains(p.PinnedHosts.V, a), Blocked: cdnAddressBlocked(&p, a), Selected: slices.Contains(selected, a), Sources: []string{}}
+		row := cdnAddressRow{Address: a, Type: "domain", Source: "retained", Fixed: slices.Contains(p.PinnedHosts.V, a), Blocked: cdnkit.AddressBlocked(&p, a), Selected: slices.Contains(selected, a), Sources: []string{}}
 		if ip := net.ParseIP(a); ip != nil {
 			row.Type = "ipv6"
 			if ip.To4() != nil {
@@ -170,13 +147,13 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 						row.ReportedAt = &at
 						v := m
 						row.Measurement = &v
-						row.Stale = time.Since(at) > cdnStaleAfter(&p)
+						row.Stale = time.Since(at) > cdnkit.StaleAfter(&p)
 					}
 				}
 			}
 		}
 		for _, b := range p.BlockedHosts.V {
-			if cdnAddressBlocked(&store.CDNProfile{BlockedHosts: store.NewJSON([]string{b})}, a) {
+			if cdnkit.AddressBlocked(&store.CDNProfile{BlockedHosts: store.NewJSON([]string{b})}, a) {
 				row.BlockKey = b
 				break
 			}
@@ -191,7 +168,7 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		if chosen != nil {
 			target := chosen.Target
 			target.Server = a
-			row.FailedAt = cdnAddressFailureAt(&p, chosen.EndpointID, target, chosen.Transport, chosen.Revision)
+			row.FailedAt = cdnkit.AddressFailureAt(&p, chosen.EndpointID, target, chosen.Transport, chosen.Revision)
 		}
 		switch {
 		case row.Blocked:
@@ -214,12 +191,12 @@ func (s *Server) cdnAddressTools(c *gin.Context) {
 		if chosen != nil {
 			target := chosen.Target
 			target.Server = a
-			row.Check = cdnCachedAddressCheck(&p, cdnCheckKey(chosen.EndpointID, target, chosen.Transport, chosen.Revision))
+			row.Check = cdnkit.CachedAddressCheck(&p, cdnkit.CheckKey(chosen.EndpointID, target, chosen.Transport, chosen.Revision))
 		}
 		items = append(items, row)
 	}
-	_, matchMode := s.cdnAudienceReports(&p, port, carrier, region)
-	c.JSON(200, gin.H{"schedule": cdnAddressSchedule(&p), "contexts": contexts, "region": region, "regions": s.cdnRegionOptions(), "matchMode": matchMode, "selectionMessage": s.cdnSelectionText(&p, carrier, region, nil, port), "context": chosen, "items": items, "selected": selected, "scheme": cdnScheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnStaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
+	_, matchMode, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, &p, port, carrier, region)
+	c.JSON(200, gin.H{"schedule": cdnAddressSchedule(&p), "contexts": contexts, "region": region, "regions": s.cdnRegionOptions(), "matchMode": matchMode, "selectionMessage": s.cdnSelectionText(&p, carrier, region, nil, port), "context": chosen, "items": items, "selected": selected, "scheme": cdnkit.Scheme(&p), "port": port, "carrier": carrier, "stalePolicy": orDefault(p.StalePolicy, "source"), "staleHours": int(cdnkit.StaleAfter(&p).Hours()), "expandPerIp": p.ExpandPerIP, "ipTopN": p.IPTopN})
 }
 func (s *Server) checkCDNAddress(c *gin.Context) {
 	var req struct {
@@ -259,17 +236,17 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 		return
 	}
 	target.Server = req.Address
-	result := cdnAddressResult{Target: target, EndpointID: ep.ID, CheckedAt: time.Now(), Viewpoint: "panel"}
+	result := cdnkit.AddressResult{Target: target, EndpointID: ep.ID, CheckedAt: time.Now(), Viewpoint: "panel"}
 	if problem := s.cdnEndpointProblem(&m, row.ID, &p, ep.Port); problem != "" {
 		result.Message = problem
 		result.Steps = []string{}
 	} else {
 		var n store.Node
 		s.st.DB.First(&n, "id = ?", row.NodeID)
-		result.cdnCheck = probeCDNTarget(c.Request.Context(), target, m.Transport.Type, nodeOrigin(&n))
+		result.Check = probeCDNTarget(c.Request.Context(), target, m.Transport.Type, nodeOrigin(&n))
 	}
 	result.Warnings = s.cdnEndpointWarnings(&ep, &row, &p)
-	key := cdnCheckKey(ep.ID, target, m.Transport.Type, cdnHealthRevision(row, &p))
+	key := cdnkit.CheckKey(ep.ID, target, m.Transport.Type, cdnkit.HealthRevision(row, &p))
 	if err := s.saveCDNAddressResult(c.Request.Context(), p.ID, key, result, ""); err != nil {
 		dbError(c, err)
 		return
@@ -279,7 +256,7 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 }
 
 // Manual and scheduled diagnostics persist exactly the same scoped verdict.
-func (s *Server) saveCDNAddressResult(ctx context.Context, profileID, key string, result cdnAddressResult, lease string) error {
+func (s *Server) saveCDNAddressResult(ctx context.Context, profileID, key string, result cdnkit.AddressResult, lease string) error {
 	return s.st.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockCDNReports(tx); err != nil {
 			return err
@@ -311,17 +288,17 @@ func (s *Server) saveCDNAddressResult(ctx context.Context, profileID, key string
 			}
 			return tx.Model(&current).Updates(updates).Error
 		}
-		if failure, ok := current.AddressFailures.V[cdnFailureSlot(result.EndpointID, result.Target.Server)]; ok && failure.At.After(result.CheckedAt) {
+		if failure, ok := current.AddressFailures.V[cdnkit.FailureSlot(result.EndpointID, result.Target.Server)]; ok && failure.At.After(result.CheckedAt) {
 			return progressOnly()
 		}
 		// A slower, older request cannot undo a newer check of the same address.
 		for fingerprint := range current.AddressChecks.V {
-			prior := cdnCachedAddressCheck(&current, fingerprint)
+			prior := cdnkit.CachedAddressCheck(&current, fingerprint)
 			if prior != nil && prior.EndpointID == result.EndpointID && prior.Target.Server == result.Target.Server && prior.CheckedAt.After(result.CheckedAt) {
 				return progressOnly()
 			}
 		}
-		recordCDNAddressVerdict(&current, key, result)
+		cdnkit.RecordAddressVerdict(&current, key, result)
 		checks := current.AddressChecks.V
 		if checks == nil {
 			checks = map[string]json.RawMessage{}
@@ -338,7 +315,7 @@ func (s *Server) saveCDNAddressResult(ctx context.Context, profileID, key string
 		}
 		order := []old{}
 		for k, v := range checks {
-			var r cdnAddressResult
+			var r cdnkit.AddressResult
 			_ = json.Unmarshal(v, &r)
 			order = append(order, old{k, r.CheckedAt})
 		}

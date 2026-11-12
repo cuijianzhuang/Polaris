@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -69,13 +70,13 @@ func (s *Server) personalCDNReport(c *gin.Context, token *store.APIToken) {
 	}
 	req.Port = token.CDNPort
 	if req.Scheme == "" {
-		req.Scheme = cdnScheme(&p)
+		req.Scheme = cdnkit.Scheme(&p)
 	}
-	if _, _, err := cdnReportTarget(req, &p); err != nil {
+	if _, _, err := cdnkit.ReportTarget(req.Port, req.Scheme, &p); err != nil {
 		badRequest(c, err)
 		return
 	}
-	results, err := checkCDNReport(req)
+	results, err := cdnkit.CheckReport(req.Source, req.IPs)
 	if err != nil {
 		badRequest(c, err)
 		return
@@ -156,7 +157,7 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 	}
 	p := profiles[i]
 	if req.Port == 0 {
-		req.Port = cdnDefaultPort(&p)
+		req.Port = cdnkit.DefaultPort(&p)
 	}
 	entries, err := s.personalCDNEntries(s.st.DB, u, &p)
 	if err != nil {
@@ -201,7 +202,7 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 			instance := fmt.Sprintf("personal-%x", sha256.Sum256([]byte(u.ID+"/"+p.ID)))[:25]
 			script := "https://github.com/cuijianzhuang/polaris-plugins/releases/latest/download/install.sh"
 			response["command"] = "curl -fsSL " + shellQuote(script) + " | sudo sh -s -- --api " + shellQuote(apiBase) +
-				" --profile " + shellQuote(p.ID) + " --host " + shellQuote(personalCDNProbeHost(entries, req.EndpointID, req.Port, p.OriginDomain)) + " --token " + shellQuote(secret) + " --source personal --instance " + shellQuote(instance) + " --args " + shellQuote("-scheme "+cdnScheme(&p)+" -port "+strconv.Itoa(req.Port)+" -interval 1h")
+				" --profile " + shellQuote(p.ID) + " --host " + shellQuote(personalCDNProbeHost(entries, req.EndpointID, req.Port, p.OriginDomain)) + " --token " + shellQuote(secret) + " --source personal --instance " + shellQuote(instance) + " --args " + shellQuote("-scheme "+cdnkit.Scheme(&p)+" -port "+strconv.Itoa(req.Port)+" -interval 1h")
 			return nil
 		})
 	case "check":
@@ -241,7 +242,7 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 		if c.Request.Context().Err() != nil {
 			return
 		} // A disconnected client is not evidence of an unreachable address.
-		result := store.PersonalCDNCheck{At: at, OK: checked.OK, Partial: checked.Partial, Message: checked.Message, Fingerprint: cdnCheckKey(entry.EndpointID, target, entry.Transport, entry.Revision)}
+		result := store.PersonalCDNCheck{At: at, OK: checked.OK, Partial: checked.Partial, Message: checked.Message, Fingerprint: cdnkit.CheckKey(entry.EndpointID, target, entry.Transport, entry.Revision)}
 		err = s.mutatePersonalCDN(u.ID, p.ID, func(_ *gorm.DB, pool *store.PersonalCDNPool) error {
 			result = recordPersonalCDNVerdict(pool, entry.EndpointID, address, result)
 

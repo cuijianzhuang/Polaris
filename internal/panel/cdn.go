@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -249,8 +250,8 @@ func (r *cdnReq) normalize() error {
 		if p < 1 || p > 65535 {
 			return fmt.Errorf("端口 %d 不在 1–65535 之间", p)
 		}
-		if r.Provider == "cloudflare" && !slices.Contains(cdnClientPorts(profile), p) {
-			return fmt.Errorf("Cloudflare 的 %s 端口为 %s，客户端连不了 %d", strings.ToUpper(r.Scheme), cdnPortsText(profile), p)
+		if r.Provider == "cloudflare" && !slices.Contains(cdnkit.ClientPorts(profile), p) {
+			return fmt.Errorf("Cloudflare 的 %s 端口为 %s，客户端连不了 %d", strings.ToUpper(r.Scheme), cdnkit.PortsText(profile), p)
 		}
 		if !slices.Contains(ports, p) {
 			ports = append(ports, p)
@@ -310,14 +311,14 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 	if r.TunnelID != nil {
 		p.TunnelID = *r.TunnelID
 	}
-	if !cdnTunnel(p) {
+	if !cdnkit.Tunnel(p) {
 		p.TunnelID = ""
 	}
-	oldPort, oldScheme := cdnDefaultPort(p), cdnScheme(p)
+	oldPort, oldScheme := cdnkit.DefaultPort(p), cdnkit.Scheme(p)
 	p.Scheme = orDefault(r.Scheme, "https")
 	p.Name, p.Provider, p.OriginDomain, p.TLSMode = r.Name, orDefault(r.Provider, "cloudflare"), r.OriginDomain, orDefault(r.TLSMode, "full_strict")
 	if len(r.Ports) == 0 {
-		r.Ports = slices.Clone(cdnClientPorts(&store.CDNProfile{Scheme: r.Scheme}))
+		r.Ports = slices.Clone(cdnkit.ClientPorts(&store.CDNProfile{Scheme: r.Scheme}))
 	}
 	// Legacy mixed-list clients infer new domains as retained. Existing pins,
 	// including IPs, stay pinned when present; new IPs remain temporary.
@@ -350,7 +351,7 @@ func (r *cdnReq) apply(p *store.CDNProfile, box func(string) string) {
 		p.RegionSplit = *r.RegionSplit
 	}
 	p.NodeCheck, p.StaleHours, p.CarrierSplit = r.NodeCheck, min(max(r.StaleHours, 0), 24*30), r.CarrierSplit
-	if !p.NodeCheck || oldPort != cdnDefaultPort(p) || oldScheme != cdnScheme(p) {
+	if !p.NodeCheck || oldPort != cdnkit.DefaultPort(p) || oldScheme != cdnkit.Scheme(p) {
 		p.PortChecks = store.NewJSON(map[string]store.CDNPortCheck{})
 		p.CheckedAt = nil
 		p.BadIPs = store.NewJSON([]string{})
@@ -383,7 +384,7 @@ func (s *Server) listCDN(c *gin.Context) {
 	}
 	inbounds := countDistinctBy(s.st.DB, &store.Endpoint{}, "cdn_profile_id", "inbound_id", ids)
 	serves := s.cdnServes(ids)
-	reports := s.cdnReports(ids)
+	reports, _ := cdnkit.ReportsByProfiles(dbStore{s.st.DB}, ids)
 	probes := s.cdnProbes(ids)
 	// Read once: list queries stay flat.
 	cdnTok, dnsTok := s.st.GetSetting("cdn_cf_token", "") != "", s.st.GetSetting("acme_cf_token", "") != ""
@@ -405,16 +406,16 @@ func (s *Server) listCDN(c *gin.Context) {
 		}
 		shared := []string{}
 		if p.Provider == "cloudflare" {
-			since := time.Now().Add(-cdnStaleAfter(&p))
+			since := time.Now().Add(-cdnkit.StaleAfter(&p))
 			for _, o := range ps {
-				if o.ID == p.ID || o.Provider != "cloudflare" || cdnScheme(&o) != cdnScheme(&p) {
+				if o.ID == p.ID || o.Provider != "cloudflare" || cdnkit.Scheme(&o) != cdnkit.Scheme(&p) {
 					continue
 				}
 				for _, r := range reports[o.ID] {
 					own := slices.ContainsFunc(reports[p.ID], func(x store.CDNIPReport) bool {
-						return x.Source == r.Source && effectiveCDNReportPort(x) == cdnDefaultPort(&p) && effectiveCDNReportScheme(x) == cdnScheme(&p)
+						return x.Source == r.Source && cdnkit.EffectiveReportPort(x) == cdnkit.DefaultPort(&p) && cdnkit.EffectiveReportScheme(x) == cdnkit.Scheme(&p)
 					})
-					if effectiveCDNReportPort(r) == cdnDefaultPort(&p) && effectiveCDNReportScheme(r) == cdnScheme(&p) && r.At.After(since) && !own && !slices.Contains(shared, r.Source) {
+					if cdnkit.EffectiveReportPort(r) == cdnkit.DefaultPort(&p) && cdnkit.EffectiveReportScheme(r) == cdnkit.Scheme(&p) && r.At.After(since) && !own && !slices.Contains(shared, r.Source) {
 						shared = append(shared, r.Source)
 					}
 				}
@@ -471,7 +472,7 @@ func (s *Server) updateCDN(c *gin.Context) {
 		return
 	}
 	if req.Scheme == "" {
-		req.Scheme = cdnScheme(&p)
+		req.Scheme = cdnkit.Scheme(&p)
 	}
 	if req.OriginMode == nil {
 		req.OriginMode = &p.OriginMode
@@ -505,10 +506,10 @@ func (s *Server) updateCDN(c *gin.Context) {
 		}
 		candidate := p
 		req.apply(&candidate, s.st.Box.Seal)
-		if p.TunnelManaged && (!cdnTunnel(&candidate) || candidate.TunnelID != p.TunnelID) {
+		if p.TunnelManaged && (!cdnkit.Tunnel(&candidate) || candidate.TunnelID != p.TunnelID) {
 			return cdnSchemeProblem("请先停用 Agent 托管并等待节点清理，再切换回源方式或 Tunnel UUID")
 		}
-		if p.TunnelNodeID != "" && (!cdnTunnel(&candidate) || candidate.TunnelID != p.TunnelID) {
+		if p.TunnelNodeID != "" && (!cdnkit.Tunnel(&candidate) || candidate.TunnelID != p.TunnelID) {
 			if !s.tunnelCleanupConfirmed(tx, &p) {
 				return cdnSchemeProblem("旧节点尚未确认清理，请等待 Agent 同步后再切换")
 			}
@@ -644,7 +645,7 @@ func (s *Server) deleteCDN(c *gin.Context) {
 		if len(gone) == 0 {
 			return nil
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), reportIPs(gone))
+		_, _, err := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now().UTC(), cdnkit.ReportIPs(gone))
 		return err
 	})
 	if err != nil {
@@ -709,7 +710,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 			return res, cfStep("查找 "+p.OriginDomain+" 所在的域名", "Zone.Zone 读取", err)
 		}
 	}
-	if cdnTunnel(p) {
+	if cdnkit.Tunnel(p) {
 		return s.syncCDNTunnel(ctx, cf, zone, p)
 	}
 	res.Split = s.splitSharedCDNHosts(p)
@@ -747,7 +748,7 @@ func (s *Server) syncCDN(ctx context.Context, p *store.CDNProfile, full bool) (c
 		res.Records = append(res.Records, host+" → "+addr)
 	}
 	s.warnWrite("cdn zone", s.st.DB.Model(p).Updates(map[string]any{"zone_id": zone, "last_error": ""}).Error) // only a cache of the zone lookup
-	if !full || cdnScheme(p) == "http" {
+	if !full || cdnkit.Scheme(p) == "http" {
 		return res, nil
 	}
 	mode := map[string]string{"full_strict": "strict", "full": "full", "flexible": "flexible"}[p.TLSMode]
@@ -951,7 +952,7 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile, a
 			ips = current.PreferredIPs.V
 			return nil
 		}
-		ips = withPinned(ips, current.PinnedHosts.V)
+		ips = cdnkit.WithPinned(ips, current.PinnedHosts.V)
 		return tx.Model(&current).Updates(map[string]any{"preferred_ips": store.NewJSON(ips), "last_refresh_at": time.Now().UTC(), "last_error": ""}).Error
 	}); err != nil {
 		return nil, err
@@ -961,13 +962,15 @@ func (s *Server) refreshPreferredIPs(ctx context.Context, p *store.CDNProfile, a
 
 // Recheck after network IO: a report or configuration edit may have won the race.
 func cdnAutoSourceNeeded(db *gorm.DB, before, current *store.CDNProfile) bool {
-	if current.IPSourceURL != before.IPSourceURL || current.Provider != before.Provider || cdnScheme(current) != cdnScheme(before) || cdnDefaultPort(current) != cdnDefaultPort(before) {
+	if current.IPSourceURL != before.IPSourceURL || current.Provider != before.Provider || cdnkit.Scheme(current) != cdnkit.Scheme(before) || cdnkit.DefaultPort(current) != cdnkit.DefaultPort(before) {
 		return false
 	}
-	if len(sharedCDNReports(db, current, time.Now().UTC().Add(-cdnStaleAfter(current)), "")) > 0 {
+	fresh, _ := cdnkit.SharedReports(dbStore{db}, current, time.Now().UTC().Add(-cdnkit.StaleAfter(current)), "")
+	if len(fresh) > 0 {
 		return false
 	}
-	return current.StalePolicy != "keep" || len(sharedCDNReports(db, current, time.Time{}, "")) == 0
+	any, _ := cdnkit.SharedReports(dbStore{db}, current, time.Time{}, "")
+	return current.StalePolicy != "keep" || len(any) == 0
 }
 
 // A failed old fetch must not restore an error already cleared by a fresh report.
@@ -988,18 +991,6 @@ func (s *Server) recordCDNAutoSourceError(p *store.CDNProfile, cause error) {
 	if err != nil {
 		s.log.Warn("cdn source error state", "profile", p.Name, "err", err)
 	}
-}
-
-// withPinned is an automatic list of preferred addresses plus the domains
-// the admin typed in, which automatic updates never drop.
-func withPinned(list, pinned []string) []string {
-	out := slices.Clone(list)
-	for _, h := range pinned {
-		if !slices.Contains(out, h) {
-			out = append(out, h)
-		}
-	}
-	return out
 }
 
 // parseIPList reads preferred addresses: IPs or domains, one per line, the
@@ -1043,7 +1034,14 @@ func (s *Server) refreshAllPreferredIPs() {
 	s.st.DB.Where("ip_source_url <> ''").Find(&ps)
 	now := time.Now()
 	for i := range ps {
-		if s.cdnFreshReport(&ps[i], now) || (ps[i].StalePolicy == "keep" && len(sharedCDNReports(s.st.DB, &ps[i], time.Time{}, "")) > 0) {
+		fresh := s.cdnFreshReport(&ps[i], now)
+		if !fresh && ps[i].StalePolicy == "keep" {
+			// A keep policy with any report at all is still maintained
+			// by its speed-test points, however old.
+			rs, _ := cdnkit.SharedReports(dbStore{s.st.DB}, &ps[i], time.Time{}, "")
+			fresh = len(rs) > 0
+		}
+		if fresh {
 			continue // speed-test points maintain this list
 		}
 		if _, err := s.refreshPreferredIPs(context.Background(), &ps[i], true); err != nil {

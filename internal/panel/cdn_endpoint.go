@@ -20,26 +20,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
-// cdnTarget is where a client of a cdn endpoint connects, as the
-// subscription tells it (see expandEndpoint).
-type cdnTarget struct {
-	Provider   string `json:"provider,omitempty"`
-	Scheme     string `json:"scheme"`
-	OriginPort int    `json:"originPort"`
-	Server     string `json:"server"`
-	Port       int    `json:"port"`
-	SNI        string `json:"sni"`
-	Host       string `json:"host"`
-	Path       string `json:"path"`
-}
-
-func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnTarget {
+func (s *Server) cdnTargetFor(ep *store.Endpoint, m *model.Inbound, p *store.CDNProfile) cdnkit.Target {
 	front, fronted := s.frontFor(m.ID)
 	host := orDefault(ep.Host, p.OriginDomain)
-	t := cdnTarget{Provider: p.Provider, OriginPort: m.Port, Scheme: cdnScheme(p), Server: host, Port: cdnNodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
+	t := cdnkit.Target{Provider: p.Provider, OriginPort: m.Port, Scheme: cdnkit.Scheme(p), Server: host, Port: cdnkit.NodePort(p, m.Port, fronted && p.CaddyFronting), SNI: host, Host: host, Path: m.Transport.Path}
 	if m.Transport.Type == model.TransGRPC {
 		t.Path = "/" + m.Transport.ServiceName
 	}
@@ -81,14 +69,18 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 		out = append(out, problem)
 	}
 	target := s.cdnTargetFor(ep, &m, p)
-	if target.Port != cdnDefaultPort(p) && len(sharedCDNReports(s.st.DB, p, time.Now().UTC().Add(-cdnStaleAfter(p)), "")) > 0 && len(cdnReportsForPort(s.st.DB, p, target.Port, time.Now().UTC().Add(-cdnStaleAfter(p)), "")) == 0 {
-		out = append(out, fmt.Sprintf("当前入口端口 %d 没有对应测速结果，其他端口的测速不能证明该端口可用", target.Port))
+	if target.Port != cdnkit.DefaultPort(p) {
+		if fresh, _ := cdnkit.SharedReports(dbStore{s.st.DB}, p, time.Now().UTC().Add(-cdnkit.StaleAfter(p)), ""); len(fresh) > 0 {
+			if portReports, _ := cdnkit.ReportsForPort(dbStore{s.st.DB}, p, target.Port, time.Now().UTC().Add(-cdnkit.StaleAfter(p)), ""); len(portReports) == 0 {
+				out = append(out, fmt.Sprintf("当前入口端口 %d 没有对应测速结果，其他端口的测速不能证明该端口可用", target.Port))
+			}
+		}
 	}
 	host := orDefault(ep.Host, p.OriginDomain)
 	if w := s.cdnCertProblem(&m, p, host); w != "" {
 		out = append(out, w)
 	}
-	if !cdnTunnel(p) && m.Transport.Host != "" && !strings.EqualFold(m.Transport.Host, host) {
+	if !cdnkit.Tunnel(p) && m.Transport.Host != "" && !strings.EqualFold(m.Transport.Host, host) {
 		out = append(out, fmt.Sprintf("入站的 Host 是 %s，但客户端经 CDN 会发 Host: %s，内核会拒绝（HTTP 404）：把入站的 Host 清空或改成 %s；如果是多节点自动分配子域名造成的，点配置档的「同步 DNS」会自动改正", m.Transport.Host, host, host))
 	}
 	return out
@@ -97,10 +89,10 @@ func (s *Server) cdnEndpointWarnings(ep *store.Endpoint, row *store.Inbound, p *
 // cdnCertProblem is cdnCertWarning for a stored inbound: its certificate
 // (a Cloudflare Origin one, or one for the origin host) may already fit.
 func (s *Server) cdnCertProblem(m *model.Inbound, p *store.CDNProfile, host string) string {
-	if cdnTunnel(p) {
+	if cdnkit.Tunnel(p) {
 		return ""
 	}
-	if cdnScheme(p) == "http" || p.Provider != "cloudflare" || m.Security.Type != model.SecTLS || (p.TLSMode != "" && p.TLSMode != "full_strict") {
+	if cdnkit.Scheme(p) == "http" || p.Provider != "cloudflare" || m.Security.Type != model.SecTLS || (p.TLSMode != "" && p.TLSMode != "full_strict") {
 		return ""
 	}
 	var c store.Certificate
@@ -116,8 +108,8 @@ func (s *Server) cdnCertProblem(m *model.Inbound, p *store.CDNProfile, host stri
 
 type endpointView struct {
 	store.Endpoint
-	Target   *cdnTarget `json:"target,omitempty"`
-	Warnings []string   `json:"warnings,omitempty"`
+	Target   *cdnkit.Target `json:"target,omitempty"`
+	Warnings []string       `json:"warnings,omitempty"`
 }
 
 func (s *Server) endpointViews(row *store.Inbound, es []store.Endpoint) []endpointView {
@@ -156,7 +148,7 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 	m := s.toModelInbound(&row)
 	t := s.cdnTargetFor(&ep, &m, &p)
 	if problem := s.cdnEndpointProblem(&m, row.ID, &p, ep.Port); problem != "" {
-		c.JSON(http.StatusOK, cdnCheck{Message: problem, Steps: []string{}, Warnings: s.cdnEndpointWarnings(&ep, &row, &p)})
+		c.JSON(http.StatusOK, cdnkit.Check{Message: problem, Steps: []string{}, Warnings: s.cdnEndpointWarnings(&ep, &row, &p)})
 		return
 	}
 	var node store.Node
@@ -176,8 +168,8 @@ func (s *Server) checkEndpoint(c *gin.Context) {
 // diagnoseOrigin adds what the panel sees of the hop Cloudflare failed:
 // the DNS record (with the profile's API token) and a direct connection
 // to the node's port. Cloudflare reaches the origin on the client's port.
-func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNProfile, node *store.Node, t cdnTarget) {
-	if cdnTunnel(p) {
+func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnkit.Check, p *store.CDNProfile, node *store.Node, t cdnkit.Target) {
+	if cdnkit.Tunnel(p) {
 		r.Warnings = append(r.Warnings, "Tunnel 回源不连接 VPS 公网端口，请检查 cloudflared 连接状态和隧道回源配置")
 		return
 	}
@@ -199,7 +191,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			// port), where nothing listens: 521 although the TLS port answers.
 			if mode, err := cf.sslMode(ctx, zone); err == nil {
 				r.Steps = append(r.Steps, "Cloudflare SSL/TLS 模式："+mode)
-				if cdnOriginTLSAt(p, t.Port) && (mode == "flexible" || mode == "off") {
+				if cdnkit.OriginTLSAt(p, t.Port) && (mode == "flexible" || mode == "off") {
 					r.Message = fmt.Sprintf("Cloudflare 的 SSL/TLS 模式是 %s：Cloudflare 用明文 HTTP 连节点的 HTTP 端口（80 或对应的 HTTP 端口，而不是 %d），那里没有程序监听，所以报 521。到 Cloudflare 后台 SSL/TLS 把模式改为 Full（或在配置档选 Full 后点「同步 DNS」）", mode, t.Port)
 					return
 				}
@@ -233,7 +225,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 	}
 	originPort := t.OriginPort
 	if originPort == 0 {
-		originPort = cdnOriginPort(p, t.Port)
+		originPort = cdnkit.OriginPort(p, t.Port)
 	}
 	addr := net.JoinHostPort(nodeIPs[0], strconv.Itoa(originPort))
 	conn, err := (&net.Dialer{Timeout: 6 * time.Second}).DialContext(ctx, "tcp", addr)
@@ -246,7 +238,7 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 		r.Message += fmt.Sprintf("。面板直连 %s 也连不上（%v）：检查云服务商安全组 / 防火墙是否放行 %d 端口", addr, err, originPort)
 	default:
 		_ = conn.SetDeadline(time.Now().Add(6 * time.Second))
-		if !cdnOriginTLSAt(p, t.Port) {
+		if !cdnkit.OriginTLSAt(p, t.Port) {
 			conn.Close()
 			r.Steps = append(r.Steps, "面板直连 "+addr+"：TCP 通，配置为 HTTP 回源")
 			r.Message += "。HTTP 回源端口 TCP 可达，请检查 DNS、Cloudflare 来源 IP 的防火墙规则及 HTTP 入站日志"
@@ -266,23 +258,6 @@ func (s *Server) diagnoseOrigin(ctx context.Context, r *cdnCheck, p *store.CDNPr
 			r.Message += fmt.Sprintf("。但面板直连 %s 是通的：节点本身没问题，多半是 DNS 记录指向了别的 IP，或防火墙（iptables / ufw、fail2ban / CrowdSec）只拦了 Cloudflare 的 IP 段", addr)
 		}
 	}
-}
-
-type cdnStage struct {
-	Kind      string   `json:"kind"`
-	State     string   `json:"state"`
-	Detail    string   `json:"detail,omitempty"`
-	Addresses []string `json:"addresses,omitempty"`
-}
-
-type cdnCheck struct {
-	Stages   []cdnStage `json:"stages,omitempty"`
-	Partial  bool       `json:"partial,omitempty"`
-	OK       bool       `json:"ok"`
-	Status   int        `json:"status,omitempty"`
-	Message  string     `json:"message"`
-	Steps    []string   `json:"steps"`
-	Warnings []string   `json:"warnings,omitempty"`
 }
 
 // cdnProbeRoots overrides the system roots in tests.
@@ -306,23 +281,23 @@ func cdnWebSocketAccept(key string) string {
 	return base64.StdEncoding.EncodeToString(digest[:])
 }
 
-func probeCDN(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string) cdnCheck {
+func probeCDN(ctx context.Context, t cdnkit.Target, transport model.Transport, nodeIP string) cdnkit.Check {
 	return probeCDNWithNetwork(ctx, t, transport, nodeIP, &net.Dialer{Timeout: 8 * time.Second}, net.DefaultResolver.LookupHost, true)
 }
 
 // probeCDNTarget probes one CDN endpoint like a client, with the 20s
 // timeout the panel's own checks use. The personal pool uses a custom
 // dialer and a shorter timeout, so it calls probeCDNWithDialer directly.
-func probeCDNTarget(ctx context.Context, t cdnTarget, transport model.Transport, origin string) cdnCheck {
+func probeCDNTarget(ctx context.Context, t cdnkit.Target, transport model.Transport, origin string) cdnkit.Check {
 	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	return probeCDN(probeCtx, t, transport, origin)
 }
-func probeCDNWithDialer(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string, dialer *net.Dialer) cdnCheck {
+func probeCDNWithDialer(ctx context.Context, t cdnkit.Target, transport model.Transport, nodeIP string, dialer *net.Dialer) cdnkit.Check {
 	return probeCDNWithNetwork(ctx, t, transport, nodeIP, dialer, net.DefaultResolver.LookupHost, false)
 }
-func probeCDNWithNetwork(ctx context.Context, t cdnTarget, transport model.Transport, nodeIP string, dialer *net.Dialer, lookupHost func(context.Context, string) ([]string, error), originDNS bool) (r cdnCheck) {
-	r = cdnCheck{Steps: []string{}, Stages: []cdnStage{{Kind: "origin_dns", State: "not_tested"}, {Kind: "address_dns", State: "not_tested"}, {Kind: "tcp", State: "not_tested"}, {Kind: "tls", State: "not_tested"}, {Kind: "http", State: "not_tested"}, {Kind: "transport", State: "not_tested"}}}
+func probeCDNWithNetwork(ctx context.Context, t cdnkit.Target, transport model.Transport, nodeIP string, dialer *net.Dialer, lookupHost func(context.Context, string) ([]string, error), originDNS bool) (r cdnkit.Check) {
+	r = cdnkit.Check{Steps: []string{}, Stages: []cdnkit.Stage{{Kind: "origin_dns", State: "not_tested"}, {Kind: "address_dns", State: "not_tested"}, {Kind: "tcp", State: "not_tested"}, {Kind: "tls", State: "not_tested"}, {Kind: "http", State: "not_tested"}, {Kind: "transport", State: "not_tested"}}}
 	stage := func(kind, state, detail string, addresses ...string) {
 		for i := range r.Stages {
 			if r.Stages[i].Kind == kind {
@@ -344,7 +319,7 @@ func probeCDNWithNetwork(ctx context.Context, t cdnTarget, transport model.Trans
 	}()
 
 	step := func(f string, a ...any) { r.Steps = append(r.Steps, fmt.Sprintf(f, a...)) }
-	fail := func(f string, a ...any) cdnCheck { r.Message = fmt.Sprintf(f, a...); return r }
+	fail := func(f string, a ...any) cdnkit.Check { r.Message = fmt.Sprintf(f, a...); return r }
 
 	// 1. The origin domain must resolve, through Cloudflare's proxy.
 	if originDNS && net.ParseIP(t.SNI) == nil {

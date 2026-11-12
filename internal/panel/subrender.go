@@ -16,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 )
@@ -260,7 +261,7 @@ func (s *Server) serveNodes(c *gin.Context, nodes []sub.Node, info sub.Info, tem
 	if cc.External && !raw && format != "links" && !(hasSnell && (format == "singbox" || format == "surge")) {
 		var err error
 		if u != nil && !strings.HasPrefix(callback, "/sub/p/") {
-			callback = withCDNAudience(callback, s.subCarrier(c.Request, u), s.subRegion(c.Request, u))
+			callback = cdnkit.WithAudience(callback, s.subCarrier(c.Request, u), s.subRegion(c.Request, u))
 		}
 		body, ctype, err = s.renderExternal(c.Request.Context(), cc, format, s.callbackURL(callback))
 		if err != nil {

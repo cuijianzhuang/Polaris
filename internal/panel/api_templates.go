@@ -15,6 +15,7 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -251,7 +252,7 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 		for _, ep := range item.Endpoints {
 			if ep.Kind == "cdn" {
 				var profile store.CDNProfile
-				if s.st.DB.First(&profile, "id = ?", orDefault(ep.CDNProfileID, opt.CDNProfileID)).Error == nil && cdnTunnel(&profile) {
+				if s.st.DB.First(&profile, "id = ?", orDefault(ep.CDNProfileID, opt.CDNProfileID)).Error == nil && cdnkit.Tunnel(&profile) {
 					np.Error = "Tunnel 配置档当前请通过入站页面创建或添加 WS 入口，不支持模板批量部署"
 					return np
 				}
@@ -480,7 +481,7 @@ func (s *Server) planNode(t *store.InboundTemplate, node *store.Node, opt *planO
 					entries = append(entries, "CDN（未选配置档，不添加）")
 					continue
 				}
-				if problem := cdnProblem(&m, &p, e.Port, p.CaddyFronting); problem != "" {
+				if problem := cdnkit.Problem(&m, &p, e.Port, p.CaddyFronting); problem != "" {
 					entries = append(entries, "CDN（不添加）")
 					pi.Warnings = append(pi.Warnings, problem)
 					continue
@@ -534,16 +535,16 @@ func shortReason(item store.TemplateItem, cores []store.Core) string {
 // Legacy callers without a profile retain the HTTPS allocation order.
 func (s *Server) findFreePort(nodeID string, m *model.Inbound, used map[int]bool, near int, cdn bool, profiles ...*store.CDNProfile) int {
 	cands := []int{}
-	ports := cloudflareHTTPSPorts
+	ports := cdnkit.HTTPSPorts
 	if len(profiles) > 0 && profiles[0] != nil {
-		ports = cdnClientPorts(profiles[0])
+		ports = cdnkit.ClientPorts(profiles[0])
 	}
 	switch {
 	case cdn && m.Transport.Type == model.TransGRPC:
 		cands = append(cands, 443)
 	case cdn && len(ports) > 0 && ports[0] == 80:
 		cands = append(cands, ports...)
-	case cdn || slices.Contains(cloudflareHTTPSPorts, near):
+	case cdn || slices.Contains(cdnkit.HTTPSPorts, near):
 		cands = append(cands, 2053, 2083, 2087, 2096, 8443, 443)
 	}
 	for p := 20000; p < 30000; p += 1 + rand.IntN(97) {

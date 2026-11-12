@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -30,13 +31,13 @@ func legacyCDNFailure(t *testing.T, s *Server, epID, address string) {
 	m := s.toModelInbound(&row)
 	target := s.cdnTargetFor(&ep, &m, &p)
 	target.Server = address
-	result := cdnAddressResult{EndpointID: ep.ID, Target: target, CheckedAt: time.Now().Add(-48 * time.Hour), Viewpoint: "panel", cdnCheck: cdnCheck{Message: "fixture failed"}}
+	result := cdnkit.AddressResult{EndpointID: ep.ID, Target: target, CheckedAt: time.Now().Add(-48 * time.Hour), Viewpoint: "panel", Check: cdnkit.Check{Message: "fixture failed"}}
 	raw, _ := json.Marshal(result)
 	checks := p.AddressChecks.V
 	if checks == nil {
 		checks = map[string]json.RawMessage{}
 	}
-	checks[cdnCheckKey(ep.ID, target, m.Transport.Type, cdnHealthRevision(row, &p))] = raw
+	checks[cdnkit.CheckKey(ep.ID, target, m.Transport.Type, cdnkit.HealthRevision(row, &p))] = raw
 	if err := s.st.DB.Model(&p).Update("address_checks", store.NewJSON(checks)).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -155,14 +156,14 @@ func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 	// Make the real failure older than a full 64-entry history, then trigger an
 	// actual save/prune through another address check.
 	for key, raw := range p.AddressChecks.V {
-		var r cdnAddressResult
+		var r cdnkit.AddressResult
 		json.Unmarshal(raw, &r)
 		r.CheckedAt = time.Now().Add(-time.Hour)
 		b, _ := json.Marshal(r)
 		p.AddressChecks.V[key] = b
 	}
 	for i := 0; i < 64; i++ {
-		raw, _ := json.Marshal(cdnAddressResult{EndpointID: "another-entry", CheckedAt: time.Now().Add(-time.Duration(i+1) * time.Second), cdnCheck: cdnCheck{OK: true, Message: strings.Repeat("历史诊断记录", 40)}})
+		raw, _ := json.Marshal(cdnkit.AddressResult{EndpointID: "another-entry", CheckedAt: time.Now().Add(-time.Duration(i+1) * time.Second), Check: cdnkit.Check{OK: true, Message: strings.Repeat("历史诊断记录", 40)}})
 		p.AddressChecks.V[fmt.Sprint("history-", i)] = raw
 	}
 	s.st.DB.Model(&p).Update("address_checks", p.AddressChecks)
@@ -173,7 +174,7 @@ func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 		t.Fatal("detail history unbounded", len(p.AddressChecks.V))
 	}
 	for _, raw := range p.AddressChecks.V {
-		var r cdnAddressResult
+		var r cdnkit.AddressResult
 		json.Unmarshal(raw, &r)
 		if r.Target.Server == "127.0.0.1" {
 			t.Fatal("test did not evict old details")
@@ -182,11 +183,11 @@ func TestCDNFailedCheckPersistenceAndRecovery(t *testing.T) {
 	if got := selected(); got != "[]" {
 		t.Fatal("evicted failure revived address", got)
 	}
-	slot := cdnFailureSlot("failure-ep", "127.0.0.1")
+	slot := cdnkit.FailureSlot("failure-ep", "127.0.0.1")
 	failure := p.AddressFailures.V[slot]
 	// Partial evidence cannot clear an existing failure.
-	r := cdnAddressResult{EndpointID: "failure-ep", Target: cdnTarget{Server: "127.0.0.1"}, CheckedAt: time.Now(), cdnCheck: cdnCheck{Partial: true}}
-	recordCDNAddressVerdict(&p, failure.Fingerprint, r)
+	r := cdnkit.AddressResult{EndpointID: "failure-ep", Target: cdnkit.Target{Server: "127.0.0.1"}, CheckedAt: time.Now(), Check: cdnkit.Check{Partial: true}}
+	cdnkit.RecordAddressVerdict(&p, failure.Fingerprint, r)
 	if _, ok := p.AddressFailures.V[slot]; !ok {
 		t.Fatal("partial result cleared failure")
 	}

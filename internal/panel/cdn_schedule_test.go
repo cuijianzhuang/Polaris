@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -189,7 +190,7 @@ func TestCDNScheduledLeaseAndDisable(t *testing.T) {
 	if err != nil || !ok || newer.AddressCheckLeaseID == p.AddressCheckLeaseID {
 		t.Fatal("abandoned lease did not expire", err)
 	}
-	result := cdnAddressResult{EndpointID: "se1", Target: cdnTarget{Server: "127.0.0.1"}, CheckedAt: time.Now()}
+	result := cdnkit.AddressResult{EndpointID: "se1", Target: cdnkit.Target{Server: "127.0.0.1"}, CheckedAt: time.Now()}
 	if err := f.s.saveCDNAddressResult(context.Background(), p.ID, "old", result, p.AddressCheckLeaseID); !errors.Is(err, errCDNScheduleChanged) {
 		t.Fatal("old worker could write", err)
 	}

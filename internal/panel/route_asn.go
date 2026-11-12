@@ -6,13 +6,14 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/asn"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/routedb"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 const routeASNPolicyKey = "route_asn_policy"
 
-var routeASNHash = routeDatabaseHash
+var routeASNHash = routedb.Hash
 var errRouteASNInvalid = errors.New("ASN 配置无效")
 var errRouteASNConflict = errors.New("ASN 配置已变化，请刷新后重试")
 var errRouteASNMissing = errors.New("请先向当前实例上传 ASN 数据库")
@@ -41,12 +42,12 @@ var routeASNKind = routeDatabaseKind[*asn.Database]{
 	lookup: func(db *asn.Database, ip string) any { return db.Lookup(ip) },
 }
 
-func decodeRouteASNPolicy(value string) (routeDatabasePolicy, error) {
-	return decodeRouteDatabasePolicy(value, errRouteASNInvalid)
+func decodeRouteASNPolicy(value string) (routedb.Policy, error) {
+	return routedb.DecodePolicy(value, errRouteASNInvalid)
 }
 
-func readRouteASNPolicy(db *gorm.DB) (routeDatabasePolicy, error) {
-	return readRouteDatabasePolicy(db, routeASNPolicyKey, errRouteASNInvalid)
+func readRouteASNPolicy(db *gorm.DB) (routedb.Policy, error) {
+	return routedb.ReadPolicy(dbStore{db}, routeASNPolicyKey, errRouteASNInvalid)
 }
 
 func (s *Server) loadRouteASN(hash string) (*asn.Database, string) {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -163,11 +164,11 @@ func TestCDNProvinceCarrierAndPersonalLists(t *testing.T) {
 func TestCDNRegionLegacyGeoAndCallback(t *testing.T) {
 	s, base, admin := cdnRegionFixture(t)
 	for input, want := range map[string]string{"上海市": "CN-31", "Guangdong": "CN-44", "广西壮族自治区": "CN-45", "香港": "HK", "gb": "GB", "": ""} {
-		if got, e := normalizeCDNRegion(input); e != nil || got != want {
+		if got, e := cdnkit.NormalizeRegion(input); e != nil || got != want {
 			t.Fatal(input, got, e)
 		}
 	}
-	if _, e := normalizeCDNRegion("../../anything"); e == nil {
+	if _, e := cdnkit.NormalizeRegion("../../anything"); e == nil {
 		t.Fatal("invalid region accepted")
 	}
 	s.st.DB.Model(&store.CDNIPReport{}).Where("source = ?", "上海电信").Update("region", "")
@@ -181,7 +182,7 @@ func TestCDNRegionLegacyGeoAndCallback(t *testing.T) {
 	if s.regionOfIP("127.0.0.1") != "" {
 		t.Fatal("private IP assigned region")
 	}
-	callback := s.callbacks.issue(withCDNAudience("/sub/alice-region-subscription-token", "ct", "CN-31"))
+	callback := s.callbacks.issue(cdnkit.WithAudience("/sub/alice-region-subscription-token", "ct", "CN-31"))
 	resp, err := http.Get(base + "/sub/cb/" + callback)
 	if err != nil {
 		t.Fatal(err)

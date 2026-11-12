@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/backupfmt"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
 )
@@ -75,8 +76,8 @@ func testRestoreCDNPins(t *testing.T, legacy bool, schemes ...string) {
 	if (legacy && (len(p.PinnedHosts.V) != 1 || p.PinnedHosts.V[0] != "preferred.example.com")) || (!legacy && len(p.PinnedHosts.V) != 0) {
 		t.Fatal("legacy domain not pinned", p.PinnedHosts.V)
 	}
-	dst.DB.Create(&store.CDNIPReport{Scheme: cdnScheme(&p), Port: cdnDefaultPort(&p), ProfileID: p.ID, Source: "review", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.16.2.2", LatencyMs: 10}})})
-	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := rebuildCDNLists(tx, &p, time.Now(), nil); return e }); err != nil {
+	dst.DB.Create(&store.CDNIPReport{Scheme: cdnkit.Scheme(&p), Port: cdnkit.DefaultPort(&p), ProfileID: p.ID, Source: "review", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.16.2.2", LatencyMs: 10}})})
+	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now(), nil); return e }); err != nil {
 		t.Fatal(err)
 	}
 	if err = dst.DB.First(&p, "id = ?", "legacy").Error; err != nil {
@@ -124,7 +125,7 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	if err = dst.DB.Create(&store.CDNIPReport{ProfileID: p.ID, Source: "restored", Port: 443, Scheme: "https", At: time.Now(), IPs: store.NewJSON([]store.CDNIPResult{{IP: "104.17.1.1"}})}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := rebuildCDNLists(tx, &p, time.Now(), nil); return e }); err != nil {
+	if err = dst.DB.Transaction(func(tx *gorm.DB) error { _, _, e := cdnkit.RebuildLists(dbStore{tx}, &p, time.Now(), nil); return e }); err != nil {
 		t.Fatal(err)
 	}
 	if err = dst.DB.First(&p, "id = ?", "fixed").Error; err != nil {
@@ -133,7 +134,7 @@ func TestRestoreFixedCDNAddressesSurviveReports(t *testing.T) {
 	if !slices.Equal(p.PreferredIPs.V, append([]string{"104.17.1.1"}, pins...)) {
 		t.Fatal("report dropped restored pins", p.PreferredIPs.V)
 	}
-	if slices.Contains(usableCDNIPs(&p), "104.16.9.9") {
+	if slices.Contains(cdnkit.UsableIPs(&p), "104.16.9.9") {
 		t.Fatal("restored deny rule ignored")
 	}
 }

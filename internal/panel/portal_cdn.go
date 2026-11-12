@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"github.com/cuijianzhuang/polaris/internal/sub"
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,7 @@ func (s *Server) cdnUserProfiles(u *store.User) ([]store.CDNProfile, error) {
 }
 
 func (s *Server) cdnSelectionText(p *store.CDNProfile, carrier, region string, personal []string, ports ...int) string {
-	port := cdnDefaultPort(p)
+	port := cdnkit.DefaultPort(p)
 	if len(ports) > 0 {
 		port = ports[0]
 	}
@@ -43,10 +44,10 @@ func (s *Server) cdnSelectionText(p *store.CDNProfile, carrier, region string, p
 		return "未开启订阅展开，当前使用入口指定地址或回源域名"
 	}
 	if len(personal) > 0 {
-		available := usableCDNIPsAt(p, personal, port)
+		available := cdnkit.UsableIPsAt(p, personal, port)
 		return fmt.Sprintf("个人优选：%d 个手动候选，%d 个通过公共规则筛选；实际订阅同时过滤个人禁用和检测失败的地址，无可用个人地址时使用公共池", len(personal), len(available))
 	}
-	_, mode := s.cdnAudienceReports(p, port, carrier, region)
+	_, mode, _ := cdnkit.AudienceReports(dbStore{s.st.DB}, p, port, carrier, region)
 	switch mode {
 	case "region_carrier":
 		return "已匹配同地区、同运营商的测速结果"
@@ -68,7 +69,7 @@ func (s *Server) portalCDNInfo(info *sub.Info, u *store.User, carrier, region st
 	for _, o := range s.cdnRegionOptions() {
 		info.CDNRegions = append(info.CDNRegions, sub.CDNRegionChoice{Code: o.Code, Name: o.Name})
 	}
-	info.CDNNetwork = "本次共享选择：地区 " + orDefault(cdnRegionName(region), "未识别") + " · 运营商 " + orDefault(cdnCarriers[carrier], "未识别")
+	info.CDNNetwork = "本次共享选择：地区 " + orDefault(cdnkit.RegionName(region), "未识别") + " · 运营商 " + orDefault(cdnkit.CarrierName(carrier), "未识别")
 	profiles, err := s.cdnUserProfiles(u)
 	if err != nil {
 		return err
@@ -87,13 +88,13 @@ func (s *Server) portalCDNInfo(info *sub.Info, u *store.User, carrier, region st
 				ports = append(ports, entry.Target.Port)
 			}
 		}
-		if index := slices.Index(ports, cdnDefaultPort(&p)); index >= 0 {
+		if index := slices.Index(ports, cdnkit.DefaultPort(&p)); index >= 0 {
 			ports[0], ports[index] = ports[index], ports[0]
 		}
 		portsJSON, _ := json.Marshal(ports)
 		var token store.APIToken
 		s.st.DB.Where("cdn_user_id = ? AND cdn_profile_id = ?", u.ID, p.ID).First(&token)
-		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnScheme(&p)), Port: cdnDefaultPort(&p), Enabled: p.ExpandPerIP, PoolVersion: personalCDNVersion(u.ID, p.ID, personal, u.CDNPool.V[p.ID]), EntriesJSON: string(entriesJSON), PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbeSupported: p.Provider == "cloudflare", ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
+		info.CDNChoices = append(info.CDNChoices, sub.CDNProfileChoice{ID: p.ID, Name: p.Name, Scheme: strings.ToUpper(cdnkit.Scheme(&p)), Port: cdnkit.DefaultPort(&p), Enabled: p.ExpandPerIP, PoolVersion: personalCDNVersion(u.ID, p.ID, personal, u.CDNPool.V[p.ID]), EntriesJSON: string(entriesJSON), PoolJSON: string(poolJSON), PortsJSON: string(portsJSON), ProbeSupported: p.Provider == "cloudflare", ProbePrefix: token.Prefix, ProbePort: token.CDNPort, Addresses: strings.Join(personal, "\n"), Selection: s.cdnSelectionText(&p, carrier, region, personal)})
 	}
 	return nil
 }

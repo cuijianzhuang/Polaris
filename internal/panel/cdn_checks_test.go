@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -43,8 +44,8 @@ func TestCDNProblem(t *testing.T) {
 		{in(model.TransWS, model.SecNone, 2087), flexible, 0, false, true},
 		{in(model.TransWS, model.SecNone, 2087), &store.CDNProfile{Provider: "other"}, 0, false, false},
 	} {
-		if got := cdnProblem(c.m, c.p, c.epPort, c.fronted) != ""; got != c.bad {
-			t.Errorf("case %d: problem=%v (%q)", i, got, cdnProblem(c.m, c.p, c.epPort, c.fronted))
+		if got := cdnkit.Problem(c.m, c.p, c.epPort, c.fronted) != ""; got != c.bad {
+			t.Errorf("case %d: problem=%v (%q)", i, got, cdnkit.Problem(c.m, c.p, c.epPort, c.fronted))
 		}
 	}
 	if !covers("*.example.com", "cdn.example.com") || covers("*.example.com", "a.b.example.com") || covers("n1.example.com", "cdn.example.com") {
@@ -234,7 +235,7 @@ func TestProbeCDN(t *testing.T) {
 	defer func() { cdnProbeRoots = nil }()
 	host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	pn, _ := strconv.Atoi(port)
-	target := cdnTarget{Server: host, Port: pn, SNI: host, Host: "cdn.example.com", Path: "/ws"}
+	target := cdnkit.Target{Server: host, Port: pn, SNI: host, Host: "cdn.example.com", Path: "/ws"}
 	ctx := context.Background()
 
 	r := probeCDN(ctx, target, model.TransWS, "")
@@ -315,8 +316,8 @@ func TestDiagnoseOrigin(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close() // nothing listens there now
 	node := &store.Node{Name: "sg", Address: "127.0.0.1"}
-	r := cdnCheck{Message: "错误 521"}
-	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
+	r := cdnkit.Check{Message: "错误 521"}
+	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnkit.Target{SNI: "cdn.example.com", Port: port})
 	if !strings.Contains(r.Message, "拒绝") || !strings.Contains(strings.Join(r.Steps, " "), "没有 Cloudflare Token") {
 		t.Fatalf("closed port: %+v", r)
 	}
@@ -324,8 +325,8 @@ func TestDiagnoseOrigin(t *testing.T) {
 	defer srv.Close()
 	_, ps, _ := net.SplitHostPort(srv.Listener.Addr().String())
 	port, _ = strconv.Atoi(ps)
-	r = cdnCheck{Message: "错误 521"}
-	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnTarget{SNI: "cdn.example.com", Port: port})
+	r = cdnkit.Check{Message: "错误 521"}
+	s.diagnoseOrigin(context.Background(), &r, &store.CDNProfile{OriginDomain: "cdn.example.com"}, node, cdnkit.Target{SNI: "cdn.example.com", Port: port})
 	// 127.0.0.1 is this machine: the direct check passed through no firewall.
 	if !strings.Contains(r.Message, "同一台机器") {
 		t.Fatalf("open port on the panel's machine: %+v", r)
@@ -362,7 +363,7 @@ func TestPreferredDomains(t *testing.T) {
 	if strings.Join(p.PinnedHosts.V, ",") != "visa.cn" {
 		t.Fatalf("pinned %v", p.PinnedHosts.V)
 	}
-	if l := withPinned([]string{"172.64.1.1", "visa.cn"}, []string{"visa.cn", "icook.hk"}); strings.Join(l, ",") != "172.64.1.1,visa.cn,icook.hk" {
+	if l := cdnkit.WithPinned([]string{"172.64.1.1", "visa.cn"}, []string{"visa.cn", "icook.hk"}); strings.Join(l, ",") != "172.64.1.1,visa.cn,icook.hk" {
 		t.Fatalf("withPinned %v", l)
 	}
 }

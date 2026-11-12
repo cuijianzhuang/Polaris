@@ -6,13 +6,14 @@ import (
 
 	"github.com/cuijianzhuang/polaris/internal/geoip"
 	"github.com/cuijianzhuang/polaris/internal/model"
+	"github.com/cuijianzhuang/polaris/internal/panel/routedb"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 const routeGeoPolicyKey = "route_geo_policy"
 
-var routeGeoHash = routeDatabaseHash
+var routeGeoHash = routedb.Hash
 var errRouteGeoPolicy = errors.New("地理归属配置无效")
 var errRouteGeoConflict = errors.New("地理归属配置已变化，请刷新后重试")
 var errRouteGeoMissing = errors.New("请先向当前实例上传城市数据库")
@@ -43,12 +44,12 @@ var routeGeoKind = routeDatabaseKind[*geoip.Database]{
 	lookup: func(db *geoip.Database, ip string) any { return db.Lookup(ip) },
 }
 
-func decodeRouteGeoPolicy(value string) (routeDatabasePolicy, error) {
-	return decodeRouteDatabasePolicy(value, errRouteGeoPolicy)
+func decodeRouteGeoPolicy(value string) (routedb.Policy, error) {
+	return routedb.DecodePolicy(value, errRouteGeoPolicy)
 }
 
-func readRouteGeoPolicy(db *gorm.DB) (routeDatabasePolicy, error) {
-	return readRouteDatabasePolicy(db, routeGeoPolicyKey, errRouteGeoPolicy)
+func readRouteGeoPolicy(db *gorm.DB) (routedb.Policy, error) {
+	return routedb.ReadPolicy(dbStore{db}, routeGeoPolicyKey, errRouteGeoPolicy)
 }
 
 func (s *Server) loadRouteGeo(hash string) (*geoip.Database, string) {
