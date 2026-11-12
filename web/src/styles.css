@@ -778,7 +778,7 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .fsec[open] > summary { border-bottom: 1px solid var(--line-2); border-radius: var(--r-lg) var(--r-lg) 0 0; margin-bottom: 10px; }
 
 /* settings: section nav + pane */
-.settings { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 28px; align-items: start; }
+.settings { display: grid; grid-template-columns: 192px minmax(0, 1fr); gap: 40px; align-items: start; }
 .snav { position: sticky; top: 24px; display: flex; flex-direction: column; gap: 4px; }
 .snav-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid transparent; border-radius: var(--r); background: none; cursor: pointer; text-align: left; color: var(--ink-2); font: inherit; transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease); }
 .snav-item svg { flex: none; color: var(--faint); }
@@ -789,6 +789,7 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .snav-item.on { background: var(--soft); border-color: transparent; color: var(--ink); }
 .snav-item.on svg { color: var(--ink); }
 .spane { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 960px; animation: fade-up .22s var(--ease-out) both; }
+.spane .card { padding: 20px 28px; }
 @media (max-width: 900px) {
   .settings { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .snav { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
