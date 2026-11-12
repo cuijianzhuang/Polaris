@@ -788,7 +788,7 @@ kbd { font-family: var(--sans); font-size: 11px; font-weight: 500; color: var(--
 .snav-item:hover { background: var(--card); border-color: var(--line); }
 .snav-item.on { background: var(--soft); border-color: transparent; color: var(--ink); }
 .snav-item.on svg { color: var(--ink); }
-.spane { display: flex; flex-direction: column; gap: 16px; min-width: 0; animation: fade-up .22s var(--ease-out) both; }
+.spane { display: flex; flex-direction: column; gap: 16px; min-width: 0; max-width: 960px; animation: fade-up .22s var(--ease-out) both; }
 @media (max-width: 900px) {
   .settings { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .snav { position: static; flex-direction: row; overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px; }
