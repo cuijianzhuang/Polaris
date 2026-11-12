@@ -11,7 +11,7 @@ type Settings = { config: Config; keySet: boolean; revision: string; providers: 
 type Model = { id: string; display_name?: string; created?: number; created_at?: string }
 
 export default function AISettings() {
-  const load = useLoad((signal) => get<Settings>('/ai/settings', signal)), [saved, setSaved] = useState<Settings>(), [form, setForm] = useState<Config>(), [clearKey, setClearKey] = useState(false), [models, setModels] = useState<Model[]>([]), [modelsNote, setModelsNote] = useState(''), [modelError, setModelError] = useState(''), [fetching, setFetching] = useState(false), [testing, setTesting] = useState(false), [testNote, setTestNote] = useState(''), [reloadError, setReloadError] = useState('')
+  const load = useLoad((signal) => get<Settings>('/ai/settings', signal)), [saved, setSaved] = useState<Settings>(), [form, setForm] = useState<Config>(), [clearKey, setClearKey] = useState(false), [models, setModels] = useState<Model[]>([]), [modelSearch, setModelSearch] = useState(''), [modelsNote, setModelsNote] = useState(''), [modelError, setModelError] = useState(''), [fetching, setFetching] = useState(false), [testing, setTesting] = useState(false), [testNote, setTestNote] = useState(''), [reloadError, setReloadError] = useState('')
   const saver = useSettingsSave(), confirm = useConfirm(), request = useRef<AbortController | null>(null), serial = useRef(0), seen = useRef(''), testRequest = useRef<AbortController | null>(null)
   const accept = (data: Settings) => { setSaved(data); setForm({ ...data.config, apiKey: '' }); setClearKey(false); setTestNote(''); setReloadError('') }
   useEffect(() => { if (load.data && !saved) accept(load.data) }, [load.data, saved])
@@ -19,18 +19,19 @@ export default function AISettings() {
   const dirty = !!form && !!saved && (JSON.stringify(form) !== JSON.stringify({ ...saved.config, apiKey: '' }) || clearKey)
   const locked = saver.busy || testing
   const invalid = !!form && (!form.baseUrl.trim() || (form.enabled && !form.model.trim()) || !Number.isInteger(form.portalDailyLimit) || form.portalDailyLimit < 1 || form.portalDailyLimit > 200 || !Number.isInteger(form.dailyBudget) || form.dailyBudget < 1 || form.dailyBudget > 10000 || !Number.isInteger(form.maxOutputTokens) || form.maxOutputTokens < 256 || form.maxOutputTokens > 8192)
-  const update = (patch: Partial<Config>) => { serial.current++; request.current?.abort(); request.current = null; setFetching(false); setModels([]); setModelsNote(''); setModelError(''); setTestNote(''); setForm((old) => old && ({ ...old, ...patch })) }
+  const update = (patch: Partial<Config>) => { serial.current++; request.current?.abort(); request.current = null; setFetching(false); setModels([]); setModelSearch(''); setModelsNote(''); setModelError(''); setTestNote(''); setForm((old) => old && ({ ...old, ...patch })) }
   const fetchModels = async (config = form) => {
     if (!config || request.current) return
     const seq = ++serial.current, abort = new AbortController(); request.current = abort; setFetching(true); setModelError('')
     const timer = setTimeout(() => abort.abort(), 25000)
     try {
       const result = await api<{ models: Model[]; note: string }>('POST', '/ai/models', { config, clearKey }, {}, abort.signal)
-      if (seq === serial.current) { setModels(result.models); setModelsNote(result.note) }
+      if (seq === serial.current) { setModels(result.models); setModelSearch(''); setModelsNote(result.note) }
     } catch (e) { if (seq === serial.current) setModelError(tr(e instanceof Error ? e.message : t('模型列表获取失败'))) }
     finally { clearTimeout(timer); if (seq === serial.current) { request.current = null; setFetching(false) } }
   }
   useEffect(() => { if (saved && (saved.keySet || saved.config.provider === 'custom') && seen.current !== saved.revision) { seen.current = saved.revision; void fetchModels({ ...saved.config, apiKey: '' }) } }, [saved])
+  const filteredModels = models.filter((model) => `${model.id} ${model.display_name || ''}`.toLowerCase().includes(modelSearch.trim().toLowerCase()))
   const save = async () => {
     if (!dirty) return true
     if (!form || !saved || locked || invalid) return false
@@ -50,7 +51,15 @@ export default function AISettings() {
         <label className="chk"><input type="checkbox" checked={form.allowPrivate} onChange={(e) => update({ allowPrivate: e.target.checked })} />{t('允许 HTTP／私网模型服务')}</label>
         <Field label="API Key" hint={saved.keySet ? t('已加密保存，留空保留；更换服务或地址时需重新填写或明确清除。') : t('密钥只保存在服务端；自建匿名服务可留空。')}><input className="input mono" type="password" autoComplete="new-password" value={form.apiKey || ''} maxLength={4096} onChange={(e) => update({ apiKey: e.target.value })} onBlur={() => { if (form.apiKey) void fetchModels() }} /></Field>
         {saved.keySet && <label className="chk"><input type="checkbox" checked={clearKey} onChange={(e) => { setClearKey(e.target.checked); update({ apiKey: '' }) }} />{t('清除已保存的 API Key')}</label>}
-        <Field label={t('模型名称')} hint={t('服务商实时返回当前模型；也可直接填写模型 ID。选择后用连接测试确认权限与兼容性。')}><div className="row"><input className="input mono" list="ai-model-list" value={form.model} maxLength={160} onFocus={() => { if (!models.length && !fetching && (form.apiKey || saved.keySet || form.provider === 'custom')) void fetchModels() }} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={t('选择或填写模型 ID')} /><button className="btn" type="button" disabled={fetching} onClick={() => fetchModels()}>{fetching ? t('正在获取…') : t('刷新模型列表')}</button></div><datalist id="ai-model-list">{models.map((m) => <option key={m.id} value={m.id}>{m.display_name || m.id}</option>)}</datalist></Field>
+        <Field label={t('模型名称')} htmlFor="ai-model-id" hint={t('服务商实时返回当前模型；也可直接填写模型 ID。选择后用连接测试确认权限与兼容性。')}><div className="row"><input className="input mono" id="ai-model-id" value={form.model} maxLength={160} onFocus={() => { if (!models.length && !fetching && (form.apiKey || saved.keySet || form.provider === 'custom')) void fetchModels() }} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder={t('选择或填写模型 ID')} /><button className="btn" type="button" disabled={fetching} onClick={() => fetchModels()}>{fetching ? t('正在获取…') : t('刷新模型列表')}</button></div></Field>
+        {models.length > 0 && <section className="ai-model-picker" aria-label={t('已获取的模型')}>
+          <div className="ai-model-picker-heading">{t('已获取的模型')}<span className="hint">{t('点击模型即可选用，保存后生效')}</span></div>
+          {models.length > 8 && <input className="input" type="search" aria-label={t('搜索模型')} placeholder={t('搜索模型')} value={modelSearch} onChange={(e) => setModelSearch(e.target.value)} />}
+          <div className="ai-model-options">{filteredModels.map((model) => <button className="ai-model-option" type="button" key={model.id} aria-pressed={form.model === model.id} onClick={() => setForm({ ...form, model: model.id })}>
+            <span><span className="mono">{model.id}</span>{model.display_name && model.display_name !== model.id && <small className="hint">{model.display_name}</small>}</span><span className="ai-model-check" aria-hidden="true">{form.model === model.id ? '✓' : ''}</span>
+          </button>)}</div>
+          {!filteredModels.length && <p className="hint" role="status">{t('没有匹配的模型，可直接填写模型 ID')}</p>}
+        </section>}
         {modelsNote && <div className="hint" role="status">{t('已获取 {n} 个模型', { n: models.length })} · {tr(modelsNote)}</div>}{modelError && <div className="note warn" role="alert">{modelError}</div>}
         <div className="form-grid"><Field label={t('每位用户每日额度')}><input className="input mono" type="number" min={1} max={200} value={form.portalDailyLimit} onChange={(e) => setForm({ ...form, portalDailyLimit: Number(e.target.value) })} /></Field><Field label={t('全站每日调用额度')}><input className="input mono" type="number" min={1} max={10000} value={form.dailyBudget} onChange={(e) => setForm({ ...form, dailyBudget: Number(e.target.value) })} /></Field></div>
         <Field label={t('每次输出额度（tokens）')} hint={t('推理模型的额度也包含思考过程；范围为 256–8192。')}><input className="input mono" type="number" min={256} max={8192} value={form.maxOutputTokens} onChange={(e) => setForm({ ...form, maxOutputTokens: Number(e.target.value) })} /></Field>
