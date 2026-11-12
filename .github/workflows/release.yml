@@ -1,9 +1,9 @@
 name: release
-# Releases happen automatically on every push to main (patch bump from the
-# latest tag; put "[skip release]" in the commit message to skip), from the
-# Actions tab ("Run workflow", choosing patch / minor / major; always makes a
-# new release, even when the commit was released before), or by pushing
-# a v* tag by hand (a "-" makes it a prerelease).
+# Releases are cut only from a v* tag pushed by hand (a "-" makes it a
+# prerelease) or from the Actions tab ("Run workflow", choosing patch /
+# minor / major; always makes a new release, even when the commit was
+# released before). Pushes to main still run the version and test jobs so
+# main stays checked, but publish nothing.
 on:
   push:
     branches: [main]
@@ -130,6 +130,9 @@ jobs:
   # PRO_TOKEN secret is not set.
   binaries:
     needs: [version, test]
+    # Publish only for a tag release or a manual run; pushes to main run the
+    # checks above and stop here.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -242,6 +245,9 @@ jobs:
 
   image:
     needs: [version, test]
+    # Publish only for a tag release or a manual run; pushes to main run the
+    # checks above and stop here.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       matrix:
