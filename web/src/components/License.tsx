@@ -1,8 +1,8 @@
-import { useEffect, useId, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { get, post } from '../api'
 import { t, tr } from '../i18n'
 import { Icon } from './Icons'
-import { CopyBox, Field, useAction, useConfirm, useLoad } from './ui'
+import { CopyBox, copyText, Field, useAction, useConfirm, useLoad } from './ui'
 
 export type LicenseState = {
   plan: string; source: string; limits: { nodes: number; users: number; plugins?: number }; features: string[]
@@ -28,6 +28,12 @@ const featureInfo = (): Record<string, [string, string]> => ({
   shop_payments: [t('在线收款'), t('机器人商店支持 Telegram Stars、易支付、USDT 自动收款')],
 })
 const knownFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns', 'branding', 'themes', 'plan_addons', 'shop_payments']
+
+const featureIcon = (f: string): JSX.Element => ({
+  speed_limit: <Icon.Pulse />, tg_menu: <Icon.Telegram />, backup_push: <Icon.Upload />,
+  sub_convert: <Icon.Convert />, ddns: <Icon.Globe />, branding: <Icon.Logo />,
+  themes: <Icon.Sun />, plan_addons: <Icon.Package />, shop_payments: <Icon.Wallet />,
+} as Record<string, JSX.Element>)[f] ?? <Icon.Extension />
 
 const daysUntil = (d?: string) => d ? Math.ceil((new Date(d + 'T23:59:59').getTime() - Date.now()) / 864e5) : null
 
@@ -66,6 +72,7 @@ export default function License() {
   }
   const { busy, run } = useAction()
   const confirm = useConfirm()
+  const activationRef = useRef<HTMLElement | null>(null)
   const d = v.data
   if (!d) return <section className="card">{t('加载中…')}</section>
   const st = d.state
@@ -83,41 +90,56 @@ export default function License() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Plan */}
-      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div className="row" style={{ gap: 14, alignItems: 'center' }}>
-            <span className="kpi-ico" style={{ position: 'static', width: 44, height: 44 }}><Icon.Lock /></span>
-            <div>
+      {/* Plan certificate */}
+      <section className="card license-hero">
+        <div className="license-hero-main">
+          <div className="license-hero-id">
+            <span className="license-hero-ico"><Icon.Lock /></span>
+            <div style={{ minWidth: 0 }}>
               <div className="row" style={{ gap: 8 }}>
-                <h2 style={{ margin: 0 }}>{planLabel(st.plan)}</h2>
+                <h2>{planLabel(st.plan)}</h2>
                 <span className={'tag ' + (licensed ? 'ok' : st.plan === 'trial' ? 'warn' : '')}>
                   {licensed ? t('已授权') : st.plan === 'trial' ? t('试用中') : t('未激活')}</span>
                 {lic?.offline && <span className="tag">{t('离线许可证')}</span>}
               </div>
-              <div className="sub">{lic ? <>{lic.customer || '—'} · <span className="mono">{lic.id}</span></> : t('输入激活码或导入许可证文件即可启用专业版功能')}</div>
+              <div className="license-hero-sub">{lic ? <>{lic.customer || '—'} · <span className="mono">{lic.id}</span>
+                <button className="license-hero-copy" type="button" aria-label={t('复制')} title={t('复制')}
+                  onClick={() => { void copyText(lic.id) }}><Icon.Copy /></button></> : t('输入激活码或导入许可证文件即可启用专业版功能')}</div>
             </div>
           </div>
-          {lic && !lic.offline && d.server && <button className="btn" type="button" disabled={busy || retryIn > 0}
-            onClick={() => run(async () => { try { apply(await post<LicenseView>('/license/check')) } finally { v.reload() } }, t('已从授权服务器更新'))}>
-            <Icon.Refresh /> {retryIn > 0 ? t('{n} 秒后可再次校验', { n: retryIn }) : t('立即校验')}</button>}
+          <dl className="license-hero-summary">
+            <div><dt>{t('到期')}</dt><dd>{st.expiresAt || (lic ? t('永久') : '—')}</dd></div>
+            <div><dt>{t('更新截止')}</dt><dd>{st.updatesUntil || (lic ? t('所有版本') : '—')}</dd></div>
+            <div><dt>{t('校验方式')}</dt><dd>{lic ? (lic.offline ? t('离线许可证') : t('联网校验')) : '—'}</dd></div>
+            {d.keys && <div><dt>{t('授权服务器')}</dt><dd>{serverStatusLabel}</dd></div>}
+          </dl>
         </div>
-        {d.edition === 'community' && <div className="note">{t('当前是社区版构建（从开源代码编译），不包含高级功能。官方发布版包含专业版功能，安装许可证后即可启用。')}</div>}
-        {st.plan === 'open' && <div className="note">{t('当前版本未启用授权校验，所有功能可用。')}</div>}
-        {st.plan === 'trial' && <div className="note warn">{t('高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。', { n: trialDays })}</div>}
-        {d.invalid && <div className="note bad">{t('已安装的许可证对本面板无效（签名、实例或版本不符），请重新激活。')}</div>}
-        {st.warnings.map((w) => <div key={w} className="note warn">{tr(w)}</div>)}
-        {d.warning && <div className="note warn">{d.warning}</div>}
-        {d.renew && lic?.expiresAt && (daysUntil(lic.expiresAt) ?? 99) <= 30 && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          {d.renew.bot && <a className="btn pri" href={d.renew.bot} target="_blank" rel="noopener noreferrer"><Icon.Refresh /> {t('在 Telegram 续费')}</a>}
-          {d.renew.url && <a className="btn" href={d.renew.url} target="_blank" rel="noopener noreferrer">{t('前往授权商店')}</a>}
-          <span className="hint">{t('续费后点「立即校验」即可生效')}</span>
-        </div>}
-        {lic && !lic.offline && <div className="hint">{t('连续 14 天未成功校验后，管理修改暂停；已有代理、流量上报和订阅继续运行。联网校验成功或导入有效离线许可证后恢复。')}</div>}
+        <div className="license-hero-foot">
+          {d.checkedAt && lic && !lic.offline && <div className="license-hero-status">{t('最近联网校验：{t}', { t: new Date(d.checkedAt).toLocaleString() })}</div>}
+          <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+            {lic && !lic.offline && d.server && <button className="btn license-hero-check" type="button" disabled={busy || retryIn > 0}
+              onClick={() => run(async () => { try { apply(await post<LicenseView>('/license/check')) } finally { v.reload() } }, t('已从授权服务器更新'))}>
+              <Icon.Refresh /> {retryIn > 0 ? t('{n} 秒后可再次校验', { n: retryIn }) : t('立即校验')}</button>}
+            {d.keys && <button className="btn license-hero-import" type="button"
+              onClick={() => { setMode('text'); activationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}>
+              {t('导入离线许可证')}</button>}
+          </div>
+        </div>
       </section>
+      {d.edition === 'community' && <div className="note">{t('当前是社区版构建（从开源代码编译），不包含高级功能。官方发布版包含专业版功能，安装许可证后即可启用。')}</div>}
+      {st.plan === 'open' && <div className="note">{t('当前版本未启用授权校验，所有功能可用。')}</div>}
+      {st.plan === 'trial' && <div className="note warn">{t('高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。', { n: trialDays })}</div>}
+      {d.invalid && <div className="note bad">{t('已安装的许可证对本面板无效（签名、实例或版本不符），请重新激活。')}</div>}
+      {st.warnings.map((w) => <div key={w} className="note warn">{tr(w)}</div>)}
+      {d.warning && <div className="note warn">{d.warning}</div>}
+      {d.renew && lic?.expiresAt && (daysUntil(lic.expiresAt) ?? 99) <= 30 && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {d.renew.bot && <a className="btn pri" href={d.renew.bot} target="_blank" rel="noopener noreferrer"><Icon.Refresh /> {t('在 Telegram 续费')}</a>}
+        {d.renew.url && <a className="btn" href={d.renew.url} target="_blank" rel="noopener noreferrer">{t('前往授权商店')}</a>}
+        <span className="hint">{t('续费后点「立即校验」即可生效')}</span>
+      </div>}
 
       {/* Dates and usage */}
-      <div className="grid g4">
+      <div className="grid g5">
         <div className="card kpi">
           <span className={'kpi-ico ' + (expDays !== null && expDays <= 30 ? 'warn' : 'ok')}><Icon.Wallet /></span>
           <div className="label">{t('到期')}</div>
@@ -146,22 +168,21 @@ export default function License() {
             const on = st.features.includes(f)
             const info = featureInfo()[f]
             return (
-              <div key={f} className="row" style={{ flexWrap: 'nowrap', gap: 10, padding: '10px 12px', border: '1px solid var(--line)', borderRadius: 10, background: on ? 'var(--ok-bg)' : undefined, opacity: on ? 1 : .75 }}>
-                <span style={{ fontSize: 16 }}>{on ? '✓' : '🔒'}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, color: on ? 'var(--ok)' : undefined }}>{info ? info[0] : f}</div>
+              <div key={f} className="lic-feat" style={{ opacity: on ? 1 : .75 }}>
+                <span className="lic-feat-ico">{featureIcon(f)}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{info ? info[0] : f}</div>
                   {info && <div className="small mute">{info[1]}</div>}
                 </div>
+                <span className={'tag ' + (on ? 'ok' : '')}>{on ? '✓ ' + t('已解锁') : '🔒 ' + t('未解锁')}</span>
               </div>
             )
           })}
         </div>
-        {lic && !lic.offline &&
-          <div className="hint" style={{ marginTop: 10 }}>{t('启动时自动校验，此后每 6 小时加 0–30 分钟随机延迟校验；失败后按 5 分钟、30 分钟、2 小时间隔重试。授权变更可点「立即校验」更新。')}</div>}
       </section>
 
       {/* Activation */}
-      {d.keys && <section className="card license-activation" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {d.keys && <section ref={activationRef} className="card license-activation" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div className="row license-activation-header" style={{ justifyContent: 'space-between' }}>
           <h3 id={methodID + '-title'}>{lic ? t('更换许可证') : t('激活')}</h3>
           <div className="seg-mini license-methods" role="tablist" aria-labelledby={methodID + '-title'} onKeyDown={changeMethod}>
@@ -197,22 +218,36 @@ export default function License() {
         </div>
       </section>}
 
-      {/* This panel and the license server */}
-      <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <h3>{t('本机与授权服务器')}</h3>
-        <Field label={t('实例 ID')} hint={t('授权后台生成许可证文件时需要填写')}><CopyBox text={d.instance} /></Field>
-        {d.keys && <Field label={t('授权服务器状态')} hint={t('状态根据最近一次授权通信结果更新')}>
-          <div className="row" role="status">
-            <span className={'tag ' + (serverStatus === 'available' ? 'ok' : serverStatus === 'unavailable' ? 'bad' : 'warn')}>{serverStatusLabel}</span>
-            {d.serverCheckedAt && <span className="small mute">{t('最近通信：{t}', { t: new Date(d.serverCheckedAt).toLocaleString() })}</span>}
+      {/* Details and verification */}
+      <div className="grid g2">
+        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h3>{t('许可证详情')}</h3>
+          <div className="lic-kv">
+            <div className="row"><span className="mute">{t('授权主体')}</span><span>{lic?.customer || '—'}</span></div>
+            <div className="row"><span className="mute">{t('许可证 ID')}</span><span className="mono">{lic?.id || '—'}</span></div>
+            <div className="row"><span className="mute">{t('套餐')}</span><span>{planLabel(st.plan)}</span></div>
+            <div className="row"><span className="mute">{t('签发时间')}</span><span>{lic?.issuedAt || '—'}</span></div>
+            <div className="row"><span className="mute">{t('校验方式')}</span><span>{lic ? (lic.offline ? t('离线许可证') : t('联网校验')) : '—'}</span></div>
           </div>
-        </Field>}
-        {d.checkedAt && lic && !lic.offline && <div className="small mute">{t('最近联网校验：{t}', { t: new Date(d.checkedAt).toLocaleString() })}</div>}
-        {lic && <div className="row"><button className="btn danger" type="button" disabled={busy} onClick={async () => {
-          if (await confirm(t('停用后本面板恢复为社区版，许可证可以在另一台面板上激活。确定停用？'), { danger: true }))
-            run(async () => { const r = await post<LicenseView>('/license/deactivate'); v.reload(); apply(r) }, t('已停用'))
-        }}>{t('停用（迁移）')}</button></div>}
-      </section>
+          <Field label={t('实例 ID')} hint={t('授权后台生成许可证文件时需要填写')}><CopyBox text={d.instance} /></Field>
+        </section>
+        <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <h3>{t('校验与恢复')}</h3>
+          {d.keys && <Field label={t('授权服务器状态')} hint={t('状态根据最近一次授权通信结果更新')}>
+            <div className="row" role="status">
+              <span className={'tag ' + (serverStatus === 'available' ? 'ok' : serverStatus === 'unavailable' ? 'bad' : 'warn')}>{serverStatusLabel}</span>
+              {d.serverCheckedAt && <span className="small mute">{t('最近通信：{t}', { t: new Date(d.serverCheckedAt).toLocaleString() })}</span>}
+            </div>
+          </Field>}
+          {lic && !lic.offline && <div className="hint">{t('启动时自动校验，此后每 6 小时加 0–30 分钟随机延迟校验；失败后按 5 分钟、30 分钟、2 小时间隔重试。授权变更可点「立即校验」更新。')}</div>}
+          {lic && !lic.offline && <div className="hint">{t('连续 14 天未成功校验后，管理修改暂停；已有代理、流量上报和订阅继续运行。联网校验成功或导入有效离线许可证后恢复。')}</div>}
+          {!lic && <div className="hint">{t('输入激活码或导入许可证文件即可启用专业版功能')}</div>}
+          {lic && <div className="row"><button className="btn danger" type="button" disabled={busy} onClick={async () => {
+            if (await confirm(t('停用后本面板恢复为社区版，许可证可以在另一台面板上激活。确定停用？'), { danger: true }))
+              run(async () => { const r = await post<LicenseView>('/license/deactivate'); v.reload(); apply(r) }, t('已停用'))
+          }}>{t('停用（迁移）')}</button></div>}
+        </section>
+      </div>
     </div>
   )
 }
