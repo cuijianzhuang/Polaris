@@ -25,6 +25,9 @@ func main() {
 	unverified := flag.Bool("allow-unverified", false, "allow installing cores whose release publishes no SHA-256")
 	noIP := flag.Bool("no-ip-detect", false, "disable public IP detection used by DDNS")
 	enrollOnly := flag.Bool("enroll-only", false, "enrol with --token and exit (used by install.sh)")
+	heartbeat := flag.Duration("heartbeat", 0, "agent heartbeat interval (default 2s; 0 keeps the default)")
+	trafficInterval := flag.Duration("traffic", 0, "traffic upload interval (default 10s; 0 keeps the default)")
+	onlineIPs := flag.Duration("online-ips", 0, "online IP report interval (default 20s; 0 keeps the default)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	worker := flag.Bool("agent-worker", false, "internal supervised worker")
 	entry := flag.String("agent-entry", "", "internal stable executable")
@@ -83,6 +86,15 @@ func main() {
 		if *noIP {
 			args = append(args, "--no-ip-detect")
 		}
+		if *heartbeat != 0 {
+			args = append(args, "--heartbeat", heartbeat.String())
+		}
+		if *trafficInterval != 0 {
+			args = append(args, "--traffic", trafficInterval.String())
+		}
+		if *onlineIPs != 0 {
+			args = append(args, "--online-ips", onlineIPs.String())
+		}
 		if *debug {
 			args = append(args, "--debug")
 		}
@@ -92,7 +104,7 @@ func main() {
 		}
 		return
 	}
-	a, err := agent.New(agent.Config{Supervised: true, UpdateExecutable: *entry, PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP, ToolPath: "/usr/local/bin/polaris"}, log)
+	a, err := agent.New(agent.Config{Supervised: true, UpdateExecutable: *entry, PanelURL: *panelURL, DataDir: *dataDir, Mirror: *mirror, AllowUnverified: *unverified, DisableIPDetect: *noIP, Heartbeat: *heartbeat, Traffic: *trafficInterval, OnlineIPs: *onlineIPs, ToolPath: "/usr/local/bin/polaris"}, log)
 	if err != nil {
 		log.Error("startup", "err", err)
 		os.Exit(1)

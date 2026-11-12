@@ -163,7 +163,7 @@ func (s *Server) login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	if a.LockedUntil != nil && now.Before(*a.LockedUntil) {
 		// Only the right password learns of the lock: a 429 for any guess
 		// would tell which usernames exist.

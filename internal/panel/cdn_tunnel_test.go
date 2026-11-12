@@ -115,7 +115,7 @@ func TestCDNTunnelEntrySubscriptionAndConfig(t *testing.T) {
 	var ep store.Endpoint
 	s.st.DB.First(&ep, "inbound_id = ?", in.ID)
 	m := s.toModelInbound(&in)
-	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport, TLS: model.ClientTLS{Type: model.SecNone}}, ep, nil, "{kind}", nil, nil, &m, "")
+	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport, TLS: model.ClientTLS{Type: model.SecNone}}, ep, nil, "{kind}", nil, nil, &m, nil, nil, "")
 	if len(nodes) != 1 || nodes[0].Port != 443 || nodes[0].Server != "cdn.example.com" || nodes[0].TLS.Type != model.SecTLS || nodes[0].TLS.ServerName != "cdn.example.com" {
 		t.Fatalf("bad tunnel subscription: %+v", nodes)
 	}

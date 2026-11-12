@@ -65,10 +65,10 @@ func (s *Server) memberTouch() {
 	s.warnWrite("cluster member", s.st.DB.Where("member_id = ? AND instance_id <> ?", s.memberID, s.procID).Delete(&store.ClusterMember{}).Error)
 	host, _ := os.Hostname()
 	s.warnWrite("cluster member", s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&store.ClusterMember{
-		InstanceID: s.procID, MemberID: s.memberID, Host: host, Version: Version, Edition: Edition(), StartedAt: s.startedAt, SeenAt: time.Now(),
+		InstanceID: s.procID, MemberID: s.memberID, Host: host, Version: Version, Edition: Edition(), StartedAt: s.startedAt, SeenAt: time.Now().UTC(),
 	}).Error)
 	if s.isLeader() {
-		s.warnWrite("cluster members", s.st.DB.Where("seen_at < ?", time.Now().Add(-memberForget)).Delete(&store.ClusterMember{}).Error)
+		s.warnWrite("cluster members", s.st.DB.Where("seen_at < ?", time.Now().UTC().Add(-memberForget)).Delete(&store.ClusterMember{}).Error)
 	}
 }
 

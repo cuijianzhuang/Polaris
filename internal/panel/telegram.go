@@ -845,7 +845,7 @@ func (s *Server) remindUsers() {
 		return
 	}
 	for _, u := range users {
-		if err := s.queueUserReminders(u.ID, time.Now()); err != nil {
+		if err := s.queueUserReminders(u.ID, time.Now().UTC()); err != nil {
 			s.log.Error("queue user reminders", "user", u.ID, "err", err)
 		}
 	}

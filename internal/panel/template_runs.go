@@ -199,12 +199,12 @@ func (s *Server) freezeTemplatePlan(tpl *store.InboundTemplate, opt *planOptions
 	if err != nil {
 		return nil, nil, err
 	}
-	run := store.TemplateRun{ID: store.NewID(), TemplateID: tpl.ID, State: "preview", Snapshot: s.st.Box.Seal(string(b)), Results: json.RawMessage("[]"), ExpiresAt: time.Now().Add(templatePlanTTL)}
+	run := store.TemplateRun{ID: store.NewID(), TemplateID: tpl.ID, State: "preview", Snapshot: s.st.Box.Seal(string(b)), Results: json.RawMessage("[]"), ExpiresAt: time.Now().UTC().Add(templatePlanTTL)}
 	if err := s.st.DB.Create(&run).Error; err != nil {
 		return nil, nil, err
 	}
 	// Preview keys expire quickly; deployment history is retained for 30 days.
-	s.st.DB.Where("(state = ? AND expires_at < ?) OR created_at < ?", "preview", time.Now(), time.Now().Add(-30*24*time.Hour)).Delete(&store.TemplateRun{})
+	s.st.DB.Where("(state = ? AND expires_at < ?) OR created_at < ?", "preview", time.Now().UTC(), time.Now().UTC().Add(-30*24*time.Hour)).Delete(&store.TemplateRun{})
 	return &run, plans, nil
 }
 
@@ -261,7 +261,7 @@ func (s *Server) applyFrozenTemplate(c *gin.Context, tpl *store.InboundTemplate,
 			}
 		}
 	}
-	claim := s.st.DB.Model(&store.TemplateRun{}).Where("id = ? AND state = ? AND expires_at > ?", run.ID, "preview", time.Now()).Update("state", "applying")
+	claim := s.st.DB.Model(&store.TemplateRun{}).Where("id = ? AND state = ? AND expires_at > ?", run.ID, "preview", time.Now().UTC()).Update("state", "applying")
 	if claim.Error != nil {
 		serverError(c, claim.Error)
 		return

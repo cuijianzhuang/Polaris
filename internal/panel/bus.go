@@ -62,11 +62,11 @@ func (b *clusterBus) publish(topic string, v any) error {
 	}
 	m := busMsg{T: topic, F: b.self, D: data}
 	if len(data) > busInline {
-		row := store.BusPayload{ID: store.NewID(), Data: string(data), CreatedAt: time.Now()}
+		row := store.BusPayload{ID: store.NewID(), Data: string(data), CreatedAt: time.Now().UTC()}
 		if err := b.db.Create(&row).Error; err != nil {
 			return err
 		}
-		b.db.Where("created_at < ?", time.Now().Add(-5*time.Minute)).Delete(&store.BusPayload{})
+		b.db.Where("created_at < ?", time.Now().UTC().Add(-5*time.Minute)).Delete(&store.BusPayload{})
 		m.D, m.R = nil, row.ID
 	}
 	raw, _ := json.Marshal(m)

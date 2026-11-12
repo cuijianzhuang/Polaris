@@ -109,6 +109,18 @@ func compareCDNIPResults(a, b store.CDNIPResult) int {
 	return cmp.Or(cmp.Compare(a.Loss, b.Loss), cmp.Compare(b.Speed, a.Speed), cmp.Compare(a.LatencyMs, b.LatencyMs))
 }
 
+// cdnMergedReportIPs merges speed-test reports into the preferred list,
+// with pinned hosts kept in place. Shared by subscription rendering, the
+// operator preview and the scheduled list rebuild.
+func cdnMergedReportIPs(p *store.CDNProfile, reports []store.CDNIPReport) []string {
+	return withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
+}
+
+// cdnUsableReportIPs is cdnMergedReportIPs with the node-check filter applied.
+func cdnUsableReportIPs(p *store.CDNProfile, reports []store.CDNIPReport, port int) []string {
+	return usableCDNIPsAt(p, cdnMergedReportIPs(p, reports), port)
+}
+
 // mergeCDNReports builds the preferred list from several points: their
 // best IPs in turn (first of each, then second of each...), so every
 // carrier's favourites come early. Sources are taken in name order.
@@ -196,7 +208,7 @@ func (s *Server) postCDNIPReport(c *gin.Context) {
 			req.Scheme = cdnScheme(&p)
 		}
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	var lists map[string][]string
 	var recovered []store.CDNProfile
 	var reportProblem error
@@ -269,7 +281,7 @@ func rebuildCDNLists(tx *gorm.DB, origin *store.CDNProfile, now time.Time, remov
 		t := &targets[i]
 		var upd map[string]any
 		if reports := sharedCDNReports(tx, t, now.Add(-cdnStaleAfter(t)), ""); len(reports) > 0 {
-			list := withPinned(mergeCDNReports(reports), t.PinnedHosts.V)
+			list := cdnMergedReportIPs(t, reports)
 			upd = map[string]any{"preferred_ips": store.NewJSON(list), "last_refresh_at": now, "last_error": "", "stale_alerted": false}
 			lists[t.ID] = list
 			if t.StaleAlerted {
@@ -385,7 +397,7 @@ func (s *Server) deleteCDNIPReport(c *gin.Context) {
 		for _, r := range gone {
 			ports = append(ports, effectiveCDNReportPort(r))
 		}
-		_, _, err := rebuildCDNLists(tx, &p, time.Now(), reportIPs(gone), ports...)
+		_, _, err := rebuildCDNLists(tx, &p, time.Now().UTC(), reportIPs(gone), ports...)
 		return err
 	})
 	if err != nil {
@@ -405,7 +417,7 @@ func (s *Server) cdnFreshReport(p *store.CDNProfile, now time.Time) bool {
 // checkCDNReportsStale alerts once per profile whose speed-test points all
 // went quiet; the last list stays in use.
 func (s *Server) checkCDNReportsStale() {
-	now := time.Now()
+	now := time.Now().UTC()
 	var ps []store.CDNProfile
 	s.st.DB.Where("stale_alerted = ?", false).Find(&ps)
 	for i := range ps {

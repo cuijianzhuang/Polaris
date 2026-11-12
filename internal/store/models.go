@@ -155,15 +155,15 @@ type User struct {
 	TrafficLimit int64      `json:"trafficLimit"` // bytes, 0 = unlimited
 	UsedUp       int64      `json:"usedUp"`
 	UsedDown     int64      `json:"usedDown"`
-	ExpireAt     *time.Time `json:"expireAt"`
+	ExpireAt     *time.Time `gorm:"index:idx_users_status_expire,priority:2" json:"expireAt"`
 	// ExpireAfterDays starts the validity period on first use (ExpireAt is
 	// set when traffic is first seen).
 	ExpireAfterDays int    `json:"expireAfterDays"`
 	IPLimit         int    `json:"ipLimit"`
-	Status          string `gorm:"size:16;index" json:"status"` // active / limited / expired / disabled
+	Status          string `gorm:"size:16;index:idx_users_status_expire,priority:1" json:"status"` // active / limited / expired / disabled
 	SubToken        string `gorm:"size:64;uniqueIndex" json:"subToken"`
-	ResetPolicy     string `gorm:"size:16" json:"resetPolicy"` // none / daily / weekly / monthly / cycle
-	ResetDay        int    `json:"resetDay"`                   // weekday 1-7 (weekly), day of month (monthly), days (cycle)
+	ResetPolicy     string `gorm:"size:16;index" json:"resetPolicy"` // none / daily / weekly / monthly / cycle
+	ResetDay        int    `json:"resetDay"`                         // weekday 1-7 (weekly), day of month (monthly), days (cycle)
 	// RenewDays auto-renews an expired account: expiry moves on by this many
 	// days and traffic starts over, at most RenewMax times (0 = no cap).
 	RenewDays  int `json:"renewDays"`
@@ -180,7 +180,7 @@ type User struct {
 	LastSubUA     string         `gorm:"size:255" json:"lastSubUa"`
 	LastResetAt   *time.Time     `json:"lastResetAt"`
 	OnlineAt      *time.Time     `json:"onlineAt"`
-	BannedUntil   *time.Time     `json:"bannedUntil"`
+	BannedUntil   *time.Time     `gorm:"index" json:"bannedUntil"`
 	OnlineIPs     JSON[[]string] `json:"onlineIps"`
 	// OnlineDevices is what is connected right now, filled per request from
 	// the panel's live reports (never stored).
@@ -287,7 +287,7 @@ type NodeNetBoot struct {
 // NodeTrafficDaily is a node's NIC traffic per day (panel local time).
 type NodeTrafficDaily struct {
 	NodeID            string `gorm:"primaryKey;size:32" json:"nodeId"`
-	Day               string `gorm:"primaryKey;size:10" json:"day"`
+	Day               string `gorm:"primaryKey;size:10;index" json:"day"`
 	Rx                int64  `json:"rx"`
 	Tx                int64  `json:"tx"`
 	AccountingVersion int    `json:"accountingVersion"` // 0 = legacy/unverified collection; 1 = identified samples
@@ -388,7 +388,7 @@ UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN "groups" g ON g.id = ug.g
 type TrafficHourly struct {
 	UserID string    `gorm:"primaryKey;size:32"`
 	NodeID string    `gorm:"primaryKey;size:32"`
-	Hour   time.Time `gorm:"primaryKey"`
+	Hour   time.Time `gorm:"primaryKey;index:idx_traffic_hourlies_hour"`
 	Up     int64
 	Down   int64
 	// Older rows have no raw/account evidence. RecordedUp/Down track only
@@ -568,13 +568,13 @@ type Endpoint struct {
 	ID           string    `gorm:"primaryKey;size:32" json:"id"`
 	ShareName    string    `gorm:"size:64" json:"shareName,omitempty"` // explicit managed-relay subscription name
 	InboundID    string    `gorm:"size:32;index" json:"inboundId"`
-	Kind         string    `gorm:"size:16" json:"kind"` // direct / cdn / relay
+	Kind         string    `gorm:"size:16;index:idx_endpoints_cdn_profile_kind,priority:2" json:"kind"` // direct / cdn / relay
 	Address      string    `gorm:"size:255" json:"address"`
 	Port         int       `json:"port"`
 	SNI          string    `gorm:"size:255" json:"sni"`
 	Host         string    `gorm:"size:255" json:"host"`
 	Path         string    `gorm:"size:255" json:"path"`
-	CDNProfileID string    `gorm:"size:32;index" json:"cdnProfileId"`
+	CDNProfileID string    `gorm:"size:32;index:idx_endpoints_cdn_profile_kind,priority:1" json:"cdnProfileId"`
 	RelayChainID string    `gorm:"size:32;index" json:"relayChainId"`
 	Remark       string    `gorm:"size:255" json:"remark"`
 	SortOrder    int       `json:"sortOrder"`
@@ -622,7 +622,7 @@ type CDNProfile struct {
 	AddressChecks          JSON[map[string]json.RawMessage]   `json:"-"`
 	AddressFailures        JSON[map[string]CDNAddressFailure] `json:"-"`
 	AddressCheckInterval   int                                `json:"addressCheckInterval"` // minutes; 0 disables scheduled transport checks
-	AddressCheckNextAt     *time.Time                         `json:"-"`
+	AddressCheckNextAt     *time.Time                         `gorm:"index" json:"-"`
 	AddressCheckLeaseUntil *time.Time                         `json:"-"`
 	AddressCheckLeaseID    string                             `gorm:"size:32" json:"-"`
 	AddressCheckRuntime    JSON[CDNAddressCheckRuntime]       `json:"-"`
@@ -971,8 +971,8 @@ type SubProfile struct {
 	Token            string                   `gorm:"size:64;uniqueIndex" json:"token"`
 	Enabled          bool                     `json:"enabled"`
 	SourceIDs        JSON[[]string]           `json:"sourceIds"`
-	PanelUserID      string                   `gorm:"size:32" json:"panelUserId"` // include this user's panel nodes
-	Operators        JSON[[]sub.Operator]     `json:"operators"`                  // empty = global default chain
+	PanelUserID      string                   `gorm:"size:32;index" json:"panelUserId"` // include this user's panel nodes
+	Operators        JSON[[]sub.Operator]     `json:"operators"`                        // empty = global default chain
 	UseGlobalOps     bool                     `json:"useGlobalOps"`
 	Templates        JSON[map[string]string]  `json:"templates"`                // format -> sub template id
 	Converter        string                   `gorm:"size:16" json:"converter"` // "" = global setting, builtin, external

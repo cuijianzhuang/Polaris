@@ -57,7 +57,7 @@ func (s *Server) syncProvider(ctx context.Context, p *store.NodeProvider, live b
 	} else {
 		in, err = cl.ServiceInfo(ctx)
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	if err != nil {
 		s.st.DB.Model(&store.NodeProvider{}).Where("node_id = ?", p.NodeID).Updates(map[string]any{"last_error": truncate(err.Error(), 255), "last_sync": now})
 		return nil, err

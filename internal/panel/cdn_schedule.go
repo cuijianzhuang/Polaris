@@ -48,7 +48,7 @@ func (s *Server) updateCDNCheckSchedule(c *gin.Context) {
 		p.AddressCheckInterval = *req.IntervalMinutes
 		p.AddressCheckNextAt = nil
 		if p.AddressCheckInterval > 0 {
-			now := time.Now()
+			now := time.Now().UTC()
 			p.AddressCheckNextAt = &now
 		}
 		// Invalidating the token also prevents an in-flight old sweep from
@@ -143,7 +143,7 @@ func (s *Server) checkScheduledCDNAddresses() {
 	ctx, cancel := context.WithTimeout(s.ctxBG(), 3*time.Minute)
 	defer cancel()
 	var profiles []store.CDNProfile
-	if err := s.st.DB.WithContext(ctx).Where("address_check_interval > 0").Where("address_check_next_at IS NULL OR address_check_next_at <= ?", time.Now()).Order("address_check_next_at ASC, id ASC").Find(&profiles).Error; err != nil {
+	if err := s.st.DB.WithContext(ctx).Where("address_check_interval > 0").Where("address_check_next_at IS NULL OR address_check_next_at <= ?", time.Now().UTC()).Order("address_check_next_at ASC, id ASC").Find(&profiles).Error; err != nil {
 		s.log.Warn("CDN scheduled checks", "err", err)
 		return
 	}
@@ -151,7 +151,7 @@ func (s *Server) checkScheduledCDNAddresses() {
 		if ctx.Err() != nil {
 			return
 		}
-		p, claimed, err := s.claimCDNAddressCheck(ctx, profile.ID, time.Now())
+		p, claimed, err := s.claimCDNAddressCheck(ctx, profile.ID, time.Now().UTC())
 		if err != nil {
 			s.log.Warn("CDN check claim", "profile", profile.ID, "err", err)
 			continue
@@ -177,7 +177,7 @@ func (s *Server) runCDNAddressCheckBatch(parent context.Context, p store.CDNProf
 	graph := fmt.Sprintf("%x", sha256.Sum256(b))
 	run := p.AddressCheckRuntime.V
 	if run.Cursor == "" || run.Graph != graph {
-		now := time.Now()
+		now := time.Now().UTC()
 		run = store.CDNAddressCheckRuntime{Graph: graph, StartedAt: &now}
 	}
 	run.Total = len(tasks)
@@ -201,9 +201,7 @@ func (s *Server) runCDNAddressCheckBatch(parent context.Context, p store.CDNProf
 		target := task.context.Target
 		target.Server = task.address
 		result := cdnAddressResult{Target: target, EndpointID: task.context.EndpointID, CheckedAt: time.Now(), Viewpoint: "panel"}
-		probeCtx, probeCancel := context.WithTimeout(ctx, 20*time.Second)
-		result.cdnCheck = probeCDN(probeCtx, target, task.context.Transport, task.origin)
-		probeCancel()
+		result.cdnCheck = probeCDNTarget(ctx, target, task.context.Transport, task.origin)
 		if ctx.Err() != nil {
 			break
 		} // shutdown/batch timeout is not an address failure
@@ -228,7 +226,7 @@ func (s *Server) runCDNAddressCheckBatch(parent context.Context, p store.CDNProf
 			return errCDNScheduleChanged
 		}
 		r := current.AddressCheckRuntime.V
-		now := time.Now()
+		now := time.Now().UTC()
 		next := now.Add(time.Minute)
 		complete := failure == nil && ctx.Err() == nil && (len(tasks) == 0 || r.Cursor >= tasks[len(tasks)-1].key)
 		if complete {

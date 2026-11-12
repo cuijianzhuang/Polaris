@@ -95,7 +95,7 @@ func (s *Server) nodeUsersAPI(c *gin.Context) {
 		}
 		var ts []tr
 		s.st.DB.Model(&store.TrafficHourly{}).Select("user_id, SUM(up) AS up, SUM(down) AS down").
-			Where("node_id = ? AND user_id IN ? AND hour > ?", nodeID, ids, time.Now().AddDate(0, 0, -30)).
+			Where("node_id = ? AND user_id IN ? AND hour > ?", nodeID, ids, time.Now().UTC().AddDate(0, 0, -30)).
 			Group("user_id").Scan(&ts)
 		for _, t := range ts {
 			rows[t.UserID].Up, rows[t.UserID].Down = t.Up, t.Down

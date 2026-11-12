@@ -24,6 +24,8 @@ import (
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/api/gen/polaris/v1/polarisv1connect"
+	"github.com/cuijianzhuang/polaris/internal/asn"
+	"github.com/cuijianzhuang/polaris/internal/geoip"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -63,6 +65,8 @@ type Server struct {
 	cdnAddressCheckBusy atomic.Bool
 	statusCache         atomic.Pointer[statusSnap]          // public status page data
 	statusBuildMu       sync.Mutex                          // coalesce concurrent status rebuilds
+	statsOvCache        atomic.Pointer[statsOvSnap]         // dashboard aggregates (api_stats.go)
+	statsOvMu           sync.Mutex                          // coalesce concurrent stats rebuilds
 	restartHook         func()                              // tests: replaces the re-exec after a restore
 	hbCores             map[string]hbCoreState              // last core state written per node
 	progress            map[string]*nodeProgress            // live agent activity per node (guarded by hbMu)
@@ -97,9 +101,9 @@ type Server struct {
 	startedAt         time.Time
 	memberAt          time.Time // last cluster_members refresh
 	routeGeoMu        sync.Mutex
-	routeGeoCache     *routeGeoDatabase
+	routeGeoCache     *routeDatabaseEntry[*geoip.Database]
 	routeASNMu        sync.Mutex
-	routeASNCache     *routeASNDatabase
+	routeASNCache     *routeDatabaseEntry[*asn.Database]
 	routeScheduleBusy atomic.Bool
 	leader            atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
 	bus               *clusterBus // messages between instances (PostgreSQL only)
@@ -382,6 +386,20 @@ func (s *Server) agentServer() (*http.Server, error) {
 	return srv, nil
 }
 
+// jobCronSpec renders a validated job interval (see validateJobInterval)
+// as a robfig cron spec. Sub-minute intervals run on the minute boundary
+// ("*/N"); minute-scale intervals keep their second offset so jobs stay
+// staggered instead of all firing at :00.
+func jobCronSpec(d time.Duration, second int) string {
+	if d < time.Minute {
+		return fmt.Sprintf("*/%d * * * * *", int(d/time.Second))
+	}
+	if d == time.Minute {
+		return fmt.Sprintf("%d * * * * *", second)
+	}
+	return fmt.Sprintf("%d */%d * * * *", second, int(d/time.Minute))
+}
+
 // startJobs schedules periodic tasks.
 func (s *Server) startJobs() func() {
 	c := cron.New(cron.WithSeconds())
@@ -404,26 +422,31 @@ func (s *Server) startJobs() func() {
 	addLocal := func(spec, name string, fn func()) {
 		_, _ = c.AddFunc(spec, func() { run(name, fn) })
 	}
-	add("*/10 * * * * *", "settle", func() { // keeps usage, quotas and the dashboard near real time
+	add(jobCronSpec(s.cfg.Jobs.Settle, 0), "settle", func() { // keeps usage, quotas and the dashboard near real time
 		err := s.settleTraffic()
 		s.recordOperationalResult("traffic-settlement", "流量结算失败，待结算记录将保留重试", err)
 		if err != nil {
 			s.log.Error("settle traffic", "err", err)
 		}
+		// Enforce again even though settleTraffic enforces on success: it
+		// returns early without enforcing when there is no traffic, the
+		// inbox was taken, or the settlement failed, and time-based expiry
+		// must not wait for the next successful settlement. On a successful
+		// round this is a second full scan that finds nothing to change.
 		s.enforceLimits()
 	})
-	add("*/15 * * * * *", "offline", s.markOfflineNodes)
-	add("*/30 * * * * *", "webhooks", s.retryWebhooks)
+	add(jobCronSpec(s.cfg.Jobs.Offline, 0), "offline", s.markOfflineNodes)
+	add(jobCronSpec(s.cfg.Jobs.Webhooks, 0), "webhooks", s.retryWebhooks)
 	add("20 * * * * *", "orders", s.expireOrders)
-	add("*/10 * * * * *", "payment-recovery", s.retryPayments)
-	add("*/15 * * * * *", "refund-recovery", s.retryRefunds)
-	add("*/15 * * * * *", "rollouts", s.runRollouts)
-	add("*/15 * * * * *", "user-reminders", s.retryUserNotices)
-	addLocal("*/30 * * * * *", "plugin-cache", s.renderCache.prune)
+	add(jobCronSpec(s.cfg.Jobs.PaymentRecovery, 0), "payment-recovery", s.retryPayments)
+	add(jobCronSpec(s.cfg.Jobs.RefundRecovery, 0), "refund-recovery", s.retryRefunds)
+	add(jobCronSpec(s.cfg.Jobs.Rollouts, 0), "rollouts", s.runRollouts)
+	add(jobCronSpec(s.cfg.Jobs.UserReminders, 0), "user-reminders", s.retryUserNotices)
+	addLocal(jobCronSpec(s.cfg.Jobs.PluginCache, 0), "plugin-cache", s.renderCache.prune)
 	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
 	add("0 7 * * * *", "portal-sessions", s.prunePortalSessions)
-	add("*/30 * * * * *", "usdt", s.pollUSDT)
+	add(jobCronSpec(s.cfg.Jobs.USDT, 0), "usdt", s.pollUSDT)
 	add("5 * * * * *", "plugins", s.checkPlugins)
 	add("0 5 * * * *", "reset", s.resetTrafficCycles)
 	add("0 17 3 * * *", "cleanup", s.cleanup)
@@ -435,33 +458,42 @@ func (s *Server) startJobs() func() {
 	add("30 */30 * * * *", "preferred-ips-nodes", s.checkCDNIPsFromNodes)
 	add("25 * * * * *", "cdn-address-checks", s.checkScheduledCDNAddresses)
 	add("0 */10 * * * *", "ddns", s.syncAllBindings)
-	add("45 * * * * *", "health", s.probeChains)
-	add("*/20 * * * * *", "forward-failover", s.probeForwards)
+	add(jobCronSpec(s.cfg.Jobs.Health, 45), "health", s.probeChains)
+	add(jobCronSpec(s.cfg.Jobs.ForwardFailover, 0), "forward-failover", s.probeForwards)
 	add("15 * * * * *", "sub-sources", s.refreshDueSources)
 	add("0 33 * * * *", "reminders", s.remindUsers)
 	add("0 11 * * * *", "license-expiry", s.remindLicenseExpiry)
 	add("0 2 * * * *", "backup", s.scheduledBackup)
 	add("0 1 * * * *", "daily-report", s.dailyReport)
 	add("0 0 * * * *", "auto-update", s.autoUpdateTick)
-	addLocal("*/20 * * * * *", "update-result", s.checkUpdateResult) // each machine updates itself
+	addLocal(jobCronSpec(s.cfg.Jobs.UpdateResult, 0), "update-result", s.checkUpdateResult) // each machine updates itself
 	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
-	add("30 */2 * * * *", "inbound-probe", s.probeInbounds)
+	add(jobCronSpec(s.cfg.Jobs.InboundProbe, 30), "inbound-probe", s.probeInbounds)
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
 	add("0 3 * * * *", "node-traffic-cycles", s.resetNodeCycles)
 	add("0 13 9 * * *", "server-renewals", s.costRenewals)
 	add("30 */15 * * * *", "providers", s.syncProviders)
 	add("0 41 5 * * *", "ticket-autoclose", s.autoCloseTickets)
-	add("*/10 * * * * *", "latency-probes", s.runLatencyProbes)
-	add("*/30 * * * * *", "route-traces", s.runScheduledRouteTraces)
+	add(jobCronSpec(s.cfg.Jobs.LatencyProbes, 0), "latency-probes", s.runLatencyProbes)
+	add(jobCronSpec(s.cfg.Jobs.RouteTraces, 0), "route-traces", s.runScheduledRouteTraces)
 	if s.isLeader() {
 		go s.backfillDaily()
 	}
+	s.log.Info("scheduled jobs",
+		"settle", s.cfg.Jobs.Settle, "payment_recovery", s.cfg.Jobs.PaymentRecovery,
+		"latency_probes", s.cfg.Jobs.LatencyProbes, "offline", s.cfg.Jobs.Offline,
+		"refund_recovery", s.cfg.Jobs.RefundRecovery, "rollouts", s.cfg.Jobs.Rollouts,
+		"user_reminders", s.cfg.Jobs.UserReminders, "forward_failover", s.cfg.Jobs.ForwardFailover,
+		"update_result", s.cfg.Jobs.UpdateResult, "webhooks", s.cfg.Jobs.Webhooks,
+		"plugin_cache", s.cfg.Jobs.PluginCache, "usdt", s.cfg.Jobs.USDT,
+		"route_traces", s.cfg.Jobs.RouteTraces, "health", s.cfg.Jobs.Health,
+		"inbound_probe", s.cfg.Jobs.InboundProbe)
 	c.Start()
 	return func() { <-c.Stop().Done() }
 }
 
 func (s *Server) markOfflineNodes() {
-	cut := time.Now().Add(-90 * time.Second)
+	cut := time.Now().UTC().Add(-90 * time.Second)
 	var ns []store.Node
 	s.st.DB.Where("status IN ? AND (last_seen IS NULL OR last_seen < ?)", []string{"online", "syncing", "error"}, cut).Find(&ns)
 	for _, n := range ns {
@@ -484,7 +516,7 @@ func (s *Server) warnWrite(what string, err error) {
 }
 
 func (s *Server) cleanup() {
-	now := time.Now()
+	now := time.Now().UTC()
 	prune := func(what string, model any, where string, args ...any) {
 		if err := s.st.DB.Where(where, args...).Delete(model).Error; err != nil {
 			s.log.Warn("cleanup", "table", what, "err", err) // retried on the next run

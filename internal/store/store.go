@@ -128,7 +128,14 @@ func Open(dsn string, box *secret.Box, debug bool) (*Store, error) {
 	if debug {
 		lvl = logger.Info
 	}
-	db, err := gorm.Open(dial, &gorm.Config{Logger: logger.Default.LogMode(lvl), TranslateError: true})
+	// NowFunc forces UTC for GORM's automatic CreatedAt/UpdatedAt: SQLite
+	// stores time.Time as a string preserving its offset and compares those
+	// strings lexicographically, so a local timestamp and a UTC one for the
+	// same instant sort 8 hours apart (see the route-schedule fix in
+	// 5591ede). PostgreSQL stores timestamptz and is unaffected, but UTC
+	// is the same instant there too. Explicit time.Now() call sites that
+	// feed DB queries are normalised separately at each site.
+	db, err := gorm.Open(dial, &gorm.Config{Logger: logger.Default.LogMode(lvl), TranslateError: true, NowFunc: func() time.Time { return time.Now().UTC() }})
 	if err != nil {
 		return nil, err
 	}

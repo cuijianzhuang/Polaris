@@ -270,7 +270,7 @@ func (s *Server) personalCDNPreviewResponse(c *gin.Context, u *store.User, p *st
 		reports, _ := s.cdnAudienceReports(p, port, carrier, region)
 		public := s.cdnAddressesForPort(p, port)
 		if len(reports) > 0 {
-			public = withPinned(mergeCDNReports(reports), p.PinnedHosts.V)
+			public = cdnMergedReportIPs(p, reports)
 		}
 		for _, a := range public {
 			add(a, "public")

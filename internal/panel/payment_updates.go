@@ -44,6 +44,6 @@ func (s *Server) applyRefundUpdate(chat int64, p *tgPayment) error {
 		if e := tx.Model(&o).Where("status IN ?", []string{"paid", "refund_pending", "refunded"}).Update("status", "refunded").Error; e != nil {
 			return e
 		}
-		return tx.Model(&store.RefundJob{}).Where("order_id = ?", o.ID).Updates(map[string]any{"status": "done", "last_error": "", "lease_token": "", "lease_until": time.Time{}, "updated_at": time.Now()}).Error
+		return tx.Model(&store.RefundJob{}).Where("order_id = ?", o.ID).Updates(map[string]any{"status": "done", "last_error": "", "lease_token": "", "lease_until": time.Time{}, "updated_at": time.Now().UTC()}).Error
 	})
 }

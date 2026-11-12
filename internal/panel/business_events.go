@@ -30,7 +30,7 @@ func (s *Server) queueBusinessEvent(tx *gorm.DB, e Event) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	for _, hook := range hooks {
 		if !matchEvent(hook.Events.V, typ) {
 			continue

@@ -165,7 +165,7 @@ func (s *Server) runWebhooks(ctx context.Context, events <-chan Event) {
 					continue
 				}
 				d := store.WebhookDelivery{ID: store.NewID(), WebhookID: h.ID, EventID: payload["id"].(string), Type: typ,
-					Payload: string(body), Status: "pending", NextAt: time.Now()}
+					Payload: string(body), Status: "pending", NextAt: time.Now().UTC()}
 				if err := s.st.DB.Create(&d).Error; err == nil {
 					go s.deliverWebhook(d.ID)
 				} else {
@@ -186,14 +186,14 @@ const webhookStale = 2 * time.Minute
 // be sending (a lost lease does not stop the process), and requeueing that
 // at once would deliver it twice.
 func (s *Server) requeueStaleWebhooks() {
-	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ? AND (last_at IS NULL OR last_at < ?)", "sending", time.Now().Add(-webhookStale)).
+	s.st.DB.Model(&store.WebhookDelivery{}).Where("status = ? AND (last_at IS NULL OR last_at < ?)", "sending", time.Now().UTC().Add(-webhookStale)).
 		Update("status", "pending")
 }
 
 func (s *Server) retryWebhooks() {
 	s.requeueStaleWebhooks()
 	var ds []store.WebhookDelivery
-	s.st.DB.Select("id").Where("status = ? AND next_at <= ?", "pending", time.Now()).Order("next_at").Limit(50).Find(&ds)
+	s.st.DB.Select("id").Where("status = ? AND next_at <= ?", "pending", time.Now().UTC()).Order("next_at").Limit(50).Find(&ds)
 	for _, d := range ds {
 		s.deliverWebhook(d.ID)
 	}
@@ -206,7 +206,7 @@ func (s *Server) deliverWebhook(id string) {
 	webhookSem <- struct{}{}
 	defer func() { <-webhookSem }()
 	// Claim the row so a retry sweep and the first attempt don't both send.
-	claim := s.st.DB.Model(&store.WebhookDelivery{}).Where("id = ? AND status = ?", id, "pending").Updates(map[string]any{"status": "sending", "last_at": time.Now()})
+	claim := s.st.DB.Model(&store.WebhookDelivery{}).Where("id = ? AND status = ?", id, "pending").Updates(map[string]any{"status": "sending", "last_at": time.Now().UTC()})
 	if claim.RowsAffected == 0 {
 		return
 	}
@@ -219,15 +219,15 @@ func (s *Server) deliverWebhook(id string) {
 	}
 	if !h.Enabled {
 		// Keep the original event and retry budget for an explicit re-enable.
-		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "Webhook 已停用，等待重新启用"}).Error)
+		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().UTC().Add(time.Minute), "last_error": "Webhook 已停用，等待重新启用"}).Error)
 		return
 	}
 	if s.operationalWebhookMuted(&d, time.Now()) {
-		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().Add(time.Minute), "last_error": "运维通知暂缓：渠道关闭或维护窗口"}).Error)
+		s.warnWrite("webhook delivery", s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().UTC().Add(time.Minute), "last_error": "运维通知暂缓：渠道关闭或维护窗口"}).Error)
 		return
 	}
 	code, err := s.sendWebhook(&h, &d)
-	now := time.Now()
+	now := time.Now().UTC()
 	upd := map[string]any{"attempts": d.Attempts + 1, "last_code": code, "last_at": now}
 	switch {
 	case err == nil:
@@ -526,7 +526,7 @@ func (s *Server) testWebhook(c *gin.Context) {
 	payload := s.eventPayload(Event{Type: "webhook.test", Data: map[string]any{"webhook": h.Name}}, "webhook.test")
 	body, _ := json.Marshal(payload)
 	d := store.WebhookDelivery{ID: store.NewID(), WebhookID: h.ID, EventID: payload["id"].(string), Type: "webhook.test",
-		Payload: string(body), Status: "pending", NextAt: time.Now().Add(time.Hour)}
+		Payload: string(body), Status: "pending", NextAt: time.Now().UTC().Add(time.Hour)}
 	s.st.DB.Create(&d)
 	s.deliverWebhook(d.ID)
 	// A test is not retried: the admin sees the result right away.
@@ -548,7 +548,7 @@ func (s *Server) retryDelivery(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	if err := s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now()}).Error; err != nil {
+	if err := s.st.DB.Model(&d).Updates(map[string]any{"status": "pending", "next_at": time.Now().UTC()}).Error; err != nil {
 		dbError(c, err)
 		return
 	}

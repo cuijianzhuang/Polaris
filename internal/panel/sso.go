@@ -322,7 +322,7 @@ func (s *Server) ssoCallback(c *gin.Context) {
 			return
 		}
 		s.st.DB.Where("provider_id = ? AND admin_id = ?", p.ID, st.AdminID).Delete(&store.SSOBinding{})
-		s.st.DB.Create(&store.SSOBinding{ProviderID: p.ID, Subject: subject, AdminID: st.AdminID, Login: login, CreatedAt: time.Now()})
+		s.st.DB.Create(&store.SSOBinding{ProviderID: p.ID, Subject: subject, AdminID: st.AdminID, Login: login, CreatedAt: time.Now().UTC()})
 		s.audit("system", "admin.sso_bind", p.Name, login, ip)
 		back("sso_bound=" + url.QueryEscape(p.Name+" · "+login))
 	default:

@@ -155,7 +155,7 @@ func (s *Server) idempotency(c *gin.Context) {
 	unlock := lockIdempotency(info.Key)
 	defer unlock()
 	var prev store.IdempotencyKey
-	err = s.st.DB.Where("key = ? AND created_at > ?", info.Key, time.Now().Add(-24*time.Hour)).First(&prev).Error
+	err = s.st.DB.Where("key = ? AND created_at > ?", info.Key, time.Now().UTC().Add(-24*time.Hour)).First(&prev).Error
 	if err == nil {
 		if prev.RequestHash != info.RequestHash {
 			idempotencyConflict(c, errIdempotencyConflict)
@@ -176,7 +176,7 @@ func (s *Server) idempotency(c *gin.Context) {
 	c.Writer = w
 	c.Next()
 	if status := w.Status(); status < 500 {
-		result := store.IdempotencyKey{Key: info.Key, RequestHash: info.RequestHash, Status: status, Body: w.buf.Bytes(), CreatedAt: time.Now()}
+		result := store.IdempotencyKey{Key: info.Key, RequestHash: info.RequestHash, Status: status, Body: w.buf.Bytes(), CreatedAt: time.Now().UTC()}
 		if err := s.st.DB.Clauses(clause.OnConflict{UpdateAll: true}).Create(&result).Error; err != nil {
 			s.log.Error("idempotency response cache", "err", err)
 		}
@@ -185,7 +185,7 @@ func (s *Server) idempotency(c *gin.Context) {
 
 func checkLegacyIdempotency(tx *gorm.DB, info *idempotencyRequest) error {
 	var n int64
-	if err := tx.Model(&store.IdempotencyKey{}).Where("key = ? AND created_at > ?", info.LegacyKey, time.Now().Add(-24*time.Hour)).Count(&n).Error; err != nil {
+	if err := tx.Model(&store.IdempotencyKey{}).Where("key = ? AND created_at > ?", info.LegacyKey, time.Now().UTC().Add(-24*time.Hour)).Count(&n).Error; err != nil {
 		return err
 	}
 	if n > 0 {
@@ -200,10 +200,10 @@ func reserveUserCommand(tx *gorm.DB, info *idempotencyRequest) (*store.Idempoten
 	if info == nil {
 		return nil, nil
 	}
-	if err := tx.Where("key = ? AND created_at <= ?", info.Key, time.Now().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{}).Error; err != nil {
+	if err := tx.Where("key = ? AND created_at <= ?", info.Key, time.Now().UTC().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{}).Error; err != nil {
 		return nil, err
 	}
-	row := store.IdempotencyKey{Key: info.Key, RequestHash: info.RequestHash, CreatedAt: time.Now()}
+	row := store.IdempotencyKey{Key: info.Key, RequestHash: info.RequestHash, CreatedAt: time.Now().UTC()}
 	inserted := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&row)
 	if inserted.Error != nil {
 		return nil, inserted.Error
@@ -241,5 +241,5 @@ func idempotencyError(c *gin.Context, err error) {
 	serverError(c, err)
 }
 func (s *Server) pruneIdempotency() {
-	s.warnWrite("idempotency keys", s.st.DB.Where("created_at < ?", time.Now().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{}).Error)
+	s.warnWrite("idempotency keys", s.st.DB.Where("created_at < ?", time.Now().UTC().Add(-24*time.Hour)).Delete(&store.IdempotencyKey{}).Error)
 }

@@ -32,7 +32,7 @@ func (s *Server) recordPortalSession(u *store.User, cl *claims, via string, cont
 		if err != nil {
 			return err
 		}
-		now := time.Now()
+		now := time.Now().UTC()
 		session := store.PortalSession{ID: store.NewID(), Epoch: epoch.Version, UserID: u.ID, Via: via, SubFP: cl.SubFP, IdentityFP: portalIdentity(cl), CreatedAt: now, LastSeen: now, ExpiresAt: cl.ExpiresAt.Time}
 		if len(contexts) > 0 && contexts[0] != nil {
 			c := contexts[0]
@@ -81,7 +81,7 @@ func readPortalSession(db *gorm.DB, cl *claims) (store.PortalSession, error) {
 	if cl.SID == "" || cl.PortalEpoch == 0 {
 		return session, errPortalSessionEnded
 	}
-	err := db.Model(&store.PortalSession{}).Select("portal_sessions.*").Joins("JOIN portal_session_epochs ON portal_session_epochs.user_id = portal_sessions.user_id AND portal_session_epochs.version = portal_sessions.epoch").Where("portal_sessions.id = ? AND portal_sessions.user_id = ? AND portal_sessions.epoch = ? AND portal_sessions.revoked = ? AND portal_sessions.expires_at > ?", cl.SID, cl.User, cl.PortalEpoch, false, time.Now()).First(&session).Error
+	err := db.Model(&store.PortalSession{}).Select("portal_sessions.*").Joins("JOIN portal_session_epochs ON portal_session_epochs.user_id = portal_sessions.user_id AND portal_session_epochs.version = portal_sessions.epoch").Where("portal_sessions.id = ? AND portal_sessions.user_id = ? AND portal_sessions.epoch = ? AND portal_sessions.revoked = ? AND portal_sessions.expires_at > ?", cl.SID, cl.User, cl.PortalEpoch, false, time.Now().UTC()).First(&session).Error
 	if err != nil {
 		return session, err
 	}
@@ -98,7 +98,7 @@ func (s *Server) portalSessionAlive(cl *claims) bool {
 		return false
 	}
 	if time.Since(session.LastSeen) > time.Minute {
-		s.st.DB.Model(&store.PortalSession{}).Where("id = ? AND epoch = ? AND revoked = ?", session.ID, cl.PortalEpoch, false).Update("last_seen", time.Now())
+		s.st.DB.Model(&store.PortalSession{}).Where("id = ? AND epoch = ? AND revoked = ?", session.ID, cl.PortalEpoch, false).Update("last_seen", time.Now().UTC())
 	}
 	return true
 }
@@ -130,7 +130,7 @@ func (s *Server) listPortalSessions(c *gin.Context) {
 		identities = append(identities, "mail:"+mailFP(u.Email))
 	}
 	var rows []store.PortalSession
-	if err := s.st.DB.Where("user_id = ? AND epoch = ? AND revoked = ? AND expires_at > ? AND sub_fp = ? AND identity_fp IN ?", u.ID, cl.PortalEpoch, false, time.Now(), subFingerprint(u.SubToken), identities).Order("last_seen DESC, id DESC").Limit(101).Find(&rows).Error; err != nil {
+	if err := s.st.DB.Where("user_id = ? AND epoch = ? AND revoked = ? AND expires_at > ? AND sub_fp = ? AND identity_fp IN ?", u.ID, cl.PortalEpoch, false, time.Now().UTC(), subFingerprint(u.SubToken), identities).Order("last_seen DESC, id DESC").Limit(101).Find(&rows).Error; err != nil {
 		serverError(c, err)
 		return
 	}
@@ -223,7 +223,7 @@ func (s *Server) revokePortalSession(others bool) gin.HandlerFunc {
 }
 
 func (s *Server) prunePortalSessions() {
-	if err := s.st.DB.Where("expires_at <= ?", time.Now()).Delete(&store.PortalSession{}).Error; err != nil {
+	if err := s.st.DB.Where("expires_at <= ?", time.Now().UTC()).Delete(&store.PortalSession{}).Error; err != nil {
 		s.log.Warn("prune portal sessions", "err", err)
 	}
 }

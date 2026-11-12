@@ -163,7 +163,7 @@ func TestUserReminderDurabilityAndIndependentRetry(t *testing.T) {
 		t.Fatalf("failure not retryable: %+v", got)
 	}
 	// Retry reads the persisted task; no in-memory event is required.
-	s.st.DB.Model(&store.UserNotice{}).Where("id = ?", tg.ID).Update("next_at", time.Now().Add(-time.Minute))
+	s.st.DB.Model(&store.UserNotice{}).Where("id = ?", tg.ID).Update("next_at", time.Now().UTC().Add(-time.Minute))
 	reject.Store(false)
 	s.deliverUserNotice(tg.ID)
 	s.deliverUserNotice(tg.ID)
@@ -202,7 +202,7 @@ func TestUserReminderSchedulingIsAtomic(t *testing.T) {
 		}
 	})
 	defer s.st.DB.Callback().Create().Remove(name)
-	if err := s.queueUserReminders(u.ID, time.Now()); err == nil {
+	if err := s.queueUserReminders(u.ID, time.Now().UTC()); err == nil {
 		t.Fatal("task write failure ignored")
 	}
 	var got store.User

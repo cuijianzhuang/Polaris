@@ -105,7 +105,7 @@ func (s *Server) runLatencyProbes() {
 				if ctx.Err() != nil && !ok {
 					return // the job ran out of time: not the target's fault
 				}
-				if err := s.recordNodeProbe(nodeID, t, ms, ok, time.Now()); err != nil {
+				if err := s.recordNodeProbe(nodeID, t, ms, ok, time.Now().UTC()); err != nil {
 					slog.Warn("record node probe", "node", nodeID, "error", err)
 				}
 			}(id, t)

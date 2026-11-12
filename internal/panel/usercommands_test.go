@@ -263,7 +263,7 @@ func runUserCommandScenario(t *testing.T, dsn, scenario string) {
 		want(post(`{"gb":1}`, "service-account"), 404)
 	case "legacy-cache":
 		key := "token:shop POST " + cfg.APIBase() + "/users/u1/add-traffic old-order"
-		first.st.DB.Create(&store.IdempotencyKey{Key: key, Status: 200, Body: []byte(`{"id":"other-caller"}`), CreatedAt: time.Now()})
+		first.st.DB.Create(&store.IdempotencyKey{Key: key, Status: 200, Body: []byte(`{"id":"other-caller"}`), CreatedAt: time.Now().UTC()})
 		want(post(`{"gb":1}`, "old-order"), 409)
 		if quota() != 10<<30 {
 			t.Fatal("unsafe legacy record caused a duplicate mutation")
@@ -291,7 +291,7 @@ func runUserCommandScenario(t *testing.T, dsn, scenario string) {
 		}
 	case "expiry-and-revocation":
 		want(post(`{"gb":1}`, "expiring-order"), 200)
-		first.st.DB.Model(&store.IdempotencyKey{}).Where("request_hash <> ?", "").Update("created_at", time.Now().Add(-25*time.Hour))
+		first.st.DB.Model(&store.IdempotencyKey{}).Where("request_hash <> ?", "").Update("created_at", time.Now().UTC().Add(-25*time.Hour))
 		r := post(`{"gb":1}`, "expiring-order")
 		want(r, 200)
 		if r.replay || quota() != 12<<30 {

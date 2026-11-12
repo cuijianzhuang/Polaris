@@ -38,7 +38,7 @@ func clip(s string, n int) string {
 // checkDevice records the requesting device and reports whether it may
 // fetch the subscription (false: the device limit is reached).
 func (s *Server) checkDevice(u *store.User, r *http.Request) bool {
-	now := time.Now()
+	now := time.Now().UTC()
 	ua := clip(r.UserAgent(), 255)
 	s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"last_sub_at": now, "last_sub_ua": ua})
 	hwid := hwidOf(r)

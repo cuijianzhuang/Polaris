@@ -79,7 +79,7 @@ func (f *cdnScheduleFixture) profile(t *testing.T) store.CDNProfile {
 }
 func (f *cdnScheduleFixture) due(t *testing.T) {
 	t.Helper()
-	if err := f.s.st.DB.Model(&store.CDNProfile{}).Where("id = ?", "schedule").Update("address_check_next_at", time.Now().Add(-time.Minute)).Error; err != nil {
+	if err := f.s.st.DB.Model(&store.CDNProfile{}).Where("id = ?", "schedule").Update("address_check_next_at", time.Now().UTC().Add(-time.Minute)).Error; err != nil {
 		t.Fatal(err)
 	}
 }

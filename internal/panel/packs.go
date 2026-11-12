@@ -188,7 +188,7 @@ func (s *Server) newPackOrderFor(b shopBuyer, u *store.User, packID, method, cha
 	if !ok {
 		return nil, errors.New("这个流量包不支持该付款方式")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	o := &store.Order{ID: store.NewID(), TelegramID: b.TGID, TGName: truncate(b.TGName, 64), UserID: u.ID, WebKey: b.WebKey, Kind: kindPack, PackID: p.ID,
 		PlanName: p.Name, Method: method, Amount: amount, Currency: currency, Status: "pending", CreatedAt: now, ExpiresAt: now.Add(s.orderTTL()), Entitlements: freezePack(&p)}
 	if cp != nil {

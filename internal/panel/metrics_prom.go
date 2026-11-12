@@ -110,7 +110,7 @@ func (s *Server) countBy(model any, col string, where string, args ...any) map[s
 }
 
 func (s *Server) prometheusMetrics(c *gin.Context) {
-	now := time.Now()
+	now := time.Now().UTC()
 	w := &promWriter{}
 	w.gauge("polaris_build_info", "Panel version.", 1, "version", Version)
 	w.gauge("polaris_scrape_timestamp_seconds", "When this scrape was served.", float64(now.Unix()))

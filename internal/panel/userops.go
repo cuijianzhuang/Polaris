@@ -48,7 +48,7 @@ func (s *Server) userCommand(c *gin.Context, action string, apply func(*gorm.DB,
 		if err = tx.First(&user, "id = ?", c.Param("id")).Error; err != nil {
 			return err
 		}
-		now := time.Now()
+		now := time.Now().UTC()
 		if detail, err = apply(tx, &user, now); err != nil {
 			return err
 		}

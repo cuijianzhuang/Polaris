@@ -21,7 +21,7 @@ func TestOperationalFailuresRecoverAndRemainVisible(t *testing.T) {
 		t.Fatal("lost Agent queue failure")
 	}
 	s.recordOperationalResult("usdt-scan", "链上扫描失败", errors.New("secret upstream error"))
-	old := time.Now().Add(-2 * time.Minute)
+	old := time.Now().UTC().Add(-2 * time.Minute)
 	s.st.DB.Create(&store.PaymentReceipt{Ref: "epay:x", Status: "pending", CreatedAt: old})
 	s.st.DB.Create(&store.RefundJob{OrderID: "r", Status: "confirming", CreatedAt: old})
 	issues, e := s.operationalIssues()

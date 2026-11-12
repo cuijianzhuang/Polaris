@@ -30,7 +30,7 @@ func TestClusterOperationWithoutNotification(t *testing.T) {
 			t.Fatal("missing updater not retried", d)
 		}
 		withUpdater(t, true)
-		b.st.DB.Model(&d).Update("next_at", time.Now().Add(-time.Second))
+		b.st.DB.Model(&d).Update("next_at", time.Now().UTC().Add(-time.Second))
 		// The request reaches disk but its acknowledgement fails once.
 		b.st.DB.Callback().Update().Before("gorm:update").Register("test:ack", func(tx *gorm.DB) {
 			if tx.Statement.Table == "cluster_deliveries" {

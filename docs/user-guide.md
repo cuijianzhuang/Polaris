@@ -142,6 +142,7 @@ openssl rand -hex 32
 - `POLARIS_PUBLIC_URL`：完整的外部地址，例如 `https://panel.example.com`。
 - `POLARIS_AGENT_HOSTS`：Agent 能直接连接的主控域名或 IP。
 - 按需设置 `POLARIS_INITIAL_ADMIN_USERNAME` 和 `POLARIS_INITIAL_ADMIN_PASSWORD`；它们只用于首次创建管理员。
+- 高频定时任务的间隔默认不用改；小配置的面板想省负载时，可以调大，例如 `POLARIS_JOBS_SETTLE_INTERVAL=30s`、`POLARIS_JOBS_LATENCY_PROBES_INTERVAL=30s`、`POLARIS_JOBS_OFFLINE_INTERVAL=30s`。间隔最短 5 秒；小于 1 分钟的必须是能整除 60 的秒数，大于等于 1 分钟的必须是整分钟。`offline` 不要超过 1 分钟（节点 90 秒无心跳即判离线）。Agent 的心跳 / 流量上报 / 在线 IP 间隔用启动参数 `--heartbeat`、`--traffic`、`--online-ips` 调，默认 2 秒 / 10 秒 / 20 秒。调大间隔会让配额结算、离线发现和探针变慢，调小会增加数据库写负载。
 
 妥善保存该文件和密钥。仓库的 Compose 文件默认**从源码构建社区版**：
 

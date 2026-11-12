@@ -121,7 +121,7 @@ func TestWebhookRetry(t *testing.T) {
 	if wait := time.Until(row.NextAt); wait < 50*time.Second || wait > 70*time.Second {
 		t.Fatalf("next attempt in %v, want ~1m", wait)
 	}
-	s.st.DB.Model(&row).Update("next_at", time.Now().Add(-time.Second))
+	s.st.DB.Model(&row).Update("next_at", time.Now().UTC().Add(-time.Second))
 	s.retryWebhooks()
 	s.st.DB.First(&row, "id = ?", row.ID)
 	if row.Status != "success" || row.Attempts != 2 || len(calls()) != 3 {
@@ -141,7 +141,7 @@ func TestDisabledWebhookDefersQueuedDeliveries(t *testing.T) {
 				}
 				id := out["webhook"].(map[string]any)["id"].(string)
 				d := store.WebhookDelivery{ID: store.NewID(), WebhookID: id, EventID: "evt-original", Type: typ,
-					Payload: `{"data":{"node_id":"n1","user_id":"u1"}}`, Status: "pending", Attempts: attempts, NextAt: time.Now()}
+					Payload: `{"data":{"node_id":"n1","user_id":"u1"}}`, Status: "pending", Attempts: attempts, NextAt: time.Now().UTC()}
 				if err := s.st.DB.Create(&d).Error; err != nil {
 					t.Fatal(err)
 				}
@@ -161,7 +161,7 @@ func TestDisabledWebhookDefersQueuedDeliveries(t *testing.T) {
 					t.Fatalf("disabled webhook sent or consumed retry: %+v calls=%d", paused, len(calls()))
 				}
 				setEnabled(true)
-				s.st.DB.Model(&paused).Update("next_at", time.Now().Add(-time.Second))
+				s.st.DB.Model(&paused).Update("next_at", time.Now().UTC().Add(-time.Second))
 				s.retryWebhooks()
 				var delivered store.WebhookDelivery
 				s.st.DB.First(&delivered, "id = ?", d.ID)

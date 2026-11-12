@@ -50,7 +50,7 @@ func (s *Server) commitSourceRefresh(src *store.SubSource, incoming []sub.Node, 
 	if len(incoming) > 5000 {
 		return nil, fmt.Errorf("订阅源最多支持 5000 个节点")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	nodes := make([]sub.Node, 0, len(incoming))
 	// Exact duplicate entries represent the same credential, not distinct resources.
 	seen := map[string]bool{}

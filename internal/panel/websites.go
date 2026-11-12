@@ -463,7 +463,7 @@ func (s *Server) saveWebsite(c *gin.Context) {
 			req.Version = 1
 			return saveNewWebsite(tx, &req)
 		}
-		updates := map[string]any{"domain": req.Domain, "port": 443, "certificate_id": req.CertificateID, "enabled": req.Enabled, "path": req.Path, "mode": req.Mode, "upstream": req.Upstream, "panel_upstream": req.PanelUpstream, "admin_path": req.AdminPath, "sub_path": req.SubPath, "portal_path": req.PortalPath, "files": req.Files, "version": req.Version + 1, "updated_at": time.Now()}
+		updates := map[string]any{"domain": req.Domain, "port": 443, "certificate_id": req.CertificateID, "enabled": req.Enabled, "path": req.Path, "mode": req.Mode, "upstream": req.Upstream, "panel_upstream": req.PanelUpstream, "admin_path": req.AdminPath, "sub_path": req.SubPath, "portal_path": req.PortalPath, "files": req.Files, "version": req.Version + 1, "updated_at": time.Now().UTC()}
 		result := tx.Model(&store.Website{}).Where("id = ? AND version = ?", req.ID, req.Version).Updates(updates)
 		if result.Error != nil {
 			return result.Error

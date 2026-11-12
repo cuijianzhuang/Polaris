@@ -34,11 +34,11 @@ func (e *ephStore) put(key string, v any, ttl time.Duration) error {
 		return err
 	}
 	return e.db.Clauses(clause.OnConflict{UpdateAll: true}).
-		Create(&store.EphemeralKV{Name: key, Value: e.box.Seal(string(raw)), ExpiresAt: time.Now().Add(ttl)}).Error
+		Create(&store.EphemeralKV{Name: key, Value: e.box.Seal(string(raw)), ExpiresAt: time.Now().UTC().Add(ttl)}).Error
 }
 
 func (e *ephStore) load(tx *gorm.DB, key string, v any, lock bool) (*store.EphemeralKV, bool) {
-	q := tx.Where("name = ? AND expires_at > ?", key, time.Now())
+	q := tx.Where("name = ? AND expires_at > ?", key, time.Now().UTC())
 	if lock && tx.Dialector.Name() == "postgres" {
 		q = q.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
@@ -98,11 +98,11 @@ func (e *ephStore) update(key string, v any, fn func() ephAction) bool {
 // count returns the live keys starting with prefix.
 func (e *ephStore) count(prefix string) int64 {
 	var n int64
-	e.db.Model(&store.EphemeralKV{}).Where("name LIKE ? AND expires_at > ?", prefix+"%", time.Now()).Count(&n)
+	e.db.Model(&store.EphemeralKV{}).Where("name LIKE ? AND expires_at > ?", prefix+"%", time.Now().UTC()).Count(&n)
 	return n
 }
 
 // sweep drops expired rows.
 func (e *ephStore) sweep() {
-	e.db.Where("expires_at <= ?", time.Now()).Delete(&store.EphemeralKV{})
+	e.db.Where("expires_at <= ?", time.Now().UTC()).Delete(&store.EphemeralKV{})
 }

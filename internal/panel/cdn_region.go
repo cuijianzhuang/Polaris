@@ -162,7 +162,7 @@ func (s *Server) cdnAudienceIPs(p *store.CDNProfile, port int, carrier, region s
 	if len(rs) == 0 {
 		return nil
 	}
-	return usableCDNIPsAt(p, withPinned(mergeCDNReports(rs), p.PinnedHosts.V), port)
+	return cdnUsableReportIPs(p, rs, port)
 }
 
 // Keep metadata updates narrow; old clients may still use /u/carrier.

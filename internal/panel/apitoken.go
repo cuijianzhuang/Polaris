@@ -155,7 +155,7 @@ func (s *Server) authToken(c *gin.Context, tok string) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "API 令牌缺少权限 " + need, "scope": need})
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	if t.LastUsedAt == nil || now.Sub(*t.LastUsedAt) > time.Minute {
 		s.st.DB.Model(&store.APIToken{}).Where("id = ?", t.ID).Updates(map[string]any{"last_used_at": now, "last_ip": clientIP(c.Request)})
 	}
@@ -231,7 +231,7 @@ func (s *Server) issueAPITokenIn(db *gorm.DB, name, pluginID string, scopes []st
 	t := &store.APIToken{ID: store.NewID(), Name: name, PluginID: pluginID, Hash: hashToken(secret), Prefix: secret[:10],
 		Scopes: store.JSON[[]string]{V: clean}, CreatedBy: by}
 	if days > 0 {
-		exp := time.Now().AddDate(0, 0, days)
+		exp := time.Now().UTC().AddDate(0, 0, days)
 		t.ExpiresAt = &exp
 	}
 	if bind != nil {

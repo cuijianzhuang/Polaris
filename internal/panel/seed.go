@@ -83,7 +83,7 @@ func (s *Server) seed() error {
 		var n int64
 		s.st.DB.Model(&store.SubTemplate{}).Where("format = ?", f.format).Count(&n)
 		if n == 0 {
-			s.st.DB.Create(&store.SubTemplate{ID: store.NewID(), Format: f.format, Name: "默认", Content: f.content, IsDefault: true, UpdatedAt: time.Now()})
+			s.st.DB.Create(&store.SubTemplate{ID: store.NewID(), Format: f.format, Name: "默认", Content: f.content, IsDefault: true, UpdatedAt: time.Now().UTC()})
 		}
 	}
 	for _, t := range builtinTemplates() {

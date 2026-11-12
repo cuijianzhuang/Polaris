@@ -336,7 +336,7 @@ func (s *Server) agentURL() string {
 func (s *Server) newInstallToken(n *store.Node, r *http.Request) (string, string, error) {
 	// 16 alphanumerics (~95 bits, one-time, 24 h) keep the one-click link short.
 	tok := pki.Password(16)
-	exp := time.Now().Add(24 * time.Hour)
+	exp := time.Now().UTC().Add(24 * time.Hour)
 	if err := s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(map[string]any{
 		"token_hash": hashToken(tok), "token_expires": exp}).Error; err != nil {
 		return "", "", err

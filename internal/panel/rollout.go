@@ -77,7 +77,7 @@ func (s *Server) newRollout(req rolloutReq, by string) (*store.UpgradeRollout, e
 	if len(ids) == 0 {
 		return nil, errors.New("没有需要升级的节点")
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	r := &store.UpgradeRollout{ID: store.NewID(), Kind: req.Kind, CoreType: req.CoreType, Version: req.Version,
 		NodeIDs: store.NewJSON(ids), Canary: req.Canary, BatchSize: req.BatchSize, SoakSeconds: req.SoakSeconds,
 		ProbeInbounds: req.ProbeInbounds, State: "running", Batch: store.NewJSON([]string{}),
@@ -135,7 +135,7 @@ func (s *Server) rolloutNodes(req rolloutReq) ([]string, error) {
 // runRollouts is the leader's tick: claim each running rollout and advance it.
 func (s *Server) runRollouts() {
 	var rs []store.UpgradeRollout
-	now := time.Now()
+	now := time.Now().UTC()
 	if s.st.DB.Where("state IN ? AND lease_until <= ?", []string{"running", "rolling_back"}, now).Order("created_at").Find(&rs).Error != nil {
 		return
 	}
@@ -169,7 +169,7 @@ func (s *Server) runRollouts() {
 // stepRollout advances r by one step and saves it (releasing the lease).
 func (s *Server) stepRollout(r *store.UpgradeRollout) {
 	original := r.State
-	now := time.Now()
+	now := time.Now().UTC()
 	if r.State == "rolling_back" {
 		s.watchRollback(r, now)
 	} else if len(r.Batch.V) == 0 {
@@ -178,7 +178,7 @@ func (s *Server) stepRollout(r *store.UpgradeRollout) {
 		s.dispatchBatch(r)
 		s.watchBatch(r, now)
 	}
-	r.UpdatedAt = time.Now()
+	r.UpdatedAt = time.Now().UTC()
 	upd := map[string]any{"cursor": r.Cursor, "batch": r.Batch, "batch_started": r.BatchStarted, "healthy_since": r.HealthySince,
 		"results": r.Results, "last_error": truncate(r.LastError, 500), "updated_at": r.UpdatedAt, "lease_until": time.Time{}, "lease_token": ""}
 	// Persist in-flight observations even after pause/cancel, but never overwrite
@@ -188,7 +188,7 @@ func (s *Server) stepRollout(r *store.UpgradeRollout) {
 			return err
 		}
 		var cur store.UpgradeRollout
-		if err := tx.First(&cur, "id = ? AND lease_token = ? AND lease_until > ?", r.ID, r.LeaseToken, time.Now()).Error; err != nil {
+		if err := tx.First(&cur, "id = ? AND lease_token = ? AND lease_until > ?", r.ID, r.LeaseToken, time.Now().UTC()).Error; err != nil {
 			return err
 		}
 		if cur.ControlVersion == r.ControlVersion && (cur.State == original || (original == "running" && cur.State == "rolling_back")) {
@@ -210,11 +210,11 @@ func (s *Server) stepRollout(r *store.UpgradeRollout) {
 
 func (s *Server) rolloutActive(r *store.UpgradeRollout) bool {
 	var count int64
-	return s.isLeader() && s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, r.State, r.ControlVersion, r.LeaseToken, time.Now()).Count(&count).Error == nil && count == 1
+	return s.isLeader() && s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, r.State, r.ControlVersion, r.LeaseToken, time.Now().UTC()).Count(&count).Error == nil && count == 1
 }
 
 func (s *Server) checkpointRollout(r *store.UpgradeRollout) bool {
-	res := s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, r.State, r.ControlVersion, r.LeaseToken, time.Now()).Updates(map[string]any{"cursor": r.Cursor, "batch": r.Batch, "batch_started": r.BatchStarted, "results": r.Results, "updated_at": time.Now()})
+	res := s.st.DB.Model(&store.UpgradeRollout{}).Where("id = ? AND state = ? AND control_version = ? AND lease_token = ? AND lease_until > ?", r.ID, r.State, r.ControlVersion, r.LeaseToken, time.Now().UTC()).Updates(map[string]any{"cursor": r.Cursor, "batch": r.Batch, "batch_started": r.BatchStarted, "results": r.Results, "updated_at": time.Now().UTC()})
 	return res.Error == nil && res.RowsAffected == 1
 }
 
@@ -470,7 +470,7 @@ func (s *Server) failRollout(r *store.UpgradeRollout, msg string) {
 		s.finishRollout(r, "failed", msg)
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	r.LastError = msg
 	for _, id := range r.Batch.V {
 		res := r.Results.V[id]
@@ -618,7 +618,7 @@ func (s *Server) rolloutAction(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	upd := map[string]any{"state": to[act], "updated_at": time.Now(), "control_version": gorm.Expr("control_version + 1")}
+	upd := map[string]any{"state": to[act], "updated_at": time.Now().UTC(), "control_version": gorm.Expr("control_version + 1")}
 	if act == "resume" {
 		upd["healthy_since"] = nil // soak again from the start
 	}

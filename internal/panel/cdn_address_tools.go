@@ -96,7 +96,7 @@ func (s *Server) cdnPreview(p *store.CDNProfile, ctx cdnCheckContext, carrier st
 		return nil
 	}
 	m := s.toModelInbound(&row)
-	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport}, ep, map[string]string{}, "{kind}", nil, nil, &m, carrier, cdnAudience{Region: region})
+	nodes := s.expandEndpoint(sub.Node{Port: m.Port, Transport: m.Transport}, ep, map[string]string{}, "{kind}", nil, nil, &m, &row, nil, carrier, cdnAudience{Region: region})
 	out := []string{}
 	for _, n := range nodes {
 		out = append(out, n.Server)
@@ -266,9 +266,7 @@ func (s *Server) checkCDNAddress(c *gin.Context) {
 	} else {
 		var n store.Node
 		s.st.DB.First(&n, "id = ?", row.NodeID)
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
-		defer cancel()
-		result.cdnCheck = probeCDN(ctx, target, m.Transport.Type, nodeOrigin(&n))
+		result.cdnCheck = probeCDNTarget(c.Request.Context(), target, m.Transport.Type, nodeOrigin(&n))
 	}
 	result.Warnings = s.cdnEndpointWarnings(&ep, &row, &p)
 	key := cdnCheckKey(ep.ID, target, m.Transport.Type, cdnHealthRevision(row, &p))

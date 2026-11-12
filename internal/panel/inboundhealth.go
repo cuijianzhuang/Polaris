@@ -139,7 +139,7 @@ func (s *Server) runProbes(ts []probeTarget) {
 }
 
 func (s *Server) probeAndRecord(t probeTarget) store.InboundHealth {
-	now := time.Now()
+	now := time.Now().UTC()
 	var h store.InboundHealth
 	if s.st.DB.First(&h, "inbound_id = ?", t.in.ID).Error != nil {
 		h = store.InboundHealth{InboundID: t.in.ID, OK: true, Since: now}
