@@ -601,7 +601,6 @@ const operations: Record<string, string> = {
   "暂无可显示的数据": "No data available",
   "正在读取节点状态…": "Loading node status…",
   "搜索名称、地区或系统": "Search name, region or OS",
-  "节点排序": "Sort nodes",
   "默认排序": "Default order",
   "按名称": "By name",
   "CPU 从高到低": "CPU: high to low",

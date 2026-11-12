@@ -28,6 +28,29 @@ func TestJobCronSpec(t *testing.T) {
 	}
 }
 
+func TestJobCronSpecZeroInterval(t *testing.T) {
+	// Regression: a zero interval used to render as "*/0 * * * * *",
+	// which the cron parser rejects, so the job silently never ran.
+	if got := jobCronSpec(0, 0); got != "*/10 * * * * *" {
+		t.Errorf("jobCronSpec(0, 0) = %q, want \"*/10 * * * * *\"", got)
+	}
+}
+
+func TestApplyJobDefaults(t *testing.T) {
+	// Regression: a Config built in code (every test, any embedder)
+	// never goes through LoadConfig, so its job intervals were zero and
+	// startJobs scheduled nothing. New must fill the historical defaults.
+	c := &Config{}
+	c.Jobs.Settle = 30 * time.Second // an explicit value must survive
+	c.applyJobDefaults()
+	if c.Jobs.Settle != 30*time.Second {
+		t.Errorf("settle = %v, want 30s (explicit value changed)", c.Jobs.Settle)
+	}
+	if c.Jobs.Health != time.Minute || c.Jobs.InboundProbe != 2*time.Minute || c.Jobs.Offline != 15*time.Second {
+		t.Errorf("defaults not applied: health=%v inbound-probe=%v offline=%v", c.Jobs.Health, c.Jobs.InboundProbe, c.Jobs.Offline)
+	}
+}
+
 func TestConfigJobsDefaults(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
