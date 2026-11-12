@@ -63,7 +63,7 @@ export default function Settings() {
     if (s.data) { const next = {
       site_title: s.data.site_title ?? '', sub_update_interval: s.data.sub_update_interval ?? '1', ip_ban_minutes: s.data.ip_ban_minutes ?? '0',
       acme_email: s.data.acme_email ?? '', acme_cf_token: '', default_xray: s.data.default_xray || 'latest', default_singbox: s.data.default_singbox || 'latest',
-      ip_limit_trusted: s.data.ip_limit_trusted ?? '', shodan_api_key: '',
+      ip_limit_trusted: s.data.ip_limit_trusted ?? '', shodan_api_key: '', usage_stats: s.data.usage_stats ?? 'true',
     }; setF(next); setGeneralBaseline(JSON.stringify(next)) }
   }, [s.data])
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }))
@@ -144,6 +144,10 @@ export default function Settings() {
             <Field label="Shodan API Key" full hint={s.data?.shodan_api_key_set ? t('已保存（留空不修改）') : t('可选 · 用于 REALITY 目标扫描的「从 Shodan 发现」和 CDN 配置档的「第三方反代 IP」。每页搜索结果消耗 1 个查询额度')}>
               <input className="input mono" type="password" autoComplete="off" value={f.shodan_api_key ?? ''} onChange={(e) => set('shodan_api_key', e.target.value)} />
             </Field>
+          </div></details>
+          <details className="settings-disclosure"><summary>{t('使用统计')}</summary><div className="form-grid">
+            <label className="chk"><input type="checkbox" checked={f.usage_stats !== 'false'} onChange={(e) => set('usage_stats', e.target.checked ? 'true' : 'false')} />{t('参与使用统计')}</label>
+            <div className="hint">{t('每天向授权服务器发送一次匿名上报（实例 ID、面板版本、版本类型），用于统计在用实例数并在 README 和仪表盘展示；不含用户、节点、IP 或地址。关闭后不再上报。未配置授权服务器时不上报。')}</div>
           </div></details>
           <SettingsSaveBar loading={s.loading} dirty={generalDirty} busy={generalSaver.busy} error={generalSaver.error || s.error} disabled={s.loading || !s.data} onSave={saveGeneral} />
           </fieldset>

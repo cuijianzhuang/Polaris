@@ -11,6 +11,7 @@
   <a href="https://github.com/cuijianzhuang/Polaris/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/cuijianzhuang/Polaris/release.yml?label=%E7%BC%96%E8%AF%91%E5%8F%91%E5%B8%83&logo=go&logoColor=white" alt="编译发布"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/releases/latest"><img src="https://img.shields.io/github/v/release/cuijianzhuang/Polaris?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC&color=0E7490" alt="最新版本"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/releases"><img src="https://img.shields.io/github/downloads/cuijianzhuang/Polaris/total?label=%E4%B8%8B%E8%BD%BD&color=0E7490" alt="下载量"></a>
+  <a href="https://license.example.com/admin"><img src="https://license.example.com/usage/badge.svg" alt="在用实例"></a>
   <img src="https://img.shields.io/github/go-mod/go-version/cuijianzhuang/Polaris?logo=go&logoColor=white" alt="Go 版本">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
   <br>
@@ -87,6 +88,12 @@ Copyright © 2026 Polaris contributors.
 两种版本的数据和配置通用。一键安装可用 `--community` 或 `--pro` 指定版本，安装后用 `polaris switch community` / `polaris switch pro` 切换。**启用专业版功能需要专业版程序及有效授权，仅向社区版导入许可证不会补齐专业版代码。**
 
 专业版在「许可证」页面联网激活或导入离线许可证。套餐、功能、数量上限、到期日和更新期限以该页面为准，详见[许可证管理](docs/user-guide.md#license)。
+
+## 使用统计
+
+面板每天向授权服务器发送一次匿名使用上报（实例 ID、面板版本、版本类型），用于统计在用实例数：专业版实例来自许可证每日签到，社区版实例来自该上报。上报不含用户、节点、IP 或地址；未配置授权服务器时不上报。默认开启，可在「设置 → 常规 → 使用统计」关闭。
+
+在用实例数（30 天内活跃）同时显示在授权后台、面板仪表盘和上方徽章中。徽章地址中的域名需换成实际的授权服务器地址（`https://license.example.com` 为占位符）。
 
 ## 相关仓库
 

@@ -14,6 +14,7 @@ interface Overview {
   operational?: OperationalData
   nodes: { online: number; total: number; timeout: number; error?: number }
   users: { online: number; active: number; total: number }
+  usage?: { instances30d: number; instances7d: number; pro30d: number; community30d: number }
   today: { Up: number; Down: number }
   month: { Up: number; Down: number }
   rate: { rxBps: number; txBps: number; peakNode: string }
@@ -163,6 +164,7 @@ export default function Dashboard() {
       <section className="grid g4 dashboard-metrics" aria-label={t('概览')}>
         <Link to="/nodes" className="card kpi"><span className="kpi-ico ok"><Icon.Server /></span><div className="label">{t('在线节点')}</div><div className="val">{data?.nodes.online ?? '—'}<span className="of"> / {data?.nodes.total ?? '—'}</span></div><div className="foot">{data?.nodes.timeout ? t('{n} 个离线', { n: data.nodes.timeout }) : t('全部在线')}{data?.nodes.error ? ' · ' + t('{n} 个下发失败', { n: data.nodes.error }) : ''}</div></Link>
         <Link to="/users?filter=online" className="card kpi"><span className="kpi-ico"><Icon.Users /></span><div className="label">{t('在线用户')}</div><div className="val">{data?.users.online ?? '—'}</div><div className="foot">{t('有效 {active} · 共 {total} 个用户', { active: data?.users.active ?? 0, total: data?.users.total ?? 0 })}</div></Link>
+        {data?.usage && <div className="card kpi"><span className="kpi-ico violet"><Icon.Globe /></span><div className="label">{t('在用实例')}</div><div className="val">{data.usage.instances30d}</div><div className="foot">{t('30 天内活跃 · Pro {pro} · 社区版 {community}', { pro: data.usage.pro30d, community: data.usage.community30d })}</div></div>}
         <div className="card kpi"><span className="kpi-ico violet"><Icon.Download /></span><div className="label">{t('今日流量')}</div><div className="val">{bytes((data?.today.Up ?? 0) + (data?.today.Down ?? 0))}</div><div className="foot">↑ {bytes(data?.today.Up)} · ↓ {bytes(data?.today.Down)} · {t('本月 {v}', { v: bytes((data?.month.Up ?? 0) + (data?.month.Down ?? 0)) })}</div></div>
         <div className="card kpi"><span className="kpi-ico warn"><Icon.Cpu /></span><div className="label">{t('实时速率')}</div><div className="val">{bps(rx + tx)}</div><div className="foot">↓ {bps(rx)} · ↑ {bps(tx)}{data?.rate.peakNode ? ' · ' + t('峰值 {node}', { node: data.rate.peakNode }) : ''}</div></div>
       </section>
