@@ -298,3 +298,14 @@ html:not([data-style])[data-mode="dark"] { --bg:var(--ui-dark-bg);--card:var(--u
 @media(max-width:760px){.app .btn,.app .input,.app .btn.sm,.app .input.sm{min-height:var(--ui-touch-height)}}
 
 .meter-health{max-width:420px;overflow-wrap:anywhere;margin:8px 0;line-height:1.6}.meter-health .hint{margin-top:4px}
+
+/* Model results stay visible on touch browsers that hide native datalists. */
+.ai-model-picker { display: grid; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); }
+.ai-model-picker-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 12px; font-weight: 600; }
+.ai-model-picker-heading .hint { font-weight: 400; }
+.ai-model-options { display: grid; gap: 6px; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; }
+.ai-model-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; min-height: 44px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ai-model-option > span:first-child { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.ai-model-option[aria-pressed="true"] { background: var(--soft); border-color: var(--pri); }
+.ai-model-option:focus-visible { outline: 2px solid var(--pri); outline-offset: 2px; }
+.ai-model-check { flex: 0 0 18px; color: var(--pri); font-weight: 600; }
