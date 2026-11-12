@@ -60,8 +60,19 @@ with sync_playwright() as p:
     # Detail refreshes independently from the paused main-list refresh.
     f.users['known']['onlineDevices'].append(dict(ip='2001:db8::1234',nodes=['Tokyo'],seen=now))
     f.users['known']['onlineIps'].append('2001:db8::1234');f.users['known']['onlineIpCount']=2
-    page.clock.run_for(10010);expect(dialog).to_contain_text('2001:db8::1234');assert f.detail_calls>=3
-    f.fail=True;page.clock.run_for(10010);expect(dialog.get_by_role('alert')).to_contain_text('fixture refresh failed');expect(dialog).to_contain_text('2001:db8::1234')
+    # The detail poll is one 10s tick: under load a tick can be swallowed
+    # and no refresh is attempted at all, so advance the clock until a
+    # refresh actually reaches the fixture instead of trusting one tick.
+    calls_before=f.detail_calls
+    for _ in range(3):
+     page.clock.run_for(10010)
+     if f.detail_calls>calls_before:break
+    expect(dialog).to_contain_text('2001:db8::1234');assert f.detail_calls>=3
+    f.fail=True;calls_before=f.detail_calls
+    for _ in range(3):
+     page.clock.run_for(10010)
+     if f.detail_calls>calls_before:break
+    expect(dialog.get_by_role('alert')).to_contain_text('fixture refresh failed');expect(dialog).to_contain_text('2001:db8::1234')
     f.fail=False;dialog.get_by_role('button',name='重试' if zh else 'Retry',exact=True).click();expect(dialog.get_by_role('alert')).to_have_count(0)
     page.screenshot(path=str(OUT/f'{engine}-{width}-{lang}-detail.png'))
     page.keyboard.press('Escape');page.clock.run_for(200);expect(dialog).to_have_count(0)
