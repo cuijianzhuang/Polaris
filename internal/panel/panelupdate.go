@@ -19,7 +19,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
-	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
 // Panel self-update. The panel runs unprivileged and cannot replace its own
@@ -383,38 +382,4 @@ func (s *Server) postPanelUpdate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, gin.H{"ok": true})
-}
-
-// upgradeOutdatedAgents upgrades every online node running another version.
-func (s *Server) upgradeOutdatedAgents(ctx context.Context) []agentUpgradeResult {
-	var nodes []store.Node
-	s.st.DB.Find(&nodes)
-	var (
-		mu  sync.Mutex
-		wg  sync.WaitGroup
-		out = []agentUpgradeResult{}
-		sem = make(chan struct{}, 4)
-	)
-	for i := range nodes {
-		n := &nodes[i]
-		if !s.hub.Online(n.ID) || n.AgentVersion == Version {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			err := s.upgradeAgent(ctx, n)
-			r := agentUpgradeResult{Node: n.Name, Ok: err == nil}
-			if err != nil {
-				r.Error = err.Error()
-			}
-			mu.Lock()
-			out = append(out, r)
-			mu.Unlock()
-		}()
-	}
-	wg.Wait()
-	return out
 }

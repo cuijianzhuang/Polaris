@@ -544,6 +544,8 @@ const operations: Record<string, string> = {
   "小批升级：{what} → v{v}": "Staged upgrade: {what} → v{v}",
   "已停止（失败）": "Stopped (failed)",
   "已开始小批升级，进度见页面顶部": "Staged upgrade started; progress is shown at the top of the page",
+  "已开始升级 {node}，进度见页面顶部": "Agent upgrade started for {node}; progress is shown at the top of the page",
+  "已开始升级全部 Agent，进度见页面顶部": "Agent upgrade started for all nodes; progress is shown at the top of the page",
   "已继续": "Resumed",
   "已跳过": "Skipped",
   "已退回": "Rolled back",
