@@ -66,7 +66,7 @@ func (s *Server) newRollout(req rolloutReq, by string) (*store.UpgradeRollout, e
 		req.BatchSize = 4
 	}
 	if req.SoakSeconds <= 0 {
-		req.SoakSeconds = 120
+		req.SoakSeconds = 60
 	}
 	req.Canary, req.BatchSize = min(req.Canary, 20), min(req.BatchSize, 20)
 	req.SoakSeconds = min(req.SoakSeconds, 3600)
@@ -396,11 +396,20 @@ func (s *Server) watchBatch(r *store.UpgradeRollout, now time.Time) {
 		r.HealthySince = nil
 		return
 	}
+	// The soak confirms a batch stays healthy before the next one starts.
+	// The last batch has no successor, so waiting out its soak only delays
+	// "done": finish as soon as it is healthy once.
+	soak := time.Duration(r.SoakSeconds) * time.Second
+	if r.Cursor >= len(r.NodeIDs.V) {
+		soak = 0
+	}
 	if r.HealthySince == nil {
 		r.HealthySince = &now
-		return
+		if soak > 0 {
+			return
+		}
 	}
-	if now.Sub(*r.HealthySince) < time.Duration(r.SoakSeconds)*time.Second {
+	if now.Sub(*r.HealthySince) < soak {
 		return
 	}
 	for _, id := range r.Batch.V {

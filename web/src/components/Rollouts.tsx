@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { BASE, get, post } from '../api'
 import { Field, Switch, useAction, useLoad, usePoll } from './ui'
+import { NodeActivity } from './NodeCard'
 import { datetime } from '../format'
 import { t } from '../i18n'
 import type { Node } from '../types'
@@ -9,7 +10,7 @@ import type { Node } from '../types'
 // each batch watched for a while before the next. See internal/panel/rollout.go.
 
 export type StagedOpts = { staged: boolean; canary: number; batchSize: number; soakSeconds: number; probeInbounds: boolean }
-export const defaultStaged: StagedOpts = { staged: true, canary: 1, batchSize: 4, soakSeconds: 120, probeInbounds: false }
+export const defaultStaged: StagedOpts = { staged: true, canary: 1, batchSize: 4, soakSeconds: 60, probeInbounds: false }
 
 type RolloutNode = { state: 'upgrading' | 'ok' | 'failed' | 'skipped' | 'rolled_back' | 'rollback_pending' | 'rolling_back' | 'rollback_failed' | 'queued'; error?: string; at: string }
 export type Rollout = {
@@ -107,6 +108,20 @@ export default function RolloutPanel({ nodes, refresh }: { nodes: Node[]; refres
         </div>
         {r.state === 'running' && r.batch.length > 0 && (
           <div className="small" style={{ marginTop: 8 }}>{r.healthySince ? t('本批运行正常，观察中：') : t('本批升级中，等待恢复正常：')}{r.batch.map(name).join(t('、'))}</div>
+        )}
+        {r.state === 'running' && r.batch.length > 0 && (
+          <div style={{ marginTop: 4, display: 'grid', gap: 2 }}>
+            {r.batch.map((id) => {
+              const n = nodes.find((x) => x.id === id)
+              if (!n?.progress?.active) return null
+              return (
+                <div key={id}>
+                  <div className="small" style={{ marginBottom: 0, color: 'var(--mute)' }}>{n.name}</div>
+                  <NodeActivity n={n} compact />
+                </div>
+              )
+            })}
+          </div>
         )}
         {r.lastError && <div className="note bad small" style={{ marginTop: 8 }}>{r.lastError}</div>}
         <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
