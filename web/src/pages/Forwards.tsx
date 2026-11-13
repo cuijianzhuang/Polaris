@@ -186,29 +186,29 @@ export default function Forwards() {
       </div>
       <div className="card flush scroll">
         {rows.length === 0 ? <Empty>{list.loading ? t('加载中…') : t('还没有转发规则。中转机把端口转到落地机，或把服务端口映射出去，都可以在这里配置。')}</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr><th>{t('名称')}</th><th>{t('节点')}</th><th>{t('引擎')}</th><th>{t('监听')}</th><th>{t('协议')}</th><th>{t('目标')}</th><th>{t('负载')}</th><th>{t('隧道 / 限制')}</th><th>{t('流量')}</th><th>{t('启用')}</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className="clickable" onClick={() => setDrawer(r)}>
-                  <td style={{ fontWeight: 500 }}>{r.name}{r.userId && <span className="tag info-tag" style={{ marginLeft: 6 }} title={t('用户在用户中心自助添加的转发，按套餐的转发额度计量')}>{t('用户 {name}', { name: r.username || r.userId })}</span>}{r.remark && <div className="small mute">{r.remark}</div>}</td>
-                  <td>{r.nodeName || '—'}</td>
-                  <td><span className={r.engine === 'gost' ? 'tag singbox' : 'tag'}>{r.engine === 'gost' ? 'GOST' : 'realm'}</span></td>
-                  <td className="mono">{r.listenIp ? r.listenIp + ':' : ':'}{r.listenPort}</td>
-                  <td>{netLabel[r.network] ?? r.network}</td>
-                  <td className="mono small">{r.remotes.map((m) => (
+                  <td className="rt-head" style={{ fontWeight: 500 }}>{r.name}{r.userId && <span className="tag info-tag" style={{ marginLeft: 6 }} title={t('用户在用户中心自助添加的转发，按套餐的转发额度计量')}>{t('用户 {name}', { name: r.username || r.userId })}</span>}{r.remark && <div className="small mute">{r.remark}</div>}</td>
+                  <td data-label={t('节点')}>{r.nodeName || '—'}</td>
+                  <td data-label={t('引擎')}><span className={r.engine === 'gost' ? 'tag singbox' : 'tag'}>{r.engine === 'gost' ? 'GOST' : 'realm'}</span></td>
+                  <td data-label={t('监听')} className="mono">{r.listenIp ? r.listenIp + ':' : ':'}{r.listenPort}</td>
+                  <td data-label={t('协议')}>{netLabel[r.network] ?? r.network}</td>
+                  <td data-label={t('目标')} className="mono small rt-wrap">{r.remotes.map((m) => (
                     <div key={m.addr} style={{ opacity: m.enabled ? 1 : 0.45 }}>
                       <span className="dot" style={{ background: !m.enabled ? 'var(--input-strong)' : r.health?.[m.addr] ? 'var(--bad)' : 'var(--ok)' }} />{m.addr}{r.balance && (m.weight ?? 1) > 1 ? ` ×${m.weight}` : ''}
                     </div>
                   ))}</td>
-                  <td>{r.remotes.length > 1 ? <>{balLabel[r.balance] ?? r.balance}{r.failover && <span className="tag" style={{ marginLeft: 4 }}>{t('故障转移')}</span>}</> : '—'}</td>
-                  <td>{r.tunnelRole ? <span className="tag">{r.tunnelType.toUpperCase()} · {r.tunnelRole === 'client' ? t('发送') : t('接收')}</span> : null}
+                  <td data-label={t('负载')}>{r.remotes.length > 1 ? <>{balLabel[r.balance] ?? r.balance}{r.failover && <span className="tag" style={{ marginLeft: 4 }}>{t('故障转移')}</span>}</> : '—'}</td>
+                  <td data-label={t('隧道 / 限制')} className="rt-wrap">{r.tunnelRole ? <span className="tag">{r.tunnelType.toUpperCase()} · {r.tunnelRole === 'client' ? t('发送') : t('接收')}</span> : null}
                     {r.sendProxy > 0 && <span className="tag">PROXY v{r.sendProxy}</span>}
                     {(r.rateIn > 0 || r.rateOut > 0) && <span className="tag">{t('限速 {up}/{down} KB/s', { up: r.rateIn || '∞', down: r.rateOut || '∞' })}</span>}
                     {r.maxConns > 0 && <span className="tag">{t('≤{n} 连接', { n: r.maxConns })}</span>}
                     {!r.tunnelRole && !r.sendProxy && !r.rateIn && !r.rateOut && !r.maxConns && '—'}</td>
-                  <td className="mono small">{r.engine === 'gost' ? (() => { const tf = traffic(r); return tf ? <>↑ {bytes(tf.up)}<br />↓ {bytes(tf.down)}</> : '0 B' })() : <span className="mute" title={t('realm 不提供流量统计，改用 GOST 引擎可统计')}>—</span>}</td>
-                  <td onClick={(e) => e.stopPropagation()}><Switch label={t('启用')} on={r.enabled} onChange={() => toggle(r)} /></td>
+                  <td data-label={t('流量')} className="mono small">{r.engine === 'gost' ? (() => { const tf = traffic(r); return tf ? <>↑ {bytes(tf.up)}<br />↓ {bytes(tf.down)}</> : '0 B' })() : <span className="mute" title={t('realm 不提供流量统计，改用 GOST 引擎可统计')}>—</span>}</td>
+                  <td data-label={t('启用')} onClick={(e) => e.stopPropagation()}><Switch label={t('启用')} on={r.enabled} onChange={() => toggle(r)} /></td>
                 </tr>
               ))}
             </tbody>

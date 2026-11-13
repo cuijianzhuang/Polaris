@@ -49,7 +49,7 @@ export default function GeodataCard() {
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
         {assets.map((a, i) => (
-          <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
+          <div key={i} className="row geodata-row" style={{ flexWrap: 'nowrap' }}>
             <input className="input mono" style={{ flex: 3, minWidth: 0 }} value={a.url} placeholder="https://example.com/geosite_custom.dat" onChange={(e) => setA(i, 'url', e.target.value)} aria-label={t('下载地址')} />
             <input className="input mono" style={{ flex: 1, minWidth: 0 }} value={a.file} placeholder={t('文件名')} onChange={(e) => setA(i, 'file', e.target.value)} aria-label={t('文件名')} />
             <button className="btn sm danger" type="button" aria-label={t('删除')} onClick={() => setAssets((xs) => xs.filter((_, j) => j !== i))}>{t('删除')}</button>

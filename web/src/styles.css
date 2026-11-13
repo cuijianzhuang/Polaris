@@ -436,20 +436,6 @@ details.more[open] > div { animation: fade-up .25s var(--ease-out) both; }
   .chips { flex-wrap: nowrap; overflow-x: auto; width: 100%; scrollbar-width: none; margin: 0 -12px; padding: 0 12px 2px; width: calc(100% + 24px); }
   .chips::-webkit-scrollbar { display: none; }
   .chips > * { flex: none; }
-  /* data tables become cards: label on the left, value on the right */
-  table.rtable thead { display: none; }
-  table.rtable, .rtable tbody, .rtable tr, .rtable td { display: block; width: 100%; }
-  .rtable tr { position: relative; padding: 12px 14px; border-bottom: 1px solid var(--line-2); }
-  .rtable tr:last-child { border-bottom: none; }
-  .rtable td { border: none; padding: 3px 0; white-space: normal; display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0 !important; text-align: right; }
-  .rtable td[data-label]::before { content: attr(data-label); color: var(--mute); font-size: 12px; flex: none; text-align: left; }
-  .rtable td.rt-head { display: block; text-align: left; font-size: 15px; padding: 0 44px 6px 0; }
-  .rtable td.rt-check { position: absolute; right: 10px; top: 10px; width: auto; padding: 4px; }
-  .rtable td.rt-wrap { flex-wrap: wrap; }
-  .rtable td.rt-wrap .bar { flex-basis: 100%; }
-  .rtable td.rt-actions { justify-content: flex-end; padding-top: 6px; }
-  .rtable td.rt-break { word-break: break-all; }
-  .rtable tbody tr:hover td { background: none; }
   .isteps { grid-template-columns: minmax(0, 1fr); }
   .meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .kv { grid-template-columns: 84px minmax(0, 1fr); }
@@ -468,6 +454,35 @@ details.more[open] > div { animation: fade-up .25s var(--ease-out) both; }
   .toasts { left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); }
   .toast { max-width: none; }
   .step-sep { width: 16px; }
+}
+
+/* Tablet and below: data tables become cards (label on the left, value on
+   the right). The breakpoint is 900px, not 760px, because at 768px (common
+   tablet portrait) the sidebar still takes 224px and the content column is
+   only ~510px wide — a full table there overflows with no hint, while the
+   card form stays readable. The phone layout (drawer sidebar, bottom tabs)
+   still switches at 760px; only the table form switches earlier. */
+@media (max-width: 900px) {
+  table.rtable thead { display: none; }
+  table.rtable, .rtable tbody, .rtable tr, .rtable td { display: block; width: 100%; }
+  .rtable tr { position: relative; padding: 12px 14px; border-bottom: 1px solid var(--line-2); }
+  .rtable tr:last-child { border-bottom: none; }
+  .rtable td { border: none; padding: 3px 0; white-space: normal; display: flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 0 !important; text-align: right; }
+  .rtable td[data-label]::before { content: attr(data-label); color: var(--mute); font-size: 12px; flex: none; text-align: left; }
+  .rtable td.rt-head { display: block; text-align: left; font-size: 15px; padding: 0 44px 6px 0; }
+  .rtable td.rt-check { position: absolute; right: 10px; top: 10px; width: auto; padding: 4px; }
+  .rtable td.rt-wrap { flex-wrap: wrap; }
+  .rtable td.rt-wrap .bar { flex-basis: 100%; }
+  .rtable td.rt-actions { justify-content: flex-end; padding-top: 6px; }
+  .rtable td.rt-break { word-break: break-all; }
+  .rtable tbody tr:hover td { background: none; }
+  /* Node browser keeps its compact two-column card form at tablet width. */
+  .node-list .rtable tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; }
+  .node-list .rtable td[data-label]::before { display: none; }
+  .node-list .rtable td:nth-child(5), .node-list .rtable td:nth-child(6) { display: none; }
+  .node-list .rtable td:nth-child(2), .node-list .rtable td:nth-child(4) { justify-content: flex-end; }
+  .node-list td { padding: 4px 0; }
+  .node-list td.rt-head { padding-right: 0; }
 }
 @keyframes sheet-in { from { transform: translateY(40px); opacity: 0; } }
 @keyframes sheet-out { to { transform: translateY(40px); opacity: 0; } }
@@ -1397,16 +1412,76 @@ html[data-style="midnight"] .bar > div { background:var(--pri); }
   html[data-keyboard] .settings-savebar { bottom:calc(var(--keyboard-inset, 0px) + 8px); }
 }
 
-/* Phones: a table wider than the screen scrolls sideways in its card;
-   keep its trailing actions column pinned to the right edge so 编辑 / 删除
-   stay in view while the data columns scroll under it. */
+/* Long node names in the costs table truncate with an ellipsis instead of
+   stretching the table past the card; hover the link to see the full name. */
+.costs-table td:first-child .link { display: inline-block; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+/* Costs: the per-GB column is the page's headline number, so pin it next to
+   the actions column (which is fixed at 120px) instead of letting it scroll
+   out of view. */
+.costs-table td:last-child { width: 120px; min-width: 120px; }
+.costs-table th.costs-pergb { position: sticky; right: 120px; z-index: 1; background: var(--soft-2); box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25); }
+.costs-table td.costs-pergb { position: sticky; right: 120px; z-index: 1; background: var(--card); box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25); }
+.costs-table tbody tr:hover td.costs-pergb { background: var(--soft-2); }
+
+/* Chain topology: on narrow screens the hop flow goes vertical (one hop
+   per row, arrow pointing down) instead of wrapping mid-chain so that
+   "出口" lands under "客户端" with a confusing arrow. */
+@media (max-width: 900px) {
+  .path { flex-direction: column; align-items: stretch; }
+  .path .hop { min-width: 0; }
+  .path .arrow { flex-direction: row; justify-content: center; gap: 8px; min-width: 0; padding: 2px 0; }
+  .path .arrow .arr-glyph { display: inline-block; transform: rotate(90deg); font-style: normal; }
+}
+/* Geodata download rows: stack the URL on its own line on phones so the
+   address and filename fields stay readable instead of squeezing to a
+   few characters each. */
 @media (max-width: 760px) {
-  :is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tr > :last-child {
+  .geodata-row { flex-wrap: wrap; }
+  .geodata-row .input:first-child { flex: 1 1 100%; }
+}
+/* Very narrow screens: option grids go single column so long descriptions
+   stop stretching their neighbours to uneven heights. */
+@media (max-width: 480px) {
+  .seg { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Phones: touch targets. The segmented controls, filter chips and
+   in-table text buttons ship at 21–32px, too small for a fingertip; lift
+   them to 44px so they are tappable without zooming. */
+@media (max-width: 760px) {
+  .seg-mini button { min-height: 44px; padding: 3px 14px; }
+  .pv-seg button { min-height: 44px; }
+  .pv-chip { min-height: 44px; }
+  .attn-item { min-height: 44px; }
+  .rtable td .link, table td .link { display: inline-flex; align-items: center; min-height: 44px; }
+  .rtable td.rt-check input[type="checkbox"], table td input[type="checkbox"] { width: 20px; height: 20px; }
+  /* Scrollable tab / chip rows: fade the right edge so users can tell
+     there is more to swipe to (the scrollbar is hidden on phones). */
+  .tabs, .chips { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent); }
+}
+/* Tablet and below: sidebar nav items are 38–41px; lift them to 44px. */
+@media (max-width: 900px) {
+  .nav { min-height: 28px; }
+}
+
+/* A table wider than its card scrolls sideways; keep its trailing actions
+   column pinned to the right edge so 编辑 / 删除 stay in view while the
+   data columns scroll under it. Non-rtable tables are always in table
+   mode, so the pin applies at every width. rtable tables only need it
+   above their card breakpoint (900px), where they are still tables. */
+:is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tr > :last-child {
+  position: sticky; right: 0; z-index: 1;
+  background: var(--card);
+  box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25);
+}
+:is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tbody tr:hover > :last-child { background: var(--soft-2); }
+@media (min-width: 901px) {
+  :is(.scroll, .card.flush) table.rtable:has(td:last-child :is(button, a.btn, .link)) tr > :last-child {
     position: sticky; right: 0; z-index: 1;
     background: var(--card);
     box-shadow: -8px 0 8px -8px rgba(15, 23, 42, .25);
   }
-  :is(.scroll, .card.flush) table:not(.rtable):has(td:last-child :is(button, a.btn, .link)) tbody tr:hover > :last-child { background: var(--soft-2); }
+  :is(.scroll, .card.flush) table.rtable:has(td:last-child :is(button, a.btn, .link)) tbody tr:hover > :last-child { background: var(--soft-2); }
 }
 
 /* Content-driven controls keep long labels readable without changing the theme. */

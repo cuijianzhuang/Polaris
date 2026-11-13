@@ -15,6 +15,7 @@ const tone = (n: Node): Tone => (n.status === 'online' ? 'ok' : n.status === 'of
 const toneRank: Record<Tone, number> = { bad: 0, warn: 1, ok: 2 }
 
 const MAX_ZOOM = 14
+const MIN_ZOOM = 0.5
 const MARKER_GAP = 16 // px; closer markers are fanned out on a ring
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -117,16 +118,31 @@ export default function NodeMap() {
   const unplaced = nodes.filter((n) => !geoOf.get(n.id))
 
   const fit = useCallback((v: View): View => {
-    const k = clamp(v.k, 1, MAX_ZOOM)
-    return { k, tx: clamp(v.tx, cw - base * k * MAP_W, 0), ty: clamp(v.ty, ch - base * k * MAP_H, 0) }
+    const k = clamp(v.k, MIN_ZOOM, MAX_ZOOM)
+    const w = base * k * MAP_W
+    const h = base * k * MAP_H
+    // Map wider than the viewport: clamp panning to its edges. Map narrower
+    // (zoomed out to fit all markers): centre it, no panning.
+    const tx = w >= cw ? clamp(v.tx, cw - w, 0) : (cw - w) / 2
+    const ty = h >= ch ? clamp(v.ty, ch - h, 0) : (ch - h) / 2
+    return { k, tx, ty }
   }, [cw, ch, base])
 
-  // Initial / reset view: the whole map, centred on the nodes when the
-  // viewport is narrower than the map (phones).
+  // Initial / reset view: fit every placed marker (bounding box) so no node
+  // — least of all an offline one — starts outside the viewport. Zoom out
+  // only as far as needed, never in past 1.
   const home = useCallback((): View => {
-    const mean = placed.length ? placed.reduce((s, p) => s + p.px, 0) / placed.length : MAP_W / 2
-    return fit({ k: 1, tx: cw / 2 - base * mean, ty: 0 })
-  }, [placed, cw, base, fit])
+    if (!placed.length) return fit({ k: 1, tx: 0, ty: 0 })
+    const xs = placed.map((p) => p.px)
+    const ys = placed.map((p) => p.py)
+    const minX = Math.min(...xs), maxX = Math.max(...xs)
+    const minY = Math.min(...ys), maxY = Math.max(...ys)
+    const pad = 40 // viewBox units of breathing room around the outermost markers
+    const kx = cw / (base * (maxX - minX + 2 * pad))
+    const ky = ch / (base * (maxY - minY + 2 * pad))
+    const k = clamp(Math.min(1, kx, ky), MIN_ZOOM, 1)
+    return fit({ k, tx: cw / 2 - base * k * ((minX + maxX) / 2), ty: ch / 2 - base * k * ((minY + maxY) / 2) })
+  }, [placed, cw, ch, base, fit])
   const started = useRef(false)
   useEffect(() => {
     if (!cw) return
@@ -138,7 +154,7 @@ export default function NodeMap() {
   viewRef.current = view
   const zoomAt = (factor: number, x: number, y: number) => {
     const v = viewRef.current
-    const k = clamp(v.k * factor, 1, MAX_ZOOM)
+    const k = clamp(v.k * factor, MIN_ZOOM, MAX_ZOOM)
     const r = k / v.k
     setView(fit({ k, tx: x - (x - v.tx) * r, ty: y - (y - v.ty) * r }))
   }
@@ -186,7 +202,7 @@ export default function NodeMap() {
       if (g.moved) setView(fit({ ...g.view, tx: g.view.tx + c.cx - g.cx, ty: g.view.ty + c.cy - g.cy }))
     } else if (g.dist > 0 && c.dist > 0) {
       g.moved = true
-      const k = clamp(g.view.k * (c.dist / g.dist), 1, MAX_ZOOM)
+      const k = clamp(g.view.k * (c.dist / g.dist), MIN_ZOOM, MAX_ZOOM)
       const r = k / g.view.k
       setView(fit({ k, tx: c.cx - (g.cx - g.view.tx) * r, ty: c.cy - (g.cy - g.view.ty) * r }))
     }

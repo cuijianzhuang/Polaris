@@ -181,22 +181,22 @@ function Profiles({ meta, sources }: { meta?: Meta; sources: SubSource[] }) {
       <ErrorNote error={list.error} />
       <div className="card flush scroll">
         {list.data?.length === 0 ? <Empty>{t('订阅组把面板用户的节点与外部订阅源合并成一个订阅链接，客户端按 UA 或 ?format= 自动获得对应格式。')}</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr><th>{t('名称')}</th><th>{t('包含')}</th><th>{t('处理')}</th><th>{t('转换')}</th><th>{t('下载次数')}</th><th>{t('启用')}</th><th></th></tr></thead>
             <tbody>
               {(list.data ?? []).map((p) => (
                 <tr key={p.id}>
-                  <td style={{ fontWeight: 500 }}>{p.name}{p.remark && <div className="small mute">{p.remark}</div>}</td>
-                  <td className="small">
+                  <td className="rt-head" style={{ fontWeight: 500 }}>{p.name}{p.remark && <div className="small mute">{p.remark}</div>}</td>
+                  <td data-label={t('包含')} className="small rt-wrap">
                     {p.panelUserId && <span className="tag xray">{t('面板')} · {users.data?.items.find((u) => u.id === p.panelUserId)?.username ?? t('用户')}</span>}
                     {(p.sourceIds ?? []).map((id) => <span key={id} className="tag">{sources.find((s) => s.id === id)?.name ?? t('已删除')}</span>)}
                   </td>
-                  <td className="small">{p.useGlobalOps ? t('全局规则') : ''}{p.useGlobalOps && p.operators?.length ? ' + ' : ''}{p.operators?.length ? t('{n} 步', { n: p.operators.length }) : ''}{p.processingGroups?.length ? ' · ' + t('引用 {n} 个处理组', { n: p.processingGroups.length }) : ''}{!p.useGlobalOps && !p.operators?.length && !p.processingGroups?.length && t('原样')}</td>
-                  <td className="small">{p.converter === 'external' ? t('第三方后端') : p.converter === 'builtin' ? t('内置') : t('跟随全局')}
+                  <td data-label={t('处理')} className="small">{p.useGlobalOps ? t('全局规则') : ''}{p.useGlobalOps && p.operators?.length ? ' + ' : ''}{p.operators?.length ? t('{n} 步', { n: p.operators.length }) : ''}{p.processingGroups?.length ? ' · ' + t('引用 {n} 个处理组', { n: p.processingGroups.length }) : ''}{!p.useGlobalOps && !p.operators?.length && !p.processingGroups?.length && t('原样')}</td>
+                  <td data-label={t('转换')} className="small">{p.converter === 'external' ? t('第三方后端') : p.converter === 'builtin' ? t('内置') : t('跟随全局')}
                     {p.scheme && <div className="mute">{schemeLabel(p.scheme, meta?.schemes)}</div>}</td>
-                  <td className="mono">{p.downloads}</td>
-                  <td><Switch label={t('启用')} on={p.enabled} onChange={(v) => run(async () => { await put('/sub-profiles/' + p.id, { ...p, enabled: v }); list.reload() })} /></td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td data-label={t('下载次数')} className="mono">{p.downloads}</td>
+                  <td data-label={t('启用')}><Switch label={t('启用')} on={p.enabled} onChange={(v) => run(async () => { await put('/sub-profiles/' + p.id, { ...p, enabled: v }); list.reload() })} /></td>
+                  <td className="rt-actions" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="link" type="button" onClick={() => setShare(p)}>{t('订阅链接')}</button>
                     <button className="link" type="button" style={{ marginLeft: 12 }} onClick={() => setForm({ ...p, templates: p.templates ?? {}, operators: p.operators ?? [], processingGroups: p.processingGroups ?? [], sourceIds: p.sourceIds ?? [] })}>{t('编辑')}</button>
                     <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {

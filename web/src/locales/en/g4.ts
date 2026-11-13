@@ -235,7 +235,7 @@ const m: Record<string, string> = {
   '没有响应的目标': 'No targets responded',
   '流控': 'Flow',
   '流量': 'Traffic',
-  '流量 ↑{up} ↓{down}': 'Traffic ↑{up} ↓{down}',
+  '全部入站流量 ↑{up} ↓{down}': 'Total inbound traffic ↑{up} ↓{down}',
   '流量嗅探（http / tls / quic）': 'Traffic sniffing (http / tls / quic)',
   '清空': 'Clear',
   '清除': 'Remove',

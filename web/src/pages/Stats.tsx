@@ -57,7 +57,7 @@ function Share({ rows, total }: { rows: Row[]; total: number }) {
   return (
     <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
       {rows.map((r, i) => (
-        <div key={r.key}>
+        <div key={r.key} style={{ minWidth: 0 }}>
           <div className={'row' + (r.pick ? ' clickable' : '')} style={{ flexWrap: 'nowrap', gap: 8, cursor: r.pick ? 'pointer' : undefined }}
             onClick={r.pick} title={r.pick ? t('点击按此筛选') : undefined}>
             <span className="mono small mute" style={{ width: 22 }}>{i + 1}</span>
