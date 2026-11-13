@@ -13,7 +13,7 @@ import { useFeature } from './components/License'
 import { ensurePageDict, loadRestInBackground, onDictReady, t } from './i18n'
 import LangToggle from './components/LangToggle'
 import SidebarAccount from './components/SidebarAccount'
-import { ConfirmProvider, ToastProvider } from './components/ui'
+import { ConfirmProvider, SkeletonRows, ToastProvider } from './components/ui'
 import { useMobileKeyboard } from './components/useMobileKeyboard'
 import { useMenuDismiss } from './components/useMenuDismiss'
 import SudoPrompt from './components/SudoPrompt'
@@ -219,6 +219,77 @@ class PageBoundary extends Component<{ children: ReactNode }, { error: Error | n
   }
 }
 
+// AppShellSkeleton is the first paint while the session role loads: it
+// mirrors the real console shell (sidebar, top bar, content) with shimmer
+// placeholders, so the page looks like it is materialising instead of a
+// bare "加载中…" card on an empty page. The brand logo pulses and a
+// spinner + "加载中…" line say it is loading, not stuck.
+function AppShellSkeleton() {
+  const { title } = useBrand()
+  return (
+    <div className="app" aria-busy="true" aria-label={t('加载中')}>
+      <header className="mtop" aria-hidden="true">
+        <span className="mtop-btn"><span className="skeleton" style={{ width: 20, height: 20, borderRadius: 6 }} /></span>
+        <div className="mtop-title"><span className="sk-brand-logo"><Icon.Brand size={26} /></span><span>{title}</span></div>
+        <span className="mtop-btn"><span className="skeleton" style={{ width: 20, height: 20, borderRadius: 6 }} /></span>
+      </header>
+      <nav className="side" aria-hidden="true">
+        <div className="brand">
+          <span className="sk-brand-logo"><Icon.Brand size={30} /></span>
+          <span className="brand-name">{title}</span>
+        </div>
+        <div className="side-menu">
+          {[72, 58, 66, 52, 70, 60, 64, 56].map((w, i) => (
+            <div key={i} className="sk-nav-item">
+              <span className="skeleton sk-nav-ico" />
+              <span className="skeleton" style={{ width: `${w}%`, height: 13 }} />
+            </div>
+          ))}
+        </div>
+        <div className="side-foot">
+          <div className="sk-nav-item">
+            <span className="skeleton" style={{ width: 32, height: 32, borderRadius: '50%' }} />
+            <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <span className="skeleton" style={{ width: '70%', height: 12 }} />
+              <span className="skeleton" style={{ width: '45%', height: 10 }} />
+            </span>
+          </div>
+        </div>
+      </nav>
+      <main className="main">
+        <header className="workspace-bar" aria-hidden="true">
+          <span className="skeleton" style={{ width: 180, height: 14 }} />
+          <span className="skeleton" style={{ width: 250, height: 32, borderRadius: 6 }} />
+        </header>
+        <div className="page-content">
+          <div className="top">
+            <span className="skeleton" style={{ width: 200, height: 25 }} />
+            <span className="skeleton" style={{ width: 120, height: 36, borderRadius: 8 }} />
+          </div>
+          <div className="sk-loading"><span className="spin" aria-hidden="true" />{t('加载中…')}</div>
+          <SkeletonRows rows={6} cols={4} />
+        </div>
+      </main>
+    </div>
+  )
+}
+
+// PageSkeleton is the Suspense fallback for lazily loaded pages: a title
+// bar and shimmer table rows inside the already-rendered shell, instead
+// of a bare "加载中…" line.
+function PageSkeleton() {
+  return (
+    <div aria-busy="true" aria-label={t('加载中')}>
+      <div className="top" style={{ marginBottom: 24 }}>
+        <span className="skeleton" style={{ width: 180, height: 25 }} />
+        <span className="skeleton" style={{ width: 110, height: 36, borderRadius: 8 }} />
+      </div>
+      <div className="sk-loading"><span className="spin" aria-hidden="true" />{t('加载中…')}</div>
+      <SkeletonRows rows={6} cols={4} />
+    </div>
+  )
+}
+
 function Layout({ user, avatarURL, onLogout, children }: { user: string; avatarURL?: string; onLogout: () => Promise<void>; children: ReactNode }) {
   useMobileKeyboard()
   useMenuDismiss()
@@ -367,9 +438,9 @@ function Session() {
           {!user ? (
             <Login onLogin={(u) => { setRole(null); setAccessError(''); setUser(u) }} />
           ) : role === null ? (
-            <div className="card" style={{ margin: 20 }}>
-              {accessError ? <><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={() => location.reload()}>{t('重新加载')}</button></> : t('加载中…')}
-            </div>
+            accessError ? (
+              <div className="card" style={{ margin: 20 }}><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={() => location.reload()}>{t('重新加载')}</button></div>
+            ) : <AppShellSkeleton />
           ) : !['owner', 'operator', 'viewer', 'support', 'finance'].includes(role) ? (
             <div className="card" style={{ margin: 20 }}><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={logout}>{t('退出登录')}</button></div>
           ) : ['viewer', 'support', 'finance'].includes(role) ? (
@@ -378,7 +449,7 @@ function Session() {
             <ScopeCtx.Provider value={{ scoped }}>
               <NodesProvider>
                 <Layout user={user} avatarURL={avatarURL} onLogout={logout}>
-                  <Suspense fallback={<div className="sub" style={{ padding: 16 }}>{t('加载中…')}</div>}>
+                  <Suspense fallback={<PageSkeleton />}>
                   {scoped ? (
                     <Routes>
                       <Route path="/nodes" element={<Nodes />} />
