@@ -316,9 +316,27 @@ func iniInline(r SchemeRule) string {
 }
 
 func surgeScheme(sc *Scheme, nodes []Node) (groups, rules string) {
+	resolved := sc.Resolve(nodes, surgeName)
 	var gl []string
-	for _, g := range sc.Resolve(nodes, surgeName) {
+	for _, g := range resolved {
 		gl = append(gl, iniGroupLine(g, ", ", false))
+	}
+	// Alias the main selector as PROXY. Third-party Surge modules and rules
+	// commonly point at a group named PROXY (the Clash convention), which
+	// Polaris never defines, so Surge logs "unknown policy" and skips them.
+	// A single-member select keeps the alias in sync with the main group.
+	if len(resolved) > 0 {
+		main := iniName.Replace(resolved[0].Name)
+		dup := false
+		for _, g := range resolved {
+			if iniName.Replace(g.Name) == "PROXY" {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			gl = append(gl, "PROXY = select, "+main)
+		}
 	}
 	var rl []string
 	final := sc.Groups[0].Name

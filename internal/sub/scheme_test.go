@@ -59,6 +59,38 @@ func TestParseScheme(t *testing.T) {
 	}
 }
 
+// Surge output aliases the main selector as PROXY so third-party modules
+// and rules that point at a group named PROXY (the Clash convention)
+// resolve instead of being skipped with an "unknown policy" warning.
+func TestSurgeProxyAlias(t *testing.T) {
+	render := func(text string) string {
+		sc, err := ParseScheme(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, _ := Get("surge")
+		b, err := r.Render(sample(), Info{URL: "https://panel.example/sub/x", Scheme: sc}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	// Minimal scheme: main group is 节点选择.
+	if s := render(MinimalScheme); !strings.Contains(s, "PROXY = select, 节点选择\n") {
+		t.Fatalf("minimal scheme missing PROXY alias:\n%s", s)
+	}
+	// Emoji main group: alias points at it unchanged.
+	if s := render(cmSample); !strings.Contains(s, "PROXY = select, 🚀 节点选择\n") {
+		t.Fatalf("cm scheme missing PROXY alias:\n%s", s)
+	}
+	// A scheme that already defines a PROXY group must not get a second one.
+	dup := "[custom]\nruleset=节点选择,[]FINAL\ncustom_proxy_group=节点选择`select`.*\ncustom_proxy_group=PROXY`select`.*\n"
+	s := render(dup)
+	if n := strings.Count(s, "PROXY = select,"); n != 1 {
+		t.Fatalf("expected exactly one PROXY group, got %d:\n%s", n, s)
+	}
+}
+
 func TestRegionsMember(t *testing.T) {
 	sc, _ := ParseScheme(MinimalScheme)
 	rs := sc.Resolve(sample(), nil)
