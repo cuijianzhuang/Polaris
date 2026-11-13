@@ -50,7 +50,7 @@ function ChainCard({ c, nodes, inbounds, chains, onEdit, onChanged }: { c: Chain
           const p = i === 0 ? undefined : probe(i - 1)
           return (
             <span key={i} style={{ display: 'contents' }}>
-              <div className="arrow" title={p?.error} aria-hidden="true"><span>{p && !p.skipped ? (p.ok ? `${p.latencyMs} ms` : t('失败')) : '—'}</span>→</div>
+              <div className="arrow" title={p?.error} aria-hidden="true"><span>{p && !p.skipped ? (p.ok ? `${p.latencyMs} ms` : t('失败')) : '—'}</span><i className="arr-glyph">→</i></div>
               <div className={'hop' + (last ? ' land' : '')}>
                 <b>{name(h.nodeId)}</b>
                 <span>{c.mode === 'l4' && !last ? t('转发器 · realm') : ib ? `${ib.tag} · ${coreShort[ib.core]}` : '—'}</span>
@@ -58,7 +58,7 @@ function ChainCard({ c, nodes, inbounds, chains, onEdit, onChanged }: { c: Chain
             </span>
           )
         })}
-        <div className="arrow" aria-hidden="true"><span>{probe(c.hops.length - 1)?.ok ? `${probe(c.hops.length - 1)!.latencyMs} ms` : '—'}</span>→</div>
+        <div className="arrow" aria-hidden="true"><span>{probe(c.hops.length - 1)?.ok ? `${probe(c.hops.length - 1)!.latencyMs} ms` : '—'}</span><i className="arr-glyph">→</i></div>
         <div className="hop"><b>{t('出口')}</b><span>{t('见落地节点路由')}</span></div>
       </div>
       {!!c.configurationIssues?.length && <div className="note bad" role="status">

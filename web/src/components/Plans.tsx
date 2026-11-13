@@ -241,8 +241,8 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
           return (
             <div key={p.id} className="card plan-card">
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <div style={{ fontWeight: 600, fontSize: 16 }}>{p.name}</div>
-                {p.price && <div className="plan-price">{p.price}</div>}
+                <div style={{ fontWeight: 600, fontSize: 16, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.name}>{p.name}</div>
+                {p.price && <div className="plan-price" style={{ flex: 'none' }}>{p.price}</div>}
               </div>
               <div className="row" style={{ gap: 6 }}>
                 {p.sale ? <span className="tag ok">{t('在售')}</span> : null}
@@ -269,13 +269,13 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
       </div>
       {list.length > 0 && nodes.length > 0 && (
         <div className="card flush scroll">
-          <table>
+          <table className="rtable">
             <thead><tr><th>{t('节点')}</th><th>{t('等级')}</th>{list.map((p) => <th key={p.id} style={{ textAlign: 'center' }}>{p.name}</th>)}</tr></thead>
             <tbody>
               {nodes.map((n) => (
                 <tr key={n.id}>
-                  <td>{n.name}</td><td>{(n.level ?? 0) > 0 ? <span className="tag info-tag">Lv.{n.level}</span> : <span className="mute">—</span>}</td>
-                  {list.map((p) => <td key={p.id} style={{ textAlign: 'center' }}>{planNodes(p, [n]).length ? <span style={{ color: 'var(--ok)' }} aria-label={t('可用')}>✓</span> : <span className="mute">·</span>}</td>)}
+                  <td className="rt-head">{n.name}</td><td data-label={t('等级')}>{(n.level ?? 0) > 0 ? <span className="tag info-tag">Lv.{n.level}</span> : <span className="mute">—</span>}</td>
+                  {list.map((p) => <td key={p.id} data-label={p.name} style={{ textAlign: 'center' }}>{planNodes(p, [n]).length ? <span style={{ color: 'var(--ok)' }} aria-label={t('可用')}>✓</span> : <span className="mute">·</span>}</td>)}
                 </tr>
               ))}
             </tbody>

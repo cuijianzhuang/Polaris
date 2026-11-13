@@ -52,17 +52,17 @@ export default function Audit() {
       </div>
       <div className="card flush scroll">
         {list.data?.items.length === 0 ? <Empty>{t('没有记录')}</Empty> : (
-          <table className="audit-table">
+          <table className="rtable audit-table">
             <thead><tr><th>{t('时间')}</th><th>{t('操作者')}</th><th>{t('操作@@audit')}</th><th>{t('对象')}</th><th>{t('详情')}</th><th>IP</th></tr></thead>
             <tbody>
               {(list.data?.items ?? []).map((l) => (
                 <tr key={l.id}>
-                  <td className="mono">{datetime(l.createdAt)}</td>
-                  <td>{l.admin}</td>
-                  <td><span className={'tag' + (l.action.includes('fail') || l.action.includes('ip_limit') || l.action.includes('ban') || l.action === 'change.delete' ? ' bad' : l.action.startsWith('change.') ? ' ok' : '')}>{changeLabel[l.action] ?? l.action}</span></td>
-                  <td style={{ whiteSpace: 'normal', maxWidth: 260, wordBreak: 'break-all' }}>{l.target}</td>
-                  <td style={{ whiteSpace: 'normal', maxWidth: 460, wordBreak: 'break-all' }} className="small">{l.action.startsWith('change.') ? <ChangeDetail detail={l.detail} action={l.action} /> : l.detail}</td>
-                  <td className="mono">{l.ip}</td>
+                  <td className="rt-head mono">{datetime(l.createdAt)}</td>
+                  <td data-label={t('操作者')}>{l.admin}</td>
+                  <td data-label={t('操作@@audit')}><span className={'tag' + (l.action.includes('fail') || l.action.includes('ip_limit') || l.action.includes('ban') || l.action === 'change.delete' ? ' bad' : l.action.startsWith('change.') ? ' ok' : '')}>{changeLabel[l.action] ?? l.action}</span></td>
+                  <td data-label={t('对象')} className="rt-break" style={{ whiteSpace: 'normal', maxWidth: 260, wordBreak: 'break-all' }}>{l.target}</td>
+                  <td data-label={t('详情')} className="rt-break small" style={{ whiteSpace: 'normal', maxWidth: 460, wordBreak: 'break-all' }}>{l.action.startsWith('change.') ? <ChangeDetail detail={l.detail} action={l.action} /> : l.detail}</td>
+                  <td data-label="IP" className="mono">{l.ip}</td>
                 </tr>
               ))}
             </tbody>

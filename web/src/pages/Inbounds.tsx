@@ -568,8 +568,8 @@ export default function Inbounds() {
     }
     return out
   }, [list.data, filter, q, sort, trafficOf, hidden]) // eslint-disable-line react-hooks/exhaustive-deps
-  const th = (k: string, label: string) => (
-    <th className="sortable" aria-sort={sort.k === k ? (sort.desc ? 'descending' : 'ascending') : 'none'}
+  const th = (k: string, label: string, title?: string) => (
+    <th className="sortable" aria-sort={sort.k === k ? (sort.desc ? 'descending' : 'ascending') : 'none'} title={title}
       onClick={() => setSort((s) => (s.k === k ? { k, desc: !s.desc } : { k, desc: k === 'users' || k === 'traffic' }))}>
       {label}<span className="sort-ind">{sort.k === k ? (sort.desc ? '↓' : '↑') : '↕'}</span>
     </th>
@@ -633,7 +633,7 @@ export default function Inbounds() {
         {rows.length === 0 ? <Empty>{list.loading ? t('加载中…') : t('还没有入站')}</Empty> : (
           <table className="rtable">
             <thead><tr><th style={{ width: 32 }} onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label={t('全选')} checked={rows.length > 0 && rows.every((i) => sel.has(i.id))}
-              onChange={(e) => setSel(e.target.checked ? new Set(rows.map((i) => i.id)) : new Set())} /></th>{th('tag', t('标签'))}{th('node', t('节点 / 内核'))}<th>{t('协议')}</th><th>{t('传输 · 安全')}</th>{th('port', t('端口'))}{th('users', t('授权用户'))}{th('traffic', t('流量 ↑{up} ↓{down}', { up: bytes(totals.up), down: bytes(totals.down) }))}<th>{t('入口')}</th><th>{t('启用')}</th><th /></tr></thead>
+              onChange={(e) => setSel(e.target.checked ? new Set(rows.map((i) => i.id)) : new Set())} /></th>{th('tag', t('标签'))}{th('node', t('节点 / 内核'))}<th>{t('协议')}</th><th>{t('传输 · 安全')}</th>{th('port', t('端口'))}{th('users', t('授权用户'))}{th('traffic', t('流量'), t('全部入站流量 ↑{up} ↓{down}', { up: bytes(totals.up), down: bytes(totals.down) }))}<th /></tr></thead>
             <tbody>
               {rows.map((i) => (
                 <tr key={i.id} className="clickable" onClick={() => setDrawer(i)}>
@@ -649,10 +649,9 @@ export default function Inbounds() {
                   <td data-label={t('端口')} className="mono">{portLabel(i)}<HealthDot h={i.health} /></td>
                   <td data-label={t('授权用户')} className="mono">{i.userCount}</td>
                   <td data-label={t('流量')} className="mono small">{(() => { const t = trafficOf.get(i.nodeId + '/' + i.tag); return t ? <>↑ {bytes(t.up)}<br />↓ {bytes(t.down)}</> : '—' })()}</td>
-                  <td data-label={t('入口')} className="mono">{i.endpoints}</td>
-                  <td data-label={t('启用')} onClick={(e) => e.stopPropagation()}><Switch label={t('启用')} on={i.enabled} onChange={() => toggle(i)} /></td>
                   <td className="rt-actions" onClick={(e) => e.stopPropagation()}>
-                    <div className="row" style={{ flexWrap: 'wrap', gap: 2 }}>
+                    <div className="row" style={{ flexWrap: 'wrap', gap: 2, alignItems: 'center' }}>
+                      <Switch label={t('启用')} on={i.enabled} onChange={() => toggle(i)} />
                       <button className="btn sm" type="button" onClick={() => setRelayInbound(i)}>{t('中转')}</button>
                       <button className="icon-btn" type="button" title={t('复制到…（同节点或其他节点）')} aria-label={t('复制入站')} onClick={() => setCloning(i)}><Icon.Copy /></button>
                       <button className="icon-btn" type="button" title={t('导出 JSON')} aria-label={t('导出入站')} onClick={() => exportOne(i)}><Icon.Download /></button>

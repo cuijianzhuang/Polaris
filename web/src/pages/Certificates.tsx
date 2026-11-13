@@ -31,20 +31,20 @@ export default function Certificates() {
       {settings.data && !settings.error && !acmeReady && <div className="note warn">{t('尚未配置 ACME：在「设置」填写邮箱即可通过 HTTP 验证签发（域名需解析到节点、节点 80 端口空闲）；再填 Cloudflare Token 可签泛域名。未配置时 TLS 入站使用自签证书（客户端跳过校验）。')}</div>}
       <div className="card flush scroll">
         {list.data?.length === 0 ? <Empty>{t('还没有证书。创建 TLS 入站时会自动为 SNI 生成自签证书。')}</Empty> : (
-          <table>
+          <table className="rtable">
             <thead><tr><th>{t('域名')}</th><th>{t('来源')}</th><th>{t('到期')}</th><th>{t('自动续期')}</th><th>{t('使用节点')}</th><th></th></tr></thead>
             <tbody>
               {(list.data ?? []).map((c) => {
                 const d = daysLeft(c.expireAt)
                 return (
                   <tr key={c.id}>
-                    <td className="mono" style={{ fontWeight: 500 }}>{c.domain}</td>
-                    <td><span className="tag">{providers[c.provider] ?? c.provider}</span>
+                    <td className="rt-head mono" style={{ fontWeight: 500 }}>{c.domain}</td>
+                    <td data-label={t('来源')}><span className="tag">{providers[c.provider] ?? c.provider}</span>
                       {c.provider === 'acme' && c.challenge && <span className="small mute">{c.challenge === 'http' ? `HTTP · ${nodeName(c.nodeId) ?? t('节点')}` : 'DNS'}</span>}</td>
-                    <td className="mono" style={d !== null && d < 30 ? { color: 'var(--warn-ink)' } : undefined}>{date(c.expireAt)}{d !== null && ' · ' + t('{n} 天', { n: d })}</td>
-                    <td>{c.autoRenew ? t('是') : t('否')}</td>
-                    <td className="mono">{c.usedBy}</td>
-                    <td style={{ textAlign: 'right' }}>
+                    <td data-label={t('到期')} className="mono" style={d !== null && d < 30 ? { color: 'var(--warn-ink)' } : undefined}>{date(c.expireAt)}{d !== null && ' · ' + t('{n} 天', { n: d })}</td>
+                    <td data-label={t('自动续期')}>{c.autoRenew ? t('是') : t('否')}</td>
+                    <td data-label={t('使用节点')} className="mono">{c.usedBy}</td>
+                    <td className="rt-actions" style={{ textAlign: 'right' }}>
                       {c.lastError && <span className="small" style={{ color: 'var(--bad)', marginRight: 12 }} title={c.lastError}>{t('续期失败')}</span>}
                       {(c.provider === 'acme' || c.provider === 'selfsigned') && <button className="link" type="button" disabled={busy} onClick={() => run(async () => { await post(`/certificates/${c.id}/renew`); list.reload() }, t('已续期并下发'))}>{t('续期')}</button>}
                       <button className="link" type="button" style={{ color: 'var(--bad)', marginLeft: 12 }} onClick={async () => {

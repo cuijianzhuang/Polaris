@@ -99,7 +99,7 @@ export default function Cores() {
         </div>
         {shown.length === 0 ? <Empty>{rows.length === 0 ? t('还没有节点安装内核') : t('没有符合条件的内核')}</Empty> : (
           <div className="scroll">
-            <table>
+            <table className="rtable">
               <thead><tr><th>{t('节点')}</th><th>{t('内核')}</th><th>{t('版本')}</th><th>{t('状态')}</th><th>{t('入站')}</th><th>{t('运行时长')}</th><th /></tr></thead>
               <tbody>
                 {shown.map((r) => {
@@ -109,22 +109,22 @@ export default function Cores() {
                   const back = c.prevVersion && c.prevVersion !== c.version
                   return (
                     <tr key={c.id}>
-                      <td><button className="link" type="button" onClick={() => nav('/nodes?id=' + n.id)}>{n.name}</button>{n.region && <span className="small mute"> · {n.region}</span>}</td>
-                      <td><span className={coreTagClass(c.type)}>{coreLabel[c.type]}</span>{c.isDefault && <span className="tag">{t('默认')}</span>}</td>
-                      <td className="mono">
+                      <td className="rt-head"><button className="link" type="button" onClick={() => nav('/nodes?id=' + n.id)}>{n.name}</button>{n.region && <span className="small mute"> · {n.region}</span>}</td>
+                      <td data-label={t('内核')}><span className={coreTagClass(c.type)}>{coreLabel[c.type]}</span>{c.isDefault && <span className="tag">{t('默认')}</span>}</td>
+                      <td data-label={t('版本')} className="mono">
                         v{c.version}{up && <span className="tag warn" style={{ marginLeft: 6 }}>{t('可升级到 v{v}', { v: lv[c.type] })}</span>}
                         {c.runningVersion && c.runningVersion !== c.version && <div className="small" style={{ color: 'var(--warn)' }}>{t('切换中 · 运行 v{v}', { v: c.runningVersion })}</div>}
                       </td>
-                      <td>
+                      <td data-label={t('状态')}>
                         <span className={'st ' + (running ? 'ok' : coreInstalling(c, n) && n.connected ? 'warn' : 'off')}>{running ? t('● 运行中') : coreInstalling(c, n) ? (n.connected ? t('安装中') : t('等待节点上线')) : c.inbounds ? t('已停止') : t('空闲')}</span>
                         {!n.connected && !coreInstalling(c, n) && <div className="small mute">{t('节点离线')}</div>}
                         {n.progress?.active && n.progress.stage.includes(c.type) && <div style={{ marginTop: 4, maxWidth: 260 }}><NodeActivity n={n} compact /></div>}
                         <TrafficMeterHealth core={c} connected={n.connected} />
                         {c.error && <div className="small" style={{ color: 'var(--bad)', maxWidth: 260 }}>{c.error}</div>}
                       </td>
-                      <td className="mono">{c.inbounds}</td>
-                      <td className="mono small">{running && c.startedAt ? ago(c.startedAt).replace(/\s*(?:\u524d|ago)$/, '') : '—'}</td>
-                      <td>
+                      <td data-label={t('入站')} className="mono">{c.inbounds}</td>
+                      <td data-label={t('运行时长')} className="mono small">{running && c.startedAt ? ago(c.startedAt).replace(/\s*(?:\u524d|ago)$/, '') : '—'}</td>
+                      <td className="rt-actions">
                         <div className="row" style={{ flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                           {up && <button className="btn sm pri" type="button" disabled={busy} onClick={() => upgrade(r, lv[c.type])}>{t('升级')}</button>}
                           {back && <button className="btn sm" type="button" disabled={busy} onClick={async () => {

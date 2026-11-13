@@ -4,6 +4,7 @@ import { t } from '../i18n'
 import type { NetCollectionHealth as Health } from '../types'
 
 function duration(seconds: number) {
+  if (!Number.isFinite(seconds)) return '—'
   if (seconds >= 3600) return t('{n} 小时', { n: Math.floor(seconds / 3600) })
   if (seconds >= 60) return t('{n} 分钟', { n: Math.floor(seconds / 60) })
   return t('{n} 秒', { n: Math.floor(seconds) })
@@ -49,6 +50,6 @@ export default function NetCollectionHealth({ health, compact, onRefresh }: { he
     </div>
     {!hasSample && <p className="hint">{t('等待有效网卡流量样本；节点在线不代表流量采样正常。')}</p>}
     {old && <p className="hint">{t('建议升级 Agent 完善来源识别')}</p>}
-    <p className="hint">{t('超过 {duration} 无成功采样时标记为较旧。长间隔不代表丢量：相同来源的累计计数可继续补齐；来源变化期间的流量无法准确还原。', { duration: duration(health.staleAfterSeconds) })}</p>
+    {Number.isFinite(health.staleAfterSeconds) && <p className="hint">{t('超过 {duration} 无成功采样时标记为较旧。长间隔不代表丢量：相同来源的累计计数可继续补齐；来源变化期间的流量无法准确还原。', { duration: duration(health.staleAfterSeconds) })}</p>}
   </section>
 }

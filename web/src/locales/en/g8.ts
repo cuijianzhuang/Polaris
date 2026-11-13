@@ -59,7 +59,6 @@ const m: Record<string, string> = {
   "恢复于 {at}": "Resumed at {at}",
   "等待有效网卡流量样本；节点在线不代表流量采样正常。": "Waiting for a valid NIC sample; an online node does not guarantee successful traffic sampling.",
   "超过 {duration} 无成功采样时标记为较旧。长间隔不代表丢量：相同来源的累计计数可继续补齐；来源变化期间的流量无法准确还原。": "Samples become stale after {duration} without a success. A gap does not imply lost traffic: cumulative counters from the same source can catch up, while traffic across source changes cannot be reconstructed accurately.",
-  "查看节点采样详情": "View node sampling details",
 
   "服务器成本已更新，请关闭编辑窗口并刷新后重试": "Server costs have changed. Close the editor and refresh before trying again",
   "付费周期或续费日期无效": "Invalid billing cycle or renewal date",

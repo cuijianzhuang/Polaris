@@ -143,12 +143,12 @@ export default function Costs() {
       {d && <section className="card flush">
         {d?.items.length === 0 ? <Empty>{t('还没有节点')}</Empty> : (
           <div className="scroll">
-            <table>
-              <thead><tr><th>{t('节点')}</th><th>{t('服务商')}</th><th>{t('价格')}</th><th>{t('折合每月')}</th><th>{t('到期')}</th><th>{t('近 30 天流量')}</th><th>{t('每 GB')}</th><th></th></tr></thead>
+            <table className="costs-table">
+              <thead><tr><th>{t('节点')}</th><th>{t('服务商')}</th><th>{t('价格')}</th><th>{t('折合每月')}</th><th>{t('到期')}</th><th>{t('近 30 天流量')}</th><th className="costs-pergb">{t('每 GB')}</th><th></th></tr></thead>
               <tbody>
                 {(d?.items ?? []).map((it) => (
                   <tr key={it.nodeId}>
-                    <td style={{ fontWeight: 500 }}><Link className="link" to={'/nodes?id=' + encodeURIComponent(it.nodeId)} title={t('查看节点采样详情')}><CountryFlag code={it.flag} /> <FlagText>{it.name}</FlagText></Link></td>
+                    <td style={{ fontWeight: 500 }}><Link className="link" to={'/nodes?id=' + encodeURIComponent(it.nodeId)} title={it.name}><CountryFlag code={it.flag} /> <FlagText>{it.name}</FlagText></Link></td>
                     <td>{it.provider || <span className="mute">—</span>}{it.note && <div className="small mute">{it.note}</div>}</td>
                     <td className="mono">{it.amount ? <>{money(it.amount, it.currency)}<span className="mute"> / {Object.fromEntries(cycles())[it.cycle] ?? it.cycle}</span></> : <span className="mute">{t('未设置')}</span>}</td>
                     <td className="mono">{it.monthly ? money(it.monthly, base) : it.cycle !== 'once' && it.amount && !it.converted ? <span className="mute">{t('无汇率')}</span> : '—'}</td>
@@ -158,7 +158,7 @@ export default function Costs() {
                         : it.daysLeft !== undefined && <span className={'tag ' + (it.daysLeft < 0 ? 'bad' : it.daysLeft <= d!.settings.remindDays ? 'warn' : '')} style={{ marginLeft: 6 }}>{it.daysLeft < 0 ? t('已过期 {n} 天', { n: -it.daysLeft }) : t('还剩 {n} 天', { n: it.daysLeft })}</span>}
                     </> : <span className="mute">—</span>}</td>
                     <td><div className="mono">{it.trafficDays > 0 ? bytes(it.traffic30) : '—'}</div><div className="small mute">{trafficModeLabel(it.trafficMode)}</div>{it.trafficDays > 0 && <><div className="mono small mute">↓ {bytes(it.trafficRx30)} · ↑ {bytes(it.trafficTx30)}</div><div className="small mute">{t('有数据 {n}/30 天', { n: it.trafficDays })}</div>{it.trafficLegacyDays > 0 && <div className="small" style={{ color: 'var(--warn)' }}>{t('含旧版采集记录，需核对')}</div>}</>}<NetCollectionHealth health={it.netHealth} compact /></td>
-                    <td className="mono">{it.monthly > 0 && it.traffic30 > 0 ? moneyRate(it.perGb, base) : '—'}</td>
+                    <td className="mono costs-pergb">{it.monthly > 0 && it.traffic30 > 0 ? moneyRate(it.perGb, base) : '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {it.expireAt && it.cycle !== 'once' && !it.autoRenew && <button className="link" type="button" disabled={busy} onClick={() => run(async () => { await post(`/nodes/${it.nodeId}/renew`); data.reload() }, t('已续费，到期日顺延一个周期'))}>{t('已续费')}</button>}
                       <button className="link" type="button" style={{ marginLeft: 12 }} onClick={() => setEdit(it)}>{t('编辑')}</button>

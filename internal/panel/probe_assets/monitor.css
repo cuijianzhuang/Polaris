@@ -110,3 +110,9 @@ button.pv-card{cursor:pointer}button.pv-card:hover{border-color:var(--pv-cyan);t
 @media (prefers-reduced-motion:reduce){.pv-card,.pv-track i,.pv-ring-fill{transition:none}button.pv-card:hover{transform:none}}
 .pv-meta .pv-badge{font-size:10px}.pv-card-foot{font-size:10px}.pv-live.stale i{color:var(--pv-red);box-shadow:none}
 .pv-load{display:flex;align-items:center;justify-content:space-between;font:10px var(--pv-mono);color:var(--pv-mute);margin-top:-5px}.pv-load small{font-size:9px;font-weight:400;margin-left:4px}.pv-load b{font-weight:500;color:var(--pv-ink)}
+/* Phones: region chips and the status segmented control are 28–32px, too
+   small for a fingertip; lift them to 44px. */
+@media (max-width: 640px) {
+  .pv-seg button { min-height: 44px; padding: 6px 14px; }
+  .pv-chip { min-height: 44px; padding: 5px 12px; display: inline-flex; align-items: center; }
+}
