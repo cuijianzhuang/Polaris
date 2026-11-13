@@ -117,12 +117,12 @@ function UpgradeAgentsModal({ count, version, onClose, onDone }: { count: number
         if (staged.staged) {
           await startRollout({ kind: 'agent' }, staged)
         } else {
-          const r = await post<{ results: { node: string; ok: boolean; error?: string }[] }>('/nodes/upgrade-agents')
-          const bad = r.results.filter((x) => !x.ok)
-          if (bad.length) throw new Error(t('{n} 个成功，失败：', { n: r.results.length - bad.length }) + bad.map((x) => `${x.node}（${x.error}）`).join(t('；')))
+          // One batch for every outdated node, as a rollout in the
+          // background; the call only starts it.
+          await post('/nodes/upgrade-agents')
         }
         onDone()
-      }, staged.staged ? t('已开始小批升级，进度见页面顶部') : t('全部节点已升级'))}>{t('升级 {n} 个节点', { n: count })}</button>
+      }, staged.staged ? t('已开始小批升级，进度见页面顶部') : t('已开始升级全部 Agent，进度见页面顶部'))}>{t('升级 {n} 个节点', { n: count })}</button>
     </>}>
       <div className="sub" style={{ margin: 0 }}>{t('把 {n} 个节点的 Agent 升级到 v{v}。每个节点的内核会重启，连接会中断几秒。', { n: count, v: version })}</div>
       <StagedFields value={staged} onChange={setStaged} />
@@ -448,8 +448,11 @@ export default function Nodes() {
   const upgradeOne = async (n: Node) => {
     if (!(await confirm(t('把 {node} 的 Agent 从 v{from} 升级到 v{to}？', { node: n.name, from: vnorm(n.agentVersion), to: vnorm(panelVer) }) + '\n' + t('升级时内核会重启，节点上的连接会中断几秒。')))) return
     setUpgrading((x) => ({ ...x, [n.id]: true }))
-    await run(() => post(`/nodes/${n.id}/upgrade-agent`), t('{node} 已升级，正在重新连接', { node: n.name }))
+    // The upgrade runs as a rollout in the background; the call only starts
+    // it, so the toast says so and the rollout panel shows the progress.
+    const r = await run(() => post(`/nodes/${n.id}/upgrade-agent`), t('已开始升级 {node}，进度见页面顶部', { node: n.name }))
     setUpgrading((x) => ({ ...x, [n.id]: false }))
+    if (r !== undefined) { setRolloutTick((x) => x + 1); refresh() }
   }
   const [upgradeAll, setUpgradeAll] = useState(false)
   const [rolloutTick, setRolloutTick] = useState(0)
