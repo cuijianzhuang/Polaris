@@ -1,6 +1,7 @@
 // Stroke icons drawn to match the design canvas (18px, 1.75 stroke).
 import { useState, type ReactNode } from 'react'
-import polarisIcon from '../assets/polaris-icon.png'
+// Shown at 24–40 CSS px; 128 px covers 3× screens without shipping the 512 px source.
+import polarisIcon from '../assets/polaris-icon-128.png'
 import { logoURL, useBrand } from '../brand'
 
 function Svg({ children, size = 18 }: { children: ReactNode; size?: number }) {

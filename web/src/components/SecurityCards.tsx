@@ -164,7 +164,7 @@ export function SSOProviders() {
               <div style={{ fontWeight: 500 }}>{p.name} <span className="tag">{p.kind === 'oidc' ? 'OIDC' : 'OAuth 2.0'}</span>{!p.enabled && <span className="tag warn" style={{ marginLeft: 4 }}>{t('已停用')}</span>}</div>
               <div className="hint">{b ? t('已绑定：{login}', { login: b.login }) : t('当前管理员未绑定')} · {p.issuer || p.authUrl}</div>
             </div>
-            {b ? <button className="btn sm" type="button" disabled={busy} onClick={() => run(async () => { await del('/auth/sso/bindings/' + p.id); mine.reload() }, t('已解除绑定'))}>{t('解绑')}</button>
+            {b ? <button className="btn sm" type="button" disabled={busy} onClick={async () => { if (await confirm(t('解除与 {name} 的绑定？之后不能再用它登录这个账号。', { name: p.name }), { danger: true, ok: t('解绑') })) run(async () => { await del('/auth/sso/bindings/' + p.id); mine.reload() }, t('已解除绑定')) }}>{t('解绑')}</button>
               : <button className="btn sm" type="button" disabled={busy || !p.enabled} onClick={() => run(async () => { location.href = (await post<{ url: string }>(`/auth/sso/${p.id}/bind-url`)).url })}>{t('绑定')}</button>}
             <button className="btn sm" type="button" onClick={() => openEditor({ ...p })}>{t('编辑')}</button>
             <button className="btn sm danger" type="button" onClick={async () => { if (await confirm(t('删除登录方式 {name}？已绑定的账号一并解除。', { name: p.name }), { danger: true })) run(async () => { await del('/sso/providers/' + p.id); list.reload(); mine.reload() }) }}>{t('删除')}</button>

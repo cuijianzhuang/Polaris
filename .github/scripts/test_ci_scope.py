@@ -14,7 +14,7 @@ class ScopeTests(unittest.TestCase):
    self.assertTrue(scope.select([path])['full'],path)
  def test_page_selects_related_suites(self):
   result=scope.select(['web/src/pages/Nodes.tsx'])
-  self.assertFalse(result['go']);self.assertTrue(result['web'])
+  self.assertFalse(result['go']);self.assertTrue(result['web']);self.assertTrue(result['portal'])
   self.assertEqual({r['suite'] for r in result['matrix']['include']},{'nodes-users','settings-state'})
  def test_script_and_settings(self):
   result=scope.select(['web/scripts/settings-workflow-smoke.py','web/src/pages/settings/Updates.tsx'])

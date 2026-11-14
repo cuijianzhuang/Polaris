@@ -102,6 +102,8 @@ with sync_playwright() as p:
         page.on('pageerror', lambda e: problems.append(f'uncaught: {e}'))
         page.on('console', lambda m: problems.append(f'console: {m.text}') if m.type == 'error' and not benign.search(m.text) else None)
         page.on('response', lambda r: problems.append(f'HTTP {r.status} {r.url}') if '/api/' in r.url and r.status == 500 else None)
+        upstream = []  # 502-504: an upstream the test has no network for (GitHub releases)
+        page.on('response', lambda r: upstream.append(r.url) if '/api/' in r.url and r.status in (502, 503, 504) else None)
         page.goto(url + '/')
         page.locator('#u').fill('root')
         page.locator('#p').fill('old-password')
@@ -113,6 +115,7 @@ with sync_playwright() as p:
         page.wait_for_load_state('networkidle')
         for route in routes:
             problems.clear()
+            upstream.clear()
             # The first route is the dashboard already mounted by login.
             # Reloading it can cancel auth-triggered requests in WebKit.
             if route != '/':
@@ -127,6 +130,11 @@ with sync_playwright() as p:
                 failures.append(f'{label}: nothing rendered')
             for msg in problems:
                 failures.append(f'{label}: {msg}')
+            # A healthy backend must not trip the "data failed to load" banner;
+            # only answers from an unreachable upstream may.
+            banner = page.locator('.load-failures')
+            if banner.count() and not upstream:
+                failures.append(f'{label}: load failure banner: {banner.first.inner_text()}')
             check_layout(page, label)
             if shots:
                 name = re.sub(r'[^a-z0-9]+', '-', route.lower()).strip('-') or 'home'

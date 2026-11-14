@@ -24,7 +24,9 @@ def select(paths, event='pull_request'):
             suites.update(matches);flags['web']=True;continue
         if path.startswith('web/src/pages/') and path.endswith(('.tsx','.css')):
             name=Path(path).name
-            flags['web']=True
+            # The real-backend browser job (passkeys) opens every admin page;
+            # since the Vite-mock suites left CI it is the page change guard.
+            flags['web']=True;flags['portal']=True
             if name in {'Nodes.tsx','Cores.tsx','Users.tsx','Stats.tsx','Costs.tsx'}:suites.update(['nodes-users','settings-state']);continue
             if name in {'Chains.tsx','Inbounds.tsx','Forwards.tsx'}:suites.update(['cdn-addresses','cdn-tunnels','nodes-users']);continue
             if name in {'Settings.tsx','Telegram.tsx','SubTemplates.tsx'} or '/settings/' in path:

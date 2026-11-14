@@ -5,7 +5,7 @@ import UserTrafficSources from '../../components/UserTrafficSources'
 import { UserOnlineDetails } from '../../components/UserOnline'
 import { del, get, post, put } from '../../api'
 import { useNodes } from '../../App'
-import { Copy, Drawer, Field, QR, useAction, useLoad, Section } from '../../components/ui'
+import { Copy, Drawer, Field, QR, useAction, useConfirm, useLoad, Section } from '../../components/ui'
 import { ago, bytes, date, datetime, GB } from '../../format'
 import type { Group, Inbound, NodeQuota, User, UserDevice } from '../../types'
 import { TrafficEdit } from '../../components/UserTools'
@@ -384,6 +384,7 @@ export function NodeQuotas({ userId }: { userId: string }) {
 export function Devices({ userId, limit }: { userId: string; limit: number }) {
   const data = useLoad((signal) => get<UserDevice[]>(`/users/${userId}/devices`, signal), [userId])
   const { run } = useAction()
+  const confirm = useConfirm()
   const ds = data.data ?? []
   if (!ds.length && !limit) return null
   return (
@@ -400,7 +401,7 @@ export function Devices({ userId, limit }: { userId: string; limit: number }) {
             <button className="btn sm danger" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/${d.id}`); data.reload() }, t('已移除'))}>{t('移除')}</button>
           </div>
         ))}
-        {ds.length > 1 && <div><button className="btn sm" type="button" onClick={() => run(async () => { await del(`/users/${userId}/devices/all`); data.reload() }, t('已清空'))}>{t('清空全部设备')}</button></div>}
+        {ds.length > 1 && <div><button className="btn sm" type="button" onClick={async () => { if (await confirm(t('清空这个用户的全部 {n} 台设备？客户端下次更新订阅时会重新登记。', { n: ds.length }), { danger: true, ok: t('清空全部设备') })) run(async () => { await del(`/users/${userId}/devices/all`); data.reload() }, t('已清空')) }}>{t('清空全部设备')}</button></div>}
       </div>
     </details>
   )

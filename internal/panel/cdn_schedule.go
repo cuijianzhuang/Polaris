@@ -202,7 +202,7 @@ func (s *Server) runCDNAddressCheckBatch(parent context.Context, p store.CDNProf
 		target := task.context.Target
 		target.Server = task.address
 		result := cdnkit.AddressResult{Target: target, EndpointID: task.context.EndpointID, CheckedAt: time.Now(), Viewpoint: "panel"}
-		result.Check = probeCDNTarget(ctx, target, task.context.Transport, task.origin)
+		result.Check = scheduledCDNProbe(ctx, target, task.context.Transport, task.origin)
 		if ctx.Err() != nil {
 			break
 		} // shutdown/batch timeout is not an address failure

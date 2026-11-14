@@ -288,6 +288,10 @@ func probeCDN(ctx context.Context, t cdnkit.Target, transport model.Transport, n
 // probeCDNTarget probes one CDN endpoint like a client, with the 20s
 // timeout the panel's own checks use. The personal pool uses a custom
 // dialer and a shorter timeout, so it calls probeCDNWithDialer directly.
+// scheduledCDNProbe is the probe the scheduled address sweep uses; tests
+// replace it to avoid waiting on dial timeouts for unroutable addresses.
+var scheduledCDNProbe = probeCDNTarget
+
 func probeCDNTarget(ctx context.Context, t cdnkit.Target, transport model.Transport, origin string) cdnkit.Check {
 	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()

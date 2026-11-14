@@ -13,7 +13,7 @@ import { useFeature } from './components/License'
 import { ensurePageDict, loadRestInBackground, onDictReady, t } from './i18n'
 import LangToggle from './components/LangToggle'
 import SidebarAccount from './components/SidebarAccount'
-import { ConfirmProvider, SkeletonRows, ToastProvider } from './components/ui'
+import { ConfirmProvider, LoadFailures, SkeletonRows, ToastProvider } from './components/ui'
 import { useMobileKeyboard } from './components/useMobileKeyboard'
 import { useMenuDismiss } from './components/useMenuDismiss'
 import SudoPrompt from './components/SudoPrompt'
@@ -23,7 +23,9 @@ import Login from './pages/Login'
 // Pages load on demand. After a panel upgrade the old chunk names are gone:
 // a failed load reloads the page once to pick up the new build.
 function page<T extends { default: ComponentType }>(id: string, load: () => Promise<T>) {
-  return lazy(() => ensurePageDict(id).then(load).then((m) => {
+  // The page chunk and its small translation dictionary are independent
+  // requests. Start both immediately instead of serialising first paint.
+  return lazy(() => Promise.all([ensurePageDict(id), load()]).then(([, m]) => {
     try { sessionStorage.removeItem('polaris-chunk-reload') } catch { /* storage may be blocked */ }
     return m
   }, (err) => {
@@ -393,7 +395,7 @@ function Layout({ user, avatarURL, onLogout, children }: { user: string; avatarU
           </nav>
           <button type="button" className="workspace-search" aria-label={t('搜索')} onClick={() => setPalette(true)}><Icon.Search /><span>{scoped ? t('搜索页面、节点…') : t('搜索页面、节点、用户…')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         </header>
-        <div className="page-content" key={loc.pathname}><PageBoundary>{children}</PageBoundary></div>
+        <div className="page-content" key={loc.pathname}><LoadFailures /><PageBoundary>{children}</PageBoundary></div>
       </main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} pages={pages} nodes={nodes} searchUsers={!scoped} />
       {!scoped && <nav className="mtabs" aria-label={t('快捷导航')}>

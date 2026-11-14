@@ -69,6 +69,14 @@ const m: Record<string, string> = {
   'mKCP（UDP）': 'mKCP (UDP)',
   'VLESS / VMess + mKCP，UDP 随机高位端口，无需域名，仅 Xray': 'VLESS / VMess + mKCP on random high UDP ports; no domain needed, Xray only',
   'Shadowsocks 2022（2022-blake3-aes-128-gcm）与 AEAD（aes-128-gcm），无需域名，随机高位端口': 'Shadowsocks 2022 (2022-blake3-aes-128-gcm) and AEAD (aes-128-gcm); no domain needed, random high ports',
+  // Banner for load failures a page does not show itself (ui.tsx LoadFailures).
+  '数据加载失败：{msg}': 'Failed to load data: {msg}',
+  '{n} 项数据加载失败：{msg}': '{n} requests failed: {msg}',
+  // Dismissing an edited drawer (ui.tsx Drawer).
+  '放弃未保存的修改？': 'Discard unsaved changes?',
+  '删除入口「{name}」？使用它的订阅节点会消失，客户端需要更新订阅。': 'Delete the entry "{name}"? Its subscription nodes disappear and clients need to update their subscription.',
+  '清空这个用户的全部 {n} 台设备？客户端下次更新订阅时会重新登记。': 'Remove all {n} devices of this user? Clients register again on their next subscription update.',
+  '解除与 {name} 的绑定？之后不能再用它登录这个账号。': 'Unlink {name}? It can no longer be used to sign in to this account.',
 }
 
 export default m
