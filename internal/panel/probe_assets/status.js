@@ -89,7 +89,8 @@
   }
   function card(n) {
     const f = fresh(n), cpu = f ? n.cpu : null, mem = f ? n.mem : null, disk = f && n.diskTotal > 0 ? n.disk : null;
-    let h = '<button type="button" data-node="' + esc(n.id) + '" class="pv-card' + (!n.online ? ' off' : concern(n) ? ' attention' : '') + '" aria-label="查看节点 ' + esc(n.name) + '"><div class="pv-hd"><span class="pv-flag">' + flag(n.flag) + '</span><span class="pv-identity"><strong class="pv-name">' + flagText(n.name) + '</strong><span class="pv-region">' + esc(n.region || n.arch || '—') + '</span></span>' + badge(n) + '</div>' + badges(n);
+    const state = !n.online ? 'off' : !fresh(n) ? 'stale' : n.status === 'error' ? 'error' : 'on';
+    let h = '<button type="button" data-node="' + esc(n.id) + '" class="pv-card' + (!n.online ? ' off' : concern(n) ? ' attention' : '') + '" aria-label="查看节点 ' + esc(n.name) + '"><div class="pv-hd"><i class="pv-health-dot ' + state + '" aria-hidden="true"></i><span class="pv-flag">' + flag(n.flag) + '</span><span class="pv-identity"><strong class="pv-name">' + flagText(n.name) + '</strong><span class="pv-region">' + esc(n.region || n.arch || '—') + '</span></span>' + badge(n) + '</div>' + badges(n);
     h += view === 'ring' ? '<div class="pv-rings">' + ring('CPU', cpu) + ring('RAM', mem) + ring('DISK', disk) + '</div>' : '<div class="pv-rows">' + meter('CPU', cpu) + meter('RAM', mem) + meter('DISK', disk) + '</div>';
     h += '<div class="pv-load"><span>LOAD <small>1m</small></span><b>' + (f ? n.load1.toFixed(2) : '—') + '</b></div>';
     h += '<div class="pv-network"><span><small>接收速率</small><b class="pv-dn">↓ ' + (f ? bps(n.rxBps) : '—') + '</b></span><span><small>发送速率</small><b class="pv-up">↑ ' + (f ? bps(n.txBps) : '—') + '</b></span></div>';
