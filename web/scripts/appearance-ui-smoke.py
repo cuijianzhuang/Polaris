@@ -57,7 +57,8 @@ with sync_playwright() as p:
             page.goto(BASE + '/settings#appearance')
             root = page.locator('html')
             expect(page.locator('.theme-demo')).to_be_visible()
-            expect(root).to_have_attribute('data-accent','blue')
+            # The default style (雾白石墨) recommends the neutral slate accent.
+            expect(root).to_have_attribute('data-accent','slate')
             assert page.evaluate("document.documentElement.dataset.style || ''") == ''
             expect(page.locator('.style-warm')).to_be_enabled()
             expect(page.locator('.style-default')).to_have_attribute('aria-pressed','true')
@@ -66,7 +67,7 @@ with sync_playwright() as p:
             assert contrast(action)>=4.5, action
             expect(page.locator('.style-blackgold')).to_be_disabled()
             # All free styles resolve their recommended accent without a license.
-            for style,accent in [('default','blue'),('midnight','ice'),('warm','amber')]:
+            for style,accent in [('default','slate'),('midnight','ice'),('warm','amber')]:
                 page.locator('.style-'+style).click()
                 expect(root).to_have_attribute('data-accent',accent)
                 assert page.evaluate("document.documentElement.dataset.style || ''") == ('' if style=='default' else style)
