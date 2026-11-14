@@ -3,8 +3,20 @@
   const $ = (id) => document.getElementById(id);
   let last = null, received = 0, busy = false, region = '', state = 'all', selected = null;
   const key = 'polaris.status.view:' + location.pathname;
+  const themeKey = 'polaris.status.theme';
   let view = 'card';
   try { const v = localStorage.getItem(key) || localStorage.getItem('status-view'); if (['ring', 'table'].includes(v)) view = v; } catch (_) {}
+  const systemDark = () => typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
+  function applyTheme(value) {
+    const dark = value === 'dark' || (value !== 'light' && systemDark());
+    document.body.dataset.theme = value;
+    $('theme').textContent = dark ? '切换浅色' : '切换深色';
+    $('theme').setAttribute('aria-pressed', String(dark));
+  }
+  let theme = 'auto';
+  try { theme = localStorage.getItem(themeKey) || 'auto'; } catch (_) {}
+  applyTheme(theme);
+  $('theme').addEventListener('click', () => { theme = (theme === 'dark' || (theme === 'auto' && systemDark())) ? 'light' : 'dark'; try { localStorage.setItem(themeKey, theme); } catch (_) {} applyTheme(theme); });
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clamp = (v) => Math.max(0, Math.min(100, Number(v) || 0));
   const now = () => last ? Date.parse(last.at) + Math.max(0, performance.now() - received) : Date.now();
