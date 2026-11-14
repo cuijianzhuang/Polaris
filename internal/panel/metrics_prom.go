@@ -222,6 +222,12 @@ func (s *Server) prometheusMetrics(c *gin.Context) {
 		w.gauge("polaris_cdn_report_age_seconds", "Seconds since each speed-test point last reported.", now.Sub(r.At).Seconds(), "profile", names[r.ProfileID], "source", r.Source)
 	}
 
+	// Scheduled jobs and the settlement backlog (this instance).
+	s.writeJobMetrics(w)
+	var inbox int64
+	s.st.DB.Model(&store.TrafficInbox{}).Count(&inbox)
+	w.gauge("polaris_traffic_inbox_rows", "Acknowledged traffic batches waiting for settlement.", float64(inbox))
+
 	c.Header("Cache-Control", "no-store")
 	c.Data(http.StatusOK, "text/plain; version=0.0.4; charset=utf-8", []byte(w.b.String()))
 }

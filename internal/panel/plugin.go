@@ -45,8 +45,11 @@ const (
 	pluginPortalTTL   = 10 * time.Minute
 )
 
+// Plugins usually run beside the panel (loopback / LAN); cloud metadata and
+// link-local addresses stay blocked.
 var pluginClient = &http.Client{
-	Timeout: 6 * time.Second,
+	Timeout:   6 * time.Second,
+	Transport: safeClientWithPrivatePolicy(6*time.Second, true).Transport,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 3 || req.URL.Host != via[0].URL.Host {
 			return http.ErrUseLastResponse // a plugin must not bounce the panel to another host

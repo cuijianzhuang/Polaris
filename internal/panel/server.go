@@ -47,6 +47,7 @@ var Version = "dev"
 // Server is the panel.
 type Server struct {
 	renderCache         renderCache // plugin subscription output (plugin_sub.go)
+	jobs                jobRegistry // scheduled job state on this instance (jobs.go)
 	businessEvents      chan struct{}
 	userNoticeBusy      atomic.Bool
 	cfg                 *Config
@@ -344,7 +345,10 @@ func (s *Server) Run(ctx context.Context) error {
 	// migration is done and no previous key is configured.
 	go s.secretMigrationTick()
 
-	httpSrv := &http.Server{Addr: s.cfg.Listen, Handler: s.Router(), ReadHeaderTimeout: 10 * time.Second}
+	// No ReadTimeout: it would also cut long uploads and the hijacked
+	// /ws connection. Bodies are capped by bodyLimit instead; idle
+	// keep-alive connections are closed after two minutes.
+	httpSrv := &http.Server{Addr: s.cfg.Listen, Handler: s.Router(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
 
 	agentSrv, err := s.agentServer()
 	if err != nil {
@@ -432,14 +436,8 @@ func jobCronSpec(d time.Duration, second int) string {
 // startJobs schedules periodic tasks.
 func (s *Server) startJobs() func() {
 	c := cron.New(cron.WithSeconds())
-	run := func(name string, fn func()) {
-		defer func() {
-			if r := recover(); r != nil {
-				s.log.Error("job panicked", "job", name, "panic", r)
-			}
-		}()
-		fn()
-	}
+	// A job never overlaps with itself; panics are recovered (jobs.go).
+	run := func(name string, fn func()) { s.runJob(name, fn) }
 	add := func(spec, name string, fn func()) {
 		if _, err := c.AddFunc(spec, func() {
 			if s.isLeader() { // otherwise another instance runs the scheduled jobs
@@ -565,6 +563,13 @@ func (s *Server) cleanup() {
 	prune("route traces", &store.NodeRouteTrace{}, "started_at < ?", now.Add(-routeTraceKeep))
 	prune("notification states", &store.NotificationState{}, "open = ? AND updated_at < ?", false, now.AddDate(0, 0, -30))
 	prune("webhook deliveries", &store.WebhookDelivery{}, "status = ? AND created_at < ?", "success", now.AddDate(0, 0, -7))
+	// Failed deliveries stay a month for troubleshooting, then go too.
+	prune("failed webhook deliveries", &store.WebhookDelivery{}, "status = ? AND created_at < ?", "failed", now.AddDate(0, 0, -30))
+	// Cluster operations expire after a day; keep a week of history, then
+	// drop their deliveries first and the operations after.
+	expiredOps := s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("expires_at < ?", now.AddDate(0, 0, -7))
+	prune("cluster deliveries", &store.ClusterDelivery{}, "operation_id IN (?)", expiredOps)
+	prune("cluster operations", &store.ClusterOperation{}, "expires_at < ?", now.AddDate(0, 0, -7))
 	prune("hourly traffic", &store.TrafficHourly{}, "hour < ?", now.AddDate(0, 0, -90))
 	prune("traffic batches", &store.TrafficBatchSeen{}, "created_at < ?", now.AddDate(0, 0, -30))
 	prune("node metrics", &store.NodeMetric{}, "at < ?", now.AddDate(0, 0, -30))

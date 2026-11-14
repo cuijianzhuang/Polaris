@@ -59,6 +59,8 @@ func TestRuleSetsAndDNS(t *testing.T) {
 		w.Write([]byte("DOMAIN-SUFFIX,remote.example\nIP-CIDR,10.9.0.0/16\n"))
 	}))
 	defer remote.Close()
+	// The fixture list is served on loopback, which needs the private-source opt-in.
+	s.st.SetSetting("allow_private_sources", "true")
 
 	code, out := c.do("POST", "/rulesets", map[string]any{"tag": "ai", "name": "AI", "domainSuffix": []string{"openai.com", "+.claude.ai"}, "ipCidr": []string{"1.1.1.1"}})
 	if code != 200 {

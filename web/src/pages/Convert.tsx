@@ -404,7 +404,7 @@ function ConvertSettings({ meta }: { meta?: Meta }) {
         <div className="toggle"><span>{t('跳过证书校验（skip-cert-verify，自签证书节点使用）')}</span><Switch label={t('跳过证书校验')} on={f.sub_skip_cert === 'true'} onChange={(v) => set('sub_skip_cert', String(v))} /></div>
         <div className="toggle"><span>{t('强制开启 UDP 转发')}</span><Switch label={t('强制 UDP')} on={f.sub_force_udp === 'true'} onChange={(v) => set('sub_force_udp', String(v))} /></div>
         <h2 style={{ marginTop: 8 }}>{t('安全')}</h2>
-        <div className="toggle"><span>{t('允许订阅源使用内网 / 回环地址（默认拒绝，防 SSRF）')}</span><Switch label={t('内网')} on={f.allow_private_sources === 'true'} onChange={(v) => set('allow_private_sources', String(v))} /></div>
+        <div className="toggle"><span>{t('允许订阅源与远程规则集使用内网 / 回环地址（默认拒绝，防 SSRF）')}</span><Switch label={t('内网')} on={f.allow_private_sources === 'true'} onChange={(v) => set('allow_private_sources', String(v))} /></div>
         <div><button className="btn pri" type="button" disabled={busy} onClick={save}>{t('保存')}</button></div>
       </section>
       <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

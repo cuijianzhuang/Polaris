@@ -85,11 +85,15 @@ func securityHeaders(c *gin.Context) {
 func (s *Server) Router() http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Recovery(), securityHeaders)
+	r.Use(gin.Recovery(), securityHeaders, s.bodyLimit)
 	r.RemoveExtraSlash = true
 	r.Use(s.subHostGate(s.decoy()))
 
 	// Public routes.
+	// Liveness / readiness probes for Docker, systemd watchdogs and load
+	// balancers; they reveal nothing beyond the status.
+	r.GET("/healthz", s.probeGate(s.healthz))
+	r.GET("/readyz", s.probeGate(s.readyz))
 	r.GET("/favicon.ico", s.siteIcon)
 	r.GET("/apple-touch-icon.png", s.siteIcon)
 	r.GET("/sub/:token", s.subscription)

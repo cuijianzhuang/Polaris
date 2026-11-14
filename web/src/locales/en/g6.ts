@@ -169,7 +169,7 @@ const m: Record<string, string> = {
   '强制开启 UDP 转发': 'Force UDP relay',
   '强制 UDP': 'Force UDP',
   '安全': 'Security',
-  '允许订阅源使用内网 / 回环地址（默认拒绝，防 SSRF）': 'Allow subscription sources on private / loopback addresses (denied by default to prevent SSRF)',
+  '允许订阅源与远程规则集使用内网 / 回环地址（默认拒绝，防 SSRF）': 'Allow subscription sources and remote rule sets on private / loopback addresses (denied by default to prevent SSRF)',
   '内网': 'Private network',
   '全局处理规则': 'Global processing rules',
   '订阅组勾选「先应用全局处理规则」时执行；也可作用于普通用户订阅。': 'Run when a subscription group has "Apply global processing rules first" checked; can also apply to regular user subscriptions.',

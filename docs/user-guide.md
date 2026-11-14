@@ -1086,8 +1086,12 @@ scrape_configs:
 | `polaris_orders{status}`、`polaris_orders_paid_24h`、`polaris_tickets{status}` | 订单与工单 |
 | `polaris_certificate_expiry_seconds{domain}`、`polaris_license_expiry_seconds` | 证书和许可证到期时间 |
 | `polaris_cdn_preferred_ips{profile}`、`polaris_cdn_report_age_seconds{profile,source}` | CDN 优选 IP 数量、各测速点距上次上报的秒数 |
+| `polaris_job_running` / `_runs_total` / `_skipped_total` / `_panics_total` / `_last_duration_seconds` / `_last_success_age_seconds`（`{job}`） | 本实例定时任务的运行状态；上一轮未结束时本轮跳过并计入 `skipped` |
+| `polaris_traffic_inbox_rows` | 已确认、等待结算的流量批次数 |
 
-指标在抓取时从数据库读取，多个主控实例返回相同结果；不按用户输出任何序列，也不含用户名或订阅令牌。离线节点不输出资源占用，避免把旧数据当成当前值。告警示例：`polaris_node_up == 0` 持续 5 分钟、`polaris_certificate_expiry_seconds - time() < 7*86400`、`polaris_cdn_report_age_seconds > 86400`。
+指标在抓取时从数据库读取，多个主控实例返回相同结果；不按用户输出任何序列，也不含用户名或订阅令牌。离线节点不输出资源占用，避免把旧数据当成当前值。告警示例：`polaris_node_up == 0` 持续 5 分钟、`polaris_certificate_expiry_seconds - time() < 7*86400`、`polaris_cdn_report_age_seconds > 86400`、`polaris_job_last_success_age_seconds{job="settle"} > 300`。
+
+健康检查：`/healthz`（进程存活）和 `/readyz`（数据库可用）只回应本机或内网的直连请求，经反向代理转发或来自公网的请求得到与其他未知路径相同的伪装响应。Docker 镜像已内置基于 `/readyz` 的 HEALTHCHECK。
 
 <a id="maintenance"></a>
 

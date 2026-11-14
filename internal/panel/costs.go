@@ -127,7 +127,7 @@ func (s *Server) listCosts(c *gin.Context) {
 		LegacyDays int
 	}
 	var sums []sum
-	now := time.Now()
+	now := time.Now().In(s.cfg.Location()) // NodeTrafficDaily days are in the panel timezone
 	if e := s.st.DB.Model(&store.NodeTrafficDaily{}).Select("node_id, SUM(rx) AS rx, SUM(tx) AS tx, COUNT(*) AS days, SUM(CASE WHEN accounting_version = 1 THEN 0 ELSE 1 END) AS legacy_days").
 		Where("day >= ? AND day <= ?", now.AddDate(0, 0, -29).Format("2006-01-02"), now.Format("2006-01-02")).Group("node_id").Scan(&sums).Error; e != nil {
 		serverError(c, e)
