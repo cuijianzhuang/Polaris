@@ -3,10 +3,16 @@
 import { tr } from './i18n'
 
 declare global {
-  interface Window { __POLARIS_BASE__?: string }
+  interface Window {
+    __POLARIS_BASE__?: string
+    // Inlined by serveIndex (see internal/panel/router.go); undefined when
+    // served by the vite dev server, where Login falls back to GET /info.
+    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; sso?: { id: string; name: string }[] }
+  }
 }
 
 export const BASE = (window.__POLARIS_BASE__ ?? '/').replace(/\/?$/, '/')
+export const LOGIN_INFO = window.__POLARIS_LOGIN__
 export const API = BASE + 'api/v1'
 
 const TOKEN_KEY = 'polaris.token'

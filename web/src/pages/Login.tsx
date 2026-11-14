@@ -1,6 +1,6 @@
 import { passkeysSupported, usePasskey } from '../passkeys'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ApiError, get, post, setToken, takeOAuthResult } from '../api'
+import { ApiError, LOGIN_INFO, get, post, setToken, takeOAuthResult } from '../api'
 import { Icon } from '../components/Icons'
 import LangToggle from '../components/LangToggle'
 import { t } from '../i18n'
@@ -15,19 +15,21 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const [needTotp, setNeedTotp] = useState(false)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [passkey, setPasskey] = useState(false)
+  const [passkey, setPasskey] = useState(!!LOGIN_INFO?.passkeyLogin)
   const [accountRecovery,setAccountRecovery] = useState(false)
   const [accountCode,setAccountCode] = useState('')
   const [newPassword,setNewPassword] = useState('')
   const [newPasswordAgain,setNewPasswordAgain] = useState('')
   const [recovered,setRecovered] = useState(false)
-  const [github, setGithub] = useState(false)
+  const [github, setGithub] = useState(!!LOGIN_INFO?.githubLogin)
   const [ticket, setTicket] = useState('') // GitHub verified, 2FA code still needed
-  const [telegram, setTelegram] = useState(false)
-  const [sso, setSso] = useState<{ id: string; name: string }[]>([])
+  const [telegram, setTelegram] = useState(!!LOGIN_INFO?.telegramLogin)
+  const [sso, setSso] = useState<{ id: string; name: string }[]>(LOGIN_INFO?.sso ?? [])
   const [tg, setTg] = useState<TGRequest | null>(null)
   useEffect(() => {
-    get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setSso(i.sso ?? []) }).catch(() => {})
+    // Production index.html inlines the flags; only fetch when they are
+    // absent (vite dev server), otherwise the buttons would pop in late.
+    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
