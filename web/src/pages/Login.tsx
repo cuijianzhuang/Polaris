@@ -132,7 +132,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     <div className="login login-home">
       <aside className="login-visual">
         <div className="login-visual-brand">
-          <span className="login-visual-logo"><Icon.Brand size={32} /></span>
+          <span className="login-visual-logo"><Icon.Brand size={40} /></span>
           <span><strong>{brand.title}</strong><small>{t('节点管理控制台')}</small></span>
         </div>
         <div className="login-visual-copy">
@@ -150,7 +150,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
       <section className="login-stage" aria-label={t('管理员登录')}>
         <form className="card login-card" onSubmit={submit}>
  {recovered && <div className="note">{t('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。')}</div>}
-          <div className="row login-card-brand"><Icon.Brand size={36} /><strong>{brand.title}</strong><span className="spacer" /><LangToggle /></div>
+          <div className="row login-card-brand"><LangToggle /></div>
           <div className="login-form-copy"><h2>{t('欢迎回来')}</h2><p>{t('登录以继续管理节点。')}</p></div>
         <div className="field">
           <label className="lbl" htmlFor="u">{t('用户名')}</label>
