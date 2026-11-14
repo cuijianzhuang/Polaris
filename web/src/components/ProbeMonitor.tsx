@@ -25,8 +25,12 @@ export function useProbeClock(at?: string) {
   return base.server + Math.max(0, now - base.received)
 }
 
+export function probeState(n: ProbeNode, now: number) {
+  return !n.online ? 'off' : !freshTelemetry(n, now) ? 'stale' : n.status === 'error' ? 'error' : 'on'
+}
+
 export function ProbeBadge({ n, now }: { n: ProbeNode; now: number }) {
-  const state = !n.online ? 'off' : !freshTelemetry(n, now) ? 'stale' : n.status === 'error' ? 'error' : 'on'
+  const state = probeState(n, now)
   return <span className={'pv-st ' + state}><i />{state === 'off' ? t('离线') : state === 'stale' ? t('数据滞后') : state === 'error' ? t('配置异常') : t('在线')}</span>
 }
 
@@ -85,7 +89,7 @@ export function NodeProbeCard({ n, targets, onOpen, view, now, showTraffic }: { 
   const fresh = freshTelemetry(n, now)
   const cpu = fresh ? n.cpu : null, mem = fresh ? n.mem : null, disk = fresh && (n.diskTotal ?? 0) > 0 ? n.disk : null
   return <button type="button" className={'pv-card' + (!n.online ? ' off' : attention(n, now) ? ' attention' : '')} onClick={onOpen} aria-label={t('查看节点 {name}', { name: n.name })}>
-    <div className="pv-hd"><span className="pv-flag"><CountryFlag code={n.flag} fallback="◎" /></span><span className="pv-identity"><strong className="pv-name"><FlagText>{n.name}</FlagText></strong><span className="pv-region">{n.region || n.arch || '—'}</span></span><ProbeBadge n={n} now={now} /></div>
+    <div className="pv-hd"><i className={'pv-health-dot ' + probeState(n, now)} aria-hidden="true" /><span className="pv-flag"><CountryFlag code={n.flag} fallback="◎" /></span><span className="pv-identity"><strong className="pv-name"><FlagText>{n.name}</FlagText></strong><span className="pv-region">{n.region || n.arch || '—'}</span></span><ProbeBadge n={n} now={now} /></div>
     <NodeBadges n={n} now={now} />
     {view === 'ring' ? <div className="pv-rings"><Ring label="CPU" value={cpu} /><Ring label="RAM" value={mem} /><Ring label="DISK" value={disk} /></div> : <div className="pv-rows"><Meter label="CPU" value={cpu} /><Meter label="RAM" value={mem} /><Meter label="DISK" value={disk} /></div>}
     <div className="pv-load"><span>LOAD <small>1m</small></span><b>{fresh ? n.load1.toFixed(2) : '—'}</b></div>
