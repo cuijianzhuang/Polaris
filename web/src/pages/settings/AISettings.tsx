@@ -38,7 +38,7 @@ export default function AISettings() {
     return saver.run(async () => { accept(await put<Settings>('/ai/settings', { config: form, revision: saved.revision, clearKey })) }, t('AI 设置已保存'))
   }
   useSettingsDraft({ label: t('AI 助手'), dirty, busy: saver.busy, invalid, save, discard: () => { if (saved) accept(saved) } })
-  if (!form || !saved) return <section className="card"><p className="hint">{load.loading ? t('正在读取设置…') : load.error || t('设置读取失败')}</p><button className="btn" type="button" onClick={load.reload}>{t('重试')}</button></section>
+  if (!form || !saved) return <section className="card" aria-busy={load.loading}><p className="hint" role={load.loading ? 'status' : 'alert'}>{load.loading ? t('正在读取设置…') : load.error || t('设置读取失败')}</p>{!load.loading && <button className="btn" type="button" onClick={load.reload}>{t('重试')}</button>}</section>
   return <div className="ai-settings">
     <section className="card settings-fields"><div className="ctitle"><h2>{t('AI 助手')}</h2><button className="btn sm" type="button" disabled={locked} onClick={async () => { if (!dirty || await confirm(t('重新加载会丢弃尚未保存的 AI 设置，继续吗？'))) { try { const latest = await get<Settings>('/ai/settings'); accept(latest) } catch (e) { setReloadError(tr(e instanceof Error ? e.message : t('设置读取失败'))) } } }}>{t('重新加载')}</button></div>
       {reloadError && <div className="note bad" role="alert">{reloadError}</div>}
