@@ -170,7 +170,7 @@ export default function Dashboard() {
       </section>
       {data && <Attention d={data} />}
       {data && <OperationalOverview data={data.operational} />}
-      <section className="grid g3">
+      <section className="grid g3 dashboard-insights">
         <div className="card" style={{ gridColumn: 'span 2', minWidth: 0 }}>
           <div className="ctitle">
             <span>{t('流量趋势')}</span>
