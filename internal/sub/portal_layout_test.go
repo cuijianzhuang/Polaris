@@ -17,7 +17,7 @@ func TestPortalLayoutEscapesFragmentAndKeepsNavigation(t *testing.T) {
 	if strings.Contains(html, attack) || !strings.Contains(html, `\u003c/script\u003e`) {
 		t.Fatal("fragment escaped data became executable")
 	}
-	for _, want := range []string{`href="/u#subscription"`, `href="/u/shop"`, `href="/u/tickets"`, `aria-current="page"`, `&lt;/script&gt;`} {
+	for _, want := range []string{`href="/u#subscription"`, `href="/u/shop"`, `href="/u/tickets"`, `aria-current="page"`, `&lt;/script&gt;`, `data-theme-toggle`, `切换到深色模式`, `root.dataset.mode`} {
 		if !strings.Contains(html, want) {
 			t.Fatal("missing navigation/escaping", want)
 		}

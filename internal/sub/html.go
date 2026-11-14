@@ -32,6 +32,9 @@ var portalServicesCSS string
 //go:embed assets/portal.js
 var portalShellJS string
 
+//go:embed assets/portal-theme.js
+var portalThemeJS string
+
 //go:embed assets/portal-account.js
 var portalAccountJS string
 
@@ -52,16 +55,18 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 		return template.CSS(uitheme.CSS + "\n" + portalShellCSS + "\n" + portalServicesCSS)
 	},
 	"portalShellScript":   func() template.JS { return template.JS(portalShellJS) },
+	"portalThemeScript":   func() template.JS { return template.JS(portalThemeJS) },
 	"portalAccountScript": func() template.JS { return template.JS(portalAccountJS) },
 	"portalBindingScript": func() template.JS { return template.JS(portalBindingJS) },
 	"portalCDNScript":     func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
 }).Parse(`<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><script>{{portalThemeScript}}</script>
 <title>{{.Title}} · 订阅</title>
 <style>
-:root{--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--up:#7DD3E3;--ok:#15803D;--warn:#B45309;--bad:#B91C1C;--note:#ECF7F9}
-@media (prefers-color-scheme:dark){:root{--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--up:#155E6E;--ok:#4ADE80;--warn:#F59E0B;--bad:#F87171;--note:#14262B}}
+:root{color-scheme:light;--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--up:#7DD3E3;--ok:#15803D;--warn:#B45309;--bad:#B91C1C;--note:#ECF7F9}
+@media (prefers-color-scheme:dark){:root:not([data-mode]){color-scheme:dark;--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--up:#155E6E;--ok:#4ADE80;--warn:#F59E0B;--bad:#F87171;--note:#14262B}}
+:root[data-mode="dark"]{color-scheme:dark;--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--up:#155E6E;--ok:#4ADE80;--warn:#F59E0B;--bad:#F87171;--note:#14262B}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "IBM Plex Sans","Noto Sans SC",system-ui,sans-serif}
 main{max-width:600px;margin:0 auto;padding:28px 16px 48px;display:flex;flex-direction:column;gap:14px}
@@ -120,7 +125,7 @@ main:not(.p-main) .qr{border:1px solid var(--line);box-shadow:0 5px 18px #000000
 {{template "portal-cdn" .}}
 {{if .Announce}}<section class="note" role="note">📢 {{.Announce}}</section>{{end}}
 <section class="card">
-<div class="row"><h1>{{.Title}}</h1><span class="sp"></span>{{if .Status}}<span class="st {{.Status}}">{{.StatusLabel}}</span>{{end}}</div>
+<div class="row"><h1>{{.Title}}</h1><span class="sp"></span><button class="btn sm" type="button" data-theme-toggle aria-label="切换到深色模式"><span data-theme-label>深色模式</span></button>{{if .Status}}<span class="st {{.Status}}">{{.StatusLabel}}</span>{{end}}</div>
 {{if .Username}}<div class="mute">{{.Username}}</div>{{end}}
 <div class="usage"><b>{{bytes .Used}}</b><span class="mute"> / {{if .Total}}{{bytes .Total}}{{else}}不限流量{{end}}</span>{{if .Total}}<span class="pct {{.Level}}">{{.Percent}}%</span>{{end}}</div>
 {{if .Total}}<div class="bar" role="progressbar" aria-valuenow="{{.Percent}}" aria-valuemin="0" aria-valuemax="100"><div class="{{.Level}}" style="width:{{.Percent}}%"></div></div>{{end}}
