@@ -78,15 +78,33 @@ function NodesProvider({ children }: { children: ReactNode }) {
     let ws: WebSocket | null = null
     let stop = false
     let retry: ReturnType<typeof setTimeout>
+    // Reconnect with a growing, jittered delay (2s → 60s) so a panel restart
+    // does not get every open tab back in the same second.
+    let delay = 2000
     const connect = () => {
+      if (!getToken()) return // signed out: nothing to reconnect to
+      let opened = false
       ws = new WebSocket(wsURL())
+      ws.onopen = () => {
+        opened = true
+        if (delay > 2000) refresh() // catch up on what changed while disconnected
+        delay = 2000
+      }
       ws.onmessage = (e) => {
         try {
           const m = JSON.parse(e.data)
           if (m.type === 'nodes') receive(m.data)
         } catch { /* ignore */ }
       }
-      ws.onclose = () => { if (!stop) retry = setTimeout(connect, 5000) }
+      ws.onclose = () => {
+        if (stop) return
+        // The handshake does not expose its status. A plain request does: an
+        // expired session answers 401 there and signs the user out, which
+        // unmounts this provider and stops the loop.
+        if (!opened) refresh()
+        retry = setTimeout(connect, delay / 2 + Math.random() * delay)
+        delay = Math.min(delay * 2, 60000)
+      }
     }
     connect()
     return () => { stop = true; clearTimeout(retry); ws?.close() }

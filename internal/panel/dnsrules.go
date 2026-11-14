@@ -500,7 +500,7 @@ func (s *Server) refreshRemoteRuleSets() {
 func (s *Server) refreshRuleSet(ctx context.Context, rs *store.RuleSet) {
 	now := time.Now().UTC()
 	rs.FetchedAt = &now
-	parsed, err := fetchRuleList(ctx, rs.SourceURL)
+	parsed, err := fetchRuleList(ctx, s.safeClient(time.Minute), rs.SourceURL)
 	if err != nil {
 		rs.FetchError = err.Error()
 		s.warnWrite("rule set fetch status", s.st.DB.Model(rs).Select("FetchedAt", "FetchError").Updates(rs).Error)
@@ -537,15 +537,16 @@ type ruleList struct {
 
 const ruleListMax = 200000
 
-// fetchRuleList downloads and parses a remote list.
-func fetchRuleList(ctx context.Context, src string) (*ruleList, error) {
+// fetchRuleList downloads and parses a remote list. The client is the SSRF
+// guarded one: private addresses only with allow_private_sources.
+func fetchRuleList(ctx context.Context, client *http.Client, src string) (*ruleList, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}

@@ -40,5 +40,8 @@ COPY deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 ENV POLARIS_DATA_DIR=/data POLARIS_LISTEN=:8080 POLARIS_AGENT_LISTEN=:9443
 VOLUME /data
 EXPOSE 8080 9443
+# Readiness: the panel answers /readyz to loopback once the database is reachable.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${POLARIS_LISTEN##*:}/readyz" >/dev/null || exit 1
 USER polaris
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

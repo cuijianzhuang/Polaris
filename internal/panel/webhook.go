@@ -242,7 +242,9 @@ func (s *Server) deliverWebhook(id string) {
 	s.warnWrite("webhook status", s.st.DB.Model(&store.Webhook{}).Where("id = ?", h.ID).Updates(map[string]any{"last_status": upd["status"], "last_at": now}).Error)
 }
 
-var webhookClient = &http.Client{Timeout: 10 * time.Second}
+// Webhook receivers may live on the LAN (n8n, Home Assistant, ...), so
+// private ranges are allowed; cloud metadata and link-local addresses are not.
+var webhookClient = safeClientWithPrivatePolicy(10*time.Second, true)
 
 // sendWebhook makes one attempt; any 2xx answer is success.
 func (s *Server) sendWebhook(h *store.Webhook, d *store.WebhookDelivery) (int, error) {

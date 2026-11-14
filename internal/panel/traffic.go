@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -118,6 +119,9 @@ func (s *Server) ingestTraffic(nodeID string, batches []*polarisv1.TrafficBatch,
 			}
 			if !allowed[u.UserId] && !isTagCounter(u.UserId) {
 				continue // not a user of this node
+			}
+			if isTagCounter(u.UserId) && !validTagCounter(u.UserId) {
+				continue // a tag the tag tables cannot store would fail the whole settlement
 			}
 			ds = append(ds, model.TrafficDelta{UserID: u.UserId, Up: max(u.Up, 0), Down: max(u.Down, 0)})
 		}
@@ -828,6 +832,17 @@ func (l netList) contains(ip string) bool {
 // delta (see core.TagPrefixInbound).
 func isTagCounter(id string) bool {
 	return strings.HasPrefix(id, core.TagPrefixInbound) || strings.HasPrefix(id, core.TagPrefixOutbound)
+}
+
+// maxCounterTag matches the size of the tag column in tag_traffics and
+// tag_traffic_dailies.
+const maxCounterTag = 128
+
+// validTagCounter accepts "inbound>>>tag" / "outbound>>>tag" counters whose
+// tag is non-empty, valid UTF-8 and fits the tag column.
+func validTagCounter(id string) bool {
+	_, tag, ok := strings.Cut(id, ">>>")
+	return ok && tag != "" && len([]rune(tag)) <= maxCounterTag && utf8.ValidString(tag)
 }
 
 // realUsers keeps the rows of real users: chain service accounts carry

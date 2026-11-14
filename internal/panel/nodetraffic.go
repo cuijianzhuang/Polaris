@@ -113,6 +113,9 @@ func (s *Server) accountNodeNet(id string, sample *polarisv1.SystemStats, now ti
 	if sample == nil {
 		return nil
 	}
+	// Days and reset cycles follow the panel timezone (POLARIS_TIMEZONE),
+	// like the per-user daily traffic; heartbeats arrive in UTC.
+	now = now.In(s.cfg.Location())
 	rx, tx := sample.RxBytes, sample.TxBytes
 	modern := sample.NetCountersValid
 	if !modern && rx == 0 && tx == 0 {
@@ -255,7 +258,7 @@ func nextNetReset(day int, now time.Time) time.Time {
 // resetNodeCycles starts a new cycle on nodes whose reset day has come
 // (hourly job).
 func (s *Server) resetNodeCycles() {
-	s.resetNodeCyclesAt(time.Now())
+	s.resetNodeCyclesAt(time.Now().In(s.cfg.Location()))
 }
 
 func (s *Server) resetNodeCyclesAt(now time.Time) {
@@ -290,7 +293,7 @@ func (s *Server) putNodeNet(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	n, err := s.updateNodeNet(c.Param("id"), req, time.Now())
+	n, err := s.updateNodeNet(c.Param("id"), req, time.Now().In(s.cfg.Location()))
 	if err != nil {
 		dbError(c, err)
 		return
@@ -386,7 +389,7 @@ func (s *Server) nodeNetDaily(c *gin.Context) {
 	if days <= 0 || days > 366 {
 		days = 31
 	}
-	from := time.Now().AddDate(0, 0, -days+1).Format("2006-01-02")
+	from := time.Now().In(s.cfg.Location()).AddDate(0, 0, -days+1).Format("2006-01-02")
 	rows := []store.NodeTrafficDaily{}
 	s.st.DB.Where("node_id = ? AND day >= ?", c.Param("id"), from).Order("day").Find(&rows)
 	c.JSON(http.StatusOK, rows)

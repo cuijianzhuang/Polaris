@@ -167,7 +167,9 @@ func (s *Server) renderExternal(ctx context.Context, cc converterConfig, format,
 	if err != nil {
 		return nil, "", err
 	}
-	resp, err := (&http.Client{Timeout: 40 * time.Second}).Do(req)
+	// A self-hosted converter often listens on loopback or the LAN; cloud
+	// metadata and link-local addresses stay blocked.
+	resp, err := safeClientWithPrivatePolicy(40*time.Second, true).Do(req)
 	if err != nil {
 		return nil, "", err
 	}

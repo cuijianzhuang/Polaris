@@ -15,6 +15,7 @@ import (
 func TestNodeNetRolloverBeforeFirstHeartbeat(t *testing.T) {
 	s := newTestServer(t)
 	loc := time.FixedZone("test", 8*60*60)
+	s.cfg.loc = loc // reset cycles follow the panel timezone (POLARIS_TIMEZONE)
 	old := time.Date(2026, 10, 1, 0, 0, 0, 0, loc)
 	now := time.Date(2026, 11, 1, 0, 0, 5, 0, loc)
 	n := store.Node{ID: "net", Name: "net", NetResetDay: 1, NetCycleStart: &old,

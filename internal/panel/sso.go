@@ -37,12 +37,17 @@ type oidcDiscovery struct {
 	UserInfo      string `json:"userinfo_endpoint"`
 }
 
+// ssoClient talks to admin-configured identity providers, which are often
+// self-hosted on the LAN (Authentik, Keycloak); cloud metadata and
+// link-local addresses stay blocked.
+var ssoClient = safeClientWithPrivatePolicy(20*time.Second, true)
+
 func discoverOIDC(ctx context.Context, issuer string) (*oidcDiscovery, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	u := strings.TrimRight(issuer, "/") + "/.well-known/openid-configuration"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := ssoClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("读取 %s 失败：%w", u, err)
 	}
@@ -239,7 +244,7 @@ func (s *Server) ssoIdentity(ctx context.Context, p *store.SSOProvider, code, ve
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	req.SetBasicAuth(url.QueryEscape(p.ClientID), url.QueryEscape(secret))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := ssoClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}
@@ -260,7 +265,7 @@ func (s *Server) ssoIdentity(ctx context.Context, p *store.SSOProvider, code, ve
 	req, _ = http.NewRequestWithContext(ctx, http.MethodGet, p.UserInfoURL, nil)
 	req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 	req.Header.Set("Accept", "application/json")
-	resp, err = http.DefaultClient.Do(req)
+	resp, err = ssoClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}

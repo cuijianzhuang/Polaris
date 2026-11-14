@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/cuijianzhuang/polaris/internal/realityscan"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -207,14 +208,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		if time.Since(start) > time.Minute {
 			backoff = time.Second
 		}
+		wait := jitter(backoff)
 		if e := fmt.Sprint(err); strings.Contains(e, "GOAWAY") && strings.Contains(e, "NO_ERROR") {
 			// The panel closed the stream on purpose (restart or upgrade).
-			a.log.Info("panel restarted, reconnecting", "in", backoff)
+			a.log.Info("panel restarted, reconnecting", "in", wait)
 		} else {
-			a.log.Warn("panel stream closed, reconnecting", "err", err, "in", backoff)
+			a.log.Warn("panel stream closed, reconnecting", "err", err, "in", wait)
 		}
 		select {
-		case <-time.After(backoff):
+		case <-time.After(wait):
 		case <-ctx.Done():
 		}
 		if backoff < 60*time.Second {
@@ -1023,4 +1025,14 @@ func (a *Agent) trafficQueueStatus() *polarisv1.TrafficQueueStatus {
 		st.OldestUnackedAt = a.queue[0].CollectedAt
 	}
 	return st
+}
+
+// jitter spreads reconnects over ±50% of the backoff so that, after a panel
+// restart, every agent does not dial, flush its traffic queue and fetch its
+// spec in the same second.
+func jitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	return d/2 + time.Duration(rand.Int64N(int64(d)))
 }

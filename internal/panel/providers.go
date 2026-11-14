@@ -92,11 +92,11 @@ func (s *Server) calibrateNodeNet(nodeID string, in *provider.Info, now time.Tim
 			upd["net_limit"] = n.NetLimit
 		}
 		if !in.NextReset.IsZero() {
-			day := in.NextReset.In(now.Location()).Day()
+			day := in.NextReset.In(s.cfg.Location()).Day() // cycles follow the panel timezone
 			if day != n.NetResetDay {
 				n.NetResetDay = day
 				upd["net_reset_day"] = day
-				start := cycleStart(day, now)
+				start := cycleStart(day, now.In(s.cfg.Location()))
 				n.NetCycleStart = &start
 				upd["net_cycle_start"] = start
 			}

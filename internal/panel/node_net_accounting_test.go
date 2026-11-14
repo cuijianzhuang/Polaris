@@ -108,3 +108,25 @@ func TestNodeNetConcurrentHeartbeats(t *testing.T) {
 		}
 	})
 }
+
+// Daily NIC traffic uses the panel timezone, like per-user daily traffic: a
+// heartbeat at 17:30 UTC is already the next day in Asia/Shanghai.
+func TestNodeNetDailyUsesPanelTimezone(t *testing.T) {
+	s := newTestServer(t)
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.cfg.loc = loc
+	s.st.DB.Create(&store.Node{ID: "net", Name: "net"})
+	at := time.Date(2026, 1, 1, 17, 30, 0, 0, time.UTC)
+	for i, p := range []*polarisv1.SystemStats{nicSample("boot", 100, 0, 0), nicSample("boot", 200, 10, 20)} {
+		if e := s.accountNodeNet("net", p, at.Add(time.Duration(i)*2*time.Second)); e != nil {
+			t.Fatal(e)
+		}
+	}
+	var d store.NodeTrafficDaily
+	if err := s.st.DB.First(&d, "node_id = ?", "net").Error; err != nil || d.Day != "2026-01-02" {
+		t.Fatalf("daily row %+v err %v", d, err)
+	}
+}
