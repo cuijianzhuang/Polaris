@@ -3,6 +3,7 @@ package panel
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"html"
 	"io"
@@ -603,6 +604,13 @@ func (s *Server) serveIndex(c *gin.Context, prefix string) {
 	b, _ := io.ReadAll(f)
 	base := prefix + "/"
 	inject := `<script>window.__POLARIS_BASE__=` + jsString(base) + `;</script>`
+	// Login buttons used to wait for a GET /info round trip after mount, so
+	// passkey / GitHub / Telegram / SSO buttons popped in a beat late and
+	// pushed the card taller. Inline the same flags here so the login page
+	// renders them on first paint; /info stays as the fallback (dev server).
+	if login, err := json.Marshal(s.loginInfo()); err == nil {
+		inject += `<script>window.__POLARIS_LOGIN__=` + string(login) + `;</script>`
+	}
 	b = bytes.Replace(b, []byte("<head>"), []byte("<head><base href=\""+html.EscapeString(base)+"\">"+inject), 1)
 	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", b)
@@ -627,9 +635,20 @@ func (s *Server) decoy() gin.HandlerFunc {
 	return func(c *gin.Context) { c.String(http.StatusNotFound, "404 page not found") }
 }
 
+// loginInfo are the flags the login page needs to decide which third-party
+// login buttons to show. Served both by GET /info and inlined into
+// index.html by serveIndex so the buttons render on first paint.
+func (s *Server) loginInfo() gin.H {
+	return gin.H{"githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
+		"passkeyLogin": s.passkeysAvailable(), "sso": s.publicSSOProviders()}
+}
+
 func (s *Server) publicInfo(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"title": s.st.GetSetting("site_title", "Polaris"), "logo": s.brandLogoVersion(), "version": Version, "githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
-		"passkeyLogin": s.passkeysAvailable(), "sso": s.publicSSOProviders()})
+	info := s.loginInfo()
+	info["title"] = s.st.GetSetting("site_title", "Polaris")
+	info["logo"] = s.brandLogoVersion()
+	info["version"] = Version
+	c.JSON(http.StatusOK, info)
 }
 
 // download serves agent binaries placed in <data_dir>/downloads.
