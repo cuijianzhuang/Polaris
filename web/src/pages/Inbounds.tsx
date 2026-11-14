@@ -27,6 +27,7 @@ const emptyDraft = (): InboundDraft => ({
 
 function Endpoints({ inbound, onChanged, onPendingChange, onManageRelay, relayVersion }: { inbound: Inbound; onChanged: () => void; onPendingChange: (pending: boolean) => void; onManageRelay: () => void; relayVersion: number }) {
   const { nodes } = useNodes()
+  const confirmEndpoint = useConfirm()
   const eps = useLoad((signal) => get<Endpoint[]>(`/inbounds/${inbound.id}/endpoints`, signal), [inbound.id, relayVersion])
   const cdn = useLoad((signal) => get<CDNProfile[]>('/cdn-profiles', signal))
   const chains = useLoad((signal) => get<Chain[]>('/chains', signal), [relayVersion])
@@ -81,7 +82,7 @@ function Endpoints({ inbound, onChanged, onPendingChange, onManageRelay, relayVe
               <b style={{ flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere' }}>{label(e)}</b>
               <span className="row" style={{ gap: 6, flex: 'none' }}>
                 {e.kind === 'cdn' && <button className="btn sm" type="button" disabled={checking === e.id} onClick={() => check(e)}>{checking === e.id ? t('检测中…') : t('检测')}</button>}
-                <button className="btn sm danger" type="button" onClick={() => run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() })}>{t('删除')}</button>
+                <button className="btn sm danger" type="button" onClick={async () => { if (await confirmEndpoint(t('删除入口「{name}」？使用它的订阅节点会消失，客户端需要更新订阅。', { name: label(e) }), { danger: true, ok: t('删除') })) run(async () => { await del(`/inbounds/${inbound.id}/endpoints/${e.id}`); eps.reload() }) }}>{t('删除')}</button>
               </span>
             </div>
             <div className="mono small mute" style={{ overflowWrap: 'anywhere' }} title={e.target ? t('客户端经 CDN 连接的地址；SNI / Host / 路径') : undefined}>{e.target

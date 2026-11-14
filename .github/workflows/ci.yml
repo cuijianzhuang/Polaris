@@ -327,6 +327,9 @@ jobs:
       - name: Notification and probe presentation behavior
         run: node --experimental-strip-types --test scripts/notification-policy.test.mjs scripts/probe-monitor.test.mjs
         working-directory: web
+      - name: Pure UI helpers (format, geography, CDN ports, i18n)
+        run: node --import ./scripts/ts-resolve.mjs --experimental-strip-types --test scripts/pure-modules.test.mjs
+        working-directory: web
       # The Docker frontend stage above already builds the production UI.
   passkeys:
     needs: changes

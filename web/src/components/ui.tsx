@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import QRCode from 'qrcode'
 import { Icon } from './Icons'
 import { errMsg } from '../format'
+import { ApiError } from '../api'
 import { t } from '../i18n'
 
 // --- toasts ---
@@ -119,10 +120,48 @@ export function useAction() {
   return { busy, run }
 }
 
+// Load failures nobody shows. useLoad reports an error here when the
+// component never reads its .error, so a failed request is not mistaken for
+// "no data yet": the layout shows one banner with a retry for all of them.
+type LoadFailure = { message: string; reload: () => void }
+const loadFailures = new Map<symbol, LoadFailure>()
+const loadFailureListeners = new Set<() => void>()
+function setLoadFailure(id: symbol, f: LoadFailure | null) {
+  if (f) loadFailures.set(id, f)
+  else if (!loadFailures.delete(id)) return
+  loadFailureListeners.forEach((l) => l())
+}
+export function useLoadFailures(): LoadFailure[] {
+  const [, bump] = useState(0)
+  useEffect(() => {
+    const l = () => bump((n) => n + 1)
+    loadFailureListeners.add(l)
+    return () => { loadFailureListeners.delete(l) }
+  }, [])
+  return [...loadFailures.values()]
+}
+
+// LoadFailures is the banner for unhandled load errors on the current page.
+export function LoadFailures() {
+  const failures = useLoadFailures()
+  if (!failures.length) return null
+  return (
+    <div className="note bad load-failures" role="alert">
+      <span>{failures.length > 1 ? t('{n} 项数据加载失败：{msg}', { n: failures.length, msg: failures[0].message }) : t('数据加载失败：{msg}', { msg: failures[0].message })}</span>
+      <button type="button" className="btn sm" onClick={() => failures.forEach((f) => f.reload())}>{t('重试')}</button>
+    </div>
+  )
+}
+
 // useLoad fetches data and exposes a reload function.
 export function useLoad<T>(fn: (signal?: AbortSignal) => Promise<T>, deps: unknown[] = []): { data: T | undefined; error: string; reload: () => void; loading: boolean } {
   const [snapshot, setSnapshot] = useState<{ value: T; deps: unknown[] }>()
   const [error, setError] = useState('')
+  // Whether the component displays this load's error itself (it read .error),
+  // and whether the error is worth a banner (not a permission / not-found answer).
+  const handled = useRef(false)
+  const reportable = useRef(true)
+  const failureId = useRef(Symbol('load'))
   const [loading, setLoading] = useState(true)
   const fnRef = useRef(fn)
   const loadRef = useRef<() => void>(() => {})
@@ -143,7 +182,10 @@ export function useLoad<T>(fn: (signal?: AbortSignal) => Promise<T>, deps: unkno
         const result = await Promise.race([fnRef.current(controller.signal), deadline])
         if (live) { setSnapshot({ value: result, deps: [...deps] }); setError('') }
       } catch (e) {
-        if (live) setError(errMsg(e))
+        if (live) {
+          reportable.current = !(e instanceof ApiError && (e.status === 403 || e.status === 404))
+          setError(errMsg(e))
+        }
       } finally {
         clearTimeout(timeout)
         pending = null
@@ -161,8 +203,16 @@ export function useLoad<T>(fn: (signal?: AbortSignal) => Promise<T>, deps: unkno
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   const reload = useCallback(() => loadRef.current(), [])
+  useEffect(() => {
+    const id = failureId.current
+    setLoadFailure(id, error && !handled.current && reportable.current ? { message: error, reload } : null)
+  }, [error, reload])
+  useEffect(() => () => setLoadFailure(failureId.current, null), [])
   const data = snapshot && snapshot.deps.length === deps.length && deps.every((value, index) => Object.is(value, snapshot.deps[index])) ? snapshot.value : undefined
-  return { data, error, loading, reload }
+  return {
+    data, loading, reload,
+    get error() { handled.current = true; return error },
+  }
 }
 
 // Refresh interval of live pages, one setting for all of them (0 = off).
@@ -247,13 +297,31 @@ export function useEscape(onClose: () => void, enabled = true) {
   }, [enabled])
 }
 
+// Drawer is a side panel, usually an editing form. Once the user has typed
+// or changed a field in it, dismissing it (backdrop, Esc, ✕) asks first, so a
+// stray tap does not throw the form away. Saving closes through onClose and
+// is never asked about.
 export function Drawer({ title, onClose, children, footer, wide }: { title: ReactNode; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   const [closing, close] = useClosing(onClose)
-  useEscape(close)
+  const confirm = useConfirm()
+  const edited = useRef(false)
+  const asking = useRef(false)
+  const dismiss = async () => {
+    if (asking.current) return
+    if (edited.current) {
+      asking.current = true
+      const discard = await confirm(t('放弃未保存的修改？'), { danger: true, ok: t('放弃修改') })
+      asking.current = false
+      if (!discard) return
+    }
+    close()
+  }
+  useEscape(() => { void dismiss() })
+  const markEdited = (e: React.SyntheticEvent) => { if ((e.target as HTMLElement).closest?.('input:not([type=search]), textarea, select, [contenteditable]')) edited.current = true }
   return (
-    <div className={'overlay' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) close() }}>
-      <aside className={'drawer' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}>
-        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} onClick={close}><Icon.Close /></button></div>
+    <div className={'overlay' + (closing ? ' closing' : '')} onMouseDown={(e) => { if (e.target === e.currentTarget) void dismiss() }}>
+      <aside className={'drawer' + (wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} onInput={markEdited} onChange={markEdited}>
+        <div className="dhead"><h2>{title}</h2><button className="icon-btn" type="button" aria-label={t('关闭')} onClick={() => { void dismiss() }}><Icon.Close /></button></div>
         {children}
         {footer && <div className="dfoot">{footer}</div>}
       </aside>

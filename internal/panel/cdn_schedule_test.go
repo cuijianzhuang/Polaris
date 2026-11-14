@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -147,6 +148,14 @@ func TestCDNScheduledAddressChecksAndRecovery(t *testing.T) {
 }
 
 func TestCDNScheduledAddressBatchResumesBeyondHistory(t *testing.T) {
+	// 127.0.0.2–70 refuse at once on Linux but time out on macOS, where only
+	// 127.0.0.1 is configured: probe with a short dial timeout so the sweep
+	// logic, not the network, decides the test's speed.
+	prev := scheduledCDNProbe
+	scheduledCDNProbe = func(ctx context.Context, t cdnkit.Target, transport model.Transport, origin string) cdnkit.Check {
+		return probeCDNWithNetwork(ctx, t, transport, origin, &net.Dialer{Timeout: 200 * time.Millisecond}, net.DefaultResolver.LookupHost, true)
+	}
+	t.Cleanup(func() { scheduledCDNProbe = prev })
 	f := scheduleFixture(t)
 	f.s.st.DB.Delete(&store.Endpoint{}, "id = ?", "se2")
 	ips := []string{}
