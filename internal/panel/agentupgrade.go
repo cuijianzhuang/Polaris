@@ -83,6 +83,9 @@ func (s *Server) upgradeAgent(ctx context.Context, n *store.Node) error {
 	if args["sha256_amd64"] == "" && args["sha256_arm64"] == "" {
 		return errors.New("主控上没有可分发的 Agent（等待自动缓存完成，或检查与 GitHub 的连接 / github_mirror）")
 	}
+	if validArch(n.Arch) && args["sha256_"+n.Arch] == "" {
+		return fmt.Errorf("主控未能缓存 %s Agent；请检查 GitHub 镜像是否包含 %s 的当前版本", n.Arch, Version)
+	}
 	res, err := s.hub.Command(ctx, n.ID, "upgrade_agent", args, upgradeTimeout)
 	if err != nil {
 		return err

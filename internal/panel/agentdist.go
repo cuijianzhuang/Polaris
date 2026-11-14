@@ -90,10 +90,24 @@ func (s *Server) ensureAgent(ctx context.Context, arch string) error {
 // fetchRelease downloads one asset of this version's release (through the
 // configured GitHub mirror) into dst, verified against checksums.txt.
 func (s *Server) fetchRelease(ctx context.Context, name, dst string, mode os.FileMode, limit int64) error {
-	base := agentRepo + Version + "/"
+	origin := agentRepo + Version + "/"
+	bases := []string{origin}
 	if m := strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/"); m != "" {
-		base = m + "/" + base
+		// A lagging mirror must not prevent agent upgrades after a new release.
+		bases = []string{m + "/" + origin, origin}
 	}
+	var last error
+	for _, base := range bases {
+		if err := s.fetchReleaseAt(ctx, base, name, dst, mode, limit); err == nil {
+			return nil
+		} else {
+			last = err
+		}
+	}
+	return last
+}
+
+func (s *Server) fetchReleaseAt(ctx context.Context, base, name, dst string, mode os.FileMode, limit int64) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	get := func(u string, w io.Writer, limit int64) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
