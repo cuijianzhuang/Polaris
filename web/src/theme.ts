@@ -10,7 +10,7 @@ export type ThemeStyle = 'default' | 'warm' | 'midnight' | 'blackgold'
 export interface Theme { mode: ThemeMode; accent: string; style: ThemeStyle }
 
 export const styles: { id: ThemeStyle; label: string; description: string; accent: string; premium: boolean }[] = [
-  { id: 'default', label: t('雾白石墨'), description: t('中性灰阶 · 清晰克制'), accent: 'blue', premium: false },
+  { id: 'default', label: t('雾白石墨'), description: t('中性灰阶 · 清晰克制'), accent: 'slate', premium: false },
   { id: 'warm', label: t('暖灰琥珀'), description: t('暖白表面 · 石色层次'), accent: 'amber', premium: false },
   { id: 'midnight', label: t('午夜冰青'), description: t('蓝灰表面 · 冰青强调'), accent: 'ice', premium: false },
   { id: 'blackgold', label: t('黑金'), description: t('深色表面 · 香槟金'), accent: 'slate', premium: true },

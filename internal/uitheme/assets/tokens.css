@@ -2,11 +2,11 @@
 :root {
   --ui-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Segoe UI', system-ui, 'Inter Variable', 'Inter', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
   --ui-mono: ui-monospace, SFMono-Regular, Menlo, 'IBM Plex Mono', monospace;
-  --ui-radius-sm: 6px; --ui-radius-control: 10px; --ui-radius-card: 14px;
+  --ui-radius-sm: 6px; --ui-radius-control: 7px; --ui-radius-card: 8px;
   --ui-control-height: 40px; --ui-control-compact: 34px; --ui-touch-height: 44px;
   --ui-space-1: 4px; --ui-space-2: 8px; --ui-space-3: 12px; --ui-space-4: 16px; --ui-space-6: 24px;
-  --ui-light-bg: #F5F5F7; --ui-light-card: #FFFFFF; --ui-light-ink: #1D1D1F; --ui-light-mute: #63636E; --ui-light-line: #E5E5EA;
-  --ui-light-primary: #0066CC; --ui-light-note: #EEF5FF; --ui-light-ok: #167544; --ui-light-bad: #B42318; --ui-light-warn: #9A5F08;
-  --ui-dark-bg: #17181C; --ui-dark-card: #202126; --ui-dark-ink: #F2F2F5; --ui-dark-mute: #A1A1AA; --ui-dark-line: #36373F;
-  --ui-dark-primary: #75B7FF; --ui-dark-note: #1D3046; --ui-dark-ok: #79D4B0; --ui-dark-bad: #FF9890; --ui-dark-warn: #EABE75;
+  --ui-light-bg: #FFFFFF; --ui-light-card: #FFFFFF; --ui-light-ink: #171717; --ui-light-mute: #71717A; --ui-light-line: #EAEAEA;
+  --ui-light-primary: #111111; --ui-light-note: #F4F4F5; --ui-light-ok: #167544; --ui-light-bad: #B42318; --ui-light-warn: #9A5F08;
+  --ui-dark-bg: #000000; --ui-dark-card: #0A0A0A; --ui-dark-ink: #FAFAFA; --ui-dark-mute: #A1A1AA; --ui-dark-line: #2E2E2E;
+  --ui-dark-primary: #FFFFFF; --ui-dark-note: #18181B; --ui-dark-ok: #79D4B0; --ui-dark-bad: #FF9890; --ui-dark-warn: #EABE75;
 }
