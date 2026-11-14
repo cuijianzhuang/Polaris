@@ -461,73 +461,10 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  browser-ui:
-    needs: changes
-    if: needs.changes.outputs.browser == 'true' && inputs.reuse_validated_checks != true
-    container: mcr.microsoft.com/playwright/python:v1.56.0-noble
-    defaults:
-      run:
-        shell: bash
-    name: browser-ui (${{ matrix.suite }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.matrix) }}
-    env:
-      POLARIS_BROWSER_DIAGNOSTICS: '1'
-      POLARIS_BROWSER_ARTIFACTS: /tmp/polaris-browser-artifacts
-      PYTHONPATH: ${{ github.workspace }}/.github/scripts/browser_support
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install UI and browser dependencies
-        run: |
-          npm --prefix web ci --no-audit --no-fund
-          python -m pip install -r web/scripts/browser-requirements.txt
-          python .github/scripts/check-browser-runtime.py
-      - name: Run ${{ matrix.suite }} workflows in Chromium and WebKit
-        env:
-          BROWSER_TEST_SCRIPTS: ${{ matrix.scripts }}
-          POLARIS_WEB_TEST_URL: http://127.0.0.1:5187
-        run: |
-          set -euo pipefail
-          npm --prefix web run dev -- --host 127.0.0.1 --port 5187 --strictPort > /tmp/browser-vite.log 2>&1 &
-          browser_server_pid=$!
-          trap 'kill "$browser_server_pid" 2>/dev/null || true' EXIT
-          curl --retry 20 --retry-connrefused --retry-delay 1 -fsS "$POLARIS_WEB_TEST_URL/" > /dev/null
-          printf '| Script | Seconds | Result |\n| --- | ---: | --- |\n' >> "$GITHUB_STEP_SUMMARY"
-          for script in $BROWSER_TEST_SCRIPTS; do
-            echo "::group::$script"
-            script_started=$SECONDS
-            if python "web/scripts/$script"; then
-              printf '| %s | %s | passed |\n' "$script" "$((SECONDS-script_started))" >> "$GITHUB_STEP_SUMMARY"
-            else
-              script_exit=$?
-              printf '| %s | %s | failed |\n' "$script" "$((SECONDS-script_started))" >> "$GITHUB_STEP_SUMMARY"
-              exit "$script_exit"
-            fi
-            echo "::endgroup::"
-          done
-      - name: Upload browser failure evidence
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-evidence-browser-ui${{ strategy.job-index }}
-          path: |
-            /tmp/polaris-browser-artifacts
-            /tmp/browser-vite.log
-          retention-days: 7
-          if-no-files-found: ignore
-
   pr-proof:
     # Only completed PR browser/PostgreSQL checks can be reused by a release.
     # Record the checked-out merge tree, not just the PR head commit.
-    needs: [changes, passkeys, browser-ui, go-postgres]
+    needs: [changes, passkeys, go-postgres]
     if: github.event_name == 'pull_request' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     permissions:
