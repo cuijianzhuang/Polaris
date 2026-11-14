@@ -64,6 +64,7 @@ button.pv-card{cursor:pointer}button.pv-card:hover{border-color:var(--pv-cyan);t
 .pv-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 .pv-live{display:inline-flex;align-items:center;gap:6px;font:11px var(--pv-mono);color:var(--pv-mute)}
 .pv-live i,.pv-st i{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}.pv-live i{color:var(--pv-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--pv-green) 12%,transparent)}
+.pv-health-dot{width:8px;height:8px;border-radius:50%;background:var(--pv-green);box-shadow:0 0 0 3px color-mix(in srgb,var(--pv-green) 16%,transparent);flex:0 0 8px;position:relative;z-index:1}.pv-health-dot.off{background:var(--pv-red);box-shadow:0 0 0 3px color-mix(in srgb,var(--pv-red) 14%,transparent)}.pv-health-dot.stale,.pv-health-dot.error{background:var(--pv-yellow);box-shadow:0 0 0 3px color-mix(in srgb,var(--pv-yellow) 14%,transparent)}
 .pv-sum{grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:22px}
 .pv-tile{padding:16px;border-radius:12px;background:var(--pv-card);position:relative;overflow:hidden}
 .pv-tile .k{font-size:11px;letter-spacing:.01em;text-transform:none}
