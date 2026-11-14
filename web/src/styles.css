@@ -1333,6 +1333,12 @@ html[data-style="warm"] .workspace-search { background:var(--card); }
 html[data-style="warm"] .snav-item.on { background:var(--card);box-shadow:inset 0 0 0 1px var(--line); }
 html[data-style="warm"] .card { box-shadow:var(--shadow-1); }
 html[data-style="warm"] .btn.pri:hover { box-shadow:none; }
+
+/* Keep the named palettes distinct while sharing the Vercel-like restraint. */
+html[data-style] .card { box-shadow: none; }
+html[data-style] .btn, html[data-style] .input, html[data-style] textarea.input, html[data-style] select.input { border-radius: 7px; box-shadow: none; }
+html[data-style] .workspace-bar { backdrop-filter: none; -webkit-backdrop-filter: none; }
+html[data-style] .page-content > .top h1 { letter-spacing: -.04em; }
 html[data-style="warm"] .bar > div { background:var(--pri); }
 html[data-style="warm"] .overlay { background:rgba(34,28,20,.38); }
 html[data-style="warm"][data-mode="dark"] .overlay { background:rgba(12,10,7,.65); }

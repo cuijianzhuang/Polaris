@@ -69,11 +69,12 @@ npm run build
 不再在每个任务中重复执行 `playwright install --with-deps`。升级时必须同时更新镜像版本和
 `web/scripts/browser-requirements.txt`；任务启动时会实际启动 Chromium / WebKit 校验环境。
 
-PR 的 PostgreSQL 全量检查、真实后端浏览器测试和各 UI 分组都通过后，CI 保存实际测试代码的 Git 树，保留 7 天。
+PR 的 PostgreSQL 全量检查和真实后端浏览器测试都通过后，CI 保存实际测试代码的 Git 树，保留 7 天。
 普通 PR 合并触发发版时，仅当同仓库成功 PR CI 的树与发版树完全一致，才省去重复的 PostgreSQL 全量检查和浏览器测试。
 证明缺失、过期、API 不可用或代码有变化都会执行完整 PostgreSQL / 浏览器测试；标签、手动发版和直接推送也完整执行。
 Go 全量（含数据库集成用例）、Redis、专业版与真实内核检查仍在发版时运行，以覆盖外部专业版源码等依赖变化。
 复用或回退原因会写入 Actions 的任务摘要。测试用例本身保持完整覆盖。
+`web/scripts/*-ui-smoke.py` 这类基于 Vite 模拟数据的界面回归脚本不再在 CI 中运行；改动相关界面时，请先 `npm --prefix web run dev -- --port 5187`，再在本地运行对应脚本。
 CI 的 PostgreSQL 16 服务把临时数据放在上限 2 GiB 的 tmpfs 中，减少各测试建库与迁移时的磁盘等待。
 前端生产构建由 Docker 的 web 阶段验证，不再在同一任务重复构建；专业版任务不再下载未使用的 GOST / Pebble。
 

@@ -129,10 +129,29 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   }
 
   return (
-    <div className="login">
-      <form className="card" onSubmit={submit}>
+    <div className="login login-home">
+      <aside className="login-visual">
+        <div className="login-visual-brand">
+          <span className="login-visual-logo"><Icon.Brand size={32} /></span>
+          <span><strong>{brand.title}</strong><small>{t('节点管理控制台')}</small></span>
+        </div>
+        <div className="login-visual-copy">
+          <span className="login-visual-kicker">{t('多内核代理管理面板')}</span>
+          <h1>{t('统一管理多台节点')}</h1>
+          <p>{t('在一个清晰的工作区中，掌握节点状态、流量与配置下发。')}</p>
+          <ul className="login-features">
+            <li><Icon.Server />{t('节点状态')}</li>
+            <li><Icon.Pulse />{t('实时流量概览')}</li>
+            <li><Icon.Upload />{t('配置下发')}</li>
+          </ul>
+        </div>
+        <div className="login-visual-foot"><Icon.Lock /><span>{t('为日常运维打造的统一控制台')}</span></div>
+      </aside>
+      <section className="login-stage" aria-label={t('管理员登录')}>
+        <form className="card login-card" onSubmit={submit}>
  {recovered && <div className="note">{t('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。')}</div>}
-        <div className="row" style={{ gap: 12, fontWeight: 600, fontSize: 20 }}><Icon.Brand size={40} />{brand.title}<span className="spacer" /><LangToggle /></div>
+          <div className="row login-card-brand"><Icon.Brand size={36} /><strong>{brand.title}</strong><span className="spacer" /><LangToggle /></div>
+          <div className="login-form-copy"><h2>{t('欢迎回来')}</h2><p>{t('登录以继续管理节点。')}</p></div>
         <div className="field">
           <label className="lbl" htmlFor="u">{t('用户名')}</label>
           <input className="input" id="u" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
@@ -156,7 +175,8 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         {github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         {telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
         {sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
-      </form>
+        </form>
+      </section>
     </div>
   )
 }
