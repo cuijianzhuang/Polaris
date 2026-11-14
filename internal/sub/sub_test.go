@@ -136,7 +136,7 @@ func TestDetect(t *testing.T) {
 
 func TestPage(t *testing.T) {
 	b, err := RenderPage(Info{Title: "Polaris", URL: "https://p.example/sub/abc", Total: 100, Upload: 20, Download: 30})
-	if err != nil || !strings.Contains(string(b), "data:image/png;base64,") || !strings.Contains(string(b), "width:50%") {
+	if err != nil || !strings.Contains(string(b), "data:image/png;base64,") || !strings.Contains(string(b), "width:50%") || !strings.Contains(string(b), `data-theme-toggle`) || !strings.Contains(string(b), "polaris.theme") || !strings.Contains(string(b), "切换到深色模式") {
 		t.Fatalf("bad page: %v", err)
 	}
 }
