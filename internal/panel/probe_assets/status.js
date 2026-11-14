@@ -22,8 +22,10 @@
   const bps = (v) => format(v, ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'], 1000);
   const uptime = (s) => s >= 86400 ? Math.floor(s / 86400) + '天 ' + Math.floor(s % 86400 / 3600) + '时' : Math.floor(s / 3600) + '时 ' + Math.floor(s % 3600 / 60) + '分';
   const uc = (v) => v >= 85 ? 'var(--pv-red)' : v >= 60 ? 'var(--pv-yellow)' : 'var(--pv-green)';
-  const lc = (v) => v >= 5 ? 'var(--pv-red)' : v >= 1 ? 'var(--pv-yellow)' : 'var(--pv-green)';
-  const pc = (v) => v == null ? 'var(--pv-mute)' : v <= 0 ? 'var(--pv-red)' : v <= 80 ? 'var(--pv-green)' : v <= 160 ? 'var(--pv-cyan)' : v <= 260 ? 'var(--pv-yellow)' : 'var(--pv-red)';
+  // Severity colours are shared with the admin monitor: green, yellow,
+  // orange, red. Carrier colours remain only for target identification.
+  const lc = (v) => v > 3 ? 'var(--pv-red)' : v > 1 ? 'var(--pv-orange)' : v > .2 ? 'var(--pv-yellow)' : 'var(--pv-green)';
+  const pc = (v) => v == null ? 'var(--pv-mute)' : v <= 0 ? 'var(--pv-red)' : v <= 50 ? 'var(--pv-green)' : v <= 120 ? 'var(--pv-yellow)' : v <= 200 ? 'var(--pv-orange)' : 'var(--pv-red)';
   const bucketTime = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
   const col = { ct: '#3b82f6', cu: '#e8795b', cm: '#10b981' };
   const targets = (n) => n.probeTargets || last.targets || [];

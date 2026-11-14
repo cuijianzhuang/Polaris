@@ -1252,7 +1252,7 @@ html[data-style="blackgold"] .theme-demo-actions > .primary { background:var(--g
 @container (min-width:640px) { .appearance-layout { grid-template-columns:minmax(0,1fr) minmax(240px,.95fr); } }
 
 /* Admin monitor follows the panel palette; the public page remains independent. */
-html[data-mode] .pv { --pv-card:var(--card);--pv-card-2:var(--soft-2);--pv-line:var(--line);--pv-ink:var(--ink);--pv-mute:var(--mute);--pv-track:var(--soft);--pv-cyan:var(--pri-ink);--pv-green:var(--ok-ink);--pv-yellow:var(--warn-ink);--pv-red:var(--bad-ink);--pv-purple:var(--sb-ink);--pv-glow:var(--shadow-1);--pv-mono:var(--mono); }
+html[data-mode] .pv { --pv-card:var(--card);--pv-card-2:var(--soft-2);--pv-line:var(--line);--pv-ink:var(--ink);--pv-mute:var(--mute);--pv-track:var(--soft);--pv-cyan:var(--pri-ink);--pv-green:var(--ok-ink);--pv-yellow:var(--warn-ink);--pv-orange:color-mix(in srgb,var(--bad-ink) 60%,var(--warn-ink));--pv-red:var(--bad-ink);--pv-purple:var(--sb-ink);--pv-glow:var(--shadow-1);--pv-mono:var(--mono); }
 html[data-mode] .pv-card::before { display:none; }
 html[data-mode] .pv-tile .v.g, html[data-mode] .pv-tile .v.b, html[data-mode] .pv-tile .v.c { color:var(--ink); }
 html[data-mode] button.pv-card:hover { transform:none; }

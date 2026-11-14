@@ -9,8 +9,11 @@ import '../../../internal/panel/probe_assets/monitor.css'
 export const carrierColor: Record<string, string> = { ct: '#3b82f6', cu: '#e8795b', cm: '#10b981' }
 export const colorOf = (c: string) => carrierColor[c] ?? '#a78bfa'
 export const usageColor = (p: number) => p >= 85 ? 'var(--pv-red)' : p >= 60 ? 'var(--pv-yellow)' : 'var(--pv-green)'
-const lossColor = (v: number) => v >= 5 ? 'var(--pv-red)' : v >= 1 ? 'var(--pv-yellow)' : 'var(--pv-green)'
-export const pingColor = (ms: number | null | undefined) => ms == null ? 'var(--pv-mute)' : ms <= 0 ? 'var(--pv-red)' : ms <= 80 ? 'var(--pv-green)' : ms <= 160 ? 'var(--pv-cyan)' : ms <= 260 ? 'var(--pv-yellow)' : 'var(--pv-red)'
+// Network quality uses a severity scale, rather than carrier/accent colours:
+// green = healthy, yellow = notice, orange = degraded, red = poor/failed.
+// Cyan remains an interface accent and no longer makes elevated latency look OK.
+export const lossColor = (v: number) => v > 3 ? 'var(--pv-red)' : v > 1 ? 'var(--pv-orange)' : v > 0.2 ? 'var(--pv-yellow)' : 'var(--pv-green)'
+export const pingColor = (ms: number | null | undefined) => ms == null ? 'var(--pv-mute)' : ms <= 0 ? 'var(--pv-red)' : ms <= 50 ? 'var(--pv-green)' : ms <= 120 ? 'var(--pv-yellow)' : ms <= 200 ? 'var(--pv-orange)' : 'var(--pv-red)'
 
 // Advance from the server snapshot using elapsed browser time. A bad browser
 // wall clock cannot make freshly reported telemetry appear years out of date.
