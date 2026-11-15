@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -735,7 +736,9 @@ func (s *Server) resetTrafficCycles() {
 	}
 }
 
-// handleOnlineIPs records source IPs and enforces ip_limit.
+// handleOnlineIPs records source IPs and enforces ip_limit. Nodes report
+// every 20 seconds, so a steady snapshot must not rewrite user rows: only a
+// changed IP list is written, and online_at is refreshed in one batch.
 func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	banMinutes, _ := strconv.Atoi(s.st.GetSetting("ip_ban_minutes", "0"))
 	trusted := parseNetList(s.st.GetSetting("ip_limit_trusted", ""))
@@ -788,16 +791,21 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		byID[users[i].ID] = &users[i]
 	}
 	now := time.Now().UTC()
+	// online_at only needs one statement for the whole report, and the IP
+	// snapshot only changes when a device connects or disconnects: a steady
+	// node report must not rewrite every user row every 20 seconds.
+	var live []string
 	for _, r := range reports {
 		user := byID[r.id]
 		if user == nil {
 			continue
 		}
-		updates := map[string]any{"online_ips": store.NewJSON(r.ips)}
-		if r.live {
-			updates["online_at"] = now
+		if !slices.Equal(user.OnlineIPs.V, r.ips) {
+			s.warnWrite("online ips", s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(map[string]any{"online_ips": store.NewJSON(r.ips)}).Error)
 		}
-		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(updates)
+		if r.live {
+			live = append(live, user.ID)
+		}
 		if user.IPLimit > 0 && r.count > user.IPLimit {
 			if s.alertOnce("ip:"+user.ID, 10*time.Minute) {
 				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", r.count, user.IPLimit, strings.Join(r.ips, ", ")), "")
@@ -809,6 +817,12 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 				s.MarkDirty("ip limit ban", s.nodesForUsers(user.ID)...)
 			}
 		}
+	}
+	// One statement per chunk instead of one per user. Keep the parameter count
+	// under SQLite's bind limit, as settlement batches do.
+	for start := 0; start < len(live); start += settleBatch {
+		batch := live[start:min(start+settleBatch, len(live))]
+		s.warnWrite("online timeout", s.st.DB.Model(&store.User{}).Where("id IN ?", batch).Update("online_at", now).Error)
 	}
 }
 
