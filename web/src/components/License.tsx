@@ -116,7 +116,7 @@ export default function License() {
         </div>
         <div className="license-hero-foot">
           {d.checkedAt && lic && !lic.offline && <div className="license-hero-status">{t('最近联网校验：{t}', { t: new Date(d.checkedAt).toLocaleString() })}</div>}
-          <div className="row" style={{ gap: 8, marginLeft: 'auto' }}>
+          <div className="license-hero-actions">
             {lic && !lic.offline && d.server && <button className="btn license-hero-check" type="button" disabled={busy || retryIn > 0}
               onClick={() => run(async () => { try { apply(await post<LicenseView>('/license/check')) } finally { v.reload() } }, t('已从授权服务器更新'))}>
               <Icon.Refresh /> {retryIn > 0 ? t('{n} 秒后可再次校验', { n: retryIn }) : t('立即校验')}</button>}

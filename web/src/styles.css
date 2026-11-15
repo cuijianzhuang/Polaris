@@ -619,11 +619,16 @@ a.attn-item:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .license-hero-copy { display: inline-grid; place-items: center; width: 26px; height: 26px; margin-left: 6px; vertical-align: middle; border: 1px solid rgba(255, 255, 255, .28); border-radius: 7px; background: rgba(255, 255, 255, .12); color: #fff; cursor: pointer; }
 .license-hero-copy:hover { background: rgba(255, 255, 255, .22); }
 .license-hero-copy svg { width: 14px; height: 14px; }
-.license-hero-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; margin: 0; min-width: 260px; }
+.license-hero-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 28px; margin: 0; min-width: 260px; align-content: start; }
 .license-hero-summary > div { min-width: 0; }
 .license-hero-summary dt { font-size: 12px; color: rgba(255, 255, 255, .66); }
 .license-hero-summary dd { margin: 2px 0 0; font-size: 14px; font-weight: 600; color: #fff; overflow-wrap: anywhere; }
-.license-hero-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-top: 1px solid rgba(255, 255, 255, .16); padding-top: 14px; }
+/* Status text on the left, actions on the right, both on the card's padding
+   edge: the actions used to float with margin-left:auto on a wrapping .row,
+   which left them misaligned against the summary above. */
+.license-hero-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; align-items: center; border-top: 1px solid rgba(255, 255, 255, .16); padding-top: 14px; }
+.license-hero-foot:not(:has(.license-hero-status)) { grid-template-columns: 1fr; justify-items: end; }
+.license-hero-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
 .license-hero-status { font-size: 12.5px; color: rgba(255, 255, 255, .78); }
 .license-hero .btn.license-hero-check { background: #fff; color: #0f5b5e; border-color: transparent; }
 .license-hero .btn.license-hero-check:hover { background: #f0fdfa; }
@@ -632,6 +637,11 @@ a.attn-item:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
 .license-hero .btn:disabled { opacity: .55; }
 @media (max-width: 760px) {
   .license-hero-summary { min-width: 0; width: 100%; }
+  /* One column: the status line above the buttons, both on the same edge. */
+  .license-hero-foot,
+  .license-hero-foot:not(:has(.license-hero-status)) { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  .license-hero-actions { justify-content: flex-start; width: 100%; }
+  .license-hero-actions .btn { flex: 1 1 auto; }
 }
 .lic-feat { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .lic-feat .tag { margin: 0; flex: none; }

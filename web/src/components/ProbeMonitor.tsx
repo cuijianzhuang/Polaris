@@ -21,7 +21,13 @@ export function useProbeClock(at?: string) {
   const [base, setBase] = useState({ server: Date.now(), received: performance.now() })
   const [now, setNow] = useState(performance.now())
   useEffect(() => { const received = performance.now(); setBase({ server: Number.isFinite(dateMs(at)) ? dateMs(at) : Date.now(), received }); setNow(received) }, [at])
-  useEffect(() => { const id = setInterval(() => setNow(performance.now()), 5000); return () => clearInterval(id) }, [])
+  // Ticking every 5s re-renders every card even while nothing visible changes.
+  // Keep the clock coarse (a minute) so the only thing a tick can flip is the
+  // fresh/stale boundary, and skip the update when that boundary is far away.
+  useEffect(() => {
+    const id = setInterval(() => setNow(performance.now()), 60000)
+    return () => clearInterval(id)
+  }, [])
   return base.server + Math.max(0, now - base.received)
 }
 
@@ -85,10 +91,13 @@ export function LatencyRows({ n, targets, now = Date.now() }: { n: ProbeNode; ta
   </div>
 }
 
-export function NodeProbeCard({ n, targets, onOpen, view, now, showTraffic }: { n: ProbeNode; targets: ProbeTarget[]; onOpen: () => void; view: ProbeView; now: number; showTraffic: boolean }) {
+// Memoised: the probe feed refreshes every couple of seconds and the clock
+// ticks on its own, but a card only needs to re-render when its own node data
+// or the freshness boundary it shows actually changed.
+export const NodeProbeCard = memo(function NodeProbeCard({ n, targets, onOpen, view, now, showTraffic }: { n: ProbeNode; targets: ProbeTarget[]; onOpen: (id: string) => void; view: ProbeView; now: number; showTraffic: boolean }) {
   const fresh = freshTelemetry(n, now)
   const cpu = fresh ? n.cpu : null, mem = fresh ? n.mem : null, disk = fresh && (n.diskTotal ?? 0) > 0 ? n.disk : null
-  return <button type="button" className={'pv-card' + (!n.online ? ' off' : attention(n, now) ? ' attention' : '')} onClick={onOpen} aria-label={t('查看节点 {name}', { name: n.name })}>
+  return <button type="button" className={'pv-card' + (!n.online ? ' off' : attention(n, now) ? ' attention' : '')} onClick={() => onOpen(n.id)} aria-label={t('查看节点 {name}', { name: n.name })}>
     <div className="pv-hd"><i className={'pv-health-dot ' + probeState(n, now)} aria-hidden="true" /><span className="pv-flag"><CountryFlag code={n.flag} fallback="◎" /></span><span className="pv-identity"><strong className="pv-name"><FlagText>{n.name}</FlagText></strong><span className="pv-region">{n.region || n.arch || '—'}</span></span><ProbeBadge n={n} now={now} /></div>
     <NodeBadges n={n} now={now} />
     {view === 'ring' ? <div className="pv-rings"><Ring label="CPU" value={cpu} /><Ring label="RAM" value={mem} /><Ring label="DISK" value={disk} /></div> : <div className="pv-rows"><Meter label="CPU" value={cpu} /><Meter label="RAM" value={mem} /><Meter label="DISK" value={disk} /></div>}
@@ -98,7 +107,7 @@ export function NodeProbeCard({ n, targets, onOpen, view, now, showTraffic }: { 
     <LatencyRows n={n} targets={targets} now={now} />
     <div className="pv-card-foot"><span>{fresh ? t('运行 {time}', { time: uptime(n.uptime) }) : n.lastSeen ? datetime(n.lastSeen) : t('等待上报')}</span><span>{t('查看详情')} ↗</span></div>
   </button>
-}
+})
 
 export function ProbeSummary({ nodes, now, showTraffic }: { nodes: ProbeNode[]; now: number; showTraffic: boolean }) {
   const on = nodes.filter((n) => n.online), fresh = nodes.filter((n) => freshTelemetry(n, now)), stale = on.length - fresh.length

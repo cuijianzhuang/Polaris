@@ -199,9 +199,19 @@ func (s *Server) ingestTraffic(nodeID string, batches []*polarisv1.TrafficBatch,
 // settleTraffic moves buffered traffic into users and traffic_hourly, applying
 // each node's traffic multiplier, and marks active users online.
 func (s *Server) settleTraffic() error {
+	_, err := s.settle()
+	return err
+}
+
+// settle is settleTraffic plus whether it already ran the user limit
+// enforcement. It returns early, without enforcing, when the inbox is empty,
+// another instance drained it, or the transaction failed; callers that must
+// still apply time-based expiry check the second result instead of running a
+// second full scan of the users table on every tick.
+func (s *Server) settle() (enforced bool, err error) {
 	data, err := s.traffic.Drain()
 	if err != nil || len(data) == 0 {
-		return err
+		return false, err
 	}
 	now := time.Now().UTC()
 	hour := now.UTC().Truncate(time.Hour)
@@ -209,7 +219,7 @@ func (s *Server) settleTraffic() error {
 	rates := map[string]float64{}
 	var nodes []store.Node
 	if res := s.st.DB.Select("id", "traffic_rate").Find(&nodes); res.Error != nil {
-		return res.Error
+		return false, res.Error
 	}
 	for _, n := range nodes {
 		rates[n.ID] = n.TrafficRate
@@ -375,10 +385,10 @@ func (s *Server) settleTraffic() error {
 		return nil
 	})
 	if errors.Is(err, errInboxTaken) {
-		return nil // another instance settled it; the rest waits for the next round
+		return false, nil // another instance settled it; the rest waits for the next round
 	}
 	if err != nil {
-		return err // the traffic stays in the inbox for the next settlement
+		return false, err // the traffic stays in the inbox for the next settlement
 	}
 	if len(quotaNodes) > 0 {
 		s.MarkDirty("node quota reached", quotaNodes...)
@@ -393,7 +403,7 @@ func (s *Server) settleTraffic() error {
 	// in startJobs enforces again to cover those paths. Removing either
 	// call would leave time-based expiry unenforced on idle/failed rounds.
 	s.enforceLimits()
-	return nil
+	return true, nil
 }
 
 // settleBatch is how many rows one batched statement writes.
@@ -730,6 +740,16 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	banMinutes, _ := strconv.Atoi(s.st.GetSetting("ip_ban_minutes", "0"))
 	trusted := parseNetList(s.st.GetSetting("ip_limit_trusted", ""))
 	allowed := s.nodeUsers(nodeID)
+	// Collect first so the users table is read in one query instead of one
+	// select per user on every report from every node.
+	type report struct {
+		id    string
+		ips   []string
+		live  bool
+		count int
+	}
+	var reports []report
+	ids := make([]string, 0, len(m.Users))
 	for _, u := range m.Users {
 		if u == nil {
 			continue
@@ -753,22 +773,38 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 				counted++
 			}
 		}
-		var user store.User
-		if err := s.st.DB.First(&user, "id = ?", u.UserId).Error; err != nil {
+		reports = append(reports, report{id: u.UserId, ips: list, live: len(ips) > 0, count: counted})
+		ids = append(ids, u.UserId)
+	}
+	if len(reports) == 0 {
+		return
+	}
+	var users []store.User
+	if err := s.st.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return
+	}
+	byID := make(map[string]*store.User, len(users))
+	for i := range users {
+		byID[users[i].ID] = &users[i]
+	}
+	now := time.Now().UTC()
+	for _, r := range reports {
+		user := byID[r.id]
+		if user == nil {
 			continue
 		}
-		updates := map[string]any{"online_ips": store.NewJSON(list)}
-		if len(ips) > 0 {
-			updates["online_at"] = time.Now().UTC()
+		updates := map[string]any{"online_ips": store.NewJSON(r.ips)}
+		if r.live {
+			updates["online_at"] = now
 		}
 		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(updates)
-		if user.IPLimit > 0 && counted > user.IPLimit {
+		if user.IPLimit > 0 && r.count > user.IPLimit {
 			if s.alertOnce("ip:"+user.ID, 10*time.Minute) {
-				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", counted, user.IPLimit, strings.Join(list, ", ")), "")
-				s.notify(Event{Kind: "ip_limit", UserID: user.ID, Text: fmt.Sprintf("🚨 用户 %s 同时在线 IP %d 个（不含受信任地址），超过限制 %d", user.Username, counted, user.IPLimit)})
+				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", r.count, user.IPLimit, strings.Join(r.ips, ", ")), "")
+				s.notify(Event{Kind: "ip_limit", UserID: user.ID, Text: fmt.Sprintf("🚨 用户 %s 同时在线 IP %d 个（不含受信任地址），超过限制 %d", user.Username, r.count, user.IPLimit)})
 			}
 			if banMinutes > 0 && user.BannedUntil == nil {
-				until := time.Now().UTC().Add(time.Duration(banMinutes) * time.Minute)
+				until := now.Add(time.Duration(banMinutes) * time.Minute)
 				s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Update("banned_until", until)
 				s.MarkDirty("ip limit ban", s.nodesForUsers(user.ID)...)
 			}
