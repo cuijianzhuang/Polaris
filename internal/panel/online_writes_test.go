@@ -129,6 +129,9 @@ func (r *onlineWriteRecorder) attach(t *testing.T, s *Server) {
 			return
 		}
 		r.total.Add(1)
+		// GORM turns both the map form and the column+CASE form into a Dest
+		// map; the snapshot write is the one that assigns online_ips a value
+		// that is not a bound parameter slice.
 		if m, ok := tx.Statement.Dest.(map[string]any); ok {
 			if _, ok := m["online_ips"]; ok {
 				r.ips.Add(1)
@@ -215,5 +218,86 @@ func TestOnlineIPReportBatchChunksOnlineAt(t *testing.T) {
 	}
 	if n := rec.total.Load(); n != 2 {
 		t.Fatalf("online_at refreshed in %d statements for %d users, want 2", n, total)
+	}
+}
+
+// Many devices connecting at once used to cost one UPDATE per user. The
+// snapshots are now written per chunk with a CASE, and every snapshot must
+// survive that expression intact, including a cleared one.
+func TestOnlineIPReportChunksChangedSnapshots(t *testing.T) {
+	s := newTestServer(t)
+	if err := s.st.DB.Create(&store.Node{ID: "n", Name: "n"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	total := settleBatch + 1
+	users := make([]store.User, total)
+	allowed := make(map[string]bool, total)
+	m := &polarisv1.OnlineIPs{}
+	want := map[string][]string{}
+	for i := range users {
+		id := fmt.Sprintf("u%03d", i)
+		// u000 and the last user hold a stale list that the report clears;
+		// everyone else starts empty and gets its first snapshot.
+		stored := []string{}
+		if i == 0 || i == total-1 {
+			stored = []string{"203.0.113.7"}
+		}
+		users[i] = store.User{ID: id, Username: id, UUID: store.NewID(), Password: "p", SubToken: store.NewID(),
+			Status: "active", OnlineIPs: store.NewJSON(stored)}
+		allowed[id] = true
+		ips := []string{fmt.Sprintf("198.51.100.%d", i%256)}
+		if i == 0 || i == total-1 {
+			ips = nil // an empty report clears the stored list
+		}
+		want[id] = append([]string{}, ips...)
+		m.Users = append(m.Users, &polarisv1.UserIPs{UserId: id, Ips: ips})
+	}
+	if err := s.st.DB.CreateInBatches(&users, 200).Error; err != nil {
+		t.Fatal(err)
+	}
+	s.nodeUserSets.mu.Lock()
+	s.nodeUserSets.m = map[string]nodeUsersEntry{"n": {set: allowed, own: allowed}}
+	s.nodeUserSets.mu.Unlock()
+	var rec onlineWriteRecorder
+	rec.attach(t, s)
+
+	s.handleOnlineIPs("n", m)
+	// 501 users need two chunks: the CASE statement only carries 500 rows.
+	if n := rec.ips.Load(); n != 2 {
+		t.Fatalf("changed snapshots written in %d statements for %d users, want 2", n, total)
+	}
+	// Clearing one stored list and the no-op halves prove the batch is not
+	// silently merged into one oversized statement.
+	var cleared, kept int64
+	if err := s.st.DB.Model(&store.User{}).Where("id IN ? AND online_ips = ?", []string{"u000", fmt.Sprintf("u%03d", total-1)}, "[]").Count(&cleared).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Model(&store.User{}).Where("id IN ? AND online_ips <> ?", []string{"u001", "u002"}, "[]").Count(&kept).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cleared != 2 || kept != 2 {
+		t.Fatalf("stored snapshots wrong: cleared=%d kept=%d", cleared, kept)
+	}
+	var got []store.User
+	if err := s.st.DB.Order("id").Find(&got, "id IN ?", []string{"u000", "u001"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range got {
+		if !slices.Equal(u.OnlineIPs.V, want[u.ID]) {
+			t.Fatalf("%s snapshot = %v, want %v", u.ID, u.OnlineIPs.V, want[u.ID])
+		}
+	}
+	var last store.User
+	if err := s.st.DB.First(&last, "id = ?", fmt.Sprintf("u%03d", total-1)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(last.OnlineIPs.V) != 0 {
+		t.Fatalf("cleared snapshot still stored %v", last.OnlineIPs.V)
+	}
+	// No row may be rewritten by a second identical report.
+	rec.reset()
+	s.handleOnlineIPs("n", m)
+	if n := rec.ips.Load(); n != 0 {
+		t.Fatalf("repeated report rewrote %d snapshots", n)
 	}
 }
