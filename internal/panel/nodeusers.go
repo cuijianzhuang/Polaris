@@ -19,6 +19,7 @@ type nodeUsersEntry struct {
 	set              map[string]bool // from the two revisions
 	own              map[string]bool // set without grace users
 	graceUntil       time.Time
+	generation       uint64 // changes on access so a concurrent sweep cannot evict it
 }
 
 // nodeUsersGrace keeps the users of the previously applied revision allowed
@@ -27,8 +28,17 @@ type nodeUsersEntry struct {
 const nodeUsersGrace = 5 * time.Minute
 
 type nodeUsersCache struct {
-	mu sync.Mutex
-	m  map[string]nodeUsersEntry
+	mu   sync.Mutex
+	m    map[string]nodeUsersEntry
+	next uint64
+}
+
+// Caller holds mu. A generation marks every access, including a cache hit, so
+// the sweeper can recheck that an entry has not been used since its DB lookup.
+func (c *nodeUsersCache) storeLocked(id string, entry nodeUsersEntry) {
+	c.next++
+	entry.generation = c.next
+	c.m[id] = entry
 }
 
 func (s *Server) nodeUsers(nodeID string) map[string]bool {
@@ -45,8 +55,8 @@ func (s *Server) nodeUsers(nodeID string) map[string]bool {
 	if hadPrev && prev.desired == n.DesiredRev && prev.applied == n.AppliedRev {
 		if !prev.graceUntil.IsZero() && time.Now().After(prev.graceUntil) {
 			prev.set, prev.graceUntil = prev.own, time.Time{}
-			s.nodeUserSets.m[nodeID] = prev
 		}
+		s.nodeUserSets.storeLocked(nodeID, prev)
 		return prev.set
 	}
 	set := map[string]bool{}
@@ -85,6 +95,6 @@ func (s *Server) nodeUsers(nodeID string) map[string]bool {
 	case hadPrev && !prev.graceUntil.IsZero() && time.Now().Before(prev.graceUntil):
 		e.set, e.graceUntil = union(prev.set, set), prev.graceUntil // only desired moved: keep the grace
 	}
-	s.nodeUserSets.m[nodeID] = e
+	s.nodeUserSets.storeLocked(nodeID, e)
 	return e.set
 }
