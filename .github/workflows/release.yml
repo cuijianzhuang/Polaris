@@ -37,6 +37,8 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       skip: ${{ steps.v.outputs.skip }}
       prerelease: ${{ steps.v.outputs.prerelease }}
+      epoch: ${{ steps.v.outputs.epoch }}
+      builddate: ${{ steps.v.outputs.builddate }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -92,7 +94,13 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
-          echo "Releasing $v"
+          # Reproducible builds: derive every timestamp from the commit being
+          # released, never from the clock. The same commit then yields the
+          # same binaries and checksums however often it is rebuilt.
+          epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "builddate=$(date -u -d "@$epoch" +%F)" >> "$GITHUB_OUTPUT"
+          echo "Releasing $v (build date $(date -u -d "@$epoch" +%F), $(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ))"
 
   verified-checks:
     needs: version
@@ -162,23 +170,36 @@ jobs:
       - name: Build panel and agent (community, then pro)
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          EPOCH: ${{ needs.version.outputs.epoch }}
+          BUILDDATE: ${{ needs.version.outputs.builddate }}
           # License server public keys (base64, comma separated); empty = licenses not accepted yet.
           LICENSE_PUBKEYS: ${{ secrets.LICENSE_PUBKEYS }}
           LICENSE_SERVER: ${{ vars.LICENSE_SERVER }}
           PRO_DIR: ${{ steps.pro.outputs.dir }}
         run: |
           set -euo pipefail
+          # Reproducible: no clock, no absolute paths, no local user/group ids
+          # in the archive. The same commit rebuilds to the same checksums.
+          export SOURCE_DATE_EPOCH="$EPOCH" CGO_ENABLED=0
           LDFLAGS="-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}"
-          LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=$(date -u +%F)"
+          LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=${BUILDDATE}"
           if [ -n "${LICENSE_PUBKEYS}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS}"; fi
           if [ -n "${LICENSE_SERVER}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.DefaultLicenseServer=${LICENSE_SERVER}"; fi
           mkdir -p dist build
+          # tar with fixed metadata: --sort, --owner/--group 0, --mtime from the
+          # commit, no atime/ctime records, and gzip without the filename stamp.
+          pack() { # $1: output archive, then the files (relative to their -C dirs)
+            local out="$1"; shift
+            tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" \
+              --format=gnu --create "$@" | gzip -9n > "$out"
+          }
           build() { # $1: build tags ("" or pro)
             local ep=${1:+$1-}
             for arch in amd64 arm64; do
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$1" -ldflags "$LDFLAGS" -o dist/polaris-agent-${ep}linux-$arch ./cmd/agent
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$1" -ldflags "$LDFLAGS" -o build/polaris ./cmd/panel
-              tar -C build -czf dist/polaris-panel-${ep}${VERSION}-linux-$arch.tar.gz polaris \
+              chmod 0755 build/polaris
+              pack dist/polaris-panel-${ep}${VERSION}-linux-$arch.tar.gz -C build polaris \
                 -C "$GITHUB_WORKSPACE/deploy" polaris.service polaris.env.example Caddyfile
               rm -f build/polaris
             done
@@ -190,7 +211,7 @@ jobs:
             scripts/pro.sh clean
           fi
           cp scripts/install-panel.sh dist/
-          cd dist && sha256sum * > checksums.txt && cat checksums.txt
+          (cd dist && sha256sum -- * > checksums.txt && cat checksums.txt)
       - name: Smoke test the binaries
         env:
           VERSION: ${{ needs.version.outputs.version }}
