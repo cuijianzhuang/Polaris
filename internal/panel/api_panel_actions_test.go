@@ -89,6 +89,10 @@ func TestPanelActionResetTraffic(t *testing.T) {
 
 func TestRemotePanelActionFeature(t *testing.T) {
 	s, _, c := newAdminClient(t)
+	// Pin a community license: the default license state differs between the
+	// community and pro builds (pro keeps the granted features), so without
+	// this the hub would forward the action instead of answering 402.
+	s.lic.Store(&licenseState{st: license.State{Plan: "community", Features: []string{}}})
 	p := store.RemotePanel{ID: "rp1", Name: "m", BaseURL: "https://m.example.com", Token: s.st.Box.Seal("t")}
 	if err := s.st.DB.Create(&p).Error; err != nil {
 		t.Fatal(err)
