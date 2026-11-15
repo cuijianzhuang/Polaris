@@ -28,6 +28,10 @@ import (
 
 const agentRepo = "https://github.com/cuijianzhuang/polaris/releases/download/"
 
+// agentReleaseBase is where checksums.txt is read from: the official GitHub
+// release, never a mirror. Tests point it at a local server.
+var agentReleaseBase = agentRepo
+
 var agentArches = []string{"amd64", "arm64"}
 
 func validArch(a string) bool { return a == "amd64" || a == "arm64" }
@@ -90,10 +94,11 @@ func (s *Server) ensureAgent(ctx context.Context, arch string) error {
 // fetchRelease downloads one asset of this version's release (through the
 // configured GitHub mirror) into dst, verified against checksums.txt.
 func (s *Server) fetchRelease(ctx context.Context, name, dst string, mode os.FileMode, limit int64) error {
-	origin := agentRepo + Version + "/"
+	origin := agentReleaseBase + Version + "/"
 	bases := []string{origin}
-	if m := strings.TrimRight(s.st.GetSetting("github_mirror", ""), "/"); m != "" {
-		// A lagging mirror must not prevent agent upgrades after a new release.
+	if m := mirrorBase(s.st.GetSetting("github_mirror", "")); m != "" {
+		// A lagging mirror must not prevent agent upgrades after a new release:
+		// the mirror is tried first, the origin is the fallback.
 		bases = []string{m + "/" + origin, origin}
 	}
 	var last error
@@ -105,6 +110,20 @@ func (s *Server) fetchRelease(ctx context.Context, name, dst string, mode os.Fil
 		}
 	}
 	return last
+}
+
+// mirrorBase normalises the configured GitHub mirror. Only https is accepted:
+// a mirror is an untrusted third party that relays release bytes, and a plain
+// http mirror would let anyone on the path rewrite them.
+func mirrorBase(raw string) string {
+	m := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if m == "" {
+		return ""
+	}
+	if !strings.HasPrefix(m, "https://") {
+		return ""
+	}
+	return m
 }
 
 func (s *Server) fetchReleaseAt(ctx context.Context, base, name, dst string, mode os.FileMode, limit int64) error {
@@ -126,7 +145,11 @@ func (s *Server) fetchReleaseAt(ctx context.Context, base, name, dst string, mod
 		return err
 	}
 	var sums strings.Builder
-	if err := get(base+"checksums.txt", &sums, 1<<20); err != nil {
+	// The checksum always comes from GitHub itself, never from the mirror: a
+	// compromised mirror could otherwise serve a backdoored binary together
+	// with a matching checksums.txt. The mirror only relays payload bytes.
+	sumURL := agentReleaseBase + Version + "/checksums.txt"
+	if err := get(sumURL, &sums, 1<<20); err != nil {
 		return err
 	}
 	want := ""

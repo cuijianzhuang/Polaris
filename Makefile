@@ -15,19 +15,19 @@ build:
 
 agent:
 	for arch in amd64 arm64; do \
-		CGO_ENABLED=0 GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o bin/polaris-agent-linux-$$arch ./cmd/agent; \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags "$(LDFLAGS)" -o bin/polaris-agent-linux-$$arch ./cmd/agent; \
 	done
 
 test:
 	go vet ./...
-	go test -timeout 0 ./...
+	go test -count=1 -timeout 0 ./...
 
 # Concurrency check: same suite under the race detector. The live/browser
 # tests in internal/panel self-skip unless their POLARIS_* env vars are set,
 # so `test` and `test-race` are the everyday unit + integration runs.
 test-race:
 	go vet ./...
-	go test -race -timeout 0 ./...
+	go test -count=1 -race -timeout 0 ./...
 
 # Runs adapter, subscription and end-to-end tests against real core binaries:
 #   make test-cores XRAY=/path/to/xray SINGBOX=/path/to/sing-box
