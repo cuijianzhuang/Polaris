@@ -419,6 +419,7 @@ jobs:
           POLARIS_AI_BROWSER_TEST: '1'
           POLARIS_AI_ARTIFACTS: /tmp/polaris-browser-artifacts/ai
         run: |
+          python -m unittest discover -s ../../web/scripts -p 'test_browser_retry.py' -v
           "$RUNNER_TEMP/polaris-browser.test" -test.v -test.timeout=4m -test.run '^TestLiveAIAssistantBrowser$'
       - name: Real checkout, payment confirmation and support lifecycle
         if: env.POLARIS_SERVICES_PRO == 'true'

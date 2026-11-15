@@ -16,23 +16,25 @@ import (
 // the account quota runs out), and a cap per traffic period on that node.
 
 // loadNodeQuotas returns the quotas touched by a settlement, by "user|node".
-func (s *Server) loadNodeQuotas(data map[string]map[string][2]int64) map[string]*store.UserNodeQuota {
+// A failed read must not look like an empty set: that would skip traffic packs
+// and consume the inbox while charging everything to the account quota.
+func (s *Server) loadNodeQuotas(data map[string]map[string][2]int64) (map[string]*store.UserNodeQuota, error) {
 	out := map[string]*store.UserNodeQuota{}
 	nodes := make([]string, 0, len(data))
 	for n := range data {
 		nodes = append(nodes, n)
 	}
 	if len(nodes) == 0 {
-		return out
+		return out, nil
 	}
 	var qs []store.UserNodeQuota
 	if res := s.st.DB.Where("node_id IN ?", nodes).Find(&qs); res.Error != nil {
-		return nil
+		return nil, res.Error
 	}
 	for i := range qs {
 		out[qs[i].UserID+"|"+qs[i].NodeID] = &qs[i]
 	}
-	return out
+	return out, nil
 }
 
 // chargeNodeQuota counts up/down bytes on q and returns the part charged to
