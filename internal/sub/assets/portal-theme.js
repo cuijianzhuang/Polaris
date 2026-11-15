@@ -6,8 +6,14 @@
 
   function readPreference() {
     try {
-      var value = JSON.parse(localStorage.getItem(key) || '{}');
-      if (value && (value.mode === 'light' || value.mode === 'dark' || value.mode === 'system')) return value;
+      var raw = localStorage.getItem(key);
+      if (raw) {
+        var value = JSON.parse(raw);
+        // The public status page stores the same object; older builds stored a
+        // bare "light"/"dark" string there, which is still honoured.
+        if (value && (value.mode === 'light' || value.mode === 'dark' || value.mode === 'system')) return value;
+        if (value === 'light' || value === 'dark') return { mode: value };
+      }
     } catch (_) {}
     return { mode: 'system' };
   }

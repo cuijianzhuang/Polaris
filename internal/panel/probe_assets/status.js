@@ -3,7 +3,9 @@
   const $ = (id) => document.getElementById(id);
   let last = null, received = 0, busy = false, region = '', state = 'all', selected = null;
   const key = 'polaris.status.view:' + location.pathname;
-  const themeKey = 'polaris.status.theme';
+  // Shares the panel's key so a choice made in either surface carries over; the
+  // old key is still read once so existing visitors keep their preference.
+  const themeKey = 'polaris.theme', legacyThemeKey = 'polaris.status.theme';
   let view = 'card';
   try { const v = localStorage.getItem(key) || localStorage.getItem('status-view'); if (['ring', 'table'].includes(v)) view = v; } catch (_) {}
   const systemDark = () => typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
@@ -14,9 +16,29 @@
     $('theme').setAttribute('aria-pressed', String(dark));
   }
   let theme = 'auto';
-  try { theme = localStorage.getItem(themeKey) || 'auto'; } catch (_) {}
+  // polaris.theme holds {"mode":"light|dark|system", ...} for the panel and the
+  // portal, so the public page reads and writes the same shape. A bare string
+  // is accepted for values written by older builds of this page.
+  try {
+    const raw = localStorage.getItem(themeKey) || localStorage.getItem(legacyThemeKey);
+    if (raw) {
+      let mode = raw;
+      try { const v = JSON.parse(raw); if (v && typeof v === 'object') mode = v.mode; } catch (_) {}
+      if (mode === 'light' || mode === 'dark') theme = mode;
+      else if (mode === 'system') theme = 'auto';
+    }
+  } catch (_) {}
   applyTheme(theme);
-  $('theme').addEventListener('click', () => { theme = (theme === 'dark' || (theme === 'auto' && systemDark())) ? 'light' : 'dark'; try { localStorage.setItem(themeKey, theme); } catch (_) {} applyTheme(theme); });
+  $('theme').addEventListener('click', () => {
+    theme = (theme === 'dark' || (theme === 'auto' && systemDark())) ? 'light' : 'dark';
+    try {
+      let stored = {};
+      try { const v = JSON.parse(localStorage.getItem(themeKey) || '{}'); if (v && typeof v === 'object') stored = v; } catch (_) {}
+      localStorage.setItem(themeKey, JSON.stringify({ ...stored, mode: theme }));
+      localStorage.removeItem(legacyThemeKey);
+    } catch (_) {}
+    applyTheme(theme);
+  });
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clamp = (v) => Math.max(0, Math.min(100, Number(v) || 0));
   const now = () => last ? Date.parse(last.at) + Math.max(0, performance.now() - received) : Date.now();
