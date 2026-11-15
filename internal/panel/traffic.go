@@ -225,7 +225,10 @@ func (s *Server) settle() (enforced bool, err error) {
 		rates[n.ID] = n.TrafficRate
 	}
 	perUser := map[string][2]int64{}
-	quotas := s.loadNodeQuotas(data)
+	quotas, err := s.loadNodeQuotas(data)
+	if err != nil {
+		return false, fmt.Errorf("load node quotas: %w", err)
+	}
 	// Plans may carry their own node rates (professional edition).
 	prates := s.planRates()
 	userPlan := map[string]string{}
@@ -239,13 +242,18 @@ func (s *Server) settle() (enforced bool, err error) {
 			}
 		}
 		var us []store.User
-		s.st.DB.Select("id", "plan_id").Where("id IN ? AND plan_id <> ''", ids).Find(&us)
+		if err := s.st.DB.Select("id", "plan_id").Where("id IN ? AND plan_id <> ''", ids).Find(&us).Error; err != nil {
+			return false, fmt.Errorf("load user plans: %w", err)
+		}
 		for _, u := range us {
 			userPlan[u.ID] = u.PlanID
 		}
 	}
 	var quotaNodes []string // nodes where a user hit a cap or ran out of a pack
-	fwdOwners := s.forwardOwners(data)
+	fwdOwners, err := s.forwardOwners(data)
+	if err != nil {
+		return false, fmt.Errorf("load forward owners: %w", err)
+	}
 	fwdAdd := map[string]int64{} // user -> forwarded bytes charged
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := takeInbox(tx, data); err != nil {
@@ -374,7 +382,9 @@ func (s *Server) settle() (enforced bool, err error) {
 				ids = append(ids, uid)
 			}
 			var fresh []store.User
-			tx.Where("id IN ? AND expire_at IS NULL AND expire_after_days > 0", ids).Find(&fresh)
+			if err := tx.Where("id IN ? AND expire_at IS NULL AND expire_after_days > 0", ids).Find(&fresh).Error; err != nil {
+				return fmt.Errorf("load first-use expiry: %w", err)
+			}
 			for _, u := range fresh {
 				exp := now.AddDate(0, 0, u.ExpireAfterDays)
 				if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"expire_at": exp, "expire_after_days": 0}).Error; err != nil {
@@ -483,7 +493,7 @@ type fwdOwner struct {
 
 // forwardOwners maps the traffic tags of self-service forwards in data
 // ("fwd-<rule id>") to their owner and plan rate.
-func (s *Server) forwardOwners(data map[string]map[string][2]int64) map[string]fwdOwner {
+func (s *Server) forwardOwners(data map[string]map[string][2]int64) (map[string]fwdOwner, error) {
 	var ids []string
 	for _, users := range data {
 		for uid := range users {
@@ -494,19 +504,23 @@ func (s *Server) forwardOwners(data map[string]map[string][2]int64) map[string]f
 	}
 	out := map[string]fwdOwner{}
 	if len(ids) == 0 {
-		return out
+		return out, nil
 	}
 	var rs []store.ForwardRule
-	s.st.DB.Select("id", "user_id").Where("id IN ? AND user_id <> ''", ids).Find(&rs)
+	if err := s.st.DB.Select("id", "user_id").Where("id IN ? AND user_id <> ''", ids).Find(&rs).Error; err != nil {
+		return nil, err
+	}
 	if len(rs) == 0 {
-		return out
+		return out, nil
 	}
 	uids := make([]string, 0, len(rs))
 	for _, r := range rs {
 		uids = append(uids, r.UserID)
 	}
 	var us []store.User
-	s.st.DB.Select("id", "fwd_rate").Where("id IN ?", uids).Find(&us)
+	if err := s.st.DB.Select("id", "fwd_rate").Where("id IN ?", uids).Find(&us).Error; err != nil {
+		return nil, err
+	}
 	rates := map[string]float64{}
 	for _, u := range us {
 		rates[u.ID] = fwdRate(u.ForwardEntitlement)
@@ -516,7 +530,7 @@ func (s *Server) forwardOwners(data map[string]map[string][2]int64) map[string]f
 			out["fwd-"+r.ID] = fwdOwner{user: r.UserID, rate: rt}
 		}
 	}
-	return out
+	return out, nil
 }
 
 // capForwards withholds the forwards of users who just used up their
