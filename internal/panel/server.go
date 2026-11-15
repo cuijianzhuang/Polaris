@@ -331,6 +331,7 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	go s.runReconciler(ctx)
 	go s.runAgentSync(ctx)
+	go s.runRemotePanelPoller(ctx)
 	go s.rt.run(ctx)
 	go s.tg.run(ctx)
 	go s.tg.runNotifications(ctx, s.tgEvents)

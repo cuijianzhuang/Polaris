@@ -26,10 +26,11 @@ const (
 	FeatureThemes       = "themes"        // exclusive themes (black gold)
 	FeaturePlanAddons   = "plan_addons"   // traffic packs and per-plan node rates
 	FeatureShopPayments = "shop_payments" // online payments in the bot shop (Stars, EPay, USDT)
+	FeatureMultiPanel   = "multi_panel"   // manage several panels from one console
 )
 
 // AllFeatures lists every paid feature (what a trial unlocks).
-var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons, FeatureShopPayments}
+var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons, FeatureShopPayments, FeatureMultiPanel}
 
 // Limit kinds.
 const (
