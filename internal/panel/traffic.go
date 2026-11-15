@@ -1,10 +1,12 @@
 package panel
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -749,7 +751,9 @@ func (s *Server) resetTrafficCycles() {
 	}
 }
 
-// handleOnlineIPs records source IPs and enforces ip_limit.
+// handleOnlineIPs records source IPs and enforces ip_limit. Nodes report
+// every 20 seconds, so a steady snapshot must not rewrite user rows: only a
+// changed IP list is written, and online_at is refreshed in one batch.
 func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	banMinutes, _ := strconv.Atoi(s.st.GetSetting("ip_ban_minutes", "0"))
 	trusted := parseNetList(s.st.GetSetting("ip_limit_trusted", ""))
@@ -793,25 +797,42 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	if len(reports) == 0 {
 		return
 	}
-	var users []store.User
-	if err := s.st.DB.Where("id IN ?", ids).Find(&users).Error; err != nil {
-		return
-	}
-	byID := make(map[string]*store.User, len(users))
-	for i := range users {
-		byID[users[i].ID] = &users[i]
+	// Read in ID order, in chunks: one statement holds at most settleBatch
+	// binds (SQLite's limit), and every multi-row write below then takes row
+	// locks in the same order as settlement, so two nodes reporting the same
+	// users at once cannot deadlock.
+	slices.Sort(ids)
+	byID := make(map[string]*store.User, len(ids))
+	for start := 0; start < len(ids); start += settleBatch {
+		var users []store.User
+		if err := s.st.DB.Where("id IN ?", ids[start:min(start+settleBatch, len(ids))]).Find(&users).Error; err != nil {
+			return
+		}
+		for i := range users {
+			byID[users[i].ID] = &users[i]
+		}
 	}
 	now := time.Now().UTC()
+	// online_at only needs one statement for the whole report, and the IP
+	// snapshot only changes when a device connects or disconnects: a steady
+	// node report must not rewrite every user row every 20 seconds.
+	var live, changed []string
+	ipsByUser := map[string][]string{}
 	for _, r := range reports {
 		user := byID[r.id]
 		if user == nil {
 			continue
 		}
-		updates := map[string]any{"online_ips": store.NewJSON(r.ips)}
-		if r.live {
-			updates["online_at"] = now
+		if !slices.Equal(user.OnlineIPs.V, r.ips) {
+			// Stored lists are already normalized and sorted, so this compares
+			// the exact value. A NULL column and an empty report both read as
+			// empty: only the first (visible) form is ever written.
+			changed = append(changed, user.ID)
+			ipsByUser[user.ID] = r.ips
 		}
-		s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(updates)
+		if r.live {
+			live = append(live, user.ID)
+		}
 		if user.IPLimit > 0 && r.count > user.IPLimit {
 			if s.alertOnce("ip:"+user.ID, 10*time.Minute) {
 				s.audit("system", "user.ip_limit", user.Username, fmt.Sprintf("%d IPs > limit %d: %s", r.count, user.IPLimit, strings.Join(r.ips, ", ")), "")
@@ -824,6 +845,41 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 			}
 		}
 	}
+	// Write the snapshots after the loop and in ID order. Each chunk also keeps
+	// the statement under SQLite's bind limit when many devices change at once.
+	for start := 0; start < len(changed); start += settleBatch {
+		batch := changed[start:min(start+settleBatch, len(changed))]
+		var sb strings.Builder
+		sb.WriteString("CASE id")
+		args := make([]any, 0, 2*len(batch))
+		for _, id := range batch {
+			sb.WriteString(" WHEN ? THEN ?")
+			// Bind the JSON text directly: the CASE result is assigned to a
+			// TEXT column, and the snapshot is always a JSON array.
+			args = append(args, id, string(marshalOnlineIPs(ipsByUser[id])))
+		}
+		sb.WriteString(" END")
+		s.warnWrite("online ips", s.st.DB.Model(&store.User{}).Where("id IN ?", batch).
+			Update("online_ips", gorm.Expr(sb.String(), args...)).Error)
+	}
+	// One statement per chunk instead of one per user. Keep the parameter count
+	// under SQLite's bind limit, as settlement batches do.
+	for start := 0; start < len(live); start += settleBatch {
+		batch := live[start:min(start+settleBatch, len(live))]
+		s.warnWrite("online timeout", s.st.DB.Model(&store.User{}).Where("id IN ?", batch).Update("online_at", now).Error)
+	}
+}
+
+// marshalOnlineIPs encodes a snapshot as the JSON text store.JSON writes.
+func marshalOnlineIPs(ips []string) []byte {
+	if ips == nil {
+		ips = []string{}
+	}
+	b, err := json.Marshal(ips)
+	if err != nil {
+		return []byte("[]") // cannot happen for []string, but never write NULL
+	}
+	return b
 }
 
 // alertOnce reports whether an alert for key may fire now (once per every,
