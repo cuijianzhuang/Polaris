@@ -30,6 +30,9 @@ concurrency:
 jobs:
   version:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     # Releases come only from the cuijianzhuang copy; the mirror under the
     # organization must not cut versions of its own.
     if: github.repository_owner == 'cuijianzhuang'
@@ -63,6 +66,7 @@ jobs:
           fi
       - id: v
         env:
+          GH_TOKEN: ${{ github.token }}
           BUMP: ${{ inputs.bump || 'patch' }}
           MSG: ${{ github.event.head_commit.message }}
           STALE: ${{ steps.latest.outputs.stale }}
@@ -94,13 +98,18 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           case "$v" in *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;; *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;; esac
-          # Reproducible builds: derive every timestamp from the commit being
-          # released, never from the clock. The same commit then yields the
-          # same binaries and checksums however often it is rebuilt.
+          # Archive metadata uses the commit epoch. BuildDate is the license
+          # release date: use this run's original creation date, stable on reruns.
+          # Fail closed if the API lookup fails or returns an invalid timestamp.
+          created_at="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq '.created_at // empty')"
+          if [[ ! "$created_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+            echo "::error::Missing or invalid workflow run creation timestamp"; exit 1
+          fi
+          builddate="$(date -u -d "$created_at" +%F)"
           epoch="$(git log -1 --format=%ct "${GITHUB_SHA}")"
           echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
-          echo "builddate=$(date -u -d "@$epoch" +%F)" >> "$GITHUB_OUTPUT"
-          echo "Releasing $v (build date $(date -u -d "@$epoch" +%F), $(date -u -d "@$epoch" +%Y-%m-%dT%H:%M:%SZ))"
+          echo "builddate=$builddate" >> "$GITHUB_OUTPUT"
+          echo "Releasing $v (release date $builddate, archive epoch $epoch)"
 
   verified-checks:
     needs: version
@@ -178,8 +187,9 @@ jobs:
           PRO_DIR: ${{ steps.pro.outputs.dir }}
         run: |
           set -euo pipefail
-          # Reproducible: no clock, no absolute paths, no local user/group ids
-          # in the archive. The same commit rebuilds to the same checksums.
+          # Normalize compiler paths and archive metadata. Comparing rebuilds
+          # also requires fixed VERSION, BUILDDATE, toolchains, web/dependency
+          # inputs, pro sources and license configuration.
           export SOURCE_DATE_EPOCH="$EPOCH" CGO_ENABLED=0
           LDFLAGS="-s -w -X github.com/cuijianzhuang/polaris/internal/panel.Version=${VERSION} -X github.com/cuijianzhuang/polaris/internal/agent.Version=${VERSION}"
           LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.BuildDate=${BUILDDATE}"
@@ -338,6 +348,7 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ needs.version.outputs.version }}
+            BUILDDATE=${{ needs.version.outputs.builddate }}
             LICENSE_PUBKEYS=${{ secrets.LICENSE_PUBKEYS }}
             LICENSE_SERVER=${{ vars.LICENSE_SERVER }}
             TAGS=${{ matrix.edition == 'pro' && 'pro' || '' }}
