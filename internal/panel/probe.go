@@ -211,7 +211,20 @@ func (s *Server) latencySummary(nodeIDs []string, now time.Time) map[string]map[
 	if err := s.st.DB.Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
 		return out
 	}
-	global := s.latencyTargets(true)
+	return s.latencySummaryForNodes(nodes, s.latencyTargets(true), now)
+}
+
+// Reuse the overview's node and target snapshot. Reading either again costs
+// extra queries and can mix target policies from different instants.
+func (s *Server) latencySummaryForNodes(nodes []store.Node, global []store.ProbeTarget, now time.Time) map[string]map[string]*latencyNow {
+	out := map[string]map[string]*latencyNow{}
+	if len(nodes) == 0 {
+		return out
+	}
+	nodeIDs := make([]string, len(nodes))
+	for i := range nodes {
+		nodeIDs[i] = nodes[i].ID
+	}
 	allowed := map[string]map[string]bool{}
 	for _, n := range nodes {
 		allowed[n.ID] = map[string]bool{}
@@ -338,9 +351,9 @@ func (s *Server) probeOverview(public bool) gin.H {
 	for i := range ns {
 		ids[i] = ns[i].ID
 	}
-	lat := s.latencySummary(ids, now)
-	showTraffic := s.st.GetSetting("status_show_traffic", "false") == "true"
 	globalTargets := s.latencyTargets(true)
+	lat := s.latencySummaryForNodes(ns, globalTargets, now)
+	showTraffic := s.st.GetSetting("status_show_traffic", "false") == "true"
 	showCost := !public || s.st.GetSetting("status_show_cost", "false") == "true"
 	costs := map[string]store.NodeCost{}
 	if showCost {
@@ -388,11 +401,10 @@ func (s *Server) probeOverview(public bool) gin.H {
 		}
 		nodes = append(nodes, p)
 	}
-	ts := s.latencyTargets(true)
-	tv := make([]probeTargetView, 0, len(ts))
+	tv := make([]probeTargetView, 0, len(globalTargets))
 	seenTargets := map[string]bool{}
 	for _, n := range ns {
-		for _, t := range nodeProbeTargets(&n, ts) {
+		for _, t := range nodeProbeTargets(&n, globalTargets) {
 			if !seenTargets[t.ID] {
 				tv = append(tv, probeTargetView{ID: t.ID, Name: t.Name, Carrier: t.Carrier})
 				seenTargets[t.ID] = true
