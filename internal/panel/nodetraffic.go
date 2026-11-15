@@ -46,6 +46,10 @@ func netUsed(n *store.Node) int64 { return nodeNetBytes(n.NetMode, n.NetRx, n.Ne
 
 // All writers of cycle totals and offsets must read under this same lock.
 // In particular, a calibration must not use a snapshot from before a heartbeat.
+// The no-op UPDATE is intentional: PostgreSQL locks the node row and SQLite
+// obtains its writer lock before reading a snapshot. SELECT FOR UPDATE alone
+// would not protect SQLite, whose dialect omits that clause. Probe policy,
+// latency recording and node deletion also use this gate to serialize changes.
 func (s *Server) withNodeNet(id string, fn func(*gorm.DB, *store.Node) error) error {
 	return s.st.DB.Transaction(func(db *gorm.DB) error {
 		r := db.Exec("UPDATE nodes SET net_last_rx=net_last_rx WHERE id = ?", id)
