@@ -52,8 +52,12 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"flagText":  flags.Text,
 	"avatarURL": AvatarURL,
 	"t":         PortalText,
+	// The palette is shared with the panel and always injected: the plain
+	// subscription page maps its --bg/--card/... onto these tokens, so it must
+	// look the same whether the user centre is enabled or not.
+	"uiTokens": func() template.CSS { return template.CSS(uitheme.CSS) },
 	"portalStyle": func() template.CSS {
-		return template.CSS(uitheme.CSS + "\n" + portalShellCSS + "\n" + portalServicesCSS)
+		return template.CSS(portalShellCSS + "\n" + portalServicesCSS)
 	},
 	"portalShellScript":   func() template.JS { return template.JS(portalShellJS) },
 	"portalThemeScript":   func() template.JS { return template.JS(portalThemeJS) },
@@ -65,9 +69,9 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><script>{{portalThemeScript}}</script>
 <title>{{.Title}} · 订阅</title>
 <style>
-:root{color-scheme:light;--bg:#F4F5F2;--card:#fff;--ink:#15181C;--mute:#5B6470;--line:#E2E5E0;--pri:#0E7490;--up:#7DD3E3;--ok:#15803D;--warn:#B45309;--bad:#B91C1C;--note:#ECF7F9}
-@media (prefers-color-scheme:dark){:root:not([data-mode]){color-scheme:dark;--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--up:#155E6E;--ok:#4ADE80;--warn:#F59E0B;--bad:#F87171;--note:#14262B}}
-:root[data-mode="dark"]{color-scheme:dark;--bg:#101316;--card:#181C20;--ink:#E6E8EA;--mute:#9AA2AB;--line:#2A3036;--pri:#22A3BF;--up:#155E6E;--ok:#4ADE80;--warn:#F59E0B;--bad:#F87171;--note:#14262B}
+:root{color-scheme:light;--bg:var(--ui-light-bg);--card:var(--ui-light-card);--ink:var(--ui-light-ink);--mute:var(--ui-light-mute);--line:var(--ui-light-line);--pri:var(--ui-light-primary);--up:#7DD3E3;--ok:var(--ui-light-ok);--warn:var(--ui-light-warn);--bad:var(--ui-light-bad);--note:var(--ui-light-note)}
+@media (prefers-color-scheme:dark){:root:not([data-mode]){color-scheme:dark;--bg:var(--ui-dark-bg);--card:var(--ui-dark-card);--ink:var(--ui-dark-ink);--mute:var(--ui-dark-mute);--line:var(--ui-dark-line);--pri:var(--ui-dark-primary);--up:#155E6E;--ok:var(--ui-dark-ok);--warn:var(--ui-dark-warn);--bad:var(--ui-dark-bad);--note:var(--ui-dark-note)}}
+:root[data-mode="dark"]{color-scheme:dark;--bg:var(--ui-dark-bg);--card:var(--ui-dark-card);--ink:var(--ui-dark-ink);--mute:var(--ui-dark-mute);--line:var(--ui-dark-line);--pri:var(--ui-dark-primary);--up:#155E6E;--ok:var(--ui-dark-ok);--warn:var(--ui-dark-warn);--bad:var(--ui-dark-bad);--note:var(--ui-dark-note)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "IBM Plex Sans","Noto Sans SC",system-ui,sans-serif}
 main{max-width:600px;margin:0 auto;padding:28px 16px 48px;display:flex;flex-direction:column;gap:14px}
@@ -121,7 +125,7 @@ main:not(.p-main) :is(a.btn,button.btn):not(:disabled):hover{transform:translate
 main:not(.p-main) code{display:block;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bg);line-height:1.6}
 main:not(.p-main) .qr{border:1px solid var(--line);box-shadow:0 5px 18px #0000000a}
 @media(max-width:560px){main:not(.p-main){padding:18px 13px calc(28px + env(safe-area-inset-bottom,0px));gap:12px}main:not(.p-main) .card{padding:17px;border-radius:14px}main:not(.p-main) .kv{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}main:not(.p-main) .kv div:first-child{grid-column:1/-1}main:not(.p-main) .plan div{gap:10px}main:not(.p-main) .plan span{flex:0 0 34%}main:not(.p-main) .plan b{flex:1;min-width:0}main:not(.p-main) .row:has(>code){align-items:stretch}main:not(.p-main) .row:has(>code) code{flex-basis:100%}main:not(.p-main) .who{gap:8px}main:not(.p-main) .cdn-controls{grid-template-columns:minmax(0,1fr)}}
-</style>{{if .Portal}}<style>{{portalStyle}}</style>{{end}}</head><body>{{if .Portal}}{{template "portal" .}}{{else}}<main>
+</style><style>{{uiTokens}}</style>{{if .Portal}}<style>{{portalStyle}}</style>{{end}}</head><body>{{if .Portal}}{{template "portal" .}}{{else}}<main>
 {{if .Portal}}<div class="who"><span>👤 已通过 {{.LoginVia}} 登录{{if .Email}} · {{.Email}}{{end}}</span><span class="sp"></span>{{if .MailBind}}<button class="btn sm" type="button" data-portal="email">{{if .Email}}更换邮箱{{else}}绑定邮箱{{end}}</button>{{end}}{{if .Rename}}<button class="btn sm" type="button" data-portal="rename">修改用户名</button>{{end}}{{if .RegionPick}}<label class="carrier">地区 <select data-portal-region><option value="">自动</option>{{range .CDNRegions}}<option value="{{.Code}}"{{if eq $.Region .Code}} selected{{end}}>{{.Name}}</option>{{end}}</select></label>{{end}}{{if .CarrierPick}}<label class="carrier" title="CDN 优选 IP 按所选运营商的测速结果下发">运营商 <select data-portal-carrier><option value=""{{if eq .Carrier ""}} selected{{end}}>自动</option><option value="ct"{{if eq .Carrier "ct"}} selected{{end}}>电信</option><option value="cu"{{if eq .Carrier "cu"}} selected{{end}}>联通</option><option value="cm"{{if eq .Carrier "cm"}} selected{{end}}>移动</option></select></label>{{end}}<button class="btn sm" type="button" data-portal="reset">重置订阅链接</button><button class="btn sm" type="button" data-portal="logout">退出</button></div>{{end}}
 {{template "portal-cdn" .}}
 {{if .Announce}}<section class="note" role="note">📢 {{.Announce}}</section>{{end}}
