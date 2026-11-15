@@ -6,7 +6,7 @@
   --ui-control-height: 40px; --ui-control-compact: 34px; --ui-touch-height: 44px;
   --ui-space-1: 4px; --ui-space-2: 8px; --ui-space-3: 12px; --ui-space-4: 16px; --ui-space-6: 24px;
   --ui-light-bg: #FFFFFF; --ui-light-card: #FFFFFF; --ui-light-ink: #171717; --ui-light-mute: #71717A; --ui-light-line: #EAEAEA;
-  --ui-light-primary: #111111; --ui-light-note: #F4F4F5; --ui-light-ok: #167544; --ui-light-bad: #B42318; --ui-light-warn: #9A5F08;
+  --ui-light-primary: #0E7490; --ui-light-note: #F4F4F5; --ui-light-ok: #167544; --ui-light-bad: #B42318; --ui-light-warn: #9A5F08;
   --ui-dark-bg: #000000; --ui-dark-card: #0A0A0A; --ui-dark-ink: #FAFAFA; --ui-dark-mute: #A1A1AA; --ui-dark-line: #2E2E2E;
-  --ui-dark-primary: #FFFFFF; --ui-dark-note: #18181B; --ui-dark-ok: #79D4B0; --ui-dark-bad: #FF9890; --ui-dark-warn: #EABE75;
+  --ui-dark-primary: #2DD4BF; --ui-dark-note: #18181B; --ui-dark-ok: #79D4B0; --ui-dark-bad: #FF9890; --ui-dark-warn: #EABE75;
 }
