@@ -21,16 +21,21 @@
   function applyTheme() {
     var dark = preference.mode === 'dark' || (preference.mode === 'system' && !!(media && media.matches));
     root.dataset.mode = dark ? 'dark' : 'light';
+    // Labels come from the template's string table so the button reads in the
+    // visitor's language; the Chinese text is only a fallback.
+    var table = window.__portalI18n || {};
+    function s(key, args) { var v = table[key] || ''; if (args) for (var k in args) v = v.split('{' + k + '}').join(args[k]); return v; }
     document.querySelectorAll('[data-theme-toggle]').forEach(function (button) {
       var target = dark ? 'light' : 'dark';
-      var label = target === 'dark' ? '深色模式' : '浅色模式';
+      var label = target === 'dark' ? (s('themeDark') || '深色模式') : (s('themeLight') || '浅色模式');
       var text = button.querySelector('[data-theme-label]');
       var icon = button.querySelector('use');
       if (text) text.textContent = label;
       else button.textContent = label;
       if (icon) icon.setAttribute('href', target === 'dark' ? '#pi-moon' : '#pi-sun');
-      button.setAttribute('aria-label', '切换到' + label);
-      button.setAttribute('title', '切换到' + label);
+      var hint = s('switchTo', { mode: label }) || ('切换到' + label);
+      button.setAttribute('aria-label', hint);
+      button.setAttribute('title', hint);
     });
   }
 
