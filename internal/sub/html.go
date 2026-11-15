@@ -64,9 +64,13 @@ var pageTpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"portalAccountScript": func() template.JS { return template.JS(portalAccountJS) },
 	"portalBindingScript": func() template.JS { return template.JS(portalBindingJS) },
 	"portalCDNScript":     func() template.JS { return template.JS(portalCDNScript) }, // static bundled code only
+	// String table for the portal's own scripts: static chrome is rendered by
+	// the template, but labels built at runtime (view titles, node states,
+	// check results) live in JavaScript and used to be Chinese only.
+	"portalI18nScript": func(lang string) template.JS { return template.JS(portalJSStrings(lang)) },
 }).Parse(`<!doctype html>
 <html lang="{{.Lang}}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/favicon.ico?v=600cad3535ba"><link rel="apple-touch-icon" href="/apple-touch-icon.png?v=600cad3535ba">
-<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><script>{{portalThemeScript}}</script>
+<meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><script>{{portalI18nScript .Lang}}</script><script>{{portalThemeScript}}</script>
 <title>{{.Title}} · 订阅</title>
 <style>
 :root{color-scheme:light;--bg:var(--ui-light-bg);--card:var(--ui-light-card);--ink:var(--ui-light-ink);--mute:var(--ui-light-mute);--line:var(--ui-light-line);--pri:var(--ui-light-primary);--up:#7DD3E3;--ok:var(--ui-light-ok);--warn:var(--ui-light-warn);--bad:var(--ui-light-bad);--note:var(--ui-light-note)}
