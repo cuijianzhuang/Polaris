@@ -745,8 +745,29 @@ install_ctl() {
   elif [ -f "$0" ] && [ "$(readlink -f "$0")" != "$(readlink -f "$CTL" 2>/dev/null)" ]; then
     src="$0"
   elif ! is_script "$CTL"; then
-    src="$(mktemp)"
-    fetch "$RAW_SCRIPT" "$src" || { yellow "未能注册 polaris 命令"; return 0; }
+    # The running copy came from a pipe (bash <(curl …)), so there is no file
+    # to install. Take the script of the release being installed, verified
+    # against its checksums: tracking main would put an unreviewed and
+    # unverified script behind the root "polaris" command.
+    if [ -z "$VERSION" ]; then
+      VERSION="$(latest_version 15)" && RELEASE="${POLARIS_RELEASE_URL:-https://github.com/$REPO/releases/download/$VERSION}"
+    fi
+    local d="$TMP/ctl.$$" want got
+    mkdir -p "$d"
+    if [ -n "$VERSION" ] && fetch_origin "$RELEASE/checksums.txt" "$d/checksums.txt" 2>/dev/null &&
+      fetch "$RELEASE/install-panel.sh" "$d/install-panel.sh" 2>/dev/null; then
+      want="$(awk '$2 == "install-panel.sh" || $2 == "*install-panel.sh" {print $1}' "$d/checksums.txt")"
+      got="$(sha256sum "$d/install-panel.sh" | awk '{print $1}')"
+      if [ -n "$want" ] && [ "$want" = "$got" ]; then
+        install -m 0755 "$d/install-panel.sh" "$CTL" && ln -sf "$CTL" "$CTL_ALIAS"
+        rm -rf "$d"
+        return 0
+      fi
+      warn "管理脚本校验失败，未安装 polaris 命令"
+    else
+      warn "无法下载 $VERSION 的管理脚本，未安装 polaris 命令"
+    fi
+    rm -rf "$d"
   fi
   [ -n "$src" ] && install -m 0755 "$src" "$CTL"
   ln -sf "$CTL" "$CTL_ALIAS"
