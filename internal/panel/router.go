@@ -413,6 +413,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/stats/tags/reset", s.resetTagStats)
 
 	p.GET("/panel/self", s.panelSelf)
+	p.POST("/panel/actions", s.panelAction)
 
 	p.GET("/certificates", s.listCerts)
 	p.POST("/certificates", s.createCert)
@@ -541,6 +542,7 @@ func (s *Server) Router() http.Handler {
 	p.PUT("/panels/:id", s.updateRemotePanel)
 	p.DELETE("/panels/:id", s.deleteRemotePanel)
 	p.POST("/panels/:id/probe", s.probeRemotePanel)
+	p.POST("/panels/:id/actions", s.remotePanelAction)
 	p.GET("/panels/aggregate", s.aggregateRemotePanels)
 
 	p.GET("/plugins", s.listPlugins)
