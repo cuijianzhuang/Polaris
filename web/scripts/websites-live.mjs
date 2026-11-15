@@ -3,8 +3,16 @@ import { mkdir, readFile } from 'node:fs/promises'
 const pw = await import(process.env.POLARIS_PLAYWRIGHT_MODULE || 'playwright')
 const base = process.env.POLARIS_WEBSITES_TEST_URL
 const auth = { Authorization: 'Bearer ' + process.env.POLARIS_WEBSITES_TEST_TOKEN }
-for (const engine of ['chromium', 'webkit']) {
- const browser = await pw[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: process.env.POLARIS_CHROMIUM_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args: ['--no-sandbox'] } : {}) })
+// WebKit occasionally fails with an internal driver error that has nothing to
+// do with the page under test; retry the whole engine once, but never retry an
+// assertion failure, which is a real regression.
+const engines = (process.env.POLARIS_TEST_ENGINES || 'chromium,webkit').split(',').map((v) => v.trim()).filter(Boolean)
+const infraError = (e) => /internal error|Target page, context or browser has been closed|browserType\.launch|crash/i.test(String(e && e.message))
+for (const engine of engines) {
+  for (let attempt = 1; ; attempt++) {
+   let browser
+   try {
+    browser = await pw[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: process.env.POLARIS_CHROMIUM_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args: ['--no-sandbox'] } : {}) })
  try {
   for (const width of [390, 1440]) {
    for (const lang of ['zh', 'en']) {
@@ -77,5 +85,12 @@ for (const engine of ['chromium', 'webkit']) {
     console.log(engine, width, lang, 'static upload, conflict preview, node path edit, publish and local blog mode passed')
    }
   }
- } finally { await browser.close() }
+   } finally { if (browser) await browser.close() }
+  } catch (e) {
+   // Only an infrastructure-level failure gets a second chance.
+   if (attempt === 1 && infraError(e)) { console.warn(engine, 'infrastructure error, retrying once:', e.message); continue }
+   throw e
+  }
+  break
+ }
 }

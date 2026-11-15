@@ -26,7 +26,9 @@ func (s *Server) loadNodeQuotas(data map[string]map[string][2]int64) map[string]
 		return out
 	}
 	var qs []store.UserNodeQuota
-	s.st.DB.Where("node_id IN ?", nodes).Find(&qs)
+	if res := s.st.DB.Where("node_id IN ?", nodes).Find(&qs); res.Error != nil {
+		return nil
+	}
 	for i := range qs {
 		out[qs[i].UserID+"|"+qs[i].NodeID] = &qs[i]
 	}

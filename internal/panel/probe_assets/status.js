@@ -123,7 +123,9 @@
     if (!last) return;
     $('sum').innerHTML = summary();
     const regions = new Map(); last.nodes.forEach((n) => { if (n.flag) regions.set(n.flag, (regions.get(n.flag) || 0) + 1); });
+    const focusedChip = $('chips').contains(document.activeElement) ? document.activeElement.getAttribute('data-region') : null;
     $('chips').innerHTML = '<button class="pv-chip' + (!region ? ' on' : '') + '" data-region="" aria-pressed="' + !region + '">全部地区 ' + last.nodes.length + '</button>' + Array.from(regions, ([f, count]) => '<button class="pv-chip' + (region === f ? ' on' : '') + '" data-region="' + esc(f) + '" aria-pressed="' + (region === f) + '">' + flag(f) + ' ' + esc(f) + ' <small>' + count + '</small></button>').join('');
+    if (focusedChip !== null) { const btn = Array.from($('chips').querySelectorAll('[data-region]')).find((b) => b.getAttribute('data-region') === focusedChip); if (btn) btn.focus({ preventScroll: true }); }
     for (const v of ['card', 'ring', 'table']) { $('v-' + v).classList.toggle('on', view === v); $('v-' + v).setAttribute('aria-pressed', String(view === v)); }
     document.querySelectorAll('[data-state]').forEach((b) => { b.classList.toggle('on', b.dataset.state === state); b.setAttribute('aria-pressed', String(b.dataset.state === state)); });
     const ns = filtered(); $('count').textContent = '显示 ' + ns.length + ' / ' + last.nodes.length + ' 个节点';

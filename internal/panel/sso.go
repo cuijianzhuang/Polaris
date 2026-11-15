@@ -165,14 +165,23 @@ func (s *Server) updateSSOProvider(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	s.st.DB.Save(&p)
+	if err := s.st.DB.Save(&p).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.auditCtx(c, "sso.update", p.Name, "")
 	c.JSON(http.StatusOK, p)
 }
 
 func (s *Server) deleteSSOProvider(c *gin.Context) {
-	s.st.DB.Where("provider_id = ?", c.Param("id")).Delete(&store.SSOBinding{})
-	s.st.DB.Delete(&store.SSOProvider{}, "id = ?", c.Param("id"))
+	if err := s.st.DB.Where("provider_id = ?", c.Param("id")).Delete(&store.SSOBinding{}).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	if err := s.st.DB.Delete(&store.SSOProvider{}, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	s.auditCtx(c, "sso.delete", c.Param("id"), "")
 	c.Status(http.StatusNoContent)
 }

@@ -208,7 +208,9 @@ func (s *Server) settleTraffic() error {
 	day := now.In(s.cfg.Location()).Format("2006-01-02")
 	rates := map[string]float64{}
 	var nodes []store.Node
-	s.st.DB.Select("id", "traffic_rate").Find(&nodes)
+	if res := s.st.DB.Select("id", "traffic_rate").Find(&nodes); res.Error != nil {
+		return res.Error
+	}
 	for _, n := range nodes {
 		rates[n.ID] = n.TrafficRate
 	}
