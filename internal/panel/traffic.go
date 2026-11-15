@@ -801,6 +801,9 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 			continue
 		}
 		if !slices.Equal(user.OnlineIPs.V, r.ips) {
+			// Stored lists are already normalized and sorted, so this compares
+			// the exact value. A NULL column and an empty report both read as
+			// empty: only the first (visible) form is ever written.
 			s.warnWrite("online ips", s.st.DB.Model(&store.User{}).Where("id = ?", user.ID).Updates(map[string]any{"online_ips": store.NewJSON(r.ips)}).Error)
 		}
 		if r.live {

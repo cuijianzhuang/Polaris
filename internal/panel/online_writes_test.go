@@ -102,6 +102,17 @@ func TestOnlineIPReportWritesOnlyChanges(t *testing.T) {
 	if u3 := user("u3"); u3.OnlineAt == nil || !u3.OnlineAt.Equal(past) {
 		t.Fatalf("empty report marked an idle user online: %+v", u3)
 	}
+
+	// A NULL column reads as empty just like a stored []: an empty report must
+	// not start rewriting that row on every 20-second report.
+	if err := s.st.DB.Model(&store.User{}).Where("id = ?", "u3").Update("online_ips", nil).Error; err != nil {
+		t.Fatal(err)
+	}
+	updates.Store(0)
+	report(map[string][]string{"u1": nil, "u3": nil})
+	if n := updates.Load(); n != 0 {
+		t.Fatalf("NULL snapshot rewritten %d times by an empty report", n)
+	}
 }
 
 // onlineWriteRecorder counts user-table update statements, separating IP
