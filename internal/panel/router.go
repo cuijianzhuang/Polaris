@@ -412,6 +412,8 @@ func (s *Server) Router() http.Handler {
 	p.GET("/nodes/:id/metrics", s.nodeMetrics)
 	p.POST("/stats/tags/reset", s.resetTagStats)
 
+	p.GET("/panel/self", s.panelSelf)
+
 	p.GET("/certificates", s.listCerts)
 	p.POST("/certificates", s.createCert)
 	p.DELETE("/certificates/:id", s.deleteCert)
@@ -533,6 +535,14 @@ func (s *Server) Router() http.Handler {
 	p.POST("/mail/test", s.requireSudo, s.testMail)
 	p.GET("/settings", s.getSettings)
 	p.GET("/tokens", s.listTokens)
+
+	p.GET("/panels", s.listRemotePanels)
+	p.POST("/panels", s.createRemotePanel)
+	p.PUT("/panels/:id", s.updateRemotePanel)
+	p.DELETE("/panels/:id", s.deleteRemotePanel)
+	p.POST("/panels/:id/probe", s.probeRemotePanel)
+	p.GET("/panels/aggregate", s.aggregateRemotePanels)
+
 	p.GET("/plugins", s.listPlugins)
 	p.POST("/plugins/preview", s.requireSudo, s.previewPlugin)
 	p.POST("/plugins", s.requireSudo, s.installPlugin)

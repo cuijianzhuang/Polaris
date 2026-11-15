@@ -42,14 +42,18 @@ const (
 	// and traffic-pack lists to choose from (for a card shop such as Kaku).
 	// It cannot touch users or delete used codes.
 	ScopeRedeemWrite = "redeem:write"
+	// ScopePanelRead returns panel-wide read-only summary for multi-panel hubs.
+	ScopePanelRead = "panel:read"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead, ScopeRedeemWrite}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead, ScopeRedeemWrite, ScopePanelRead}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
 var tokenRoutes = map[string]string{
 	"GET /tokens/self": "",
+
+	"GET /panel/self": ScopePanelRead,
 
 	"GET /redeem-codes":    ScopeRedeemWrite,
 	"POST /redeem-codes":   ScopeRedeemWrite,
