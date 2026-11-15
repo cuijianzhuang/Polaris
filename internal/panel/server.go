@@ -456,17 +456,19 @@ func (s *Server) startJobs() func() {
 		}
 	}
 	add(jobCronSpec(s.cfg.Jobs.Settle, 0), "settle", func() { // keeps usage, quotas and the dashboard near real time
-		err := s.settleTraffic()
+		enforced, err := s.settle()
 		s.recordOperationalResult("traffic-settlement", "流量结算失败，待结算记录将保留重试", err)
 		if err != nil {
 			s.log.Error("settle traffic", "err", err)
 		}
-		// Enforce again even though settleTraffic enforces on success: it
-		// returns early without enforcing when there is no traffic, the
-		// inbox was taken, or the settlement failed, and time-based expiry
-		// must not wait for the next successful settlement. On a successful
-		// round this is a second full scan that finds nothing to change.
-		s.enforceLimits()
+		// Time-based expiry must not wait for the next successful settlement,
+		// so enforce when the round above did not reach its own enforcement:
+		// no traffic to settle, the inbox was taken by another instance, or
+		// the transaction failed. On a successful round this used to run a
+		// second full scan of the users table that found nothing to change.
+		if !enforced {
+			s.enforceLimits()
+		}
 	})
 	add(jobCronSpec(s.cfg.Jobs.Offline, 0), "offline", s.markOfflineNodes)
 	add(jobCronSpec(s.cfg.Jobs.Webhooks, 0), "webhooks", s.retryWebhooks)

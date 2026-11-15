@@ -1,6 +1,6 @@
 import CountryFlag, { FlagText } from '../components/CountryFlag'
 import { SettingsGate, readSettings } from '../components/SettingsLoad'
-import { memo, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { useProbeFeed } from '../useProbeFeed'
@@ -236,6 +236,8 @@ export default function Probe() {
   const nodes = filterProbeNodes(d?.nodes ?? [], q, region, state, sort, now)
   const regions = [...(d?.nodes ?? []).reduce((m, n) => n.flag ? m.set(n.flag, (m.get(n.flag) ?? 0) + 1) : m, new Map<string, number>())]
   const sel = d?.nodes.find((n) => n.id === open)
+  // Stable identity: an inline arrow would defeat NodeProbeCard's memo.
+  const openNode = useCallback((id: string) => setOpen(id), [])
   const clear = () => { setQ(''); setRegion(''); setState('all') }
   const statuses: [ProbeFilter, string][] = [['all', t('全部')], ['online', t('在线')], ['offline', t('离线')], ['attention', t('需关注')]]
   return <div className="pv pv-monitor">
@@ -248,7 +250,7 @@ export default function Probe() {
         <div className="pv-toolbar-top"><input className="pv-search" type="search" placeholder={t('搜索名称、地区或系统')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('搜索节点')} /><div className="pv-toolbar-controls"><select value={sort} onChange={(e) => setSort(e.target.value as ProbeSort)} aria-label={t('节点排序')}><option value="default">{t('默认排序')}</option><option value="name">{t('按名称')}</option><option value="cpu">{t('CPU 从高到低')}</option><option value="network">{t('网速从高到低')}</option><option value="latency">{t('延迟从低到高')}</option><option value="expiry">{t('到期时间从近到远')}</option></select><div className="pv-seg" aria-label={t('展示方式')}>{([['card', t('条形')], ['ring', t('环形')], ['table', t('表格')]] as [ProbeView, string][]).map(([v, label]) => <button key={v} className={view === v ? 'on' : ''} aria-pressed={view === v} onClick={() => setView(v)}>{label}</button>)}</div></div></div>
         <div className="pv-toolbar-bottom"><div className="pv-chips"><button className={'pv-chip' + (!region ? ' on' : '')} aria-pressed={!region} onClick={() => setRegion('')}>{t('全部地区')} {d.nodes.length}</button>{regions.map(([f, count]) => <button key={f} className={'pv-chip' + (region === f ? ' on' : '')} aria-pressed={region === f} onClick={() => setRegion(region === f ? '' : f)}><CountryFlag code={f} /> {f} <small>{count}</small></button>)}</div><div className="pv-seg" aria-label={t('节点状态筛选')}>{statuses.map(([v, label]) => <button key={v} className={state === v ? 'on' : ''} aria-pressed={state === v} onClick={() => setState(v)}>{label}</button>)}</div><span className="pv-count">{t('显示 {n} / {all} 个节点', { n: nodes.length, all: d.nodes.length })}</span></div>
       </div>
-      {!nodes.length ? <div className="pv-empty">{d.nodes.length ? t('没有符合筛选的节点') : t('还没有节点')}<div><button className="btn sm" onClick={clear}>{t('清除筛选')}</button></div></div> : view === 'table' ? <ProbeTable nodes={nodes} targets={d.targets} onOpen={setOpen} now={now} showTraffic={d.showTraffic !== false} /> : <div className="pv-grid">{nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d.targets} onOpen={() => setOpen(n.id)} view={view} now={now} showTraffic={d.showTraffic !== false} />)}</div>}
+      {!nodes.length ? <div className="pv-empty">{d.nodes.length ? t('没有符合筛选的节点') : t('还没有节点')}<div><button className="btn sm" onClick={clear}>{t('清除筛选')}</button></div></div> : view === 'table' ? <ProbeTable nodes={nodes} targets={d.targets} onOpen={setOpen} now={now} showTraffic={d.showTraffic !== false} /> : <div className="pv-grid">{nodes.map((n) => <NodeProbeCard key={n.id} n={n} targets={d.targets} onOpen={openNode} view={view} now={now} showTraffic={d.showTraffic !== false} />)}</div>}
       <div className="pv-footnote">{t('延迟为节点到目标的 TCP 连接耗时；小图展示近 2 小时，每格 5 分钟。灰格表示无样本。')}</div>
     </>}
     {sel && <NodeDrawer n={sel} now={now} onClose={() => setOpen(null)} onChanged={data.reload} />}

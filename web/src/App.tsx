@@ -71,9 +71,25 @@ export function useScope() { return useContext(ScopeCtx) }
 const NodesCtx = createContext<{ nodes: Node[]; refresh: () => void }>({ nodes: [], refresh: () => {} })
 export function useNodes() { return useContext(NodesCtx) }
 
+// sameNodes reports whether two node lists would render identically. It
+// compares the serialised payload rather than field by field: the broadcast is
+// small, and JSON.stringify preserves key order for objects built the same way.
+function sameNodes(a: Node[], b: Node[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  try { return JSON.stringify(a) === JSON.stringify(b) } catch { return false }
+}
+
 function NodesProvider({ children }: { children: ReactNode }) {
   const [nodes, setNodes] = useState<Node[]>([])
-  const receive = useCallback((items: Node[]) => setNodes(items.map((n) => ({ ...n, netHealth: receivedNetHealth(n.netHealth) }))), [])
+  // The panel broadcasts the whole node list every couple of seconds. Replacing
+  // the array on an identical payload re-renders every page that reads nodes
+  // and re-runs the rate recorder, so keep the previous array when the new one
+  // is materially the same.
+  const receive = useCallback((items: Node[]) => setNodes((prev) => {
+    const next = items.map((n) => ({ ...n, netHealth: receivedNetHealth(n.netHealth) }))
+    return sameNodes(prev, next) ? prev : next
+  }), [])
   const refresh = useCallback(() => { get<Node[]>('/nodes').then(receive).catch(() => {}) }, [receive])
   useEffect(() => {
     refresh()
