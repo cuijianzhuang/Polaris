@@ -537,7 +537,11 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 	if err := s.st.DB.Where("mode = ?", "l4").Find(&chains).Error; err != nil {
 		return nil, err
 	}
-	var out []model.ForwardRule
+	// Batch-load the landing inbounds and next-hop nodes of participating
+	// chains up front: spec rebuilds run per node on every dirty mark, so a
+	// First per chain (or per hop) multiplied across nodes dominates the run.
+	var participating []store.Chain
+	var inboundIDs, nextNodeIDs []string
 	for _, c := range chains {
 		if c.Disabled {
 			continue
@@ -553,9 +557,40 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 		if !participates {
 			continue
 		}
+		participating = append(participating, c)
+		inboundIDs = append(inboundIDs, hops[len(hops)-1].InboundID)
+		for i := 0; i < len(hops)-1; i++ {
+			if hops[i].NodeID == nodeID {
+				nextNodeIDs = append(nextNodeIDs, hops[i+1].NodeID)
+			}
+		}
+	}
+	var loaded []store.Inbound
+	if len(inboundIDs) > 0 {
+		if err := s.st.DB.Where("id IN ?", inboundIDs).Find(&loaded).Error; err != nil {
+			return nil, err
+		}
+	}
+	inbounds := make(map[string]store.Inbound, len(loaded))
+	for _, in := range loaded {
+		inbounds[in.ID] = in
+	}
+	var nodeRows []store.Node
+	if len(nextNodeIDs) > 0 {
+		if err := s.st.DB.Where("id IN ?", nextNodeIDs).Find(&nodeRows).Error; err != nil {
+			return nil, err
+		}
+	}
+	nodeByID := make(map[string]store.Node, len(nodeRows))
+	for _, n := range nodeRows {
+		nodeByID[n.ID] = n
+	}
+	var out []model.ForwardRule
+	for _, c := range participating {
+		hops := c.Hops.V
 		landing := hops[len(hops)-1]
-		var in store.Inbound
-		if err := s.st.DB.First(&in, "id = ?", landing.InboundID).Error; err != nil {
+		in, ok := inbounds[landing.InboundID]
+		if !ok {
 			continue
 		}
 		if c.Managed && !in.Enabled {
@@ -590,8 +625,8 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 				continue
 			}
 			next := hops[i+1]
-			var nn store.Node
-			if err := s.st.DB.First(&nn, "id = ?", next.NodeID).Error; err != nil {
+			nn, ok := nodeByID[next.NodeID]
+			if !ok {
 				continue
 			}
 			port := next.Port
