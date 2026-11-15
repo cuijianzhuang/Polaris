@@ -109,6 +109,10 @@ func (s *Server) relayCore(w http.ResponseWriter, r *http.Request) {
 		s.relayAPI(w, r, u)
 		return
 	}
+	s.relayCoreAsset(w, r, u, 512<<20)
+}
+
+func (s *Server) relayCoreAsset(w http.ResponseWriter, r *http.Request, u string, limit int64) {
 	sum := sha256.Sum256([]byte(u))
 	dir := filepath.Join(s.downloadsDir(), "cores")
 	p := filepath.Join(dir, hex.EncodeToString(sum[:16])+"-"+filepath.Base(u))
@@ -130,9 +134,21 @@ func (s *Server) relayCore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.ContentLength > limit {
+		http.Error(w, "core release exceeds relay size limit", http.StatusBadGateway)
+		return
+	}
 	// Stream to the node while keeping a copy, so progress shows at once.
 	os.MkdirAll(dir, 0o755)
 	tmp, terr := os.CreateTemp(dir, ".dl-*")
+	if terr == nil {
+		// Close/remove on every exit, including a failed rename. After a
+		// successful rename the temporary pathname no longer exists.
+		defer func() {
+			tmp.Close()
+			os.Remove(tmp.Name())
+		}()
+	}
 	if resp.ContentLength > 0 {
 		w.Header().Set("Content-Length", strconv.FormatInt(resp.ContentLength, 10))
 	}
@@ -141,19 +157,39 @@ func (s *Server) relayCore(w http.ResponseWriter, r *http.Request) {
 	if terr == nil {
 		dst = io.MultiWriter(w, tmp)
 	}
-	n, err := io.Copy(dst, io.LimitReader(resp.Body, 512<<20))
+	n, err := copyRelayAsset(dst, resp.Body, limit)
 	if terr != nil {
 		return
 	}
-	tmp.Close()
-	if err != nil || (resp.ContentLength > 0 && n != resp.ContentLength) {
-		os.Remove(tmp.Name())
+	closeErr := tmp.Close()
+	if err != nil || closeErr != nil || (resp.ContentLength >= 0 && n != resp.ContentLength) {
+		s.log.Warn("core release not cached", "url", u, "bytes", n, "expected", resp.ContentLength, "err", err, "closeErr", closeErr)
 		return
 	}
 	if os.Rename(tmp.Name(), p) == nil {
 		s.log.Info("cached core release", "url", u)
 		pruneRelayCache(dir, 30*24*time.Hour)
 	}
+}
+
+// copyRelayAsset forwards at most limit bytes. LimitReader alone reports EOF
+// at its own boundary, even if the upstream has more data; probe one extra byte
+// to distinguish an exact-size complete file from a truncated oversized file.
+// The extra byte is never forwarded to the node or written to the cache.
+func copyRelayAsset(dst io.Writer, src io.Reader, limit int64) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, limit))
+	if err != nil || n < limit {
+		return n, err
+	}
+	var extra [1]byte
+	read, err := io.ReadFull(src, extra[:])
+	if read > 0 {
+		return n, fmt.Errorf("core release exceeds relay size limit (%d bytes)", limit)
+	}
+	if err == io.EOF {
+		return n, nil
+	}
+	return n, err
 }
 
 func (s *Server) relayAPI(w http.ResponseWriter, r *http.Request, u string) {

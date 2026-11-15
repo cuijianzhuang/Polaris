@@ -1,12 +1,103 @@
 package panel
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func TestRelayAssetCacheCompleteness(t *testing.T) {
+	const limit = 8
+	for _, tc := range []struct {
+		name     string
+		body     string
+		declared int // -1 forces a chunked response
+		cached   bool
+		status   int
+	}{
+		{"chunked below limit", "abc", -1, true, http.StatusOK},
+		{"chunked exact limit", "12345678", -1, true, http.StatusOK},
+		{"chunked over limit", "123456789", -1, false, http.StatusOK},
+		{"known exact limit", "12345678", limit, true, http.StatusOK},
+		{"known over limit", "123456789", limit + 1, false, http.StatusBadGateway},
+		{"incomplete body", "abc", limit, false, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestServer(t)
+			var hits atomic.Int32
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if tc.declared >= 0 {
+					w.Header().Set("Content-Length", strconv.Itoa(tc.declared))
+				} else {
+					w.(http.Flusher).Flush()
+				}
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			t.Cleanup(up.Close)
+			oldWeb := githubWeb
+			githubWeb = up.URL
+			t.Cleanup(func() { githubWeb = oldWeb })
+			asset := "https://github.com/XTLS/Xray-core/releases/download/v-cache-test/core.zip"
+			for i := 0; i < 2; i++ {
+				w := httptest.NewRecorder()
+				r := httptest.NewRequest(http.MethodGet, "/agent/core?u="+url.QueryEscape(asset), nil)
+				s.relayCoreAsset(w, r, asset, limit)
+				if w.Code != tc.status {
+					t.Fatalf("request %d: status=%d, want %d", i, w.Code, tc.status)
+				}
+				if tc.cached && w.Body.String() != tc.body {
+					t.Fatalf("request %d: incomplete payload %q", i, w.Body.String())
+				}
+				if tc.declared < 0 && w.Body.Len() > limit {
+					t.Fatal("forwarded bytes beyond relay limit")
+				}
+			}
+			wantHits, wantFiles := int32(2), 0
+			if tc.cached {
+				wantHits, wantFiles = 1, 1
+			}
+			if n := hits.Load(); n != wantHits {
+				t.Fatalf("upstream hits=%d, want %d", n, wantHits)
+			}
+			files, err := os.ReadDir(filepath.Join(s.downloadsDir(), "cores"))
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			if len(files) != wantFiles {
+				t.Fatalf("cache contains %d files, want %d: %v", len(files), wantFiles, files)
+			}
+			for _, f := range files {
+				if strings.HasPrefix(f.Name(), ".dl-") {
+					t.Fatal("temporary download leaked")
+				}
+			}
+		})
+	}
+}
+
+type relayFailingReader struct{ err error }
+
+func (r relayFailingReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestRelayAssetBoundaryReadError(t *testing.T) {
+	failure := errors.New("upstream failed at boundary")
+	src := io.MultiReader(strings.NewReader("12345678"), relayFailingReader{failure})
+	var dst bytes.Buffer
+	n, err := copyRelayAsset(&dst, src, 8)
+	if n != 8 || !errors.Is(err, failure) || dst.String() != "12345678" {
+		t.Fatalf("boundary error lost: n=%d err=%v body=%q", n, err, dst.String())
+	}
+}
 
 func TestRelayTarget(t *testing.T) {
 	for u, want := range map[string]bool{
