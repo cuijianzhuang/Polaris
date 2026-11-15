@@ -478,6 +478,7 @@ func (s *Server) startJobs() func() {
 	add(jobCronSpec(s.cfg.Jobs.Rollouts, 0), "rollouts", s.runRollouts)
 	add(jobCronSpec(s.cfg.Jobs.UserReminders, 0), "user-reminders", s.retryUserNotices)
 	addLocal(jobCronSpec(s.cfg.Jobs.PluginCache, 0), "plugin-cache", s.renderCache.prune)
+	addLocal("45 */5 * * * *", "node-caches", s.pruneNodeCaches)
 	add("0 * * * * *", "operational-alerts", s.checkOperationalHealth)
 	add("0 */15 * * * *", "secret-migration", s.secretMigrationTick) // resumes a key rotation; no-op when done
 	add("40 */5 * * * *", "ephemeral", s.eph.sweep)
