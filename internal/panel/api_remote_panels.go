@@ -53,7 +53,7 @@ func (s *Server) listRemotePanels(c *gin.Context) {
 		out[i] = v
 	}
 
-	c.JSON(http.StatusOK, gin.H{"panels": out, "scopes": []string{license.FeatureMultiPanel}})
+	c.JSON(http.StatusOK, gin.H{"panels": out, "pro": s.license().Allow(license.FeatureMultiPanel), "cap": maxCommunityPanels})
 }
 
 // createRemotePanel registers a new member panel.
