@@ -739,7 +739,7 @@ install_files() {
 
 # install_ctl registers this tool as the "polaris" command (and polaris-ctl).
 install_ctl() {
-  local src=""
+  local src="" d="" rc=0
   if [ -f "${TMP:-}/install-panel.sh" ]; then
     src="$TMP/install-panel.sh"
   elif [ -f "$0" ] && [ "$(readlink -f "$0")" != "$(readlink -f "$CTL" 2>/dev/null)" ]; then
@@ -752,25 +752,30 @@ install_ctl() {
     if [ -z "$VERSION" ]; then
       VERSION="$(latest_version 15)" && RELEASE="${POLARIS_RELEASE_URL:-https://github.com/$REPO/releases/download/$VERSION}"
     fi
-    local d="$TMP/ctl.$$" want got
-    mkdir -p "$d"
+    local want got
+    d="$(mktemp -d "${TMP:-${TMPDIR:-/tmp}}/ctl.XXXXXXXX")" || return $?
     if [ -n "$VERSION" ] && fetch_origin "$RELEASE/checksums.txt" "$d/checksums.txt" 2>/dev/null &&
       fetch "$RELEASE/install-panel.sh" "$d/install-panel.sh" 2>/dev/null; then
-      want="$(awk '$2 == "install-panel.sh" || $2 == "*install-panel.sh" {print $1}' "$d/checksums.txt")"
-      got="$(sha256sum "$d/install-panel.sh" | awk '{print $1}')"
-      if [ -n "$want" ] && [ "$want" = "$got" ]; then
-        install -m 0755 "$d/install-panel.sh" "$CTL" && ln -sf "$CTL" "$CTL_ALIAS"
-        rm -rf "$d"
-        return 0
+      if want="$(awk '$2 == "install-panel.sh" || $2 == "*install-panel.sh" {print $1}' "$d/checksums.txt")" &&
+        got="$(sha256sum "$d/install-panel.sh" | awk '{print $1}')" && [ -n "$want" ] && [ "$want" = "$got" ]; then
+        src="$d/install-panel.sh"
+      else
+        warn "管理脚本校验失败，未安装 polaris 命令"
       fi
-      warn "管理脚本校验失败，未安装 polaris 命令"
     else
       warn "无法下载 $VERSION 的管理脚本，未安装 polaris 命令"
     fi
-    rm -rf "$d"
+    if [ -z "$src" ]; then
+      rm -rf "$d"
+      return 0 # Old/offline releases may lack the script; do not register a dangling alias.
+    fi
   fi
-  [ -n "$src" ] && install -m 0755 "$src" "$CTL"
-  ln -sf "$CTL" "$CTL_ALIAS"
+  if [ -n "$src" ]; then
+    install -m 0755 "$src" "$CTL" || { rc=$?; [ -z "$d" ] || rm -rf "$d"; return "$rc"; }
+  fi
+  ln -sf "$CTL" "$CTL_ALIAS" || rc=$?
+  [ -z "$d" ] || rm -rf "$d"
+  return "$rc"
 }
 is_script() { [ -f "$1" ] && head -c 2 "$1" | grep -q '#!'; }
 
