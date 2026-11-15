@@ -177,9 +177,9 @@ func TestRenewDue(t *testing.T) {
 // Another architecture's agent is fetched from the release on first request,
 // verified against checksums.txt, and cached with its own version marker.
 func TestAgentFetchedOnDemand(t *testing.T) {
-	old := Version
+	old, oldBase := Version, agentReleaseBase
 	Version = "v9.9.9"
-	t.Cleanup(func() { Version = old })
+	t.Cleanup(func() { Version, agentReleaseBase = old, oldBase })
 	bin := []byte("arm64-agent")
 	sum := sha256.Sum256(bin)
 	good := true
@@ -200,8 +200,13 @@ func TestAgentFetchedOnDemand(t *testing.T) {
 		}
 	}))
 	defer rel.Close()
+	// checksums.txt comes from the release origin, payload bytes may come from
+	// the mirror: the mirror alone must not be able to vouch for a binary.
+	agentReleaseBase = rel.URL + "/"
 	s := newTestServer(t)
-	s.st.SetSetting("github_mirror", rel.URL)
+	// A dead mirror must fall back to the origin instead of failing. The URL is
+	// https so the scheme filter keeps it and the fallback path is exercised.
+	s.st.SetSetting("github_mirror", "https://127.0.0.1:1/mirror")
 	srv := httptest.NewServer(s.Router())
 	defer srv.Close()
 	get := func(path string) (int, string) {

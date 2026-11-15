@@ -225,6 +225,13 @@ func (s *Server) putSettings(c *gin.Context) {
 			return
 		}
 	}
+	if v, ok := req["github_mirror"]; ok {
+		m := strings.TrimSpace(v)
+		if m != "" && !strings.HasPrefix(m, "https://") {
+			badRequest(c, errors.New("GitHub 镜像必须使用 https://：镜像只加速软件包下载，校验和始终从 GitHub 官方获取"))
+			return
+		}
+	}
 	if v, ok := req["sub_base_url"]; ok && strings.TrimSpace(v) != "" {
 		u, err := url.Parse(strings.TrimSpace(v))
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || (u.Path != "" && u.Path != "/") {

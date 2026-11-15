@@ -631,6 +631,13 @@ fetch() {
   return 1
 }
 
+# fetch_origin URL OUT [progress]: download straight from GitHub, never through
+# a mirror. Checksums are read this way: a mirror relaying both a binary and its
+# checksum could pair a backdoored binary with a matching hash.
+fetch_origin() {
+  dl "$1" "$2" "${3:-}"
+}
+
 resolve_version() {
   if [ -z "$VERSION" ]; then
     step "查询最新版本"
@@ -648,7 +655,7 @@ update_self() {
   resolve_version
   local d want got
   d="$(mktemp -d)"
-  if ! fetch "$RELEASE/checksums.txt" "$d/checksums.txt" || ! grep -q ' \*\?install-panel.sh$' "$d/checksums.txt" ||
+  if ! fetch_origin "$RELEASE/checksums.txt" "$d/checksums.txt" || ! grep -q ' \*\?install-panel.sh$' "$d/checksums.txt" ||
     ! fetch "$RELEASE/install-panel.sh" "$d/install-panel.sh"; then
     rm -rf "$d"; warn "无法下载 $VERSION 的管理脚本，脚本未更新"; return 0
   fi
@@ -676,8 +683,8 @@ download_release() {
   step "下载 Polaris $VERSION $(edition_label "$EDITION") ($ARCH)${MIRROR:+ · 镜像 $MIRROR}"
   PANEL_TGZ="polaris-panel-$EP$VERSION-linux-$ARCH.tar.gz"
   AGENT_ASSET="polaris-agent-${EP}linux-$ARCH"
-  fetch "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
-    die "下载 checksums.txt 失败（$RELEASE）。服务器无法访问 GitHub 时可指定镜像：--mirror https://你的镜像/"
+  fetch_origin "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
+    die "下载 checksums.txt 失败（$RELEASE）。校验和只从 GitHub 官方下载，镜像仅用于加速软件包；请检查服务器到 github.com 的连通性。"
   if ! grep -q " \*\?$PANEL_TGZ\$" "$TMP/checksums.txt"; then
     [ -n "$EDITION_GUESSED" ] || die "$VERSION 没有$(edition_label "$EDITION")的发布包（$PANEL_TGZ）"
     warn "$VERSION 没有专业版发布包，改为安装社区版（不含客户独立限速、订阅转换、DDNS、Telegram 管理菜单、备份推送）"
@@ -1861,6 +1868,12 @@ done
 # --mirror none forgets a saved mirror; otherwise reuse the one that last worked.
 if [ "$MIRROR" = none ]; then MIRROR=""; rm -f "$MIRROR_FILE" 2>/dev/null || true
 elif [ -z "$MIRROR" ] && [ -s "$MIRROR_FILE" ]; then MIRROR="$(head -n1 "$MIRROR_FILE")"; fi
+# A mirror relays release bytes from an untrusted third party, so plain http
+# would let anyone on the path swap them: only https is accepted.
+case "$MIRROR" in
+  ""|https://*) ;;
+  *) die "镜像必须使用 https://（收到 $MIRROR）。镜像仅加速软件包下载，校验和始终从 GitHub 官方获取。" ;;
+esac
 
 [ "$ACTION" = version ] && { echo "polaris $( [ -x "$BIN" ] && "$BIN" --version | awk '{print $2}' || echo 未安装)"; exit 0; }
 preflight
