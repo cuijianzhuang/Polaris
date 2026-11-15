@@ -52,6 +52,30 @@ class MirrorTests(unittest.TestCase):
     with self.assertRaises(m.SyncError) as caught:m.run_git(['git','push'],'push',{})
     self.assertEqual(run.call_count,attempts);self.assertEqual(sleep.call_count,attempts-1)
     self.assertIn(hint,str(caught.exception));self.assertNotIn('fixture-secret',str(caught.exception)+log.getvalue())
+ def test_git_push_names_rejected_refs_without_leaking_output(self):
+  output=(b'To https://user:fixture-secret@github.com/PolarisPanelOrg/Polaris.git\n'
+   b' ! [rejected]  installer-verified-ctl -> installer-verified-ctl (non-fast-forward)\n'
+   b' ! [rejected]  refs/tags/v0.1.246 -> refs/tags/v0.1.246 (already exists)\n'
+   b'error: failed to push some refs\n')
+  with mock.patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1,b'',output)), contextlib.redirect_stdout(io.StringIO()):
+   with self.assertRaises(m.SyncError) as caught:m.run_git(['git','push'],'push',{})
+  message=str(caught.exception)
+  self.assertIn('history differs',message)
+  self.assertIn('installer-verified-ctl',message);self.assertIn('refs/tags/v0.1.246',message)
+  self.assertNotIn('fixture-secret',message)
+ def test_git_rejected_refs_filters_untrusted_names_and_bounds_count(self):
+  output=(b' ! [rejected]  good/branch -> good/branch (non-fast-forward)\n'
+   b' ! [rejected]  bad;rm -rf -> bad;rm -rf (non-fast-forward)\n'
+   b' ! [rejected]  ' + b'x'*250 + b' -> long (non-fast-forward)\n'
+   + b''.join(b' ! [rejected]  r%d -> r%d (non-fast-forward)\n'%(i,i) for i in range(12)))
+  refs=m.rejected_refs(output)
+  self.assertIn('good/branch',refs)
+  self.assertFalse(any(';' in r or len(r)>200 for r in refs))
+  self.assertLessEqual(len(refs),8)
+ def test_git_push_without_parseable_rejected_ref_keeps_original_hint(self):
+  with mock.patch.object(m.subprocess,'run',return_value=subprocess.CompletedProcess([],1,b'',b'non-fast-forward but no ref line')), contextlib.redirect_stdout(io.StringIO()):
+   with self.assertRaises(m.SyncError) as caught:m.run_git(['git','push'],'push',{})
+  self.assertEqual(str(caught.exception),'Git mirror push failed: destination branch/tag history differs; review the conflicting refs before synchronizing (no force-push or prune was attempted)')
  def test_git_timeout_is_not_retried_or_echoed(self):
   with mock.patch.object(m.subprocess,'run',side_effect=subprocess.TimeoutExpired(['fixture-secret'],900)) as run, mock.patch.object(m.time,'sleep') as sleep, contextlib.redirect_stdout(io.StringIO()):
    with self.assertRaisesRegex(m.SyncError,'fetch timed out') as caught:m.run_git(['git','fetch'],'fetch',{})
