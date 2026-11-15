@@ -150,6 +150,28 @@ def validate_pair(source, target):
         raise SyncError('Destination must be the corresponding PolarisPanelOrg repository')
 
 
+def rejected_refs(output):
+    """Name the refs Git rejected, without echoing the captured output.
+
+    Git prints lines such as:
+      ! [rejected]  installer-verified-ctl -> installer-verified-ctl (non-fast-forward)
+    Only a strict, bounded ref-name charset is surfaced, so credentials or
+    control characters that may appear in Git output can never leak into the
+    raised error. An empty list means the output had no parseable ref.
+    """
+    refs = []
+    for line in output.decode('utf-8', errors='replace').splitlines():
+        match = re.search(r'\[rejected\]\s+(\S+)\s*->\s*(\S+)', line)
+        if not match:
+            continue
+        for ref in match.groups():
+            if re.fullmatch(r'[A-Za-z0-9._/-]{1,200}', ref) and ref not in refs:
+                refs.append(ref)
+        if len(refs) >= 8:
+            break
+    return refs[:8]
+
+
 def git_failure_hint(stage, output):
     """Classify captured Git output, without ever returning credential-bearing text."""
     text = output.decode('utf-8', errors='replace').lower()
@@ -158,7 +180,9 @@ def git_failure_hint(stage, output):
     if 'refusing to allow' in text and 'workflow' in text:
         return 'workflow update refused; MIRROR_TOKEN needs Workflows: write (classic PAT: workflow scope)', False
     if stage == 'push' and any(value in text for value in ('non-fast-forward', '(fetch first)', '(already exists)', 'would clobber existing tag')):
-        return 'destination branch/tag history differs; review the conflicting refs before synchronizing', False
+        refs = rejected_refs(output)
+        detail = ' (git rejected: ' + ', '.join(refs) + ')' if refs else ''
+        return 'destination branch/tag history differs; review the conflicting refs before synchronizing' + detail, False
     if any(value in text for value in ('ssl certificate problem', 'certificate verification failed', 'ssl: no alternative certificate')):
         return 'TLS certificate verification failed; check runner trust and network configuration', False
     if any(value in text for value in ('authentication failed', 'could not read username', 'invalid username or token',
