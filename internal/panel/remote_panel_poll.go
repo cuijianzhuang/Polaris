@@ -82,6 +82,7 @@ func (s *Server) pollOneRemotePanel(ctx context.Context, p *store.RemotePanel) {
 		caPin:    p.CAPin,
 		insecure: p.Insecure,
 		timeout:  remotePanelTimeout,
+		rt:       s.remotePanelTransport,
 	}
 
 	snap, err := c.fetchSnapshot(ctx)

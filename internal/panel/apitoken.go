@@ -44,16 +44,21 @@ const (
 	ScopeRedeemWrite = "redeem:write"
 	// ScopePanelRead returns panel-wide read-only summary for multi-panel hubs.
 	ScopePanelRead = "panel:read"
+	// ScopePanelActions runs allow-listed write actions on this panel on
+	// behalf of a multi-panel hub: node sync/upgrade-agent, user renew /
+	// reset-traffic / add-traffic. Nothing else.
+	ScopePanelActions = "panel:actions"
 )
 
-var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead, ScopeRedeemWrite, ScopePanelRead}
+var allScopes = []string{ScopeUsersRead, ScopeUsersWrite, ScopeNodesRead, ScopeTrafficRead, ScopeSettingsRead, ScopeUsersRenew, ScopeTrafficAdd, ScopeSubsRead, ScopeUsersPlan, ScopeNodesMetrics, ScopeCDNIPs, ScopeMetricsRead, ScopeRedeemWrite, ScopePanelRead, ScopePanelActions}
 
 // tokenRoutes maps "METHOD /route" (gin's full path below the API base) to
 // the scope it needs. "" means any valid token.
 var tokenRoutes = map[string]string{
 	"GET /tokens/self": "",
 
-	"GET /panel/self": ScopePanelRead,
+	"GET /panel/self":     ScopePanelRead,
+	"POST /panel/actions": ScopePanelActions,
 
 	"GET /redeem-codes":    ScopeRedeemWrite,
 	"POST /redeem-codes":   ScopeRedeemWrite,

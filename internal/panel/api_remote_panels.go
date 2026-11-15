@@ -216,6 +216,7 @@ func (s *Server) probeRemotePanel(c *gin.Context) {
 		caPin:    p.CAPin,
 		insecure: p.Insecure,
 		timeout:  remotePanelTimeout,
+		rt:       s.remotePanelTransport,
 	}
 
 	snap, err := cli.fetchSnapshot(c.Request.Context())

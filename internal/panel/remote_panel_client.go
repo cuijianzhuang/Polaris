@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -26,6 +27,7 @@ type remotePanelClient struct {
 	caPin    string
 	insecure bool
 	timeout  time.Duration
+	rt       http.RoundTripper // tests: bypass the SSRF dialer for loopback members
 }
 
 // ssrfDialer resolves the address and rejects non-public targets before
@@ -50,6 +52,9 @@ func ssrfDialer(dialer *net.Dialer) func(ctx context.Context, network, addr stri
 }
 
 func (c *remotePanelClient) client() *http.Client {
+	if c.rt != nil {
+		return &http.Client{Transport: c.rt, Timeout: c.timeout}
+	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: c.insecure},
@@ -116,6 +121,47 @@ func (c *remotePanelClient) fetchSnapshot(ctx context.Context) (*store.RemoteSna
 	var snap store.RemoteSnapshot
 	_, err := c.get(ctx, "/api/panel/self", &snap)
 	return &snap, err
+}
+
+// post sends a JSON body to the member and decodes the response.
+func (c *remotePanelClient) post(ctx context.Context, path string, body any, out any) (status int, err error) {
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return 0, fmt.Errorf("parse base URL: %w", err)
+	}
+	u.Path = strings.TrimSuffix(u.Path, "/") + path
+	u.RawQuery = ""
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return 0, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", u.String(), bytes.NewReader(payload))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.token)
+
+	resp, err := c.client().Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return resp.StatusCode, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return resp.StatusCode, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(raw))
+	}
+	if out != nil && len(raw) > 0 {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return resp.StatusCode, fmt.Errorf("decode response: %w", err)
+		}
+	}
+	return resp.StatusCode, nil
 }
 
 // checkSSRF rejects targets that must never be reachable from the hub.

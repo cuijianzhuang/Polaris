@@ -100,6 +100,7 @@ type Server struct {
 	shared sharedState
 
 	routeDatabaseTransport http.RoundTripper // tests: repository download transport
+	remotePanelTransport   http.RoundTripper // tests: bypass SSRF dialer for loopback members
 
 	memberID          string // stable local installation identity across restarts
 	opsMu             sync.Mutex
