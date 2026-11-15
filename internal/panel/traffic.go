@@ -560,9 +560,26 @@ func (s *Server) capForwards(charged map[string]int64) {
 // temporary IP bans, rebuilding the specs of every affected node.
 func (s *Server) enforceLimits() {
 	now := time.Now().UTC()
+	// SQLite stores times as text, including their UTC offsets. Comparing
+	// those strings can miss already-expired rows written in another zone.
+	// PostgreSQL compares timestamp instants natively.
+	expired, banExpired := "expire_at < ?", "banned_until < ?"
+	if s.st.DB.Dialector.Name() == "sqlite" {
+		expired = "julianday(expire_at) <= julianday(?)" // include rounding ties; computeStatus checks the exact instant
+		banExpired = "julianday(banned_until) < julianday(?)"
+	}
 	var changed []string
+	// Keep all limited/expired accounts: quota resets and purchases can make
+	// them active again. Active accounts only need work after expiry or when
+	// their traffic is exhausted. Renewal/fallback both require expiry, so
+	// that same branch includes them without loading every healthy plan user.
 	var users []store.User
-	s.st.DB.Where("status IN ? AND is_service = ?", []string{"active", "limited", "expired"}, false).Find(&users)
+	if err := s.st.DB.Where("status IN ? AND is_service = ?", []string{"active", "limited", "expired"}, false).
+		Where("status <> ? OR "+expired+" OR (traffic_limit > 0 AND COALESCE(used_up, 0) + COALESCE(used_down, 0) >= traffic_limit)", "active", now).
+		Find(&users).Error; err != nil {
+		s.log.Warn("could not read user limit candidates", "err", err)
+		users = nil // do not act on a partial result; still run the ban sweep
+	}
 	for _, u := range users {
 		if s.autoRenew(&u, now) || s.planFallback(&u, now) {
 			changed = append(changed, u.ID)
@@ -605,11 +622,26 @@ func (s *Server) enforceLimits() {
 			s.notifyCommitted(e)
 		}
 	}
+	// Lift expired temporary bans in batches: one statement per chunk keeps
+	// a wave of bans (an ip_limit rule across many accounts) from turning
+	// into one write per user on a single tick.
 	var unban []store.User
-	s.st.DB.Where("banned_until IS NOT NULL AND banned_until < ?", now).Find(&unban)
-	for _, u := range unban {
-		s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Update("banned_until", nil)
-		changed = append(changed, u.ID)
+	if err := s.st.DB.Select("id").Where("banned_until IS NOT NULL AND "+banExpired, now).Order("id").Find(&unban).Error; err != nil {
+		s.log.Warn("could not read expired IP bans", "err", err)
+		unban = nil
+	}
+	for start := 0; start < len(unban); start += settleBatch {
+		batch := unban[start:min(start+settleBatch, len(unban))]
+		ids := make([]string, len(batch))
+		for i := range batch {
+			ids[i] = batch[i].ID
+		}
+		res := s.st.DB.Model(&store.User{}).Where("id IN ? AND banned_until IS NOT NULL AND "+banExpired, ids, now).Update("banned_until", nil)
+		if res.Error != nil {
+			s.log.Warn("could not lift expired IP bans", "users", len(ids), "err", res.Error)
+			continue
+		}
+		changed = append(changed, ids...)
 	}
 	if len(changed) > 0 {
 		s.MarkDirty("user status changed", s.nodesForUsers(changed...)...)
