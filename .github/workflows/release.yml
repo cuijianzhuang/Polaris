@@ -196,22 +196,32 @@ jobs:
           if [ -n "${LICENSE_PUBKEYS}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/license.PublicKeys=${LICENSE_PUBKEYS}"; fi
           if [ -n "${LICENSE_SERVER}" ]; then LDFLAGS="$LDFLAGS -X github.com/cuijianzhuang/polaris/internal/panel.DefaultLicenseServer=${LICENSE_SERVER}"; fi
           mkdir -p dist build
-          # tar with fixed metadata: --sort, --owner/--group 0, --mtime from the
-          # commit, no atime/ctime records, and gzip without the filename stamp.
-          pack() { # $1: output archive, then the files (relative to their -C dirs)
+          # Fixed archive metadata: owner/group 0, --mtime from the commit, no
+          # atime/ctime records, gzip without the filename stamp. Members are
+          # staged in one directory and named in sorted order below: GNU tar's
+          # --sort only orders entries it discovers by recursing, never files
+          # given on the command line, so passing --sort here would silently
+          # do nothing.
+          pack() { # $1: output archive; remaining args are sorted member names in build/
             local out="$1"; shift
-            tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" \
-              --format=gnu --create "$@" | gzip -9n > "$out"
+            tar --owner=0 --group=0 --numeric-owner --mtime="@$SOURCE_DATE_EPOCH" \
+              --format=gnu --create -C build "$@" | gzip -9n > "$out"
+          }
+          stage() { # normalize every member's mode regardless of checkout umask
+            cp "$GITHUB_WORKSPACE"/deploy/polaris.service "$GITHUB_WORKSPACE"/deploy/polaris.env.example \
+              "$GITHUB_WORKSPACE"/deploy/Caddyfile build/
+            chmod 0755 build/polaris
+            chmod 0644 build/polaris.service build/polaris.env.example build/Caddyfile
           }
           build() { # $1: build tags ("" or pro)
             local ep=${1:+$1-}
             for arch in amd64 arm64; do
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$1" -ldflags "$LDFLAGS" -o dist/polaris-agent-${ep}linux-$arch ./cmd/agent
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -tags "$1" -ldflags "$LDFLAGS" -o build/polaris ./cmd/panel
-              chmod 0755 build/polaris
-              pack dist/polaris-panel-${ep}${VERSION}-linux-$arch.tar.gz -C build polaris \
-                -C "$GITHUB_WORKSPACE/deploy" polaris.service polaris.env.example Caddyfile
-              rm -f build/polaris
+              stage
+              pack dist/polaris-panel-${ep}${VERSION}-linux-$arch.tar.gz \
+                Caddyfile polaris polaris.env.example polaris.service
+              rm -f build/polaris build/polaris.service build/polaris.env.example build/Caddyfile
             done
           }
           build ""
@@ -221,7 +231,9 @@ jobs:
             scripts/pro.sh clean
           fi
           cp scripts/install-panel.sh dist/
-          (cd dist && sha256sum -- * > checksums.txt && cat checksums.txt)
+          # Sort in the C locale: the shell's glob order follows the runner
+          # locale, which would otherwise reorder this file between machines.
+          (cd dist && sha256sum -- * | LC_ALL=C sort -k2 > checksums.txt && cat checksums.txt)
       - name: Smoke test the binaries
         env:
           VERSION: ${{ needs.version.outputs.version }}
