@@ -102,8 +102,8 @@ func (s *Server) nodeUsersAPI(c *gin.Context) {
 		}
 		snap := s.shared.onlineIPs(ids)
 		for _, id := range ids {
-			for ip, seen := range snap[id][nodeID] {
-				if time.Since(seen) < 3*time.Minute {
+			for raw, seen := range snap[id][nodeID] {
+				if ip := normalizeOnlineIP(raw); ip != "" && time.Since(seen) < onlineIPWindow {
 					rows[id].OnlineIP = append(rows[id].OnlineIP, ip)
 				}
 			}

@@ -52,7 +52,8 @@ func (s *Server) withOnline(us []store.User) {
 		nodes map[string]bool
 		at    time.Time
 	}
-	live := map[string]map[string]*seen{} // user -> ip -> where and when
+	live := map[string]map[string]*seen{}            // user -> ip -> where and when
+	activeNodes := map[string]map[string]time.Time{} // user -> reporting node -> freshest evidence
 	last := map[string]time.Time{}
 	uids := make([]string, len(us))
 	for i, u := range us {
@@ -75,6 +76,10 @@ func (s *Server) withOnline(us []store.User) {
 				}
 				if live[u.ID] == nil {
 					live[u.ID] = map[string]*seen{}
+					activeNodes[u.ID] = map[string]time.Time{}
+				}
+				if at.After(activeNodes[u.ID][node]) {
+					activeNodes[u.ID][node] = at
 				}
 				e := live[u.ID][ip]
 				if e == nil {
@@ -99,12 +104,16 @@ func (s *Server) withOnline(us []store.User) {
 	// A source address that is one of our own nodes is a relay hop or a CDN
 	// origin fetch, not a client: retain it as evidence, but exclude it from device counts.
 	var nodeIPs netList
+	var topology onlineTopology
 	if len(ids) > 0 {
 		var ns []store.Node
-		s.st.DB.Select("id", "name", "address", "public_ipv4", "public_ipv6").Find(&ns)
+		s.st.DB.Select("id", "name", "address", "public_ipv4", "public_ipv6", "relay_for").Find(&ns)
 		for _, n := range ns {
 			names[n.ID] = n.Name
 		}
+		var chains []store.Chain
+		s.st.DB.Where("disabled = ?", false).Select("hops").Find(&chains)
+		topology = buildOnlineTopology(ns, chains)
 		nodeIPs = nodeOwnAddresses(ns)
 		var ds []store.UserDevice
 		s.st.DB.Where("user_id IN ?", ids).Order("last_seen").Find(&ds)
@@ -116,6 +125,15 @@ func (s *Server) withOnline(us []store.User) {
 	for i := range us {
 		u := &us[i]
 		u.OnlineIPState, u.OnlineIPSeenAt, u.OnlineIPCount = "none", nil, nil
+		u.OnlineNodes = make([]store.OnlineNode, 0, len(activeNodes[u.ID]))
+		for id, at := range activeNodes[u.ID] {
+			name := names[id]
+			if name == "" {
+				name = id
+			}
+			u.OnlineNodes = append(u.OnlineNodes, store.OnlineNode{ID: id, Name: name, Seen: at, RelayTargets: topology.targets[id]})
+		}
+		sort.Slice(u.OnlineNodes, func(a, b int) bool { return u.OnlineNodes[a].ID < u.OnlineNodes[b].ID })
 		if at := last[u.ID]; !at.IsZero() {
 			u.OnlineIPSeenAt = &at
 		}
@@ -129,6 +147,16 @@ func (s *Server) withOnline(us []store.User) {
 		list := make([]store.OnlineDevice, 0, len(live[us[i].ID]))
 		for ip, e := range live[us[i].ID] {
 			d := store.OnlineDevice{IP: ip, Seen: e.at}
+			for id := range e.nodes {
+				name := names[id]
+				if name == "" {
+					name = id
+				}
+				d.Nodes = append(d.Nodes, name)
+			}
+			sort.Strings(d.Nodes)
+			d.RelayNodes = topology.addressOwners[ip]
+
 			if cf, _ := cloudflareOwned(ip); cf {
 				d.Excluded = "cdn"
 				proxy++
@@ -137,6 +165,7 @@ func (s *Server) withOnline(us []store.User) {
 				// chained inbound reports the previous hop's address.
 				d.Excluded = "node"
 				proxy++
+
 			} else {
 				known++
 				if trusted.contains(ip) {
@@ -145,12 +174,6 @@ func (s *Server) withOnline(us []store.User) {
 					counted++
 				}
 			}
-			for id := range e.nodes {
-				if n := names[id]; n != "" {
-					d.Nodes = append(d.Nodes, n)
-				}
-			}
-			sort.Strings(d.Nodes)
 			if dev, ok := devices[us[i].ID+"|"+ip]; ok {
 				d.Model, d.OS = dev.Model, dev.OS
 			}

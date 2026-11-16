@@ -11,7 +11,7 @@ import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import InboundFields, { normalizeDraft, type InboundDraft } from '../components/InboundFields'
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast, Section, useUndo } from '../components/ui'
-import { bytes, coreLabel, coreShort, coreTagClass, inboundSummary, portLabel } from '../format'
+import { bytes, coreLabel, coreShort, coreTagClass, errMsg, inboundSummary, portLabel } from '../format'
 import type { TagTrafficRow } from '../components/TagTraffic'
 import type { CapSet, CDNCheck, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, Node, Outbound } from '../types'
 import { t, tr } from '../i18n'
@@ -312,6 +312,13 @@ function HealthDot({ h }: { h?: InboundHealth }) {
   return <span title={tip} style={{ marginLeft: 6, whiteSpace: 'nowrap', fontSize: 12, color: h.ok ? 'var(--ok)' : 'var(--bad)' }}>● {h.ok ? `${h.latencyMs}ms` : t('不通')}</span>
 }
 
+type RelayAccessPolicy = NonNullable<Inbound['relayAccess']>
+const normalizeRelayAccess = (policy: RelayAccessPolicy): RelayAccessPolicy => ({
+  enabled: policy.enabled,
+  proxyProtocol: policy.proxyProtocol || 0,
+  sourceOverrides: Object.fromEntries(Object.entries(policy.sourceOverrides ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([id, sources]) => [id, sources.map((x) => x.trim()).filter(Boolean)])),
+})
+
 function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }: { nodes: Node[]; editing?: Inbound; snellNode?: string; onClose: () => void; onSaved: () => void; onDelete: (i: Inbound) => void }) {
   const [nodeId, setNodeId] = useState(editing?.nodeId ?? snellNode ?? nodes[0]?.id ?? '')
   const node = nodes.find((n) => n.id === nodeId)
@@ -336,7 +343,13 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const [remark, setRemark] = useState(editing?.remark ?? '')
   const [ipStrategy, setIPStrategy] = useState<import('../types').OutboundIPStrategy>(editing?.outboundIPStrategy || 'auto')
   const [relayOnly, setRelayOnly] = useState(!!editing?.relayOnly)
-  const [relayAccess, setRelayAccess] = useState<NonNullable<Inbound['relayAccess']>>(editing?.relayAccess ?? { enabled: false, proxyProtocol: 0 })
+  const [relayAccess, setRelayAccess] = useState<RelayAccessPolicy>(editing?.relayAccess ?? { enabled: false, proxyProtocol: 0 })
+  // Keep the server policy separate from the draft: applying it must not reset
+  // other edits or let the generic inbound save send a stale policy back.
+  const [savedRelayAccess, setSavedRelayAccess] = useState(relayAccess)
+  const [relayPolicySaved, setRelayPolicySaved] = useState(false)
+  const [relayPolicyError, setRelayPolicyError] = useState('')
+  const relayPolicyDirty = !!editing && JSON.stringify(normalizeRelayAccess(relayAccess)) !== JSON.stringify(normalizeRelayAccess(savedRelayAccess))
   const [relaysOpen, setRelaysOpen] = useState(false)
   const [endpointPending, setEndpointPending] = useState(false)
   const [relayVersion, setRelayVersion] = useState(0)
@@ -374,7 +387,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
     let ex: any = undefined
     if (extra.trim()) ex = JSON.parse(extra)
     return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
-      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly, relayAccess: { ...relayAccess, sourceOverrides: Object.fromEntries(Object.entries(relayAccess.sourceOverrides ?? {}).map(([id, sources]) => [id, sources.map((x) => x.trim()).filter(Boolean)])) }, speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)),
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly,
+      ...(!editing ? { relayAccess: normalizeRelayAccess(relayAccess) } : {}), speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)),
       ...(!editing && draftCDNCapable && newCDN.profileId ? { cdnProfileId: newCDN.profileId, cdnOnly: newCDN.only } : {}) }
   }
   // oneClickCDN turns the new inbound into one clients reach through a CDN:
@@ -407,7 +421,26 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
     toast(t('已配置：{proto} + {trans}，{scheme} CDN，端口 {port}。检查无误后点「保存并下发」', { proto: proto.toUpperCase(), trans: trans.toUpperCase(), scheme: cdnScheme(p).toUpperCase(), port: free }))
   }
 
+  const applyRelayPolicy = () => run(async () => {
+    if (!editing || !relayPolicyDirty) return
+    setRelayPolicyError('')
+    setRelayPolicySaved(false)
+    try {
+      const policy = await put<RelayAccessPolicy>(`/inbounds/${editing.id}/relay-access`, normalizeRelayAccess(relayAccess))
+      setSavedRelayAccess(policy)
+      setRelayAccess(policy)
+      if (policy.enabled) setRelayOnly(true)
+      setRelayPolicySaved(true)
+      setRelayVersion((v) => v + 1)
+      onSaved()
+    } catch (e) {
+      setRelayPolicyError(errMsg(e))
+      throw e
+    }
+  })
+
   const save = () => run(async () => {
+    if (relayPolicyDirty) throw new Error(t('请先应用访问策略，或恢复策略修改，再保存入站配置。'))
     if (editing) await put('/inbounds/' + editing.id, body())
     else await post('/inbounds', body())
     onSaved()
@@ -427,7 +460,8 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
         setPreview(r.config)
       })}>{t('预览内核配置')}</button>
       {endpointPending && <span className="hint" role="status">{t('请先添加入口，或取消本次添加，再保存入站。')}</span>}
-      <button className="btn pri" type="button" disabled={busy || endpointPending || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
+      {relayPolicyDirty && <span className="hint" role="status">{t('请先应用访问策略，或恢复策略修改，再保存入站配置。')}</span>}
+      <button className="btn pri" type="button" disabled={busy || endpointPending || relayPolicyDirty || !tag || !nodeId || (draft.protocol.type === 'snell' && draft.protocol.snellAuth === 'psk' && !draft.protocol.snellUserId)} onClick={save}>{t('保存并下发')}</button>
     </>}>
       <AIInbound nodeId={nodeId} inboundId={editing?.id} draft={{ core: draft.core, protocol: draft.protocol.type, transport: draft.transport.type, security: draft.security.type, port: Number(port), tag, serverName: draft.security.serverName || draft.security.realityServerNames?.[0] || draft.security.realityDest?.replace(/:\d+$/, '') }} onApply={(plan) => {
         setDraft({ core: plan.core, protocol: { type: plan.protocol }, transport: { type: plan.transport }, security: plan.security === 'reality' ? { type: 'reality', realityDest: plan.serverName + ':443', realityServerNames: [plan.serverName || ''] } : { type: plan.security, serverName: plan.serverName, certificateId: plan.certificateId }, sniffing: { enabled: true } })
@@ -494,7 +528,20 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
           <input id="ib-speed" className="input mono" inputMode="numeric" placeholder={t('不限速')} value={speedLimit} onChange={(e) => setSpeedLimit(e.target.value.replace(/[^0-9]/g, ''))} />
         </Field>
       </Section>
-      <section className="card ops-stack"><h3>{t('中转与访问控制')}</h3><RelayAccessFields value={relayAccess} relayOnly={relayOnly} nodes={nodes.filter((n) => n.id !== nodeId)} onChange={(only, policy) => { setRelayOnly(only); setRelayAccess(policy) }} />{editing && <button className="btn" onClick={() => setRelaysOpen(true)}>{t('中转管理')}</button>}</section>
+      <section className="card ops-stack">
+        <h3>{t('中转与访问控制')}</h3>
+        <fieldset className="ops-stack" disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+          <RelayAccessFields value={relayAccess} relayOnly={relayOnly} nodes={nodes.filter((n) => n.id !== nodeId)} onChange={(only, policy) => { setRelayOnly(only); setRelayAccess(policy); setRelayPolicySaved(false); setRelayPolicyError('') }} />
+          {editing && <>
+            <div className="hint">{t('访问策略单独应用到已保存的入站和受管中转线路；底部「保存并下发」不保存来源限制、PROXY 协议或来源地址。其他入站修改仍需另行保存。')}</div>
+            <div><button className="btn pri" type="button" disabled={!relayPolicyDirty} onClick={applyRelayPolicy}>{t('应用访问策略并下发')}</button></div>
+          </>}
+        </fieldset>
+        {editing && relayPolicyDirty && <div className="note warn" role="status">{t('访问策略有未应用的修改。启用后会同时将已保存的入站设为仅通过中转提供；请确认现有线路与来源地址。')}</div>}
+        {editing && relayPolicySaved && !relayPolicyDirty && <div className="note ok-note" role="status">{t('访问策略已保存，等待节点应用。此操作不保存其他入站修改；请在「中转管理」确认各节点的应用状态。')}</div>}
+        {relayPolicyError && <div className="note bad" role="alert">{t('访问策略未保存：{error}', { error: relayPolicyError })}</div>}
+        {editing && <button className="btn" type="button" disabled={busy} onClick={() => setRelaysOpen(true)}>{t('中转管理')}</button>}
+      </section>
       <Section step={4} title={t('高级')} defaultOpen={!!extra.trim()} summary={extra.trim() ? t('已设置 Extra') : t('Extra（原样合并进内核配置）')}>
         <Field label="Extra" hint={t('原样合并进内核配置的 JSON')}>
           <textarea className="input" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder='{"sniffing": {"routeOnly": true}}' />
