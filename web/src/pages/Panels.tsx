@@ -196,13 +196,15 @@ function PanelModal({ p, onClose, onSaved }: { p: RemotePanel | null; onClose: (
             </button>
           </div>
         </Field>
-        <Field label={t('证书指纹')} htmlFor="pm-capin"><input id="pm-capin" className="input mono" value={f.caPin} onChange={(e) => set('caPin', e.target.value)} placeholder="SHA-256" /></Field>
+        <Field label={t('证书指纹')} htmlFor="pm-capin" hint={t('可选，SHA-256 指纹；冒号分隔或大写均可')}>
+          <input id="pm-capin" className="input mono" value={f.caPin} onChange={(e) => set('caPin', e.target.value)} placeholder="ab:cd:ef:…" />
+        </Field>
         <Field label={t('标签')} htmlFor="pm-labels" hint={t('多个标签用逗号分隔')}>
           <input id="pm-labels" className="input" value={f.labels} onChange={(e) => set('labels', e.target.value)} />
         </Field>
       </div>
-      <Field label={t('跳过证书校验')} hint={t('跳过校验有风险，成员证书将不被验证')}>
-        <label className="row small"><Switch label={t('跳过证书校验')} on={f.insecure} onChange={(v) => set('insecure', v)} />{f.insecure ? t('跳过证书校验') : t('验证证书')}</label>
+      <Field label={t('证书校验')} hint={f.insecure ? t('已跳过校验：成员证书不会被验证，存在中间人风险') : t('校验证书；自签证书请在上方填写指纹')}>
+        <label className="row small"><Switch label={t('跳过证书校验')} on={f.insecure} onChange={(v) => set('insecure', v)} />{f.insecure ? t('已跳过校验') : t('校验证书')}</label>
       </Field>
       {editing && (
         <Field label={t('启用')} hint={t('停用后不再参与汇总与轮询')}>

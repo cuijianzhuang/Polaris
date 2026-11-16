@@ -213,3 +213,21 @@ func TestPanelSelfScope(t *testing.T) {
 		t.Fatalf("token without panel:read should be 403, got %d", code)
 	}
 }
+
+func TestNormalizeCAPin(t *testing.T) {
+	const bare = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	cases := []struct{ in, want string }{
+		{bare, bare},
+		{"ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789", bare},
+		{"SHA256:ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789", bare},
+		{"sha256=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", bare},
+		{"ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89:ab:cd:ef:01:23:45:67:89", "abcdef0123456789abcdef0123456789abcdef0123456789abcdef01" + "23456789"},
+		{"  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789  ", bare},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := normalizeCAPin(c.in); got != c.want {
+			t.Errorf("normalizeCAPin(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

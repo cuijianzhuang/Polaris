@@ -60,7 +60,8 @@ func (c *remotePanelClient) client() *http.Client {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: c.insecure},
 		DialContext:     ssrfDialer(dialer),
 	}
-	if c.caPin != "" && !c.insecure {
+	pin := normalizeCAPin(c.caPin)
+	if pin != "" && !c.insecure {
 		tr.TLSClientConfig.InsecureSkipVerify = true
 		tr.TLSClientConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
@@ -71,14 +72,31 @@ func (c *remotePanelClient) client() *http.Client {
 				return err
 			}
 			h := sha256.Sum256(cert.Raw)
-			pin := hex.EncodeToString(h[:])
-			if pin != c.caPin {
-				return fmt.Errorf("certificate pin mismatch: got %s, want %s", pin, c.caPin)
+			got := hex.EncodeToString(h[:])
+			if got != pin {
+				return fmt.Errorf("certificate pin mismatch: got %s, want %s", got, pin)
 			}
 			return nil
 		}
 	}
 	return &http.Client{Transport: tr, Timeout: c.timeout}
+}
+
+// normalizeCAPin accepts the fingerprint formats people paste from openssl
+// and browsers: SHA-256:/sha256= prefixes, colon or space separated bytes,
+// and either case. The comparison uses the bare lowercase hex form.
+func normalizeCAPin(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimPrefix(s, "sha256:")
+	s = strings.TrimPrefix(s, "sha256=")
+	s = strings.TrimPrefix(s, "sha-256:")
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func (c *remotePanelClient) get(ctx context.Context, path string, out any) (status int, err error) {

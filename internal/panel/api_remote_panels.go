@@ -97,7 +97,7 @@ func (s *Server) createRemotePanel(c *gin.Context) {
 		BaseURL:   req.BaseURL,
 		Token:     s.st.Box.Seal(req.Token),
 		Scopes:    store.JSON[[]string]{V: req.Scopes},
-		CAPin:     req.CAPin,
+		CAPin:     normalizeCAPin(req.CAPin),
 		Insecure:  req.Insecure,
 		Labels:    store.JSON[[]string]{V: req.Labels},
 		Enabled:   true,
@@ -154,7 +154,7 @@ func (s *Server) updateRemotePanel(c *gin.Context) {
 		p.Scopes = store.JSON[[]string]{V: req.Scopes}
 	}
 	if req.CAPin != nil {
-		p.CAPin = *req.CAPin
+		p.CAPin = normalizeCAPin(*req.CAPin)
 	}
 	if req.Insecure != nil {
 		p.Insecure = *req.Insecure
