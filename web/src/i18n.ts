@@ -53,6 +53,7 @@ const loaders: Record<string, () => Promise<DictModule>> = {
   'cdnRemoteToken.ts': () => import('./locales/en/cdnRemoteToken'),
   'cdnPoolEditor.ts': () => import('./locales/en/cdnPoolEditor'),
   'websites.ts': () => import('./locales/en/websites'),
+  'panels.ts': () => import('./locales/en/panels'),
   'g1.ts': () => import('./locales/en/g1'),
   'g2.ts': () => import('./locales/en/g2'),
   'g3.ts': () => import('./locales/en/g3'),
@@ -67,7 +68,7 @@ const loaders: Record<string, () => Promise<DictModule>> = {
 
 // Files loaded eagerly: the shell dictionary plus the small named files.
 // Together they are ~40 KB of source (vs 384 KB for the whole dictionary).
-const eagerFiles = ['shell.ts', 'core.ts', 'adminRoles.ts', 'appearance.ts', 'recovery.ts', 'nodeBrowser.ts', 'userOnline.ts', 'cdnSchedule.ts', 'cdnTunnel.ts', 'cdnTunnelAgent.ts', 'cdnRemoteToken.ts', 'cdnPoolEditor.ts', 'websites.ts']
+const eagerFiles = ['shell.ts', 'core.ts', 'adminRoles.ts', 'appearance.ts', 'recovery.ts', 'nodeBrowser.ts', 'userOnline.ts', 'cdnSchedule.ts', 'cdnTunnel.ts', 'cdnTunnelAgent.ts', 'cdnRemoteToken.ts', 'cdnPoolEditor.ts', 'websites.ts', 'panels.ts']
 
 // Which big dictionary files each page needs for its own t() keys.
 // Derived from the page files' direct t() usage (see the per-page audit in
@@ -91,6 +92,7 @@ export const pageDicts: Record<string, string[]> = {
   Login: [],
   NodeMap: ['g8.ts'],
   Nodes: ['g3.ts', 'g4.ts', 'g6.ts', 'g7.ts', 'g8.ts'],
+  Panels: [],
   Plans: ['g1.ts', 'g6.ts', 'g7.ts', 'g8.ts', 'operations.ts'],
   PluginPage: [],
   Probe: ['g3.ts', 'g4.ts', 'g6.ts', 'g8.ts', 'operations.ts'],

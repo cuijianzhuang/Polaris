@@ -46,6 +46,7 @@ const Cores = page('Cores', () => import('./pages/Cores'))
 const Forwards = page('Forwards', () => import('./pages/Forwards'))
 const Inbounds = page('Inbounds', () => import('./pages/Inbounds'))
 const Chains = page('Chains', () => import('./pages/Chains'))
+const Panels = page('Panels', () => import('./pages/Panels'))
 const Templates = page('Templates', () => import('./pages/Templates'))
 const Users = page('Users', () => import('./pages/Users'))
 const Shop = page('Shop', () => import('./pages/Shop'))
@@ -152,6 +153,7 @@ const nav: NavItem[] = [
     { to: '/forwards', label: t('端口转发'), icon: <Icon.Forward />, element: Forwards },
   ] },
   { to: '/chains', label: t('链路与路由'), icon: <Icon.Chain />, element: Chains },
+  { to: '/panels', label: t('多机'), icon: <Icon.Monitor />, element: Panels },
   { to: '/users', label: t('用户'), icon: <Icon.Users />, children: [
     { to: '/users', label: t('用户'), icon: <Icon.Users />, element: Users },
     { to: '/plans', label: t('套餐'), icon: <Icon.Package />, element: Plans },

@@ -138,6 +138,59 @@ export function NodeRow({ n, t: tt, onClick }: { n: Node; t?: NodeTraffic; onCli
   )
 }
 
+interface AggregateRow {
+  name: string; users: number; onlineUsers: number; nodes: number; nodesOnline: number
+  trafficUp: number; trafficDown: number; stale: boolean; failed: boolean; ageSeconds: number
+}
+interface Aggregate {
+  totalUsers: number; totalOnline: number; totalNodes: number; totalNodesOnline: number
+  totalTrafficUp: number; totalTrafficDown: number; panels: AggregateRow[]
+}
+
+function PanelsCard() {
+  const agg = useLoad((signal) => get<Aggregate>('/panels/aggregate', signal))
+  const d = agg.error ? undefined : agg.data
+  if (!d) return null
+  const unhealthy = d.panels.filter((r) => r.failed || r.stale).length
+  return (
+    <section className="card">
+      <div className="ctitle">
+        <span>{t('全部面板')}</span>
+        <Link to="/panels" style={{ fontSize: 13, fontWeight: 500 }}>{t('多机管理')}</Link>
+      </div>
+      {d.panels.length === 0 ? (
+        <div className="empty">{t('还没有注册任何面板')} <Link to="/panels">{t('去多机页注册')}</Link></div>
+      ) : (
+        <>
+          <div className="row" style={{ gap: 28, flexWrap: 'wrap', marginTop: 4 }}>
+            <div><div className="label">{t('在线用户')}</div><div className="val" style={{ fontSize: 20 }}>{d.totalOnline}<span className="of"> / {d.totalUsers}</span></div></div>
+            <div><div className="label">{t('在线节点')}</div><div className="val" style={{ fontSize: 20 }}>{d.totalNodesOnline}<span className="of"> / {d.totalNodes}</span></div></div>
+            <div><div className="label">{t('本月流量')}</div><div className="val" style={{ fontSize: 20 }}>{bytes(d.totalTrafficUp + d.totalTrafficDown)}</div></div>
+            {unhealthy > 0 && <div><div className="label">{t('健康')}</div><div className="val" style={{ fontSize: 20, color: 'var(--warn)' }}>{t('{n} 台异常', { n: unhealthy })}</div></div>}
+          </div>
+          <div className="scroll" style={{ marginTop: 8 }}>
+            <table className="rtable">
+              <thead><tr><th>{t('名称')}</th><th>{t('用户')}</th><th>{t('节点')}</th><th>{t('本月流量')}</th><th>{t('快照年龄')}</th><th>{t('健康')}</th></tr></thead>
+              <tbody>
+                {d.panels.map((r) => (
+                  <tr key={r.name}>
+                    <td style={{ fontWeight: 500 }}>{r.name}</td>
+                    <td><div className="mono">{r.failed ? '—' : r.users}</div><div className="small mute">{r.failed ? '' : t('在线 {n}', { n: r.onlineUsers })}</div></td>
+                    <td><div className="mono">{r.failed ? '—' : r.nodes}</div><div className="small mute">{r.failed ? '' : t('在线 {n}', { n: r.nodesOnline })}</div></td>
+                    <td className="mono">{r.failed ? '—' : bytes(r.trafficUp + r.trafficDown)}</td>
+                    <td>{r.failed ? '—' : r.ageSeconds > 0 ? ago(new Date(Date.now() - r.ageSeconds * 1000).toISOString()) : t('刚刚')}</td>
+                    <td>{r.failed ? <span className="tag bad">{t('失败')}</span> : r.stale ? <span className="tag warn">{t('陈旧')}</span> : <span className="tag ok">{t('健康正常')}</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const { nodes } = useNodes()
   const nav = useNavigate()
@@ -203,6 +256,7 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+      <PanelsCard />
       <TagTraffic />
     </>
   )
