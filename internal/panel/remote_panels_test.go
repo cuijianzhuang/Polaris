@@ -231,3 +231,62 @@ func TestNormalizeCAPin(t *testing.T) {
 		}
 	}
 }
+
+// A poll that finishes after the operator edited or deleted the panel must
+// only touch the poll-owned columns.
+func TestPollStateWriteDoesNotClobberEdit(t *testing.T) {
+	s := newTestServer(t)
+	p := store.RemotePanel{ID: "rp1", Name: "before", BaseURL: "https://a.example.com",
+		Token: s.st.Box.Seal("tok"), Enabled: true}
+	if err := s.st.DB.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	// The operator edits while a slow fetch is in flight.
+	if err := s.st.DB.Model(&store.RemotePanel{}).Where("id = ?", "rp1").
+		Updates(map[string]any{"name": "after", "base_url": "https://b.example.com"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	s.saveRemotePanelState("rp1", map[string]any{
+		"snapshot":    store.JSON[store.RemoteSnapshot]{V: store.RemoteSnapshot{Users: 7}},
+		"snapshot_at": &now,
+		"last_ok_at":  &now,
+		"failures":    0,
+		"next_try_at": nil,
+	})
+
+	var got store.RemotePanel
+	if err := s.st.DB.First(&got, "id = ?", "rp1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "after" || got.BaseURL != "https://b.example.com" {
+		t.Fatalf("poll write clobbered the edit: name=%q url=%q", got.Name, got.BaseURL)
+	}
+	if got.Snapshot.V.Users != 7 || got.Failures != 0 {
+		t.Fatalf("snapshot not stored: %+v", got.Snapshot.V)
+	}
+}
+
+// A poll write for a panel the operator deleted must not re-insert it.
+func TestPollStateWriteDoesNotResurrectDeleted(t *testing.T) {
+	s := newTestServer(t)
+	p := store.RemotePanel{ID: "rp2", Name: "gone", BaseURL: "https://c.example.com",
+		Token: s.st.Box.Seal("tok"), Enabled: true}
+	if err := s.st.DB.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Delete(&store.RemotePanel{}, "id = ?", "rp2").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now()
+	s.saveRemotePanelState("rp2", map[string]any{"snapshot_at": &now, "failures": 0})
+
+	var n int64
+	s.st.DB.Model(&store.RemotePanel{}).Where("id = ?", "rp2").Count(&n)
+	if n != 0 {
+		t.Fatalf("poll write resurrected a deleted panel (rows=%d)", n)
+	}
+}

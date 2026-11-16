@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -40,7 +41,9 @@ func (s *Server) runRemotePanelPoller(ctx context.Context) {
 }
 
 // pollRemotePanels loads enabled panels and refreshes each one, bounded by a
-// semaphore so a large registry does not burst outbound connections.
+// semaphore so a large registry does not burst outbound connections. It waits
+// for the round to finish, so a shutdown does not leave writes in flight and
+// two rounds never overlap.
 func (s *Server) pollRemotePanels(ctx context.Context) {
 	var panels []store.RemotePanel
 	if err := s.st.DB.Where("enabled = ?", true).Find(&panels).Error; err != nil {
@@ -51,6 +54,7 @@ func (s *Server) pollRemotePanels(ctx context.Context) {
 		return
 	}
 
+	var wg sync.WaitGroup
 	sem := make(chan struct{}, remotePanelMaxConcurrent)
 	for i := range panels {
 		p := panels[i]
@@ -59,14 +63,18 @@ func (s *Server) pollRemotePanels(ctx context.Context) {
 		}
 		select {
 		case sem <- struct{}{}:
+			wg.Add(1)
 			go func() {
 				defer func() { <-sem }()
+				defer wg.Done()
 				s.pollOneRemotePanel(ctx, &p)
 			}()
 		case <-ctx.Done():
+			wg.Wait()
 			return
 		}
 	}
+	wg.Wait()
 }
 
 func (s *Server) pollOneRemotePanel(ctx context.Context, p *store.RemotePanel) {
@@ -92,31 +100,39 @@ func (s *Server) pollOneRemotePanel(ctx context.Context, p *store.RemotePanel) {
 	}
 
 	now := time.Now()
-	p.Snapshot = store.JSON[store.RemoteSnapshot]{V: *snap}
-	p.SnapshotAt = &now
-	p.LastOKAt = &now
-	p.Failures = 0
-	p.NextTryAt = nil
-
-	if err := s.st.DB.Save(p).Error; err != nil {
-		s.log.Warn("save remote panel snapshot", "panel", p.Name, "error", err)
-	}
+	s.saveRemotePanelState(p.ID, map[string]any{
+		"snapshot":    store.JSON[store.RemoteSnapshot]{V: *snap},
+		"snapshot_at": &now,
+		"last_ok_at":  &now,
+		"last_error":  "",
+		"failures":    0,
+		"next_try_at": nil,
+	})
 }
 
 func (s *Server) recordRemotePanelFailure(p *store.RemotePanel, reason string) {
-	p.Failures++
-	p.LastError = reason
-	backoff := time.Duration(p.Failures*p.Failures) * remotePanelPollInterval
+	backoff := time.Duration(p.Failures+1) * time.Duration(p.Failures+1) * remotePanelPollInterval
 	if backoff > remotePanelMaxBackoff {
 		backoff = remotePanelMaxBackoff
 	}
 	next := time.Now().Add(backoff)
-	p.NextTryAt = &next
 
-	if err := s.st.DB.Save(p).Error; err != nil {
-		s.log.Warn("save remote panel failure", "panel", p.Name, "error", err)
+	s.saveRemotePanelState(p.ID, map[string]any{
+		"last_error":  reason,
+		"failures":    p.Failures + 1,
+		"next_try_at": &next,
+	})
+	s.log.Warn("remote panel poll failed", "panel", p.Name, "reason", reason, "failures", p.Failures+1, "next_try", next.Format(time.RFC3339))
+}
+
+// saveRemotePanelState writes only the poll-owned columns. Writing the whole
+// row would undo an edit made while a slow fetch was in flight, and would
+// re-insert a panel the operator deleted meanwhile (GORM's Save upserts).
+func (s *Server) saveRemotePanelState(id string, fields map[string]any) {
+	r := s.st.DB.Model(&store.RemotePanel{}).Where("id = ?", id).Updates(fields)
+	if r.Error != nil {
+		s.log.Warn("save remote panel state", "panel", id, "error", r.Error)
 	}
-	s.log.Warn("remote panel poll failed", "panel", p.Name, "reason", reason, "failures", p.Failures, "next_try", next.Format(time.RFC3339))
 }
 
 // classifyRemotePanelError maps a transport error to a fixed reason code so
