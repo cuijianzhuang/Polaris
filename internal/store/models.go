@@ -1332,6 +1332,22 @@ type OnlineNode struct {
 	RelayTargets []OnlineNodeRef `json:"relayTargets,omitempty"`
 }
 
+// OnlineNodeRef retains stable IDs alongside display names (names may change).
+type OnlineNodeRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// OnlineNode is a node that currently reports this user's connections.
+// Relay paths describe configured topology, not proof that a particular flow
+// traversed every configured node.
+type OnlineNode struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Seen         time.Time       `json:"seen"`
+	RelayTargets []OnlineNodeRef `json:"relayTargets,omitempty"`
+}
+
 // UserDevice is a client device (HWID) that fetched a user's subscription.
 type UserDevice struct {
 	ID        string    `gorm:"primaryKey;size:32" json:"id"`

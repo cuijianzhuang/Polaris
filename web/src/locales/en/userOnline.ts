@@ -10,7 +10,7 @@ export default {
   '部分连接仅上报 CDN 或节点中转地址，显示的是已识别且计入限制的 IP 数量下限。': 'Some connections only report CDN or node relay addresses. The count is a lower bound of identified IPs that count toward the limit.',
   '{n} 个免计': '{n} excluded',
   '有近期活动，但来源 IP 报告已过期；旧地址不作为当前在线 IP。': 'There is recent activity, but the source IP report has expired. Old addresses are not shown as currently online.',
-  '用户连接仍在线，但当前仅看到 CDN 或中转地址，客户端来源 IP 未知。': 'The user is connected, but only CDN or relay addresses are visible. The client source IP is unknown.',
+  '仅收到 CDN 或节点中转地址，尚未识别客户端真实 IP。': 'Only CDN or node relay addresses have been reported; the real client IP is unknown.',
   '有近期活动，但未收到有效来源 IP。长连接或不支持来源上报的内核可能出现此情况。': 'There is recent activity but no fresh source IP report. This can occur with long-lived connections or cores without source IP reporting.',
   '当前没有有效来源 IP 报告，也没有近两分钟的活动记录。': 'There is no fresh source IP report or activity recorded in the last two minutes.',
   '查看 {name} 的在线 IP': 'View online IPs for {name}',

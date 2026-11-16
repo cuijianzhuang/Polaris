@@ -18,7 +18,7 @@ function explanation(u: User) {
     case 'available': return t('已收到有效来源 IP。计数已去重，受信任地址、CDN 边缘和节点中转地址不计入限制。')
     case 'partial': return t('部分连接仅上报 CDN 或节点中转地址，显示的是已识别且计入限制的 IP 数量下限。')
     case 'expired': return t('有近期活动，但来源 IP 报告已过期；旧地址不作为当前在线 IP。')
-    case 'unavailable': return (u.onlineDevices ?? []).some((d) => (d.excluded === 'cdn' || d.excluded === 'node')) ? t('用户连接仍在线，但当前仅看到 CDN 或中转地址，客户端来源 IP 未知。') : t('有近期活动，但未收到有效来源 IP。长连接或不支持来源上报的内核可能出现此情况。')
+    case 'unavailable': return (u.onlineDevices ?? []).some((d) => (d.excluded === 'cdn' || d.excluded === 'node')) ? t('仅收到 CDN 或节点中转地址，尚未识别客户端真实 IP。') : t('有近期活动，但未收到有效来源 IP。长连接或不支持来源上报的内核可能出现此情况。')
     default: return t('当前没有有效来源 IP 报告，也没有近两分钟的活动记录。')
   }
 }
