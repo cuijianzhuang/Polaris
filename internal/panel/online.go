@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuijianzhuang/polaris/internal/asn"
+	"github.com/cuijianzhuang/polaris/internal/geoip"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -94,18 +96,23 @@ func (s *Server) withOnline(us []store.User) {
 	}
 	names := map[string]string{}
 	devices := map[string]store.UserDevice{} // user|ip -> newest client that fetched the subscription from it
+	// A source address that is one of our own nodes is a relay hop or a CDN
+	// origin fetch, not a client: retain it as evidence, but exclude it from device counts.
+	var nodeIPs netList
 	if len(ids) > 0 {
 		var ns []store.Node
-		s.st.DB.Select("id", "name").Find(&ns)
+		s.st.DB.Select("id", "name", "address", "public_ipv4", "public_ipv6").Find(&ns)
 		for _, n := range ns {
 			names[n.ID] = n.Name
 		}
+		nodeIPs = nodeOwnAddresses(ns)
 		var ds []store.UserDevice
 		s.st.DB.Where("user_id IN ?", ids).Order("last_seen").Find(&ds)
 		for _, d := range ds {
 			devices[d.UserID+"|"+d.IP] = d // later rows (newer) win
 		}
 	}
+	describe := s.onlineIPDescriber()
 	for i := range us {
 		u := &us[i]
 		u.OnlineIPState, u.OnlineIPSeenAt, u.OnlineIPCount = "none", nil, nil
@@ -125,6 +132,11 @@ func (s *Server) withOnline(us []store.User) {
 			if cf, _ := cloudflareOwned(ip); cf {
 				d.Excluded = "cdn"
 				proxy++
+			} else if nodeIPs.contains(ip) {
+				// Our own node or relay hop, not the subscriber's device: a
+				// chained inbound reports the previous hop's address.
+				d.Excluded = "node"
+				proxy++
 			} else {
 				known++
 				if trusted.contains(ip) {
@@ -142,6 +154,7 @@ func (s *Server) withOnline(us []store.User) {
 			if dev, ok := devices[us[i].ID+"|"+ip]; ok {
 				d.Model, d.OS = dev.Model, dev.OS
 			}
+			d.Geo, d.Network, d.GeoState = describe(ip)
 			list = append(list, d)
 		}
 		sort.Slice(list, func(a, b int) bool { return list[a].IP < list[b].IP })
@@ -166,4 +179,111 @@ func (s *Server) withOnline(us []store.User) {
 			}
 		}
 	}
+}
+
+// nodeOwnAddresses returns the addresses that belong to our own nodes: the
+// configured public address plus whatever each agent reports as its public
+// IPv4/IPv6. A source address matching one of them is a relay hop, a CDN
+// origin fetch or an inbound bridged from another node, never a subscriber's
+// device, so ip_limit and the online-IP list skip it.
+func nodeOwnAddresses(nodes []store.Node) netList {
+	var out netList
+	add := func(raw string) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return
+		}
+		// The address may carry a port, and a hostname is resolved by the
+		// reported public IP fields: only literals are collected here, which is what the
+		// agents report as their public address.
+		if a, err := netip.ParseAddr(strings.Trim(raw, "[]")); err == nil {
+			out = append(out, netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()))
+			return
+		}
+		if p, err := netip.ParseAddrPort(raw); err == nil {
+			a := p.Addr().Unmap()
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+		}
+	}
+	for _, n := range nodes {
+		add(n.Address)
+		add(n.PublicIPv4)
+		add(n.PublicIPv6)
+	}
+	return out
+}
+
+// ownNodeAddresses reads one address set per report, so a newly reported
+// public IP is immediately excluded, including across shared-DB instances.
+func (s *Server) ownNodeAddresses() (netList, error) {
+	var nodes []store.Node
+	if err := s.st.DB.Select("address", "public_ipv4", "public_ipv6").Find(&nodes).Error; err != nil {
+		s.log.Warn("read node addresses for online IP classification", "error", err)
+		return nil, err
+	}
+	return nodeOwnAddresses(nodes), nil
+}
+
+// describeIP returns a human-readable location, the carrier or organisation
+// and a state explaining an empty location. Both databases are optional: a
+// panel without them still lists the addresses, just without the labels.
+func (s *Server) describeIP(ip string) (geo, network, state string) {
+	return s.onlineIPDescriber()(ip)
+}
+
+// onlineIPDescriber loads policies once per response, then memoizes local
+// lookups across users. No source addresses are sent to external services.
+func (s *Server) onlineIPDescriber() func(string) (string, string, string) {
+	var cities *geoip.Database
+	var operators *asn.Database
+	if p, err := readRouteGeoPolicy(s.st.DB); err == nil && p.Enabled {
+		cities, _ = s.loadRouteGeo(p.SHA256)
+	}
+	if p, err := readRouteASNPolicy(s.st.DB); err == nil && p.Enabled {
+		operators, _ = s.loadRouteASN(p.SHA256)
+	}
+	type description struct{ geo, network, state string }
+	cache := map[string]description{}
+	return func(ip string) (string, string, string) {
+		if d, ok := cache[ip]; ok {
+			return d.geo, d.network, d.state
+		}
+		d := description{state: "unavailable"}
+		if cities != nil {
+			m := cities.Lookup(ip)
+			d.state = m.State
+			if m.State == "matched" {
+				country, province, city := m.Country, m.Province, m.City
+				if country == "" {
+					country = m.CountryEN
+				}
+				if province == "" {
+					province = m.ProvinceEN
+				}
+				if city == "" {
+					city = m.CityEN
+				}
+				d.geo = geoText(country, province, city)
+			}
+		}
+		if operators != nil {
+			if m := operators.Lookup(ip); m.State == "matched" {
+				d.network = m.Organization
+			}
+		}
+		cache[ip] = d
+		return d.geo, d.network, d.state
+	}
+}
+
+// geoText joins the non-empty location parts, skipping repeats such as a city
+// that equals its province.
+func geoText(parts ...string) string {
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" && (len(out) == 0 || out[len(out)-1] != p) {
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, " · ")
 }
