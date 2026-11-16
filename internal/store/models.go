@@ -69,8 +69,12 @@ type Node struct {
 	NetBaselineReason string     `gorm:"size:32" json:"-"`
 	NetLastGapAt      *time.Time `json:"-"` // receipt of the first accepted sample after a long gap
 	NetLastGapSeconds int64      `json:"-"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	UpdatedAt         time.Time  `json:"updatedAt"`
+	// RelayFor declares externally configured relay targets for diagnostics.
+	// Managed chains are derived separately; this never configures forwarding
+	// or turns this node's observed client addresses into relay addresses.
+	RelayFor  JSON[[]string] `json:"relayFor,omitempty"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
 }
 
 // SystemInfo is the latest heartbeat snapshot of a node.
@@ -185,6 +189,9 @@ type User struct {
 	// OnlineDevices is what is connected right now, filled per request from
 	// the panel's live reports (never stored).
 	OnlineDevices []OnlineDevice `gorm:"-" json:"onlineDevices"`
+	// OnlineNodes contains only nodes with fresh per-user source reports.
+	// Relay relationships are configuration/evidence, never inferred client identities.
+	OnlineNodes []OnlineNode `gorm:"-" json:"onlineNodes"`
 	// Live report metadata. Counts and timestamps never come from stored IPs.
 	OnlineIPState  string     `gorm:"-" json:"onlineIpState,omitempty"`
 	OnlineIPSeenAt *time.Time `gorm:"-" json:"onlineIpSeenAt,omitempty"`
@@ -1297,13 +1304,32 @@ type OnlineDevice struct {
 	Seen     time.Time `json:"seen"`
 	Model    string    `json:"model,omitempty"`
 	OS       string    `json:"os,omitempty"`
-	Excluded string    `json:"excluded,omitempty"` // trusted or cdn; not counted toward IPLimit
+	Excluded string    `json:"excluded,omitempty"` // trusted, cdn, or node; not counted toward IPLimit
 	// Geo comes from the route city database when one is enabled, and
 	// GeoState says why it is empty otherwise. Network is the carrier or
 	// organisation, from the same row or the ASN database.
 	Geo      string `json:"geo,omitempty"`
 	Network  string `json:"network,omitempty"`
 	GeoState string `json:"geoState,omitempty"`
+	// RelayNodes identifies upstream nodes whose known address matches IP.
+	// An address match is evidence of a hop, never proof of a client's identity.
+	RelayNodes []OnlineNodeRef `json:"relayNodes,omitempty"`
+}
+
+// OnlineNodeRef retains stable IDs alongside display names (names may change).
+type OnlineNodeRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// OnlineNode is a node that currently reports this user's connections.
+// Relay paths describe configured topology, not proof that a particular flow
+// traversed every configured node.
+type OnlineNode struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Seen         time.Time       `json:"seen"`
+	RelayTargets []OnlineNodeRef `json:"relayTargets,omitempty"`
 }
 
 // UserDevice is a client device (HWID) that fetched a user's subscription.

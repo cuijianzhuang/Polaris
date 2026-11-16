@@ -43,7 +43,10 @@ class Fixture:
   elif path=='/nodes': result=nodes
   elif path=='/license': result=dict(edition='pro',state=dict(plan='pro',features=[],warnings=[],limits={}),usage={})
   elif path=='/inbounds': result=[ib]
-  elif path=='/inbounds/i1' and req.method=='PUT': result=body
+  elif path=='/inbounds/i1' and req.method=='PUT':
+   assert 'relayAccess' not in body, 'existing inbound policy must use the dedicated endpoint'
+   result=body
+  elif path=='/inbounds/i1/relay-access' and req.method=='PUT': result=body
   elif path=='/inbounds/i1/endpoints': result=[]
   elif path=='/capabilities': result=caps
   elif path=='/auth/github': result=dict(enabled=False)
@@ -174,9 +177,13 @@ with sync_playwright() as p:
   page.get_by_label('出站 IP 策略',exact=True).select_option('ipv4_only')
   page.get_by_role('switch',name='只允许中转机访问',exact=True).click(); page.get_by_label('真实客户端 IP（PROXY 协议）',exact=True).select_option('2')
   page.get_by_text('自定义中转来源地址',exact=True).click(); page.get_by_label('Tokyo CIDR',exact=True).fill('203.0.113.9/32\n')
+  expect(page.get_by_role('button',name='保存并下发',exact=True)).to_be_disabled()
+  page.get_by_role('button',name='应用访问策略并下发',exact=True).click()
+  expect(page.get_by_role('button',name='保存并下发',exact=True)).to_be_enabled()
+  assert f.last('/inbounds/i1/relay-access')[2]==dict(enabled=True,proxyProtocol=2,sourceOverrides={'n2':['203.0.113.9/32']})
   page.get_by_role('button',name='保存并下发',exact=True).click(); expect(page.get_by_role('button',name='保存并下发',exact=True)).to_be_enabled()
   saved=f.last('/inbounds/i1')[2]; assert saved['outboundIPStrategy']=='ipv4_only' and saved['relayOnly'] is True
-  assert saved['relayAccess']==dict(enabled=True,proxyProtocol=2,sourceOverrides={'n2':['203.0.113.9/32']}),saved
+  assert 'relayAccess' not in saved,saved
   page.get_by_role('button',name='中转管理',exact=True).click()
   dialog=page.get_by_role('dialog',name='中转管理 · reality',exact=True); expect(dialog).to_be_visible()
   page.wait_for_function('()=>{const drawers=document.querySelectorAll(".drawer"); return drawers.length===2 && Math.abs(drawers[1].getBoundingClientRect().right-window.innerWidth)<1}')

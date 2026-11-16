@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,7 @@ type nodeReq struct {
 	Lat         *float64         `json:"lat"` // map position; both or neither, null clears
 	Lng         *float64         `json:"lng"`
 	Labels      []string         `json:"labels"`
+	RelayFor    *[]string        `json:"relayFor"` // absent preserves externally configured relay metadata
 	DefaultCore model.CoreType   `json:"defaultCore"`
 	TrafficRate float64          `json:"trafficRate"`
 	SortOrder   int              `json:"sortOrder"`
@@ -114,6 +116,75 @@ func validNodePos(lat, lng *float64) error {
 		return fmt.Errorf("经度应在 -180 到 180 之间")
 	}
 	return nil
+}
+
+type nodeRelayValidationError struct{ error }
+
+// Take the shared relay lock before reading nodes. PostgreSQL's advisory lock
+// protects panel replicas; SQLite needs its writer reservation before reading
+// targets so concurrent deletion cannot leave a dangling reference.
+func lockNodeRelayConfiguration(tx *gorm.DB) error {
+	if err := lockChainConfiguration(tx); err != nil {
+		return err
+	}
+	if tx.Dialector.Name() == "sqlite" {
+		return tx.Exec("UPDATE nodes SET relay_for = relay_for WHERE 1 = 0").Error
+	}
+	return nil
+}
+
+// validateNodeRelayFor only records declared, externally configured targets.
+// It never creates forwarding rules or derives client-IP exemptions.
+func validateNodeRelayFor(tx *gorm.DB, id string, targets []string) ([]string, error) {
+	invalid := func(message string) ([]string, error) {
+		return nil, nodeRelayValidationError{errors.New(message)}
+	}
+	if len(targets) > 64 {
+		return invalid("relayFor supports at most 64 targets")
+	}
+	unique := make(map[string]bool, len(targets))
+	normalized := make([]string, 0, len(targets))
+	for _, target := range targets {
+		target = strings.TrimSpace(target)
+		if target == "" {
+			return invalid("relayFor target must not be empty")
+		}
+		if target == id {
+			return invalid("relayFor cannot target the node itself")
+		}
+		if !unique[target] {
+			unique[target] = true
+			normalized = append(normalized, target)
+		}
+	}
+	sort.Strings(normalized)
+	if len(normalized) > 0 {
+		var ids []string
+		if err := tx.Model(&store.Node{}).Where("id IN ?", normalized).Pluck("id", &ids).Error; err != nil {
+			return nil, err
+		}
+		existing := make(map[string]bool, len(ids))
+		for _, target := range ids {
+			existing[target] = true
+		}
+		for _, target := range normalized {
+			if !existing[target] {
+				return invalid("relayFor target does not exist: " + target)
+			}
+		}
+	}
+	// Opposing relationships can describe different external listeners; node
+	// metadata alone does not establish a forwarding cycle.
+	return normalized, nil
+}
+
+func nodeRelayChangeError(c *gin.Context, err error) {
+	var invalid nodeRelayValidationError
+	if errors.As(err, &invalid) {
+		badRequest(c, err)
+		return
+	}
+	dbError(c, err)
 }
 
 func (s *Server) createNode(c *gin.Context) {
@@ -152,7 +223,20 @@ func (s *Server) createNode(c *gin.Context) {
 	if req.Level != nil && *req.Level > 0 && *req.Level <= 99 {
 		n.Level = *req.Level
 	}
+	s.relayMu.Lock()
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockNodeRelayConfiguration(tx); err != nil {
+			return err
+		}
+		targets := []string{}
+		if req.RelayFor != nil {
+			targets = *req.RelayFor
+		}
+		targets, err := validateNodeRelayFor(tx, n.ID, targets)
+		if err != nil {
+			return err
+		}
+		n.RelayFor = store.NewJSON(targets)
 		if err := tx.Create(&n).Error; err != nil {
 			return err
 		}
@@ -167,8 +251,9 @@ func (s *Server) createNode(c *gin.Context) {
 		}
 		return nil
 	})
+	s.relayMu.Unlock()
 	if err != nil {
-		dbError(c, err)
+		nodeRelayChangeError(c, err)
 		return
 	}
 	tok, cmd, err := s.newInstallToken(&n, c.Request)
@@ -181,6 +266,8 @@ func (s *Server) createNode(c *gin.Context) {
 }
 
 func (s *Server) updateNode(c *gin.Context) {
+	s.relayMu.Lock()
+	defer s.relayMu.Unlock()
 	var n store.Node
 	if err := s.st.DB.First(&n, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -215,13 +302,37 @@ func (s *Server) updateNode(c *gin.Context) {
 	}
 	if req.DefaultCore != "" {
 		upd["default_core"] = req.DefaultCore
-		s.st.DB.Model(&store.Core{}).Where("node_id = ?", n.ID).Update("is_default", gorm.Expr("type = ?", req.DefaultCore))
 	}
-	if err := s.st.DB.Model(&n).Updates(upd).Error; err != nil {
-		dbError(c, err)
+	firewallChanged := false
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockNodeRelayConfiguration(tx); err != nil {
+			return err
+		}
+		if err := tx.First(&n, "id = ?", c.Param("id")).Error; err != nil {
+			return err
+		}
+		addrChanged = n.Address != req.Address || n.Domain != req.Domain
+		firewallChanged = n.NoFirewall != req.NoFirewall
+		levelChanged = req.Level != nil && *req.Level != n.Level
+		if req.RelayFor != nil {
+			targets, err := validateNodeRelayFor(tx, n.ID, *req.RelayFor)
+			if err != nil {
+				return err
+			}
+			upd["relay_for"] = store.NewJSON(targets)
+		}
+		if req.DefaultCore != "" {
+			if err := tx.Model(&store.Core{}).Where("node_id = ?", n.ID).Update("is_default", gorm.Expr("type = ?", req.DefaultCore)).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&n).Updates(upd).Error
+	})
+	if err != nil {
+		nodeRelayChangeError(c, err)
 		return
 	}
-	if n.NoFirewall != req.NoFirewall {
+	if firewallChanged {
 		s.MarkDirty("firewall management changed", n.ID)
 	}
 	if addrChanged {
@@ -246,6 +357,12 @@ type nodeInUseError struct{ refs int64 }
 
 func (e *nodeInUseError) Error() string { return "node inbounds still referenced" }
 
+type nodeRelayInUseError struct{ names []string }
+
+func (e *nodeRelayInUseError) Error() string {
+	return "node is still referenced by relayFor on: " + strings.Join(e.names, ", ") + "; remove those relay targets before deleting it"
+}
+
 func (s *Server) deleteNode(c *gin.Context) {
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
@@ -258,7 +375,34 @@ func (s *Server) deleteNode(c *gin.Context) {
 	var inIDs []string
 	s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", id).Pluck("id", &inIDs)
 	upstream := s.nodesForInbounds(inIDs...)
-	err := s.withNodeNet(id, func(tx *gorm.DB, _ *store.Node) error {
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		// Lock relay configuration before the node row, matching node updates
+		// across replicas. Retain withNodeNet's gate for concurrent NIC writes.
+		if err := lockNodeRelayConfiguration(tx); err != nil {
+			return err
+		}
+		if err := tx.Exec("UPDATE nodes SET net_last_rx=net_last_rx WHERE id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.First(&n, "id = ?", id).Error; err != nil {
+			return err
+		}
+		var nodes []store.Node
+		if err := tx.Select("id", "name", "relay_for").Where("id <> ?", id).Order("name").Find(&nodes).Error; err != nil {
+			return err
+		}
+		var names []string
+		for _, node := range nodes {
+			for _, target := range node.RelayFor.V {
+				if target == id {
+					names = append(names, node.Name)
+					break
+				}
+			}
+		}
+		if len(names) > 0 {
+			return &nodeRelayInUseError{names}
+		}
 		extra, e := s.cleanupManagedRelays(tx, "", id)
 		if e != nil {
 			return e
@@ -300,6 +444,11 @@ func (s *Server) deleteNode(c *gin.Context) {
 		}
 		return tx.Delete(&store.Node{}, "id = ?", id).Error
 	})
+	var relayInUse *nodeRelayInUseError
+	if errors.As(err, &relayInUse) {
+		c.JSON(http.StatusConflict, gin.H{"error": relayInUse.Error()})
+		return
+	}
 	var inUse *nodeInUseError
 	if errors.As(err, &inUse) {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("其他节点有 %d 个出站 / 链路引用该节点的入站，请先删除", inUse.refs)})

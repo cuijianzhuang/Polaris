@@ -42,7 +42,7 @@ export interface Core {
 }
 export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; lat?: number | null; lng?: number | null; labels: string[]
-  agentFeatures?: string[]; agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string
+  agentFeatures?: string[]; agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string; relayFor?: string[]
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
@@ -72,12 +72,14 @@ export interface Inbound {
   health?: InboundHealth
 }
 export interface NodeQuota { userId: string; nodeId: string; nodeName: string; extra: number; extraUsed: number; limit: number; used: number }
-export interface OnlineDevice { ip: string; nodes: string[]; seen: string; model?: string; os?: string; excluded?: 'trusted' | 'cdn' | 'node'; geo?: string; network?: string; geoState?: string }
+export interface OnlineNodeRef { id: string; name: string }
+export interface OnlineNode extends OnlineNodeRef { seen: string; relayTargets?: OnlineNodeRef[] }
+export interface OnlineDevice { ip: string; nodes: string[]; seen: string; model?: string; os?: string; excluded?: 'trusted' | 'cdn' | 'node'; geo?: string; network?: string; geoState?: string; relayNodes?: OnlineNodeRef[] }
 export interface User {
   id: string; username: string; uuid: string; password: string; trafficLimit: number; usedUp: number; usedDown: number
   expireAt?: string | null; expireAfterDays: number; ipLimit: number; status: string; subToken: string; resetPolicy: string; resetDay: number
   onlineAt?: string | null; bannedUntil?: string | null; onlineIps: string[]; onlineDevices: OnlineDevice[]; remark: string; groupIds: string[]; createdAt: string
-  onlineIpState?: 'available' | 'partial' | 'unavailable' | 'expired' | 'none'; onlineIpSeenAt?: string; onlineIpCount?: number
+  onlineIpState?: 'available' | 'partial' | 'unavailable' | 'expired' | 'none'; onlineIpSeenAt?: string; onlineIpCount?: number; onlineNodes?: OnlineNode[]
   nodeIds: string[]; inboundIds: string[]; telegramId: number; email?: string; avatarURL?: string; planId?: string; extraTraffic?: number
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
 }

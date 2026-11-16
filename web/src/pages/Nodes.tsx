@@ -261,6 +261,9 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
 }
 
 function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (install?: Install) => void }) {
+  const { nodes } = useNodes()
+  const [relayFor, setRelayFor] = useState<string[]>(node?.relayFor ?? [])
+  const relayTargets = nodes.filter((n) => n.id !== node?.id)
   const [f, setF] = useState({
     name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', lat: node?.lat != null ? String(node.lat) : '', lng: node?.lng != null ? String(node.lng) : '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
@@ -279,7 +282,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
     const body: any = {
       lat: lat === '' ? null : Number(lat), lng: lng === '' ? null : Number(lng),
       name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate), level: Number(f.level) || 0,
-      labels: f.labels.split(/[,\s]+/).filter(Boolean), defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
+      labels: f.labels.split(/[,\s]+/).filter(Boolean), relayFor, defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
     const net: any = { limitGb: Number(f.netLimitGb) || 0, mode: f.netMode, resetDay: Number(f.netResetDay) || 0, warnPct: Number(f.netWarnPct) || 0 }
     if (node) {
@@ -336,6 +339,17 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         </Field>
         <Field label={t('防火墙')} full hint={t('Agent 自动在节点的 ufw / firewalld / iptables 中放行入站端口，删除入站后收回；只关闭自己放行的端口，不动已有规则。云厂商的安全组（如 Oracle 安全列表、AWS 安全组）需在云控制台另行放行')}>
           <label className="row small"><Switch label={t('自动放行端口')} on={f.firewall} onChange={(v) => set('firewall', v)} />{t('自动放行入站端口')}</label>
+        </Field>
+        <Field label={t('外部中转目标')} full>
+          <div id="n-relay-hint" className="hint">{t('仅记录此节点在面板外配置的中转目标，补充面板管理的链路；不会配置转发，也不会据此将用户 IP 视为中转来源。最多选择 64 个节点。')}</div>
+          <div className="pick-list" role="group" aria-label={t('外部中转目标')} aria-describedby="n-relay-hint">
+            {relayTargets.map((target) => <label key={target.id} className="chk">
+              <input type="checkbox" checked={relayFor.includes(target.id)} disabled={!relayFor.includes(target.id) && relayFor.length >= 64}
+                onChange={(e) => setRelayFor((ids) => e.target.checked ? [...ids, target.id] : ids.filter((id) => id !== target.id))} />
+              {target.name}<span className="small mute">{target.domain || target.address}</span>
+            </label>)}
+            {relayTargets.length === 0 && <div className="mute small">{t('没有其他可选节点')}</div>}
+          </div>
         </Field>
         <Field label={t('标签')} htmlFor="n-labels" full hint={t('逗号分隔；模板可绑定标签，新节点上线后自动套用')}><input id="n-labels" className="input" value={f.labels} onChange={(e) => set('labels', e.target.value)} placeholder="asia, cn2" /></Field>
       </div>

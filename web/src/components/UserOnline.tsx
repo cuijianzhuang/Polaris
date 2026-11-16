@@ -1,21 +1,24 @@
+import { Link } from 'react-router-dom'
 import { get } from '../api'
 import { ago, datetime, isOnline } from '../format'
 import { geoStateText } from '../geoip'
 import { t } from '../i18n'
-import type { User } from '../types'
+import type { OnlineDevice, User } from '../types'
 import { Copy, useLoad, usePoll } from './ui'
 
 const state = (u: User) => u.onlineIpState ?? ((u.onlineIps ?? []).length ? 'available' : isOnline(u.onlineAt) ? 'unavailable' : 'none')
-export const hasOnlineIPs = (u: User) => state(u) === 'available' || state(u) === 'partial'
+// Connection evidence and client-IP visibility are independent. A fresh relay
+// report still proves that the user is connected, even when the source is hidden.
+export const hasOnlineConnections = (u: User) => (u.onlineNodes?.length ?? 0) > 0 || state(u) === 'available' || state(u) === 'partial' || (state(u) === 'unavailable' && (u.onlineDevices?.length ?? 0) > 0)
 export function UserActivity({ user }: { user: User }) {
-  return hasOnlineIPs(user) ? <span style={{ color: 'var(--ok)' }}>{t('在线')}</span> : isOnline(user.onlineAt) ? <span style={{ color: 'var(--warn-ink)' }}>{t('近期活跃')}</span> : user.onlineAt ? <>{ago(user.onlineAt)}</> : <span className="mute">{t('从未')}</span>
+  return hasOnlineConnections(user) ? <span style={{ color: 'var(--ok)' }}>{t('在线')}</span> : isOnline(user.onlineAt) ? <span style={{ color: 'var(--warn-ink)' }}>{t('近期活跃')}</span> : user.onlineAt ? <>{ago(user.onlineAt)}</> : <span className="mute">{t('从未')}</span>
 }
 function explanation(u: User) {
   switch (state(u)) {
     case 'available': return t('已收到有效来源 IP。计数已去重，受信任地址、CDN 边缘和节点中转地址不计入限制。')
     case 'partial': return t('部分连接仅上报 CDN 或节点中转地址，显示的是已识别且计入限制的 IP 数量下限。')
     case 'expired': return t('有近期活动，但来源 IP 报告已过期；旧地址不作为当前在线 IP。')
-    case 'unavailable': return (u.onlineDevices ?? []).some((d) => (d.excluded === 'cdn' || d.excluded === 'node')) ? t('仅收到 CDN 或节点中转地址，尚未识别客户端真实 IP。') : t('有近期活动，但未收到有效来源 IP。长连接或不支持来源上报的内核可能出现此情况。')
+    case 'unavailable': return (u.onlineDevices ?? []).some((d) => (d.excluded === 'cdn' || d.excluded === 'node')) ? t('用户连接仍在线，但当前仅看到 CDN 或中转地址，客户端来源 IP 未知。') : t('有近期活动，但未收到有效来源 IP。长连接或不支持来源上报的内核可能出现此情况。')
     default: return t('当前没有有效来源 IP 报告，也没有近两分钟的活动记录。')
   }
 }
@@ -26,21 +29,30 @@ export function UserIPCount({ user, onClick }: { user: User; onClick: () => void
   return <div><button className="link mono online-ip-count" type="button" title={explanation(user)} aria-label={t('查看 {name} 的在线 IP', { name: user.username })} onClick={onClick} data-ip-state={s}>{label} / {user.ipLimit || '∞'}</button>{exempt > 0 && <div className="small mute">{t('{n} 个免计', { n: exempt })}</div>}</div>
 }
 
+function DeviceRow({ device: d }: { device: OnlineDevice }) {
+  return <div className="online-device-row">
+    <div className="row"><span className="mono online-device-ip">{d.ip}</span><Copy text={d.ip} />{d.excluded && <span className="tag">{d.excluded === 'cdn' ? t('CDN 边缘，不计入') : d.excluded === 'node' ? t('节点或中转地址，不计入') : t('受信任地址，不计入')}</span>}</div>
+    <div className="small">{d.geo || geoStateText(d.geoState || '')}{d.network && <span className="mute"> · {d.network}</span>}</div>
+    <div className="small mute">{t('上报节点')}：{d.nodes?.join(' · ') || t('节点未知')} · {ago(d.seen)}{(d.model || d.os) && ' · ' + [d.model, d.os].filter(Boolean).join(' ')}</div>
+    {!!d.relayNodes?.length && <div className="small mute">{t('地址归属节点')}：{d.relayNodes.map((n, i) => <span key={n.id}>{i > 0 && ' · '}<Link className="link" to={'/nodes?id=' + encodeURIComponent(n.id)}>{n.name}</Link></span>)}</div>}
+  </div>
+}
+
 // Poll only the read-only online view. Never replace an open editor's form.
 export function UserOnlineDetails({ user }: { user: User }) {
   const data = useLoad((signal) => get<User>(`/users/${user.id}`, signal), [user.id])
   usePoll(data.reload, 10000)
   const current = data.data ?? user
   const devices = current.onlineDevices ?? []
+  const clients = devices.filter((d) => d.excluded !== 'cdn' && d.excluded !== 'node')
+  const relays = devices.filter((d) => d.excluded === 'cdn' || d.excluded === 'node')
   return <div className="online-user-details">
     <div className="note small" role="status">{explanation(current)}</div>
     {data.error && <div className="note warn small" role="alert">{t('在线 IP 刷新失败，显示最近一次结果')} · {data.error}<button className="link" type="button" onClick={data.reload}>{t('重试')}</button></div>}
     {current.onlineIpSeenAt && <div className="small mute">{t('最近 IP 上报')}：{datetime(current.onlineIpSeenAt)}</div>}
-    {devices.map((d) => <div className="online-device-row" key={d.ip}>
-      <div className="row"><span className="mono online-device-ip">{d.ip}</span><Copy text={d.ip} />{d.excluded && <span className="tag">{d.excluded === 'cdn' ? t('CDN 边缘，不计入') : d.excluded === 'node' ? t('节点或中转地址，不计入') : t('受信任地址，不计入')}</span>}</div>
-      <div className="small">{d.geo || geoStateText(d.geoState || '')}{d.network && <span className="mute"> · {d.network}</span>}</div>
-      <div className="small mute">{d.nodes?.join(' · ') || t('节点未知')} · {ago(d.seen)}{(d.model || d.os) && ' · ' + [d.model, d.os].filter(Boolean).join(' ')}</div>
-    </div>)}
-    <div className="hint">{t('IP 数量不等于设备数量；同一 IP 跨节点只计一次。')}</div>
+    {!!current.onlineNodes?.length && <section className="ops-stack"><h3>{t('当前上报连接的节点')}</h3>{current.onlineNodes.map((n) => <div key={n.id} className="small"><Link className="link" to={'/nodes?id=' + encodeURIComponent(n.id)}>{n.name}</Link> · {ago(n.seen)}{!!n.relayTargets?.length && <div className="mute">{t('已配置中转目标')}：{n.relayTargets.map((target, i) => <span key={target.id}>{i > 0 && ' · '}<Link className="link" to={'/nodes?id=' + encodeURIComponent(target.id)}>{target.name}</Link></span>)}</div>}</div>)}<div className="hint">{t('中转目标来自已有链路或手动声明，不代表本次连接一定经过全部目标。')}</div></section>}
+    {clients.length > 0 && <section><h3>{t('客户端来源 IP')}</h3>{clients.map((d) => <DeviceRow key={d.ip} device={d} />)}</section>}
+    {relays.length > 0 && <section><h3>{t('中转与 CDN 来源')}</h3>{relays.map((d) => <DeviceRow key={d.ip} device={d} />)}<div className="hint">{t('中转地址不能还原客户端 IP。兼容的受管 TCP 链路可在落地入站的中转访问控制中配置 PROXY 协议；其他链路需入口节点直接上报。')}</div><Link className="link small" to="/chains">{t('查看链路')}</Link></section>}
+    <div className="hint">{t('来源 IP 是节点实际观察到的地址；同一 IP 跨节点只计一次，无法据此确定设备数量。')}</div>
   </div>
 }

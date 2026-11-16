@@ -13,7 +13,7 @@ import { UserPlanModal } from '../components/Plans'
 import { BindNodesModal } from './users/BindNodesModal'
 import { GroupsModal } from './users/GroupsModal'
 import { UserDrawer } from './users/UserDrawer'
-import { hasOnlineIPs, UserActivity, UserIPCount, UserOnlineDetails } from '../components/UserOnline'
+import { hasOnlineConnections, UserActivity, UserIPCount, UserOnlineDetails } from '../components/UserOnline'
 
 type Filter = '' | 'active' | 'online' | 'expiring' | 'near' | 'limited' | 'expired' | 'disabled'
 const filters: { k: Filter; label: string; sum: string }[] = [
@@ -35,7 +35,7 @@ function subURL(u: User) { return `${subBase}/sub/${u.subToken}` }
 
 function statusBadge(u: User) {
   const d = daysLeft(u.expireAt)
-  if (u.status === 'active' && hasOnlineIPs(u)) return <span className="st ok">● {t('在线')}</span>
+  if (u.status === 'active' && hasOnlineConnections(u)) return <span className="st ok">● {t('在线')}</span>
   if (u.status === 'active' && isOnline(u.onlineAt)) return <span className="st warn">{t('近期活跃')}</span>
   if (u.status === 'active' && d !== null && d <= 7) return <span className="st warn">{t('即将到期')}</span>
   if (u.bannedUntil && new Date(u.bannedUntil) > new Date()) return <span className="st bad">{t('IP 超限封禁')}</span>
