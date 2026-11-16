@@ -1,6 +1,7 @@
 package panel
 
 import (
+	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"testing"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -53,5 +54,57 @@ func TestOnlineDeviceGeoWithoutDatabase(t *testing.T) {
 	}
 	if state != "unavailable" {
 		t.Fatalf("state = %q, want unavailable", state)
+	}
+}
+
+func TestNodeSourcesExcludedFromOnlineLimit(t *testing.T) {
+	s := newTestServer(t)
+	s.st.SetSetting("ip_ban_minutes", "10")
+	u := store.User{ID: store.NewID(), Username: "relay-client", UUID: store.NewID(), Password: "p", SubToken: store.NewID(), Status: "active", IPLimit: 1}
+	n := store.Node{ID: store.NewID(), Name: "relay", Address: "203.0.113.1", PublicIPv6: "2001:db8::1"}
+	for _, v := range []any{&u, &n} {
+		if err := s.st.DB.Create(v).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.nodeUserSets.mu.Lock()
+	s.nodeUserSets.m = map[string]nodeUsersEntry{n.ID: {set: map[string]bool{u.ID: true}, own: map[string]bool{u.ID: true}}}
+	s.nodeUserSets.mu.Unlock()
+	if _, err := s.ownNodeAddresses(); err != nil {
+		t.Fatal(err)
+	}
+	// A newly observed public address must be excluded immediately.
+	s.observePublicIP(&n, "203.0.113.2", "")
+	report := func(ips ...string) {
+		s.handleOnlineIPs(n.ID, &polarisv1.OnlineIPs{Users: []*polarisv1.UserIPs{{UserId: u.ID, Ips: ips}}})
+	}
+	report("203.0.113.1", "203.0.113.2", "2001:db8::1", "198.51.100.1")
+	var got store.User
+	if err := s.st.DB.First(&got, "id = ?", u.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.BannedUntil != nil {
+		t.Fatal("relay addresses caused a ban")
+	}
+	users := []store.User{got}
+	s.withOnline(users)
+	if users[0].OnlineIPCount == nil || *users[0].OnlineIPCount != 1 {
+		t.Fatalf("wrong count: %+v", users[0])
+	}
+	excluded := 0
+	for _, d := range users[0].OnlineDevices {
+		if d.Excluded == "node" {
+			excluded++
+		}
+	}
+	if excluded != 3 {
+		t.Fatalf("want 3 excluded node addresses, got %d", excluded)
+	}
+	report("198.51.100.1", "198.51.100.2")
+	if err := s.st.DB.First(&got, "id = ?", u.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got.BannedUntil == nil {
+		t.Fatal("two actual clients did not trigger the limit")
 	}
 }

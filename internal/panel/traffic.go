@@ -789,6 +789,10 @@ func (s *Server) resetTrafficCycles() {
 func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 	banMinutes, _ := strconv.Atoi(s.st.GetSetting("ip_ban_minutes", "0"))
 	trusted := parseNetList(s.st.GetSetting("ip_limit_trusted", ""))
+	nodeIPs, err := s.ownNodeAddresses()
+	if err != nil {
+		return
+	} // Do not risk banning clients with an incomplete exclusion set.
 	allowed := s.nodeUsers(nodeID)
 	// Collect first so the users table is read in one query instead of one
 	// select per user on every report from every node.
@@ -822,7 +826,7 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 			// One of our own nodes is a relay hop or an origin fetch, likewise
 			// not a device; counting it would charge the subscriber an extra
 			// slot per chained path.
-			if cf, _ := cloudflareOwned(ip); !trusted.contains(ip) && !cf && !s.isOwnNodeAddress(ip) {
+			if cf, _ := cloudflareOwned(ip); !trusted.contains(ip) && !cf && !nodeIPs.contains(ip) {
 				counted++
 			}
 		}
