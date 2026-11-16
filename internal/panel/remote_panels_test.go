@@ -290,3 +290,47 @@ func TestPollStateWriteDoesNotResurrectDeleted(t *testing.T) {
 		t.Fatalf("poll write resurrected a deleted panel (rows=%d)", n)
 	}
 }
+
+// A panel that failed its latest poll keeps contributing its last snapshot,
+// flagged, so the dashboard totals do not shrink on a transient outage.
+func TestAggregateKeepsLastSnapshotOnFailure(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	now := time.Now()
+	mk := func(id, name string, users int, failures int) {
+		p := store.RemotePanel{ID: id, Name: name, BaseURL: "https://" + id + ".example.com", Enabled: true}
+		if users > 0 {
+			p.Snapshot = store.JSON[store.RemoteSnapshot]{V: store.RemoteSnapshot{Users: users, Nodes: 1, NodesOnline: 1}}
+			p.SnapshotAt = &now
+			p.LastOKAt = &now
+		}
+		p.Failures = failures
+		if err := s.st.DB.Create(&p).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("ok", "healthy", 10, 0)
+	mk("down", "down-but-cached", 5, 3) // failed poll, still has a snapshot
+	mk("never", "never-seen", 0, 0)     // no snapshot at all
+
+	code, out := c.do("GET", "/panels/aggregate", nil)
+	if code != 200 {
+		t.Fatalf("aggregate %d %v", code, out)
+	}
+	if got := out["totalUsers"].(float64); got != 15 {
+		t.Fatalf("totalUsers = %v, want 15 (failed panel keeps its snapshot)", got)
+	}
+	rows := out["panels"].([]any)
+	var down map[string]any
+	for _, r := range rows {
+		m := r.(map[string]any)
+		if m["name"] == "down-but-cached" {
+			down = m
+		}
+	}
+	if down == nil {
+		t.Fatal("failed panel missing from rows")
+	}
+	if down["failed"] != true || down["users"].(float64) != 5 {
+		t.Fatalf("failed panel should be flagged but keep its numbers: %v", down)
+	}
+}

@@ -60,12 +60,27 @@ function ActionForm({ panel, canWrite }: { panel: RemotePanel; canWrite: boolean
   const [gb, setGb] = useState(10)
   const [resetTraffic, setResetTraffic] = useState(false)
   const { busy, run } = useAction()
+  const confirm = useConfirm()
   const opt = actionOptions.find((o) => o.id === action)!
   const body: Record<string, unknown> = { action }
   if (opt.target === 'node') body.nodeId = targetId
   else body.userId = targetId
   if (action === 'user.renew') { body.days = days; body.resetTraffic = resetTraffic }
   if (action === 'user.add-traffic') body.gb = gb
+
+  // These act on the member's live data: renewing, resetting traffic or
+  // re-pushing a node config cannot be undone from here, so confirm first
+  // and name the panel, the target and the effect.
+  const execute = async () => {
+    const name = action === 'user.renew' && resetTraffic ? t('续费并清零流量') : opt.label
+    const extra = action === 'user.renew' ? t('{n} 天', { n: days })
+      : action === 'user.add-traffic' ? t('{n} GB', { n: gb })
+      : ''
+    const where = t('在「{panel}」上对 {target} 执行「{action}」', { panel: panel.name, target: targetId.trim(), action: name })
+    const msg = extra ? t('{where}（{extra}）？', { where, extra }) : t('{where}？', { where })
+    if (!await confirm(msg, { danger: true, ok: t('执行') })) return
+    run(async () => { await post(`/panels/${panel.id}/actions`, body) }, t('已执行'))
+  }
   return (
     <div>
       <div className="form-grid">
@@ -89,7 +104,7 @@ function ActionForm({ panel, canWrite }: { panel: RemotePanel; canWrite: boolean
       )}
       {!canWrite && <div className="note warn">{t('需要专业版许可证才能使用写操作')}</div>}
       <div className="row" style={{ marginTop: 8 }}>
-        <button className="btn pri" type="button" disabled={busy || !canWrite || !targetId.trim()} onClick={() => run(async () => { await post(`/panels/${panel.id}/actions`, body) }, t('已执行'))}>{t('执行')}</button>
+        <button className="btn pri" type="button" disabled={busy || !canWrite || !targetId.trim()} onClick={execute}>{t('执行')}</button>
       </div>
     </div>
   )

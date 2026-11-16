@@ -256,15 +256,20 @@ func (s *Server) aggregateRemotePanels(c *gin.Context) {
 	now := time.Now()
 	rows := make([]row, 0, len(panels))
 
+	// A panel that has ever delivered a snapshot keeps contributing to the
+	// totals, flagged as failed or stale. Dropping it on the first failed poll
+	// would make the dashboard totals shrink, which reads as data loss rather
+	// than a reachability problem. Only a panel that has never delivered is
+	// left out.
 	for _, p := range panels {
-		if p.SnapshotAt == nil || p.Failures > 0 {
-			rows = append(rows, row{Name: p.Name, Failed: true})
+		if p.SnapshotAt == nil {
+			rows = append(rows, row{Name: p.Name, Failed: p.Failures > 0, Stale: true})
 			continue
 		}
 
 		age := now.Sub(*p.SnapshotAt)
 		snap := p.Snapshot.V
-		r := row{
+		rows = append(rows, row{
 			Name:        p.Name,
 			Users:       snap.Users,
 			OnlineUsers: snap.OnlineUsers,
@@ -273,9 +278,9 @@ func (s *Server) aggregateRemotePanels(c *gin.Context) {
 			TrafficUp:   snap.TrafficUp,
 			TrafficDown: snap.TrafficDown,
 			Stale:       age > 5*time.Minute,
+			Failed:      p.Failures > 0,
 			AgeSeconds:  int(age.Seconds()),
-		}
-		rows = append(rows, r)
+		})
 
 		totalUsers += snap.Users
 		totalOnline += snap.OnlineUsers
