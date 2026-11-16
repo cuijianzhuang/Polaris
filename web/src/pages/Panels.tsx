@@ -142,7 +142,7 @@ function PanelDrawer({ p, canWrite, onClose, onReload }: { p: RemotePanel; canWr
 }
 
 interface FormState {
-  name: string; baseUrl: string; token: string; scopes: string; caPin: string
+  name: string; baseUrl: string; token: string; scopes: string[]; caPin: string
   insecure: boolean; labels: string; enabled: boolean
 }
 
@@ -150,7 +150,7 @@ function PanelModal({ p, onClose, onSaved }: { p: RemotePanel | null; onClose: (
   const editing = !!p
   const [f, setF] = useState<FormState>({
     name: p?.name ?? '', baseUrl: p?.baseUrl ?? '', token: '',
-    scopes: (p?.scopes ?? []).join(', '), caPin: p?.caPin ?? '',
+    scopes: p?.scopes ?? ['panel:read'], caPin: p?.caPin ?? '',
     insecure: p?.insecure ?? false, labels: (p?.labels ?? []).join(', '), enabled: p?.enabled ?? true,
   })
   const { busy, run } = useAction()
@@ -158,7 +158,7 @@ function PanelModal({ p, onClose, onSaved }: { p: RemotePanel | null; onClose: (
   const save = () => run(async () => {
     const payload: Record<string, unknown> = {
       name: f.name.trim(), baseUrl: f.baseUrl.trim(),
-      scopes: splitList(f.scopes), caPin: f.caPin.trim(), insecure: f.insecure, labels: splitList(f.labels),
+      scopes: f.scopes, caPin: f.caPin.trim(), insecure: f.insecure, labels: splitList(f.labels),
     }
     if (!editing) {
       await post('/panels', { ...payload, token: f.token })
@@ -181,8 +181,20 @@ function PanelModal({ p, onClose, onSaved }: { p: RemotePanel | null; onClose: (
         <Field label={t('令牌')} htmlFor="pm-token" hint={editing ? t('创建时必填，编辑时留空表示不更换') : t('注册后令牌只显示一次，请妥善保存')}>
           <input id="pm-token" className="input mono" type="password" autoComplete="off" value={f.token} onChange={(e) => set('token', e.target.value)} />
         </Field>
-        <Field label={t('作用域')} htmlFor="pm-scopes" hint={t('多个作用域用逗号分隔')}>
-          <input id="pm-scopes" className="input mono" value={f.scopes} onChange={(e) => set('scopes', e.target.value)} placeholder="panel:read, panel:actions" />
+        <Field label={t('作用域')} htmlFor="pm-scopes" hint={t('由成员面板创建令牌时实际授予，这里仅记录用于展示')}>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" className="chip on"
+              onClick={() => set('scopes', ['panel:read', ...f.scopes.filter((s) => s !== 'panel:read')])}>
+              <span className="mono">panel:read</span>
+              <span style={{ opacity: 0.7 }}> · {t('读取汇总（必选）')}</span>
+            </button>
+            <button type="button" className={'chip' + (f.scopes.includes('panel:actions') ? ' on' : '')}
+              title={t('需要专业版')}
+              onClick={() => set('scopes', f.scopes.includes('panel:actions') ? f.scopes.filter((s) => s !== 'panel:actions') : [...f.scopes, 'panel:actions'])}>
+              <span className="mono">panel:actions</span>
+              <span style={{ opacity: 0.7 }}> · {t('写操作')}</span>
+            </button>
+          </div>
         </Field>
         <Field label={t('证书指纹')} htmlFor="pm-capin"><input id="pm-capin" className="input mono" value={f.caPin} onChange={(e) => set('caPin', e.target.value)} placeholder="SHA-256" /></Field>
         <Field label={t('标签')} htmlFor="pm-labels" hint={t('多个标签用逗号分隔')}>
@@ -197,7 +209,7 @@ function PanelModal({ p, onClose, onSaved }: { p: RemotePanel | null; onClose: (
           <label className="row small"><Switch label={t('启用')} on={f.enabled} onChange={(v) => set('enabled', v)} />{f.enabled ? t('启用') : t('已停用')}</label>
         </Field>
       )}
-      <div className="note">{t('面板的令牌需要 panel:read 作用域，写操作还需要 panel:actions')}</div>
+      <div className="note">{t('请先在成员面板创建 API 令牌并勾选 panel:read；需要远程写操作时再勾选 panel:actions。这里的选择只记录该令牌的授权范围，不会改变成员侧权限')}</div>
     </Modal>
   )
 }
