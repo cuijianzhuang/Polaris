@@ -174,6 +174,85 @@ func validateRelayAccessInbound(db *gorm.DB, in store.Inbound) error {
 	return nil
 }
 
+// l4ProxyLandings returns the inbound ids that land an active L4 passthrough
+// chain (mode l4, not disabled, no tunnel). Managed GOST tunnels and proxy
+// chains are never included: their bytes are not a plain TCP stream the
+// landing inbound can read a PROXY header from.
+func (s *Server) l4ProxyLandings() (map[string]bool, error) {
+	var chains []store.Chain
+	if err := s.st.DB.Where("mode = ?", "l4").Find(&chains).Error; err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, c := range chains {
+		if c.Disabled || c.TunnelType != "" {
+			continue
+		}
+		hops := c.Hops.V
+		if len(hops) < 2 {
+			continue
+		}
+		out[hops[len(hops)-1].InboundID] = true
+	}
+	return out, nil
+}
+
+// autoProxyCompatible reports whether the landing inbound of an L4 chain can
+// carry the client IP with PROXY protocol. It mirrors the PROXY-protocol
+// branch of validateRelayAccessInbound — Xray TCP inbound, landing agent
+// supports relay access, deployed core accepts AcceptProxyProtocol — but it
+// never fails the caller: any doubt means "do not auto-enable".
+func (s *Server) autoProxyCompatible(in *store.Inbound) bool {
+	if in.Core != model.CoreXray {
+		return false
+	}
+	m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
+	m.Normalize()
+	if m.Network() != "tcp" || m.Transport.Type != model.TransTCP {
+		return false
+	}
+	var node store.Node
+	if err := s.st.DB.First(&node, "id = ?", in.NodeID).Error; err != nil {
+		return false
+	}
+	if !contains(node.AgentFeatures.V, model.RelayAccessFeature) {
+		return false
+	}
+	var cr store.Core
+	if err := s.st.DB.First(&cr, "node_id = ? AND type = ?", in.NodeID, in.Core).Error; err != nil {
+		return false
+	}
+	caps, ok := core.Capabilities(in.Core, cr.Version)
+	if !ok {
+		return false
+	}
+	m.Transport.AcceptProxyProtocol = true
+	return caps.SupportsInbound(&m) == nil
+}
+
+// autoProxyLandingIDs returns the inbound ids whose landing xray accepts
+// PROXY protocol automatically: active L4 passthrough chain landing plus a
+// compatible inbound. These inbounds are relay-only in effect — a direct
+// client handshake would be parsed as a PROXY header and rejected — so
+// publication and probing treat them like RelayOnly inbounds.
+func (s *Server) autoProxyLandingIDs() map[string]bool {
+	out := map[string]bool{}
+	landings, err := s.l4ProxyLandings()
+	if err != nil {
+		return out
+	}
+	for id := range landings {
+		var in store.Inbound
+		if err := s.st.DB.First(&in, "id = ?", id).Error; err != nil {
+			continue
+		}
+		if s.autoProxyCompatible(&in) {
+			out[id] = true
+		}
+	}
+	return out
+}
+
 func (s *Server) setRelayAccess(c *gin.Context) {
 	var req struct {
 		Enabled         *bool               `json:"enabled" binding:"required"`

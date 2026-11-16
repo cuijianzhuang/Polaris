@@ -96,8 +96,9 @@ func (s *Server) probeTargets(only string) []probeTarget {
 		nodes[ns[i].ID] = &ns[i]
 	}
 	var out []probeTarget
+	autoProxy := s.autoProxyLandingIDs()
 	for _, in := range ins {
-		if in.RelayOnly {
+		if in.RelayOnly || autoProxy[in.ID] {
 			continue // direct reachability is deliberately not published
 		}
 		n := nodes[in.NodeID]

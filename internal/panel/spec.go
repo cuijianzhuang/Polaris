@@ -203,9 +203,19 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 	}
 	spec.IPLimits = map[string]int{}
 	limited := map[string]store.User{} // candidates for per-user speed limits
+	l4Landings, err := s.l4ProxyLandings()
+	if err != nil {
+		return nil, err
+	}
 	for i := range ins {
 		m := s.toModelInbound(&ins[i])
 		if ins[i].RelayAccess.V.Enabled && ins[i].RelayAccess.V.ProxyProtocol > 0 {
+			m.Transport.AcceptProxyProtocol = true
+		} else if l4Landings[ins[i].ID] && s.autoProxyCompatible(&ins[i]) {
+			// L4 passthrough chain landing: the relay forwarder sends a
+			// PROXY header, so the landing xray must expect one even when
+			// the operator never opened relay access. Without this the
+			// chain only ever reports the relay's own address.
 			m.Transport.AcceptProxyProtocol = true
 		}
 		// Forwarding trust is derived only when buildFronts moves this
@@ -633,10 +643,18 @@ func (s *Server) buildForwards(nodeID string) ([]model.ForwardRule, error) {
 			if i+1 == len(hops)-1 {
 				port = in.Port
 			}
+			sendProxy := in.RelayAccess.V.ProxyProtocol
+			if sendProxy <= 0 && c.TunnelType == "" && s.autoProxyCompatible(&in) {
+				// Same auto-enable as the landing inbound above: a
+				// compatible L4 landing carries the client IP without
+				// manual relay access. An explicitly configured version
+				// wins and is never downgraded.
+				sendProxy = 1
+			}
 			out = append(out, model.ForwardRule{
 				Tag: fmt.Sprintf("chain-%s-%d", c.ID, i), Listen: hops[i].Port, Network: mi.Network(),
 				Target:    net.JoinHostPort(nodeHost(&nn), strconv.Itoa(port)),
-				SendProxy: in.RelayAccess.V.ProxyProtocol, AcceptProxy: in.RelayAccess.V.ProxyProtocol > 0 && i > 0,
+				SendProxy: sendProxy, AcceptProxy: sendProxy > 0 && i > 0,
 			})
 		}
 	}
