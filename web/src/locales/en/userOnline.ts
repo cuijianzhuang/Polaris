@@ -19,6 +19,7 @@ export default {
   '最近 IP 上报': 'Last IP report',
   'CDN 边缘，不计入': 'CDN edge, excluded',
   '受信任地址，不计入': 'Trusted address, excluded',
+  '节点或中转地址，不计入': 'Node or relay address, excluded',
   '节点未知': 'Unknown node',
   'IP 数量不等于设备数量；同一 IP 跨节点只计一次。': 'IP counts are not device counts. The same IP across nodes counts once.',
 }

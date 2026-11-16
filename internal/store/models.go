@@ -1298,6 +1298,12 @@ type OnlineDevice struct {
 	Model    string    `json:"model,omitempty"`
 	OS       string    `json:"os,omitempty"`
 	Excluded string    `json:"excluded,omitempty"` // trusted or cdn; not counted toward IPLimit
+	// Geo comes from the route city database when one is enabled, and
+	// GeoState says why it is empty otherwise. Network is the carrier or
+	// organisation, from the same row or the ASN database.
+	Geo      string `json:"geo,omitempty"`
+	Network  string `json:"network,omitempty"`
+	GeoState string `json:"geoState,omitempty"`
 }
 
 // UserDevice is a client device (HWID) that fetched a user's subscription.

@@ -127,6 +127,7 @@ type Server struct {
 	ticketLimit   *sharedLimiter
 	callbacks     callbackStore
 	nodeUserSets  nodeUsersCache
+	nodeAddrCache nodeAddrSetCache // our own nodes' addresses, for excluding relay hops
 	schemes       schemeCache
 	ghAuth        githubAuth
 	webFS         http.FileSystem

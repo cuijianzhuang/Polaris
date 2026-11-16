@@ -819,7 +819,10 @@ func (s *Server) handleOnlineIPs(nodeID string, m *polarisv1.OnlineIPs) {
 		for _, ip := range list {
 			// A Cloudflare edge address is the CDN, not a device: cores that
 			// cannot read the visitor's address report one per connection.
-			if cf, _ := cloudflareOwned(ip); !trusted.contains(ip) && !cf {
+			// One of our own nodes is a relay hop or an origin fetch, likewise
+			// not a device; counting it would charge the subscriber an extra
+			// slot per chained path.
+			if cf, _ := cloudflareOwned(ip); !trusted.contains(ip) && !cf && !s.isOwnNodeAddress(ip) {
 				counted++
 			}
 		}

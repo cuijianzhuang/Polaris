@@ -1,5 +1,6 @@
 import { get } from '../api'
 import { ago, datetime, isOnline } from '../format'
+import { geoStateText } from '../geoip'
 import { t } from '../i18n'
 import type { User } from '../types'
 import { Copy, useLoad, usePoll } from './ui'
@@ -36,7 +37,8 @@ export function UserOnlineDetails({ user }: { user: User }) {
     {data.error && <div className="note warn small" role="alert">{t('在线 IP 刷新失败，显示最近一次结果')} · {data.error}<button className="link" type="button" onClick={data.reload}>{t('重试')}</button></div>}
     {current.onlineIpSeenAt && <div className="small mute">{t('最近 IP 上报')}：{datetime(current.onlineIpSeenAt)}</div>}
     {devices.map((d) => <div className="online-device-row" key={d.ip}>
-      <div className="row"><span className="mono online-device-ip">{d.ip}</span><Copy text={d.ip} />{d.excluded && <span className="tag">{d.excluded === 'cdn' ? t('CDN 边缘，不计入') : t('受信任地址，不计入')}</span>}</div>
+      <div className="row"><span className="mono online-device-ip">{d.ip}</span><Copy text={d.ip} />{d.excluded && <span className="tag">{d.excluded === 'cdn' ? t('CDN 边缘，不计入') : d.excluded === 'node' ? t('节点或中转地址，不计入') : t('受信任地址，不计入')}</span>}</div>
+      <div className="small">{d.geo || geoStateText(d.geoState || '')}{d.network && <span className="mute"> · {d.network}</span>}</div>
       <div className="small mute">{d.nodes?.join(' · ') || t('节点未知')} · {ago(d.seen)}{(d.model || d.os) && ' · ' + [d.model, d.os].filter(Boolean).join(' ')}</div>
     </div>)}
     <div className="hint">{t('IP 数量不等于设备数量；同一 IP 跨节点只计一次。')}</div>
