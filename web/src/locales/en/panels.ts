@@ -13,6 +13,8 @@ export default {
   '未知': 'Unknown',
   '全部面板': 'All panels',
   '执行': 'Run',
+  '续费并清零流量': 'Renew and reset traffic',
+  '在「{panel}」上对 {target} 执行「{action}」': 'Run "{action}" for {target} on "{panel}"',
   '注册面板': 'Register panel',
   '编辑面板': 'Edit panel',
   '最近错误': 'Last error',
