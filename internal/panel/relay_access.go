@@ -155,8 +155,8 @@ func validateRelayAccessInbound(db *gorm.DB, in store.Inbound) error {
 	if p.ProxyProtocol > 0 {
 		m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
 		m.Normalize()
-		if m.Network() != "tcp" || m.Transport.Type != model.TransTCP || (in.Core != model.CoreXray && in.Core != model.CoreSingbox) {
-			return fmt.Errorf("真实客户端 IP 当前要求 Xray 或 sing-box TCP 入站（可配 TLS / REALITY）")
+		if !proxyCapableTransport(&m) || (in.Core != model.CoreXray && in.Core != model.CoreSingbox) {
+			return fmt.Errorf("真实客户端 IP 当前要求 Xray 或 sing-box 的 TCP 入站（含 WS / gRPC 等走 TCP 的传输）")
 		}
 		m.Transport.AcceptProxyProtocol = true
 		var cr store.Core
@@ -197,19 +197,38 @@ func (s *Server) l4ProxyLandings() (map[string]bool, error) {
 	return out, nil
 }
 
+// proxyCapableTransport reports whether the inbound can carry the client IP
+// with PROXY protocol: its network must include TCP (Shadowsocks listens on
+// "tcp,udp" and its TCP listener qualifies; pure UDP inbounds do not) and its
+// transport must be one of the TCP-based carriers — raw TCP plus the stream
+// transports (WS, gRPC, HTTPUpgrade, XHTTP). UDP/QUIC transports
+// (Hysteria2, TUIC, KCP) cannot carry a PROXY header, which is a TCP-stream
+// concept. Callers normalize the inbound first, so an empty transport type
+// already means raw TCP and never reaches this check.
+func proxyCapableTransport(m *model.Inbound) bool {
+	if !strings.Contains(m.Network(), "tcp") {
+		return false
+	}
+	switch m.Transport.Type {
+	case model.TransTCP, model.TransWS, model.TransGRPC, model.TransHTTPUpgrade, model.TransXHTTP:
+		return true
+	}
+	return false
+}
+
 // autoProxyCompatible reports whether the landing inbound of an L4 chain can
 // carry the client IP with PROXY protocol. It mirrors the PROXY-protocol
-// branch of validateRelayAccessInbound — Xray or sing-box TCP inbound,
-// landing agent supports relay access, deployed core accepts
-// AcceptProxyProtocol — but it never fails the caller: any doubt means
-// "do not auto-enable".
+// branch of validateRelayAccessInbound — Xray or sing-box inbound over a
+// TCP-based transport, landing agent supports relay access, deployed core
+// accepts AcceptProxyProtocol — but it never fails the caller: any doubt
+// means "do not auto-enable".
 func (s *Server) autoProxyCompatible(in *store.Inbound) bool {
 	if in.Core != model.CoreXray && in.Core != model.CoreSingbox {
 		return false
 	}
 	m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
 	m.Normalize()
-	if m.Network() != "tcp" || m.Transport.Type != model.TransTCP {
+	if !proxyCapableTransport(&m) {
 		return false
 	}
 	var node store.Node

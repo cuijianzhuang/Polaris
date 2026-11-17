@@ -72,11 +72,26 @@ func TestRenderInboundProxyProtocol(t *testing.T) {
 			t.Fatalf("%s emitted proxy_protocol", p)
 		}
 	}
-	// WS is TCP-based but not a raw TCP listener: no proxy_protocol.
-	ws := coretest.Inbound(s, "vmess-ws-proxy", 21463, model.ProtocolSpec{Type: model.ProtoVMess},
-		model.TransportSpec{Type: model.TransWS, Path: "/ws", AcceptProxyProtocol: true}, model.SecuritySpec{})
-	if _, ok := proxy(ws)["proxy_protocol"]; ok {
-		t.Fatal("VMess WS emitted proxy_protocol")
+	// Stream transports run over TCP, so the PROXY header arrives before
+	// the application handshake: WS and gRPC listeners must parse it too.
+	for _, tc := range []struct {
+		name string
+		typ  model.Transport
+	}{
+		{"ws", model.TransWS},
+		{"grpc", model.TransGRPC},
+	} {
+		in := coretest.Inbound(s, "vmess-"+string(tc.typ)+"-proxy", 21463, model.ProtocolSpec{Type: model.ProtoVMess},
+			model.TransportSpec{Type: tc.typ, Path: "/ws", AcceptProxyProtocol: true}, model.SecuritySpec{})
+		if got := proxy(in)["proxy_protocol"]; got != true {
+			t.Fatalf("VMess %s proxy_protocol=%v, want true", tc.name, got)
+		}
+	}
+	// Shadowsocks listens on TCP and UDP; its TCP listener qualifies.
+	ss := coretest.Inbound(s, "ss-proxy", 21464, model.ProtocolSpec{Type: model.ProtoShadowsocks, Method: "2022-blake3-aes-128-gcm", ServerKey: "MTIzNDU2Nzg5MDEyMzQ1Ng=="},
+		model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, model.SecuritySpec{})
+	if got := proxy(ss)["proxy_protocol"]; got != true {
+		t.Fatalf("Shadowsocks proxy_protocol=%v, want true", got)
 	}
 }
 

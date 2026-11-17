@@ -452,17 +452,22 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 		return nil, fmt.Errorf("transport %s not supported by xray", t.Type)
 	}
 	if server && t.AcceptProxyProtocol {
-		key := map[model.Transport]string{"": "tcpSettings", model.TransTCP: "tcpSettings", model.TransWS: "wsSettings",
-			model.TransHTTPUpgrade: "httpupgradeSettings"}[t.Type]
-		if key == "" {
-			return nil, fmt.Errorf("proxy protocol is only supported on raw / ws / httpupgrade")
+		switch t.Type {
+		case "", model.TransTCP, model.TransWS, model.TransHTTPUpgrade:
+			key := map[model.Transport]string{"": "tcpSettings", model.TransTCP: "tcpSettings", model.TransWS: "wsSettings",
+				model.TransHTTPUpgrade: "httpupgradeSettings"}[t.Type]
+			ts, _ := st[key].(map[string]any)
+			if ts == nil {
+				ts = map[string]any{}
+			}
+			ts["acceptProxyProtocol"] = true
+			st[key] = ts
+		case model.TransGRPC, model.TransXHTTP:
+			// gRPC/XHTTP carry no acceptProxyProtocol in their transport
+			// settings; the listener reads it from sockopt, set below.
+		default:
+			return nil, fmt.Errorf("proxy protocol is only supported on raw / ws / httpupgrade / grpc / xhttp")
 		}
-		ts, _ := st[key].(map[string]any)
-		if ts == nil {
-			ts = map[string]any{}
-		}
-		ts["acceptProxyProtocol"] = true
-		st[key] = ts
 	}
 	if server {
 		switch t.Type {
@@ -474,7 +479,11 @@ func renderStream(t model.TransportSpec, sec model.SecuritySpec, server, legacyK
 				// disables that fallback. Real-core tests cover this behavior.
 				trusted = []string{""}
 			}
-			st["sockopt"] = map[string]any{"trustedXForwardedFor": trusted}
+			so := map[string]any{"trustedXForwardedFor": trusted}
+			if t.AcceptProxyProtocol && (t.Type == model.TransGRPC || t.Type == model.TransXHTTP) {
+				so["acceptProxyProtocol"] = true
+			}
+			st["sockopt"] = so
 		}
 	}
 	switch sec.Type {
