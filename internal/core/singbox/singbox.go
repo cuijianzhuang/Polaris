@@ -128,7 +128,7 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 		HotUsers: false,
 		RealIP:   false,
 		Outbounds: []model.OutboundType{model.OutDirect, model.OutBlock, model.OutSOCKS, model.OutHTTP,
-			model.OutShadowsocks, model.OutVLESS, model.OutVMess, model.OutTrojan, model.OutHysteria2,
+			model.OutShadowsocks, model.OutVLESS, model.OutVMess, model.OutTrojan, model.OutHysteria2, model.OutTUIC,
 			model.OutWireGuard, model.OutURLTest, model.OutSelector, model.OutBalancer},
 		Balancers: []string{model.LBLeastPing, model.LBFallback},
 	}
@@ -588,6 +588,13 @@ func renderOutbounds(obs []model.Outbound) ([]any, []any, error) {
 			if s.ObfsPassword != "" {
 				ob["obfs"] = map[string]any{"type": "salamander", "password": s.ObfsPassword}
 			}
+		case model.OutTUIC:
+			// TUIC is sing-box native; the fields mirror the client
+			// config (internal/sub/singbox.go) plus server/port. The
+			// shared TLS block below supplies tls (ALPN h3).
+			ob["type"] = "tuic"
+			ob["server"], ob["server_port"], ob["uuid"], ob["password"] = s.Server, s.Port, s.UUID, s.Password
+			ob["congestion_control"] = orDefault(s.CongestionControl, "bbr")
 		case model.OutWireGuard:
 			peer := map[string]any{
 				"address": s.Server, "port": s.Port, "public_key": s.PeerPublicKey,

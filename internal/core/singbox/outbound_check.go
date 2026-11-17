@@ -31,8 +31,8 @@ func checkOutboundSettings(typ model.OutboundType, s model.OutboundSettings) err
 		}
 		return nil
 	case model.TransQUIC:
-		// QUIC is intrinsic to Hysteria2, rather than a pluggable stream.
-		if typ == model.OutHysteria2 {
+		// QUIC is intrinsic to Hysteria2 and TUIC, rather than a pluggable stream.
+		if typ == model.OutHysteria2 || typ == model.OutTUIC {
 			return nil
 		}
 	case model.TransWS, model.TransGRPC, model.TransHTTPUpgrade:

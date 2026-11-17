@@ -15,6 +15,7 @@ const (
 	OutVMess       OutboundType = "vmess"
 	OutTrojan      OutboundType = "trojan"
 	OutHysteria2   OutboundType = "hysteria2"
+	OutTUIC        OutboundType = "tuic"
 	OutWireGuard   OutboundType = "wireguard"
 	OutSourceRef   OutboundType = "source_ref" // resolved from a stable subscription node by the panel
 	OutNodeRef     OutboundType = "node_ref"   // resolved by the panel before reaching a core
@@ -73,6 +74,9 @@ type OutboundSettings struct {
 	UpMbps       int    `json:"upMbps,omitempty"`
 	DownMbps     int    `json:"downMbps,omitempty"`
 	ObfsPassword string `json:"obfsPassword,omitempty"`
+
+	// tuic
+	CongestionControl string `json:"congestionControl,omitempty"`
 
 	// wireguard
 	PrivateKey    string   `json:"privateKey,omitempty"`

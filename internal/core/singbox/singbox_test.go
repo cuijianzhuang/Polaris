@@ -117,6 +117,57 @@ func TestCapabilitiesProxyProtocol(t *testing.T) {
 	}
 }
 
+func TestRenderOutboundTUIC(t *testing.T) {
+	// The TUIC outbound must be listed as a capability: a chain hop to
+	// a TUIC landing resolves to it, and chain creation validates the
+	// entry core against this list.
+	caps, ok := core.Capabilities(model.CoreSingbox, "1.13.5")
+	if !ok {
+		t.Fatal("no sing-box capabilities")
+	}
+	if !caps.SupportsOutbound(model.OutTUIC) {
+		t.Fatalf("sing-box capabilities %v lack %s", caps.Outbounds, model.OutTUIC)
+	}
+	// The rendered outbound mirrors the sing-box client config
+	// (internal/sub/singbox.go): type/uuid/password/congestion_control
+	// plus server/port, with TLS supplied by the shared block.
+	render := func(set model.OutboundSettings) map[string]any {
+		t.Helper()
+		outs, _, err := renderOutbounds([]model.Outbound{{Tag: "tuic-hop", Type: model.OutTUIC, Settings: coretest.Settings(set)}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(outs) != 2 { // direct + the TUIC hop
+			t.Fatalf("outs = %d, want 2", len(outs))
+		}
+		ob, ok := outs[1].(map[string]any)
+		if !ok {
+			t.Fatalf("outbound is %T", outs[1])
+		}
+		return ob
+	}
+	base := model.OutboundSettings{Server: "land.example.com", Port: 443,
+		UUID: "11111111-1111-4111-8111-111111111111", Password: "tuic-password", CongestionControl: "bbr",
+		Security: &model.ClientTLS{Type: model.SecTLS, ServerName: "land.example.com", ALPN: []string{"h3"}}}
+	ob := render(base)
+	for k, want := range map[string]any{"type": "tuic", "server": "land.example.com", "server_port": 443,
+		"uuid": "11111111-1111-4111-8111-111111111111", "password": "tuic-password", "congestion_control": "bbr"} {
+		if ob[k] != want {
+			t.Fatalf("tuic outbound %s = %v, want %v (full: %v)", k, ob[k], want, ob)
+		}
+	}
+	tls, ok := ob["tls"].(map[string]any)
+	if !ok || tls["server_name"] != "land.example.com" {
+		t.Fatalf("tuic outbound tls = %v", ob["tls"])
+	}
+	// Empty congestion control defaults to bbr, like the TUIC inbound
+	// and the sing-box client config.
+	base.CongestionControl = ""
+	if got := render(base)["congestion_control"]; got != "bbr" {
+		t.Fatalf("empty congestion_control rendered %v, want bbr", got)
+	}
+}
+
 func TestRender(t *testing.T) {
 	bin := os.Getenv("POLARIS_SINGBOX_BIN")
 	a := New(core.Options{Version: "1.13.5", WorkDir: t.TempDir(), BinPath: bin})

@@ -126,3 +126,22 @@ func TestOnlineSnellUDPUser(t *testing.T) {
 		t.Fatal("Snell UDP user/source identity lost", got)
 	}
 }
+
+func TestOnlineQUICUser(t *testing.T) {
+	tr := newOnlineTracker()
+	// Hysteria2 and TUIC are QUIC/UDP: sing-box logs them as packet
+	// connections. The entry agent must pair them to a user and a
+	// source IP, so a proxy chain through these inbounds reports the
+	// real client IP instead of the relay's address.
+	tr.line("INFO [77 0ms] inbound/hysteria2[hy2]: inbound packet connection from 203.0.113.10:4567")
+	tr.line("INFO [77 1ms] inbound/hysteria2[hy2]: [alice] inbound packet connection to example.com:443")
+	tr.line("INFO [78 0ms] inbound/tuic[tuic]: inbound packet connection from 203.0.113.20:4567")
+	tr.line("INFO [78 1ms] inbound/tuic[tuic]: [bob] inbound packet connection to example.com:443")
+	got := tr.online(time.Now())
+	if ips := got["alice"]; len(ips) != 1 || ips[0] != "203.0.113.10" {
+		t.Fatalf("alice = %v", got["alice"])
+	}
+	if ips := got["bob"]; len(ips) != 1 || ips[0] != "203.0.113.20" {
+		t.Fatalf("bob = %v", got["bob"])
+	}
+}

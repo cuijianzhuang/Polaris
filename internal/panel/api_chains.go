@@ -117,6 +117,8 @@ func outboundTypeFor(p model.Protocol) (model.OutboundType, bool) {
 		return model.OutShadowsocks, true
 	case model.ProtoHysteria2:
 		return model.OutHysteria2, true
+	case model.ProtoTUIC:
+		return model.OutTUIC, true
 	case model.ProtoSOCKS:
 		return model.OutSOCKS, true
 	case model.ProtoHTTP:
