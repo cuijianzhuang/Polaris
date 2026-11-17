@@ -354,13 +354,27 @@ func (a *Agent) revertVersion(ctx context.Context, failed, old *managed, cause e
 	if _, err := a.installer.Ensure(ctx, old.spec); err != nil {
 		a.log.Warn("relink previous core version", "core", t, "err", err)
 	}
-	if err := old.adapter.Start(ctx); err == nil {
-		err = waitHealthy(ctx, old.adapter)
-		if err != nil {
-			return fmt.Errorf("升级到 %s 失败（%v），回退到 %s 后仍未正常运行：%w", failed.spec.Version, cause, old.spec.Version, err)
+	// The old core was stopped to free its inbounds for the new binary. Linux
+	// can still report the listener as busy for a moment after the process
+	// exits, so give the kernel a short chance to release the ports before
+	// declaring the rollback lost.
+	var startErr error
+	for range 6 {
+		startErr = old.adapter.Start(ctx)
+		if startErr == nil || !strings.Contains(startErr.Error(), "address already in use") {
+			break
 		}
-	} else {
-		return fmt.Errorf("升级到 %s 失败（%v），回退到 %s 时启动失败：%w", failed.spec.Version, cause, old.spec.Version, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if startErr != nil {
+		return fmt.Errorf("升级到 %s 失败（%v），已回退到 %s 但启动失败：%w", failed.spec.Version, cause, old.spec.Version, startErr)
+	}
+	if err := waitHealthy(ctx, old.adapter); err != nil {
+		return fmt.Errorf("升级到 %s 失败（%v），已回退到 %s 后仍未正常运行：%w", failed.spec.Version, cause, old.spec.Version, err)
 	}
 	return fmt.Errorf("升级到 %s 失败，已回退到 %s：%w", failed.spec.Version, old.spec.Version, cause)
 }
