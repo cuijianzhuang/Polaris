@@ -312,53 +312,32 @@ func retargetLandingSingbox(t *testing.T, s *Server, protocol model.Protocol, tr
 	}
 }
 
-// TestL4AutoProxySingbox: an L4 passthrough chain landing on a sing-box
-// AnyTLS TCP inbound carries the client IP with PROXY protocol just like
-// Xray, as do sing-box stream transports (WS, gRPC); a UDP/QUIC sing-box
-// landing (Hysteria2) does not.
-func TestL4AutoProxySingbox(t *testing.T) {
-	t.Run("anytls tcp", func(t *testing.T) {
-		s, c := autoProxyServer(t)
-		createAutoProxyChain(t, c, "")
-		retargetLandingSingbox(t, s, model.ProtoAnyTLS, model.TransTCP)
-		if !landingAcceptsProxy(t, s) {
-			t.Fatal("sing-box landing did not auto-enable AcceptProxyProtocol")
-		}
-		if send, accept := forwardSendProxy(t, s, "relay"); send != 1 || accept {
-			t.Fatalf("entry forward send=%d accept=%v, want 1/false", send, accept)
-		}
-		if send, accept := forwardSendProxy(t, s, "middle"); send != 1 || !accept {
-			t.Fatalf("middle forward send=%d accept=%v, want 1/true", send, accept)
-		}
-	})
-	for _, tc := range []struct {
+// TestL4AutoProxySingboxNeverEnabled documents the startup-crash guard:
+// sing-box removed PROXY protocol in 1.6.0, so no landing transport may be
+// auto-configured with AcceptProxyProtocol or receive a PROXY header. The L4
+// chain itself still works; only real client IP is unavailable on sing-box.
+func TestL4AutoProxySingboxNeverEnabled(t *testing.T) {
+	cases := []struct {
 		name      string
+		protocol  model.Protocol
 		transport model.Transport
 	}{
-		{"ws", model.TransWS},
-		{"grpc", model.TransGRPC},
-	} {
+		{"anytls tcp", model.ProtoAnyTLS, model.TransTCP},
+		{"vless ws", model.ProtoVLESS, model.TransWS},
+		{"vless grpc", model.ProtoVLESS, model.TransGRPC},
+		{"hysteria2", model.ProtoHysteria2, model.TransQUIC},
+	}
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, c := autoProxyServer(t)
 			createAutoProxyChain(t, c, "")
-			retargetLandingSingbox(t, s, model.ProtoVLESS, tc.transport)
-			if !landingAcceptsProxy(t, s) {
-				t.Fatalf("sing-box %s landing did not auto-enable AcceptProxyProtocol", tc.name)
+			retargetLandingSingbox(t, s, tc.protocol, tc.transport)
+			if landingAcceptsProxy(t, s) {
+				t.Fatalf("sing-box %s landing auto-enabled removed PROXY protocol", tc.name)
 			}
-			if send, accept := forwardSendProxy(t, s, "relay"); send != 1 || accept {
-				t.Fatalf("entry forward send=%d accept=%v, want 1/false", send, accept)
+			if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
+				t.Fatalf("entry forward send=%d, want 0 for sing-box landing", send)
 			}
 		})
 	}
-	t.Run("hysteria2", func(t *testing.T) {
-		s, c := autoProxyServer(t)
-		createAutoProxyChain(t, c, "")
-		retargetLandingSingbox(t, s, model.ProtoHysteria2, model.TransQUIC)
-		if landingAcceptsProxy(t, s) {
-			t.Fatal("sing-box Hysteria2 landing auto-enabled AcceptProxyProtocol")
-		}
-		if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
-			t.Fatalf("entry forward send=%d, want 0", send)
-		}
-	})
 }

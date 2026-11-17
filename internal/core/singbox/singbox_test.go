@@ -40,7 +40,7 @@ func spec(t *testing.T) *model.NodeSpec {
 	}, Outbounds: obs, Routes: routes}
 }
 
-func TestRenderInboundProxyProtocol(t *testing.T) {
+func TestRenderInboundProxyProtocolNeverEmitted(t *testing.T) {
 	s := model.CoreSingbox
 	proxy := func(in model.Inbound) map[string]any {
 		t.Helper()
@@ -50,70 +50,60 @@ func TestRenderInboundProxyProtocol(t *testing.T) {
 		}
 		return ib
 	}
-	// AnyTLS over TCP with PROXY protocol: the listener must parse the
-	// PROXY header the relay forwarder prepends.
+	// sing-box removed PROXY protocol in 1.6.0. Even when the structured
+	// flag is set (e.g. by an older panel revision), no listener may carry
+	// the removed key or the core aborts at startup.
 	anytls := coretest.Inbound(s, "anytls-proxy", 21460, model.ProtocolSpec{Type: model.ProtoAnyTLS},
 		model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, coretest.TLS(t, "a.example.com"))
-	if got := proxy(anytls)["proxy_protocol"]; got != true {
-		t.Fatalf("AnyTLS TCP proxy_protocol=%v, want true", got)
+	if _, ok := proxy(anytls)["proxy_protocol"]; ok {
+		t.Fatal("AnyTLS TCP still emitted removed proxy_protocol")
 	}
-	// Same inbound without the flag: no proxy_protocol key.
-	plain := coretest.Inbound(s, "anytls-plain", 21461, model.ProtocolSpec{Type: model.ProtoAnyTLS},
-		model.TransportSpec{Type: model.TransTCP}, coretest.TLS(t, "a.example.com"))
-	if _, ok := proxy(plain)["proxy_protocol"]; ok {
-		t.Fatal("AnyTLS TCP without AcceptProxyProtocol emitted proxy_protocol")
-	}
-	// UDP/QUIC protocols must never get proxy_protocol, even if the flag
-	// is set: a PROXY header is a TCP-stream concept.
-	for _, p := range []model.Protocol{model.ProtoHysteria2, model.ProtoTUIC} {
-		in := coretest.Inbound(s, "udp-"+string(p), 21462, model.ProtocolSpec{Type: p},
-			model.TransportSpec{AcceptProxyProtocol: true}, coretest.TLS(t, "u.example.com"))
-		if _, ok := proxy(in)["proxy_protocol"]; ok {
-			t.Fatalf("%s emitted proxy_protocol", p)
-		}
-	}
-	// Stream transports run over TCP, so the PROXY header arrives before
-	// the application handshake: WS and gRPC listeners must parse it too.
+	// UDP/QUIC and stream transports likewise never carry it.
 	for _, tc := range []struct {
 		name string
-		typ  model.Transport
+		p    model.ProtocolSpec
+		tr   model.TransportSpec
+		sec  model.SecuritySpec
 	}{
-		{"ws", model.TransWS},
-		{"grpc", model.TransGRPC},
+		{"hysteria2", model.ProtocolSpec{Type: model.ProtoHysteria2}, model.TransportSpec{AcceptProxyProtocol: true}, coretest.TLS(t, "u.example.com")},
+		{"vmess-ws", model.ProtocolSpec{Type: model.ProtoVMess}, model.TransportSpec{Type: model.TransWS, Path: "/ws", AcceptProxyProtocol: true}, model.SecuritySpec{}},
+		{"vmess-grpc", model.ProtocolSpec{Type: model.ProtoVMess}, model.TransportSpec{Type: model.TransGRPC, AcceptProxyProtocol: true}, model.SecuritySpec{}},
+		{"shadowsocks", model.ProtocolSpec{Type: model.ProtoShadowsocks, Method: "2022-blake3-aes-128-gcm", ServerKey: "MTIzNDU2Nzg5MDEyMzQ1Ng=="}, model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, model.SecuritySpec{}},
 	} {
-		in := coretest.Inbound(s, "vmess-"+string(tc.typ)+"-proxy", 21463, model.ProtocolSpec{Type: model.ProtoVMess},
-			model.TransportSpec{Type: tc.typ, Path: "/ws", AcceptProxyProtocol: true}, model.SecuritySpec{})
-		if got := proxy(in)["proxy_protocol"]; got != true {
-			t.Fatalf("VMess %s proxy_protocol=%v, want true", tc.name, got)
+		in := coretest.Inbound(s, tc.name, 21462, tc.p, tc.tr, tc.sec)
+		if _, ok := proxy(in)["proxy_protocol"]; ok {
+			t.Fatalf("%s still emitted removed proxy_protocol", tc.name)
 		}
 	}
-	// Shadowsocks listens on TCP and UDP; its TCP listener qualifies.
-	ss := coretest.Inbound(s, "ss-proxy", 21464, model.ProtocolSpec{Type: model.ProtoShadowsocks, Method: "2022-blake3-aes-128-gcm", ServerKey: "MTIzNDU2Nzg5MDEyMzQ1Ng=="},
-		model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, model.SecuritySpec{})
-	if got := proxy(ss)["proxy_protocol"]; got != true {
-		t.Fatalf("Shadowsocks proxy_protocol=%v, want true", got)
+	// A raw Extra with obsolete PROXY keys must be sanitized on render so a
+	// stale saved config cannot crash the node after the next push.
+	for _, key := range []string{"proxy_protocol", "proxy_protocol_accept_no_header", "acceptProxyProtocol"} {
+		in := coretest.Inbound(s, "anytls-extra", 21465, model.ProtocolSpec{Type: model.ProtoAnyTLS},
+			model.TransportSpec{Type: model.TransTCP}, coretest.TLS(t, "a.example.com"))
+		in.Extra = []byte(`{"` + key + `":true}`)
+		ib := proxy(in)
+		for _, removed := range removedProxyProtocolKeys {
+			if _, ok := ib[removed]; ok {
+				t.Fatalf("Extra key %s survived render as %s", key, removed)
+			}
+		}
 	}
 }
 
-func TestCapabilitiesProxyProtocol(t *testing.T) {
+func TestCapabilitiesProxyProtocolRejected(t *testing.T) {
 	caps, ok := core.Capabilities(model.CoreSingbox, "1.13.5")
 	if !ok {
 		t.Fatal("no sing-box capabilities")
 	}
-	found := false
 	for _, f := range caps.Features {
 		if f == model.FeatureProxyProtocol {
-			found = true
+			t.Fatalf("sing-box must not advertise removed %s", model.FeatureProxyProtocol)
 		}
 	}
-	if !found {
-		t.Fatalf("sing-box features %v lack %s", caps.Features, model.FeatureProxyProtocol)
-	}
-	// An AnyTLS TCP inbound asking for PROXY protocol must be supported.
 	in := coretest.Inbound(model.CoreSingbox, "anytls-proxy", 21460, model.ProtocolSpec{Type: model.ProtoAnyTLS},
 		model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, coretest.TLS(t, "a.example.com"))
-	if err := caps.SupportsInbound(&in); err != nil {
-		t.Fatalf("sing-box rejects PROXY inbound: %v", err)
+	if err := caps.SupportsInbound(&in); err == nil {
+		t.Fatal("sing-box must reject a PROXY-protocol inbound")
 	}
 }
 

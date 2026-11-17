@@ -155,8 +155,10 @@ func validateRelayAccessInbound(db *gorm.DB, in store.Inbound) error {
 	if p.ProxyProtocol > 0 {
 		m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
 		m.Normalize()
-		if !proxyCapableTransport(&m) || (in.Core != model.CoreXray && in.Core != model.CoreSingbox) {
-			return fmt.Errorf("真实客户端 IP 当前要求 Xray 或 sing-box 的 TCP 入站（含 WS / gRPC 等走 TCP 的传输）")
+		// Only Xray can read a PROXY header on a listener. sing-box removed
+		// PROXY protocol in 1.6.0 and aborts at startup if the key is set.
+		if !proxyCapableTransport(&m) || in.Core != model.CoreXray {
+			return fmt.Errorf("真实客户端 IP 当前要求 Xray 的 TCP 入站（含 WS / gRPC 等走 TCP 的传输）；sing-box 自 1.6.0 起已移除 PROXY protocol")
 		}
 		m.Transport.AcceptProxyProtocol = true
 		var cr store.Core
@@ -218,12 +220,13 @@ func proxyCapableTransport(m *model.Inbound) bool {
 
 // autoProxyCompatible reports whether the landing inbound of an L4 chain can
 // carry the client IP with PROXY protocol. It mirrors the PROXY-protocol
-// branch of validateRelayAccessInbound — Xray or sing-box inbound over a
-// TCP-based transport, landing agent supports relay access, deployed core
-// accepts AcceptProxyProtocol — but it never fails the caller: any doubt
-// means "do not auto-enable".
+// branch of validateRelayAccessInbound — an Xray inbound over a TCP-based
+// transport, landing agent supports relay access, deployed core accepts
+// AcceptProxyProtocol — but it never fails the caller: any doubt means "do
+// not auto-enable". sing-box is never compatible: it removed PROXY protocol
+// in 1.6.0 and crashes at startup if enabled.
 func (s *Server) autoProxyCompatible(in *store.Inbound) bool {
-	if in.Core != model.CoreXray && in.Core != model.CoreSingbox {
+	if in.Core != model.CoreXray {
 		return false
 	}
 	m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
