@@ -131,7 +131,7 @@ func (s *Server) putNodeProbePolicy(c *gin.Context) {
 
 // Serialize against policy changes and node deletion. A late command response
 // from a removed/changed target must not resurrect old measurements.
-func (s *Server) recordNodeProbe(nodeID string, target store.ProbeTarget, ms float64, ok bool, now time.Time) error {
+func (s *Server) recordNodeProbe(nodeID string, target store.ProbeTarget, sample probeSample, now time.Time) error {
 	return s.withNodeNet(nodeID, func(tx *gorm.DB, n *store.Node) error {
 		var global []store.ProbeTarget
 		if n.ProbeMode == "" || n.ProbeMode == "inherit" {
@@ -141,7 +141,7 @@ func (s *Server) recordNodeProbe(nodeID string, target store.ProbeTarget, ms flo
 		}
 		for _, t := range nodeProbeTargets(n, global) {
 			if t.ID == target.ID && t.Addr == target.Addr {
-				return recordLatencyDB(tx, nodeID, target.ID, ms, ok, now)
+				return recordLatencyDB(tx, nodeID, target.ID, sample, now)
 			}
 		}
 		return nil

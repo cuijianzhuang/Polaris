@@ -327,7 +327,7 @@ func (s *Server) cdnUnreachablePort(ctx context.Context, p *store.CDNProfile, no
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				if _, reached := s.probeOnce(ctx, n, net.JoinHostPort(ip, strconv.Itoa(port))); reached {
+				if s := s.probeOnce(ctx, n, net.JoinHostPort(ip, strconv.Itoa(port)), 1); s.Sent > s.Lost {
 					mu.Lock()
 					ok[ip] = true
 					mu.Unlock()

@@ -88,11 +88,11 @@ func TestProbeMonitorSamplingDistinguishesFailureAndMissing(t *testing.T) {
 	target := s.latencyTargets(true)[0]
 	previous := now.Add(-latencySlot)
 	for i := 0; i < 2; i++ {
-		if err := recordLatencyDB(s.st.DB, "monitor", target.ID, 0, false, previous); err != nil {
+		if err := recordLatencyDB(s.st.DB, "monitor", target.ID, singleSample(0, false), previous); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := recordLatencyDB(s.st.DB, "monitor", target.ID, 12.5, true, now); err != nil {
+	if err := recordLatencyDB(s.st.DB, "monitor", target.ID, singleSample(12.5, true), now); err != nil {
 		t.Fatal(err)
 	}
 	l := s.latencySummary([]string{"monitor"}, now)["monitor"][target.ID]
