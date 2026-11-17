@@ -24,7 +24,7 @@ function explanation(u: User) {
 }
 export function UserIPCount({ user, onClick }: { user: User; onClick: () => void }) {
   const s = state(user), count = user.onlineIpCount ?? (user.onlineIps ?? []).length
-  const label = s === 'available' ? count : s === 'partial' ? `≥${count}` : s === 'expired' ? t('已过期') : s === 'unavailable' ? t('未识别') : 0
+  const label = s === 'available' || s === 'partial' ? count : s === 'expired' ? t('已过期') : s === 'unavailable' ? t('未识别') : 0
   const exempt = (user.onlineDevices ?? []).filter((d) => d.excluded === 'trusted').length
   return <div><button className="link mono online-ip-count" type="button" title={explanation(user)} aria-label={t('查看 {name} 的在线 IP', { name: user.username })} onClick={onClick} data-ip-state={s}>{label} / {user.ipLimit || '∞'}</button>{exempt > 0 && <div className="small mute">{t('{n} 个免计', { n: exempt })}</div>}</div>
 }
