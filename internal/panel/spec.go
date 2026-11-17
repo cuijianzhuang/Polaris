@@ -441,6 +441,8 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 		if m.Protocol.Obfs == "" {
 			set.ObfsPassword = ""
 		}
+	case model.ProtoTUIC:
+		typ, set.UUID, set.Password, set.CongestionControl = model.OutTUIC, svc.UUID, svc.Password, m.Protocol.CongestionControl
 	case model.ProtoSOCKS:
 		typ, set.Username, set.Password = model.OutSOCKS, svc.ID, svc.Password
 	case model.ProtoHTTP:
@@ -455,6 +457,12 @@ func (s *Server) resolveNodeRef(o *store.Outbound) (*model.Outbound, error) {
 	if m.Security.Type != model.SecNone {
 		ct := &model.ClientTLS{Type: m.Security.Type, ServerName: m.Security.ServerName, ALPN: m.Security.ALPN,
 			Insecure: s.tlsInsecure(m.Security.CertificateID)}
+		if m.Protocol.Type == model.ProtoTUIC && len(ct.ALPN) == 0 {
+			// TUIC runs over QUIC/TLS; a server without ALPN h3 rejects
+			// the handshake. Inbounds default it at creation, but an
+			// older row may lack it.
+			ct.ALPN = []string{"h3"}
+		}
 		if m.Security.Type == model.SecReality {
 			ct.ServerName = first(m.Security.RealityServerNames)
 			ct.PublicKey = m.Security.RealityPublicKey

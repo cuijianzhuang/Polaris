@@ -9,6 +9,71 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
+func TestProxyChainTUICLanding(t *testing.T) {
+	s, c := relayFixture(t)
+	// Entry node: sing-box only (xray has no TUIC implementation, so a
+	// node carrying xray cannot render a TUIC hop).
+	if err := s.st.DB.Create(&store.Core{ID: "relay-sb", NodeID: "relay", Type: model.CoreSingbox, Version: "1.13.5"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Create(&store.Inbound{ID: "proxy-in", NodeID: "relay", Tag: "proxy-in", Port: 12345, Enabled: true, Core: model.CoreSingbox, Protocol: store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS}), Transport: store.NewJSON(model.TransportSpec{Type: model.TransTCP}), Security: store.NewJSON(model.SecuritySpec{Type: model.SecNone})}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// Landing: TUIC on sing-box (the entry terminates the client and
+	// reports the real IP; the landing only sees the relay).
+	if err := s.st.DB.Create(&store.Core{ID: "land-sb", NodeID: "land", Type: model.CoreSingbox, Version: "1.13.5"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	tls := coretest.TLS(t, "land.example.com")
+	if err := s.st.DB.Create(&store.Inbound{ID: "tuic-in", NodeID: "land", Tag: "tuic-in", Port: 24443, Enabled: true, Core: model.CoreSingbox, Protocol: store.NewJSON(model.ProtocolSpec{Type: model.ProtoTUIC, CongestionControl: "bbr"}), Transport: store.NewJSON(model.TransportSpec{Type: model.TransQUIC}), Security: store.NewJSON(tls)}).Error; err != nil {
+		t.Fatal(err)
+	}
+	code, out := c.do("POST", "/chains", chainReq{Name: "tuic-proxy", Mode: "proxy", Hops: []store.ChainHop{{NodeID: "relay", InboundID: "proxy-in"}, {NodeID: "land", InboundID: "tuic-in"}}})
+	if code != 201 {
+		t.Fatal("TUIC proxy chain rejected", code, out)
+	}
+	id := out["id"].(string)
+	var o store.Outbound
+	if err := s.st.DB.First(&o, "chain_id = ?", id).Error; err != nil {
+		t.Fatal(err)
+	}
+	var svc store.User
+	if err := s.st.DB.First(&svc, "id = ?", o.ServiceUserID).Error; err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := s.resolveNodeRef(&o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Type != model.OutTUIC {
+		t.Fatalf("resolved outbound type = %s, want %s", resolved.Type, model.OutTUIC)
+	}
+	set, err := resolved.ParseSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set.UUID != svc.UUID || set.Password != svc.Password || set.CongestionControl != "bbr" {
+		t.Fatalf("resolved TUIC settings = %+v, want uuid/password of service user and congestionControl bbr", set)
+	}
+	if set.Security == nil || len(set.Security.ALPN) != 1 || set.Security.ALPN[0] != "h3" {
+		t.Fatalf("resolved TUIC security = %+v, want ALPN [h3]", set.Security)
+	}
+	// An xray-only entry cannot render a TUIC hop: xray-core has no
+	// TUIC implementation, so chain creation must reject it.
+	if err := s.st.DB.Create(&store.Node{ID: "relay-xray", Name: "relay-xray", Address: "relay-xray.example.com", Status: "online"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Create(&store.Core{ID: "relay-xray-core", NodeID: "relay-xray", Type: model.CoreXray, Version: "26.3.27"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Create(&store.Inbound{ID: "proxy-in-xray", NodeID: "relay-xray", Tag: "proxy-in-xray", Port: 12346, Enabled: true, Core: model.CoreXray, Protocol: store.NewJSON(model.ProtocolSpec{Type: model.ProtoVLESS}), Transport: store.NewJSON(model.TransportSpec{Type: model.TransTCP}), Security: store.NewJSON(model.SecuritySpec{Type: model.SecNone})}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if code, out := c.do("POST", "/chains", chainReq{Name: "tuic-proxy-xray", Mode: "proxy", Hops: []store.ChainHop{{NodeID: "relay-xray", InboundID: "proxy-in-xray"}, {NodeID: "land", InboundID: "tuic-in"}}}); code != 400 {
+		t.Fatal("xray-only entry accepted a TUIC hop", code, out)
+	}
+}
+
 func TestProxyChainRejectsConflictingEntry(t *testing.T) {
 	for _, problem := range []string{"duplicate", "bound-outbound", "disabled-entry", "disabled-landing"} {
 		t.Run(problem, func(t *testing.T) {
