@@ -40,6 +40,68 @@ func spec(t *testing.T) *model.NodeSpec {
 	}, Outbounds: obs, Routes: routes}
 }
 
+func TestRenderInboundProxyProtocol(t *testing.T) {
+	s := model.CoreSingbox
+	proxy := func(in model.Inbound) map[string]any {
+		t.Helper()
+		ib, err := renderInbound(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ib
+	}
+	// AnyTLS over TCP with PROXY protocol: the listener must parse the
+	// PROXY header the relay forwarder prepends.
+	anytls := coretest.Inbound(s, "anytls-proxy", 21460, model.ProtocolSpec{Type: model.ProtoAnyTLS},
+		model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, coretest.TLS(t, "a.example.com"))
+	if got := proxy(anytls)["proxy_protocol"]; got != true {
+		t.Fatalf("AnyTLS TCP proxy_protocol=%v, want true", got)
+	}
+	// Same inbound without the flag: no proxy_protocol key.
+	plain := coretest.Inbound(s, "anytls-plain", 21461, model.ProtocolSpec{Type: model.ProtoAnyTLS},
+		model.TransportSpec{Type: model.TransTCP}, coretest.TLS(t, "a.example.com"))
+	if _, ok := proxy(plain)["proxy_protocol"]; ok {
+		t.Fatal("AnyTLS TCP without AcceptProxyProtocol emitted proxy_protocol")
+	}
+	// UDP/QUIC protocols must never get proxy_protocol, even if the flag
+	// is set: a PROXY header is a TCP-stream concept.
+	for _, p := range []model.Protocol{model.ProtoHysteria2, model.ProtoTUIC} {
+		in := coretest.Inbound(s, "udp-"+string(p), 21462, model.ProtocolSpec{Type: p},
+			model.TransportSpec{AcceptProxyProtocol: true}, coretest.TLS(t, "u.example.com"))
+		if _, ok := proxy(in)["proxy_protocol"]; ok {
+			t.Fatalf("%s emitted proxy_protocol", p)
+		}
+	}
+	// WS is TCP-based but not a raw TCP listener: no proxy_protocol.
+	ws := coretest.Inbound(s, "vmess-ws-proxy", 21463, model.ProtocolSpec{Type: model.ProtoVMess},
+		model.TransportSpec{Type: model.TransWS, Path: "/ws", AcceptProxyProtocol: true}, model.SecuritySpec{})
+	if _, ok := proxy(ws)["proxy_protocol"]; ok {
+		t.Fatal("VMess WS emitted proxy_protocol")
+	}
+}
+
+func TestCapabilitiesProxyProtocol(t *testing.T) {
+	caps, ok := core.Capabilities(model.CoreSingbox, "1.13.5")
+	if !ok {
+		t.Fatal("no sing-box capabilities")
+	}
+	found := false
+	for _, f := range caps.Features {
+		if f == model.FeatureProxyProtocol {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("sing-box features %v lack %s", caps.Features, model.FeatureProxyProtocol)
+	}
+	// An AnyTLS TCP inbound asking for PROXY protocol must be supported.
+	in := coretest.Inbound(model.CoreSingbox, "anytls-proxy", 21460, model.ProtocolSpec{Type: model.ProtoAnyTLS},
+		model.TransportSpec{Type: model.TransTCP, AcceptProxyProtocol: true}, coretest.TLS(t, "a.example.com"))
+	if err := caps.SupportsInbound(&in); err != nil {
+		t.Fatalf("sing-box rejects PROXY inbound: %v", err)
+	}
+}
+
 func TestRender(t *testing.T) {
 	bin := os.Getenv("POLARIS_SINGBOX_BIN")
 	a := New(core.Options{Version: "1.13.5", WorkDir: t.TempDir(), BinPath: bin})

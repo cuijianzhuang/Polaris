@@ -155,8 +155,8 @@ func validateRelayAccessInbound(db *gorm.DB, in store.Inbound) error {
 	if p.ProxyProtocol > 0 {
 		m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
 		m.Normalize()
-		if m.Network() != "tcp" || m.Transport.Type != model.TransTCP || in.Core != model.CoreXray {
-			return fmt.Errorf("真实客户端 IP 当前要求 Xray TCP 入站（可配 TLS / REALITY）")
+		if m.Network() != "tcp" || m.Transport.Type != model.TransTCP || (in.Core != model.CoreXray && in.Core != model.CoreSingbox) {
+			return fmt.Errorf("真实客户端 IP 当前要求 Xray 或 sing-box TCP 入站（可配 TLS / REALITY）")
 		}
 		m.Transport.AcceptProxyProtocol = true
 		var cr store.Core
@@ -199,11 +199,12 @@ func (s *Server) l4ProxyLandings() (map[string]bool, error) {
 
 // autoProxyCompatible reports whether the landing inbound of an L4 chain can
 // carry the client IP with PROXY protocol. It mirrors the PROXY-protocol
-// branch of validateRelayAccessInbound — Xray TCP inbound, landing agent
-// supports relay access, deployed core accepts AcceptProxyProtocol — but it
-// never fails the caller: any doubt means "do not auto-enable".
+// branch of validateRelayAccessInbound — Xray or sing-box TCP inbound,
+// landing agent supports relay access, deployed core accepts
+// AcceptProxyProtocol — but it never fails the caller: any doubt means
+// "do not auto-enable".
 func (s *Server) autoProxyCompatible(in *store.Inbound) bool {
-	if in.Core != model.CoreXray {
+	if in.Core != model.CoreXray && in.Core != model.CoreSingbox {
 		return false
 	}
 	m := model.Inbound{Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V}
@@ -230,7 +231,7 @@ func (s *Server) autoProxyCompatible(in *store.Inbound) bool {
 	return caps.SupportsInbound(&m) == nil
 }
 
-// autoProxyLandingIDs returns the inbound ids whose landing xray accepts
+// autoProxyLandingIDs returns the inbound ids whose landing core accepts
 // PROXY protocol automatically: active L4 passthrough chain landing plus a
 // compatible inbound. These inbounds are relay-only in effect — a direct
 // client handshake would be parsed as a PROXY header and rejected — so

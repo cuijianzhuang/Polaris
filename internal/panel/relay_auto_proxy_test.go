@@ -202,19 +202,6 @@ func TestL4AutoProxySkipsIncompatibleLanding(t *testing.T) {
 			t.Fatalf("tunnel landing lost its direct entry: %+v %v", subs, e)
 		}
 	})
-	t.Run("singbox core", func(t *testing.T) {
-		s, c := autoProxyServer(t)
-		createAutoProxyChain(t, c, "")
-		if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Update("core", model.CoreSingbox).Error; e != nil {
-			t.Fatal(e)
-		}
-		if landingAcceptsProxy(t, s) {
-			t.Fatal("sing-box landing auto-enabled AcceptProxyProtocol")
-		}
-		if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
-			t.Fatalf("entry forward send=%d, want 0", send)
-		}
-	})
 	t.Run("ws transport", func(t *testing.T) {
 		s, c := autoProxyServer(t)
 		createAutoProxyChain(t, c, "")
@@ -249,6 +236,58 @@ func TestL4AutoProxySkipsIncompatibleLanding(t *testing.T) {
 		}
 		if landingAcceptsProxy(t, s) {
 			t.Fatal("landing without a known core auto-enabled AcceptProxyProtocol")
+		}
+		if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
+			t.Fatalf("entry forward send=%d, want 0", send)
+		}
+	})
+}
+
+// retargetLandingSingbox replaces the fixture's xray landing with a
+// sing-box AnyTLS inbound on the given transport, backed by a sing-box core
+// row, so auto-PROXY can be judged on the sing-box path.
+func retargetLandingSingbox(t *testing.T, s *Server, transport model.Transport) {
+	t.Helper()
+	if e := s.st.DB.Where("node_id = ?", "land").Delete(&store.Core{}).Error; e != nil {
+		t.Fatal(e)
+	}
+	if e := s.st.DB.Create(&store.Core{ID: "sb", NodeID: "land", Type: model.CoreSingbox, Version: "1.13.5"}).Error; e != nil {
+		t.Fatal(e)
+	}
+	if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
+		"core":      model.CoreSingbox,
+		"protocol":  store.NewJSON(model.ProtocolSpec{Type: model.ProtoAnyTLS}),
+		"transport": store.NewJSON(model.TransportSpec{Type: transport}),
+		"security":  store.NewJSON(model.SecuritySpec{Type: model.SecTLS}),
+	}).Error; e != nil {
+		t.Fatal(e)
+	}
+}
+
+// TestL4AutoProxySingbox: an L4 passthrough chain landing on a sing-box
+// AnyTLS TCP inbound carries the client IP with PROXY protocol just like
+// Xray, while a non-TCP sing-box landing does not.
+func TestL4AutoProxySingbox(t *testing.T) {
+	t.Run("anytls tcp", func(t *testing.T) {
+		s, c := autoProxyServer(t)
+		createAutoProxyChain(t, c, "")
+		retargetLandingSingbox(t, s, model.TransTCP)
+		if !landingAcceptsProxy(t, s) {
+			t.Fatal("sing-box landing did not auto-enable AcceptProxyProtocol")
+		}
+		if send, accept := forwardSendProxy(t, s, "relay"); send != 1 || accept {
+			t.Fatalf("entry forward send=%d accept=%v, want 1/false", send, accept)
+		}
+		if send, accept := forwardSendProxy(t, s, "middle"); send != 1 || !accept {
+			t.Fatalf("middle forward send=%d accept=%v, want 1/true", send, accept)
+		}
+	})
+	t.Run("non-tcp", func(t *testing.T) {
+		s, c := autoProxyServer(t)
+		createAutoProxyChain(t, c, "")
+		retargetLandingSingbox(t, s, model.TransWS)
+		if landingAcceptsProxy(t, s) {
+			t.Fatal("sing-box WS landing auto-enabled AcceptProxyProtocol")
 		}
 		if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
 			t.Fatalf("entry forward send=%d, want 0", send)

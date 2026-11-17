@@ -113,6 +113,9 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 		b.Add([]model.Protocol{model.ProtoSnell}, []model.Transport{model.TransTCP}, []model.Security{model.SecNone})
 	}
 	var features []string
+	// sing-box has accepted PROXY protocol on TCP listeners since 1.0, and
+	// Polaris requires sing-box >= 1.11, so no version gate is needed.
+	features = append(features, model.FeatureProxyProtocol)
 	if core.VersionAtLeast(v, "1.12.0") {
 		features = append(features, model.FeatureOutboundIP)
 	}
@@ -421,6 +424,14 @@ func renderInbound(in model.Inbound) (map[string]any, error) {
 			tls["alpn"] = []string{"h3"} // TUIC clients always offer h3
 		}
 		ib["tls"] = tls
+	}
+	// PROXY protocol is a raw TCP listener option: the landing core reads
+	// the PROXY header the relay forwarder prepends and uses its source as
+	// the client address. Only raw TCP listeners accept it — never UDP/QUIC
+	// protocols (Hysteria2/TUIC) or stream transports (WS/gRPC). An empty
+	// transport type means raw TCP, matching Normalize.
+	if in.Transport.AcceptProxyProtocol && in.Network() == "tcp" && (in.Transport.Type == model.TransTCP || in.Transport.Type == "") {
+		ib["proxy_protocol"] = true
 	}
 	if err := core.MergeExtra(ib, in.Extra); err != nil {
 		return nil, fmt.Errorf("extra: %w", err)

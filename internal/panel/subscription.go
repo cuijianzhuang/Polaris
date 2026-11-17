@@ -156,7 +156,7 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 		prates = s.planRates()[u.PlanID]
 	}
 	var out []sub.Node
-	// Inbounds whose landing xray auto-accepts PROXY protocol are relay-only
+	// Inbounds whose landing core auto-accepts PROXY protocol are relay-only
 	// in effect: a direct client handshake would be parsed as a PROXY header
 	// and rejected, so no direct/CDN entry of theirs may be published.
 	autoProxy := s.autoProxyLandingIDs()

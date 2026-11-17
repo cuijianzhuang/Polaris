@@ -213,7 +213,7 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 			m.Transport.AcceptProxyProtocol = true
 		} else if l4Landings[ins[i].ID] && s.autoProxyCompatible(&ins[i]) {
 			// L4 passthrough chain landing: the relay forwarder sends a
-			// PROXY header, so the landing xray must expect one even when
+			// PROXY header, so the landing core must expect one even when
 			// the operator never opened relay access. Without this the
 			// chain only ever reports the relay's own address.
 			m.Transport.AcceptProxyProtocol = true
