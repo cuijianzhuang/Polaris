@@ -171,6 +171,100 @@ func TestRecordLatencyMinAfterLoss(t *testing.T) {
 	}
 }
 
+func TestParseProbeOutput(t *testing.T) {
+	cases := []struct {
+		in   string
+		want probeSample
+	}{
+		{`{"sent":5,"lost":2,"ms":40,"min":30,"max":55}`, probeSample{Sent: 5, Lost: 2, Ms: 40, Min: 30, Max: 55}},
+		{`{"sent":5,"lost":5,"ms":0,"min":0,"max":0}`, probeSample{Sent: 5, Lost: 5}},
+		{`{"sent":5,"lost":0,"ms":0,"min":0,"max":0}`, probeSample{Sent: 5, Lost: 0, Ms: 0.1, Min: 0.1, Max: 0.1}},
+		{"30", probeSample{Sent: 1, Ms: 30, Min: 30, Max: 30}},
+		{"0", probeSample{Sent: 1, Ms: 0.1, Min: 0.1, Max: 0.1}},
+		{"garbage", probeSample{Sent: 1, Lost: 1}},
+		{"-5", probeSample{Sent: 1, Lost: 1}},
+		{`{"sent":0,"lost":0}`, probeSample{Sent: 1, Lost: 1}},
+		{`{"sent":5,"lost":6,"ms":40,"min":30,"max":55}`, probeSample{Sent: 1, Lost: 1}},
+	}
+	for _, c := range cases {
+		if got := parseProbeOutput(c.in); got != c.want {
+			t.Fatalf("parse %q: got %+v want %+v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestRecordLatencyMultiSample(t *testing.T) {
+	s := newTestServer(t)
+	now := time.Now().UTC().Truncate(latencySlot).Add(time.Minute)
+	if err := recordLatencyDB(s.st.DB, "n", "t", probeSample{Sent: 5, Lost: 2, Ms: 40, Min: 30, Max: 55}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordLatencyDB(s.st.DB, "n", "t", probeSample{Sent: 5, Lost: 0, Ms: 20, Min: 15, Max: 25}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var m store.NodeLatency
+	s.st.DB.First(&m, "node_id = ? AND target_id = ?", "n", "t")
+	p := pointOf(&m)
+	if m.Sent != 10 || m.Lost != 2 || m.SumMs != 220 || m.MinMs != 15 || m.MaxMs != 55 || m.LastMs != 20 || p.Avg == nil || *p.Avg != 27.5 || p.Loss != 20 {
+		t.Fatalf("%+v avg %v loss %v", m, p.Avg, p.Loss)
+	}
+
+	// A loss-only tick first must not poison the slot's min: the first
+	// success after it sets the min.
+	if err := recordLatencyDB(s.st.DB, "n", "t2", probeSample{Sent: 5, Lost: 5}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordLatencyDB(s.st.DB, "n", "t2", probeSample{Sent: 5, Lost: 1, Ms: 40, Min: 35, Max: 45}, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var m2 store.NodeLatency
+	s.st.DB.First(&m2, "node_id = ? AND target_id = ?", "n", "t2")
+	if m2.Sent != 10 || m2.Lost != 6 || m2.MinMs != 35 || m2.MaxMs != 45 || m2.LastMs != 40 {
+		t.Fatalf("after loss-only tick: %+v", m2)
+	}
+}
+
+func TestProbeLossSampling(t *testing.T) {
+	s, _, _ := newAdminClient(t)
+	s.st.DB.Create(&store.Node{ID: "n1", Name: "tokyo", Address: "203.0.113.9", Status: "online", Flag: "JP"})
+	defer fakeProber(t, s, "n1", map[string]string{
+		"-ct-": `{"sent":5,"lost":2,"ms":40,"min":30,"max":55}`,
+		"-cm-": "50",
+	})()
+	s.runLatencyProbes()
+	var rows []store.NodeLatency
+	s.st.DB.Where("node_id = ?", "n1").Find(&rows)
+	if len(rows) != 3 {
+		t.Fatalf("latency rows: %+v", rows)
+	}
+	targets := map[string]store.ProbeTarget{}
+	for _, tg := range s.latencyTargets(true) {
+		targets[tg.ID] = tg
+	}
+	for _, r := range rows {
+		switch targets[r.TargetID].Carrier {
+		case "ct": // JSON sample: 5 dials, 2 lost
+			if r.Sent != 5 || r.Lost != 2 || r.SumMs != 120 || r.MinMs != 30 || r.MaxMs != 55 || r.LastMs != 40 {
+				t.Fatalf("telecom sample: %+v", r)
+			}
+		case "cm": // plain integer from an older agent: one dial
+			if r.Sent != 1 || r.Lost != 0 || r.SumMs != 50 {
+				t.Fatalf("mobile sample: %+v", r)
+			}
+		case "cu": // no answer: one failed dial
+			if r.Sent != 1 || r.Lost != 1 {
+				t.Fatalf("unicom sample: %+v", r)
+			}
+		}
+	}
+	sum := s.latencySummary([]string{"n1"}, time.Now())["n1"]
+	for _, tg := range s.latencyTargets(true) {
+		if tg.Carrier == "ct" && (sum[tg.ID] == nil || sum[tg.ID].Loss != 40) {
+			t.Fatalf("telecom loss: %+v", sum[tg.ID])
+		}
+	}
+}
+
 func TestProbePublicVisibilityLegacyNull(t *testing.T) {
 	s, srv, admin := newAdminClient(t)
 	for _, n := range []store.Node{

@@ -116,7 +116,7 @@ func TestNodeProbePolicyHistoryAndLateResults(t *testing.T) {
 		return n.ProbeTargets.V[0]
 	}
 	old := set("old.example:80", "old")
-	if err := s.recordNodeProbe("n", old, 10, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", old, singleSample(10, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	renamed := set("old.example:80", "renamed")
@@ -132,21 +132,21 @@ func TestNodeProbePolicyHistoryAndLateResults(t *testing.T) {
 	if current.ID == old.ID {
 		t.Fatal("changed address reused history")
 	}
-	if err := s.recordNodeProbe("n", old, 10, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", old, singleSample(10, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	s.st.DB.Model(&store.NodeLatency{}).Count(&count)
 	if count != 0 {
 		t.Fatal("late sample resurrected old target")
 	}
-	if err := s.recordNodeProbe("n", current, 10, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", current, singleSample(10, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	st, out := admin.do("PUT", "/nodes/n/probe-policy", map[string]any{"mode": "off"})
 	if st != 200 {
 		t.Fatalf("off %d %v", st, out)
 	}
-	if err := s.recordNodeProbe("n", current, 10, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", current, singleSample(10, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	s.st.DB.Model(&store.NodeLatency{}).Count(&count)
@@ -158,7 +158,7 @@ func TestNodeProbePolicyHistoryAndLateResults(t *testing.T) {
 	if st != 204 {
 		t.Fatalf("delete %d %v", st, out)
 	}
-	if err := s.recordNodeProbe("n", current, 10, true, time.Now()); err == nil {
+	if err := s.recordNodeProbe("n", current, singleSample(10, true), time.Now()); err == nil {
 		t.Fatal("deleted node accepted sample")
 	}
 	s.st.DB.Model(&store.NodeLatency{}).Count(&count)
@@ -207,7 +207,7 @@ func TestNodeProbePolicyRollbackAndBackup(t *testing.T) {
 	var n store.Node
 	s.st.DB.First(&n, "id = ?", "n")
 	target := n.ProbeTargets.V[0]
-	if err := s.recordNodeProbe("n", target, 12, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", target, singleSample(12, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	const callback = "test:probe-policy-failure"
@@ -259,14 +259,14 @@ func TestNodeProbePolicyGlobalTargetChange(t *testing.T) {
 	s.st.DB.Create(&store.Node{ID: "n", Name: "node"})
 	s.seedProbeTargets()
 	old := s.latencyTargets(true)[0]
-	if err := s.recordNodeProbe("n", old, 12, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", old, singleSample(12, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	st, out := admin.do("PUT", "/probe/targets/"+old.ID, map[string]any{"name": old.Name, "addr": "changed.example:443", "carrier": old.Carrier})
 	if st != 200 {
 		t.Fatalf("change %d %v", st, out)
 	}
-	if err := s.recordNodeProbe("n", old, 12, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", old, singleSample(12, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	var count int64
@@ -276,13 +276,13 @@ func TestNodeProbePolicyGlobalTargetChange(t *testing.T) {
 	}
 	var current store.ProbeTarget
 	s.st.DB.First(&current, "id = ?", old.ID)
-	if err := s.recordNodeProbe("n", current, 12, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", current, singleSample(12, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if st, out := admin.do("DELETE", "/probe/targets/"+old.ID, nil); st != 204 {
 		t.Fatalf("delete %d %v", st, out)
 	}
-	if err := s.recordNodeProbe("n", current, 12, true, time.Now()); err != nil {
+	if err := s.recordNodeProbe("n", current, singleSample(12, true), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	s.st.DB.Model(&store.NodeLatency{}).Count(&count)

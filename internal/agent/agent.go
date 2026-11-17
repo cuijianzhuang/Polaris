@@ -920,11 +920,11 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			res.Output = out
 		}
 	case "probe":
-		ms, err := probe(ctx, c.Args)
+		out, err := probe(ctx, c.Args)
 		if err != nil {
 			fail(err)
 		} else {
-			res.Output = strconv.Itoa(ms)
+			res.Output = out
 		}
 	case model.RelayBusinessFeature + "/cancel":
 		if err := a.cancelRelayDiagnostic(ctx, c.Args["id"]); err != nil {
@@ -943,20 +943,42 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 	_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_CommandResult{CommandResult: res}})
 }
 
-func probe(ctx context.Context, args map[string]string) (int, error) {
-	start := time.Now()
+// probeSample is one agent-side loss sample: several rapid dials against one
+// target, counting the failures, so the panel gets a real loss rate instead
+// of one binary ok/fail per tick.
+type probeSample struct {
+	Sent int     `json:"sent"`
+	Lost int     `json:"lost"`
+	Ms   float64 `json:"ms"`  // mean of the successful attempts, 0 when all lost
+	Min  float64 `json:"min"` // fastest successful attempt, 0 when all lost
+	Max  float64 `json:"max"` // slowest successful attempt, 0 when all lost
+}
+
+// probe dials (or GETs) a target. With count=1 it behaves as before and
+// reports a plain integer of milliseconds, so older panels and the other
+// probe callers keep working. With count>1 it samples that many rapid
+// attempts (1s each) and reports the sample as JSON; dial failures then are
+// loss, not an error, so even a fully dead target yields a usable sample.
+// A DNS failure is still an error: the target never resolved, which is not
+// packet loss.
+func probe(ctx context.Context, args map[string]string) (string, error) {
+	count := 1
+	if n, err := strconv.Atoi(args["count"]); err == nil {
+		count = min(max(n, 1), 10)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	var attempt func(ctx context.Context) (int, error)
 	if addr := args["tcp"]; addr != "" {
 		// Resolve first so only the TCP handshake is timed (the latency
 		// figure, not the resolver's).
 		if host, port, err := net.SplitHostPort(addr); err == nil && net.ParseIP(host) == nil {
 			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 			if err != nil {
-				return 0, err
+				return "", err
 			}
 			if len(ips) == 0 {
-				return 0, fmt.Errorf("no address for %s", host)
+				return "", fmt.Errorf("no address for %s", host)
 			}
 			ip := ips[0].IP
 			for _, x := range ips { // prefer IPv4, as a plain dial would on most hosts
@@ -966,29 +988,68 @@ func probe(ctx context.Context, args map[string]string) (int, error) {
 				}
 			}
 			addr = net.JoinHostPort(ip.String(), port)
-			start = time.Now()
 		}
-		var d net.Dialer
-		c, err := d.DialContext(ctx, "tcp", addr)
-		if err != nil {
-			return 0, err
+		attempt = func(ctx context.Context) (int, error) {
+			start := time.Now()
+			var d net.Dialer
+			c, err := d.DialContext(ctx, "tcp", addr)
+			if err != nil {
+				return 0, err
+			}
+			c.Close()
+			return int(time.Since(start).Milliseconds()), nil
 		}
-		c.Close()
-		return int(time.Since(start).Milliseconds()), nil
+	} else if u := args["http"]; u != "" {
+		attempt = func(ctx context.Context) (int, error) {
+			start := time.Now()
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				return 0, err
+			}
+			resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				return 0, fmt.Errorf("http %s", resp.Status)
+			}
+			return int(time.Since(start).Milliseconds()), nil
+		}
+	} else {
+		return "", errors.New("probe needs tcp or http target")
 	}
-	if u := args["http"]; u != "" {
-		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		resp, err := http.DefaultClient.Do(req)
+	if count == 1 {
+		ms, err := attempt(ctx)
 		if err != nil {
-			return 0, err
+			return "", err
 		}
-		resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			return 0, fmt.Errorf("http %s", resp.Status)
-		}
-		return int(time.Since(start).Milliseconds()), nil
+		return strconv.Itoa(ms), nil
 	}
-	return 0, errors.New("probe needs tcp or http target")
+	sample := probeSample{Sent: count}
+	minMs, maxMs := -1, -1
+	for i := 0; i < count; i++ {
+		// One second per attempt: a SYN that needs longer is lost for
+		// latency purposes, and the whole sample stays inside the panel's
+		// 15s command timeout.
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, time.Second)
+		ms, err := attempt(attemptCtx)
+		attemptCancel()
+		if err != nil {
+			sample.Lost++
+			continue
+		}
+		sample.Ms += float64(ms)
+		if minMs < 0 || ms < minMs {
+			minMs = ms
+		}
+		if ms > maxMs {
+			maxMs = ms
+		}
+	}
+	if ok := sample.Sent - sample.Lost; ok > 0 {
+		sample.Ms /= float64(ok)
+		sample.Min, sample.Max = float64(minMs), float64(maxMs)
+	}
+	b, _ := json.Marshal(sample)
+	return string(b), nil
 }
 
 // serveAuth exposes HTTP auth callbacks for cores that support them (Hysteria2).

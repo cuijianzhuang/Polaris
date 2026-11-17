@@ -2,6 +2,7 @@ package panel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -22,12 +23,18 @@ import (
 // Server probe: every node measures the TCP connect time to a few targets
 // (by default one China Telecom, Unicom and Mobile endpoint) every 10
 // seconds, through the agent's existing "probe" command, so older agents
-// take part too. Results are folded into 5-minute slots and kept 7 days.
+// take part too. Each tick samples the target probeLossSamples times in a
+// row, so a slot's loss rate is a real percentage instead of one binary
+// ok/fail per tick. Results are folded into 5-minute slots and kept 7 days.
 
 const (
 	latencySlot   = 5 * time.Minute
 	latencyKeep   = 7 * 24 * time.Hour
 	probeParallel = 32
+	// probeLossSamples is the number of rapid dials per tick per target.
+	// Five samples make one tick's loss 0/20/40/60/80/100% and a 5-minute
+	// slot hold ~150 samples instead of ~30.
+	probeLossSamples = 5
 )
 
 // defaultProbeTargets are seeded once. The zstatic endpoints are province
@@ -101,11 +108,11 @@ func (s *Server) runLatencyProbes() {
 			wg.Add(1)
 			go func(nodeID string, t store.ProbeTarget) {
 				defer func() { <-sem; wg.Done() }()
-				ms, ok := s.probeOnce(ctx, nodeID, t.Addr)
-				if ctx.Err() != nil && !ok {
+				sample := s.probeOnce(ctx, nodeID, t.Addr, probeLossSamples)
+				if ctx.Err() != nil && sample.Lost == sample.Sent {
 					return // the job ran out of time: not the target's fault
 				}
-				if err := s.recordNodeProbe(nodeID, t, ms, ok, time.Now().UTC()); err != nil {
+				if err := s.recordNodeProbe(nodeID, t, sample, time.Now().UTC()); err != nil {
 					slog.Warn("record node probe", "node", nodeID, "error", err)
 				}
 			}(id, t)
@@ -114,53 +121,97 @@ func (s *Server) runLatencyProbes() {
 	wg.Wait()
 }
 
-func (s *Server) probeOnce(ctx context.Context, nodeID, addr string) (float64, bool) {
-	res, err := s.hub.Command(ctx, nodeID, "probe", map[string]string{"tcp": addr}, 15*time.Second)
+// probeSample is one tick's loss sample from an agent: several rapid dials
+// against one target, folded into one count.
+type probeSample struct {
+	Sent int
+	Lost int
+	Ms   float64 // mean of the successful attempts, 0 when all lost
+	Min  float64 // fastest successful attempt, 0 when all lost
+	Max  float64 // slowest successful attempt, 0 when all lost
+}
+
+// singleSample converts the historical one-dial result.
+func singleSample(ms float64, ok bool) probeSample {
+	if !ok {
+		return probeSample{Sent: 1, Lost: 1}
+	}
+	ms = max(ms, 0.1) // 0 means < 1 ms; the UI reads 0 as "failed"
+	return probeSample{Sent: 1, Ms: ms, Min: ms, Max: ms}
+}
+
+// parseProbeOutput reads an agent probe result: a JSON loss sample from a
+// new agent, or a plain millisecond integer from an older one. Anything
+// else counts as one failed dial.
+func parseProbeOutput(out string) probeSample {
+	var js struct {
+		Sent int     `json:"sent"`
+		Lost int     `json:"lost"`
+		Ms   float64 `json:"ms"`
+		Min  float64 `json:"min"`
+		Max  float64 `json:"max"`
+	}
+	if err := json.Unmarshal([]byte(out), &js); err == nil && js.Sent > 0 && js.Lost >= 0 && js.Lost <= js.Sent &&
+		js.Ms >= 0 && js.Min >= 0 && js.Max >= 0 && !math.IsNaN(js.Ms) && !math.IsNaN(js.Min) && !math.IsNaN(js.Max) {
+		if ok := js.Sent - js.Lost; ok > 0 {
+			// Normalise against a sloppy agent: keep the mean inside
+			// [min, max] and off zero so it never reads as a failure.
+			js.Min = max(js.Min, 0.1)
+			js.Max = max(js.Max, js.Min)
+			js.Ms = min(max(js.Ms, js.Min), js.Max)
+		} else {
+			js.Ms, js.Min, js.Max = 0, 0, 0
+		}
+		return probeSample{Sent: js.Sent, Lost: js.Lost, Ms: js.Ms, Min: js.Min, Max: js.Max}
+	}
+	if ms, err := strconv.ParseFloat(strings.TrimSpace(out), 64); err == nil && !math.IsNaN(ms) && !math.IsInf(ms, 0) && ms >= 0 {
+		return singleSample(ms, true)
+	}
+	return probeSample{Sent: 1, Lost: 1}
+}
+
+func (s *Server) probeOnce(ctx context.Context, nodeID, addr string, count int) probeSample {
+	res, err := s.hub.Command(ctx, nodeID, "probe", map[string]string{"tcp": addr, "count": strconv.Itoa(count)}, 15*time.Second)
 	if err != nil || !res.Ok {
-		return 0, false
+		return probeSample{Sent: 1, Lost: 1}
 	}
-	ms, err := strconv.ParseFloat(res.Output, 64)
-	if err != nil || math.IsNaN(ms) || math.IsInf(ms, 0) || ms < 0 {
-		return 0, false
-	}
-	return max(ms, 0.1), true // the agent reports whole milliseconds; 0 means < 1 ms
+	return parseProbeOutput(res.Output)
 }
 
 // recordLatency folds one probe into its slot.
 func (s *Server) recordLatency(nodeID, targetID string, ms float64, ok bool, now time.Time) {
-	_ = recordLatencyDB(s.st.DB, nodeID, targetID, ms, ok, now)
+	_ = recordLatencyDB(s.st.DB, nodeID, targetID, singleSample(ms, ok), now)
 }
 
-func recordLatencyDB(db *gorm.DB, nodeID, targetID string, ms float64, ok bool, now time.Time) error {
+func recordLatencyDB(db *gorm.DB, nodeID, targetID string, sample probeSample, now time.Time) error {
 	at := now.UTC().Truncate(latencySlot)
+	ok := sample.Sent - sample.Lost
 	var m store.NodeLatency
 	err := db.First(&m, "node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		m = store.NodeLatency{NodeID: nodeID, TargetID: targetID, At: at, Sent: 1, LastAt: now}
-		if ok {
-			m.SumMs, m.MinMs, m.MaxMs, m.LastMs = ms, ms, ms, ms
-		} else {
-			m.Lost = 1
+		m = store.NodeLatency{NodeID: nodeID, TargetID: targetID, At: at, Sent: sample.Sent, Lost: sample.Lost, LastAt: now}
+		if ok > 0 {
+			m.SumMs, m.MinMs, m.MaxMs, m.LastMs = sample.Ms*float64(ok), sample.Min, sample.Max, sample.Ms
 		}
 		if err := db.Create(&m).Error; err != nil {
 			return err
 		}
 		return nil
 	}
-	upd := map[string]any{"sent": m.Sent + 1, "last_at": now, "last_ms": 0.0}
-	if ok {
-		upd["sum_ms"], upd["last_ms"] = m.SumMs+ms, ms
-		if m.Sent == m.Lost || ms < m.MinMs { // first success in the slot
-			upd["min_ms"] = ms
+	upd := map[string]any{"sent": m.Sent + sample.Sent, "lost": m.Lost + sample.Lost, "last_at": now, "last_ms": 0.0}
+	if ok > 0 {
+		upd["sum_ms"], upd["last_ms"] = m.SumMs+sample.Ms*float64(ok), sample.Ms
+		if m.Sent == m.Lost { // first success in the slot
+			upd["min_ms"] = sample.Min
+		} else if sample.Min < m.MinMs {
+			upd["min_ms"] = sample.Min
 		}
-		if ms > m.MaxMs {
-			upd["max_ms"] = ms
+		if sample.Max > m.MaxMs {
+			upd["max_ms"] = sample.Max
 		}
-	} else {
-		upd["lost"] = m.Lost + 1
 	}
 	return db.Model(&store.NodeLatency{}).Where("node_id = ? AND target_id = ? AND at = ?", nodeID, targetID, at).Updates(upd).Error
 }
