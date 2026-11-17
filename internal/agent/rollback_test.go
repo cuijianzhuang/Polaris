@@ -46,9 +46,12 @@ func TestCoreUpgradeRollback(t *testing.T) {
 	// Accepts "run -test" (validation) and "version", crashes when actually run.
 	os.WriteFile(broken, []byte("#!/bin/sh\ncase \"$*\" in *-test*|*version*) exit 0;; esac\necho 'boom' >&2\nexit 1\n"), 0o755)
 
-	a := &Agent{cfg: Config{DataDir: dir, APIPortBase: freePortT(t), AuthListen: "127.0.0.1:0"},
+	// Keep the API listener and inbound in one reserved low-port range, away
+	// from other packages' single-port allocations and derived API offsets.
+	base := coretest.FreePortRange(t, 2)
+	a := &Agent{cfg: Config{DataDir: dir, APIPortBase: base, AuthListen: "127.0.0.1:0"},
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), installer: inst, cores: map[model.CoreType]*managed{}}
-	in := coretest.Inbound(model.CoreXray, "vless", freePortT(t), model.ProtocolSpec{Type: model.ProtoVLESS}, model.TransportSpec{}, model.SecuritySpec{})
+	in := coretest.Inbound(model.CoreXray, "vless", base+1, model.ProtocolSpec{Type: model.ProtoVLESS}, model.TransportSpec{}, model.SecuritySpec{})
 	in.Listen = "127.0.0.1"
 	spec := func(rev int64, ver string) *model.NodeSpec {
 		return &model.NodeSpec{NodeID: "n1", Rev: rev, Cores: []model.CoreSpec{{Type: model.CoreXray, Version: ver}}, Inbounds: []model.Inbound{in}}
