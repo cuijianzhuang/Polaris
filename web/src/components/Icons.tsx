@@ -53,6 +53,7 @@ export const Icon = {
   Sun: () => <Svg><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" /></Svg>,
   Moon: () => <Svg><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></Svg>,
   Monitor: () => <Svg><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></Svg>,
+  Panels: () => <Svg><rect x="2" y="4" width="13" height="11" rx="1.5" /><path d="M5 18h6M8 15v3" /><rect x="12" y="9" width="10" height="9" rx="1.5" /><path d="M15 21h4M17 18v3" /></Svg>,
   Log: () => <Svg><path d="M6 3h9l4 4v14H6z" /><path d="M9 12h7M9 16h7" /></Svg>,
   Copy: () => <Svg><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V5a1 1 0 011-1h10" /></Svg>,
   QR: () => <Svg><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><path d="M14 14h3v3M21 14v7h-7" /></Svg>,
