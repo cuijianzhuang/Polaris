@@ -202,14 +202,14 @@ func TestL4AutoProxySkipsIncompatibleLanding(t *testing.T) {
 			t.Fatalf("tunnel landing lost its direct entry: %+v %v", subs, e)
 		}
 	})
-	t.Run("ws transport", func(t *testing.T) {
+	t.Run("kcp transport", func(t *testing.T) {
 		s, c := autoProxyServer(t)
 		createAutoProxyChain(t, c, "")
-		if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Update("transport", store.NewJSON(model.TransportSpec{Type: model.TransWS})).Error; e != nil {
+		if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Update("transport", store.NewJSON(model.TransportSpec{Type: model.TransKCP})).Error; e != nil {
 			t.Fatal(e)
 		}
 		if landingAcceptsProxy(t, s) {
-			t.Fatal("WS landing auto-enabled AcceptProxyProtocol")
+			t.Fatal("KCP landing auto-enabled AcceptProxyProtocol")
 		}
 		if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
 			t.Fatalf("entry forward send=%d, want 0", send)
@@ -243,10 +243,58 @@ func TestL4AutoProxySkipsIncompatibleLanding(t *testing.T) {
 	})
 }
 
+// TestL4AutoProxyStreamTransports: an L4 passthrough chain landing on a
+// TCP-based stream transport (WS, gRPC, XHTTP, HTTPUpgrade) or a dual-stack
+// Shadowsocks inbound carries the client IP with PROXY protocol — the PROXY
+// header travels at the TCP layer, before the application handshake, and
+// Shadowsocks' TCP listener qualifies even though it also listens on UDP.
+func TestL4AutoProxyStreamTransports(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		transport model.Transport
+	}{
+		{"ws", model.TransWS},
+		{"grpc", model.TransGRPC},
+		{"xhttp", model.TransXHTTP},
+		{"httpupgrade", model.TransHTTPUpgrade},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, c := autoProxyServer(t)
+			createAutoProxyChain(t, c, "")
+			if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Update("transport", store.NewJSON(model.TransportSpec{Type: tc.transport})).Error; e != nil {
+				t.Fatal(e)
+			}
+			if !landingAcceptsProxy(t, s) {
+				t.Fatalf("%s landing did not auto-enable AcceptProxyProtocol", tc.name)
+			}
+			if send, accept := forwardSendProxy(t, s, "relay"); send != 1 || accept {
+				t.Fatalf("entry forward send=%d accept=%v, want 1/false", send, accept)
+			}
+		})
+	}
+	t.Run("shadowsocks", func(t *testing.T) {
+		s, c := autoProxyServer(t)
+		createAutoProxyChain(t, c, "")
+		if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
+			"protocol":  store.NewJSON(model.ProtocolSpec{Type: model.ProtoShadowsocks, Method: "2022-blake3-aes-128-gcm"}),
+			"transport": store.NewJSON(model.TransportSpec{Type: model.TransTCP}),
+			"security":  store.NewJSON(model.SecuritySpec{Type: model.SecNone}),
+		}).Error; e != nil {
+			t.Fatal(e)
+		}
+		if !landingAcceptsProxy(t, s) {
+			t.Fatal("shadowsocks landing did not auto-enable AcceptProxyProtocol")
+		}
+		if send, accept := forwardSendProxy(t, s, "relay"); send != 1 || accept {
+			t.Fatalf("entry forward send=%d accept=%v, want 1/false", send, accept)
+		}
+	})
+}
+
 // retargetLandingSingbox replaces the fixture's xray landing with a
-// sing-box AnyTLS inbound on the given transport, backed by a sing-box core
+// sing-box inbound of the given protocol and transport, backed by a sing-box core
 // row, so auto-PROXY can be judged on the sing-box path.
-func retargetLandingSingbox(t *testing.T, s *Server, transport model.Transport) {
+func retargetLandingSingbox(t *testing.T, s *Server, protocol model.Protocol, transport model.Transport) {
 	t.Helper()
 	if e := s.st.DB.Where("node_id = ?", "land").Delete(&store.Core{}).Error; e != nil {
 		t.Fatal(e)
@@ -256,7 +304,7 @@ func retargetLandingSingbox(t *testing.T, s *Server, transport model.Transport) 
 	}
 	if e := s.st.DB.Model(&store.Inbound{}).Where("id = ?", "in").Updates(map[string]any{
 		"core":      model.CoreSingbox,
-		"protocol":  store.NewJSON(model.ProtocolSpec{Type: model.ProtoAnyTLS}),
+		"protocol":  store.NewJSON(model.ProtocolSpec{Type: protocol}),
 		"transport": store.NewJSON(model.TransportSpec{Type: transport}),
 		"security":  store.NewJSON(model.SecuritySpec{Type: model.SecTLS}),
 	}).Error; e != nil {
@@ -266,12 +314,13 @@ func retargetLandingSingbox(t *testing.T, s *Server, transport model.Transport) 
 
 // TestL4AutoProxySingbox: an L4 passthrough chain landing on a sing-box
 // AnyTLS TCP inbound carries the client IP with PROXY protocol just like
-// Xray, while a non-TCP sing-box landing does not.
+// Xray, as do sing-box stream transports (WS, gRPC); a UDP/QUIC sing-box
+// landing (Hysteria2) does not.
 func TestL4AutoProxySingbox(t *testing.T) {
 	t.Run("anytls tcp", func(t *testing.T) {
 		s, c := autoProxyServer(t)
 		createAutoProxyChain(t, c, "")
-		retargetLandingSingbox(t, s, model.TransTCP)
+		retargetLandingSingbox(t, s, model.ProtoAnyTLS, model.TransTCP)
 		if !landingAcceptsProxy(t, s) {
 			t.Fatal("sing-box landing did not auto-enable AcceptProxyProtocol")
 		}
@@ -282,12 +331,31 @@ func TestL4AutoProxySingbox(t *testing.T) {
 			t.Fatalf("middle forward send=%d accept=%v, want 1/true", send, accept)
 		}
 	})
-	t.Run("non-tcp", func(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		transport model.Transport
+	}{
+		{"ws", model.TransWS},
+		{"grpc", model.TransGRPC},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, c := autoProxyServer(t)
+			createAutoProxyChain(t, c, "")
+			retargetLandingSingbox(t, s, model.ProtoVLESS, tc.transport)
+			if !landingAcceptsProxy(t, s) {
+				t.Fatalf("sing-box %s landing did not auto-enable AcceptProxyProtocol", tc.name)
+			}
+			if send, accept := forwardSendProxy(t, s, "relay"); send != 1 || accept {
+				t.Fatalf("entry forward send=%d accept=%v, want 1/false", send, accept)
+			}
+		})
+	}
+	t.Run("hysteria2", func(t *testing.T) {
 		s, c := autoProxyServer(t)
 		createAutoProxyChain(t, c, "")
-		retargetLandingSingbox(t, s, model.TransWS)
+		retargetLandingSingbox(t, s, model.ProtoHysteria2, model.TransQUIC)
 		if landingAcceptsProxy(t, s) {
-			t.Fatal("sing-box WS landing auto-enabled AcceptProxyProtocol")
+			t.Fatal("sing-box Hysteria2 landing auto-enabled AcceptProxyProtocol")
 		}
 		if send, _ := forwardSendProxy(t, s, "relay"); send != 0 {
 			t.Fatalf("entry forward send=%d, want 0", send)

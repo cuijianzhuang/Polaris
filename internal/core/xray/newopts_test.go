@@ -74,6 +74,62 @@ func TestRenderNewOptions(t *testing.T) {
 	}
 }
 
+// TestRenderStreamProxyProtocolGRPCXHTTP: gRPC and XHTTP carry no
+// acceptProxyProtocol in their transport settings, so the listener reads it
+// from sockopt instead. Rendering must not error (it used to reject both
+// with "proxy protocol is only supported on raw / ws / httpupgrade").
+func TestRenderStreamProxyProtocolGRPCXHTTP(t *testing.T) {
+	a := New(core.Options{Version: "26.10.10", WorkDir: t.TempDir(), BinPath: os.Getenv("POLARIS_XRAY_BIN")})
+	grpc := coretest.Inbound(model.CoreXray, "vless-grpc-pp", 20445, model.ProtocolSpec{Type: model.ProtoVLESS},
+		model.TransportSpec{Type: model.TransGRPC, ServiceName: "grpc", AcceptProxyProtocol: true}, model.SecuritySpec{})
+	xhttp := coretest.Inbound(model.CoreXray, "vless-xhttp-pp", 20446, model.ProtocolSpec{Type: model.ProtoVLESS},
+		model.TransportSpec{Type: model.TransXHTTP, Path: "/x", AcceptProxyProtocol: true}, model.SecuritySpec{})
+	for _, in := range []model.Inbound{grpc, xhttp} {
+		if err := a.Capabilities("26.10.10").SupportsInbound(&in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := a.Render(&model.NodeSpec{Inbounds: []model.Inbound{grpc, xhttp}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both inbounds must carry acceptProxyProtocol in sockopt (gRPC/XHTTP
+	// have no such field in their transport settings), and neither may
+	// have it inside grpcSettings/xhttpSettings.
+	var parsed struct {
+		Inbounds []struct {
+			Tag            string `json:"tag"`
+			StreamSettings struct {
+				Sockopt map[string]any `json:"sockopt"`
+				GRPC    map[string]any `json:"grpcSettings"`
+				XHTTP   map[string]any `json:"xhttpSettings"`
+			} `json:"streamSettings"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(cfg, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Inbounds) != 2 {
+		t.Fatalf("inbounds=%d, want 2\n%s", len(parsed.Inbounds), cfg)
+	}
+	for _, in := range parsed.Inbounds {
+		if in.StreamSettings.Sockopt["acceptProxyProtocol"] != true {
+			t.Fatalf("%s: sockopt.acceptProxyProtocol=%v, want true\n%s", in.Tag, in.StreamSettings.Sockopt["acceptProxyProtocol"], cfg)
+		}
+		if _, ok := in.StreamSettings.GRPC["acceptProxyProtocol"]; ok {
+			t.Fatalf("%s: acceptProxyProtocol leaked into grpcSettings", in.Tag)
+		}
+		if _, ok := in.StreamSettings.XHTTP["acceptProxyProtocol"]; ok {
+			t.Fatalf("%s: acceptProxyProtocol leaked into xhttpSettings", in.Tag)
+		}
+	}
+	if os.Getenv("POLARIS_XRAY_BIN") != "" {
+		if err := a.Validate(cfg); err != nil {
+			t.Fatalf("xray rejected config: %v\n%s", err, cfg)
+		}
+	}
+}
+
 // TestLiveVLESSEncryption connects through a client Xray rendered from the
 // panel's outbound model to a server using the new options: VLESS
 // Encryption and REALITY's ML-DSA-65 signature, separately and together.

@@ -425,12 +425,17 @@ func renderInbound(in model.Inbound) (map[string]any, error) {
 		}
 		ib["tls"] = tls
 	}
-	// PROXY protocol is a raw TCP listener option: the landing core reads
+	// PROXY protocol is a TCP listener option: the landing core reads
 	// the PROXY header the relay forwarder prepends and uses its source as
-	// the client address. Only raw TCP listeners accept it — never UDP/QUIC
-	// protocols (Hysteria2/TUIC) or stream transports (WS/gRPC). An empty
-	// transport type means raw TCP, matching Normalize.
-	if in.Transport.AcceptProxyProtocol && in.Network() == "tcp" && (in.Transport.Type == model.TransTCP || in.Transport.Type == "") {
+	// the client address. Any TCP-based listener accepts it — raw TCP, the
+	// stream transports (WS, gRPC, HTTPUpgrade, XHTTP), and the TCP listener
+	// of a dual-stack Shadowsocks inbound (whose Network() is "tcp,udp").
+	// UDP/QUIC protocols (Hysteria2, TUIC, KCP) never do. An empty transport
+	// type means raw TCP, matching Normalize.
+	if in.Transport.AcceptProxyProtocol && strings.Contains(in.Network(), "tcp") &&
+		(in.Transport.Type == model.TransTCP || in.Transport.Type == model.TransWS ||
+			in.Transport.Type == model.TransGRPC || in.Transport.Type == model.TransHTTPUpgrade ||
+			in.Transport.Type == model.TransXHTTP || in.Transport.Type == "") {
 		ib["proxy_protocol"] = true
 	}
 	if err := core.MergeExtra(ib, in.Extra); err != nil {
