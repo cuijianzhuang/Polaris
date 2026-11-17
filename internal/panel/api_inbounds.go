@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/core/singbox"
 	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/panel/cdnkit"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -165,6 +166,13 @@ func (s *Server) validateInbound(node *store.Node, m *model.Inbound, excludeID s
 	}
 	if err := s.assignCore(node, m); err != nil {
 		return err
+	}
+	// sing-box removed PROXY protocol in 1.6.0; a raw Extra with that key
+	// aborts the core at startup. Reject it for sing-box landings at save time.
+	if m.Core == model.CoreSingbox {
+		if err := singbox.CheckInboundExtra(m.Extra); err != nil {
+			return err
+		}
 	}
 	if err := s.checkInboundOutboundIP(node, m); err != nil {
 		return err

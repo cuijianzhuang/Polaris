@@ -113,9 +113,11 @@ func (a *Adapter) Capabilities(v string) model.CapSet {
 		b.Add([]model.Protocol{model.ProtoSnell}, []model.Transport{model.TransTCP}, []model.Security{model.SecNone})
 	}
 	var features []string
-	// sing-box has accepted PROXY protocol on TCP listeners since 1.0, and
-	// Polaris requires sing-box >= 1.11, so no version gate is needed.
-	features = append(features, model.FeatureProxyProtocol)
+	// sing-box removed PROXY protocol in 1.6.0: any TCP listener carrying
+	// "proxy_protocol" makes the core exit at startup with
+	// "Proxy Protocol is deprecated and removed in sing-box 1.6.0".
+	// Polaris only supports sing-box >= 1.11, so PROXY protocol must never be
+	// advertised or emitted here. Xray remains the only PROXY-capable core.
 	if core.VersionAtLeast(v, "1.12.0") {
 		features = append(features, model.FeatureOutboundIP)
 	}
@@ -425,20 +427,14 @@ func renderInbound(in model.Inbound) (map[string]any, error) {
 		}
 		ib["tls"] = tls
 	}
-	// PROXY protocol is a TCP listener option: the landing core reads
-	// the PROXY header the relay forwarder prepends and uses its source as
-	// the client address. Any TCP-based listener accepts it — raw TCP, the
-	// stream transports (WS, gRPC, HTTPUpgrade, XHTTP), and the TCP listener
-	// of a dual-stack Shadowsocks inbound (whose Network() is "tcp,udp").
-	// UDP/QUIC protocols (Hysteria2, TUIC, KCP) never do. An empty transport
-	// type means raw TCP, matching Normalize.
-	if in.Transport.AcceptProxyProtocol && strings.Contains(in.Network(), "tcp") &&
-		(in.Transport.Type == model.TransTCP || in.Transport.Type == model.TransWS ||
-			in.Transport.Type == model.TransGRPC || in.Transport.Type == model.TransHTTPUpgrade ||
-			in.Transport.Type == model.TransXHTTP || in.Transport.Type == "") {
-		ib["proxy_protocol"] = true
-	}
-	if err := core.MergeExtra(ib, in.Extra); err != nil {
+	// PROXY protocol was removed in sing-box 1.6.0. Emitting "proxy_protocol"
+	// on any listener makes the core abort at startup ("Proxy Protocol is
+	// deprecated and removed in sing-box 1.6.0"). All supported versions
+	// (>=1.11) reject it, so never render the field. Real client IP through a
+	// PROXY header is only available on Xray inbound listeners. Also strip
+	// obsolete keys from a raw Extra override so a stale/hand-pasted config
+	// cannot crash the node on the next push.
+	if err := core.MergeExtra(ib, stripRemovedProxyProtocol(in.Extra)); err != nil {
 		return nil, fmt.Errorf("extra: %w", err)
 	}
 	return ib, nil
