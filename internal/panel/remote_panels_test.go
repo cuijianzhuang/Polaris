@@ -3,6 +3,8 @@ package panel
 import (
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -332,5 +334,45 @@ func TestAggregateKeepsLastSnapshotOnFailure(t *testing.T) {
 	}
 	if down["failed"] != true || down["users"].(float64) != 5 {
 		t.Fatalf("failed panel should be flagged but keep its numbers: %v", down)
+	}
+}
+
+// TestProbeRemotePanelUsesVersionedPath is a regression test for the probe
+// returning 502 {"error":"schema"}: the client requested /api/panel/self,
+// but the member serves the snapshot at /api/v1/panel/self (APIBase). The
+// unversioned path fell through to the decoy/SPA and came back as HTML,
+// which failed to decode. The mock only answers the versioned path.
+func TestProbeRemotePanelUsesVersionedPath(t *testing.T) {
+	s, _, c := newAdminClient(t)
+
+	member := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/panel/self" || r.Method != http.MethodGet {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"v0.1.262","capabilities":["v1"],"users":3,"onlineUsers":2,"nodes":1,"nodesOnline":1,"trafficUp":100,"trafficDown":200}`))
+	}))
+	defer member.Close()
+
+	// The fake member listens on loopback, which the SSRF dialer blocks by
+	// design; use a plain transport in the test.
+	s.remotePanelTransport = http.DefaultTransport
+
+	p := store.RemotePanel{ID: "rp1", Name: "m", BaseURL: member.URL, Token: s.st.Box.Seal("tok")}
+	if err := s.st.DB.Create(&p).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	code, out := c.do("POST", "/panels/rp1/probe", nil)
+	if code != 200 {
+		t.Fatalf("probe %d %v", code, out)
+	}
+	if out["users"].(float64) != 3 || out["version"] != "v0.1.262" {
+		t.Fatalf("probe returned wrong snapshot: %v", out)
 	}
 }

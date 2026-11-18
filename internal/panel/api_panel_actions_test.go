@@ -109,7 +109,7 @@ func TestRemotePanelActionProxy(t *testing.T) {
 
 	var gotAction, gotNodeID string
 	member := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/panel/actions" {
+		if r.URL.Path != "/api/v1/panel/actions" {
 			http.NotFound(w, r)
 			return
 		}
