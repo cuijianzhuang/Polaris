@@ -36,6 +36,22 @@ type Config struct {
 	// RedisURL (optional) shares online IPs, rate limits and alert
 	// de-duplication between panel instances. Traffic billing never uses it.
 	RedisURL string `koanf:"redis_url"`
+	// HARole is this instance's HA role: "primary", "secondary", or "" (none).
+	// It lives in this instance's own env file, not in the shared settings:
+	// settings are one row for the whole cluster, so they cannot hold a value
+	// that differs per instance (role, WireGuard address, public endpoint).
+	HARole string `koanf:"ha_role"`
+	// HAWGPubkey is this instance's WireGuard public key (ha-init / ha-join write it).
+	HAWGPubkey string `koanf:"ha_wg_pubkey"`
+	// HAWGIP is this instance's WireGuard address (10.8.0.1 on the primary,
+	// 10.8.0.2 on the standby).
+	HAWGIP string `koanf:"ha_wg_ip"`
+	// HAEndpoint is this instance's public address, used as the WireGuard
+	// endpoint by the peer. A domain must not be used here: after a DNS
+	// failover the domain points at the standby and the tunnel would dial itself.
+	HAEndpoint string `koanf:"ha_endpoint"`
+	// HAPeerWGIP is the peer's WireGuard address (10.8.0.2 seen from the primary).
+	HAPeerWGIP string `koanf:"ha_peer_wg_ip"`
 	// SecretKey encrypts sensitive columns and signs JWTs. Required.
 	SecretKey string `koanf:"secret_key"`
 	// SecretKeyPrevious is the key being rotated away from, supplied only

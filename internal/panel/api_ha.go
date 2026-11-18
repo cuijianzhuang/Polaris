@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
@@ -32,11 +33,13 @@ const (
 
 var errHAJoinTokenUsed = errors.New("join token already used")
 
-// haRole reports this instance's HA role from settings (none by default).
+// haRole reports this instance's HA role from its own env file (never from
+// the shared settings: the primary and the standby read the same settings
+// table, so a per-instance value cannot live there).
 func (s *Server) haRole() string {
-	switch v := s.st.GetSetting("ha.role", "none"); v {
+	switch s.cfg.HARole {
 	case "primary", "secondary":
-		return v
+		return s.cfg.HARole
 	default:
 		return "none"
 	}
@@ -59,13 +62,36 @@ func (s *Server) haClusterSecret(name string) string {
 	return s.st.Box.MustOpen(row.Value)
 }
 
+// setHAClusterSecretDB seals value and stores it under name in
+// cluster_secrets, overwriting any previous value. It is the shared
+// implementation behind the maintenance CLI (ha-seal-secret, used by
+// ha-init) and the HTTP endpoints.
+func setHAClusterSecretDB(db *gorm.DB, box *secret.BoxSet, name, value string) error {
+	return db.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "name"}},
+		DoUpdates: clause.AssignmentColumns([]string{"value"}),
+	}).Create(&store.ClusterSecret{Name: name, Value: box.Seal(value)}).Error
+}
+
 // setHAClusterSecret seals value and stores it under name, overwriting any
 // previous value.
 func (s *Server) setHAClusterSecret(name, value string) error {
-	return s.st.DB.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "name"}},
-		DoUpdates: clause.AssignmentColumns([]string{"value"}),
-	}).Create(&store.ClusterSecret{Name: name, Value: s.st.Box.Seal(value)}).Error
+	return setHAClusterSecretDB(s.st.DB, s.st.Box, name, value)
+}
+
+// haDBSize returns the current database size in bytes on PostgreSQL, or nil
+// on SQLite / when the query fails. ha-join uses it (via the join-config
+// bundle, since /ha/status needs an admin session) to check the standby has
+// enough disk for the replica.
+func (s *Server) haDBSize() *int64 {
+	if !s.haIsPostgres() {
+		return nil
+	}
+	var n int64
+	if err := s.st.DB.Raw("SELECT pg_database_size(current_database())").Scan(&n).Error; err != nil {
+		return nil
+	}
+	return &n
 }
 
 // haReplica is one streaming replication connection on the primary.
@@ -136,6 +162,7 @@ func (s *Server) haStatus(c *gin.Context) {
 		"inRecovery":       inRecovery,
 		"replayLagSeconds": replayLag,
 		"redisConfigured":  s.cfg.RedisURL != "",
+		"dbSizeBytes":      s.haDBSize(),
 		"version":          Version,
 		"edition":          Edition(),
 	})
@@ -314,7 +341,11 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 			pgVersion = haMajorVersion(v)
 		}
 	}
-	peerWGIP := s.st.GetSetting("ha.peer_wg_ip", "")
+	// The primary's WireGuard identity comes from its own env file: the
+	// standby reads the same shared settings, so per-instance values cannot
+	// live there. The standby's address defaults to 10.8.0.2 when the peer
+	// did not send one.
+	peerWGIP := s.cfg.HAPeerWGIP
 	if peerWGIP == "" {
 		peerWGIP = haDefaultPeerWGIP
 	}
@@ -331,14 +362,15 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 		"pg_version":          pgVersion,
 		"repl_password":       s.haClusterSecret("ha_repl_password"),
 		"wg": gin.H{
-			"pubkey":   s.st.GetSetting("ha.wg_pubkey", ""),
-			"endpoint": s.st.GetSetting("ha.endpoint", ""),
-			"ip":       s.st.GetSetting("ha.wg_ip", ""),
+			"pubkey":   s.cfg.HAWGPubkey,
+			"endpoint": s.cfg.HAEndpoint,
+			"ip":       s.cfg.HAWGIP,
 			"port":     haWGPort,
 		},
-		"wg_ip":        peerWGIP,
-		"cf_api_token": s.haClusterSecret("cf_api_token"),
-		"domain":       domain,
+		"wg_ip":         peerWGIP,
+		"db_size_bytes": s.haDBSize(),
+		"cf_api_token":  s.haClusterSecret("cf_api_token"),
+		"domain":        domain,
 	}
 }
 

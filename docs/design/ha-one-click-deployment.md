@@ -71,16 +71,24 @@ dmit（主）                                        HK（备）
 
 ## 4. 数据模型
 
-### settings（明文，只放非敏感信息）
+### 本机身份（env 变量，不进 settings）
 
-| key | 内容 |
+PR2 实现时发现：`settings` 表是全集群共享的一行数据，主备两台读的是同一份，
+放不下“每台不一样”的值（角色、WG 地址、公网地址）。所以 PR1 设计里的
+`ha.role` / `ha.wg_pubkey` / `ha.wg_ip` / `ha.endpoint` / `ha.peer_wg_ip`
+**不写 settings，改放各机自己的 env 文件**（`POLARIS_HA_*`，`internal/panel/config.go`）：
+
+| env 变量 | 内容 |
 |---|---|
-| `ha.role` | `none` / `primary` / `secondary` |
-| `ha.wg_pubkey` | 本机 WG 公钥 |
-| `ha.wg_ip` | 本机 WG 地址（主 `10.8.0.1`，备 `10.8.0.2`） |
-| `ha.endpoint` | 主节点公网 IP（WG 对端地址；**不用域名**，DNS 切走后备节点的隧道对端不能跟着变） |
-| `ha.pg_version` | 主库 PG 大版本（如 `15`，join 时比对用） |
-| `ha.peer_wg_ip` | 对端 WG 地址 |
+| `POLARIS_HA_ROLE` | `primary` / `secondary`（空 = 未加入 HA） |
+| `POLARIS_HA_WG_PUBKEY` | 本机 WG 公钥 |
+| `POLARIS_HA_WG_IP` | 本机 WG 地址（主 `10.8.0.1`，备 `10.8.0.2`） |
+| `POLARIS_HA_ENDPOINT` | 本机公网 IP（WG 对端地址；**不用域名**，DNS 切走后备节点的隧道对端不能跟着变） |
+| `POLARIS_HA_PEER_WG_IP` | 对端 WG 地址 |
+
+`ha.pg_version` 不需要存：join-config 组装时现查 `SHOW server_version`
+（`haJoinConfigBundle`）。`haRole()` 与配置包都改读 `cfg` 里的这几个字段，
+不再读 settings。
 
 ### cluster_secrets（Box 密封，只放敏感信息）
 
@@ -149,6 +157,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 命令 | 用途 |
 |---|---|
 | `polaris ha-token` | 发加入 token（照抄 `node-token` 的写法：`LocalNodeToken` 同款，只是不建节点行）。ha-init 脚本调它；管理员也能在终端直接跑 |
+| `polaris ha-seal-secret <name>` | **PR2 新增**：从 stdin 读值（不进 argv，不进 ps 输出），用 Box 密封后存入 `cluster_secrets`（复用 `setHAClusterSecret` 的逻辑，抽成 `setHAClusterSecretDB` 供 CLI 与 HTTP 共用）。ha-init 调它存 `ha_repl_password` / `ha_redis_password`（以及有 CF token 时的 `cf_api_token`） |
 | `polaris ha sync-wg` | 读 `ha_peers`，对齐本机 WG 配置（`wg set` 加对端 / 删已移除的对端；同时重写 `wg0.conf` 保证重启后还在）。由 systemd timer 每 60 秒跑，只在主节点上启用 |
 
 ### 5.4 安装脚本
@@ -157,9 +166,11 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 |---|---|
 | `install-panel.sh ha-init [--dry-run]` | §6.1 |
 | `install-panel.sh ha-join <token> <panel-url> [--dry-run]` | §6.3 |
+| `install-panel.sh ha-join --finish [--dry-run]` | §6.3：只补证书与看门狗，不带 token；CF token 从环境变量 `CF_API_TOKEN` 取 |
 | `install-panel.sh ha-status` | 本机 HA 状态速查（角色、WG、PG、Redis、面板），给排障用 |
 
 `--dry-run` 只打印将要执行的动作，不改任何东西；review 和 CI 都靠它。
+`ha-init` 支持 `--endpoint <IP>`（公网 IP 探测不到时用，见 §6.1 前置检查）。
 
 ## 6. 详细流程
 
@@ -170,6 +181,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 检查 | 失败处理 |
 |---|---|
 | 已安装面板且版本已知（`polaris --version`） | 未安装先正常装面板 |
+| 面板二进制包含 HA 命令（`ha-token` / `ha-seal-secret` / `ha sync-wg`，从 usage 文本里 grep） | **PR2 新增**：不包含时退出并提示先 `polaris update`。旧版二进制收到未知子命令会直接启动第二个面板进程，绝不能盲调 |
 | 库是 PostgreSQL（DSN 以 `postgres://` 开头） | SQLite 时报错，提示先 `polaris migrate` |
 | `ha.role` 不是 `primary`（防重复初始化） | 已是 primary 时只打印状态 + 发新 token |
 | PG 大版本可读 | 读不到退出 |
@@ -185,9 +197,11 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 3. PG：`postgresql.conf` 加 `wal_level=replica`、`max_wal_senders=5`、`max_replication_slots=5`、`wal_keep_size=1GB`、`listen_addresses` 加 `10.8.0.1`；`pg_hba.conf` 加隧道网段的 `replication` 与 `polaris` 账号规则；`CREATE USER replicator WITH REPLICATION`；`pg_create_physical_replication_slot('hk_slot')`；重启 PG。
 4. Redis：`bind 127.0.0.1 10.8.0.1`、`requirepass`、`appendonly yes`；重启 Redis。
 5. 面板 env：`POLARIS_DB_DSN` host 改 `10.8.0.1`、`POLARIS_REDIS_URL` 改 `redis://:<密码>@10.8.0.1:6379/0`；`systemctl restart polaris`；`wait_healthy` 确认 `/api/v1/info` 200。
-6. 写 settings（`ha.role=primary`、`ha.wg_pubkey`、`ha.wg_ip=10.8.0.1`、`ha.endpoint=<公网IP>`、`ha.pg_version`）。
-7. 调 `polaris ha-token` 发 token，打印加入命令：`install-panel.sh ha-join <token> https://polaris.cuijianzhuang.com`。
-8. 启用 `polaris-ha-sync.timer`（每 60 秒跑 `polaris ha sync-wg`）。
+   - **PR2 偏差**：dmit 现用 Unix socket peer 认证，`polaris` 角色本来没有密码，DSN 走 TCP `10.8.0.1` 必须先 `ALTER USER polaris PASSWORD`（第 3 步里做，随机值）。§6.2 说的“业务密码就是主节点 env 里现成的那个”只在 DSN 本来就是 TCP 时成立。
+6. 写本机 env（`POLARIS_HA_ROLE=primary`、`POLARIS_HA_WG_PUBKEY`、`POLARIS_HA_WG_IP=10.8.0.1`、`POLARIS_HA_ENDPOINT=<公网IP>`）——**PR2 偏差**：原设计写 settings，见 §4，settings 放不下每台不一样的值。
+7. 启用 `polaris-ha-sync.timer`（每 60 秒跑 `polaris ha sync-wg`）。
+8. 调 `polaris ha-token` 发 token，打印加入命令：`install-panel.sh ha-join <token> https://polaris.cuijianzhuang.com`。
+   - **PR2 补充**：join 命令里的 URL 要带上管理路径（`https://域名<管理路径>`），因为加入 API 在 `<管理路径>/api/v1` 下面；管理路径是 `/` 时不用带。ha-init 打印时自动拼好。
 
 回滚：ha-init 只在主节点做加法（改配置、加账号、加槽），不删数据。任一步失败，已做的步骤保留，下次重跑跳过已完成项；彻底不要了就按手工文档第 12 节回滚（停备面板、DNS 保持指主，PG 从库停掉不影响主库）。
 
@@ -210,6 +224,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
   "repl_password": "<复制账号密码>",
   "wg": {"pubkey": "<主公钥>", "endpoint": "<主公网IP>", "ip": "10.8.0.1", "port": 51820},
   "wg_ip": "10.8.0.2",
+  "db_size_bytes": 123456789,
   "cf_api_token": "<有则给，没有为空>",
   "domain": "polaris.cuijianzhuang.com"
 }
@@ -219,6 +234,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 
 - `secret_key` 只经此接口取一次，且 token 用完即废；脚本拿到后写 `0600` 的 env 文件，**绝不打印到日志**（`--dry-run` 时把敏感字段打码）。
 - `db_dsn` 里的业务密码就是主节点 env 里现成的那个，不新设。
+- `db_size_bytes` 是 **PR2 新增**：join 时磁盘检查要用库大小，但 `/ha/status` 需要管理员登录、join token 调不动，所以直接放进配置包（PG 上 `SELECT pg_database_size(current_database())`，SQLite 下为 null）。
 - `cf_api_token` 为空时，join 脚本跳过 certbot DNS-01 与看门狗安装并明确提示，备节点先以 HTTP 反代跑起来，等 token 补上再跑 `ha-join --finish`（见 §6.3）。
 
 ### 6.3 ha-join（HK 上，root 跑一次）
@@ -229,24 +245,24 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 |---|---|
 | Ubuntu/Debian + systemd + root | 不满足退出 |
 | `80/443/8080/9443/51820` 端口 | `8080/9443/51820` 被占退出；`443` 被节点入站占了时退出并提示先改入站端口（手工文档 §5.1 同款问题） |
-| 磁盘剩余 ≥ 主库大小 × 1.2（配置包里没有库大小，join 时调 `GET /ha/status` 取 `pg_database_size`） | 不够退出 |
+| 磁盘剩余 ≥ 主库大小 × 1.2（配置包里的 `db_size_bytes`，**PR2 偏差**：原设计调 `GET /ha/status` 取，但那个接口要管理员登录、join token 调不动） | 不够退出 |
 | 本机 PG 大版本 | 未装 PG 时从 PGDG 装与主库相同的大版本；已装但大版本不同时退出（不自动降级/升级数据库） |
 | 面板未安装或 `ha.role` 不是 `secondary` | 已是 secondary 时只做增量收尾（见下） |
 
 执行步骤：
 
-1. 生成本机 WG 密钥对，`POST /ha/peers` 注册（带 token），取 `join-config`。
+1. 生成本机 WG 密钥对，**先 `GET /ha/join-config` 取配置包，再 `POST /ha/peers` 注册**（**PR2 修正**：原设计先注册后取，但注册会消费 token，取配置包失败就把 token 烧了；token 在注册前可重复取）。备机的 WG 地址用配置包的 `wg_ip`（主节点分配，默认 `10.8.0.2`）。
 2. 写本机 `wg0.conf`（`10.8.0.2/24`，对端为主），`systemctl enable --now wg-quick@wg0`；`ping 10.8.0.1` 不通则退出。
-3. 停本地 PG，清空数据目录，`pg_basebackup -h 10.8.0.1 -U replicator -D <数据目录> -Fp -Xs -P -R -S hk_slot`；配 `hot_standby=on`、`listen_addresses=localhost,10.8.0.2`；启动；验 `pg_is_in_recovery()=t` 且回放追上。
+3. 停本地 PG，清空数据目录，`pg_basebackup -h 10.8.0.1 -U replicator -D <数据目录> -Fp -Xs -P -R -S hk_slot`；配 `hot_standby=on`、`listen_addresses=localhost,10.8.0.2`；启动；验 `pg_is_in_recovery()=t` 且回放追上。**`.pgpass 留在备机**（`/var/lib/postgresql/.pgpass`，0600，postgres 所有）：`-R` 不把密码写进 `primary_conninfo`，从库重连靠它。
 4. 装 Redis，配 `replicaof 10.8.0.1 6379` + `masterauth`/`requirepass`；启动；验 `role:slave`、`master_link_status:up`。
-5. 调现有安装流程装面板：`--pro --version <配置包版本> --domain <domain> --no-caddy --db <db_dsn> --redis <redis_url> --port 8080 --agent-port 9443`，随后把 env 里的 `SECRET_KEY` / `SECRET_KEY_PREVIOUS` / `ADMIN_PATH` / `PUBLIC_URL` / `TIMEZONE` 按配置包改好，`systemctl restart polaris`。
-6. nginx：写 443 反代 + `stream` 段 9443 直通（复用手工文档 §6.2 的配置）；certbot DNS-01（有 CF token 时）拿证；`nginx -t` 通过后启动；用 `--resolve` 直接验备机 `https://<domain>/api/v1/info` 200。
-7. 装看门狗：把 `scripts/cf-failover.sh` 拷到 `/usr/local/bin/`，按配置包填 token/zone/record（zone 与 record ID 由脚本调 CF API 现查，不用人填）；写 cron 每分钟跑；只装在备机。
-8. 备份同步 cron：每小时 rsync `/var/lib/polaris/backups/` 到对端（走 WG）。
+5. 调现有安装流程装面板：`--pro --version <配置包版本> --domain <domain> --no-caddy --db <db_dsn> --redis <redis_url> --port 8080 --agent-port 9443`，随后把 env 里的 `SECRET_KEY` / `SECRET_KEY_PREVIOUS` / `ADMIN_PATH` / `PUBLIC_URL` / `TIMEZONE` 按配置包改好，`systemctl restart polaris`。**PR2 补充**：安装时 `SECRET_OVERRIDE` 用配置包的密钥（不重新生成，否则 CA 密封用的密钥对不上）；全新库检查改成只验连通与编码（主库里已有管理员）；首次登录信息不打印（管理员沿用主节点的）。
+6. nginx：写 443 反代 + `stream` 段 9443 直通（复用手工文档 §6.2 的配置）；certbot DNS-01（有 CF token 时）拿证；`nginx -t` 通过后启动；用 `--resolve` 直接验备机 `https://<domain>/api/v1/info` 200。**PR2 补充**：没 CF token 时 nginx 配置照写、暂不启用，等 `--finish` 拿证后再启用。
+7. 装看门狗：把 `scripts/cf-failover.sh` 拷到 `/usr/local/bin/`，按配置包填 token/zone/record（zone 与 record ID 由脚本调 CF API 现查，不用人填）；写 cron 每分钟跑；只装在备机。**PR2 补充**：`install-panel.sh` 里内嵌了一份看门狗脚本（`ha_watchdog_script`），ha-join 装的是内嵌的那份，不是从 release 资产下载；`scripts/test-ha-dryrun.sh` 断言内嵌副本与 `scripts/cf-failover.sh` 字节一致，防止漂移。
+8. 备份同步 cron：每小时 rsync `/var/lib/polaris/backups/` 到对端（走 WG）。**PR2 补充**：只在免密 SSH 已通时装（先测 `ssh -o BatchMode=yes root@<对端> true`），不通则警告并给出换 key 的命令，跳过 cron。
 9. 自检：WG、PG 复制、Redis、双实例（`cluster_members` 两行）、备机直验 200，逐项打勾打印；任一项失败即报错退出，不静默通过。
-10. 写 settings（`ha.role=secondary` 等）。
+10. 写本机 env（`POLARIS_HA_ROLE=secondary` 等）——**PR2 偏差**：原设计写 settings，见 §4；实际在第 5 步的 env 同步里一起写好。
 
-`ha-join --finish`：补装第 6、7 步（CF token 后补的场景），其余步骤检测到已完成就跳过。
+`ha-join --finish`：补装第 6、7 步（CF token 后补的场景），其余步骤检测到已完成就跳过。**PR2 补充**：`--finish` 不带 token（`ha-join --finish [--dry-run]`），CF token 从环境变量 `CF_API_TOKEN` 取（主节点上密封的那份备机读不回来）；主节点公网 IP 默认从域名当前 A 记录取，可用 `CF_PRIMARY_IP` 覆盖。
 
 ### 6.4 sync-wg 对端同步
 
@@ -257,6 +273,13 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 ### 6.5 看门狗
 
 `scripts/cf-failover.sh` 进仓库，由 ha-join 安装（内容与手工文档 §7.2 一致）：每分钟验主站公网 443 的 `/api/v1/info`，连续 3 次不通且本机面板健康，才调 CF API 把 `polaris` 的 A 记录切到备机 IP；只单向切，不自动回切；日志写 `/var/log/cf-failover.log`，计数写 `/var/lib/cf-failover.state`。
+
+**PR2 补充**：
+
+- 参数用环境变量传入（也可写 `/etc/cf-failover.env`，0600），不 hardcode 任何 token、IP、域名。
+- `CF_ADMIN_PATH`：管理路径前缀（默认 `/`）。API 在 `<管理路径>/api/v1` 下面，探活 URL 要拼上它；管理路径是 `/` 时与手工文档 §7.2 的写法完全一致。
+- ha-join 装的是 `install-panel.sh` 里内嵌的副本（见 §6.3 第 7 步），`scripts/test-ha-dryrun.sh` 断言两者字节一致。
+- 测试用环境变量 `CF_STATE_FILE` / `CF_LOG_FILE` 覆盖 state 与日志路径（只给测试用，安装时永远用默认路径）。
 
 ### 6.6 故障切换向导（HA 页，人工执行）
 
@@ -278,13 +301,14 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 - **CF token**：密封存库；只在两个地方出现——备机 `/root/.cloudflare.ini`（0600）和 certbot/看门狗调用；权限为单个 zone 的 `Zone:DNS:Edit`。
 - **复制与 Redis 密码**：init 生成随机值，密封存库；只在配置包里给 join 脚本；PG 侧 `pg_hba.conf` 只放行隧道网段。
 - **WG 私钥**：各主机本地生成，永不离机、永不进库。
-- **审计**：`ha.init`、`ha.token`、`ha.peer_register`、`ha.cf_token`、`ha.peer_remove` 全记审计日志；join-config 的每次访问记 `ha.join_config`（不记 token 明文）。
+- **审计**：`ha.init`、`ha.token`、`ha.peer_register`、`ha.cf_token`、`ha.peer_remove` 全记审计日志；join-config 的每次访问记 `ha.join_config`（不记 token 明文）。**PR2 说明**：脚本侧的 init 由 `ha.token`（`polaris ha-token` CLI 已记）与 `ha.seal_secret`（`ha-seal-secret` CLI 已记）两条审计覆盖；独立的 `ha.init` 审计条目随 PR3 的 HA 页/接口一起补（脚本没有写审计的 CLI）。
 
 ## 8. 前置检查总表
 
 | 检查 | 位置 | 不通过 |
 |---|---|---|
 | 库是 PG | ha-init | 退出，提示 `polaris migrate` |
+| 面板二进制包含 HA 命令 | ha-init | 退出，提示先 `polaris update`（PR2 新增，见 §6.1） |
 | PG 大版本可读 | ha-init / ha-join | 退出 |
 | 本机公网 IP 可探测 | ha-init | 要求 `--endpoint <IP>` |
 | DNS：TTL ≤ 60 且 DNS-only | ha-init（有 CF token 时调 API 查） | 警告，继续（人工去改） |
@@ -304,7 +328,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 ## 10. 测试计划
 
 - **Go 单元测试**：token 生成/校验/过期/消费（复用现有 panel 测试的 store 夹具）；配置包组装（断言敏感字段不在日志里）；`sync-wg` 的对端差集计算（纯函数）；状态聚合的 SQL 在测试库上跑通。
-- **Shell**：给 `scripts/` 加 shellcheck 到 CI（现在 CI 只跑 `bash scripts/test-install-ctl.sh`）；ha-init / ha-join 的 `--dry-run` 输出做快照测试，沿用 `test-install-ctl.sh` 的夹具方式。
+- **Shell**：给 `scripts/` 加 shellcheck 到 CI（现在 CI 只跑 `bash scripts/test-install-ctl.sh`）；ha-init / ha-join 的 `--dry-run` 输出做快照测试，沿用 `test-install-ctl.sh` 的夹具方式。**PR2 已做**：CI 的 `mirror-tests` job 跑 `shellcheck -S warning`（四份脚本）+ `bash scripts/test-ha-dryrun.sh`（ha-init / ha-join / `ha-join --finish` 的 dry-run 步骤顺序与敏感字段打码 + dry-run 无文件改动 + 看门狗 5 个场景 + 内嵌看门狗副本一致性）。
 - **手工演练**：部署文档 §8 验证清单 + §9 故障切换，在真机上跑一遍；本地单机双 PG 端口模拟只作为可选补充，不阻塞交付（开发机无 Docker）。
 - **回归红线**：全仓测试通过才能提交 PR；安装脚本改动必须跑 `test-install-ctl.sh`。
 
