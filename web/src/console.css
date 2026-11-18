@@ -91,6 +91,66 @@ html[data-mode="dark"] .chip.on { background: var(--pri-soft); color: var(--pri-
 .workspace-breadcrumb b { font-weight: 600; }
 .workspace-section { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-search { min-width: 240px; min-height: 34px; border-radius: var(--r); background: var(--soft-2); }
+
+/* Panel switcher: a chip in the workspace bar that lists the members
+   registered under 多机. Members keep their own logins, so an entry opens
+   the target in a new tab instead of swapping the current session. */
+.panel-switcher > summary { list-style: none; }
+.panel-switcher > summary::-webkit-details-marker { display: none; }
+.workspace-switch {
+  display: inline-flex; align-items: center; gap: 7px; flex: none;
+  min-height: 34px; padding: 0 10px; border-radius: var(--r);
+  background: var(--soft-2); color: var(--ink); font-size: 13px; cursor: pointer;
+}
+.workspace-switch:hover { background: var(--soft); }
+.workspace-switch svg { width: 15px; height: 15px; color: var(--mute); }
+.workspace-switch-count {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--pri-soft); color: var(--pri-ink);
+  font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+}
+@media (pointer: coarse) { .workspace-switch { min-height: 44px; } }
+.panel-switch-item {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 36px; padding: 8px 10px; border-radius: 6px;
+  color: var(--ink); font-size: 13px; text-decoration: none;
+}
+.panel-switch-item:hover { background: var(--soft); }
+.panel-switch-item .dot.ok { background: var(--ok); }
+.panel-switch-item .dot.warn { background: var(--warn); }
+.panel-switch-item .dot.bad { background: var(--bad); }
+.panel-switch-item .dot:not(.ok):not(.warn):not(.bad) { background: var(--faint); }
+.panel-switch-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-switch-url { flex: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mute); font-size: 12px; }
+/* The list is sized by its widest row: a name and a host both need room,
+   and a truncated host defeats the purpose of showing it. */
+.panel-switcher > .menu-list { min-width: 260px; }
+.panel-switch-item svg { width: 14px; height: 14px; color: var(--faint); flex: none; }
+/* The bar is hidden under 760px (styles.css), so only the sidebar copy
+   exists there; above it the sidebar is permanent, so only the bar copy
+   shows. Each breakpoint has exactly one switcher on screen. */
+.side-switcher { display: none; margin: 0 0 4px; }
+.side-switcher-summary { width: 100%; justify-content: flex-start; gap: 10px; cursor: pointer; }
+.side-switcher-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.side-switcher .workspace-switch-count { flex: none; }
+.side-switcher-list { left: 0; right: auto; min-width: 240px; }
+/* The sidebar copy sits at the bottom of a scrolling column: opening the
+   list downward would push it past the fold (and the account row), so it
+   always opens upward over the nav instead. */
+.side-switcher[open] > .side-switcher-list { top: auto; bottom: calc(100% + 6px); }
+.side-switcher > summary::-webkit-details-marker { display: none; }
+.side-switcher > summary { list-style: none; }
+.bar-switcher { display: block; }
+@media (max-width: 760px) {
+  .bar-switcher { display: none; }
+  .side-switcher { display: block; }
+}
+/* The search box owns the remaining width on narrow screens; the switcher
+   keeps its icon and count so the bar does not reflow. */
+@media (max-width: 900px) {
+  .workspace-switch-label { display: none; }
+  .workspace-search { min-width: 0; }
+}
 .page-content { max-width: 1920px; padding: 20px 24px 32px; gap: 16px; }
 .page-content > .top {
   padding: 4px 0 8px;

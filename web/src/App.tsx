@@ -12,6 +12,7 @@ import { useBrand } from './brand'
 import { useFeature } from './components/License'
 import { ensurePageDict, loadRestInBackground, onDictReady, t } from './i18n'
 import LangToggle from './components/LangToggle'
+import PanelSwitcher from './components/PanelSwitcher'
 import SidebarAccount from './components/SidebarAccount'
 import { ConfirmProvider, LoadFailures, SkeletonRows, ToastProvider } from './components/ui'
 import { useMobileKeyboard } from './components/useMobileKeyboard'
@@ -400,6 +401,7 @@ function Layout({ user, avatarURL, onLogout, children }: { user: string; avatarU
             </>
           )}
         </div>
+        <PanelSwitcher inSidebar />
         <SidebarAccount name={accountName} role={accountRole} avatarURL={avatarURL} folded={folded}
           securityURL={scoped ? user.startsWith('tg:') ? undefined : '/account' : '/settings#security'}
           preferences={<><LangToggle /><ThemeToggle themesOK={themesOK} /></>}
@@ -413,6 +415,7 @@ function Layout({ user, avatarURL, onLogout, children }: { user: string; avatarU
             {currentSection && currentSection.label !== currentPage?.label && <><span className="workspace-section">{currentSection.label}</span><span aria-hidden="true">/</span></>}
             <b aria-current="page">{currentPage?.label ?? title}</b>
           </nav>
+          <PanelSwitcher />
           <button type="button" className="workspace-search" aria-label={t('搜索')} onClick={() => setPalette(true)}><Icon.Search /><span>{scoped ? t('搜索页面、节点…') : t('搜索页面、节点、用户…')}</span><kbd>{isMac ? '⌘' : 'Ctrl'} K</kbd></button>
         </header>
         <div className="page-content" key={loc.pathname}><LoadFailures /><PageBoundary>{children}</PageBoundary></div>
