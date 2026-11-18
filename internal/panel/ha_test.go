@@ -76,6 +76,16 @@ func TestHAJoinTokenFlow(t *testing.T) {
 	} else if out["pg_version"] != "" {
 		t.Fatalf("join-config pg_version on SQLite: %v", out["pg_version"])
 	}
+	// pg_collate is the primary's LC_COLLATE. The standby inherits it with
+	// pg_basebackup and cannot start when its OS lacks that locale, so the
+	// bundle has to carry it for the installer to check before the copy.
+	if s.haIsPostgres() {
+		if v, _ := out["pg_collate"].(string); v == "" {
+			t.Fatalf("join-config pg_collate on PostgreSQL: %v", out["pg_collate"])
+		}
+	} else if out["pg_collate"] != "" {
+		t.Fatalf("join-config pg_collate on SQLite: %v", out["pg_collate"])
+	}
 	if wg, ok := out["wg"].(map[string]any); !ok || wg["port"] != float64(51820) {
 		t.Fatalf("join-config wg: %v", out["wg"])
 	}

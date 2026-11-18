@@ -1663,6 +1663,60 @@ ha_replica_su() {
   if [ -n "${HA_PG_CLUSTER:-}" ]; then pg_cluster_su "$HA_PG_CLUSTER" "$@"; else pg_su "$@"; fi
 }
 
+# ha_replica_is_standby: true when the replica cluster answers and reports
+# pg_is_in_recovery() = t. A standby.signal on disk is not enough: it
+# survives an interrupted basebackup or a cluster that refused to start, so
+# only an answering standby means an earlier join actually finished.
+ha_replica_is_standby() {
+  [ "$(ha_replica_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ]
+}
+
+# ha_ensure_locale COLLATE: make sure the standby's operating system knows
+# the primary's collation before pg_basebackup copies it over.
+#
+# A basebackup is a byte-for-byte copy of the primary's cluster, so the
+# standby inherits its LC_COLLATE. PostgreSQL calls setlocale() with that
+# value at startup and refuses to run when the OS does not provide it:
+#   FATAL: database locale is incompatible with operating system
+# The standby is a different machine, so "it works on the primary" proves
+# nothing. Ubuntu ships C, C.UTF-8 and POSIX only until locales is
+# configured, which is exactly the failure seen in the field with
+# en_US.UTF-8. Generate the locale (or die pointing at the manual command)
+# before the copy, not after, so a long basebackup does not end in a
+# cluster that cannot start.
+ha_ensure_locale() {
+  local want="$1" norm
+  [ -n "$want" ] || return 0
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "确认本机 locale 包含 ${want}（缺了就 locale-gen；主库的 collation 会被 pg_basebackup 带过来，系统不认识会导致从库起不来）"
+    return 0
+  fi
+  # "en_US.UTF-8" and "en_US.utf8" are the same locale; locale -a prints
+  # the normalised lowercase form.
+  norm="$(printf '%s' "$want" | tr 'A-Z' 'a-z' | tr -d '-')"
+  if locale -a 2>/dev/null | tr 'A-Z' 'a-z' | tr -d '-' | grep -qx "$norm"; then
+    ok "本机 locale 支持主库的 $want"
+    return 0
+  fi
+  warn "本机缺少 locale ${want}（主库的 collation）：不装上从库会以「database locale is incompatible with operating system」启动失败"
+  # "en_US.UTF-8" -> "en_US" for the /etc/locale.gen line.
+  local base="${want%%.*}"
+  if [ "$base" != "$want" ]; then
+    if command -v locale-gen >/dev/null; then
+      if [ -f /etc/locale.gen ] && ! grep -qE "^ *${base}\.UTF-8 UTF-8" /etc/locale.gen; then
+        printf '%s.UTF-8 UTF-8\n' "$base" >> /etc/locale.gen
+      fi
+      locale-gen >/dev/null 2>&1 || true
+      update-locale >/dev/null 2>&1 || true
+      if locale -a 2>/dev/null | tr 'A-Z' 'a-z' | tr -d '-' | grep -qx "$norm"; then
+        ok "已生成 locale $want"
+        return 0
+      fi
+    fi
+  fi
+  die "无法自动生成 locale ${want}：请在备机执行「apt-get install -y locales && sed -i 's/^# *${base}\.UTF-8 UTF-8/${base}.UTF-8 UTF-8/' /etc/locale.gen && locale-gen」，或在主库上把它改成从库已有的 collation 后重建备机"
+}
+
 # ha_url_password URL: the password in redis://:pass@host/... ("" when the
 # URL carries no password).
 ha_url_password() {
@@ -2372,6 +2426,7 @@ out("SECRET_KEY_PREVIOUS", b.get("secret_key_previous"))
 out("DB_DSN", b.get("db_dsn"))
 out("REDIS_URL", b.get("redis_url"))
 out("PG_VERSION", b.get("pg_version"))
+out("PG_COLLATE", b.get("pg_collate"))
 out("REPL_PASSWORD", b.get("repl_password"))
 out("DB_SIZE_BYTES", b.get("db_size_bytes"))
 out("WG_PUBKEY", wg.get("pubkey"))
@@ -2406,6 +2461,9 @@ ha_setup_pg_replica() {
   local -a clusters
   [ -n "$want_ver" ] || die "主节点未报告 PG 版本，无法安装对应版本"
   want_port="$(ha_dsn_port "$B_DB_DSN")"
+  # Before anything is copied: a basebackup brings the primary's collation
+  # with it, and the standby cannot start without the matching locale.
+  ha_ensure_locale "${B_PG_COLLATE:-}"
   have_ver="$(ha_pg_major)"
   if [ "$have_ver" != "$want_ver" ] && [ -z "$(ha_pg_cluster_for_ver "$want_ver")" ]; then
     pkg_install postgresql-common || die "postgresql-common 安装失败"
@@ -2423,10 +2481,21 @@ ha_setup_pg_replica() {
     conf="$(pg_cluster_su "$HA_PG_CLUSTER" -tAc 'SHOW config_file' 2>/dev/null | tr -d '[:space:]')" || conf=""
   fi
   [ -n "$conf" ] && [ -f "$conf" ] || die "找不到 postgresql.conf"
-  # Already a standby? Then there is nothing to rebuild.
+  # A standby.signal only says an earlier ha-join started building a replica;
+  # it does not say that attempt finished. An interrupted basebackup or a
+  # cluster that refused to start leaves the file behind, and trusting it
+  # skipped the rebuild and failed later at "still not in recovery" with no
+  # clue why. Treat a cluster as done only when it actually answers as a
+  # standby.
   if [ -f "$data_dir/standby.signal" ]; then
-    ok "本机已是从库（standby.signal 存在），跳过重建"
-  else
+    if ha_replica_is_standby; then
+      ok "本机已是从库（standby.signal 存在且运行中），跳过重建"
+    else
+      warn "本机残留 standby.signal 但从库并未正常运行：清空数据目录后重建（原数据只是上次失败留下的）"
+      rm -rf "${data_dir:?}/"*
+    fi
+  fi
+  if [ ! -f "$data_dir/standby.signal" ]; then
     # A cluster holding real polaris data must never be wiped or abandoned
     # blindly: check every local cluster, not just the pg_su default.
     systemctl start postgresql >/dev/null 2>&1 || true
@@ -2998,6 +3067,7 @@ do_ha_join() {
     B_SECRET_KEY="<SECRET_KEY>"; B_SECRET_KEY_PREVIOUS=""; B_ADMIN_PATH="/"
     B_TIMEZONE="Asia/Shanghai"; B_DB_DSN="postgres://polaris:********@10.8.0.1:5432/polaris"
     B_REDIS_URL="redis://:********@10.8.0.1:6379/0"; B_PG_VERSION="<主库PG大版本>"
+    B_PG_COLLATE="<主库collation>"
     B_REPL_PASSWORD="********"; B_DB_SIZE_BYTES=""
     B_WG_PUBKEY="<主节点WG公钥>"; B_WG_IP="10.8.0.1"; B_WG_ENDPOINT="<主节点公网IP>"
     B_WG_IP_PEER="10.8.0.2"; B_CF_TOKEN=""
@@ -3031,6 +3101,8 @@ do_ha_join() {
   step "搭建 PostgreSQL 从库"
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "装 PostgreSQL ${B_PG_VERSION}（未装或大版本不同时走 PGDG；从库用该版本集群，端口取主库配置包）"
+    ha_ensure_locale "${B_PG_COLLATE:-}"
+    ha_plan "本机已是从库且真的在恢复模式时跳过重建；只有残留的 standby.signal 则清空重建"
     ha_plan "停 postgresql，清空本机空数据目录，pg_basebackup -h 10.8.0.1 -U replicator -S hk_slot"
     ha_plan ".pgpass 留在备机（0600，postgres 所有）：从库重连靠它"
     ha_plan "postgresql.conf：listen_addresses='localhost,10.8.0.2' hot_standby=on port=$(ha_dsn_port "$B_DB_DSN")；启动后验证 pg_is_in_recovery()=t"
