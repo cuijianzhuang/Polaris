@@ -125,6 +125,7 @@ type Server struct {
 	shopLimit     *sharedLimiter
 	mailCodeLimit *sharedLimiter
 	ticketLimit   *sharedLimiter
+	haJoinLimit   *sharedLimiter
 	callbacks     callbackStore
 	nodeUserSets  nodeUsersCache
 	schemes       schemeCache
@@ -241,6 +242,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.shopLimit = &sharedLimiter{s: s.shared, name: "shop", perMinute: 10}
 	s.mailCodeLimit = &sharedLimiter{s: s.shared, name: "mailcode", perMinute: 5}
 	s.ticketLimit = &sharedLimiter{s: s.shared, name: "ticket", perMinute: 6}
+	s.haJoinLimit = &sharedLimiter{s: s.shared, name: "ha-join", perMinute: 10}
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}

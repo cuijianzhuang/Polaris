@@ -222,6 +222,41 @@ func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
 	return tok, created, nil
 }
 
+// HAToken mints a one-time HA join token (10 minutes, single use). Unlike
+// LocalNodeToken it creates no node record: the token only authorises
+// fetching the join config and registering a WireGuard peer. Minting a new
+// token voids any unused ones.
+func HAToken(cfg *Config, createdBy string) (string, error) {
+	st, err := openStore(cfg)
+	if err != nil {
+		return "", err
+	}
+	defer st.Close()
+	tok, err := mintHAJoinToken(st.DB, createdBy)
+	if err != nil {
+		return "", err
+	}
+	st.DB.Create(&store.AuditLog{Admin: createdBy, Action: "ha.token", Target: "join"})
+	return tok, nil
+}
+
+// mintHAJoinToken voids unused HA join tokens and stores a fresh one,
+// returning the plaintext token (only the hash is stored).
+func mintHAJoinToken(db *gorm.DB, createdBy string) (string, error) {
+	tok := pki.Token(24)
+	now := time.Now().UTC()
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("used_at IS NULL").Delete(&store.HAJoinToken{}).Error; err != nil {
+			return err
+		}
+		return tx.Create(&store.HAJoinToken{ID: store.NewID(), TokenHash: hashToken(tok),
+			CreatedBy: createdBy, CreatedAt: now, ExpiresAt: now.Add(haJoinTokenTTL)}).Error
+	}); err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
 // AdminLicense runs `polaris admin license show|install FILE|deactivate`
 // against the database (the panel picks the change up within a few minutes, or at
 // once after a restart).

@@ -178,6 +178,9 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
 	api.POST("/auth/sso/:id/login-url", s.loginGuard, s.ssoLoginURL)
 	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
+	// HA join endpoints use one-time join tokens, never the admin session.
+	api.GET("/ha/join-config", s.haJoinAuth, s.haJoinConfig)
+	api.POST("/ha/peers", s.haJoinAuth, s.haRegisterPeer)
 
 	p := api.Group("", s.authRequired, s.adminRoleGuard, s.scopeGuard, s.licenseManagementGuard, s.trackChanges, s.idempotency)
 	p.GET("/websites", s.listWebsites)
@@ -457,6 +460,12 @@ func (s *Server) Router() http.Handler {
 	p.POST("/domains/auto-bind", s.autoBindAll)
 	p.GET("/system/update", s.getPanelUpdate)
 	p.GET("/cluster", s.getCluster)
+	p.GET("/ha/status", s.haStatus)
+	p.POST("/ha/token", s.requireSudo, s.haIssueToken)
+	p.POST("/ha/cf-token", s.requireSudo, s.haSaveCFToken)
+	p.GET("/ha/peers", s.haListPeers)
+	p.DELETE("/ha/peers/:wg_ip", s.requireSudo, s.haDeletePeer)
+	p.POST("/ha/failover-check", s.haFailoverCheck)
 	p.GET("/operational-health", s.getOperationalHealth)
 	p.GET("/user-notices", s.listUserNotices)
 	p.GET("/ready", s.readiness)
