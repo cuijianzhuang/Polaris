@@ -63,4 +63,6 @@ export default {
   '在线 {n}': '{n} online',
   '停用后不再参与汇总与轮询': 'A disabled panel is excluded from aggregation and polling',
   '请先在成员面板创建 API 令牌并勾选 panel:read；需要远程写操作时再勾选 panel:actions。这里的选择只记录该令牌的授权范围，不会改变成员侧权限': 'Create an API token on the member panel with panel:read; add panel:actions if you need remote write actions. The choice here only records what that token was granted and does not change permissions on the member.',
+  '切换面板': 'Switch panel',
+  '切换到 {name}（在新标签页打开，需要单独登录）': 'Switch to {name} (opens in a new tab; it has its own login)',
 }
