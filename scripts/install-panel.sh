@@ -30,6 +30,9 @@
 #   doctor                        check service, ports, firewall, DNS/HTTPS, clock and disk
 #   ha-init [--dry-run] [--endpoint IP]   turn this machine into the HA primary (WireGuard + PG/Redis primary + token)
 #   ha-join <token> <panel-url> [--dry-run] [--finish]   join this machine as the HA standby (panel-url includes the admin path when one is set)
+#   HA_PROXY_MODE=auto|nginx|openresty (env for ha-join): which reverse proxy
+#   serves the standby on 443. auto (default) installs nginx when 443 is free
+#   and reuses OpenResty (e.g. installed by 1Panel) when it already owns 443.
 #   ha-status                     local HA state: role, WireGuard, PostgreSQL, Redis, panel
 #   witness-init [--dry-run] [--listen ADDR]   install the HA witness arbiter on this machine (third host; default listen 0.0.0.0:8443)
 #
@@ -56,7 +59,7 @@ CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
 FORCE=0 EDITION="" DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
-HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE="" HA_WITNESS_LISTEN=""
+HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE="" HA_WITNESS_LISTEN="" HA_PROXY_MODE="auto"
 BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 DB_CHOICE="" REDIS_CHOICE="" DB_DSN="" REDIS_URL=""
 # A PostgreSQL on this server, reached over its Unix socket as the polaris
@@ -2366,6 +2369,98 @@ ha_setup_pg_replica() {
   ok "从库已启动（恢复模式）"
 }
 
+# ha_proxy_mode_resolve: decide which reverse proxy serves the standby on
+# 443 and record it in HA_PROXY_MODE (nginx|openresty). HA_PROXY_MODE=auto
+# (default) detects from who owns 443: free (or nginx, e.g. a previous join)
+# means nginx, OpenResty means reuse it; anything else (e.g. a node inbound)
+# aborts with a hint to move it. Explicit nginx/openresty is validated the
+# same way; in a dry run auto plans the nginx path (pass
+# HA_PROXY_MODE=openresty to plan the reuse path instead).
+ha_proxy_mode_resolve() {
+  case "${HA_PROXY_MODE:-auto}" in
+    auto)
+      if [ "$HA_DRYRUN" = 1 ]; then HA_PROXY_MODE=nginx; return 0; fi
+      if port_busy 443; then
+        local o
+        o="$(port_owner 443)"
+        case "$o" in
+          *nginx*) warn "443 已被 nginx 占用（可能是上次 join 留下的），继续用 nginx 模式"; HA_PROXY_MODE=nginx ;;
+          *openresty*) warn "443 已被 OpenResty 占用：复用 OpenResty 当反代，不安装 nginx（反代需自行在 1Panel 里添加）"; HA_PROXY_MODE=openresty ;;
+          *) die "端口 443 已被占用${o:+（$o）}：若是节点入站，先在面板里把它改到别的端口，再重跑 ha-join" ;;
+        esac
+      else
+        HA_PROXY_MODE=nginx
+      fi
+      ;;
+    nginx)
+      if [ "$HA_DRYRUN" = 1 ]; then return 0; fi
+      if port_busy 443; then
+        local o
+        o="$(port_owner 443)"
+        case "$o" in
+          *nginx*) warn "443 已被 nginx 占用（可能是上次 join 留下的），继续" ;;
+          *) die "端口 443 已被占用${o:+（$o）}：HA_PROXY_MODE=nginx 需要 443 空闲（或已被 nginx 占用）" ;;
+        esac
+      fi
+      ;;
+    openresty)
+      if [ "$HA_DRYRUN" = 1 ]; then return 0; fi
+      if port_busy 443; then
+        local o
+        o="$(port_owner 443)"
+        case "$o" in
+          *openresty*) ;;
+          *) die "HA_PROXY_MODE=openresty，但 443 不是 OpenResty 占用${o:+（$o）}：先腾出 443 或换模式" ;;
+        esac
+      else
+        die "HA_PROXY_MODE=openresty，但 443 空闲：请先确认 OpenResty 在监听 443，或去掉该设置走自动模式"
+      fi
+      ;;
+    *) die "HA_PROXY_MODE 非法：${HA_PROXY_MODE}（auto/nginx/openresty）" ;;
+  esac
+}
+
+# ha_openresty_guide DOMAIN: print the reverse-proxy config the operator
+# adds themselves in 1Panel's OpenResty (the script installs nothing here:
+# no nginx, no certbot — 1Panel manages the site's certificate). 443
+# proxies to the panel on 127.0.0.1:8080; the stream block passes 9443
+# through to the agent port without terminating TLS.
+ha_openresty_guide() {
+  local domain="$1"
+  echo
+  echo "  在 1Panel 的 OpenResty 里给 $domain 建站（开启 HTTPS，证书由 1Panel 申请/管理），再添加以下反代："
+  echo
+  echo "  # HTTP：443 反代面板"
+  echo "  server {"
+  echo "      listen 443 ssl;"
+  echo "      server_name $domain;"
+  echo "      ssl_certificate <1Panel 里该站点的证书路径>;"
+  echo "      ssl_certificate_key <1Panel 里该站点的私钥路径>;"
+  echo "      location / {"
+  echo "          proxy_pass http://127.0.0.1:8080;"
+  echo "          proxy_set_header Host \$host;"
+  echo "          proxy_set_header X-Real-IP \$remote_addr;"
+  echo "          proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;"
+  echo "          proxy_set_header X-Forwarded-Proto \$scheme;"
+  echo "      }"
+  echo "  }"
+  echo
+  echo "  # TCP 直通：9443 节点接入（不终结 TLS，加到 OpenResty 主配置的 stream 段）"
+  echo "  stream {"
+  echo "      upstream panel_agent {"
+  echo "          server 127.0.0.1:9443;"
+  echo "      }"
+  echo "      server {"
+  echo "          listen 9443;"
+  echo "          proxy_pass panel_agent;"
+  echo "          proxy_timeout 1h;"
+  echo "      }"
+  echo "  }"
+  echo
+  echo "  加完后验证：curl -sk --resolve $domain:443:<本机公网IP> https://$domain/api/v1/info 应返回 200"
+  echo "  （1Panel 的 OpenResty 若跑在容器里且 127.0.0.1 不通，把 127.0.0.1 换成宿主机 IP）"
+}
+
 # ha_certbot_dns TOKEN DOMAIN: request a certificate with the Cloudflare
 # DNS-01 plugin. The token lives in /root/.cloudflare.ini (0600), the
 # standard certbot layout.
@@ -2404,6 +2499,15 @@ ha_nginx_enable() {
 # written but nginx stays stopped; ha-join --finish completes it.
 ha_setup_nginx_cert() {
   local cf_token="${CF_API_TOKEN:-$B_CF_TOKEN}" domain="$B_DOMAIN"
+  if [ "${HA_PROXY_MODE:-auto}" = openresty ]; then
+    if [ "$HA_DRYRUN" = 1 ]; then
+      ha_plan "复用 OpenResty：不安装 nginx、不写 nginx 配置、不申请证书（证书由 1Panel 管理）"
+    else
+      warn "复用 OpenResty 模式：跳过 nginx 安装、证书申请与 nginx 配置"
+    fi
+    ha_openresty_guide "$domain"
+    return 0
+  fi
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "apt install -y nginx-full"
     if [ -n "$cf_token" ]; then
@@ -2511,7 +2615,11 @@ ha_setup_watchdog() {
 ha_self_check() {
   local fails=0 redis_pass admin_path
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "自检：wg show 有对端、ping 10.8.0.1 通、pg_is_in_recovery()=t、回放追上、Redis role:slave、cluster_members 两行、/api/v1/info 200、--resolve 验备机 443"
+    if [ "${HA_PROXY_MODE:-auto}" = openresty ]; then
+      ha_plan "自检：wg show 有对端、ping 10.8.0.1 通、pg_is_in_recovery()=t、回放追上、Redis role:slave、cluster_members 两行、/api/v1/info 200、备机 443 直验跳过（反代自行添加后手动验）"
+    else
+      ha_plan "自检：wg show 有对端、ping 10.8.0.1 通、pg_is_in_recovery()=t、回放追上、Redis role:slave、cluster_members 两行、/api/v1/info 200、--resolve 验备机 443"
+    fi
     return 0
   fi
   admin_path="${B_ADMIN_PATH:-/}"
@@ -2581,7 +2689,12 @@ do_ha_join() {
 
   step "前置检查"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "检查：Debian/Ubuntu、python3、端口 8080/9443/51820 空闲、443 未被节点入站占用、磁盘剩余 ≥ 库大小 × 1.2、PG 大版本与主节点一致、时间同步"
+    ha_proxy_mode_resolve
+    if [ "$HA_PROXY_MODE" = openresty ]; then
+      ha_plan "检查：Debian/Ubuntu、python3、端口 8080/9443/51820 空闲、443 由 OpenResty 占用（复用模式，不装 nginx）、磁盘剩余 ≥ 库大小 × 1.2、PG 大版本与主节点一致、时间同步"
+    else
+      ha_plan "检查：Debian/Ubuntu、python3、端口 8080/9443/51820 空闲、443 未被节点入站占用（被 OpenResty 占用时自动切复用模式）、磁盘剩余 ≥ 库大小 × 1.2、PG 大版本与主节点一致、时间同步"
+    fi
   else
     command -v python3 >/dev/null || { pkg_install python3 || die "python3 安装失败"; }
     if ! installed; then
@@ -2591,11 +2704,7 @@ do_ha_join() {
     if command -v ss >/dev/null && ! wg show wg0 >/dev/null 2>&1 && ss -Huln "sport = :$HA_WG_PORT" 2>/dev/null | grep -q .; then
       die "端口 $HA_WG_PORT/udp 已被占用"
     fi
-    if port_busy 443; then
-      local o
-      o="$(port_owner 443)"
-      case "$o" in *nginx*) warn "443 已被 nginx 占用（可能是上次 join 留下的），继续" ;; *) die "端口 443 已被占用${o:+（$o）}：若是节点入站，先在面板里把它改到别的端口，再重跑 ha-join" ;; esac
-    fi
+    ha_proxy_mode_resolve
     if command -v timedatectl >/dev/null; then
       [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ] || warn "时间同步未开启（timedatectl set-ntp true）；租约时间以库为准，偏一点没事，别差出分钟级"
     fi
@@ -2708,6 +2817,7 @@ do_ha_join() {
     ha_plan "POLARIS_SECRET_KEY=<配置包的值>，POLARIS_SECRET_KEY_PREVIOUS=<配置包的值>"
     ha_plan "POLARIS_DB_DSN、POLARIS_REDIS_URL、POLARIS_ADMIN_PATH、POLARIS_PUBLIC_URL 按配置包改好"
     ha_plan "POLARIS_TIMEZONE=$B_TIMEZONE，POLARIS_HA_ROLE=secondary，POLARIS_HA_WG_IP=10.8.0.2，POLARIS_HA_ENDPOINT=<本机公网IP>"
+    ha_plan "POLARIS_HA_PROXY_MODE=$HA_PROXY_MODE（反代模式：nginx 或 openresty）"
     ha_plan "systemctl restart polaris，wait_healthy 确认"
   else
     env_set POLARIS_SECRET_KEY "$B_SECRET_KEY"
@@ -2718,6 +2828,7 @@ do_ha_join() {
     env_set POLARIS_PUBLIC_URL "$B_PUBLIC_URL"
     env_set POLARIS_TIMEZONE "$B_TIMEZONE"
     env_set POLARIS_HA_ROLE secondary
+    env_set POLARIS_HA_PROXY_MODE "$HA_PROXY_MODE"
     env_set POLARIS_HA_WG_PUBKEY "$WG_PUB"
     env_set POLARIS_HA_WG_IP "$HA_WG_SECONDARY_IP"
     local my_ip
@@ -2730,7 +2841,7 @@ do_ha_join() {
     ok "面板已同步配置并重启"
   fi
 
-  step "配置 nginx 与证书"
+  if [ "$HA_PROXY_MODE" = openresty ]; then step "复用 OpenResty 反代"; else step "配置 nginx 与证书"; fi
   ha_setup_nginx_cert
 
   step "安装看门狗与备份同步"
@@ -2744,6 +2855,9 @@ do_ha_join() {
   echo
   ok "${C_BD}备节点加入完成${C_0}（用时 $(human_dur "$SECONDS")）"
   echo
+  if [ "$HA_PROXY_MODE" = openresty ]; then
+    dim "  复用 OpenResty：记得在 1Panel 里给 $B_DOMAIN 建站并加上面的反代（443→8080、stream 9443），再用 --resolve 验一次"
+  fi
   dim "  主节点上：wg show 应看到备机对端；pg_stat_replication 应有 streaming 连接"
 }
 
@@ -2755,8 +2869,16 @@ do_ha_finish() {
   local role
   role="$(env_get POLARIS_HA_ROLE)"
   [ "$role" = secondary ] || die "ha-join --finish 只在备节点上执行（本机角色：${role:-none}）"
-  SECONDS=0 STEP_N=0 STEP_TOTAL=3
-  banner "高可用：补做证书与看门狗"
+  # The proxy mode was decided by ha-join (persisted in the env file); an
+  # explicit HA_PROXY_MODE wins over the persisted value. Joins from before
+  # this mode existed have no value and default to nginx.
+  local proxy_mode
+  if [ "${HA_PROXY_MODE:-auto}" != auto ]; then proxy_mode="$HA_PROXY_MODE"; else proxy_mode="$(env_get POLARIS_HA_PROXY_MODE)"; fi
+  [ -n "$proxy_mode" ] || proxy_mode=nginx
+  case "$proxy_mode" in nginx|openresty) ;; *) die "反代模式非法：$proxy_mode（nginx/openresty）" ;; esac
+  SECONDS=0 STEP_N=0
+  if [ "$proxy_mode" = openresty ]; then STEP_TOTAL=2; else STEP_TOTAL=3; fi
+  if [ "$proxy_mode" = openresty ]; then banner "高可用：补做看门狗（复用 OpenResty）"; else banner "高可用：补做证书与看门狗"; fi
   local cf_token url domain primary_ip
   cf_token="${CF_API_TOKEN:-}"
   [ -n "$cf_token" ] || die "需要 CF_API_TOKEN：CF_API_TOKEN=<token> $0 ha-join --finish（token 需 Zone:DNS:Edit 权限）"
@@ -2771,17 +2893,26 @@ do_ha_finish() {
   B_DOMAIN="$domain"; B_WG_ENDPOINT="$primary_ip"; B_CF_TOKEN="$cf_token"
   B_ADMIN_PATH="$(env_get POLARIS_ADMIN_PATH)"
 
-  step "申请证书"
-  ha_certbot_dns "$cf_token" "$domain"
+  if [ "$proxy_mode" = openresty ]; then
+    step "复用 OpenResty 反代"
+    ha_openresty_guide "$domain"
+  else
+    step "申请证书"
+    ha_certbot_dns "$cf_token" "$domain"
 
-  step "启用 nginx"
-  ha_nginx_enable "$domain"
+    step "启用 nginx"
+    ha_nginx_enable "$domain"
+  fi
 
   step "安装看门狗"
   ha_setup_watchdog
 
   echo
-  ok "${C_BD}证书与看门狗补做完成${C_0}（用时 $(human_dur "$SECONDS")）"
+  if [ "$proxy_mode" = openresty ]; then
+    ok "${C_BD}看门狗补做完成${C_0}（用时 $(human_dur "$SECONDS")；反代配置见上，证书由 1Panel 管理）"
+  else
+    ok "${C_BD}证书与看门狗补做完成${C_0}（用时 $(human_dur "$SECONDS")）"
+  fi
 }
 
 do_ha_status() {

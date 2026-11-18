@@ -49,7 +49,9 @@ HA_DRYRUN=1
 case "$HA_CASE" in
   init) do_ha_init ;;
   join) HA_TOKEN="test-join-token" HA_PANEL_URL="https://polaris.cuijianzhuang.com" do_ha_join ;;
+  join-openresty) HA_PROXY_MODE=openresty HA_TOKEN="test-join-token" HA_PANEL_URL="https://polaris.cuijianzhuang.com" do_ha_join ;;
   finish) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
+  finish-openresty) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
   witness) do_witness_init ;;
   *) echo "unknown HA_CASE: $HA_CASE" >&2; exit 2 ;;
 esac
@@ -80,7 +82,7 @@ run_case() {
   local d="$work/case-$ha_case"
   mkdir -p "$d/bin" "$d/etc" "$d/data"
   case "$ha_case" in
-    init|finish)
+    init|finish|finish-openresty)
       # Fake installed panel: the binary prints a version and carries the
       # usage strings the installer greps for (ha-token / ha-seal-secret /
       # "ha sync-wg").
@@ -108,6 +110,15 @@ POLARIS_SECRET_KEY=fixture-secret-key-123
 POLARIS_PUBLIC_URL=https://polaris.cuijianzhuang.com
 POLARIS_ADMIN_PATH=/
 POLARIS_HA_ROLE=secondary
+ENV
+      ;;
+    finish-openresty)
+      cat > "$d/etc/polaris.env" <<'ENV'
+POLARIS_SECRET_KEY=fixture-secret-key-123
+POLARIS_PUBLIC_URL=https://polaris.cuijianzhuang.com
+POLARIS_ADMIN_PATH=/
+POLARIS_HA_ROLE=secondary
+POLARIS_HA_PROXY_MODE=openresty
 ENV
       ;;
   esac
@@ -171,10 +182,43 @@ ENV
       assert_contains "$d/output" "POST https://polaris.cuijianzhuang.com/api/v1/ha/peers"
       assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       ;;
+    join-openresty)
+      assert_order "$d/output" \
+        "前置检查" \
+        "安装 WireGuard 并生成密钥" \
+        "取配置包并注册对端" \
+        "写隧道配置并验证" \
+        "搭建 PostgreSQL 从库" \
+        "配置 Redis 从库" \
+        "安装面板（同版本、同库、同 Redis）" \
+        "同步密钥与配置" \
+        "复用 OpenResty 反代" \
+        "安装看门狗与备份同步" \
+        "安装见证心跳定时器" \
+        "自检"
+      assert_contains "$d/output" "GET https://polaris.cuijianzhuang.com/api/v1/ha/join-config"
+      assert_contains "$d/output" "POST https://polaris.cuijianzhuang.com/api/v1/ha/peers"
+      assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
+      assert_contains "$d/output" "POLARIS_HA_PROXY_MODE=openresty"
+      assert_contains "$d/output" "proxy_pass http://127.0.0.1:8080"
+      assert_contains "$d/output" "listen 9443"
+      assert_contains "$d/output" "1Panel"
+      assert_absent "$d/output" "apt install -y nginx-full"
+      assert_absent "$d/output" "certbot certonly"
+      assert_absent "$d/output" "配置 nginx 与证书"
+      ;;
     finish)
       assert_order "$d/output" "申请证书" "启用 nginx" "安装看门狗"
       assert_absent "$d/output" "搭建 PostgreSQL 从库"
       assert_absent "$d/output" "安装面板（同版本、同库、同 Redis）"
+      assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
+      ;;
+    finish-openresty)
+      assert_order "$d/output" "复用 OpenResty 反代" "安装看门狗"
+      assert_absent "$d/output" "申请证书"
+      assert_absent "$d/output" "启用 nginx"
+      assert_absent "$d/output" "搭建 PostgreSQL 从库"
+      assert_contains "$d/output" "proxy_pass http://127.0.0.1:8080"
       assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       ;;
     witness)
@@ -205,7 +249,9 @@ echo "ok: embedded fence matches scripts/polaris-ha-fence.sh"
 
 run_case init
 run_case join
+run_case join-openresty
 run_case finish
+run_case finish-openresty
 run_case witness
 
 # Watchdog scenarios with a fake curl: primary up, counting failures,

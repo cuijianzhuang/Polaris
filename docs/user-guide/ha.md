@@ -31,9 +31,9 @@ Polaris 原生支持多实例，不用改程序：CA 存在库里的 `cluster_se
 | 检查 | 要求 |
 |---|---|
 | 数据库 | 必须是 PostgreSQL。SQLite 的库先用 `polaris migrate` 迁到 PG 再做 HA |
-| 面板版本 | 两台装同一版本；做 HA 之前先把 dmit 升到含 PR1+PR2 的最新版（`ha-init` 会先验二进制里有没有 HA 命令，没有就提示先 `polaris update`）。见证服务（`witness serve`）是 PR5 加的：装见证节点前先确认要装的版本已含 PR5（#396 尚未合并发版，具体版本号待确认） |
+| 面板版本 | 两台装同一版本；做 HA 之前先把 dmit 升到含 PR1+PR2 的最新版（`ha-init` 会先验二进制里有没有 HA 命令，没有就提示先 `polaris update`）。见证服务（`witness serve`）是 PR5 加的，已含在 v0.1.262 及之后版本；装之前先确认要装的版本已含 PR5 |
 | 域名 | `polaris` 的 A 记录改成 **TTL 60、DNS-only（灰云）**。必须是灰云：橙云代理只支持部分端口，**9443 不在其中**，开了代理 agent 连不上 |
-| 端口 | 主节点 `51820/udp`、`5432`、`6379` 未被 WG/PG/Redis 以外进程占用；备节点 `8080`/`9443`/`51820` 空闲，`443` 若被节点入站（如 VLESS+TLS）占了，先把该入站端口改掉 |
+| 端口 | 主节点 `51820/udp`、`5432`、`6379` 未被 WG/PG/Redis 以外进程占用；备节点 `8080`/`9443`/`51820` 空闲；`443` 空闲时 `ha-join` 装 nginx 做反代，`443` 已被 OpenResty（如 1Panel 装的）占用时自动切复用模式（反代自行在 1Panel 里加，见[复用 OpenResty](#复用-openresty1panel)）；`443` 被节点入站（如 VLESS+TLS）占了，先把该入站端口改掉 |
 | 见证节点 | 第三台主机：另外商家（与 dmit/HK 的搬瓦工不同，独立故障域）、Ubuntu、上面跑着一个节点 agent；公网 IP 记为 `<WITNESS_IP>`，先装好见证服务（见[部署见证节点](#部署见证节点)），再跑 `ha-init`/`ha-join` |
 | 磁盘 | 备机剩余空间 ≥ 主库大小 × 1.2 |
 | PG 版本 | 两台 PG 大版本必须一致（如都是 15）；HK 未装 PG 时 `ha-join` 会从 PGDG 装同版本，已装但大版本不同时直接退出 |
@@ -44,7 +44,7 @@ Polaris 原生支持多实例，不用改程序：CA 存在库里的 `cluster_se
 
 第三台主机只投票、不存数据：它不跑面板、不参与 PG/Redis 复制，只回答“dmit 是不是真挂了”，让看门狗切 DNS 时不再只凭 HK 自己一家的判断（HK 连不上 dmit，可能是 dmit 挂了，也可能是 dmit↔HK 链路断了；后一种情况切 DNS 会造成双主）。第三台是另外商家的机器（与 dmit/HK 的搬瓦工不同，独立故障域）、Ubuntu、上面跑着一个节点 agent，公网 IP 记为 `<WITNESS_IP>`。
 
-> 版本要求：见证服务（`polaris witness serve`）是 PR5 加的，二进制须为包含它的发版。#396 尚未合并发版，**具体版本号待确认**——装之前先确认要装的版本已含 PR5。
+> 版本要求：见证服务（`polaris witness serve`）是 PR5 加的，二进制须为包含它的发版（v0.1.262 及之后已含）。
 
 部署顺序：**先装见证节点，再跑 `ha-init`/`ha-join`**（带 `WITNESS_URL`，见下面）。见证节点也可以晚于主备部署再装，装好后重跑补装心跳与围栏。
 
@@ -129,7 +129,7 @@ token 只有 10 分钟有效、一次使用，过期或用过就重新生成。`
 3. `pg_basebackup` 从主库拉全量建从库（`-S hk_slot`），配 `hot_standby=on`，启动并验证 `pg_is_in_recovery()=t` 且回放追上。
 4. Redis 配从库（`replicaof 10.8.0.1 6379`），启动并验证 `role:slave`、`master_link_status:up`。
 5. 调现有安装流程装面板（与主节点同版本、同库、同 Redis，`--port 8080 --agent-port 9443`），再按配置包同步 `SECRET_KEY` / `SECRET_KEY_PREVIOUS` / `ADMIN_PATH` / `PUBLIC_URL` / `TIMEZONE`。
-6. nginx：443 反代 + `stream` 段 9443 TCP 直通（不终结 TLS），certbot DNS-01 拿证；用 `--resolve` 直接验备机 `https://polaris.cuijianzhuang.com/api/v1/info` 返回 200。
+6. 反代（二选一）：`443` 空闲时装 nginx——443 反代 + `stream` 段 9443 TCP 直通（不终结 TLS），certbot DNS-01 拿证；`443` 已被 OpenResty 占用时复用 OpenResty，`ha-join` 不装 nginx、不申请证书，打印出要在 1Panel 里加的反代配置（见[复用 OpenResty](#复用-openresty1panel)）。加完反代再用 `--resolve` 直接验备机 `https://polaris.cuijianzhuang.com/api/v1/info` 返回 200。
 7. 装看门狗（`/usr/local/bin/cf-failover.sh`，每分钟跑）与备份同步 cron（每小时 rsync 到 `backups-peer`，只在免密 SSH 已通时装）。
 8. 自检逐项打勾：WG、PG 复制、Redis、双实例、备机直验 200；任一项失败即报错退出，不静默通过。
 
@@ -142,6 +142,47 @@ token 只有 10 分钟有效、一次使用，过期或用过就重新生成。`
 - `ha-join` 只接管全新空库；本机已有面板数据库时会直接退出，请先备份并清空。
 - 备机上的看门狗只装在备机；`polaris-ha-sync.timer` 只在主节点启用（备机的对端只有主，join 时已写死）。
 - 传了 `WITNESS_URL` 时，`ha-join` 还会装 HK 的心跳定时器，并把 `WITNESS_URL` 写进看门狗配置（`/etc/cf-failover.env`）；没传只警告跳过，见证就绪后重跑补装。
+
+### 复用 OpenResty（1Panel）
+
+备机上 443 已被 OpenResty（如 1Panel 装的）占用时，`ha-join` 不会报错退出，而是自动切复用模式：
+
+- 不装 nginx、不写 nginx 配置、不申请证书（证书由 1Panel 管理）；
+- 打印出要在 1Panel 里加的反代配置，模式记入 `POLARIS_HA_PROXY_MODE=openresty`（`ha-join --finish` 时只补看门狗，不补证书）；
+- 也可以用环境变量强制指定模式：`HA_PROXY_MODE=nginx`（要求 443 空闲）或 `HA_PROXY_MODE=openresty`（要求 443 已被 OpenResty 占用），默认 `auto` 自动判断。
+
+在 1Panel 的 OpenResty 里给 `polaris.cuijianzhuang.com` 建站（开启 HTTPS），再添加：
+
+```nginx
+# HTTP：443 反代面板
+server {
+    listen 443 ssl;
+    server_name polaris.cuijianzhuang.com;
+    ssl_certificate <1Panel 里该站点的证书路径>;
+    ssl_certificate_key <1Panel 里该站点的私钥路径>;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# TCP 直通：9443 节点接入（不终结 TLS，加到 OpenResty 主配置的 stream 段）
+stream {
+    upstream panel_agent {
+        server 127.0.0.1:9443;
+    }
+    server {
+        listen 9443;
+        proxy_pass panel_agent;
+        proxy_timeout 1h;
+    }
+}
+```
+
+加完后验证：`curl -sk --resolve polaris.cuijianzhuang.com:443:45.78.33.200 https://polaris.cuijianzhuang.com/api/v1/info` 返回 200 和版本号。1Panel 的 OpenResty 若跑在容器里且 127.0.0.1 不通，把 127.0.0.1 换成宿主机 IP。
 
 ### 3. 验证
 
