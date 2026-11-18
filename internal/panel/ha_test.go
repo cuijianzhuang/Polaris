@@ -219,7 +219,13 @@ func TestHAStatus(t *testing.T) {
 	if out["role"] != "primary" {
 		t.Fatalf("role after setting: %v", out["role"])
 	}
-	if out["dbSizeBytes"] != nil {
+	// dbSizeBytes is the database size on PostgreSQL (pg_database_size) and
+	// null on SQLite.
+	if s.haIsPostgres() {
+		if _, ok := out["dbSizeBytes"].(float64); !ok {
+			t.Fatalf("db size on PostgreSQL must be a number: %v", out["dbSizeBytes"])
+		}
+	} else if out["dbSizeBytes"] != nil {
 		t.Fatalf("db size must be null on SQLite: %v", out["dbSizeBytes"])
 	}
 }
