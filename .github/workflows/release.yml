@@ -1,9 +1,13 @@
 name: release
-# Releases are cut only from a v* tag pushed by hand (a "-" makes it a
-# prerelease) or from the Actions tab ("Run workflow", choosing patch /
+# Releases are cut from a v* tag pushed by hand (a "-" makes it a
+# prerelease), from the Actions tab ("Run workflow", choosing patch /
 # minor / major; always makes a new release, even when the commit was
-# released before). Pushes to main still run the version and test jobs so
-# main stays checked, but publish nothing.
+# released before), or automatically when a merge lands on main: the
+# version job bumps the patch number off the latest release tag and the
+# binaries/image jobs publish it. Pushes to main still run the version
+# and test jobs first, so main stays checked; a commit message containing
+# "[skip release]" skips the release, and a HEAD that already carries a
+# v* tag is not released twice.
 on:
   push:
     branches: [main]
@@ -147,9 +151,9 @@ jobs:
   # PRO_TOKEN secret is not set.
   binaries:
     needs: [version, test]
-    # Publish only for a tag release or a manual run; pushes to main run the
-    # checks above and stop here.
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    # Tag releases, manual runs, and merges to main all publish; the
+    # version job already decided the version (and the skips) above.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -288,9 +292,9 @@ jobs:
 
   image:
     needs: [version, test]
-    # Publish only for a tag release or a manual run; pushes to main run the
-    # checks above and stop here.
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    # Tag releases, manual runs, and merges to main all publish; the
+    # version job already decided the version (and the skips) above.
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_type == 'branch')
     runs-on: ubuntu-latest
     strategy:
       matrix:
