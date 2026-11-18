@@ -16,7 +16,8 @@ interface HAMember {
 }
 
 interface HAReplica {
-  clientAddr: string; state: string; syncState: string; lagBytes: number | null
+  clientAddr: string; state: string; syncState: string; appName: string
+  lagBytes: number | null
 }
 
 interface HAStatus {
@@ -24,6 +25,7 @@ interface HAStatus {
   members: HAMember[]; leader: string; shared: boolean
   replication: HAReplica[] | null
   inRecovery: boolean | null; replayLagSeconds: number | null
+  syncNames: string; syncWaiting: boolean
   redisConfigured: boolean; version: string; edition: string
 }
 
@@ -65,6 +67,7 @@ export default function HA() {
   const [cfSaved, setCfSaved] = useState(false)
   const [check, setCheck] = useState<FailoverCheck | null>(null)
   const [done, setDone] = useState<boolean[]>([])
+  const [syncBusy, setSyncBusy] = useState(false)
 
   // The audit fixture answers unknown endpoints with []; tolerate that
   // shape instead of crashing on a missing field.
@@ -93,6 +96,18 @@ export default function HA() {
     setCheck(r)
     setDone((r.steps ?? []).map(() => false))
   })
+  // Toggle synchronous replication on the primary. The server derives the
+  // standby name from ha_peers, so the page only sends intent.
+  const toggleSync = async (enabled: boolean) => {
+    if (enabled && !await confirm(t('开启后每次写库都要等备机确认：延迟增加，但故障时不丢已提交的写入。确认开启？'))) return
+    setSyncBusy(true)
+    try {
+      await post('/ha/sync-replication', { enabled })
+      status.reload()
+    } finally {
+      setSyncBusy(false)
+    }
+  }
   const removePeer = async (p: HAPeer) => {
     if (!await confirm(t('确定删除这个对端吗？仅删除库里的记录，WireGuard 配置由同步任务对齐。'), { danger: true })) return
     run(async () => { await del(`/ha/peers/${encodeURIComponent(p.wgIp)}`); peers.reload() }, t('已删除'))
@@ -174,6 +189,26 @@ export default function HA() {
                 </table>
               </div>
             )}
+            <div className="row" style={{ padding: '12px 20px 16px', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              {role !== 'primary' ? (
+                <span className="mute">{t('同步复制只在主节点上配置。')}</span>
+              ) : (
+                <>
+                  <span className={'tag ' + (st.syncWaiting ? 'ok' : st.syncNames ? 'warn' : '')}>
+                    {st.syncWaiting ? t('同步复制已生效') : st.syncNames ? t('已设置但未生效') : t('异步复制')}
+                  </span>
+                  <button className="btn" type="button" disabled={syncBusy || st.syncWaiting || peerList.length === 0}
+                    onClick={() => toggleSync(true)}>{t('开启同步复制')}</button>
+                  <button className="btn" type="button" disabled={syncBusy || !st.syncNames}
+                    onClick={() => toggleSync(false)}>{t('恢复异步')}</button>
+                  <span className="mute">
+                    {st.syncNames
+                      ? t('当前：{n}', { n: st.syncNames })
+                      : t('异步复制：故障瞬间可能丢几秒写入；同步复制要付出每次写库多一次往返的代价。')}
+                  </span>
+                </>
+              )}
+            </div>
           </section>
         )}
         <section className="card flush">
@@ -236,7 +271,9 @@ export default function HA() {
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('故障切换向导')}</h2>
           <div className="sub" style={{ margin: 0 }}>{t('只做检查与给出命令，不代劳执行。提主与 DNS 回切永远是人工操作。')}</div>
-          <div className="note warn">{t('异步复制：故障瞬间可能丢几秒写入。')}</div>
+          {st && st.syncWaiting
+            ? <div className="note">{t('同步复制已开启：故障时不丢已提交的写入。')}</div>
+            : <div className="note warn">{t('异步复制：故障瞬间可能丢几秒写入。')}</div>}
           {role === 'primary' && <div className="note">{t('当前是主节点：向导在备节点上使用才有意义。')}</div>}
           <div className="row">
             <button className="btn pri" type="button" disabled={busy} onClick={runCheck}>{check ? t('重新检查') : t('开始检查')}</button>
