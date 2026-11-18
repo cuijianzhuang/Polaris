@@ -28,6 +28,7 @@
 16. [故障排查](#troubleshooting)
 17. [兼容性与功能边界](#compatibility)
 18. [配置与命令参考](#configuration)
+19. [高可用（主备）](user-guide/ha.md)
 
 <a id="concepts"></a>
 
