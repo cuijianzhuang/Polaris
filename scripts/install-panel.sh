@@ -2124,10 +2124,15 @@ do_ha_init() {
   if [ "$role" = primary ]; then
     echo
     ok "本机已是主节点（HA 已初始化）"
+    # A first run that died before step 9 never installed the sync-wg
+    # timer, so a registered standby is never added as a WireGuard peer
+    # and ha-join stalls at the tunnel check. Re-running ha-init installs
+    # any piece the first run skipped.
+    STEP_TOTAL=0
+    ha_install_syncwg_timer
     # Retrofitting a witness onto an existing primary: re-running ha-init
-    # with WITNESS_URL installs the pieces the first run skipped.
+    # with WITNESS_URL installs the witness pieces the first run skipped.
     if [ -n "${WITNESS_URL:-}" ]; then
-      STEP_TOTAL=0
       ha_install_heartbeat dmit
       ha_install_fence
     fi

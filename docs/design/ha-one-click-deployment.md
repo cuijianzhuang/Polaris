@@ -186,7 +186,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 已安装面板且版本已知（`polaris --version`） | 未安装先正常装面板 |
 | 面板二进制包含 HA 命令（`ha-token` / `ha-seal-secret` / `ha sync-wg`，从 usage 文本里 grep） | **PR2 新增**：不包含时退出并提示先 `polaris update`。旧版二进制收到未知子命令会直接启动第二个面板进程，绝不能盲调 |
 | 库是 PostgreSQL（DSN 以 `postgres://` 开头） | SQLite 时报错，提示先 `polaris migrate` |
-| `ha.role` 不是 `primary`（防重复初始化） | 已是 primary 时只打印状态 + 发新 token；**PR5 补充**：已是 primary 时带 `WITNESS_URL` 重跑 ha-init，会补装心跳定时器与围栏（见 §13） |
+| `ha.role` 不是 `primary`（防重复初始化） | 已是 primary 时只打印状态 + 发新 token；**PR5 补充**：已是 primary 时带 `WITNESS_URL` 重跑 ha-init，会补装心跳定时器与围栏（见 §13）。重跑时还会补装第一次失败漏掉的 sync-wg 定时器（没有它，已注册的备机永远加不到主节点 WireGuard 对端里，ha-join 会卡在第 4 步隧道验证） |
 | PG 大版本可读 | 读不到退出 |
 | `51820/udp`、`6379` 未被 WG/Redis 以外进程占用 | 占用则退出并指明进程；PG 端口取本机集群实际值（常为 `5432`） |
 | 磁盘剩余空间 | 小于库大小 × 1.2 时警告（备机也要装得下整个库） |
