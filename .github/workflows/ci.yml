@@ -55,7 +55,7 @@ jobs:
       - name: Lint shell scripts
         run: |
           command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
-          shellcheck -S warning scripts/install-panel.sh scripts/cf-failover.sh scripts/test-install-ctl.sh scripts/test-ha-dryrun.sh
+          shellcheck -S warning scripts/install-panel.sh scripts/cf-failover.sh scripts/polaris-ha-fence.sh scripts/test-install-ctl.sh scripts/test-ha-dryrun.sh
       - name: Test HA one-click dry-run output and watchdog scenarios
         run: bash scripts/test-ha-dryrun.sh
   # The Go suites run as parallel jobs (they took ~22 minutes back to back).

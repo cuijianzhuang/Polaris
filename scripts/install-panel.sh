@@ -31,6 +31,7 @@
 #   ha-init [--dry-run] [--endpoint IP]   turn this machine into the HA primary (WireGuard + PG/Redis primary + token)
 #   ha-join <token> <panel-url> [--dry-run] [--finish]   join this machine as the HA standby (panel-url includes the admin path when one is set)
 #   ha-status                     local HA state: role, WireGuard, PostgreSQL, Redis, panel
+#   witness-init [--dry-run] [--listen ADDR]   install the HA witness arbiter on this machine (third host; default listen 0.0.0.0:8443)
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
 #   --pro / --community: the professional edition (paid features, needs a
@@ -55,7 +56,7 @@ CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
 FORCE=0 EDITION="" DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
-HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE=""
+HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE="" HA_WITNESS_LISTEN=""
 BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 DB_CHOICE="" REDIS_CHOICE="" DB_DSN="" REDIS_URL=""
 # A PostgreSQL on this server, reached over its Unix socket as the polaris
@@ -1550,6 +1551,14 @@ HA_SYNCWG_UNIT=/etc/systemd/system/polaris-ha-sync-wg.service
 HA_SYNCWG_TIMER=/etc/systemd/system/polaris-ha-sync.timer
 HA_WATCHDOG=/usr/local/bin/cf-failover.sh
 HA_WATCHDOG_ENV=/etc/cf-failover.env
+HA_HB_UNIT=/etc/systemd/system/polaris-ha-heartbeat.service
+HA_HB_TIMER=/etc/systemd/system/polaris-ha-heartbeat.timer
+HA_HB_ENV=/etc/polaris/witness.env
+HA_FENCE_SCRIPT=/usr/local/bin/polaris-ha-fence.sh
+HA_FENCE_UNIT=/etc/systemd/system/polaris-ha-fence.service
+HA_FENCE_DROPIN=/etc/systemd/system/polaris.service.d/ha-fence.conf
+HA_WITNESS_UNIT=/etc/systemd/system/polaris-witness.service
+HA_WITNESS_STATE=/var/lib/polaris-witness/state.json
 
 # ha_require_apt: HA is Debian/Ubuntu only (PGDG, wireguard, redis-server
 # and nginx all come from apt here).
@@ -1611,6 +1620,17 @@ ha_url_host() {
   local u="${1#*://}"
   u="${u#*@}"
   printf '%s' "${u%%[:/]*}"
+}
+
+# ha_witness_url prints WITNESS_URL without a trailing slash, or nothing
+# when it is unset. The witness is optional: callers treat empty as "no
+# witness configured" and keep the old behaviour. A malformed URL is not
+# validated here — it fails safe at runtime (the heartbeat misses, the
+# watchdog treats the witness as unreachable and never flips, the fence
+# lets the panel start), and the dry-run plan prints the URL for eyeballing.
+ha_witness_url() {
+  local u="${WITNESS_URL:-}"
+  printf '%s' "${u%/}"
 }
 
 # ha_cli_supports CMD: true when the installed panel binary knows the
@@ -1763,6 +1783,14 @@ ha_watchdog_script() {
 #                  <admin-path>/api/v1; default "/" keeps /api/v1/info)
 #   CF_PRIMARY_IP  primary public IP (dmit)
 #   CF_STANDBY_IP  standby public IP (this machine, HK)
+#   WITNESS_URL    witness arbiter base URL, e.g. http://<WITNESS_IP>:8443
+#                  (optional). When set, the DNS flip needs quorum: this
+#                  machine must fail 3 checks in a row AND the witness must
+#                  also report the primary unreachable AND the witness must
+#                  answer at all. A witness that cannot be reached, or one
+#                  that still sees the primary, blocks the flip — never flip
+#                  on a single observer. When unset, the old local-only
+#                  behaviour applies.
 set -u
 [ -f /etc/cf-failover.env ] && set -a && . /etc/cf-failover.env && set +a
 CF_TOKEN="${CF_TOKEN:-}"
@@ -1772,6 +1800,7 @@ CF_DOMAIN="${CF_DOMAIN:-}"
 CF_ADMIN_PATH="${CF_ADMIN_PATH:-/}"
 CF_PRIMARY_IP="${CF_PRIMARY_IP:-}"
 CF_STANDBY_IP="${CF_STANDBY_IP:-}"
+WITNESS_URL="${WITNESS_URL:-}"
 # Test hooks (the installer always uses the defaults above).
 STATE="${CF_STATE_FILE:-/var/lib/cf-failover.state}"
 LOG="${CF_LOG_FILE:-/var/log/cf-failover.log}"
@@ -1798,6 +1827,28 @@ n=$(cat "$STATE" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$STATE"
 log "primary check failed ($n/$FAIL_N)"
 [ "$n" -lt "$FAIL_N" ] && exit 0
 
+# Quorum (three-condition rule): the witness must agree the primary is
+# down, and answer at all — asking it is itself the reachability proof.
+# Without a witness the old local-only behaviour applies; a witness that
+# cannot be reached, or one that still sees the primary, blocks the flip.
+# The witness emits compact JSON ({"reachable":false,...}), so grep for the
+# exact token; anything else is "unclear" and also blocks the flip.
+if [ -n "$WITNESS_URL" ]; then
+  verdict="$(curl -fsS --max-time 5 "$WITNESS_URL/verdict?node=dmit" 2>/dev/null)" || { log "witness unreachable, skip flip"; exit 0; }
+  if printf '%s' "$verdict" | grep -q '"reachable":false'; then
+    log "witness agrees primary is down, proceeding"
+  elif printf '%s' "$verdict" | grep -q '"reachable":true'; then
+    log "witness says primary reachable, skip flip"
+    echo 0 > "$STATE"
+    exit 0
+  else
+    log "witness verdict unclear, skip flip"
+    exit 0
+  fi
+else
+  log "no witness configured, flipping on local checks only"
+fi
+
 cur=$(curl -s -H "Authorization: Bearer $CF_TOKEN" \
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['content'])" 2>/dev/null || echo "")
@@ -1807,7 +1858,66 @@ curl -s -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: applicatio
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
   --data "{\"type\":\"A\",\"name\":\"${CF_DOMAIN%%.*}\",\"content\":\"$CF_STANDBY_IP\",\"ttl\":60,\"proxied\":false}" >> "$LOG"
 log "DNS flipped to $CF_STANDBY_IP"
+
+# Report the promotion to the witness so the fencing check on the primary
+# (polaris-ha-fence.sh) blocks it from starting as primary again. Best
+# effort: the flip already happened, a witness outage must not fail it.
+if [ -n "$WITNESS_URL" ]; then
+  if curl -fsS --max-time 5 -X POST "$WITNESS_URL/promoted" -H "Content-Type: application/json" -d '{"node":"hk"}' >/dev/null 2>&1; then
+    log "witness recorded promotion (hk)"
+  else
+    log "witness promote report failed (ignored)"
+  fi
+fi
 WATCHDOG
+}
+
+# ha_fence_script prints the fencing check (scripts/polaris-ha-fence.sh).
+# It is embedded here instead of downloaded so ha-init works from the
+# installer alone; scripts/test-ha-dryrun.sh asserts the embedded copy is
+# byte-identical to scripts/polaris-ha-fence.sh.
+ha_fence_script() {
+  cat <<'FENCE'
+#!/bin/bash
+# polaris-ha-fence.sh — fencing check before the panel starts (primary only).
+#
+# Runs as a systemd oneshot before polaris.service (see
+# polaris-ha-fence.service, installed by install-panel.sh ha-init). It asks
+# the witness arbiter who the current primary is: if HK was promoted, this
+# machine must not start as primary again — exit non-zero so the panel does
+# not start, and print what to do instead (rebuild this machine as a
+# replica). When the witness cannot be reached the check warns and lets the
+# panel start (availability first); when no witness is configured it skips
+# silently. A failback needs a manual reset: after pointing DNS back at
+# dmit, report dmit as primary again with
+#   curl -X POST $WITNESS_URL/promoted -d '{"node":"dmit"}'
+# and then start the panel.
+#
+# Configuration: WITNESS_URL from the environment or /etc/polaris/witness.env
+# (written by ha-init). Nothing is hardcoded.
+set -u
+[ -f /etc/polaris/witness.env ] && set -a && . /etc/polaris/witness.env && set +a
+WITNESS_URL="${WITNESS_URL:-}"
+[ -n "$WITNESS_URL" ] || exit 0
+
+resp="$(curl -fsS --max-time 5 "$WITNESS_URL/primary" 2>/dev/null)" || {
+  echo "polaris-ha-fence: 见证节点不可达，放行启动（可用性优先）" >&2
+  exit 0
+}
+# The witness emits compact JSON ({"primary":"hk",...}); grep the token.
+# A missing token means "no promotion recorded", which is the same as
+# primary=null: both let the panel start.
+primary=""
+case "$resp" in
+  *'"primary":"hk"'*) primary="hk" ;;
+esac
+
+if [ "$primary" = "hk" ]; then
+  echo "polaris-ha-fence: HK 已提主，本机不得以主库身份启动；按文档把本机重建成从库后再启动面板" >&2
+  exit 1
+fi
+exit 0
+FENCE
 }
 
 # ha_install_syncwg_timer installs the timer that runs `polaris ha sync-wg`
@@ -1846,6 +1956,92 @@ UNIT
   ok "同步定时器已启用（每 60 秒）"
 }
 
+# ha_install_heartbeat NODE installs the timer that POSTs a heartbeat to
+# the witness every 10 seconds (dmit on the primary, hk on the standby).
+# The witness URL comes from WITNESS_URL at install time and is written to
+# /etc/polaris/witness.env, which the timer service reads; without it,
+# warn and skip (re-run ha-init/ha-join with WITNESS_URL set to retrofit).
+ha_install_heartbeat() {
+  local node="$1" url
+  url="$(ha_witness_url)"
+  step "安装见证心跳定时器（每 10 秒）"
+  if [ -z "$url" ]; then
+    warn "未配 WITNESS_URL：跳过见证心跳安装（见证节点就绪后，用 WITNESS_URL=http://<见证IP>:8443 重跑 ha-init/ha-join 补装）"
+    return 0
+  fi
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "写 $HA_HB_ENV（WITNESS_URL=$url），写 $HA_HB_UNIT 与 $HA_HB_TIMER，systemctl enable --now polaris-ha-heartbeat.timer"
+    return 0
+  fi
+  printf 'WITNESS_URL=%s\n' "$url" > "$HA_HB_ENV"
+  chmod 644 "$HA_HB_ENV"
+  cat > "$HA_HB_UNIT" <<UNIT
+[Unit]
+Description=Send a heartbeat to the HA witness arbiter
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=$HA_HB_ENV
+ExecStart=/usr/bin/curl -fsS -X POST --max-time 5 \${WITNESS_URL}/heartbeat -H Content-Type:application/json -d '{"node":"$node"}'
+UNIT
+  cat > "$HA_HB_TIMER" <<UNIT
+[Unit]
+Description=Send a heartbeat to the HA witness every 10 seconds
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=10s
+Unit=polaris-ha-heartbeat.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now polaris-ha-heartbeat.timer >/dev/null 2>&1
+  ok "见证心跳定时器已启用（每 10 秒，节点 $node）"
+}
+
+# ha_install_fence installs the fencing oneshot that runs before
+# polaris.service: it asks the witness who the current primary is and
+# blocks the panel from starting when HK was promoted. Same WITNESS_URL
+# rule as ha_install_heartbeat: unset means warn and skip.
+ha_install_fence() {
+  local url
+  url="$(ha_witness_url)"
+  step "安装围栏检查（面板启动前）"
+  if [ -z "$url" ]; then
+    warn "未配 WITNESS_URL：跳过围栏安装（见证节点就绪后，用 WITNESS_URL=http://<见证IP>:8443 重跑 ha-init 补装）"
+    return 0
+  fi
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "写 $HA_HB_ENV（WITNESS_URL=$url），写 $HA_FENCE_SCRIPT，写 $HA_FENCE_UNIT（Before=polaris.service）与 $HA_FENCE_DROPIN（polaris.service 依赖围栏检查），systemctl daemon-reload"
+    return 0
+  fi
+  printf 'WITNESS_URL=%s\n' "$url" > "$HA_HB_ENV"
+  chmod 644 "$HA_HB_ENV"
+  ha_fence_script > "$HA_FENCE_SCRIPT"
+  chmod +x "$HA_FENCE_SCRIPT"
+  cat > "$HA_FENCE_UNIT" <<UNIT
+[Unit]
+Description=Fencing check before the Polaris panel starts (HA primary)
+After=network-online.target
+Before=polaris.service
+
+[Service]
+Type=oneshot
+ExecStart=$HA_FENCE_SCRIPT
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  mkdir -p "${HA_FENCE_DROPIN%/*}"
+  printf '[Unit]\nAfter=polaris-ha-fence.service\nRequires=polaris-ha-fence.service\n' > "$HA_FENCE_DROPIN"
+  systemctl daemon-reload
+  systemctl enable polaris-ha-fence.service >/dev/null 2>&1
+  ok "围栏检查已安装（面板启动前问见证节点）"
+}
+
 # ha_print_join_command mints a join token and prints the command to run on
 # the standby. The token is one-time and 10 minutes; printing it here is the
 # point (the operator copies it to the other machine). The URL includes the
@@ -1880,11 +2076,18 @@ do_ha_init() {
   if [ "$role" = primary ]; then
     echo
     ok "本机已是主节点（HA 已初始化）"
+    # Retrofitting a witness onto an existing primary: re-running ha-init
+    # with WITNESS_URL installs the pieces the first run skipped.
+    if [ -n "${WITNESS_URL:-}" ]; then
+      STEP_TOTAL=0
+      ha_install_heartbeat dmit
+      ha_install_fence
+    fi
     ha_print_join_command
     return 0
   fi
   [ -z "$role" ] || die "本机角色是 $role：ha-init 只能在未初始化的机器上做主节点"
-  SECONDS=0 STEP_N=0 STEP_TOTAL=10
+  SECONDS=0 STEP_N=0 STEP_TOTAL=12
   banner "高可用：初始化主节点"
   kv 隧道 "WireGuard $HA_WG_PRIMARY_IP/24，端口 $HA_WG_PORT/udp"
   kv 复制 "PostgreSQL 流复制 + Redis 主从"
@@ -2055,6 +2258,9 @@ do_ha_init() {
   fi
 
   ha_install_syncwg_timer
+
+  ha_install_heartbeat dmit
+  ha_install_fence
 
   step "生成加入 token"
   ha_print_join_command
@@ -2265,6 +2471,7 @@ ha_setup_watchdog() {
   local cf_token="${CF_API_TOKEN:-$B_CF_TOKEN}" domain="$B_DOMAIN"
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "拷看门狗到 /usr/local/bin/cf-failover.sh，写 /etc/cf-failover.env（CF token 打码），cron 每分钟跑一次"
+    [ -n "$(ha_witness_url)" ] && ha_plan "看门狗配 WITNESS_URL=$(ha_witness_url)（切 DNS 前要见证节点也确认主节点挂了）"
     ha_plan "备机有免密 SSH 到主节点时，加每小时备份同步 cron（rsync 到 backups-peer）"
     return 0
   fi
@@ -2280,6 +2487,7 @@ ha_setup_watchdog() {
         printf 'CF_ADMIN_PATH=%s\n' "${B_ADMIN_PATH:-/}"
         printf 'CF_PRIMARY_IP=%s\n' "$B_WG_ENDPOINT"
         printf 'CF_STANDBY_IP=%s\n' "$(public_ip)"
+        [ -n "$(ha_witness_url)" ] && printf 'WITNESS_URL=%s\n' "$(ha_witness_url)"
       } > "$HA_WATCHDOG_ENV"
       chmod 600 "$HA_WATCHDOG_ENV"
       (crontab -l 2>/dev/null | grep -v 'cf-failover.sh'; echo "* * * * * $HA_WATCHDOG") | crontab -
@@ -2356,11 +2564,17 @@ do_ha_join() {
   if [ "$role" = secondary ]; then
     echo
     ok "本机已是备节点（HA 已加入）"
+    # Retrofitting a witness onto an existing standby: re-running ha-join
+    # with WITNESS_URL installs the heartbeat the first run skipped.
+    if [ -n "${WITNESS_URL:-}" ]; then
+      STEP_TOTAL=0
+      ha_install_heartbeat hk
+    fi
     do_ha_status
     return 0
   fi
   [ -z "$role" ] || die "本机角色是 $role：ha-join 只能在未初始化的备机上执行"
-  SECONDS=0 STEP_N=0 STEP_TOTAL=11
+  SECONDS=0 STEP_N=0 STEP_TOTAL=12
   banner "高可用：加入备节点"
   kv 主节点 "$HA_PANEL_URL"
   echo
@@ -2522,6 +2736,8 @@ do_ha_join() {
   step "安装看门狗与备份同步"
   ha_setup_watchdog
 
+  ha_install_heartbeat hk
+
   step "自检"
   ha_self_check
 
@@ -2609,6 +2825,76 @@ do_ha_status() {
   fi
   echo "  面板："
   if running; then printf '    运行中（%s %s）\n' "$(panel_version)" "$(installed_edition)"; else echo "    未运行"; fi
+}
+
+# do_witness_init installs the witness arbiter on the third host (Ubuntu):
+# the panel binary (which contains `polaris witness serve`; community
+# edition is enough — the witness has no edition-gated code), a systemd
+# unit, and prints the firewall + verification commands. The witness has
+# no database and no panel config; it only serves heartbeats and verdicts.
+do_witness_init() {
+  ha_require_apt
+  local listen="${HA_WITNESS_LISTEN:-0.0.0.0:8443}"
+  SECONDS=0 STEP_N=0 STEP_TOTAL=0
+  banner "高可用：安装见证节点"
+  kv 监听 "$listen"
+  echo
+
+  step "安装面板二进制（含 witness serve）"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "下载最新版 panel 包（checksum 校验），装到 $BIN"
+  else
+    if [ -x "$BIN" ] && ha_cli_supports "witness serve"; then
+      ok "面板二进制已安装且支持 witness serve（跳过下载）"
+    else
+      EDITION=community download_release
+      install -m 0755 "$TMP/polaris" "$BIN"
+      ha_cli_supports "witness serve" || die "下载的面板版本不支持 witness serve：请等含 PR5 的发版"
+      ok "面板二进制已安装"
+    fi
+  fi
+
+  step "写 systemd unit 并启动"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "写 $HA_WITNESS_UNIT（ExecStart=$BIN witness serve --listen $listen --state-file $HA_WITNESS_STATE），systemctl enable --now polaris-witness"
+    ha_plan "放行端口：ufw allow ${listen##*:}/tcp（或云厂商安全组放行 ${listen##*:}/tcp）"
+  else
+    mkdir -p "${HA_WITNESS_STATE%/*}"
+    cat > "$HA_WITNESS_UNIT" <<UNIT
+[Unit]
+Description=Polaris HA witness arbiter
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$BIN witness serve --listen $listen --state-file $HA_WITNESS_STATE
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    systemctl daemon-reload
+    systemctl enable --now polaris-witness >/dev/null 2>&1
+    ok "见证服务已启动（$listen）"
+  fi
+
+  step "验证"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "curl http://127.0.0.1:${listen##*:}/health 应返回 {\"ok\":true}"
+    ha_plan "dmit/HK 上用 WITNESS_URL=http://<见证IP>:${listen##*:} 重跑 ha-init/ha-join 补装心跳与围栏"
+  else
+    sleep 1
+    curl -fsS --max-time 5 "http://127.0.0.1:${listen##*:}/health" >/dev/null || die "见证服务未响应（systemctl status polaris-witness 查看）"
+    ok "见证服务正常"
+  fi
+
+  echo
+  ok "${C_BD}见证节点安装完成${C_0}（用时 $(human_dur "$SECONDS")）"
+  echo
+  dim "  放行端口：ufw allow ${listen##*:}/tcp（或云厂商安全组）"
+  dim "  验证：curl http://<见证IP>:${listen##*:}/health"
+  dim "  dmit/HK：WITNESS_URL=http://<见证IP>:${listen##*:} ha-init/ha-join 补装心跳与围栏"
 }
 
 # --- node agent --------------------------------------------------------------
@@ -2953,6 +3239,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node|doctor|check-update) ACTION="$1"; shift ;;
     ha-init|ha-status) ACTION="$1"; shift ;;
+    witness-init) ACTION=witness-init; shift ;;
     ha-join) ACTION=ha-join; shift
       # Flags may come before the token (--dry-run / --finish in any order);
       # --finish takes no token: ha-join --finish [--dry-run]
@@ -2971,6 +3258,7 @@ while [ $# -gt 0 ]; do
     --dry-run) HA_DRYRUN=1; shift ;;
     --finish) HA_FINISH=1; shift ;;
     --endpoint) HA_ENDPOINT="$2"; shift 2 ;;
+    --listen) HA_WITNESS_LISTEN="$2"; shift 2 ;;
     self-update) ACTION=self-update; shift ;;
     update-request) ACTION=update-request; shift ;;
     agent) ACTION=agent; shift; AGENT_SUB="${1:-menu}"; [ $# -gt 0 ] && shift; AGENT_ARG="${1:-}"; [ $# -gt 0 ] && shift ;;
@@ -3060,4 +3348,5 @@ case "$ACTION" in
   ha-init) do_ha_init ;;
   ha-join) do_ha_join ;;
   ha-status) do_ha_status ;;
+  witness-init) do_witness_init ;;
 esac
