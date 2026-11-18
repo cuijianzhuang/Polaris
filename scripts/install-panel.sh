@@ -28,6 +28,9 @@
 #   join LINK                     install the node agent from the panel's one-click link (or move to another panel)
 #   agent [status|log|start|stop|restart|upgrade|uninstall [--purge]]   manage the node agent
 #   doctor                        check service, ports, firewall, DNS/HTTPS, clock and disk
+#   ha-init [--dry-run] [--endpoint IP]   turn this machine into the HA primary (WireGuard + PG/Redis primary + token)
+#   ha-join <token> <panel-url> [--dry-run] [--finish]   join this machine as the HA standby (panel-url includes the admin path when one is set)
+#   ha-status                     local HA state: role, WireGuard, PostgreSQL, Redis, panel
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
 #   --pro / --community: the professional edition (paid features, needs a
@@ -52,6 +55,7 @@ CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
 FORCE=0 EDITION="" DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
+HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE=""
 BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 DB_CHOICE="" REDIS_CHOICE="" DB_DSN="" REDIS_URL=""
 # A PostgreSQL on this server, reached over its Unix socket as the polaris
@@ -152,7 +156,7 @@ preflight() {
 
 installed() { [ -x "$BIN" ] && [ -f "$ENV_FILE" ]; }
 need_installed() { installed || die "Polaris 尚未安装"; }
-env_get() { sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | tail -n1 | sed "s/^'\\(.*\\)'$/\\1/"; }
+env_get() { sed -n "s/^$1=//p" "$ENV_FILE" 2>/dev/null | tail -n1 | sed "s/^'\\(.*\\)'$/\\1/" || true; }
 env_set() { # key value
   local v="$2"
   # Values with shell-special characters (a DSN's & or spaces) are single-
@@ -1046,7 +1050,9 @@ do_install() {
   fi
   [ -n "$ADMIN_PATH" ] || ADMIN_PATH="/$(rand 12)"
   ADMIN_PATH="/${ADMIN_PATH#/}"
-  secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+  # A join reuses the primary's secret key (SECRET_OVERRIDE): generating a
+  # fresh one would seal the CA with a key the primary does not have.
+  secret="${SECRET_OVERRIDE:-$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')}"
   if [ -n "$DOMAIN" ]; then
     listen="127.0.0.1:$PORT"; public_url="https://$DOMAIN"
   else
@@ -1057,10 +1063,15 @@ do_install() {
   id polaris >/dev/null 2>&1 || useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin polaris
   install -d -m 0750 -o root -g polaris "$ETC"
   install_files
+  # A join installs onto the primary's existing database, which already has
+  # an admin: the fresh-database check must not run (fresh=0 only checks
+  # connectivity and encoding).
+  local fresh=1
+  [ "$HA_JOIN" = 1 ] && fresh=0
   case "$DB_CHOICE" in
-    local) setup_local_pg; check_pg_target "$DB_DSN" 1 ;;
+    local) setup_local_pg; check_pg_target "$DB_DSN" "$fresh" ;;
     sqlite) ;;
-    *) check_pg_target "$DB_DSN" 1 ;;
+    *) check_pg_target "$DB_DSN" "$fresh" ;;
   esac
   [ "$REDIS_CHOICE" = local ] && setup_local_redis
   cat > "$ENV_FILE" <<EOF
@@ -1094,7 +1105,8 @@ EOF
   if ! wait_active; then
     # The admin account is created before the listeners start, so the
     # credentials are valid even when startup fails afterwards (e.g. port busy).
-    print_credentials "$pass" # after the log wait_active printed, so it stays in view
+    # A join reuses the primary's admin, so there is nothing to print.
+    [ "$HA_JOIN" = 1 ] || print_credentials "$pass" # after the log wait_active printed, so it stays in view
     if journalctl -u polaris -n 40 --no-pager 2>/dev/null | grep -q 'address already in use'; then
       die "Polaris 启动失败：端口被占用。可执行 polaris set-port <新端口> 修改后会自动重启"
     fi
@@ -1106,7 +1118,7 @@ EOF
 
   echo
   ok "${C_BD}Polaris $VERSION 安装完成${C_0}（用时 $(human_dur "$SECONDS")）"
-  print_credentials "$pass"
+  [ "$HA_JOIN" = 1 ] || print_credentials "$pass"
   echo
   local fw=()
   if [ "$use_caddy" = 1 ]; then fw+=("$(pad "80, 443/tcp" 14)HTTPS 访问与证书申请")
@@ -1520,6 +1532,1085 @@ do_log() {
   trap - INT
 }
 
+# --- high availability -----------------------------------------------------
+
+# One-click HA (PR2): ha-init turns this machine into the primary, ha-join
+# turns a fresh machine into the standby, ha-status prints the local HA
+# state. The manual runbook is docs/design/ha-one-click-deployment.md §6 and
+# the hand-written runbook it mirrors; the --dry-run output prints the same
+# steps in the same order, so the two can be checked against each other.
+#
+# HA only supports Debian/Ubuntu (apt): the standby may need the same
+# PostgreSQL major version, installed from the PGDG repository when the
+# distro's default differs.
+HA_WG_PRIMARY_IP="10.8.0.1"
+HA_WG_SECONDARY_IP="10.8.0.2"
+HA_WG_PORT=51820
+HA_SYNCWG_UNIT=/etc/systemd/system/polaris-ha-sync-wg.service
+HA_SYNCWG_TIMER=/etc/systemd/system/polaris-ha-sync.timer
+HA_WATCHDOG=/usr/local/bin/cf-failover.sh
+HA_WATCHDOG_ENV=/etc/cf-failover.env
+
+# ha_require_apt: HA is Debian/Ubuntu only (PGDG, wireguard, redis-server
+# and nginx all come from apt here).
+ha_require_apt() {
+  command -v apt-get >/dev/null || die "高可用只支持 Debian/Ubuntu（需要 apt）"
+}
+
+# ha_plan prints a planned action in dry-run mode. Secrets are never passed
+# here: callers write the masked form (********) themselves.
+ha_plan() { echo "    计划：$*"; }
+
+# ha_conf_set FILE KEY VALUE SEP: set one key in a config file (SEP is "="
+# for postgresql.conf, " " for redis.conf). An existing line — commented or
+# not — is replaced in place, otherwise the key is appended.
+ha_conf_set() {
+  local f="$1" k="$2" v="$3" sep="$4"
+  if grep -qE "^[# ]*${k}[[:space:]]*${sep}" "$f"; then
+    sed -i -E "s|^[# ]*${k}[[:space:]]*${sep}.*|${k}${sep}${v}|" "$f"
+  else
+    printf '%s%s%s\n' "$k" "$sep" "$v" >> "$f"
+  fi
+}
+
+# ha_pg_conf_file prints the running cluster's postgresql.conf path ("" when
+# no cluster answers; never fails, so callers under set -e stay alive).
+ha_pg_conf_file() {
+  local out
+  out="$(pg_su -tAc 'SHOW config_file' 2>/dev/null | tr -d '[:space:]')" || out=""
+  printf '%s' "$out"
+}
+
+# ha_pg_major prints the running cluster's PostgreSQL major version (e.g.
+# 15), or "" when no cluster answers.
+ha_pg_major() {
+  local v
+  v="$(pg_su -tAc 'SHOW server_version' 2>/dev/null | tr -d '[:space:]')" || v=""
+  if [ -z "$v" ]; then
+    v="$(psql --version 2>/dev/null | awk '{print $3}')" || v=""
+  fi
+  printf '%s' "${v%%.*}"
+}
+
+# ha_pg_data_dir prints the running cluster's data directory ("" when no
+# cluster answers).
+ha_pg_data_dir() {
+  local out
+  out="$(pg_su -tAc 'SHOW data_directory' 2>/dev/null | tr -d '[:space:]')" || out=""
+  printf '%s' "$out"
+}
+
+# ha_url_password URL: the password in redis://:pass@host/... ("" when the
+# URL carries no password).
+ha_url_password() {
+  case "$1" in *://:*@*) local u="${1#*://:}"; printf '%s' "${u%%@*}" ;; *) printf '' ;; esac
+}
+
+# ha_url_host URL: the host in any scheme://[user:pass@]host[:port]/... URL.
+ha_url_host() {
+  local u="${1#*://}"
+  u="${u#*@}"
+  printf '%s' "${u%%[:/]*}"
+}
+
+# ha_cli_supports CMD: true when the installed panel binary knows the
+# maintenance subcommand (its usage text is compiled into the binary).
+# ha-init needs ha-token / ha-seal-secret / "ha sync-wg", which only exist
+# in releases containing PR1+PR2; older binaries would silently start a
+# second panel server instead, so never call them blindly.
+ha_cli_supports() {
+  [ -x "$BIN" ] && grep -qaF "polaris $1" "$BIN"
+}
+
+# ha_cf_ids TOKEN DOMAIN: resolve the Cloudflare zone id and the polaris A
+# record id; sets CF_ZONE_ID / CF_RECORD_ID. Returns 1 on failure.
+ha_cf_ids() {
+  local token="$1" domain="$2" zone="${2#*.}" zj rj
+  command -v python3 >/dev/null || return 1
+  zj="$(curl -fsS -H "Authorization: Bearer $token" --max-time 10 "https://api.cloudflare.com/client/v4/zones?name=$zone" 2>/dev/null)" || return 1
+  CF_ZONE_ID="$(printf '%s' "$zj" | python3 -c "import sys,json;print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null)" || return 1
+  [ -n "$CF_ZONE_ID" ] || return 1
+  rj="$(curl -fsS -H "Authorization: Bearer $token" --max-time 10 "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records?name=$domain&type=A" 2>/dev/null)" || return 1
+  CF_RECORD_ID="$(printf '%s' "$rj" | python3 -c "import sys,json;print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null)" || return 1
+  [ -n "$CF_RECORD_ID" ] || return 1
+}
+
+# ha_check_dns: the polaris A record should be TTL <= 60 and DNS-only
+# (proxied=false); returns 1 when it is not. Only called when a CF token
+# is available; without one ha-init just warns.
+ha_check_dns() {
+  local domain zone rec ttl proxied
+  domain="$(panel_domain)"
+  [ -n "$domain" ] || { warn "未配域名：跳过 DNS 检查"; return 0; }
+  command -v python3 >/dev/null || { warn "未装 python3：跳过 DNS 检查"; return 0; }
+  ha_cf_ids "${CF_API_TOKEN:-}" "$domain" || { warn "Cloudflare API 查不到 $domain 的记录：跳过 DNS 检查"; return 0; }
+  zone="$CF_ZONE_ID"
+  rec="$(curl -fsS -H "Authorization: Bearer ${CF_API_TOKEN:-}" --max-time 10 "https://api.cloudflare.com/client/v4/zones/$zone/dns_records/$CF_RECORD_ID" 2>/dev/null)" || return 1
+  ttl="$(printf '%s' "$rec" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['ttl'])" 2>/dev/null)" || ttl=""
+  proxied="$(printf '%s' "$rec" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['proxied'])" 2>/dev/null)" || proxied=""
+  if [ "$ttl" != 1 ] && [ -n "$ttl" ] && [ "$ttl" -gt 60 ] 2>/dev/null; then
+    warn "polaris A 记录 TTL 是 $ttl（应 ≤ 60，否则切换后生效慢）"
+  fi
+  if [ "$proxied" = True ]; then
+    warn "polaris A 记录是橙云代理（应为 DNS-only，否则 9443 不通）"
+    return 1
+  fi
+  return 0
+}
+
+# ha_wg_keypair generates the local WireGuard keypair when missing and sets
+# WG_PUB to the public key (a placeholder in dry-run). Nothing is touched
+# on disk in dry-run.
+ha_wg_keypair() {
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "生成 WireGuard 密钥对（/etc/wireguard/privatekey，0600；公钥写入 publickey）"
+    WG_PUB="<本机WG公钥>"
+    return 0
+  fi
+  install -d -m 0700 /etc/wireguard
+  if [ ! -f /etc/wireguard/privatekey ]; then
+    umask 077
+    wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey
+    chmod 0600 /etc/wireguard/privatekey /etc/wireguard/publickey
+  fi
+  WG_PUB="$(cat /etc/wireguard/publickey)"
+}
+
+# ha_wg_write_conf MY_IP [PEER_PUB PEER_IP PEER_ENDPOINT]: write wg0.conf.
+# The primary has no peer yet (the standby registers later and sync-wg adds
+# it), so the peer block is omitted when no peer pubkey is given.
+ha_wg_write_conf() {
+  local my_ip="$1" peer_pub="${2:-}" peer_ip="${3:-}" peer_ep="${4:-}"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    if [ -n "$peer_pub" ]; then
+      ha_plan "写 /etc/wireguard/wg0.conf（本机 $my_ip/24，端口 $HA_WG_PORT；对端 $peer_ip/32，endpoint $peer_ep:$HA_WG_PORT）"
+    else
+      ha_plan "写 /etc/wireguard/wg0.conf（本机 $my_ip/24，端口 $HA_WG_PORT；对端待加入后由 sync-wg 补上）"
+    fi
+    return 0
+  fi
+  {
+    printf '[Interface]\nPrivateKey = %s\nAddress = %s/24\nListenPort = %s\n' "$(cat /etc/wireguard/privatekey)" "$my_ip" "$HA_WG_PORT"
+    if [ -n "$peer_pub" ]; then
+      printf '\n[Peer]\nPublicKey = %s\nAllowedIPs = %s/32\nEndpoint = %s:%s\nPersistentKeepalive = 25\n' "$peer_pub" "$peer_ip" "$peer_ep" "$HA_WG_PORT"
+    fi
+  } > /etc/wireguard/wg0.conf
+  chmod 0600 /etc/wireguard/wg0.conf
+}
+
+# ha_wg_start enables and starts the tunnel; dies unless wg0 answers.
+ha_wg_start() {
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "systemctl enable --now wg-quick@wg0，wg show 应列出 wg0"
+    return 0
+  fi
+  systemctl enable --now wg-quick@wg0 >/dev/null 2>&1
+  wg show wg0 >/dev/null 2>&1 || die "WireGuard 未能启动（wg show wg0 无输出）"
+  ok "隧道已启动（wg0）"
+}
+
+# ha_wg_ping PEER_IP: the tunnel must carry traffic before anything else is
+# built on it.
+ha_wg_ping() {
+  local peer_ip="$1" i
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "ping -c 3 $peer_ip 应通（不通就停下，先修 51820/udp 防火墙）"
+    return 0
+  fi
+  for i in $(seq 1 10); do
+    ping -c 1 -W 2 "$peer_ip" >/dev/null 2>&1 && { ok "隧道通：ping $peer_ip 成功"; return 0; }
+    sleep 1
+  done
+  die "隧道不通：ping $peer_ip 失败，请检查 51820/udp 防火墙与对端公钥"
+}
+
+# ha_seal NAME VALUE: seal a secret into cluster_secrets through the panel
+# CLI. The value travels over stdin, never an argument list, and is never
+# printed; in dry-run only the masked plan line appears.
+ha_seal() {
+  local name="$1" value="$2"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "密封保存 $name 到 cluster_secrets（不打印明文）"
+    return 0
+  fi
+  printf '%s' "$value" | polaris_cmd ha-seal-secret "$name" >/dev/null || die "密封 $name 失败"
+  ok "已密封保存 $name"
+}
+
+# ha_watchdog_script prints the failover watchdog (scripts/cf-failover.sh).
+# It is embedded here instead of downloaded so ha-join works from the
+# installer alone; scripts/test-ha-dryrun.sh asserts the embedded copy is
+# byte-identical to scripts/cf-failover.sh.
+ha_watchdog_script() {
+  cat <<'WATCHDOG'
+#!/bin/bash
+# cf-failover.sh — Cloudflare DNS failover watchdog (HA standby only).
+#
+# Runs every minute from cron on the standby. It checks the primary over its
+# public IP (bypassing current DNS); if the primary fails 3 checks in a row
+# and the local panel is healthy, it moves the polaris A record to the
+# standby. One-way only: it never switches back (failback is manual, to
+# avoid flapping). Do NOT run this on the primary.
+#
+# Configuration comes from the environment or /etc/cf-failover.env
+# (KEY=VALUE, 0600). Nothing is hardcoded: the installer writes the env
+# file from the join config.
+#   CF_TOKEN       Cloudflare API token (Zone:DNS:Edit for the zone)
+#   CF_ZONE_ID     Cloudflare zone id for the domain's zone
+#   CF_RECORD_ID   Cloudflare DNS record id of the polaris A record
+#   CF_DOMAIN      e.g. polaris.cuijianzhuang.com
+#   CF_ADMIN_PATH  admin path prefix, "/" when none (the API lives under
+#                  <admin-path>/api/v1; default "/" keeps /api/v1/info)
+#   CF_PRIMARY_IP  primary public IP (dmit)
+#   CF_STANDBY_IP  standby public IP (this machine, HK)
+set -u
+[ -f /etc/cf-failover.env ] && set -a && . /etc/cf-failover.env && set +a
+CF_TOKEN="${CF_TOKEN:-}"
+CF_ZONE_ID="${CF_ZONE_ID:-}"
+CF_RECORD_ID="${CF_RECORD_ID:-}"
+CF_DOMAIN="${CF_DOMAIN:-}"
+CF_ADMIN_PATH="${CF_ADMIN_PATH:-/}"
+CF_PRIMARY_IP="${CF_PRIMARY_IP:-}"
+CF_STANDBY_IP="${CF_STANDBY_IP:-}"
+# Test hooks (the installer always uses the defaults above).
+STATE="${CF_STATE_FILE:-/var/lib/cf-failover.state}"
+LOG="${CF_LOG_FILE:-/var/log/cf-failover.log}"
+FAIL_N=3
+
+log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+
+[ -n "$CF_TOKEN" ] && [ -n "$CF_ZONE_ID" ] && [ -n "$CF_RECORD_ID" ] && \
+[ -n "$CF_DOMAIN" ] && [ -n "$CF_PRIMARY_IP" ] && [ -n "$CF_STANDBY_IP" ] || {
+  echo "cf-failover: CF_TOKEN/CF_ZONE_ID/CF_RECORD_ID/CF_DOMAIN/CF_PRIMARY_IP/CF_STANDBY_IP 未配全（/etc/cf-failover.env 或环境变量）" >&2
+  exit 1
+}
+
+# Check the primary over its public IP directly (bypasses current DNS).
+code=$(curl -sk -o /dev/null -w "%{http_code}" --resolve "$CF_DOMAIN:443:$CF_PRIMARY_IP" --max-time 8 "https://$CF_DOMAIN${CF_ADMIN_PATH%/}/api/v1/info" || echo 000)
+if [ "$code" = "200" ]; then echo 0 > "$STATE"; exit 0; fi
+
+# The local panel must be healthy before switching, or the DNS would point
+# at a broken standby.
+local_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://127.0.0.1:8080${CF_ADMIN_PATH%/}/api/v1/info" || echo 000)
+if [ "$local_code" != "200" ]; then log "primary fail but local panel unhealthy, skip"; exit 0; fi
+
+n=$(cat "$STATE" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$STATE"
+log "primary check failed ($n/$FAIL_N)"
+[ "$n" -lt "$FAIL_N" ] && exit 0
+
+cur=$(curl -s -H "Authorization: Bearer $CF_TOKEN" \
+  "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['content'])" 2>/dev/null || echo "")
+[ "$cur" = "$CF_STANDBY_IP" ] && { log "already on standby"; exit 0; }
+
+curl -s -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" \
+  "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
+  --data "{\"type\":\"A\",\"name\":\"${CF_DOMAIN%%.*}\",\"content\":\"$CF_STANDBY_IP\",\"ttl\":60,\"proxied\":false}" >> "$LOG"
+log "DNS flipped to $CF_STANDBY_IP"
+WATCHDOG
+}
+
+# ha_install_syncwg_timer installs the timer that runs `polaris ha sync-wg`
+# every 60 seconds (primary only). The service reads the panel env file so
+# the CLI finds the database.
+ha_install_syncwg_timer() {
+  step "安装 WireGuard 同步定时器（每 60 秒）"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "写 $HA_SYNCWG_UNIT 与 $HA_SYNCWG_TIMER，systemctl enable --now polaris-ha-sync.timer"
+    return 0
+  fi
+  cat > "$HA_SYNCWG_UNIT" <<UNIT
+[Unit]
+Description=Reconcile WireGuard peers with the Polaris ha_peers table
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=$ENV_FILE
+ExecStart=$BIN ha sync-wg
+UNIT
+  cat > "$HA_SYNCWG_TIMER" <<UNIT
+[Unit]
+Description=Reconcile WireGuard peers every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=60s
+Unit=polaris-ha-sync-wg.service
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now polaris-ha-sync.timer >/dev/null 2>&1
+  ok "同步定时器已启用（每 60 秒）"
+}
+
+# ha_print_join_command mints a join token and prints the command to run on
+# the standby. The token is one-time and 10 minutes; printing it here is the
+# point (the operator copies it to the other machine). The URL includes the
+# admin path when one is set: the join API lives under <admin-path>/api/v1.
+ha_print_join_command() {
+  local tok url ap
+  url="$(env_get POLARIS_PUBLIC_URL)"
+  ap="$(env_get POLARIS_ADMIN_PATH)"
+  case "$ap" in ""|"/") ;; *) url="${url%/}$ap" ;; esac
+  if [ "$HA_DRYRUN" = 1 ]; then
+    tok="<加入TOKEN>"
+  else
+    tok="$(polaris_cmd ha-token)" || die "生成加入 token 失败"
+  fi
+  echo
+  box "$C_G" "备机加入命令（10 分钟内有效，一次性）" \
+    "  bash <(curl -fsSL $RAW_SCRIPT) ha-join $tok $url"
+  dim "  在备机（HK）上以 root 执行上面一行；token 只能用一次，过期重跑 polaris ha-token"
+}
+
+do_ha_init() {
+  ha_require_apt
+  need_installed
+  [ -n "$(panel_version)" ] || die "无法读取面板版本：请先正常安装面板"
+  # The HA CLI only exists in releases containing PR1+PR2; an older binary
+  # would silently start a second panel server instead of minting a token.
+  ha_cli_supports ha-token || die "当前面板版本不支持 HA 命令：请先执行 polaris update 升级到最新版"
+  ha_cli_supports ha-seal-secret || die "当前面板版本不支持 HA 命令：请先执行 polaris update 升级到最新版"
+  ha_cli_supports "ha sync-wg" || die "当前面板版本不支持 HA 命令：请先执行 polaris update 升级到最新版"
+  local role
+  role="$(env_get POLARIS_HA_ROLE)"
+  if [ "$role" = primary ]; then
+    echo
+    ok "本机已是主节点（HA 已初始化）"
+    ha_print_join_command
+    return 0
+  fi
+  [ -z "$role" ] || die "本机角色是 $role：ha-init 只能在未初始化的机器上做主节点"
+  SECONDS=0 STEP_N=0 STEP_TOTAL=10
+  banner "高可用：初始化主节点"
+  kv 隧道 "WireGuard $HA_WG_PRIMARY_IP/24，端口 $HA_WG_PORT/udp"
+  kv 复制 "PostgreSQL 流复制 + Redis 主从"
+  echo
+
+  local repl_pass redis_pass pg_pass my_ip cf_token
+  cf_token="${CF_API_TOKEN:-}"
+  my_ip="${HA_ENDPOINT:-$(public_ip)}"
+  if [ -z "$my_ip" ]; then
+    if [ "$HA_DRYRUN" = 1 ]; then my_ip="<本机公网IP>"; else die "无法探测公网 IP：请用 --endpoint <公网IP> 再跑 ha-init"; fi
+  fi
+
+  step "前置检查"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "检查：面板已安装且版本已知、库是 PostgreSQL、PG 大版本可读、51820/udp 与 5432/6379 未被无关进程占用、磁盘剩余 ≥ 库大小 × 1.2、公网 IP 可探测、时间同步、DNS（TTL ≤ 60、DNS-only；无 CF token 时只警告）"
+  else
+    local dsn
+    dsn="$(env_get POLARIS_DB_DSN)"
+    case "$dsn" in
+      postgres://*|postgresql://*|host=*|dbname=*|user=*) ;;
+      *) die "高可用需要 PostgreSQL：当前面板用的是 SQLite，请先 polaris migrate local 再做 HA" ;;
+    esac
+    [ -n "$(ha_pg_major)" ] || die "PG 大版本读不到：本机 PostgreSQL 未运行（systemctl status postgresql 查看）"
+    pg_su -tAc 'SELECT 1' >/dev/null 2>&1 || die "本机 PostgreSQL 未运行（systemctl status postgresql 查看）"
+    if command -v ss >/dev/null && ! wg show wg0 >/dev/null 2>&1 && ss -Huln "sport = :$HA_WG_PORT" 2>/dev/null | grep -q .; then
+      die "端口 $HA_WG_PORT/udp 已被占用"
+    fi
+    if command -v redis-cli >/dev/null; then
+      if ! redis-cli -h 127.0.0.1 ping 2>/dev/null | grep -qE 'PONG|NOAUTH'; then
+        if command -v ss >/dev/null && ss -Hltn "sport = :6379" 2>/dev/null | grep -q .; then
+          die "端口 6379 已被非 Redis 进程占用"
+        fi
+      fi
+    elif command -v ss >/dev/null && ss -Hltn "sport = :6379" 2>/dev/null | grep -q .; then
+      die "端口 6379 已被占用"
+    fi
+    local db_bytes free_kb
+    db_bytes="$(pg_su -d polaris -tAc 'SELECT pg_database_size(current_database())' 2>/dev/null | tr -d '[:space:]')" || db_bytes=""
+    free_kb="$(df -k / 2>/dev/null | awk 'NR==2{print $4}')" || free_kb=""
+    if printf '%s' "$db_bytes" | grep -qE '^[0-9]+$' && [ -n "$free_kb" ] && [ "$free_kb" -lt $((db_bytes * 6 / 5 / 1024)) ]; then
+      warn "磁盘剩余不足库大小 × 1.2（库约 $(human_bytes "$db_bytes")，/ 剩余 $(human_bytes "$((free_kb * 1024))")）：备机也要装得下整个库"
+    fi
+    if command -v timedatectl >/dev/null; then
+      [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ] || warn "时间同步未开启（timedatectl set-ntp true）；租约时间以库为准，偏一点没事，别差出分钟级"
+    fi
+    if [ -n "$cf_token" ]; then
+      ha_check_dns || warn "DNS 检查未通过：请确认 polaris A 记录 TTL ≤ 60、DNS-only（灰云）"
+    else
+      warn "未提供 CF_API_TOKEN：跳过 DNS 检查，请确认 polaris A 记录 TTL ≤ 60、DNS-only（灰云）"
+    fi
+    ok "前置检查通过"
+  fi
+
+  step "备份（面板 + 数据库 + 配置）"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "polaris backup 到 /root；pg_dumpall 到 /root/pg-full-<日期>.sql；cp $ENV_FILE /root/polaris.env.bak"
+  else
+    BK_PASS="" do_backup </dev/null
+    runuser -u postgres -- pg_dumpall > "/root/pg-full-$(date +%F).sql"
+    cp "$ENV_FILE" /root/polaris.env.bak
+    chmod 600 /root/polaris.env.bak
+    ok "备份完成"
+  fi
+
+  step "安装 WireGuard 并生成密钥"
+  if ! command -v wg >/dev/null; then
+    if [ "$HA_DRYRUN" = 1 ]; then ha_plan "apt install -y wireguard"; else pkg_install wireguard || die "wireguard 安装失败"; fi
+  fi
+  ha_wg_keypair
+  [ "$HA_DRYRUN" = 1 ] || ok "WireGuard 密钥就绪"
+
+  step "写隧道配置并启动"
+  ha_wg_write_conf "$HA_WG_PRIMARY_IP"
+  ha_wg_start
+
+  step "生成复制密码并密封保存"
+  repl_pass="$(rand 32)"
+  redis_pass="$(rand 32)"
+  pg_pass="$(rand 32)"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "生成三组随机密码（复制账号 / Redis / polaris 业务账号）：********（不打印明文）"
+  else
+    ok "三组密码已生成（只存配置与密封库，不打印）"
+  fi
+  ha_seal ha_repl_password "$repl_pass"
+  ha_seal ha_redis_password "$redis_pass"
+  if [ -n "$cf_token" ]; then ha_seal cf_api_token "$cf_token"; fi
+
+  step "配置 PostgreSQL 主库"
+  local conf hba
+  conf="$(ha_pg_conf_file)"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "postgresql.conf：listen_addresses='localhost,10.8.0.1' wal_level=replica max_wal_senders=5 max_replication_slots=5 wal_keep_size='1GB' hot_standby=on"
+    ha_plan "pg_hba.conf：放行 10.8.0.2/32 的 replication 与 polaris 连接（scram-sha-256）"
+    ha_plan "建复制账号 replicator（密码 ********）与复制槽 hk_slot；给 polaris 业务账号设 TCP 密码（********）"
+    ha_plan "systemctl restart postgresql（面板会短暂连不上库，几秒后恢复）"
+  else
+    [ -n "$conf" ] || die "找不到 postgresql.conf"
+    hba="$(dirname "$conf")/pg_hba.conf"
+    ha_conf_set "$conf" listen_addresses "'localhost,10.8.0.1'" "="
+    ha_conf_set "$conf" wal_level replica "="
+    ha_conf_set "$conf" max_wal_senders 5 "="
+    ha_conf_set "$conf" max_replication_slots 5 "="
+    ha_conf_set "$conf" wal_keep_size "'1GB'" "="
+    ha_conf_set "$conf" hot_standby on "="
+    grep -qE '^host[[:space:]]+replication[[:space:]]+replicator[[:space:]]+10\.8\.0\.2/32' "$hba" || printf '%s\n' "host replication replicator 10.8.0.2/32 scram-sha-256" >> "$hba"
+    grep -qE '^host[[:space:]]+polaris[[:space:]]+polaris[[:space:]]+10\.8\.0\.2/32' "$hba" || printf '%s\n' "host polaris   polaris     10.8.0.2/32 scram-sha-256" >> "$hba"
+    grep -qE '^host[[:space:]]+polaris[[:space:]]+polaris[[:space:]]+10\.8\.0\.1/32' "$hba" || printf '%s\n' "host polaris   polaris     10.8.0.1/32 scram-sha-256" >> "$hba"
+    if [ "$(pg_su -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'replicator'")" = 1 ]; then
+      pg_su -c "ALTER USER replicator WITH ENCRYPTED PASSWORD '$repl_pass'"
+    else
+      pg_su -c "CREATE USER replicator WITH REPLICATION ENCRYPTED PASSWORD '$repl_pass'"
+    fi
+    if [ "$(pg_su -tAc "SELECT 1 FROM pg_replication_slots WHERE slot_name = 'hk_slot'")" != 1 ]; then
+      pg_su -c "SELECT pg_create_physical_replication_slot('hk_slot')"
+    fi
+    # dmit used Unix-socket peer auth, so the polaris role has no password
+    # yet; TCP over the tunnel needs one. It is the same password the
+    # join-config bundle hands to the standby (the design's "existing
+    # business password" only exists once the DSN is TCP).
+    pg_su -c "ALTER USER polaris WITH ENCRYPTED PASSWORD '$pg_pass'"
+    systemctl restart postgresql
+    pg_su -tAc 'SELECT 1' >/dev/null 2>&1 || die "PostgreSQL 重启后未恢复"
+    ok "主库配置完成"
+  fi
+
+  step "配置 Redis 主库"
+  if ! command -v redis-server >/dev/null; then
+    if [ "$HA_DRYRUN" = 1 ]; then ha_plan "apt install -y redis-server"; else pkg_install redis-server || die "Redis 安装失败"; fi
+  fi
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "redis.conf：bind 127.0.0.1 10.8.0.1，requirepass ********，appendonly yes"
+    ha_plan "systemctl restart redis-server；redis-cli info replication 应为 role:master"
+  else
+    [ -f /etc/redis/redis.conf ] || die "找不到 /etc/redis/redis.conf"
+    ha_conf_set /etc/redis/redis.conf bind "127.0.0.1 10.8.0.1" " "
+    ha_conf_set /etc/redis/redis.conf protected-mode yes " "
+    ha_conf_set /etc/redis/redis.conf requirepass "$redis_pass" " "
+    ha_conf_set /etc/redis/redis.conf appendonly yes " "
+    systemctl restart redis-server 2>/dev/null || systemctl restart redis 2>/dev/null || die "Redis 重启失败"
+    local rrole
+    rrole="$(redis-cli -h 10.8.0.1 -a "$redis_pass" info replication 2>/dev/null | awk -F: '/^role:/{print $2}' | tr -d '[:space:]')" || rrole=""
+    [ "$rrole" = master ] || die "Redis 未成为主库（role=${rrole:-未知}）"
+    ok "Redis 主库就绪"
+  fi
+
+  step "面板改走隧道连库"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "POLARIS_DB_DSN=postgres://polaris:********@10.8.0.1:5432/polaris"
+    ha_plan "POLARIS_REDIS_URL=redis://:********@10.8.0.1:6379/0"
+    ha_plan "POLARIS_HA_ROLE=primary，POLARIS_HA_WG_PUBKEY=<本机WG公钥>，POLARIS_HA_WG_IP=10.8.0.1，POLARIS_HA_ENDPOINT=$my_ip"
+    ha_plan "systemctl restart polaris，wait_healthy 确认"
+  else
+    env_set POLARIS_DB_DSN "postgres://polaris:$pg_pass@10.8.0.1:5432/polaris"
+    env_set POLARIS_REDIS_URL "redis://:$redis_pass@10.8.0.1:6379/0"
+    env_set POLARIS_HA_ROLE primary
+    env_set POLARIS_HA_WG_PUBKEY "$WG_PUB"
+    env_set POLARIS_HA_WG_IP "$HA_WG_PRIMARY_IP"
+    env_set POLARIS_HA_ENDPOINT "$my_ip"
+    # The DSN now looks remote, but the database is still local: keep the
+    # After=postgresql/redis ordering so the panel never starts first.
+    mkdir -p "${DB_DROPIN%/*}"
+    printf '[Unit]\nAfter=postgresql.service redis-server.service redis.service\n' > "$DB_DROPIN"
+    systemctl daemon-reload
+    systemctl restart polaris
+    wait_healthy || die "面板重启后未恢复（polaris log 查看）"
+    ok "面板已改走隧道连库"
+  fi
+
+  ha_install_syncwg_timer
+
+  step "生成加入 token"
+  ha_print_join_command
+
+  echo
+  ok "${C_BD}主节点初始化完成${C_0}（用时 $(human_dur "$SECONDS")）"
+  echo
+  dim "  备机加入后：wg show 应看到对端；主库 pg_stat_replication 应有 streaming 连接"
+}
+
+# ha_parse_bundle JSON: parse a join-config bundle into B_* shell variables.
+# Values are quoted with Python's shlex.quote, so eval is safe here; the
+# bundle holds secrets, which are never printed (dry-run uses placeholders
+# instead of calling this).
+ha_parse_bundle() {
+  eval "$(printf '%s' "$1" | python3 -c '
+import sys, json, shlex
+b = json.load(sys.stdin)
+wg = b.get("wg") or {}
+def out(k, v):
+    print("B_%s=%s" % (k, shlex.quote(str(v) if v is not None else "")))
+out("PANEL_VERSION", b.get("panel_version"))
+out("EDITION", b.get("edition"))
+out("PUBLIC_URL", b.get("public_url"))
+out("ADMIN_PATH", b.get("admin_path"))
+out("TIMEZONE", b.get("timezone"))
+out("SECRET_KEY", b.get("secret_key"))
+out("SECRET_KEY_PREVIOUS", b.get("secret_key_previous"))
+out("DB_DSN", b.get("db_dsn"))
+out("REDIS_URL", b.get("redis_url"))
+out("PG_VERSION", b.get("pg_version"))
+out("REPL_PASSWORD", b.get("repl_password"))
+out("DB_SIZE_BYTES", b.get("db_size_bytes"))
+out("WG_PUBKEY", wg.get("pubkey"))
+out("WG_ENDPOINT", wg.get("endpoint"))
+out("WG_IP", wg.get("ip"))
+out("WG_IP_PEER", b.get("wg_ip"))
+out("CF_TOKEN", b.get("cf_api_token"))
+out("DOMAIN", b.get("domain"))
+')"
+}
+
+# ha_register_peer MY_PUBLIC_IP: register this standby with the primary.
+# This consumes the join token, so it runs only after the config was fetched
+# and the version/disk checks passed.
+ha_register_peer() {
+  local my_ip="$1"
+  curl -fsS --max-time 15 -H "Authorization: Bearer $HA_TOKEN" -H "Content-Type: application/json" \
+    -d "{\"wg_ip\":\"$HA_WG_SECONDARY_IP\",\"pubkey\":\"$WG_PUB\",\"endpoint\":\"$my_ip\",\"role\":\"secondary\"}" \
+    "$HA_API_URL/ha/peers" >/dev/null || die "注册对端失败（token 可能已被用过：主节点重跑 polaris ha-token 再试）"
+  ok "对端已注册（wg_ip $HA_WG_SECONDARY_IP）"
+}
+
+# ha_setup_pg_replica: install the primary's PostgreSQL major version when
+# missing (PGDG), then rebuild this machine as a streaming replica.
+ha_setup_pg_replica() {
+  local want_ver="$B_PG_VERSION" have_ver data_dir conf
+  have_ver="$(ha_pg_major)"
+  if [ -z "$have_ver" ]; then
+    [ -n "$want_ver" ] || die "主节点未报告 PG 版本，无法安装对应版本"
+    pkg_install postgresql-common || die "postgresql-common 安装失败"
+    /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null 2>&1 || die "PGDG 源添加失败"
+    apt-get update -qq >/dev/null 2>&1
+    pkg_install "postgresql-$want_ver" || die "PostgreSQL $want_ver 安装失败"
+  elif [ -n "$want_ver" ] && [ "$have_ver" != "$want_ver" ]; then
+    die "PostgreSQL 大版本不一致：主节点 $want_ver，本机 $have_ver（流复制要求大版本相同）"
+  fi
+  systemctl start postgresql >/dev/null 2>&1
+  data_dir="$(ha_pg_data_dir)"
+  [ -n "$data_dir" ] || die "找不到 PostgreSQL 数据目录"
+  conf="$(ha_pg_conf_file)"
+  [ -n "$conf" ] || die "找不到 postgresql.conf"
+  # Already a standby? Then there is nothing to rebuild.
+  if [ -f "$data_dir/standby.signal" ]; then
+    ok "本机已是从库（standby.signal 存在），跳过重建"
+  else
+    # A cluster holding real polaris data must never be wiped blindly.
+    if pg_su -tAc "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'polaris')" 2>/dev/null | grep -q t; then
+      die "本机已有 polaris 数据库：ha-join 只接管全新空库，请先备份并清空"
+    fi
+    systemctl stop postgresql
+    rm -rf "${data_dir:?}/"*
+    # -R does not store the password in primary_conninfo, so the replica
+    # reconnects with this file; it must stay on the standby.
+    install -d -m 0700 -o postgres -g postgres /var/lib/postgresql
+    printf '10.8.0.1:5432:*:replicator:%s\n' "$B_REPL_PASSWORD" > /var/lib/postgresql/.pgpass
+    chmod 0600 /var/lib/postgresql/.pgpass
+    chown postgres:postgres /var/lib/postgresql/.pgpass
+    runuser -u postgres -- env PGPASSFILE=/var/lib/postgresql/.pgpass \
+      pg_basebackup -h "$HA_WG_PRIMARY_IP" -p 5432 -U replicator -D "$data_dir" -Fp -Xs -P -R -S hk_slot \
+      || die "pg_basebackup 失败（检查复制账号、密码与隧道）"
+  fi
+  ha_conf_set "$conf" listen_addresses "'localhost,10.8.0.2'" "="
+  ha_conf_set "$conf" hot_standby on "="
+  ha_conf_set "$conf" port 5432 "="
+  systemctl enable --now postgresql >/dev/null 2>&1
+  local i
+  for i in $(seq 1 30); do
+    [ "$(pg_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ] && break
+    [ "$i" = 30 ] && die "从库启动后仍不在恢复模式"
+    sleep 1
+  done
+  ok "从库已启动（恢复模式）"
+}
+
+# ha_certbot_dns TOKEN DOMAIN: request a certificate with the Cloudflare
+# DNS-01 plugin. The token lives in /root/.cloudflare.ini (0600), the
+# standard certbot layout.
+ha_certbot_dns() {
+  local token="$1" domain="$2"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "certbot certonly --dns-cloudflare -d $domain（CF token 不打印）"
+    return 0
+  fi
+  pkg_install certbot python3-certbot-dns-cloudflare || die "certbot 安装失败"
+  install -d -m 0700 /root
+  printf 'dns_cloudflare_api_token = %s\n' "$token" > /root/.cloudflare.ini
+  chmod 600 /root/.cloudflare.ini
+  certbot certonly --dns-cloudflare --dns-cloudflare-credentials /root/.cloudflare.ini \
+    --non-interactive --agree-tos --register-unsafely-without-email -d "$domain" \
+    || die "证书申请失败（检查 CF token 权限 Zone:DNS:Edit）"
+  certbot renew --dry-run >/dev/null 2>&1 || warn "证书续期演练未通过（certbot renew --dry-run 查看）"
+  ok "证书已申请（DNS-01）：$domain"
+}
+
+# ha_nginx_enable DOMAIN: nginx -t + enable once the certificate exists.
+ha_nginx_enable() {
+  local domain="$1"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "nginx -t 通过后 systemctl enable --now nginx"
+    return 0
+  fi
+  [ -f "/etc/letsencrypt/live/$domain/fullchain.pem" ] || { warn "证书尚未就绪，nginx 暂不启动"; return 0; }
+  nginx -t || die "nginx 配置检查失败"
+  systemctl enable --now nginx >/dev/null 2>&1
+  ok "nginx 已启动（443 反代 + 9443 直通）"
+}
+
+# ha_setup_nginx_cert: nginx reverse proxy (443) + stream passthrough (9443)
+# + certbot DNS-01 certificate. Without a Cloudflare token the configs are
+# written but nginx stays stopped; ha-join --finish completes it.
+ha_setup_nginx_cert() {
+  local cf_token="${CF_API_TOKEN:-$B_CF_TOKEN}" domain="$B_DOMAIN"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "apt install -y nginx-full"
+    if [ -n "$cf_token" ]; then
+      ha_plan "certbot certonly --dns-cloudflare -d $domain（CF token 密封保存，不打印）"
+    else
+      ha_plan "无 CF token：跳过证书申请（留给 ha-join --finish），nginx 配置先写好、暂不启用"
+    fi
+    ha_plan "写 /etc/nginx/sites-available/polaris（443 反代 127.0.0.1:8080）与 nginx.conf stream 段（9443 直通）"
+    ha_nginx_enable "$domain"
+    return 0
+  fi
+  pkg_install nginx-full || die "nginx 安装失败"
+  if [ -n "$cf_token" ]; then
+    ha_certbot_dns "$cf_token" "$domain"
+  else
+    warn "未提供 CF token：跳过证书申请；拿到 token 后执行 ha-join --finish 补做"
+  fi
+  cat > /etc/nginx/sites-available/polaris <<NGINX
+server {
+    listen 80;
+    server_name $domain;
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name $domain;
+
+    ssl_certificate /etc/letsencrypt/live/$domain/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$domain/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+NGINX
+  ln -sf /etc/nginx/sites-available/polaris /etc/nginx/sites-enabled/polaris
+  if ! grep -q '^stream' /etc/nginx/nginx.conf; then
+    cat >> /etc/nginx/nginx.conf <<NGINX
+
+stream {
+    upstream panel_agent {
+        server 127.0.0.1:9443;
+    }
+    server {
+        listen 9443;
+        proxy_pass panel_agent;
+        proxy_timeout 1h;
+    }
+}
+NGINX
+  fi
+  ha_nginx_enable "$domain"
+}
+
+# ha_setup_watchdog installs the DNS failover watchdog (standby only) and
+# the hourly backup-sync cron. The watchdog needs the Cloudflare zone and
+# record ids, looked up live; the backup sync only when passwordless SSH to
+# the primary already works.
+ha_setup_watchdog() {
+  local cf_token="${CF_API_TOKEN:-$B_CF_TOKEN}" domain="$B_DOMAIN"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "拷看门狗到 /usr/local/bin/cf-failover.sh，写 /etc/cf-failover.env（CF token 打码），cron 每分钟跑一次"
+    ha_plan "备机有免密 SSH 到主节点时，加每小时备份同步 cron（rsync 到 backups-peer）"
+    return 0
+  fi
+  if [ -n "$cf_token" ]; then
+    if ha_cf_ids "$cf_token" "$domain"; then
+      ha_watchdog_script > "$HA_WATCHDOG"
+      chmod +x "$HA_WATCHDOG"
+      {
+        printf 'CF_TOKEN=%s\n' "$cf_token"
+        printf 'CF_ZONE_ID=%s\n' "$CF_ZONE_ID"
+        printf 'CF_RECORD_ID=%s\n' "$CF_RECORD_ID"
+        printf 'CF_DOMAIN=%s\n' "$domain"
+        printf 'CF_ADMIN_PATH=%s\n' "${B_ADMIN_PATH:-/}"
+        printf 'CF_PRIMARY_IP=%s\n' "$B_WG_ENDPOINT"
+        printf 'CF_STANDBY_IP=%s\n' "$(public_ip)"
+      } > "$HA_WATCHDOG_ENV"
+      chmod 600 "$HA_WATCHDOG_ENV"
+      (crontab -l 2>/dev/null | grep -v 'cf-failover.sh'; echo "* * * * * $HA_WATCHDOG") | crontab -
+      ok "看门狗已安装（每分钟）"
+    else
+      warn "Cloudflare zone/record 查不到：看门狗暂不安装，ha-join --finish 时重试"
+    fi
+  else
+    warn "未提供 CF token：跳过看门狗，ha-join --finish 时补装"
+  fi
+  if ssh -o BatchMode=yes -o ConnectTimeout=5 "root@$HA_WG_PRIMARY_IP" true 2>/dev/null; then
+    (crontab -l 2>/dev/null | grep -v 'backups-peer'; echo "0 * * * * rsync -a --delete /var/lib/polaris/backups/ root@$HA_WG_PRIMARY_IP:/var/lib/polaris/backups-peer/") | crontab -
+    ok "备份同步 cron 已安装（每小时）"
+  else
+    warn "到主节点的免密 SSH 未通：先执行 ssh-copy-id root@$HA_WG_PRIMARY_IP，再手动加备份同步 cron（见部署文档 10.3）"
+  fi
+}
+
+# ha_self_check runs the runbook §8 checklist and prints one ok/bad line
+# per item; any failure aborts the join at the end (never silently passed).
+ha_self_check() {
+  local fails=0 redis_pass admin_path
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "自检：wg show 有对端、ping 10.8.0.1 通、pg_is_in_recovery()=t、回放追上、Redis role:slave、cluster_members 两行、/api/v1/info 200、--resolve 验备机 443"
+    return 0
+  fi
+  admin_path="${B_ADMIN_PATH:-/}"
+  if wg show wg0 2>/dev/null | grep -q "peer: $B_WG_PUBKEY"; then ok "隧道：对端已连接"; else bad "隧道：wg show 未见主节点对端"; fails=$((fails+1)); fi
+  if ping -c 2 -W 2 "$HA_WG_PRIMARY_IP" >/dev/null 2>&1; then ok "隧道：ping $HA_WG_PRIMARY_IP 通"; else bad "隧道：ping $HA_WG_PRIMARY_IP 不通"; fails=$((fails+1)); fi
+  if [ "$(pg_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ]; then ok "PostgreSQL：从库（恢复模式）"; else bad "PostgreSQL：不在恢复模式"; fails=$((fails+1)); fi
+  if [ "$(pg_su -tAc 'SELECT pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn()' 2>/dev/null)" = t ]; then ok "PostgreSQL：回放已追上"; else bad "PostgreSQL：回放未追上（稍等再查）"; fails=$((fails+1)); fi
+  redis_pass="$(ha_url_password "$B_REDIS_URL")"
+  if [ -n "$redis_pass" ] && redis-cli -h 10.8.0.2 -a "$redis_pass" info replication 2>/dev/null | grep -q '^role:slave' &&
+    redis-cli -h 10.8.0.2 -a "$redis_pass" info replication 2>/dev/null | grep -q '^master_link_status:up'; then
+    ok "Redis：从库，主链接 up"
+  else
+    bad "Redis：不是从库或主链接未通"
+    fails=$((fails+1))
+  fi
+  local i members
+  members=""
+  for i in $(seq 1 15); do
+    members="$(pg_su -d polaris -tAc 'SELECT count(*) FROM cluster_members' 2>/dev/null | tr -d '[:space:]')" || members=""
+    [ "$members" = 2 ] && break
+    sleep 2
+  done
+  if [ "$members" = 2 ]; then ok "双实例：cluster_members 两行"; else bad "双实例：cluster_members 只有 ${members:-0} 行（面板可能还未注册）"; fails=$((fails+1)); fi
+  if curl -sf --max-time 5 "http://127.0.0.1:8080${admin_path%/}/api/v1/info" >/dev/null 2>&1; then ok "面板：/api/v1/info 200"; else bad "面板：/api/v1/info 不通"; fails=$((fails+1)); fi
+  if [ -f "/etc/letsencrypt/live/$B_DOMAIN/fullchain.pem" ]; then
+    if curl -sk --resolve "$B_DOMAIN:443:$(public_ip)" --max-time 8 "https://$B_DOMAIN${admin_path%/}/api/v1/info" >/dev/null 2>&1; then
+      ok "备机直验：https://$B_DOMAIN/api/v1/info 200"
+    else
+      bad "备机直验：https://$B_DOMAIN/api/v1/info 不通"
+      fails=$((fails+1))
+    fi
+  else
+    dim "  备机直验跳过（证书尚未就绪，ha-join --finish 后再验）"
+  fi
+  [ "$fails" = 0 ] || die "自检有 $fails 项未通过（上面标 ✗ 的项），先修好再投入使用"
+}
+
+do_ha_join() {
+  ha_require_apt
+  # --finish needs no token or URL: it only needs the local env + CF token.
+  if [ "$HA_FINISH" = 1 ]; then
+    do_ha_finish
+    return 0
+  fi
+  [ -n "$HA_TOKEN" ] && [ -n "$HA_PANEL_URL" ] || die "用法：bash <(curl -fsSL $RAW_SCRIPT) ha-join <token> <panel-url> [--dry-run]"
+  HA_PANEL_URL="${HA_PANEL_URL%/}"
+  HA_API_URL="$HA_PANEL_URL/api/v1"
+  local role
+  role="$(env_get POLARIS_HA_ROLE)"
+  if [ "$role" = secondary ]; then
+    echo
+    ok "本机已是备节点（HA 已加入）"
+    do_ha_status
+    return 0
+  fi
+  [ -z "$role" ] || die "本机角色是 $role：ha-join 只能在未初始化的备机上执行"
+  SECONDS=0 STEP_N=0 STEP_TOTAL=11
+  banner "高可用：加入备节点"
+  kv 主节点 "$HA_PANEL_URL"
+  echo
+
+  step "前置检查"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "检查：Debian/Ubuntu、python3、端口 8080/9443/51820 空闲、443 未被节点入站占用、磁盘剩余 ≥ 库大小 × 1.2、PG 大版本与主节点一致、时间同步"
+  else
+    command -v python3 >/dev/null || { pkg_install python3 || die "python3 安装失败"; }
+    if ! installed; then
+      port_busy 8080 && die "$(port_msg 8080)：请先腾出面板端口"
+      port_busy 9443 && die "$(port_msg 9443)：请先腾出节点接入端口"
+    fi
+    if command -v ss >/dev/null && ! wg show wg0 >/dev/null 2>&1 && ss -Huln "sport = :$HA_WG_PORT" 2>/dev/null | grep -q .; then
+      die "端口 $HA_WG_PORT/udp 已被占用"
+    fi
+    if port_busy 443; then
+      local o
+      o="$(port_owner 443)"
+      case "$o" in *nginx*) warn "443 已被 nginx 占用（可能是上次 join 留下的），继续" ;; *) die "端口 443 已被占用${o:+（$o）}：若是节点入站，先在面板里把它改到别的端口，再重跑 ha-join" ;; esac
+    fi
+    if command -v timedatectl >/dev/null; then
+      [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ] || warn "时间同步未开启（timedatectl set-ntp true）；租约时间以库为准，偏一点没事，别差出分钟级"
+    fi
+    ok "前置检查通过"
+  fi
+
+  step "安装 WireGuard 并生成密钥"
+  if ! command -v wg >/dev/null; then
+    if [ "$HA_DRYRUN" = 1 ]; then ha_plan "apt install -y wireguard"; else pkg_install wireguard || die "wireguard 安装失败"; fi
+  fi
+  ha_wg_keypair
+  [ "$HA_DRYRUN" = 1 ] || ok "WireGuard 密钥就绪"
+
+  step "取配置包并注册对端"
+  # The token authorises both calls; the GET comes first because the POST
+  # consumes the token (a failed fetch must not burn it).
+  local bundle_json my_ip
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "GET $HA_API_URL/ha/join-config（Bearer <加入TOKEN>，校验证书，不提供 --insecure）"
+    ha_plan "检查：PG 大版本与主节点一致、磁盘剩余 ≥ 库大小 × 1.2"
+    ha_plan "POST $HA_API_URL/ha/peers（wg_ip=10.8.0.2，公钥，endpoint=<本机公网IP>）"
+    B_PANEL_VERSION="v0.1.258"; B_EDITION="pro"; B_DOMAIN="polaris.cuijianzhuang.com"
+    B_SECRET_KEY="<SECRET_KEY>"; B_SECRET_KEY_PREVIOUS=""; B_ADMIN_PATH="/"
+    B_TIMEZONE="Asia/Shanghai"; B_DB_DSN="postgres://polaris:********@10.8.0.1:5432/polaris"
+    B_REDIS_URL="redis://:********@10.8.0.1:6379/0"; B_PG_VERSION="<主库PG大版本>"
+    B_REPL_PASSWORD="********"; B_DB_SIZE_BYTES=""
+    B_WG_PUBKEY="<主节点WG公钥>"; B_WG_IP="10.8.0.1"; B_WG_ENDPOINT="<主节点公网IP>"
+    B_WG_IP_PEER="10.8.0.2"; B_CF_TOKEN=""
+  else
+    bundle_json="$(curl -fsS --max-time 15 -H "Authorization: Bearer $HA_TOKEN" "$HA_API_URL/ha/join-config")" || die "取配置包失败：请检查 token 是否过期（10 分钟）、主节点是否可达，以及 panel-url 是否带上了管理路径"
+    ha_parse_bundle "$bundle_json"
+    # The primary assigns the standby's WireGuard address (10.8.0.2 unless
+    # the operator set ha_peer_wg_ip on the primary); honour it.
+    HA_WG_SECONDARY_IP="${B_WG_IP_PEER:-$HA_WG_SECONDARY_IP}"
+    local want_ver have_ver
+    want_ver="$B_PG_VERSION"
+    have_ver="$(ha_pg_major)"
+    if [ -n "$want_ver" ] && [ -n "$have_ver" ] && [ "$want_ver" != "$have_ver" ]; then
+      die "PostgreSQL 大版本不一致：主节点 $want_ver，本机 $have_ver（流复制要求大版本相同）"
+    fi
+    if printf '%s' "$B_DB_SIZE_BYTES" | grep -qE '^[0-9]+$' && [ "$B_DB_SIZE_BYTES" -gt 0 ]; then
+      local free_kb need_kb
+      free_kb="$(df -k / 2>/dev/null | awk 'NR==2{print $4}')" || free_kb=""
+      need_kb=$((B_DB_SIZE_BYTES * 6 / 5 / 1024 + 102400))
+      if [ -n "$free_kb" ] && [ "$free_kb" -lt "$need_kb" ]; then
+        die "磁盘空间不足：数据库约 $(human_bytes "$B_DB_SIZE_BYTES")，需要至少 $(human_bytes "$((need_kb * 1024))")，/ 剩余 $(human_bytes "$((free_kb * 1024))")"
+      fi
+    fi
+    my_ip="$(public_ip)"
+    [ -n "$my_ip" ] || die "无法探测本机公网 IP"
+    ha_register_peer "$my_ip"
+  fi
+
+  step "写隧道配置并验证"
+  ha_wg_write_conf "$HA_WG_SECONDARY_IP" "$B_WG_PUBKEY" "$B_WG_IP" "$B_WG_ENDPOINT"
+  ha_wg_start
+  ha_wg_ping "$HA_WG_PRIMARY_IP"
+
+  step "搭建 PostgreSQL 从库"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "装 PostgreSQL $B_PG_VERSION（本机未装时走 PGDG；大版本不同则退出）"
+    ha_plan "停 postgresql，清空本机空数据目录，pg_basebackup -h 10.8.0.1 -U replicator -S hk_slot"
+    ha_plan ".pgpass 留在备机（0600，postgres 所有）：从库重连靠它"
+    ha_plan "postgresql.conf：listen_addresses='localhost,10.8.0.2' hot_standby=on port=5432；启动后验证 pg_is_in_recovery()=t"
+  else
+    ha_setup_pg_replica
+  fi
+
+  step "配置 Redis 从库"
+  if ! command -v redis-server >/dev/null; then
+    if [ "$HA_DRYRUN" = 1 ]; then ha_plan "apt install -y redis-server"; else pkg_install redis-server || die "Redis 安装失败"; fi
+  fi
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "redis.conf：bind 127.0.0.1 10.8.0.2，requirepass ********，masterauth ********，replicaof 10.8.0.1 6379"
+    ha_plan "systemctl restart redis-server；info replication 应为 role:slave，master_link_status:up"
+  else
+    [ -f /etc/redis/redis.conf ] || die "找不到 /etc/redis/redis.conf"
+    local redis_pass
+    redis_pass="$(ha_url_password "$B_REDIS_URL")"
+    [ -n "$redis_pass" ] || die "配置包里的 redis_url 没有密码"
+    ha_conf_set /etc/redis/redis.conf bind "127.0.0.1 10.8.0.2" " "
+    ha_conf_set /etc/redis/redis.conf protected-mode yes " "
+    ha_conf_set /etc/redis/redis.conf requirepass "$redis_pass" " "
+    ha_conf_set /etc/redis/redis.conf masterauth "$redis_pass" " "
+    ha_conf_set /etc/redis/redis.conf replicaof "10.8.0.1 6379" " "
+    ha_conf_set /etc/redis/redis.conf appendonly yes " "
+    systemctl restart redis-server 2>/dev/null || systemctl restart redis 2>/dev/null || die "Redis 重启失败"
+    if redis-cli -h 10.8.0.2 -a "$redis_pass" info replication 2>/dev/null | grep -q '^role:slave'; then
+      ok "Redis 从库就绪"
+    else
+      die "Redis 未成为从库（info replication 查看）"
+    fi
+  fi
+
+  step "安装面板（同版本、同库、同 Redis）"
+  if installed; then
+    ok "面板已安装，跳过安装（继续同步配置）"
+  elif [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "install --pro --version $B_PANEL_VERSION --domain $B_DOMAIN --no-caddy --db 'postgres://polaris:********@10.8.0.1:5432/polaris' --redis 'redis://:********@10.8.0.1:6379/0' --port 8080 --agent-port 9443"
+    ha_plan "密钥用配置包的 SECRET_KEY（不重新生成），管理路径用配置包的 ADMIN_PATH；跳过全新库检查与首次登录信息打印"
+  else
+    EDITION="$B_EDITION"; VERSION="$B_PANEL_VERSION"; DOMAIN="$B_DOMAIN"; CADDY=0
+    DB_CHOICE="$B_DB_DSN"; REDIS_CHOICE="$B_REDIS_URL"; PORT=8080; AGENT_PORT=9443
+    ADMIN_PATH="$B_ADMIN_PATH"; SECRET_OVERRIDE="$B_SECRET_KEY"; HA_JOIN=1
+    do_install
+  fi
+
+  step "同步密钥与配置"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "POLARIS_SECRET_KEY=<配置包的值>，POLARIS_SECRET_KEY_PREVIOUS=<配置包的值>"
+    ha_plan "POLARIS_DB_DSN、POLARIS_REDIS_URL、POLARIS_ADMIN_PATH、POLARIS_PUBLIC_URL 按配置包改好"
+    ha_plan "POLARIS_TIMEZONE=$B_TIMEZONE，POLARIS_HA_ROLE=secondary，POLARIS_HA_WG_IP=10.8.0.2，POLARIS_HA_ENDPOINT=<本机公网IP>"
+    ha_plan "systemctl restart polaris，wait_healthy 确认"
+  else
+    env_set POLARIS_SECRET_KEY "$B_SECRET_KEY"
+    env_set POLARIS_SECRET_KEY_PREVIOUS "$B_SECRET_KEY_PREVIOUS"
+    env_set POLARIS_DB_DSN "$B_DB_DSN"
+    env_set POLARIS_REDIS_URL "$B_REDIS_URL"
+    env_set POLARIS_ADMIN_PATH "$B_ADMIN_PATH"
+    env_set POLARIS_PUBLIC_URL "$B_PUBLIC_URL"
+    env_set POLARIS_TIMEZONE "$B_TIMEZONE"
+    env_set POLARIS_HA_ROLE secondary
+    env_set POLARIS_HA_WG_PUBKEY "$WG_PUB"
+    env_set POLARIS_HA_WG_IP "$HA_WG_SECONDARY_IP"
+    local my_ip
+    my_ip="$(public_ip)"
+    [ -n "$my_ip" ] || die "无法探测本机公网 IP"
+    env_set POLARIS_HA_ENDPOINT "$my_ip"
+    env_set POLARIS_HA_PEER_WG_IP "$HA_WG_PRIMARY_IP"
+    systemctl restart polaris
+    wait_healthy || die "面板重启后未恢复（polaris log 查看）"
+    ok "面板已同步配置并重启"
+  fi
+
+  step "配置 nginx 与证书"
+  ha_setup_nginx_cert
+
+  step "安装看门狗与备份同步"
+  ha_setup_watchdog
+
+  step "自检"
+  ha_self_check
+
+  echo
+  ok "${C_BD}备节点加入完成${C_0}（用时 $(human_dur "$SECONDS")）"
+  echo
+  dim "  主节点上：wg show 应看到备机对端；pg_stat_replication 应有 streaming 连接"
+}
+
+# do_ha_finish completes a join that skipped the certificate and watchdog
+# for lack of a Cloudflare token. The token comes from the environment now:
+# the sealed copy on the primary cannot be read back from this machine.
+do_ha_finish() {
+  need_installed
+  local role
+  role="$(env_get POLARIS_HA_ROLE)"
+  [ "$role" = secondary ] || die "ha-join --finish 只在备节点上执行（本机角色：${role:-none}）"
+  SECONDS=0 STEP_N=0 STEP_TOTAL=3
+  banner "高可用：补做证书与看门狗"
+  local cf_token url domain primary_ip
+  cf_token="${CF_API_TOKEN:-}"
+  [ -n "$cf_token" ] || die "需要 CF_API_TOKEN：CF_API_TOKEN=<token> $0 ha-join --finish（token 需 Zone:DNS:Edit 权限）"
+  url="$(env_get POLARIS_PUBLIC_URL)"
+  domain="${url#https://}"; domain="${domain#http://}"; domain="${domain%%/*}"
+  [ -n "$domain" ] || die "POLARIS_PUBLIC_URL 未配域名"
+  primary_ip="${CF_PRIMARY_IP:-}"
+  if [ -z "$primary_ip" ]; then
+    primary_ip="$(getent hosts "$domain" | awk '{print $1}' | head -n1)" || primary_ip=""
+  fi
+  [ -n "$primary_ip" ] || die "无法确定主节点公网 IP：设置 CF_PRIMARY_IP 再重试"
+  B_DOMAIN="$domain"; B_WG_ENDPOINT="$primary_ip"; B_CF_TOKEN="$cf_token"
+  B_ADMIN_PATH="$(env_get POLARIS_ADMIN_PATH)"
+
+  step "申请证书"
+  ha_certbot_dns "$cf_token" "$domain"
+
+  step "启用 nginx"
+  ha_nginx_enable "$domain"
+
+  step "安装看门狗"
+  ha_setup_watchdog
+
+  echo
+  ok "${C_BD}证书与看门狗补做完成${C_0}（用时 $(human_dur "$SECONDS")）"
+}
+
+do_ha_status() {
+  banner "高可用状态"
+  local role rurl rpass rhost
+  role="$(env_get POLARIS_HA_ROLE)"; [ -n "$role" ] || role="none"
+  kv 角色 "$role"
+  if [ "$role" != none ]; then
+    kv "WG 地址" "$(env_get POLARIS_HA_WG_IP)"
+    kv "WG 公钥" "$(env_get POLARIS_HA_WG_PUBKEY)"
+    kv "公网地址" "$(env_get POLARIS_HA_ENDPOINT)"
+    kv "对端 WG" "$(env_get POLARIS_HA_PEER_WG_IP)"
+  fi
+  rurl="$(env_get POLARIS_REDIS_URL)"
+  [ -n "$rurl" ] && kv Redis "$(printf '%s' "$rurl" | sed -E 's|://[^@]*@|://***@|')"
+  echo
+  if command -v wg >/dev/null; then
+    echo "  WireGuard："
+    wg show 2>/dev/null | sed 's/^/    /' || echo "    未启动"
+  else
+    echo "  WireGuard：未安装"
+  fi
+  echo "  PostgreSQL："
+  if command -v psql >/dev/null && pg_su -tAc 'SELECT 1' >/dev/null 2>&1; then
+    local rec
+    rec="$(pg_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" || rec=""
+    case "$rec" in
+      t) printf '    从库（恢复模式），回放落后：%s\n' "$(pg_su -tAc "SELECT now() - pg_last_xact_replay_timestamp()" 2>/dev/null)" ;;
+      f) printf '    主库，复制连接：%s\n' "$(pg_su -tAc 'SELECT count(*) FROM pg_stat_replication' 2>/dev/null)" ;;
+      *) echo "    状态未知" ;;
+    esac
+  else
+    echo "    未运行或未安装"
+  fi
+  echo "  Redis："
+  rpass="$(ha_url_password "$rurl")"; rhost="$(ha_url_host "$rurl")"
+  if [ -n "$rpass" ] && [ -n "$rhost" ] && command -v redis-cli >/dev/null; then
+    redis-cli -h "$rhost" -a "$rpass" info replication 2>/dev/null | grep -E '^(role|master_link_status|master_host):' | sed 's/^/    /' || echo "    连不上"
+  else
+    echo "    未配置"
+  fi
+  echo "  面板："
+  if running; then printf '    运行中（%s %s）\n' "$(panel_version)" "$(installed_edition)"; else echo "    未运行"; fi
+}
+
 # --- node agent --------------------------------------------------------------
 # The same tool manages a node: the agent is installed by the panel's
 # install.sh (one-click link), which also drops this script in as `polaris`.
@@ -1861,6 +2952,25 @@ ACTION=""
 while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node|doctor|check-update) ACTION="$1"; shift ;;
+    ha-init|ha-status) ACTION="$1"; shift ;;
+    ha-join) ACTION=ha-join; shift
+      # Flags may come before the token (--dry-run / --finish in any order);
+      # --finish takes no token: ha-join --finish [--dry-run]
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dry-run) HA_DRYRUN=1; shift ;;
+          --finish) HA_FINISH=1; shift ;;
+          *) break ;;
+        esac
+      done
+      if [ "$HA_FINISH" = 1 ]; then :
+      else
+        [ $# -ge 2 ] || die "用法：$0 ha-join <token> <panel-url> [--dry-run]（panel-url 带上管理路径，如 https://域名/管理路径）；补做证书与看门狗用：$0 ha-join --finish [--dry-run]"
+        HA_TOKEN="$1"; HA_PANEL_URL="$2"; shift 2
+      fi ;;
+    --dry-run) HA_DRYRUN=1; shift ;;
+    --finish) HA_FINISH=1; shift ;;
+    --endpoint) HA_ENDPOINT="$2"; shift 2 ;;
     self-update) ACTION=self-update; shift ;;
     update-request) ACTION=update-request; shift ;;
     agent) ACTION=agent; shift; AGENT_SUB="${1:-menu}"; [ $# -gt 0 ] && shift; AGENT_ARG="${1:-}"; [ $# -gt 0 ] && shift ;;
@@ -1947,4 +3057,7 @@ case "$ACTION" in
   backup) do_backup ;;
   restore) do_restore "$ARG" ;;
   node) do_node ;;
+  ha-init) do_ha_init ;;
+  ha-join) do_ha_join ;;
+  ha-status) do_ha_status ;;
 esac

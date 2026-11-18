@@ -211,12 +211,22 @@ func TestHAStatus(t *testing.T) {
 	if !found {
 		t.Fatalf("members missing m1: %v", out["members"])
 	}
-	if err := s.st.SetSetting("ha.role", "primary"); err != nil {
-		t.Fatal(err)
-	}
+	// The role now lives in this instance's own env file (POLARIS_HA_ROLE),
+	// not in shared settings: the primary and the standby read the same
+	// settings table, so a per-instance value cannot live there.
+	s.cfg.HARole = "primary"
 	_, out = c.do("GET", "/ha/status", nil)
 	if out["role"] != "primary" {
 		t.Fatalf("role after setting: %v", out["role"])
+	}
+	// dbSizeBytes is the database size on PostgreSQL (pg_database_size) and
+	// null on SQLite.
+	if s.haIsPostgres() {
+		if _, ok := out["dbSizeBytes"].(float64); !ok {
+			t.Fatalf("db size on PostgreSQL must be a number: %v", out["dbSizeBytes"])
+		}
+	} else if out["dbSizeBytes"] != nil {
+		t.Fatalf("db size must be null on SQLite: %v", out["dbSizeBytes"])
 	}
 }
 

@@ -4,11 +4,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,7 +22,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup", "restore", "restore-drill", "node-token", "ha-token", "migrate":
+		case "admin", "backup", "restore", "restore-drill", "node-token", "ha-token", "ha-seal-secret", "ha", "migrate":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -79,6 +82,11 @@ const usage = `usage:
                                             (creates the node "本机" unless it exists)
   polaris ha-token                          one-time token for joining a standby panel instance
                                             (10 minutes, single use; voids unused tokens)
+  polaris ha-seal-secret NAME               seal a secret read from stdin into cluster_secrets
+                                            (ha-init uses it for the replication / Redis passwords)
+  polaris ha sync-wg                        reconcile the local WireGuard peers with ha_peers
+                                            (runs from a timer on the primary; never inside the
+                                            panel server process)
 Configuration is read from the environment (POLARIS_*) or -config FILE.`
 
 // maintenance runs operator subcommands against the configured database.
@@ -188,6 +196,32 @@ func maintenance(cmd string, args []string) int {
 			return fail(err)
 		}
 		fmt.Println(tok)
+	case cmd == "ha-seal-secret":
+		if len(pos) != 1 {
+			fs.Usage()
+			return 2
+		}
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fail(err)
+		}
+		if strings.TrimSpace(string(raw)) == "" {
+			return fail(errors.New("ha-seal-secret: empty value"))
+		}
+		if err := panel.HASealSecret(cfg, pos[0], strings.TrimSpace(string(raw))); err != nil {
+			return fail(err)
+		}
+		fmt.Println("sealed", pos[0])
+	case cmd == "ha":
+		if len(pos) != 1 || pos[0] != "sync-wg" {
+			fs.Usage()
+			return 2
+		}
+		summary, err := panel.SyncWG(cfg)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Println(summary)
 	case sub == "list":
 		names, err := panel.AdminList(cfg)
 		if err != nil {

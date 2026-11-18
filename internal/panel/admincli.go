@@ -222,6 +222,22 @@ func LocalNodeToken(cfg *Config, name string) (string, bool, error) {
 	return tok, created, nil
 }
 
+// HASealSecret seals value with the store's BoxSet and stores it under name
+// in cluster_secrets. The value arrives from stdin (see the maintenance
+// CLI), never from an argument list, so it cannot leak into ps output.
+// ha-init uses it for the replication and Redis passwords.
+func HASealSecret(cfg *Config, name, value string) error {
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := setHAClusterSecretDB(st.DB, st.Box, name, value); err != nil {
+		return err
+	}
+	return st.DB.Create(&store.AuditLog{Admin: "cli", Action: "ha.seal_secret", Target: name}).Error
+}
+
 // HAToken mints a one-time HA join token (10 minutes, single use). Unlike
 // LocalNodeToken it creates no node record: the token only authorises
 // fetching the join config and registering a WireGuard peer. Minting a new
