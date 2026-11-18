@@ -460,11 +460,14 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 	// operating system does not know ("database locale is incompatible
 	// with operating system"). The standby is usually a different machine,
 	// so send the collation with the bundle and let ha-join check it before
-	// copying 80 GB of WAL to find out.
+	// copying 80 GB of WAL to find out. Read it from the catalog, not
+	// SHOW lc_collate: the SHOW form comes back empty through this
+	// driver's Scan (go-postgres red on TestHAJoinTokenFlow at #410),
+	// while the catalog value is always populated for a real database.
 	pgCollate := ""
 	if s.haIsPostgres() {
 		var c string
-		if err := s.st.DB.Raw("SHOW lc_collate").Scan(&c).Error; err == nil {
+		if err := s.st.DB.Raw("SELECT datcollate FROM pg_database WHERE datname = current_database()").Scan(&c).Error; err == nil {
 			pgCollate = c
 		}
 	}
