@@ -1032,7 +1032,7 @@ func AllModels() []any {
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},
 		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{}, &CDNIPReport{},
-		&RemotePanel{},
+		&RemotePanel{}, &HAJoinToken{}, &HAPeer{},
 	}
 }
 
@@ -1208,6 +1208,30 @@ type BusPayload struct {
 type ClusterSecret struct {
 	Name  string `gorm:"primaryKey;size:32"`
 	Value string `gorm:"type:text"`
+}
+
+// HAJoinToken is a one-time token for joining a standby panel instance.
+// Only the SHA-256 of the token is stored. It expires after 10 minutes and
+// is consumed when the standby registers its WireGuard peer.
+type HAJoinToken struct {
+	ID         string     `gorm:"primaryKey;size:32"`
+	TokenHash  string     `gorm:"size:64;uniqueIndex"`
+	CreatedBy  string     `gorm:"size:64"`
+	CreatedAt  time.Time  `gorm:"not null;index"`
+	ExpiresAt  time.Time  `gorm:"not null;index"`
+	UsedAt     *time.Time `gorm:"index"`
+	UsedByWGIP string     `gorm:"size:64"`
+}
+
+// HAPeer is a WireGuard peer of this panel cluster (the other instance).
+// The private keys never leave their host and are never stored here.
+type HAPeer struct {
+	WGIP      string     `gorm:"primaryKey;size:64" json:"wgIp"`
+	Pubkey    string     `gorm:"size:64" json:"pubkey"`
+	Endpoint  string     `gorm:"size:255" json:"endpoint"`
+	Role      string     `gorm:"size:32" json:"role"`
+	CreatedAt time.Time  `gorm:"not null" json:"createdAt"`
+	LastSeen  *time.Time `json:"lastSeen"`
 }
 
 // TrafficInbox holds traffic the panel has acknowledged to an agent but

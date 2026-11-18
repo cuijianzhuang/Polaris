@@ -19,7 +19,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup", "restore", "restore-drill", "node-token", "migrate":
+		case "admin", "backup", "restore", "restore-drill", "node-token", "ha-token", "migrate":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -77,6 +77,8 @@ const usage = `usage:
                                             postgres://user:pass@host/db); stop the panel first
   polaris node-token [-n NAME]              one-time install token for a node on this server
                                             (creates the node "本机" unless it exists)
+  polaris ha-token                          one-time token for joining a standby panel instance
+                                            (10 minutes, single use; voids unused tokens)
 Configuration is read from the environment (POLARIS_*) or -config FILE.`
 
 // maintenance runs operator subcommands against the configured database.
@@ -178,6 +180,12 @@ func maintenance(cmd string, args []string) int {
 		}
 		if created {
 			fmt.Fprintln(os.Stderr, "node created")
+		}
+		fmt.Println(tok)
+	case cmd == "ha-token":
+		tok, err := panel.HAToken(cfg, "cli")
+		if err != nil {
+			return fail(err)
 		}
 		fmt.Println(tok)
 	case sub == "list":
