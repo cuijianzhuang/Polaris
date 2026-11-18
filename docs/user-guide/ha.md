@@ -317,15 +317,27 @@ curl -s -X POST http://<WITNESS_IP>:8443/promoted -H 'Content-Type: application/
 
 ## 可选项：同步复制（零丢失，但要付出延迟）
 
-默认异步复制，故障瞬间可能丢几秒写入。若接受每次写库多一次 dmit↔HK 往返延迟：
+默认异步复制，故障瞬间可能丢几秒写入。若接受每次写库多一次 dmit↔HK 往返延迟，在面板「高可用」页的「PostgreSQL 复制」卡片里点「开启同步复制」（需要二次验证），「恢复异步」点回来。
+
+开启后卡片会显示当前使用的规则（`FIRST 1 (polaris_standby)`）和状态：
+
+| 状态 | 含义 |
+|---|---|
+| 同步复制已生效 | 主库提交确实在等备机确认（`pg_stat_replication.sync_state = sync`） |
+| 已设置但未生效 | 规则已写入，但当前没有对得上的备机在流复制：写入仍是异步的，先把备机连上 |
+| 异步复制 | `synchronous_standby_names` 为空，即默认状态 |
+
+还没有备节点加入时，面板会拒绝开启，不会写入一个没人应答的规则——那会让每次写库都卡住，而不是被保护。
+
+**前置条件**：备机 `primary_conninfo` 里的 `application_name` 必须是 `polaris_standby`（新版 `ha-join` 会自动写入；旧版装的是 `walreceiver`，需要手工改，面板会把状态显示成「已设置但未生效」）。改完 `systemctl reload postgresql` 生效。
+
+**改回去**：点「恢复异步」，或手工
 
 ```sql
 -- dmit 主库上
-ALTER SYSTEM SET synchronous_standby_names = 'hk_slot';
+ALTER SYSTEM RESET synchronous_standby_names;
 SELECT pg_reload_conf();
 ```
-
-再确认从库的 `primary_conninfo` 里 `application_name` 对得上（`pg_basebackup -R` 默认写的是 `walreceiver`，需改成 `hk_slot` 对应的名字，或把 `synchronous_standby_names` 设为 `*`）。改完验证主库 `pg_stat_replication` 的 `sync_state` 为 `sync`。
 
 ## 限制与常见问题
 

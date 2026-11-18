@@ -281,6 +281,17 @@ diff "$work/embedded-fence.sh" "$SCRIPT_DIR/polaris-ha-fence.sh" >/dev/null \
   || fail "embedded fence drifted from scripts/polaris-ha-fence.sh (diff $work/embedded-fence.sh $SCRIPT_DIR/polaris-ha-fence.sh)"
 echo "ok: embedded fence matches scripts/polaris-ha-fence.sh"
 
+# The standby's application_name is written by this script and read by the
+# panel when it builds synchronous_standby_names. If the two drift, the HA
+# page reports "已设置但未生效" while writes are actually asynchronous.
+script_app="$(grep -E '^HA_SYNC_APPNAME=' "$INSTALLER" | head -n1 | cut -d= -f2-)"
+go_app="$(grep -E '^const haSyncAppName = ' "$SCRIPT_DIR/../internal/panel/api_ha.go" | head -n1 | cut -d'"' -f2)"
+[ -n "$script_app" ] || fail "HA_SYNC_APPNAME missing from install-panel.sh"
+[ -n "$go_app" ] || fail "haSyncAppName missing from internal/panel/api_ha.go"
+[ "$script_app" = "$go_app" ] \
+  || fail "application_name drifted: install-panel.sh=$script_app api_ha.go=$go_app"
+echo "ok: application_name matches the panel constant ($script_app)"
+
 run_case init
 run_case join
 run_case join-openresty

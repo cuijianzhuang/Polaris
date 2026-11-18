@@ -466,6 +466,7 @@ func (s *Server) Router() http.Handler {
 	p.GET("/ha/peers", s.haListPeers)
 	p.DELETE("/ha/peers/:wg_ip", s.requireSudo, s.haDeletePeer)
 	p.POST("/ha/failover-check", s.haFailoverCheck)
+	p.POST("/ha/sync-replication", s.requireSudo, s.haSaveSyncReplication)
 	p.GET("/operational-health", s.getOperationalHealth)
 	p.GET("/user-notices", s.listUserNotices)
 	p.GET("/ready", s.readiness)

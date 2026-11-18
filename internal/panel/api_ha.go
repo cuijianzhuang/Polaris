@@ -99,6 +99,7 @@ type haReplica struct {
 	ClientAddr string `json:"clientAddr"`
 	State      string `json:"state"`
 	SyncState  string `json:"syncState"`
+	AppName    string `json:"appName"`
 	LagBytes   *int64 `json:"lagBytes"`
 }
 
@@ -111,6 +112,7 @@ func (s *Server) haReplication() []haReplica {
 	}
 	var rows []haReplica
 	if err := s.st.DB.Raw(`SELECT client_addr::text AS client_addr, state, sync_state,
+		COALESCE(application_name, '') AS app_name,
 		pg_wal_lsn_diff(sent_lsn, replay_lsn)::bigint AS lag_bytes FROM pg_stat_replication`).Scan(&rows).Error; err != nil {
 		return nil
 	}
@@ -118,6 +120,32 @@ func (s *Server) haReplication() []haReplica {
 		return []haReplica{}
 	}
 	return rows
+}
+
+// haSyncReplicationEnabled reports the primary's synchronous_standby_names
+// and whether this transaction is actually waiting for a standby ack.
+//
+// Setting the GUC only makes the primary *wait* when the name it lists
+// matches a connected standby's application_name; a mismatched name looks
+// configured but still runs fully asynchronous. Reporting both values lets
+// the page say which of the two states the cluster is in instead of
+// claiming sync replication when nothing is waiting.
+func (s *Server) haSyncReplicationEnabled() (names string, waiting bool) {
+	if !s.haIsPostgres() {
+		return "", false
+	}
+	if err := s.st.DB.Raw("SELECT COALESCE(current_setting('synchronous_standby_names', true), '')").Scan(&names).Error; err != nil {
+		return "", false
+	}
+	if strings.TrimSpace(names) == "" {
+		return "", false
+	}
+	for _, r := range s.haReplication() {
+		if r.SyncState == "sync" || r.SyncState == "quorum" {
+			return names, true
+		}
+	}
+	return names, false
 }
 
 // haReplayState reports whether this database is in recovery (a standby)
@@ -153,6 +181,7 @@ func (s *Server) haStatus(c *gin.Context) {
 		leader = s.procID
 	}
 	inRecovery, replayLag := s.haReplayState()
+	syncNames, syncWaiting := s.haSyncReplicationEnabled()
 	c.JSON(http.StatusOK, gin.H{
 		"role":             s.haRole(),
 		"members":          members,
@@ -161,6 +190,8 @@ func (s *Server) haStatus(c *gin.Context) {
 		"replication":      s.haReplication(),
 		"inRecovery":       inRecovery,
 		"replayLagSeconds": replayLag,
+		"syncNames":        syncNames,
+		"syncWaiting":      syncWaiting,
 		"redisConfigured":  s.cfg.RedisURL != "",
 		"dbSizeBytes":      s.haDBSize(),
 		"version":          Version,
@@ -201,6 +232,89 @@ func (s *Server) haSaveCFToken(c *gin.Context) {
 	}
 	s.auditCtx(c, "ha.cf_token", "cloudflare", "")
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// haSaveSyncReplication is POST /ha/sync-replication (sudo). It turns
+// synchronous replication on or off on the primary by setting
+// synchronous_standby_names, the option the HA design left to the wizard
+// (§12 Q3).
+//
+// The value comes from ha_peers, never from the request: a name that does
+// not match a connected standby's application_name makes PostgreSQL wait
+// for a confirmation that never arrives, which would block every write
+// instead of protecting it. An empty peer list therefore refuses to enable
+// rather than setting a wildcard.
+//
+// The change is ALTER SYSTEM + pg_reload_conf(), so it survives a restart
+// and takes effect without dropping the connection that writes it.
+func (s *Server) haSaveSyncReplication(c *gin.Context) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		badRequest(c, err)
+		return
+	}
+	if !s.haIsPostgres() {
+		badRequest(c, errors.New("synchronous replication requires PostgreSQL"))
+		return
+	}
+	if s.haRole() != "primary" {
+		badRequest(c, errors.New("only the primary configures synchronous replication"))
+		return
+	}
+	value := ""
+	if req.Enabled {
+		var peers []store.HAPeer
+		s.st.DB.Order("created_at").Find(&peers)
+		names := make([]string, 0, len(peers))
+		for _, p := range peers {
+			if strings.TrimSpace(p.Pubkey) != "" {
+				names = append(names, haSyncAppName)
+			}
+		}
+		if len(names) == 0 {
+			badRequest(c, errors.New("no standby has joined yet: joining the standby first lets PostgreSQL name it"))
+			return
+		}
+		// ONE standby, not ANY n: with a single standby ANY 1 behaves the
+		// same, but FIRST 1 cannot fall back to a standby that is not
+		// streaming, which is what makes a synchronous commit actually wait.
+		value = "FIRST 1 (" + strings.Join(uniqueStrings(names), ",") + ")"
+	}
+	// Both statements go through one connection in this order: ALTER SYSTEM
+	// writes postgresql.auto.conf, the reload applies it. The reload is a
+	// separate request because an ALTER SYSTEM inside an explicit
+	// transaction is rejected.
+	if err := s.st.DB.Exec("ALTER SYSTEM SET synchronous_standby_names = ?", value).Error; err != nil {
+		serverError(c, err)
+		return
+	}
+	if err := s.st.DB.Exec("SELECT pg_reload_conf()").Error; err != nil {
+		serverError(c, err)
+		return
+	}
+	s.auditCtx(c, "ha.sync_replication", value, "")
+	names, waiting := s.haSyncReplicationEnabled()
+	c.JSON(http.StatusOK, gin.H{"syncNames": names, "syncWaiting": waiting})
+}
+
+// haSyncAppName is the application_name the installer gives the standby's
+// walreceiver, so synchronous_standby_names can name it.
+const haSyncAppName = "polaris_standby"
+
+// uniqueStrings drops duplicates while keeping the order.
+func uniqueStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 // haListPeers is GET /ha/peers.

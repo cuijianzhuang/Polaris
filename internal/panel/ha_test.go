@@ -365,3 +365,83 @@ func TestHAFailoverCheckPrimaryProbe(t *testing.T) {
 		t.Fatalf("unreachable probe: %v", out)
 	}
 }
+
+// TestHASyncReplicationRequiresStandby: enabling synchronous replication
+// without a joined standby must be refused, not turned into a wildcard. A
+// synchronous_standby_names that names nothing connected makes PostgreSQL
+// wait for a confirmation that never arrives, blocking every write.
+func TestHASyncReplicationRequiresStandby(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	s.cfg.HARole = "primary"
+	code, out := c.do("POST", "/ha/sync-replication", map[string]any{"enabled": true})
+	if !s.haIsPostgres() {
+		// SQLite has no replication; the endpoint says so instead of
+		// pretending to configure it.
+		if code != http.StatusBadRequest {
+			t.Fatalf("sync replication on SQLite: %d %v", code, out)
+		}
+		return
+	}
+	if code != http.StatusBadRequest {
+		t.Fatalf("enable without a standby must be refused: %d %v", code, out)
+	}
+	var n int64
+	s.st.DB.Model(&store.HAPeer{}).Count(&n)
+	if n != 0 {
+		t.Fatalf("a refused request must not create a peer: %d", n)
+	}
+}
+
+// TestHASyncReplicationPrimaryOnly: the standby does not configure the
+// primary's GUC; the request is refused explicitly.
+func TestHASyncReplicationPrimaryOnly(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	s.cfg.HARole = "secondary"
+	code, out := c.do("POST", "/ha/sync-replication", map[string]any{"enabled": true})
+	if code != http.StatusBadRequest {
+		t.Fatalf("secondary must not configure sync replication: %d %v", code, out)
+	}
+}
+
+// TestHASyncReplicationSudo: turning synchronous replication on or off is a
+// sensitive action, so it needs a fresh sudo like the other HA writes.
+func TestHASyncReplicationSudo(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	s.cfg.HARole = "primary"
+	h, _ := bcrypt.GenerateFromPassword([]byte("pw3"), bcrypt.MinCost)
+	s.st.DB.Create(&store.Admin{ID: "a3", Username: "third", PasswordHash: string(h)})
+	plain := &apiClient{t: t, base: c.base}
+	code, out := plain.do("POST", "/auth/login", map[string]string{"username": "third", "password": "pw3"})
+	if code != 200 {
+		t.Fatalf("login %d %v", code, out)
+	}
+	plain.tok = out["token"].(string)
+	code, out = plain.do("POST", "/ha/sync-replication", map[string]any{"enabled": false})
+	if code != http.StatusForbidden || out["sudoRequired"] != true {
+		t.Fatalf("non-sudo sync replication: %d %v", code, out)
+	}
+}
+
+// TestHAStatusReportsSyncState: the status call always reports both halves
+// of the sync setting, so the page can tell "asynchronous" from "set but
+// nothing is waiting for an ack" instead of showing a bare checkbox.
+func TestHAStatusReportsSyncState(t *testing.T) {
+	_, _, c := newAdminClient(t)
+	code, out := c.do("GET", "/ha/status", nil)
+	if code != 200 {
+		t.Fatalf("status %d %v", code, out)
+	}
+	names, ok := out["syncNames"].(string)
+	if !ok {
+		t.Fatalf("syncNames missing: %v", out)
+	}
+	if _, ok := out["syncWaiting"].(bool); !ok {
+		t.Fatalf("syncWaiting missing: %v", out)
+	}
+	// On SQLite there is no replication at all: both fields are zero, never
+	// an error.
+	if out["syncWaiting"] != false {
+		t.Fatalf("syncWaiting must be false without PostgreSQL: %v", out)
+	}
+	_ = names
+}

@@ -232,7 +232,7 @@ resolve_edition() {
   case "$EDITION" in
     pro) EP="pro-" ;;
     community) EP="" ;;
-    *) die "未知版本：$EDITION（可选 pro / community）" ;;
+    *) die "未知版本：${EDITION}（可选 pro / community）" ;;
   esac
 }
 
@@ -275,7 +275,7 @@ choose_database() {
   case "$DB_CHOICE" in
     sqlite | local) ;;
     postgres://* | postgresql://* | host=* | dbname=* | user=*) DB_DSN="$DB_CHOICE" ;;
-    *) die "数据库参数不正确：$DB_CHOICE（可选 sqlite / local / postgres://…）" ;;
+    *) die "数据库参数不正确：${DB_CHOICE}（可选 sqlite / local / postgres://…）" ;;
   esac
   case "$DB_CHOICE" in *"'"*) die "数据库地址不能包含单引号" ;; esac
 
@@ -299,7 +299,7 @@ choose_database() {
   case "${REDIS_CHOICE:-none}" in
     none | local) ;;
     redis://* | rediss://*) REDIS_URL="$REDIS_CHOICE" ;;
-    *) die "Redis 参数不正确：$REDIS_CHOICE（可选 local / redis://…）" ;;
+    *) die "Redis 参数不正确：${REDIS_CHOICE}（可选 local / redis://…）" ;;
   esac
   case "$REDIS_CHOICE" in *"'"*) die "Redis 地址不能包含单引号" ;; esac
 }
@@ -353,7 +353,7 @@ setup_local_pg() {
   if [ -n "$enc" ] && [ "$enc" != UTF8 ]; then
     if [ "$(pg_su -d polaris -tAc "SELECT to_regclass('public.admins') IS NOT NULL")" = t ] &&
       [ "$(pg_su -d polaris -tAc "SELECT EXISTS (SELECT 1 FROM public.admins)")" = t ]; then
-      die "本机数据库 polaris 的编码是 $enc（需要 UTF8）且已有数据：请先备份并删除它（sudo -u postgres dropdb polaris）后重试"
+      die "本机数据库 polaris 的编码是 ${enc}（需要 UTF8）且已有数据：请先备份并删除它（sudo -u postgres dropdb polaris）后重试"
     fi
     pg_su -c "DROP DATABASE polaris"
     enc=""
@@ -386,7 +386,7 @@ check_pg_target() { # dsn fresh(0/1)
   "${q[@]}" -c 'SELECT 1' >/dev/null 2>&1 || die "无法连接数据库：$(db_label "$1")，请检查地址、账号和网络"
   local enc
   enc="$("${q[@]}" -c "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname = current_database()" 2>/dev/null)"
-  [ -z "$enc" ] || [ "$enc" = UTF8 ] || die "数据库编码是 $enc，需要 UTF8：请用 CREATE DATABASE … ENCODING 'UTF8' TEMPLATE template0 重新建库"
+  [ -z "$enc" ] || [ "$enc" = UTF8 ] || die "数据库编码是 ${enc}，需要 UTF8：请用 CREATE DATABASE … ENCODING 'UTF8' TEMPLATE template0 重新建库"
   # Empty tables (left by a migration that failed after creating them) are
   # fine; an admin account means real data.
   if [ "$2" = 1 ] && [ "$("${q[@]}" -c "SELECT to_regclass('admins') IS NOT NULL" 2>/dev/null)" = t ] &&
@@ -675,7 +675,7 @@ update_self() {
     rm -rf "$d"; warn "管理脚本校验失败，未更新"; return 0
   fi
   if cmp -s "$d/install-panel.sh" "$CTL"; then
-    ok "管理脚本已是最新（$VERSION）"
+    ok "管理脚本已是最新（${VERSION}）"
   else
     install -m 0755 "$d/install-panel.sh" "$CTL" && ln -sf "$CTL" "$CTL_ALIAS"
     installed && [ -d "$DATA/downloads" ] && install -m 0644 -o polaris -g polaris "$CTL" "$DATA/downloads/install-panel.sh"
@@ -694,9 +694,9 @@ download_release() {
   PANEL_TGZ="polaris-panel-$EP$VERSION-linux-$ARCH.tar.gz"
   AGENT_ASSET="polaris-agent-${EP}linux-$ARCH"
   fetch_origin "$RELEASE/checksums.txt" "$TMP/checksums.txt" ||
-    die "下载 checksums.txt 失败（$RELEASE）。校验和只从 GitHub 官方下载，镜像仅用于加速软件包；请检查服务器到 github.com 的连通性。"
+    die "下载 checksums.txt 失败（${RELEASE}）。校验和只从 GitHub 官方下载，镜像仅用于加速软件包；请检查服务器到 github.com 的连通性。"
   if ! grep -q " \*\?$PANEL_TGZ\$" "$TMP/checksums.txt"; then
-    [ -n "$EDITION_GUESSED" ] || die "$VERSION 没有$(edition_label "$EDITION")的发布包（$PANEL_TGZ）"
+    [ -n "$EDITION_GUESSED" ] || die "$VERSION 没有$(edition_label "$EDITION")的发布包（${PANEL_TGZ}）"
     warn "$VERSION 没有专业版发布包，改为安装社区版（不含客户独立限速、订阅转换、DDNS、Telegram 管理菜单、备份推送）"
     EDITION=community EP="" EDITION_GUESSED=""
     PANEL_TGZ="polaris-panel-$VERSION-linux-$ARCH.tar.gz"
@@ -715,7 +715,7 @@ download_release() {
     fetch "$RELEASE/$f" "$TMP/$f" progress || die "下载 $f 失败（直连与镜像均不可用；可用 --mirror 指定其他镜像）"
     want="$(awk -v f="$f" '$2 == f || $2 == "*"f {print $1}' "$TMP/checksums.txt")"
     got="$(sha256sum "$TMP/$f" | awk '{print $1}')"
-    [ -n "$want" ] && [ "$want" = "$got" ] || die "$f 校验失败（期望 ${want:-无}，实际 $got）"
+    [ -n "$want" ] && [ "$want" = "$got" ] || die "$f 校验失败（期望 ${want:-无}，实际 ${got}）"
   done
   ok "SHA-256 校验通过（${#files[@]} 个文件）"
   tar -xzf "$TMP/$PANEL_TGZ" -C "$TMP"
@@ -899,7 +899,7 @@ port_busy() {
   fi
 }
 port_owner() { ss -Hltnp "sport = :$1" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -n1; }
-port_msg() { local o; o="$(port_owner "$1")"; echo "端口 $1 已被占用${o:+（$o）}"; }
+port_msg() { local o; o="$(port_owner "$1")"; echo "端口 $1 已被占用${o:+（${o}）}"; }
 valid_domain() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$ ]]; }
 
 # proxied_to_panel DOMAIN PORT: does https://DOMAIN reach this panel? The same
@@ -1001,7 +1001,7 @@ show_info() {
   kv 配置文件 "$ENV_FILE"
   db="$(ls "$DATA"/*.db 2>/dev/null | head -n1 || true)"
   if [ -n "$(env_get POLARIS_DB_DSN)" ]; then kv 数据库 "$(db_label "$(env_get POLARIS_DB_DSN)")"
-  elif [ -n "$db" ]; then size="$(human_bytes "$(stat -c %s "$db")")"; kv 数据库 "$db（$size）"; fi
+  elif [ -n "$db" ]; then size="$(human_bytes "$(stat -c %s "$db")")"; kv 数据库 "${db}（${size}）"; fi
   [ -z "$(env_get POLARIS_REDIS_URL)" ] || kv Redis "$(env_get POLARIS_REDIS_URL | sed -E 's#//[^@]*@#//#')"
   backups="$(find "$DATA" /root -maxdepth 1 \( -name 'backup-*' -o -name 'polaris-backup-*' \) 2>/dev/null | wc -l || true)"
   kv 数据目录 "$DATA · 备份 ${backups} 份"
@@ -1150,7 +1150,7 @@ do_update() {
   migrate_layout
   # Config is what matters: after "uninstall" without --purge the binary and
   # unit are gone but config and data remain, and update restores them.
-  [ -f "$ENV_FILE" ] || die "Polaris 尚未安装（未找到 $ENV_FILE）"
+  [ -f "$ENV_FILE" ] || die "Polaris 尚未安装（未找到 ${ENV_FILE}）"
   local cur backup=""
   cur="$(panel_version)"
   SECONDS=0 STEP_N=0 STEP_TOTAL=3
@@ -1159,7 +1159,7 @@ do_update() {
   resolve_version
   resolve_edition
   if [ -n "$cur" ] && [ "$cur" = "$VERSION" ] && [ "$EDITION" = "$(installed_edition)" ] && [ "$FORCE" = 0 ] && [ -f "$UNIT" ]; then
-    ok "已是最新版本 $cur（加 --force 可重新安装）"
+    ok "已是最新版本 ${cur}（加 --force 可重新安装）"
     # A tool older than the updater replaced itself during the update but
     # never set it up: do it now.
     if [ ! -f "$UPD_PATH" ]; then install_updater && ok "已安装在线升级 / 配置组件"; fi
@@ -1207,7 +1207,7 @@ do_update() {
     install -m 0755 "$prev" "$BIN"
     systemctl start polaris
     if wait_healthy; then
-      die "已自动回滚到 ${cur:-旧版本}，面板正常运行；新版本的启动日志见上方${backup:+（升级前的数据库备份在 $backup）}"
+      die "已自动回滚到 ${cur:-旧版本}，面板正常运行；新版本的启动日志见上方${backup:+（升级前的数据库备份在 ${backup}）}"
     fi
     die "回滚后仍无法启动${backup:+；升级前的数据库备份在 $backup}，请执行 polaris log 查看"
   fi
@@ -1227,7 +1227,7 @@ do_check_update() {
   kv 最新版本 "$latest"
   if [ "$cur" = "$latest" ]; then ok "已是最新版本"
   else
-    warn "有新版本：$latest，执行 polaris update 升级"
+    warn "有新版本：${latest}，执行 polaris update 升级"
     dim "  更新说明：https://github.com/$REPO/releases/tag/$latest"
   fi
 }
@@ -1251,7 +1251,7 @@ do_uninstall() {
     id polaris >/dev/null 2>&1 && userdel polaris 2>/dev/null || true
     rm -f "$CTL" "$CTL_ALIAS"
   else
-    dim "  已保留配置 $ETC 与数据 $DATA（加 --purge 一并删除）"
+    dim "  已保留配置 $ETC 与数据 ${DATA}（加 --purge 一并删除）"
   fi
   ok "已卸载"
 }
@@ -1369,7 +1369,7 @@ do_set_domain() {
   for p in 80 443; do
     if port_busy "$p" && ! systemctl is-active --quiet caddy; then
       owner="$(port_owner "$p")"
-      die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 127.0.0.1:$port，再执行 polaris set-url https://$domain（面板配置未做任何修改）"
+      die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 127.0.0.1:${port}，再执行 polaris set-url https://${domain}（面板配置未做任何修改）"
     fi
   done
   install_caddy
@@ -1402,7 +1402,7 @@ do_set_sub_domain() {
       # to the panel, there is nothing for Caddy to do: accept the domain.
       if proxied_to_panel "$domain" "$port"; then
         ok "https://$domain 已由 ${owner:-现有 Web 服务} 反代到面板，无需 Caddy"
-        dim "  订阅链接改用 https://$domain；该域名只开放订阅和用户中心"
+        dim "  订阅链接改用 https://${domain}；该域名只开放订阅和用户中心"
         return 0
       fi
       die "端口 $p 已被 ${owner:-其他程序} 占用，无法使用 Caddy；且 https://$domain 还没有反代到面板（${PROXY_PROBE:-无法访问}）。请在 ${owner:-该 Web 服务} 里把 $domain 反向代理到 http://127.0.0.1:$port 并配置 HTTPS 证书，然后再点一次「配置」，或直接到后台「订阅设置」填写订阅域名 https://$domain"
@@ -1429,7 +1429,7 @@ do_backup() {
   POLARIS_BACKUP_PASSPHRASE="$BK_PASS" polaris_cmd backup "$file" >/dev/null || die "备份失败"
   mv -f "$file" "$out"
   chmod 600 "$out"
-  ok "已备份到 $out（$(human_bytes "$(stat -c %s "$out")")）"
+  ok "已备份到 ${out}（$(human_bytes "$(stat -c %s "$out")")）"
   if [ -n "$BK_PASS" ]; then
     dim "  已加密并附带密钥：新服务器上安装后执行 polaris restore $out 即可（需要口令）"
   else
@@ -1488,7 +1488,7 @@ do_doctor() {
   section "端口与防火墙"
   if port_busy "$port"; then
     code="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "http://127.0.0.1:$port${path%/}/" 2>/dev/null || true)"; code="${code#000}"
-    case "$code" in 2??|3??) chk_ok "面板端口 $port 响应正常（HTTP $code）" ;; *) chk_bad "面板端口 $port 无正常响应（HTTP ${code:-无}）" ;; esac
+    case "$code" in 2??|3??) chk_ok "面板端口 $port 响应正常（HTTP ${code}）" ;; *) chk_bad "面板端口 $port 无正常响应（HTTP ${code:-无}）" ;; esac
   else chk_bad "面板端口 $port 未监听"; fi
   port_busy "$agent" && chk_ok "节点接入端口 $agent 监听中" || chk_bad "节点接入端口 $agent 未监听"
   local p need=("$agent")
@@ -1507,13 +1507,13 @@ do_doctor() {
     ip="$(public_ip)"
     resolved="$(getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1; exit}' || true)"
     if [ -z "$resolved" ]; then chk_bad "$domain 无法解析"
-    elif [ -n "$ip" ] && [ "$resolved" != "$ip" ]; then chk_warn "$domain 解析到 $resolved，本机公网 IP 为 $ip（使用 CDN 时可忽略）"
+    elif [ -n "$ip" ] && [ "$resolved" != "$ip" ]; then chk_warn "$domain 解析到 ${resolved}，本机公网 IP 为 ${ip}（使用 CDN 时可忽略）"
     else chk_ok "$domain 解析到 ${resolved}"; fi
     if [ -f "$CADDYFILE" ] && grep -q "^$domain {" "$CADDYFILE"; then
       systemctl is-active --quiet caddy && chk_ok "Caddy 运行中" || chk_bad "Caddy 未运行：systemctl status caddy"
     fi
     code="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "https://$domain${path%/}/" 2>/dev/null || true)"; code="${code#000}"
-    case "$code" in 2??|3??) chk_ok "https://$domain 可访问（HTTP $code）" ;; *) chk_bad "https://$domain 访问失败（HTTP ${code:-无}），证书可能尚未签发或 80/443 未放行" ;; esac
+    case "$code" in 2??|3??) chk_ok "https://$domain 可访问（HTTP ${code}）" ;; *) chk_bad "https://$domain 访问失败（HTTP ${code:-无}），证书可能尚未签发或 80/443 未放行" ;; esac
   fi
 
   section "系统"
@@ -1552,6 +1552,11 @@ do_log() {
 HA_WG_PRIMARY_IP="10.8.0.1"
 HA_WG_SECONDARY_IP="10.8.0.2"
 HA_WG_PORT=51820
+# HA_SYNC_APPNAME must match haSyncAppName in internal/panel/api_ha.go: the
+# primary writes synchronous_standby_names from that Go constant and the
+# standby registers itself under this name here. tests/test-ha-dryrun.sh
+# asserts they are equal.
+HA_SYNC_APPNAME=polaris_standby
 HA_SYNCWG_UNIT=/etc/systemd/system/polaris-ha-sync-wg.service
 HA_SYNCWG_TIMER=/etc/systemd/system/polaris-ha-sync.timer
 HA_WATCHDOG=/usr/local/bin/cf-failover.sh
@@ -1718,7 +1723,7 @@ ha_check_dns() {
   ttl="$(printf '%s' "$rec" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['ttl'])" 2>/dev/null)" || ttl=""
   proxied="$(printf '%s' "$rec" | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['proxied'])" 2>/dev/null)" || proxied=""
   if [ "$ttl" != 1 ] && [ -n "$ttl" ] && [ "$ttl" -gt 60 ] 2>/dev/null; then
-    warn "polaris A 记录 TTL 是 $ttl（应 ≤ 60，否则切换后生效慢）"
+    warn "polaris A 记录 TTL 是 ${ttl}（应 ≤ 60，否则切换后生效慢）"
   fi
   if [ "$proxied" = True ]; then
     warn "polaris A 记录是橙云代理（应为 DNS-only，否则 9443 不通）"
@@ -1752,9 +1757,9 @@ ha_wg_write_conf() {
   local my_ip="$1" peer_pub="${2:-}" peer_ip="${3:-}" peer_ep="${4:-}"
   if [ "$HA_DRYRUN" = 1 ]; then
     if [ -n "$peer_pub" ]; then
-      ha_plan "写 /etc/wireguard/wg0.conf（本机 $my_ip/24，端口 $HA_WG_PORT；对端 $peer_ip/32，endpoint $peer_ep:$HA_WG_PORT）"
+      ha_plan "写 /etc/wireguard/wg0.conf（本机 $my_ip/24，端口 ${HA_WG_PORT}；对端 $peer_ip/32，endpoint $peer_ep:${HA_WG_PORT}）"
     else
-      ha_plan "写 /etc/wireguard/wg0.conf（本机 $my_ip/24，端口 $HA_WG_PORT；对端待加入后由 sync-wg 补上）"
+      ha_plan "写 /etc/wireguard/wg0.conf（本机 $my_ip/24，端口 ${HA_WG_PORT}；对端待加入后由 sync-wg 补上）"
     fi
     return 0
   fi
@@ -1991,7 +1996,7 @@ FENCE
 ha_install_syncwg_timer() {
   step "安装 WireGuard 同步定时器（每 60 秒）"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "写 $HA_SYNCWG_UNIT 与 $HA_SYNCWG_TIMER，systemctl enable --now polaris-ha-sync.timer"
+    ha_plan "写 $HA_SYNCWG_UNIT 与 ${HA_SYNCWG_TIMER}，systemctl enable --now polaris-ha-sync.timer"
     return 0
   fi
   cat > "$HA_SYNCWG_UNIT" <<UNIT
@@ -2035,7 +2040,7 @@ ha_install_heartbeat() {
     return 0
   fi
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "写 $HA_HB_ENV（WITNESS_URL=$url），写 $HA_HB_UNIT 与 $HA_HB_TIMER，systemctl enable --now polaris-ha-heartbeat.timer"
+    ha_plan "写 ${HA_HB_ENV}（WITNESS_URL=${url}），写 $HA_HB_UNIT 与 ${HA_HB_TIMER}，systemctl enable --now polaris-ha-heartbeat.timer"
     return 0
   fi
   printf 'WITNESS_URL=%s\n' "$url" > "$HA_HB_ENV"
@@ -2064,7 +2069,7 @@ WantedBy=timers.target
 UNIT
   systemctl daemon-reload
   systemctl enable --now polaris-ha-heartbeat.timer >/dev/null 2>&1
-  ok "见证心跳定时器已启用（每 10 秒，节点 $node）"
+  ok "见证心跳定时器已启用（每 10 秒，节点 ${node}）"
 }
 
 # ha_install_fence installs the fencing oneshot that runs before
@@ -2080,7 +2085,7 @@ ha_install_fence() {
     return 0
   fi
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "写 $HA_HB_ENV（WITNESS_URL=$url），写 $HA_FENCE_SCRIPT，写 $HA_FENCE_UNIT（Before=polaris.service）与 $HA_FENCE_DROPIN（polaris.service 依赖围栏检查），systemctl daemon-reload"
+    ha_plan "写 ${HA_HB_ENV}（WITNESS_URL=${url}），写 ${HA_FENCE_SCRIPT}，写 ${HA_FENCE_UNIT}（Before=polaris.service）与 ${HA_FENCE_DROPIN}（polaris.service 依赖围栏检查），systemctl daemon-reload"
     return 0
   fi
   printf 'WITNESS_URL=%s\n' "$url" > "$HA_HB_ENV"
@@ -2156,7 +2161,7 @@ do_ha_init() {
     ha_print_join_command
     return 0
   fi
-  [ -z "$role" ] || die "本机角色是 $role：ha-init 只能在未初始化的机器上做主节点"
+  [ -z "$role" ] || die "本机角色是 ${role}：ha-init 只能在未初始化的机器上做主节点"
   SECONDS=0 STEP_N=0 STEP_TOTAL=12
   banner "高可用：初始化主节点"
   kv 隧道 "WireGuard $HA_WG_PRIMARY_IP/24，端口 $HA_WG_PORT/udp"
@@ -2386,7 +2391,7 @@ ha_register_peer() {
   curl -fsS --max-time 15 -H "Authorization: Bearer $HA_TOKEN" -H "Content-Type: application/json" \
     -d "{\"wg_ip\":\"$HA_WG_SECONDARY_IP\",\"pubkey\":\"$WG_PUB\",\"endpoint\":\"$my_ip\",\"role\":\"secondary\"}" \
     "$HA_API_URL/ha/peers" >/dev/null || die "注册对端失败（token 可能已被用过：主节点重跑 polaris ha-token 再试）"
-  ok "对端已注册（wg_ip $HA_WG_SECONDARY_IP）"
+  ok "对端已注册（wg_ip ${HA_WG_SECONDARY_IP}）"
 }
 
 # ha_setup_pg_replica: install the primary's PostgreSQL major version when
@@ -2428,7 +2433,7 @@ ha_setup_pg_replica() {
     mapfile -t clusters < <(pg_lsclusters --no-header 2>/dev/null | awk '{print $1"/"$2}')
     for c in "${clusters[@]}"; do
       if pg_cluster_su "$c" -tAc "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'polaris')" 2>/dev/null | grep -q t; then
-        die "本机已有 polaris 数据库（集群 $c）：ha-join 只接管全新空库，请先备份并清空"
+        die "本机已有 polaris 数据库（集群 ${c}）：ha-join 只接管全新空库，请先备份并清空"
       fi
     done
     # The replica must listen on the primary's port. If another local
@@ -2452,7 +2457,22 @@ ha_setup_pg_replica() {
     [ -x "$basebackup" ] || basebackup="pg_basebackup"
     runuser -u postgres -- env PGPASSFILE=/var/lib/postgresql/.pgpass \
       "$basebackup" -h "$HA_WG_PRIMARY_IP" -p "$want_port" -U replicator -D "$data_dir" -Fp -Xs -P -R -S hk_slot \
-      || die "pg_basebackup 失败（检查复制账号、密码与隧道；主库端口 $want_port）"
+      || die "pg_basebackup 失败（检查复制账号、密码与隧道；主库端口 ${want_port}）"
+  fi
+  # Give the walreceiver a stable application_name so the primary can name
+  # it in synchronous_standby_names. pg_basebackup -R writes
+  # application_name=walreceiver, which no operator would guess and which
+  # makes the HA page's switch look like it did nothing. Only that word is
+  # replaced: -R has already put the password and the primary's address in
+  # the line, and rewriting the whole line would drop them. The value goes
+  # in through HA_CONNINFO_APPNAME, never interpolated into the perl program,
+  # so no shell quoting can alter the file.
+  if [ "$HA_DRYRUN" != 1 ] && grep -qE '^[# ]*primary_conninfo[[:space:]]*=' "$conf"; then
+    if grep -q 'application_name=' "$conf"; then
+      HA_CONNINFO_APPNAME="$HA_SYNC_APPNAME" perl -i -pe "s/(application_name=)[^ '\"]*/\${1}\$ENV{HA_CONNINFO_APPNAME}/g" "$conf"
+    else
+      HA_CONNINFO_APPNAME="$HA_SYNC_APPNAME" perl -i -pe "s/(^[# ]*primary_conninfo[[:space:]]*=.*[^ ])'\$/\${1} application_name=\$ENV{HA_CONNINFO_APPNAME}'/" "$conf"
+    fi
   fi
   ha_conf_set "$conf" listen_addresses "'localhost,10.8.0.2'" "="
   ha_conf_set "$conf" hot_standby on "="
@@ -2484,7 +2504,7 @@ ha_proxy_mode_resolve() {
         case "$o" in
           *nginx*) warn "443 已被 nginx 占用（可能是上次 join 留下的），继续用 nginx 模式"; HA_PROXY_MODE=nginx ;;
           *openresty*) warn "443 已被 OpenResty 占用：复用 OpenResty 当反代，不安装 nginx（反代需自行在 1Panel 里添加）"; HA_PROXY_MODE=openresty ;;
-          *) die "端口 443 已被占用${o:+（$o）}：若是节点入站，先在面板里把它改到别的端口，再重跑 ha-join" ;;
+          *) die "端口 443 已被占用${o:+（${o}）}：若是节点入站，先在面板里把它改到别的端口，再重跑 ha-join" ;;
         esac
       else
         HA_PROXY_MODE=nginx
@@ -2497,7 +2517,7 @@ ha_proxy_mode_resolve() {
         o="$(port_owner 443)"
         case "$o" in
           *nginx*) warn "443 已被 nginx 占用（可能是上次 join 留下的），继续" ;;
-          *) die "端口 443 已被占用${o:+（$o）}：HA_PROXY_MODE=nginx 需要 443 空闲（或已被 nginx 占用）" ;;
+          *) die "端口 443 已被占用${o:+（${o}）}：HA_PROXY_MODE=nginx 需要 443 空闲（或已被 nginx 占用）" ;;
         esac
       fi
       ;;
@@ -2508,7 +2528,7 @@ ha_proxy_mode_resolve() {
         o="$(port_owner 443)"
         case "$o" in
           *openresty*) ;;
-          *) die "HA_PROXY_MODE=openresty，但 443 不是 OpenResty 占用${o:+（$o）}：先腾出 443 或换模式" ;;
+          *) die "HA_PROXY_MODE=openresty，但 443 不是 OpenResty 占用${o:+（${o}）}：先腾出 443 或换模式" ;;
         esac
       else
         die "HA_PROXY_MODE=openresty，但 443 空闲：请先确认 OpenResty 在监听 443，或去掉该设置走自动模式"
@@ -2565,7 +2585,7 @@ ha_openresty_guide() {
 ha_certbot_dns() {
   local token="$1" domain="$2"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "certbot certonly --dns-cloudflare -d $domain（CF token 不打印）"
+    ha_plan "certbot certonly --dns-cloudflare -d ${domain}（CF token 不打印）"
     return 0
   fi
   pkg_install certbot python3-certbot-dns-cloudflare || die "certbot 安装失败"
@@ -2609,7 +2629,7 @@ ha_setup_nginx_cert() {
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "apt install -y nginx-full"
     if [ -n "$cf_token" ]; then
-      ha_plan "certbot certonly --dns-cloudflare -d $domain（CF token 密封保存，不打印）"
+      ha_plan "certbot certonly --dns-cloudflare -d ${domain}（CF token 密封保存，不打印）"
     else
       ha_plan "无 CF token：跳过证书申请（留给 ha-join --finish），nginx 配置先写好、暂不启用"
     fi
@@ -2704,7 +2724,7 @@ ha_setup_watchdog() {
     (crontab -l 2>/dev/null | grep -v 'backups-peer'; echo "0 * * * * rsync -a --delete /var/lib/polaris/backups/ root@$HA_WG_PRIMARY_IP:/var/lib/polaris/backups-peer/") | crontab -
     ok "备份同步 cron 已安装（每小时）"
   else
-    warn "到主节点的免密 SSH 未通：先执行 ssh-copy-id root@$HA_WG_PRIMARY_IP，再手动加备份同步 cron（见部署文档 10.3）"
+    warn "到主节点的免密 SSH 未通：先执行 ssh-copy-id root@${HA_WG_PRIMARY_IP}，再手动加备份同步 cron（见部署文档 10.3）"
   fi
 }
 
@@ -2799,8 +2819,8 @@ do_pg_upgrade() {
     target_ver="$(apt-cache search --names-only '^postgresql-[0-9]+$' 2>/dev/null | sed -E 's/^postgresql-([0-9]+).*/\1/' | sort -n | tail -1)"
     [ -n "$target_ver" ] || die "查不到可用的 PG 大版本：用 --to <版本> 指定，如 --to 17"
   fi
-  if [ "$target_ver" = "$cur_ver" ]; then die "本机已是 PostgreSQL $cur_ver，无需升级"; fi
-  if [ "$target_ver" -lt "$cur_ver" ]; then die "不支持降级：本机是 $cur_ver，目标 $target_ver 更低"; fi
+  if [ "$target_ver" = "$cur_ver" ]; then die "本机已是 PostgreSQL ${cur_ver}，无需升级"; fi
+  if [ "$target_ver" -lt "$cur_ver" ]; then die "不支持降级：本机是 ${cur_ver}，目标 $target_ver 更低"; fi
 
   step "升级前检查"
   # pg_upgradecluster cannot upgrade clusters that use tablespaces.
@@ -2820,7 +2840,7 @@ do_pg_upgrade() {
   if printf '%s' "$db_bytes" | grep -qE '^[0-9]+$' && [ -n "$free_kb" ] && [ "$free_kb" -lt $((db_bytes * 3 / 2 / 1024)) ]; then
     die "磁盘剩余不足：全库约 $(human_bytes "$db_bytes")，升级复制数据约需 1.5 倍，/ 剩余 $(human_bytes "$((free_kb * 1024))")"
   fi
-  ok "当前 PostgreSQL $cur_ver（集群 $cur_cluster，端口 $cur_port），目标 $target_ver"
+  ok "当前 PostgreSQL ${cur_ver}（集群 ${cur_cluster}，端口 ${cur_port}），目标 $target_ver"
 
   step "备份"
   bk_file="/root/pg-full-$(date +%F-%H%M)-pre-upgrade.sql"
@@ -2843,10 +2863,10 @@ do_pg_upgrade() {
   if [ -n "$target_cluster" ]; then
     target_dbs="$(pg_cluster_su "$target_cluster" -tAc "SELECT count(*) FROM pg_database WHERE datname NOT IN ('template0','template1','postgres')" 2>/dev/null | tr -d '[:space:]')" || target_dbs=""
     if [ "$target_dbs" = 0 ]; then
-      warn "删掉安装时自动建的空集群 $target_cluster，再升级"
+      warn "删掉安装时自动建的空集群 ${target_cluster}，再升级"
       pg_dropcluster "${target_cluster%%/*}" "${target_cluster##*/}" --stop >/dev/null 2>&1 || die "删空集群 $target_cluster 失败"
     else
-      die "目标版本已有非空集群 $target_cluster：先确认它的数据是否还要，再手动处理"
+      die "目标版本已有非空集群 ${target_cluster}：先确认它的数据是否还要，再手动处理"
     fi
   fi
 
@@ -2857,7 +2877,7 @@ do_pg_upgrade() {
     warn "升级失败：尝试恢复旧集群"
     pg_ctlcluster "$cur_ver" "$cur_name" start >/dev/null 2>&1 || true
     [ "$panel_running" = 1 ] && systemctl start polaris >/dev/null 2>&1
-    die "pg_upgradecluster 失败（旧集群已尝试恢复，面板已尝试重启；备份在 $bk_file）：查上面的输出与日志后重试"
+    die "pg_upgradecluster 失败（旧集群已尝试恢复，面板已尝试重启；备份在 ${bk_file}）：查上面的输出与日志后重试"
   fi
 
   step "验证"
@@ -2865,17 +2885,17 @@ do_pg_upgrade() {
   new_cluster="$(ha_pg_cluster_for_ver "$target_ver")"
   [ -n "$new_cluster" ] || die "升级后找不到 PostgreSQL $target_ver 集群"
   new_port="$(pg_cluster_su "$new_cluster" -tAc 'SHOW port' 2>/dev/null | tr -d '[:space:]')" || new_port=""
-  [ "$new_port" = "$cur_port" ] || die "升级后端口变了（原 $cur_port，现 ${new_port:-未知}）：检查 pg_lsclusters"
-  [ "$(pg_cluster_su "$new_cluster" -tAc "SELECT 1 FROM pg_database WHERE datname = 'polaris'")" = 1 ] || die "升级后 polaris 库不见了（备份在 $bk_file）"
-  ok "PostgreSQL $target_ver 在端口 $cur_port，polaris 库完好"
+  [ "$new_port" = "$cur_port" ] || die "升级后端口变了（原 ${cur_port}，现 ${new_port:-未知}）：检查 pg_lsclusters"
+  [ "$(pg_cluster_su "$new_cluster" -tAc "SELECT 1 FROM pg_database WHERE datname = 'polaris'")" = 1 ] || die "升级后 polaris 库不见了（备份在 ${bk_file}）"
+  ok "PostgreSQL $target_ver 在端口 ${cur_port}，polaris 库完好"
   if [ "$panel_running" = 1 ]; then
     systemctl start polaris
-    wait_healthy || die "面板重启后未恢复（polaris log 查看；数据库备份在 $bk_file）"
+    wait_healthy || die "面板重启后未恢复（polaris log 查看；数据库备份在 ${bk_file}）"
     ok "面板已恢复"
   fi
 
   echo
-  ok "${C_BD}PostgreSQL 已从 $cur_ver 升级到 $target_ver（端口 $cur_port 不变）${C_0}"
+  ok "${C_BD}PostgreSQL 已从 $cur_ver 升级到 ${target_ver}（端口 $cur_port 不变）${C_0}"
   echo
   dim "  旧集群 $cur_cluster 保留在原地（已停、manual 启动，不会自动启动）"
   dim "  验证面板正常后，删除旧集群释放空间：pg_dropcluster $cur_ver $cur_name"
@@ -2906,7 +2926,7 @@ do_ha_join() {
     do_ha_status
     return 0
   fi
-  [ -z "$role" ] || die "本机角色是 $role：ha-join 只能在未初始化的备机上执行"
+  [ -z "$role" ] || die "本机角色是 ${role}：ha-join 只能在未初始化的备机上执行"
   SECONDS=0 STEP_N=0 STEP_TOTAL=12
   banner "高可用：加入备节点"
   kv 主节点 "$HA_PANEL_URL"
@@ -2987,7 +3007,7 @@ do_ha_join() {
 
   step "搭建 PostgreSQL 从库"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "装 PostgreSQL $B_PG_VERSION（未装或大版本不同时走 PGDG；从库用该版本集群，端口取主库配置包）"
+    ha_plan "装 PostgreSQL ${B_PG_VERSION}（未装或大版本不同时走 PGDG；从库用该版本集群，端口取主库配置包）"
     ha_plan "停 postgresql，清空本机空数据目录，pg_basebackup -h 10.8.0.1 -U replicator -S hk_slot"
     ha_plan ".pgpass 留在备机（0600，postgres 所有）：从库重连靠它"
     ha_plan "postgresql.conf：listen_addresses='localhost,10.8.0.2' hot_standby=on port=$(ha_dsn_port "$B_DB_DSN")；启动后验证 pg_is_in_recovery()=t"
@@ -3038,8 +3058,8 @@ do_ha_join() {
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "POLARIS_SECRET_KEY=<配置包的值>，POLARIS_SECRET_KEY_PREVIOUS=<配置包的值>"
     ha_plan "POLARIS_DB_DSN、POLARIS_REDIS_URL、POLARIS_ADMIN_PATH、POLARIS_PUBLIC_URL 按配置包改好"
-    ha_plan "POLARIS_TIMEZONE=$B_TIMEZONE，POLARIS_HA_ROLE=secondary，POLARIS_HA_WG_IP=10.8.0.2，POLARIS_HA_ENDPOINT=<本机公网IP>"
-    ha_plan "POLARIS_HA_PROXY_MODE=$HA_PROXY_MODE（反代模式：nginx 或 openresty）"
+    ha_plan "POLARIS_TIMEZONE=${B_TIMEZONE}，POLARIS_HA_ROLE=secondary，POLARIS_HA_WG_IP=10.8.0.2，POLARIS_HA_ENDPOINT=<本机公网IP>"
+    ha_plan "POLARIS_HA_PROXY_MODE=${HA_PROXY_MODE}（反代模式：nginx 或 openresty）"
     ha_plan "systemctl restart polaris，wait_healthy 确认"
   else
     env_set POLARIS_SECRET_KEY "$B_SECRET_KEY"
@@ -3097,7 +3117,7 @@ do_ha_finish() {
   local proxy_mode
   if [ "${HA_PROXY_MODE:-auto}" != auto ]; then proxy_mode="$HA_PROXY_MODE"; else proxy_mode="$(env_get POLARIS_HA_PROXY_MODE)"; fi
   [ -n "$proxy_mode" ] || proxy_mode=nginx
-  case "$proxy_mode" in nginx|openresty) ;; *) die "反代模式非法：$proxy_mode（nginx/openresty）" ;; esac
+  case "$proxy_mode" in nginx|openresty) ;; *) die "反代模式非法：${proxy_mode}（nginx/openresty）" ;; esac
   SECONDS=0 STEP_N=0
   if [ "$proxy_mode" = openresty ]; then STEP_TOTAL=2; else STEP_TOTAL=3; fi
   if [ "$proxy_mode" = openresty ]; then banner "高可用：补做看门狗（复用 OpenResty）"; else banner "高可用：补做证书与看门狗"; fi
@@ -3209,7 +3229,7 @@ do_witness_init() {
 
   step "写 systemd unit 并启动"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "写 $HA_WITNESS_UNIT（ExecStart=$BIN witness serve --listen $listen --state-file $HA_WITNESS_STATE），systemctl enable --now polaris-witness"
+    ha_plan "写 ${HA_WITNESS_UNIT}（ExecStart=$BIN witness serve --listen $listen --state-file ${HA_WITNESS_STATE}），systemctl enable --now polaris-witness"
     ha_plan "放行端口：ufw allow ${listen##*:}/tcp（或云厂商安全组放行 ${listen##*:}/tcp）"
   else
     mkdir -p "${HA_WITNESS_STATE%/*}"
@@ -3229,7 +3249,7 @@ WantedBy=multi-user.target
 UNIT
     systemctl daemon-reload
     systemctl enable --now polaris-witness >/dev/null 2>&1
-    ok "见证服务已启动（$listen）"
+    ok "见证服务已启动（${listen}）"
   fi
 
   step "验证"
@@ -3294,7 +3314,7 @@ run_panel_script() {
   if [ "$code" != 200 ]; then
     # Rejected links come back as a tiny script whose only line explains why.
     msg="$(sed -n "s/^echo '✗ \(.*\)' >&2$/\1/p" "$f" | head -n1)"
-    rm -f "$f"; die "${msg:-下载 $url 失败（HTTP $code）}"
+    rm -f "$f"; die "${msg:-下载 $url 失败（HTTP ${code}）}"
   fi
   head -c 2 "$f" | grep -q '#!' || { rm -f "$f"; die "$url 返回的不是安装脚本"; }
   local rc=0
@@ -3354,7 +3374,7 @@ do_agent_uninstall() {
     else rm -rf "$data"; fi
     ok "已卸载并删除 Agent 数据"
   else
-    ok "已卸载；数据保留在 $data（加 --purge 一并删除）"
+    ok "已卸载；数据保留在 ${data}（加 --purge 一并删除）"
   fi
   dim "  记得在面板中删除该节点"
 }
@@ -3560,7 +3580,7 @@ menu() {
         if [ -n "$nport" ]; then run_action do_set_port "$nport"; fi; pause ;;
       14)
         local nd; nd="$(ask "域名（需已解析到本机）：")"
-        if [ -n "$nd" ] && confirm "将安装 / 配置 Caddy 并切换到 https://$nd，旧的 http 订阅链接会失效，继续？"; then run_action do_set_domain "$nd"; fi
+        if [ -n "$nd" ] && confirm "将安装 / 配置 Caddy 并切换到 https://${nd}，旧的 http 订阅链接会失效，继续？"; then run_action do_set_domain "$nd"; fi
         pause ;;
       15)
         ADMIN_USER="$(ask "管理员用户名（留空为第一个管理员）：")"
@@ -3648,7 +3668,7 @@ while [ $# -gt 0 ]; do
       # does the same via EnvironmentFile), so load it first; without
       # it the binary dies on "secret_key is required".
       [ -x "$BIN" ] || die "面板尚未安装（$BIN 不存在）"
-      [ -f "$ENV_FILE" ] || die "找不到面板配置文件（$ENV_FILE）"
+      [ -f "$ENV_FILE" ] || die "找不到面板配置文件（${ENV_FILE}）"
       set -a
       # shellcheck source=/dev/null
       . "$ENV_FILE"
@@ -3665,7 +3685,7 @@ elif [ -z "$MIRROR" ] && [ -s "$MIRROR_FILE" ]; then MIRROR="$(head -n1 "$MIRROR
 # would let anyone on the path swap them: only https is accepted.
 case "$MIRROR" in
   ""|https://*) ;;
-  *) die "镜像必须使用 https://（收到 $MIRROR）。镜像仅加速软件包下载，校验和始终从 GitHub 官方获取。" ;;
+  *) die "镜像必须使用 https://（收到 ${MIRROR}）。镜像仅加速软件包下载，校验和始终从 GitHub 官方获取。" ;;
 esac
 
 [ "$ACTION" = version ] && { echo "polaris $( [ -x "$BIN" ] && "$BIN" --version | awk '{print $2}' || echo 未安装)"; exit 0; }
