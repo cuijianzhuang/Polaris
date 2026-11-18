@@ -15,6 +15,28 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
+// haReplayState asserts the replication fields both HA endpoints return,
+// for the current dialect: null on SQLite (no replication queries there),
+// live values on PostgreSQL (a real inRecovery flag, and a lag that is null
+// while the primary has nothing to replay).
+func haReplayState(t *testing.T, s *Server, out map[string]any) {
+	t.Helper()
+	if !s.haIsPostgres() {
+		if out["inRecovery"] != nil || out["replayLagSeconds"] != nil {
+			t.Fatalf("replication state must be null on SQLite: %v", out)
+		}
+		return
+	}
+	if _, ok := out["inRecovery"].(bool); !ok {
+		t.Fatalf("inRecovery on PostgreSQL must be a bool: %v", out["inRecovery"])
+	}
+	if lag := out["replayLagSeconds"]; lag != nil {
+		if _, ok := lag.(float64); !ok {
+			t.Fatalf("replayLagSeconds on PostgreSQL must be a number or null: %v", lag)
+		}
+	}
+}
+
 // TestHAJoinTokenFlow covers the whole join-token lifecycle: minting via the
 // admin API, fetching the join config with the token alone (no admin login),
 // registering a peer (which consumes the token), and minting a new token
@@ -41,8 +63,18 @@ func TestHAJoinTokenFlow(t *testing.T) {
 	if out["secret_key"] != "x" || out["panel_version"] != Version {
 		t.Fatalf("join-config bundle: %v", out)
 	}
-	if out["wg_ip"] != "10.8.0.2" || out["pg_version"] != "" {
-		t.Fatalf("join-config defaults: wg_ip %v pg_version %v", out["wg_ip"], out["pg_version"])
+	if out["wg_ip"] != "10.8.0.2" {
+		t.Fatalf("join-config wg_ip: %v", out["wg_ip"])
+	}
+	// pg_version is the major version on PostgreSQL ("16") and empty on
+	// SQLite (no server version to report).
+	if s.haIsPostgres() {
+		v, _ := out["pg_version"].(string)
+		if v == "" || strings.Trim(v, "0123456789") != "" {
+			t.Fatalf("join-config pg_version on PostgreSQL: %v", out["pg_version"])
+		}
+	} else if out["pg_version"] != "" {
+		t.Fatalf("join-config pg_version on SQLite: %v", out["pg_version"])
 	}
 	if wg, ok := out["wg"].(map[string]any); !ok || wg["port"] != float64(51820) {
 		t.Fatalf("join-config wg: %v", out["wg"])
@@ -144,8 +176,9 @@ func TestHACFTokenSealed(t *testing.T) {
 	}
 }
 
-// TestHAStatus returns the member list, the leader and null replication
-// state on SQLite (replication queries only exist on PostgreSQL).
+// TestHAStatus returns the member list, the leader and the replication
+// state for the current dialect (null on SQLite, live values on
+// PostgreSQL: replication queries only exist there).
 func TestHAStatus(t *testing.T) {
 	s, _, c := newAdminClient(t)
 	now := time.Now().UTC()
@@ -159,10 +192,15 @@ func TestHAStatus(t *testing.T) {
 		t.Fatalf("status: %v", out)
 	}
 	if out["leader"] != s.procID {
-		t.Fatalf("leader on SQLite should be self: %v", out["leader"])
+		t.Fatalf("leader should be self: %v", out["leader"])
 	}
-	if out["replication"] != nil || out["inRecovery"] != nil || out["replayLagSeconds"] != nil {
-		t.Fatalf("replication state must be null on SQLite: %v", out)
+	haReplayState(t, s, out)
+	if s.haIsPostgres() {
+		if _, ok := out["replication"].([]any); !ok {
+			t.Fatalf("replication on PostgreSQL must be a list: %v", out["replication"])
+		}
+	} else if out["replication"] != nil {
+		t.Fatalf("replication must be null on SQLite: %v", out["replication"])
 	}
 	found := false
 	for _, m := range out["members"].([]any) {
@@ -203,7 +241,7 @@ func TestHATokenRequiresSudo(t *testing.T) {
 // TestHAFailoverCheck is read-only: it reports local health, the database
 // role and a static promote checklist, and performs no writes.
 func TestHAFailoverCheck(t *testing.T) {
-	_, _, c := newAdminClient(t)
+	s, _, c := newAdminClient(t)
 	code, out := c.do("POST", "/ha/failover-check", nil)
 	if code != 200 {
 		t.Fatalf("failover-check %d %v", code, out)
@@ -211,9 +249,7 @@ func TestHAFailoverCheck(t *testing.T) {
 	if out["healthy"] != true || out["role"] != "none" {
 		t.Fatalf("failover-check: %v", out)
 	}
-	if out["inRecovery"] != nil || out["replayLagSeconds"] != nil {
-		t.Fatalf("replication state must be null on SQLite: %v", out)
-	}
+	haReplayState(t, s, out)
 	if steps, ok := out["steps"].([]any); !ok || len(steps) == 0 {
 		t.Fatalf("failover-check steps: %v", out["steps"])
 	}
