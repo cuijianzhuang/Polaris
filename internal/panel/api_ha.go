@@ -455,6 +455,19 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 			pgVersion = haMajorVersion(v)
 		}
 	}
+	// The standby inherits the primary's collation through pg_basebackup,
+	// and PostgreSQL refuses to start a cluster whose LC_COLLATE the
+	// operating system does not know ("database locale is incompatible
+	// with operating system"). The standby is usually a different machine,
+	// so send the collation with the bundle and let ha-join check it before
+	// copying 80 GB of WAL to find out.
+	pgCollate := ""
+	if s.haIsPostgres() {
+		var c string
+		if err := s.st.DB.Raw("SHOW lc_collate").Scan(&c).Error; err == nil {
+			pgCollate = c
+		}
+	}
 	// The primary's WireGuard identity comes from its own env file: the
 	// standby reads the same shared settings, so per-instance values cannot
 	// live there. The standby's address defaults to 10.8.0.2 when the peer
@@ -474,6 +487,7 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 		"db_dsn":              s.cfg.DB.DSN,
 		"redis_url":           s.cfg.RedisURL,
 		"pg_version":          pgVersion,
+		"pg_collate":          pgCollate,
 		"repl_password":       s.haClusterSecret("ha_repl_password"),
 		"wg": gin.H{
 			"pubkey":   s.cfg.HAWGPubkey,

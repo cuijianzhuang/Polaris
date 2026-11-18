@@ -192,6 +192,12 @@ ENV
         "自检"
       assert_contains "$d/output" "GET https://polaris.cuijianzhuang.com/api/v1/ha/join-config"
       assert_contains "$d/output" "POST https://polaris.cuijianzhuang.com/api/v1/ha/peers"
+      # The primary's collation is copied by pg_basebackup, and a standby
+      # without that locale cannot start ("database locale is incompatible
+      # with operating system"). The check has to be planned before the
+      # copy, not discovered after an 80 GB transfer.
+      assert_contains "$d/output" "确认本机 locale 包含"
+      assert_contains "$d/output" "只有残留的 standby.signal 则清空重建"
       assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       ;;
     join-openresty)
