@@ -33,12 +33,24 @@ Polaris 原生支持多实例，不用改程序：CA 存在库里的 `cluster_se
 | 数据库 | 必须是 PostgreSQL。SQLite 的库先用 `polaris migrate` 迁到 PG 再做 HA |
 | 面板版本 | 两台装同一版本；做 HA 之前先把 dmit 升到含 PR1+PR2 的最新版（`ha-init` 会先验二进制里有没有 HA 命令，没有就提示先 `polaris update`）。见证服务（`witness serve`）是 PR5 加的，已含在 v0.1.262 及之后版本；装之前先确认要装的版本已含 PR5 |
 | 域名 | `polaris` 的 A 记录改成 **TTL 60、DNS-only（灰云）**。必须是灰云：橙云代理只支持部分端口，**9443 不在其中**，开了代理 agent 连不上 |
-| 端口 | 主节点 `51820/udp`、`5432`、`6379` 未被 WG/PG/Redis 以外进程占用；备节点 `8080`/`9443`/`51820` 空闲；`443` 空闲时 `ha-join` 装 nginx 做反代，`443` 已被 OpenResty（如 1Panel 装的）占用时自动切复用模式（反代自行在 1Panel 里加，见[复用 OpenResty](#复用-openresty1panel)）；`443` 被节点入站（如 VLESS+TLS）占了，先把该入站端口改掉 |
+| 端口 | 主节点 `51820/udp`、`6379` 未被 WG/Redis 以外进程占用；PG 用本机集群的实际端口（常为 `5432`，若被占则集群在 `5433` 等端口，DSN 与从库自动取实际值）；备节点 `8080`/`9443`/`51820` 空闲；`443` 空闲时 `ha-join` 装 nginx 做反代，`443` 已被 OpenResty（如 1Panel 装的）占用时自动切复用模式（反代自行在 1Panel 里加，见[复用 OpenResty](#复用-openresty1panel)）；`443` 被节点入站（如 VLESS+TLS）占了，先把该入站端口改掉 |
 | 见证节点 | 第三台主机：另外商家（与 dmit/HK 的搬瓦工不同，独立故障域）、Ubuntu、上面跑着一个节点 agent；公网 IP 记为 `<WITNESS_IP>`，先装好见证服务（见[部署见证节点](#部署见证节点)），再跑 `ha-init`/`ha-join` |
 | 磁盘 | 备机剩余空间 ≥ 主库大小 × 1.2 |
-| PG 版本 | 两台 PG 大版本必须一致（如都是 15）；HK 未装 PG 时 `ha-join` 会从 PGDG 装同版本，已装但大版本不同时直接退出 |
+| PG 版本 | 两台 PG 大版本必须一致（如都是 15）；HK 未装或大版本不同时 `ha-join` 会从 PGDG 装主库的版本，并用该版本集群建从库（旧版本集群不停时若占了主库端口会被先停掉，数据保留在磁盘上）。也可以反过来把主库升级到备机版本：见[升级 PostgreSQL 大版本](#升级-postgresql-大版本) |
 | 时间同步 | 两台都开 NTP（`timedatectl set-ntp true`）；leader 租约时间以库为准，时钟偏一点没事，别差出分钟级 |
 | 权限 | 两台都要 root；dmit 公网 IP 要能探测到，探测不到时 `ha-init` 加 `--endpoint <IP>` |
+
+## 升级 PostgreSQL 大版本
+
+如果两台 PG 大版本不一致（例如主库 15、备机 17），除了让 `ha-join` 在备机装主库版本，也可以把主库就地升级到备机版本，再跑 `ha-join`。在主库上以 root 执行：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh) pg-upgrade --to 17
+```
+
+`--to` 指定目标大版本；不加则升到当前可装的最新大版本。`pg-upgrade` 用 Debian 的 `pg_upgradecluster`（`-m upgrade`，复制数据文件），升级前会先备份（`pg_dumpall` 到 `/root`）并停面板防写入；升级后新集群接管原端口（面板 DSN 不用改），旧集群留在原地（已停、manual 启动），验证面板正常后用 `pg_dropcluster <旧版本> main` 删除。
+
+限制：不支持降级；带表空间的集群不能升；有从库正在流复制时拒绝执行（大版本升级后从库无法继续回放，须先停掉备机复制、升级完再重建备机）。复制槽升级后不保留，备机加入时会重建。
 
 ## 部署见证节点
 
@@ -269,7 +281,8 @@ dmit 上的 PG 数据比 HK 旧，直接启动会造成双主、数据分叉。�
 # dmit 上执行
 systemctl stop postgresql
 rm -rf /var/lib/postgresql/<版本>/main/*
-su postgres -c "pg_basebackup -h 10.8.0.2 -p 5432 -U replicator -D /var/lib/postgresql/<版本>/main -Fp -Xs -P -R -S hk_slot"
+su postgres -c "pg_basebackup -h 10.8.0.2 -p <主库PG端口> -U replicator -D /var/lib/postgresql/<版本>/main -Fp -Xs -P -R -S hk_slot"
+# 端口是主库 PG 的实际端口（pg_lsclusters 看 Port 列；常为 5432，若主库集群在 5433 就用 5433）
 # 注意：HK 提主后，复制槽还在（槽跟着数据走）；若报错槽不存在，先在 HK 上建一个：
 #   su postgres -c "psql -c \"SELECT pg_create_physical_replication_slot('hk_slot');\""
 #   再重跑上面命令（去掉 -S hk_slot 或换新槽名）

@@ -35,6 +35,7 @@
 #   and reuses OpenResty (e.g. installed by 1Panel) when it already owns 443.
 #   ha-status                     local HA state: role, WireGuard, PostgreSQL, Redis, panel
 #   witness-init [--dry-run] [--listen ADDR]   install the HA witness arbiter on this machine (third host; default listen 0.0.0.0:8443)
+#   pg-upgrade [--to VER] [--dry-run]   upgrade the local PostgreSQL cluster to a newer major version (Debian pg_upgradecluster; the upgraded cluster keeps the original port)
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
 #   --pro / --community: the professional edition (paid features, needs a
@@ -59,7 +60,7 @@ CADDYFILE=/etc/caddy/Caddyfile
 RAW_SCRIPT="https://raw.githubusercontent.com/$REPO/main/scripts/install-panel.sh"
 
 FORCE=0 EDITION="" DOMAIN="" CADDY=1 VERSION="" PORT=8080 AGENT_PORT=9443 ADMIN_PATH="" MIRROR="" PURGE=0 ADMIN_USER="" NODE_NAME="" AGENT_SUB="" AGENT_ARG=""
-HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE="" HA_WITNESS_LISTEN="" HA_PROXY_MODE="auto"
+HA_DRYRUN=0 HA_FINISH=0 HA_TOKEN="" HA_PANEL_URL="" HA_API_URL="" HA_JOIN=0 HA_ENDPOINT="" SECRET_OVERRIDE="" HA_WITNESS_LISTEN="" HA_PROXY_MODE="auto" HA_PG_CLUSTER="" PG_UPGRADE_TO=""
 BK_PASS="${POLARIS_BACKUP_PASSPHRASE:-}" RESTORE_FILE=""
 DB_CHOICE="" REDIS_CHOICE="" DB_DSN="" REDIS_URL=""
 # A PostgreSQL on this server, reached over its Unix socket as the polaris
@@ -1612,6 +1613,50 @@ ha_pg_data_dir() {
   printf '%s' "$out"
 }
 
+# ha_pg_port prints the TCP port of the cluster pg_su reaches (the panel's
+# database). Debian moves a cluster off 5432 when that port is taken, so the
+# DSN must use the real port, not a constant (5432 may be another instance
+# entirely). Falls back to 5432 when no cluster answers (dry-run).
+ha_pg_port() {
+  local p
+  p="$(pg_su -tAc 'SHOW port' 2>/dev/null | tr -d '[:space:]')" || p=""
+  case "$p" in ''|*[!0-9]*) p=5432 ;; esac
+  printf '%s' "$p"
+}
+
+# ha_dsn_port DSN: the TCP port in a postgres:// DSN (host:port), or 5432
+# when the DSN carries no port. IPv4 hosts only; the HA bundle uses them.
+ha_dsn_port() {
+  local port
+  port="$(printf '%s' "$1" | sed -nE 's|^[a-z]+://[^/@]*@[^:/]+:([0-9]+)/.*$|\1|p')" || port=""
+  case "$port" in ''|*[!0-9]*) port=5432 ;; esac
+  printf '%s' "$port"
+}
+
+# ha_pg_cluster_for_ver VER prints "VER/name" of the first local cluster of
+# that PostgreSQL major version (from pg_lsclusters), or "" when none.
+ha_pg_cluster_for_ver() {
+  pg_lsclusters --no-header 2>/dev/null | awk -v v="$1" '$1==v {print $1"/"$2; exit}'
+}
+
+# ha_pg_cluster_datadir CLUSTER prints the data directory of one Debian
+# cluster ("VER/name"), or "" when it is not listed.
+ha_pg_cluster_datadir() {
+  pg_lsclusters --no-header 2>/dev/null | awk -v c="$1" '$1"/"$2==c {print $6; exit}'
+}
+
+# pg_cluster_su CLUSTER [PSQL-ARGS...]: psql as postgres against one Debian
+# cluster ("15/main"). Unlike pg_su, this does not depend on which cluster
+# happens to sit on the default port.
+pg_cluster_su() { local c="$1"; shift; (cd / && runuser -u postgres -- psql --cluster "$c" -X -q -v ON_ERROR_STOP=1 "$@"); }
+
+# ha_replica_su [PSQL-ARGS...]: psql against the replica cluster
+# (HA_PG_CLUSTER, set by ha_setup_pg_replica), or the pg_su default when
+# the join did not set one.
+ha_replica_su() {
+  if [ -n "${HA_PG_CLUSTER:-}" ]; then pg_cluster_su "$HA_PG_CLUSTER" "$@"; else pg_su "$@"; fi
+}
+
 # ha_url_password URL: the password in redis://:pass@host/... ("" when the
 # URL carries no password).
 ha_url_password() {
@@ -2105,7 +2150,7 @@ do_ha_init() {
 
   step "前置检查"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "检查：面板已安装且版本已知、库是 PostgreSQL、PG 大版本可读、51820/udp 与 5432/6379 未被无关进程占用、磁盘剩余 ≥ 库大小 × 1.2、公网 IP 可探测、时间同步、DNS（TTL ≤ 60、DNS-only；无 CF token 时只警告）"
+    ha_plan "检查：面板已安装且版本已知、库是 PostgreSQL、PG 大版本可读、51820/udp 与 6379 未被无关进程占用、磁盘剩余 ≥ 库大小 × 1.2、公网 IP 可探测、时间同步、DNS（TTL ≤ 60、DNS-only；无 CF token 时只警告）"
   else
     local dsn
     dsn="$(env_get POLARIS_DB_DSN)"
@@ -2239,12 +2284,17 @@ do_ha_init() {
 
   step "面板改走隧道连库"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "POLARIS_DB_DSN=postgres://polaris:********@10.8.0.1:5432/polaris"
+    ha_plan "POLARIS_DB_DSN=postgres://polaris:********@10.8.0.1:$(ha_pg_port)/polaris"
     ha_plan "POLARIS_REDIS_URL=redis://:********@10.8.0.1:6379/0"
     ha_plan "POLARIS_HA_ROLE=primary，POLARIS_HA_WG_PUBKEY=<本机WG公钥>，POLARIS_HA_WG_IP=10.8.0.1，POLARIS_HA_ENDPOINT=$my_ip"
     ha_plan "systemctl restart polaris，wait_healthy 确认"
   else
-    env_set POLARIS_DB_DSN "postgres://polaris:$pg_pass@10.8.0.1:5432/polaris"
+    local pg_port
+    pg_port="$(ha_pg_port)"
+    # The DSN uses this cluster's real port: Debian moves a cluster off
+    # 5432 when that port is taken, and 5432 may belong to another
+    # PostgreSQL instance with a different polaris password.
+    env_set POLARIS_DB_DSN "postgres://polaris:$pg_pass@10.8.0.1:$pg_port/polaris"
     env_set POLARIS_REDIS_URL "redis://:$redis_pass@10.8.0.1:6379/0"
     env_set POLARIS_HA_ROLE primary
     env_set POLARIS_HA_WG_PUBKEY "$WG_PUB"
@@ -2318,51 +2368,77 @@ ha_register_peer() {
 }
 
 # ha_setup_pg_replica: install the primary's PostgreSQL major version when
-# missing (PGDG), then rebuild this machine as a streaming replica.
+# it is missing or different (PGDG), then rebuild this machine as a
+# streaming replica in that version's cluster. The replica is addressed
+# explicitly by version (HA_PG_CLUSTER): another major may be installed
+# alongside, so the pg_su default (port 5432) is not the replica. The
+# replica listens on the primary's port (from the bundle's db_dsn):
+# promotion only rewrites the host (10.8.0.1 -> 10.8.0.2), never the port.
 ha_setup_pg_replica() {
-  local want_ver="$B_PG_VERSION" have_ver data_dir conf
+  local want_ver="$B_PG_VERSION" want_port have_ver target_ver target_name data_dir conf basebackup i
+  local -a clusters
+  [ -n "$want_ver" ] || die "主节点未报告 PG 版本，无法安装对应版本"
+  want_port="$(ha_dsn_port "$B_DB_DSN")"
   have_ver="$(ha_pg_major)"
-  if [ -z "$have_ver" ]; then
-    [ -n "$want_ver" ] || die "主节点未报告 PG 版本，无法安装对应版本"
+  if [ "$have_ver" != "$want_ver" ] && [ -z "$(ha_pg_cluster_for_ver "$want_ver")" ]; then
     pkg_install postgresql-common || die "postgresql-common 安装失败"
     /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null 2>&1 || die "PGDG 源添加失败"
     apt-get update -qq >/dev/null 2>&1
     pkg_install "postgresql-$want_ver" || die "PostgreSQL $want_ver 安装失败"
-  elif [ -n "$want_ver" ] && [ "$have_ver" != "$want_ver" ]; then
-    die "PostgreSQL 大版本不一致：主节点 $want_ver，本机 $have_ver（流复制要求大版本相同）"
   fi
-  systemctl start postgresql >/dev/null 2>&1
-  data_dir="$(ha_pg_data_dir)"
-  [ -n "$data_dir" ] || die "找不到 PostgreSQL 数据目录"
-  conf="$(ha_pg_conf_file)"
-  [ -n "$conf" ] || die "找不到 postgresql.conf"
+  HA_PG_CLUSTER="$(ha_pg_cluster_for_ver "$want_ver")"
+  [ -n "$HA_PG_CLUSTER" ] || die "找不到 PostgreSQL $want_ver 集群"
+  target_ver="${HA_PG_CLUSTER%%/*}"; target_name="${HA_PG_CLUSTER##*/}"
+  data_dir="$(ha_pg_cluster_datadir "$HA_PG_CLUSTER")"
+  [ -n "$data_dir" ] || die "找不到 PostgreSQL $want_ver 数据目录"
+  conf="/etc/postgresql/$target_ver/$target_name/postgresql.conf"
+  if [ ! -f "$conf" ]; then
+    conf="$(pg_cluster_su "$HA_PG_CLUSTER" -tAc 'SHOW config_file' 2>/dev/null | tr -d '[:space:]')" || conf=""
+  fi
+  [ -n "$conf" ] && [ -f "$conf" ] || die "找不到 postgresql.conf"
   # Already a standby? Then there is nothing to rebuild.
   if [ -f "$data_dir/standby.signal" ]; then
     ok "本机已是从库（standby.signal 存在），跳过重建"
   else
-    # A cluster holding real polaris data must never be wiped blindly.
-    if pg_su -tAc "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'polaris')" 2>/dev/null | grep -q t; then
-      die "本机已有 polaris 数据库：ha-join 只接管全新空库，请先备份并清空"
-    fi
-    systemctl stop postgresql
+    # A cluster holding real polaris data must never be wiped or abandoned
+    # blindly: check every local cluster, not just the pg_su default.
+    systemctl start postgresql >/dev/null 2>&1 || true
+    mapfile -t clusters < <(pg_lsclusters --no-header 2>/dev/null | awk '{print $1"/"$2}')
+    for c in "${clusters[@]}"; do
+      if pg_cluster_su "$c" -tAc "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'polaris')" 2>/dev/null | grep -q t; then
+        die "本机已有 polaris 数据库（集群 $c）：ha-join 只接管全新空库，请先备份并清空"
+      fi
+    done
+    # The replica must listen on the primary's port. If another local
+    # cluster holds that port, stop it (its panel is being replaced; its
+    # data stays on disk) so the replica can bind.
+    mapfile -t clusters < <(pg_lsclusters --no-header 2>/dev/null | awk -v want="$want_port" -v self="$HA_PG_CLUSTER" '$1"/"$2 != self && $3 == want {print $1"/"$2}')
+    for c in "${clusters[@]}"; do
+      warn "端口 $want_port 被本机 PostgreSQL $c 占用：先停掉它（数据保留在磁盘上），再建从库"
+      pg_ctlcluster "${c%%/*}" "${c##*/}" stop >/dev/null 2>&1 || true
+      systemctl disable "postgresql@${c%%/*}-${c##*/}" >/dev/null 2>&1 || true
+    done
+    pg_ctlcluster "$target_ver" "$target_name" stop >/dev/null 2>&1 || true
     rm -rf "${data_dir:?}/"*
     # -R does not store the password in primary_conninfo, so the replica
     # reconnects with this file; it must stay on the standby.
     install -d -m 0700 -o postgres -g postgres /var/lib/postgresql
-    printf '10.8.0.1:5432:*:replicator:%s\n' "$B_REPL_PASSWORD" > /var/lib/postgresql/.pgpass
+    printf '10.8.0.1:%s:*:replicator:%s\n' "$want_port" "$B_REPL_PASSWORD" > /var/lib/postgresql/.pgpass
     chmod 0600 /var/lib/postgresql/.pgpass
     chown postgres:postgres /var/lib/postgresql/.pgpass
+    basebackup="/usr/lib/postgresql/$want_ver/bin/pg_basebackup"
+    [ -x "$basebackup" ] || basebackup="pg_basebackup"
     runuser -u postgres -- env PGPASSFILE=/var/lib/postgresql/.pgpass \
-      pg_basebackup -h "$HA_WG_PRIMARY_IP" -p 5432 -U replicator -D "$data_dir" -Fp -Xs -P -R -S hk_slot \
-      || die "pg_basebackup 失败（检查复制账号、密码与隧道）"
+      "$basebackup" -h "$HA_WG_PRIMARY_IP" -p "$want_port" -U replicator -D "$data_dir" -Fp -Xs -P -R -S hk_slot \
+      || die "pg_basebackup 失败（检查复制账号、密码与隧道；主库端口 $want_port）"
   fi
   ha_conf_set "$conf" listen_addresses "'localhost,10.8.0.2'" "="
   ha_conf_set "$conf" hot_standby on "="
-  ha_conf_set "$conf" port 5432 "="
-  systemctl enable --now postgresql >/dev/null 2>&1
-  local i
+  ha_conf_set "$conf" port "$want_port" "="
+  pg_ctlcluster "$target_ver" "$target_name" start >/dev/null 2>&1 || systemctl start "postgresql@$target_ver-$target_name" >/dev/null 2>&1 || die "从库启动失败"
+  systemctl enable "postgresql@$target_ver-$target_name" >/dev/null 2>&1 || true
   for i in $(seq 1 30); do
-    [ "$(pg_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ] && break
+    [ "$(ha_replica_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ] && break
     [ "$i" = 30 ] && die "从库启动后仍不在恢复模式"
     sleep 1
   done
@@ -2625,8 +2701,8 @@ ha_self_check() {
   admin_path="${B_ADMIN_PATH:-/}"
   if wg show wg0 2>/dev/null | grep -q "peer: $B_WG_PUBKEY"; then ok "隧道：对端已连接"; else bad "隧道：wg show 未见主节点对端"; fails=$((fails+1)); fi
   if ping -c 2 -W 2 "$HA_WG_PRIMARY_IP" >/dev/null 2>&1; then ok "隧道：ping $HA_WG_PRIMARY_IP 通"; else bad "隧道：ping $HA_WG_PRIMARY_IP 不通"; fails=$((fails+1)); fi
-  if [ "$(pg_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ]; then ok "PostgreSQL：从库（恢复模式）"; else bad "PostgreSQL：不在恢复模式"; fails=$((fails+1)); fi
-  if [ "$(pg_su -tAc 'SELECT pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn()' 2>/dev/null)" = t ]; then ok "PostgreSQL：回放已追上"; else bad "PostgreSQL：回放未追上（稍等再查）"; fails=$((fails+1)); fi
+  if [ "$(ha_replica_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ]; then ok "PostgreSQL：从库（恢复模式）"; else bad "PostgreSQL：不在恢复模式"; fails=$((fails+1)); fi
+  if [ "$(ha_replica_su -tAc 'SELECT pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn()' 2>/dev/null)" = t ]; then ok "PostgreSQL：回放已追上"; else bad "PostgreSQL：回放未追上（稍等再查）"; fails=$((fails+1)); fi
   redis_pass="$(ha_url_password "$B_REDIS_URL")"
   if [ -n "$redis_pass" ] && redis-cli -h 10.8.0.2 -a "$redis_pass" info replication 2>/dev/null | grep -q '^role:slave' &&
     redis-cli -h 10.8.0.2 -a "$redis_pass" info replication 2>/dev/null | grep -q '^master_link_status:up'; then
@@ -2638,7 +2714,7 @@ ha_self_check() {
   local i members
   members=""
   for i in $(seq 1 15); do
-    members="$(pg_su -d polaris -tAc 'SELECT count(*) FROM cluster_members' 2>/dev/null | tr -d '[:space:]')" || members=""
+    members="$(ha_replica_su -d polaris -tAc 'SELECT count(*) FROM cluster_members' 2>/dev/null | tr -d '[:space:]')" || members=""
     [ "$members" = 2 ] && break
     sleep 2
   done
@@ -2655,6 +2731,133 @@ ha_self_check() {
     dim "  备机直验跳过（证书尚未就绪，ha-join --finish 后再验）"
   fi
   [ "$fails" = 0 ] || die "自检有 $fails 项未通过（上面标 ✗ 的项），先修好再投入使用"
+}
+
+# do_pg_upgrade [--to VER] [--dry-run]: upgrade the local PostgreSQL
+# cluster (the panel's database) to a newer major version, in place, with
+# Debian's pg_upgradecluster (-m upgrade: pg_upgrade copies the data
+# files). The upgraded cluster keeps the original port (the old one is
+# moved aside, left stopped on manual startup, and not removed); the panel
+# DSN needs no change. Use it to align versions before ha-join when the
+# two machines disagree (e.g. primary on 15, standby on 17: upgrade the
+# primary to 17, then join). Replication slots are not preserved, and a
+# streaming standby cannot replay WAL across major versions: while one is
+# connected this refuses to run (rebuild the standby after the upgrade).
+do_pg_upgrade() {
+  local cur_cluster cur_ver cur_name cur_port target_ver data_dir db_bytes free_kb bk_file panel_running=0
+  local -a clusters
+  step "确认当前集群"
+  if [ "$HA_DRYRUN" = 1 ]; then
+    ha_plan "读当前 PG 大版本与端口（pg_lsclusters / SHOW port）"
+    ha_plan "目标版本：${PG_UPGRADE_TO:-最新可用大版本}（须大于当前版本；不支持降级）"
+    ha_plan "检查：无表空间、无正在连接的从库、磁盘剩余 ≥ 库大小 × 1.5"
+    ha_plan "备份：pg_dumpall 到 /root；停面板（防写入）"
+    ha_plan "装 postgresql-<目标版本>（PGDG）；空的目标集群先 pg_dropcluster 删掉"
+    ha_plan "pg_upgradecluster -v <目标版本> -m upgrade <当前版本> main"
+    ha_plan "验证：新集群在原端口、polaris 库在、SELECT 1 通；重启面板并 wait_healthy"
+    ha_plan "旧集群保留在原地（已停、manual 启动）：验证无误后用 pg_dropcluster <旧版本> main 删除"
+    return 0
+  fi
+  # The panel's cluster: the one pg_su reaches (matched by data directory).
+  data_dir="$(ha_pg_data_dir)"
+  [ -n "$data_dir" ] || die "本机 PostgreSQL 未运行（systemctl status postgresql 查看）"
+  cur_cluster="$(pg_lsclusters --no-header 2>/dev/null | awk -v d="$data_dir" '$6==d {print $1"/"$2; exit}')"
+  [ -n "$cur_cluster" ] || die "找不到本机 PostgreSQL 集群（pg_lsclusters 查看）"
+  cur_ver="${cur_cluster%%/*}"; cur_name="${cur_cluster##*/}"
+  cur_port="$(ha_pg_port)"
+  # The target version is needed before installing it, so the PGDG source
+  # goes in first (idempotent when already present).
+  pkg_install postgresql-common || die "postgresql-common 安装失败"
+  /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null 2>&1 || die "PGDG 源添加失败"
+  apt-get update -qq >/dev/null 2>&1
+  if [ -n "${PG_UPGRADE_TO:-}" ]; then
+    target_ver="$PG_UPGRADE_TO"
+    case "$target_ver" in ''|*[!0-9]*) die "--to 须是 PG 大版本号，如 --to 17" ;; esac
+  else
+    target_ver="$(apt-cache search --names-only '^postgresql-[0-9]+$' 2>/dev/null | sed -E 's/^postgresql-([0-9]+).*/\1/' | sort -n | tail -1)"
+    [ -n "$target_ver" ] || die "查不到可用的 PG 大版本：用 --to <版本> 指定，如 --to 17"
+  fi
+  if [ "$target_ver" = "$cur_ver" ]; then die "本机已是 PostgreSQL $cur_ver，无需升级"; fi
+  if [ "$target_ver" -lt "$cur_ver" ]; then die "不支持降级：本机是 $cur_ver，目标 $target_ver 更低"; fi
+
+  step "升级前检查"
+  # pg_upgradecluster cannot upgrade clusters that use tablespaces.
+  local tbspace standbys
+  tbspace="$(pg_su -tAc "SELECT count(*) FROM pg_tablespace WHERE spcname NOT IN ('pg_default','pg_global')" 2>/dev/null | tr -d '[:space:]')" || tbspace=""
+  [ "$tbspace" = 0 ] || die "本机 PG 用了表空间（$tbspace 个），pg_upgradecluster 不支持升级带表空间的集群"
+  # A streaming standby cannot replay WAL across major versions.
+  standbys="$(pg_su -tAc "SELECT count(*) FROM pg_stat_replication" 2>/dev/null | tr -d '[:space:]')" || standbys=""
+  if [ -n "$standbys" ] && [ "$standbys" != 0 ]; then
+    die "有从库正在流复制（$standbys 个）：大版本升级后从库无法继续回放，请先停掉备机复制，升级完再重建备机"
+  fi
+  if pg_su -tAc "SELECT count(*) FROM pg_replication_slots" 2>/dev/null | grep -qE '^[1-9]'; then
+    warn "复制槽升级后不保留（如 hk_slot）：备机加入时会重建，正在复制的备机需重建"
+  fi
+  db_bytes="$(pg_su -tAc 'SELECT coalesce(sum(pg_database_size(datname)),0) FROM pg_database' 2>/dev/null | tr -d '[:space:]')" || db_bytes=""
+  free_kb="$(df -k / 2>/dev/null | awk 'NR==2{print $4}')" || free_kb=""
+  if printf '%s' "$db_bytes" | grep -qE '^[0-9]+$' && [ -n "$free_kb" ] && [ "$free_kb" -lt $((db_bytes * 3 / 2 / 1024)) ]; then
+    die "磁盘剩余不足：全库约 $(human_bytes "$db_bytes")，升级复制数据约需 1.5 倍，/ 剩余 $(human_bytes "$((free_kb * 1024))")"
+  fi
+  ok "当前 PostgreSQL $cur_ver（集群 $cur_cluster，端口 $cur_port），目标 $target_ver"
+
+  step "备份"
+  bk_file="/root/pg-full-$(date +%F-%H%M)-pre-upgrade.sql"
+  runuser -u postgres -- pg_dumpall > "$bk_file" || die "pg_dumpall 备份失败"
+  chmod 600 "$bk_file"
+  if installed; then cp "$ENV_FILE" /root/polaris.env.pre-upgrade.bak 2>/dev/null && chmod 600 /root/polaris.env.pre-upgrade.bak 2>/dev/null || true; fi
+  ok "备份完成：$bk_file"
+
+  step "停面板并装新版本"
+  if installed && systemctl is-active --quiet polaris 2>/dev/null; then
+    panel_running=1
+    systemctl stop polaris || die "面板停止失败"
+  fi
+  pkg_install "postgresql-$target_ver" || die "PostgreSQL $target_ver 安装失败"
+  # Installing the new version may auto-create an empty cluster of that
+  # version; pg_upgradecluster refuses to create its target while one
+  # exists, so drop the empty one first (a non-empty one is never touched).
+  local target_cluster target_dbs
+  target_cluster="$(ha_pg_cluster_for_ver "$target_ver")"
+  if [ -n "$target_cluster" ]; then
+    target_dbs="$(pg_cluster_su "$target_cluster" -tAc "SELECT count(*) FROM pg_database WHERE datname NOT IN ('template0','template1','postgres')" 2>/dev/null | tr -d '[:space:]')" || target_dbs=""
+    if [ "$target_dbs" = 0 ]; then
+      warn "删掉安装时自动建的空集群 $target_cluster，再升级"
+      pg_dropcluster "${target_cluster%%/*}" "${target_cluster##*/}" --stop >/dev/null 2>&1 || die "删空集群 $target_cluster 失败"
+    else
+      die "目标版本已有非空集群 $target_cluster：先确认它的数据是否还要，再手动处理"
+    fi
+  fi
+
+  step "升级集群"
+  if pg_upgradecluster -v "$target_ver" -m upgrade "$cur_ver" "$cur_name"; then
+    ok "集群已升级到 PostgreSQL $target_ver"
+  else
+    warn "升级失败：尝试恢复旧集群"
+    pg_ctlcluster "$cur_ver" "$cur_name" start >/dev/null 2>&1 || true
+    [ "$panel_running" = 1 ] && systemctl start polaris >/dev/null 2>&1
+    die "pg_upgradecluster 失败（旧集群已尝试恢复，面板已尝试重启；备份在 $bk_file）：查上面的输出与日志后重试"
+  fi
+
+  step "验证"
+  local new_cluster new_port
+  new_cluster="$(ha_pg_cluster_for_ver "$target_ver")"
+  [ -n "$new_cluster" ] || die "升级后找不到 PostgreSQL $target_ver 集群"
+  new_port="$(pg_cluster_su "$new_cluster" -tAc 'SHOW port' 2>/dev/null | tr -d '[:space:]')" || new_port=""
+  [ "$new_port" = "$cur_port" ] || die "升级后端口变了（原 $cur_port，现 ${new_port:-未知}）：检查 pg_lsclusters"
+  [ "$(pg_cluster_su "$new_cluster" -tAc "SELECT 1 FROM pg_database WHERE datname = 'polaris'")" = 1 ] || die "升级后 polaris 库不见了（备份在 $bk_file）"
+  ok "PostgreSQL $target_ver 在端口 $cur_port，polaris 库完好"
+  if [ "$panel_running" = 1 ]; then
+    systemctl start polaris
+    wait_healthy || die "面板重启后未恢复（polaris log 查看；数据库备份在 $bk_file）"
+    ok "面板已恢复"
+  fi
+
+  echo
+  ok "${C_BD}PostgreSQL 已从 $cur_ver 升级到 $target_ver（端口 $cur_port 不变）${C_0}"
+  echo
+  dim "  旧集群 $cur_cluster 保留在原地（已停、manual 启动，不会自动启动）"
+  dim "  验证面板正常后，删除旧集群释放空间：pg_dropcluster $cur_ver $cur_name"
+  dim "  备份在 $bk_file"
 }
 
 do_ha_join() {
@@ -2724,7 +2927,7 @@ do_ha_join() {
   local bundle_json my_ip
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "GET $HA_API_URL/ha/join-config（Bearer <加入TOKEN>，校验证书，不提供 --insecure）"
-    ha_plan "检查：PG 大版本与主节点一致、磁盘剩余 ≥ 库大小 × 1.2"
+    ha_plan "检查：磁盘剩余 ≥ 库大小 × 1.2（PG 大版本不同时，搭从库那步装主库版本）"
     ha_plan "POST $HA_API_URL/ha/peers（wg_ip=10.8.0.2，公钥，endpoint=<本机公网IP>）"
     B_PANEL_VERSION="v0.1.258"; B_EDITION="pro"; B_DOMAIN="polaris.cuijianzhuang.com"
     B_SECRET_KEY="<SECRET_KEY>"; B_SECRET_KEY_PREVIOUS=""; B_ADMIN_PATH="/"
@@ -2739,12 +2942,9 @@ do_ha_join() {
     # The primary assigns the standby's WireGuard address (10.8.0.2 unless
     # the operator set ha_peer_wg_ip on the primary); honour it.
     HA_WG_SECONDARY_IP="${B_WG_IP_PEER:-$HA_WG_SECONDARY_IP}"
-    local want_ver have_ver
-    want_ver="$B_PG_VERSION"
-    have_ver="$(ha_pg_major)"
-    if [ -n "$want_ver" ] && [ -n "$have_ver" ] && [ "$want_ver" != "$have_ver" ]; then
-      die "PostgreSQL 大版本不一致：主节点 $want_ver，本机 $have_ver（流复制要求大版本相同）"
-    fi
+    # A different local PostgreSQL major is not fatal: ha_setup_pg_replica
+    # installs the primary's major (PGDG) and builds the replica in that
+    # version's cluster.
     if printf '%s' "$B_DB_SIZE_BYTES" | grep -qE '^[0-9]+$' && [ "$B_DB_SIZE_BYTES" -gt 0 ]; then
       local free_kb need_kb
       free_kb="$(df -k / 2>/dev/null | awk 'NR==2{print $4}')" || free_kb=""
@@ -2765,10 +2965,10 @@ do_ha_join() {
 
   step "搭建 PostgreSQL 从库"
   if [ "$HA_DRYRUN" = 1 ]; then
-    ha_plan "装 PostgreSQL $B_PG_VERSION（本机未装时走 PGDG；大版本不同则退出）"
+    ha_plan "装 PostgreSQL $B_PG_VERSION（未装或大版本不同时走 PGDG；从库用该版本集群，端口取主库配置包）"
     ha_plan "停 postgresql，清空本机空数据目录，pg_basebackup -h 10.8.0.1 -U replicator -S hk_slot"
     ha_plan ".pgpass 留在备机（0600，postgres 所有）：从库重连靠它"
-    ha_plan "postgresql.conf：listen_addresses='localhost,10.8.0.2' hot_standby=on port=5432；启动后验证 pg_is_in_recovery()=t"
+    ha_plan "postgresql.conf：listen_addresses='localhost,10.8.0.2' hot_standby=on port=$(ha_dsn_port "$B_DB_DSN")；启动后验证 pg_is_in_recovery()=t"
   else
     ha_setup_pg_replica
   fi
@@ -3370,6 +3570,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     install|update|uninstall|start|stop|restart|status|log|info|reset-password|reset-2fa|backup|menu|node|doctor|check-update) ACTION="$1"; shift ;;
     ha-init|ha-status) ACTION="$1"; shift ;;
+    pg-upgrade) ACTION=pg-upgrade; shift ;;
     witness-init) ACTION=witness-init; shift ;;
     ha-join) ACTION=ha-join; shift
       # Flags may come before the token (--dry-run / --finish in any order);
@@ -3389,6 +3590,7 @@ while [ $# -gt 0 ]; do
     --dry-run) HA_DRYRUN=1; shift ;;
     --finish) HA_FINISH=1; shift ;;
     --endpoint) HA_ENDPOINT="$2"; shift 2 ;;
+    --to) PG_UPGRADE_TO="$2"; shift 2 ;;
     --listen) HA_WITNESS_LISTEN="$2"; shift 2 ;;
     self-update) ACTION=self-update; shift ;;
     update-request) ACTION=update-request; shift ;;
@@ -3477,6 +3679,7 @@ case "$ACTION" in
   restore) do_restore "$ARG" ;;
   node) do_node ;;
   ha-init) do_ha_init ;;
+  pg-upgrade) do_pg_upgrade ;;
   ha-join) do_ha_join ;;
   ha-status) do_ha_status ;;
   witness-init) do_witness_init ;;
