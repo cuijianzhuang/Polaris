@@ -1234,6 +1234,8 @@ PostgreSQL 地址可以写成 `postgres://` / `postgresql://` URL，也可以写
 
 几台服务器上的主控连同一个 PostgreSQL，前面放负载均衡，任意一台宕机，后台、订阅和节点都不受影响。
 
+> **要部署主备高可用，请读 [高可用（主备）指南](user-guide/ha.md)**：那里有 `ha-init` / `ha-join` 一键部署、见证节点仲裁、看门狗三条件规则、故障切换与恢复的完整步骤。本节只讲多实例本身的行为。
+
 **要求**
 - 数据库必须是 PostgreSQL（SQLite 只能单实例）。Redis 可选，配置后在线 IP、限流计数、告警去重也会在实例间共享。
 - 每台的 `POLARIS_SECRET_KEY`、`POLARIS_DB_DSN`、`POLARIS_PUBLIC_URL` 必须相同；`POLARIS_AGENT_HOSTS` 写负载均衡对外的域名或 IP。

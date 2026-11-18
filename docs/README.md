@@ -18,7 +18,8 @@
 | 订阅设置、订阅转换、处理组 | [订阅设置与订阅转换](user-guide.md#subscriptions) |
 | CDN、CDN 优选 IP、中转、路由、WARP | [域名、CDN、中转与路由](user-guide.md#networking)、[CDN 配置与排查](user-guide.md#cdn-setup) |
 | Telegram、邮件、登录、通行密钥、通知策略、API 令牌、Webhook | [Telegram、登录与审计](user-guide.md#security) |
-| 升级（含小批升级）、备份、迁移、高可用 | [升级、备份与迁移](user-guide.md#maintenance) |
+| 升级（含小批升级）、备份、迁移 | [升级、备份与迁移](user-guide.md#maintenance) |
+| 多主控高可用（主备、见证仲裁、故障切换） | [高可用（主备）](user-guide/ha.md) |
 | 专业版与许可证 | [专业版与许可证](user-guide.md#license) |
 | 遇到问题 | [故障排查](user-guide.md#troubleshooting)、[兼容性与功能边界](user-guide.md#compatibility) |
 | 环境变量与命令 | [配置与命令参考](user-guide.md#configuration) |
@@ -32,6 +33,7 @@
 | [用户启用、禁用与连接排查](operations/user-availability.md) | 独立开关、节点应用状态、内核重载和共享链路排查 |
 | [后台账号与角色](operations/admin-roles.md) | 超级管理员、节点运维、只读运维、客服、财务只读的权限范围 |
 | [付款恢复、退款和运行健康](operations/recovery-and-health.md) | 在线订单的补单、退款流程和运行健康检查 |
+| [高可用（主备）](user-guide/ha.md) | 主备一键部署、见证节点仲裁、看门狗三条件规则、故障切换与恢复 |
 
 ## 对接与插件
 
