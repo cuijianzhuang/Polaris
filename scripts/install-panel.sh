@@ -1773,7 +1773,15 @@ ha_wg_start() {
     ha_plan "systemctl enable --now wg-quick@wg0，wg show 应列出 wg0"
     return 0
   fi
-  systemctl enable --now wg-quick@wg0 >/dev/null 2>&1
+  # wg-quick refuses to start an interface that is already up (a re-run of
+  # ha-join after an earlier attempt), and a bare `systemctl enable --now`
+  # failing under `set -e` kills the whole script without any message, so
+  # the step looked stuck with no error. Only start when the interface is
+  # down, tolerate the start failing, and let the explicit check below
+  # report the failure with a clear message.
+  if ! wg show wg0 >/dev/null 2>&1; then
+    systemctl enable --now wg-quick@wg0 >/dev/null 2>&1 || true
+  fi
   wg show wg0 >/dev/null 2>&1 || die "WireGuard 未能启动（wg show wg0 无输出）"
   ok "隧道已启动（wg0）"
 }
