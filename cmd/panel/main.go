@@ -22,7 +22,7 @@ import (
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "admin", "backup", "restore", "restore-drill", "node-token", "ha-token", "ha-seal-secret", "ha", "migrate":
+		case "admin", "backup", "restore", "restore-drill", "node-token", "ha-token", "ha-seal-secret", "ha", "witness", "migrate":
 			os.Exit(maintenance(os.Args[1], os.Args[2:]))
 		}
 	}
@@ -87,6 +87,10 @@ const usage = `usage:
   polaris ha sync-wg                        reconcile the local WireGuard peers with ha_peers
                                             (runs from a timer on the primary; never inside the
                                             panel server process)
+  polaris witness serve [--listen ADDR] [--state-file PATH]
+                                            run the HA witness arbiter (heartbeats + verdict);
+                                            no database, no panel config, state in memory
+                                            (optionally on disk); default listen 0.0.0.0:8443
 Configuration is read from the environment (POLARIS_*) or -config FILE.`
 
 // maintenance runs operator subcommands against the configured database.
@@ -100,6 +104,8 @@ func maintenance(cmd string, args []string) int {
 	previousKey := fs.String("previous-secret-key", "", "restore: the old POLARIS_SECRET_KEY for a backup made before a secret-key rotation (also accepted via POLARIS_SECRET_KEY_PREVIOUS)")
 	to := fs.String("to", "", "migrate: target database DSN")
 	replace := fs.Bool("replace", false, "migrate: overwrite a target that already has data")
+	listen := fs.String("listen", "0.0.0.0:8443", "witness: listen address")
+	stateFile := fs.String("state-file", "", "witness: JSON state file (optional, keeps heartbeats and the last promotion across restarts)")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, usage) }
 	sub := ""
 	if cmd == "admin" {
@@ -120,12 +126,25 @@ func maintenance(cmd string, args []string) int {
 		}
 		pos, args = append(pos, fs.Arg(0)), fs.Args()[1:]
 	}
+	fail := func(err error) int { fmt.Fprintln(os.Stderr, "error:", err); return 1 }
+	// The witness runs on a host with no panel config (no database, no
+	// secret key), so it must not go through LoadConfig, which requires
+	// POLARIS_SECRET_KEY.
+	if cmd == "witness" {
+		if len(pos) != 1 || pos[0] != "serve" {
+			fs.Usage()
+			return 2
+		}
+		if err := panel.ServeWitness(*listen, *stateFile); err != nil {
+			return fail(err)
+		}
+		return 0
+	}
 	cfg, err := panel.LoadConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config:", err)
 		return 1
 	}
-	fail := func(err error) int { fmt.Fprintln(os.Stderr, "error:", err); return 1 }
 	switch {
 	case cmd == "backup":
 		if len(pos) != 1 {
