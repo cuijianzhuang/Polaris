@@ -188,7 +188,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 库是 PostgreSQL（DSN 以 `postgres://` 开头） | SQLite 时报错，提示先 `polaris migrate` |
 | `ha.role` 不是 `primary`（防重复初始化） | 已是 primary 时只打印状态 + 发新 token；**PR5 补充**：已是 primary 时带 `WITNESS_URL` 重跑 ha-init，会补装心跳定时器与围栏（见 §13） |
 | PG 大版本可读 | 读不到退出 |
-| `51820/udp`、`5432`、`6379` 未被 WG/PG/Redis 以外进程占用 | 占用则退出并指明进程 |
+| `51820/udp`、`6379` 未被 WG/Redis 以外进程占用 | 占用则退出并指明进程；PG 端口取本机集群实际值（常为 `5432`） |
 | 磁盘剩余空间 | 小于库大小 × 1.2 时警告（备机也要装得下整个库） |
 | 能探测到本机公网 IP（`curl ifconfig.me`，脚本已有此逻辑） | 探测不到则要求 `--endpoint <IP>` 传入 |
 | DNS：`polaris` 记录 TTL ≤ 60 且为 DNS-only | 没配 CF token 时只警告（人工去改）；有 token 时调 API 查并提示 |
@@ -238,7 +238,9 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 注意：
 
 - `secret_key` 只经此接口取一次，且 token 用完即废；脚本拿到后写 `0600` 的 env 文件，**绝不打印到日志**（`--dry-run` 时把敏感字段打码）。
-- `db_dsn` 里的业务密码就是主节点 env 里现成的那个，不新设。
+- `db_dsn` 里的业务密码就是主节点 env 里现成的那个，不新设。端口是主库 PG 集群的实际端口（Debian 集群被占时不在 `5432`，如 `5433`）：`ha-init` 写 DSN 时取 `SHOW port` 的值，`ha-join` 的 `pg_basebackup`/`.pgpass`/从库端口都取配置包里这个值；提主只改 host（`10.8.0.1`→`10.8.0.2`），不改端口，所以从库必须监听同一端口。
+- 备机 PG 大版本与主库不同时，`ha-join` 从 PGDG 装主库的版本并用该版本集群建从库（旧版本集群若占了主库端口会被先停掉，数据保留在磁盘上）；本机任一集群已有 `polaris` 库时仍直接退出，须先备份清空。
+- 也可以反过来对齐版本：`install-panel.sh pg-upgrade [--to <大版本>]` 把本机 PG 集群就地升级到指定大版本（`pg_upgradecluster -m upgrade`，新集群接管原端口，DSN 不用改；旧集群保留在原地，验证后 `pg_dropcluster` 删除）。不加 `--to` 时升到最新可装的大版本；不支持降级，带表空间的集群不能升，有从库正在流复制时拒绝执行。
 - `db_size_bytes` 是 **PR2 新增**：join 时磁盘检查要用库大小，但 `/ha/status` 需要管理员登录、join token 调不动，所以直接放进配置包（PG 上 `SELECT pg_database_size(current_database())`，SQLite 下为 null）。
 - `cf_api_token` 为空时，join 脚本跳过 certbot DNS-01 与看门狗安装并明确提示，备节点先以 HTTP 反代跑起来，等 token 补上再跑 `ha-join --finish`（见 §6.3）。
 
@@ -251,7 +253,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | Ubuntu/Debian + systemd + root | 不满足退出 |
 | `80/443/8080/9443/51820` 端口 | `8080/9443/51820` 被占退出；`443` 被 OpenResty 占用时切复用模式（不装 nginx，反代自行添加，见 §6.3 步骤 6）；`443` 被节点入站占了时退出并提示先改入站端口（手工文档 §5.1 同款问题） |
 | 磁盘剩余 ≥ 主库大小 × 1.2（配置包里的 `db_size_bytes`，**PR2 偏差**：原设计调 `GET /ha/status` 取，但那个接口要管理员登录、join token 调不动） | 不够退出 |
-| 本机 PG 大版本 | 未装 PG 时从 PGDG 装与主库相同的大版本；已装但大版本不同时退出（不自动降级/升级数据库） |
+| 本机 PG 大版本 | 未装 PG 时从 PGDG 装与主库相同的大版本；已装但大版本不同时也装主库版本并用该版本集群建从库（旧版本集群若占了主库端口会被先停掉，数据保留在磁盘上）；也可以反过来用 `pg-upgrade` 把主库升级到备机版本（见 §6.3） |
 | 面板未安装或 `ha.role` 不是 `secondary` | 已是 secondary 时只做增量收尾（见下）；**PR5 补充**：带 `WITNESS_URL` 重跑时补装心跳定时器（见 §13） |
 
 执行步骤：

@@ -53,6 +53,7 @@ case "$HA_CASE" in
   finish) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
   finish-openresty) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
   witness) do_witness_init ;;
+  pg-upgrade) PG_UPGRADE_TO=17 do_pg_upgrade ;;
   *) echo "unknown HA_CASE: $HA_CASE" >&2; exit 2 ;;
 esac
 '
@@ -229,6 +230,18 @@ ENV
       assert_contains "$d/output" "ufw allow 8443/tcp"
       assert_contains "$d/output" "WITNESS_URL=http://<见证IP>:8443"
       ;;
+    pg-upgrade)
+      assert_order "$d/output" \
+        "确认当前集群" \
+        "读当前 PG 大版本与端口" \
+        "目标版本：17" \
+        "检查：无表空间、无正在连接的从库、磁盘剩余" \
+        "备份：pg_dumpall 到 /root" \
+        "装 postgresql-<目标版本>" \
+        "pg_upgradecluster -v <目标版本> -m upgrade <当前版本> main" \
+        "验证：新集群在原端口、polaris 库在、SELECT 1 通" \
+        "旧集群保留在原地"
+      ;;
   esac
   echo "ok: $ha_case"
 }
@@ -253,6 +266,7 @@ run_case join-openresty
 run_case finish
 run_case finish-openresty
 run_case witness
+run_case pg-upgrade
 
 # Watchdog scenarios with a fake curl: primary up, counting failures,
 # flipping on the third failure, already on the standby, and local panel
