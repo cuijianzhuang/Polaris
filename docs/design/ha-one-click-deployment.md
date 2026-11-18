@@ -249,7 +249,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 检查 | 失败处理 |
 |---|---|
 | Ubuntu/Debian + systemd + root | 不满足退出 |
-| `80/443/8080/9443/51820` 端口 | `8080/9443/51820` 被占退出；`443` 被节点入站占了时退出并提示先改入站端口（手工文档 §5.1 同款问题） |
+| `80/443/8080/9443/51820` 端口 | `8080/9443/51820` 被占退出；`443` 被 OpenResty 占用时切复用模式（不装 nginx，反代自行添加，见 §6.3 步骤 6）；`443` 被节点入站占了时退出并提示先改入站端口（手工文档 §5.1 同款问题） |
 | 磁盘剩余 ≥ 主库大小 × 1.2（配置包里的 `db_size_bytes`，**PR2 偏差**：原设计调 `GET /ha/status` 取，但那个接口要管理员登录、join token 调不动） | 不够退出 |
 | 本机 PG 大版本 | 未装 PG 时从 PGDG 装与主库相同的大版本；已装但大版本不同时退出（不自动降级/升级数据库） |
 | 面板未安装或 `ha.role` 不是 `secondary` | 已是 secondary 时只做增量收尾（见下）；**PR5 补充**：带 `WITNESS_URL` 重跑时补装心跳定时器（见 §13） |
@@ -261,7 +261,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 3. 停本地 PG，清空数据目录，`pg_basebackup -h 10.8.0.1 -U replicator -D <数据目录> -Fp -Xs -P -R -S hk_slot`；配 `hot_standby=on`、`listen_addresses=localhost,10.8.0.2`；启动；验 `pg_is_in_recovery()=t` 且回放追上。**`.pgpass 留在备机**（`/var/lib/postgresql/.pgpass`，0600，postgres 所有）：`-R` 不把密码写进 `primary_conninfo`，从库重连靠它。
 4. 装 Redis，配 `replicaof 10.8.0.1 6379` + `masterauth`/`requirepass`；启动；验 `role:slave`、`master_link_status:up`。
 5. 调现有安装流程装面板：`--pro --version <配置包版本> --domain <domain> --no-caddy --db <db_dsn> --redis <redis_url> --port 8080 --agent-port 9443`，随后把 env 里的 `SECRET_KEY` / `SECRET_KEY_PREVIOUS` / `ADMIN_PATH` / `PUBLIC_URL` / `TIMEZONE` 按配置包改好，`systemctl restart polaris`。**PR2 补充**：安装时 `SECRET_OVERRIDE` 用配置包的密钥（不重新生成，否则 CA 密封用的密钥对不上）；全新库检查改成只验连通与编码（主库里已有管理员）；首次登录信息不打印（管理员沿用主节点的）。
-6. nginx：写 443 反代 + `stream` 段 9443 直通（复用手工文档 §6.2 的配置）；certbot DNS-01（有 CF token 时）拿证；`nginx -t` 通过后启动；用 `--resolve` 直接验备机 `https://<domain>/api/v1/info` 200。**PR2 补充**：没 CF token 时 nginx 配置照写、暂不启用，等 `--finish` 拿证后再启用。
+6. 反代（二选一）：`443` 空闲时走 nginx——写 443 反代 + `stream` 段 9443 直通（复用手工文档 §6.2 的配置）；certbot DNS-01（有 CF token 时）拿证；`nginx -t` 通过后启动；用 `--resolve` 直接验备机 `https://<domain>/api/v1/info` 200。**PR2 补充**：没 CF token 时 nginx 配置照写、暂不启用，等 `--finish` 拿证后再启用。**本次新增**：`443` 已被 OpenResty（如 1Panel 装的）占用时切复用模式——不装 nginx、不申请证书，脚本打印出需在 1Panel 里加的反代配置（443→8080、stream 9443 直通），模式记入 `POLARIS_HA_PROXY_MODE`，`--finish` 时只补看门狗；模式由 `HA_PROXY_MODE`（auto/nginx/openresty，默认 auto）控制，auto 按 443 占用情况自动判断。
 7. 装看门狗：把 `scripts/cf-failover.sh` 拷到 `/usr/local/bin/`，按配置包填 token/zone/record（zone 与 record ID 由脚本调 CF API 现查，不用人填）；写 cron 每分钟跑；只装在备机。**PR2 补充**：`install-panel.sh` 里内嵌了一份看门狗脚本（`ha_watchdog_script`），ha-join 装的是内嵌的那份，不是从 release 资产下载；`scripts/test-ha-dryrun.sh` 断言内嵌副本与 `scripts/cf-failover.sh` 字节一致，防止漂移。**PR5 补充**：看门狗 env 里同时写 `WITNESS_URL`（ha-join 时环境变量给），看门狗切 DNS 前按 §13 的三条件规则问见证节点。
 8. **PR5 新增**：安装见证心跳定时器（与主节点同款，只是 `node` 为 `hk`）。`WITNESS_URL` 未配时警告并跳过；见证节点就绪后重跑 ha-join 补装（已是 secondary 时只做增量收尾，见 §6.3 前置检查表）。
 9. 备份同步 cron：每小时 rsync `/var/lib/polaris/backups/` 到对端（走 WG）。**PR2 补充**：只在免密 SSH 已通时装（先测 `ssh -o BatchMode=yes root@<对端> true`），不通则警告并给出换 key 的命令，跳过 cron。
@@ -323,7 +323,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 本机公网 IP 可探测 | ha-init | 要求 `--endpoint <IP>` |
 | DNS：TTL ≤ 60 且 DNS-only | ha-init（有 CF token 时调 API 查） | 警告，继续（人工去改） |
 | 端口 8080/9443/51820 空闲 | ha-join | 退出 |
-| 端口 443 空闲 | ha-join | 退出并提示改节点入站端口 |
+| 端口 443 空闲，或被 nginx/OpenResty 占用 | ha-join | 被节点入站等其他进程占用时退出并提示改入站端口；被 OpenResty 占用时切复用模式（不装 nginx，打印 1Panel 反代配置） |
 | 磁盘 ≥ 库 × 1.2 | ha-join | 退出 |
 | 两台版本一致 | ha-join（配置包版本 vs 本机将装的版本） | join 装配置包里的版本，不追最新 |
 | 时间同步 | 两边都查 | 警告（租约时间以库为准，偏一点没事） |
