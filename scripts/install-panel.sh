@@ -1773,6 +1773,14 @@ ha_wg_start() {
     ha_plan "systemctl enable --now wg-quick@wg0，wg show 应列出 wg0"
     return 0
   fi
+  # A stale wg0 can linger from an earlier ha-join attempt: the interface
+  # name exists (so wg-quick refuses to create it again, "already exists")
+  # but it is not a working WireGuard interface (so `wg show` sees nothing).
+  # Remove that stale interface before starting fresh; a working interface
+  # is never touched because `wg show` succeeds on it.
+  if ! wg show wg0 >/dev/null 2>&1 && ip link show wg0 >/dev/null 2>&1; then
+    ip link delete wg0 >/dev/null 2>&1 || true
+  fi
   # wg-quick refuses to start an interface that is already up (a re-run of
   # ha-join after an earlier attempt), and a bare `systemctl enable --now`
   # failing under `set -e` kills the whole script without any message, so
