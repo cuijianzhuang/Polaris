@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Dry-run tests for the HA commands (ha-init / ha-join / ha-join --finish).
+# Dry-run tests for the HA commands (ha-init / ha-join / ha-join --finish /
+# witness-init).
 #
 # Run from any directory: bash scripts/test-ha-dryrun.sh
 #
 # The installer is sourced up to (not including) the entry point, with the
 # globals pointed at a fixture directory and the few commands the dry-run
 # path can reach mocked out. Each case asserts:
-#   - the runbook steps print in the right order (design §6.1/§6.3),
+#   - the runbook steps print in the right order (design §6.1/§6.3/§13),
 #   - secrets are masked (the fixture's real secret key never appears),
 #   - dry-run changes nothing (fixture snapshot identical afterwards),
-#   - the embedded watchdog copy matches scripts/cf-failover.sh.
+#   - the embedded watchdog copy matches scripts/cf-failover.sh, and the
+#     embedded fence copy matches scripts/polaris-ha-fence.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -48,6 +50,7 @@ case "$HA_CASE" in
   init) do_ha_init ;;
   join) HA_TOKEN="test-join-token" HA_PANEL_URL="https://polaris.cuijianzhuang.com" do_ha_join ;;
   finish) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
+  witness) do_witness_init ;;
   *) echo "unknown HA_CASE: $HA_CASE" >&2; exit 2 ;;
 esac
 '
@@ -108,7 +111,7 @@ POLARIS_HA_ROLE=secondary
 ENV
       ;;
   esac
-  export CASE_DIR="$d" HA_CASE="$ha_case" MOCKS="$work/mocks.sh" FUNCTIONS="$work/functions.sh"
+  export CASE_DIR="$d" HA_CASE="$ha_case" MOCKS="$work/mocks.sh" FUNCTIONS="$work/functions.sh" WITNESS_URL="http://203.0.113.9:8443"
   snapshot "$d" > "$d.before"
   if bash -c "$driver" > "$d/output" 2>&1; then rc=0; else rc=$?; fi
   [ "$rc" = 0 ] || fail "$ha_case dry-run exited $rc (see $d/output)"
@@ -143,9 +146,12 @@ ENV
         "配置 Redis 主库" \
         "面板改走隧道连库" \
         "安装 WireGuard 同步定时器" \
+        "安装见证心跳定时器" \
+        "安装围栏检查" \
         "生成加入 token"
       assert_contains "$d/output" "备机加入命令"
       assert_contains "$d/output" "ha-join <加入TOKEN>"
+      assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       ;;
     join)
       assert_order "$d/output" \
@@ -159,14 +165,25 @@ ENV
         "同步密钥与配置" \
         "配置 nginx 与证书" \
         "安装看门狗与备份同步" \
+        "安装见证心跳定时器" \
         "自检"
       assert_contains "$d/output" "GET https://polaris.cuijianzhuang.com/api/v1/ha/join-config"
       assert_contains "$d/output" "POST https://polaris.cuijianzhuang.com/api/v1/ha/peers"
+      assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       ;;
     finish)
       assert_order "$d/output" "申请证书" "启用 nginx" "安装看门狗"
       assert_absent "$d/output" "搭建 PostgreSQL 从库"
       assert_absent "$d/output" "安装面板（同版本、同库、同 Redis）"
+      assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
+      ;;
+    witness)
+      assert_order "$d/output" \
+        "安装面板二进制（含 witness serve）" \
+        "写 systemd unit 并启动" \
+        "验证"
+      assert_contains "$d/output" "ufw allow 8443/tcp"
+      assert_contains "$d/output" "WITNESS_URL=http://<见证IP>:8443"
       ;;
   esac
   echo "ok: $ha_case"
@@ -179,13 +196,24 @@ diff "$work/embedded.sh" "$SCRIPT_DIR/cf-failover.sh" >/dev/null \
   || fail "embedded watchdog drifted from scripts/cf-failover.sh (diff $work/embedded.sh $SCRIPT_DIR/cf-failover.sh)"
 echo "ok: embedded watchdog matches scripts/cf-failover.sh"
 
+# The fence script embedded in install-panel.sh must stay byte-identical
+# to scripts/polaris-ha-fence.sh (ha-init installs the embedded copy).
+awk '/cat <<.FENCE./ {f=1; next} /^FENCE$/ {f=0} f' "$INSTALLER" > "$work/embedded-fence.sh"
+diff "$work/embedded-fence.sh" "$SCRIPT_DIR/polaris-ha-fence.sh" >/dev/null \
+  || fail "embedded fence drifted from scripts/polaris-ha-fence.sh (diff $work/embedded-fence.sh $SCRIPT_DIR/polaris-ha-fence.sh)"
+echo "ok: embedded fence matches scripts/polaris-ha-fence.sh"
+
 run_case init
 run_case join
 run_case finish
+run_case witness
 
 # Watchdog scenarios with a fake curl: primary up, counting failures,
 # flipping on the third failure, already on the standby, and local panel
-# unhealthy (must not count or flip).
+# unhealthy (must not count or flip). Plus the witness quorum cases:
+# witness agrees the primary is down (flip + report promotion), witness
+# says the primary is up (no flip, counter reset), witness unreachable
+# (no flip, counter kept), verdict unparseable (no flip, counter kept).
 run_watchdog_case() {
   local name="$1" d="$work/watchdog-$1"
   mkdir -p "$d/bin"
@@ -197,6 +225,12 @@ case "$args" in
   *"-X PUT"*) printf 'PUT %s\n' "$args" >> "$FAKE_PUT_LOG"; printf '{}\n'; exit 0 ;;
 esac
 case "$args" in
+  *"/verdict"*)
+    if [ -n "${FAKE_WITNESS_DOWN:-}" ]; then exit 1; fi
+    printf '%s\n' "${FAKE_WITNESS_BODY:-{\"reachable\":false}}"; exit 0 ;;
+  *"/promoted"*) printf 'PROMOTED %s\n' "$args" >> "$FAKE_PROMOTED_LOG"; printf '{"ok":true}\n'; exit 0 ;;
+esac
+case "$args" in
   *"--resolve"*) printf '%s\n' "${FAKE_PRIMARY_CODE:-000}"; exit 0 ;;
   *"127.0.0.1:8080"*) printf '%s\n' "${FAKE_LOCAL_CODE:-000}"; exit 0 ;;
   *"dns_records"*) printf '{"result":{"content":"%s"}}\n' "${FAKE_CURRENT_DNS:-}"; exit 0 ;;
@@ -204,7 +238,17 @@ esac
 exit 1
 FAKECURL
   chmod +x "$d/bin/curl"
-  export FAKE_PRIMARY_CODE="$2" FAKE_LOCAL_CODE="$3" FAKE_CURRENT_DNS="$5" FAKE_PUT_LOG="$d/put.log"
+  export FAKE_PRIMARY_CODE="$2" FAKE_LOCAL_CODE="$3" FAKE_CURRENT_DNS="$5" FAKE_PUT_LOG="$d/put.log" FAKE_PROMOTED_LOG="$d/promoted.log"
+  # $6: witness mode — "" (WITNESS_URL unset), agrees (verdict reachable:false),
+  # says-up (verdict reachable:true), down (verdict curl fails), unclear
+  # (verdict JSON has no reachable field).
+  unset FAKE_WITNESS_BODY FAKE_WITNESS_DOWN WITNESS_URL
+  case "$6" in
+    agrees) export WITNESS_URL="http://203.0.113.9:8443" FAKE_WITNESS_BODY='{"reachable":false,"lastSeen":"2026-11-18T00:00:00Z","secondsSince":42}' ;;
+    says-up) export WITNESS_URL="http://203.0.113.9:8443" FAKE_WITNESS_BODY='{"reachable":true,"lastSeen":"2026-11-18T00:00:00Z","secondsSince":2}' ;;
+    down) export WITNESS_URL="http://203.0.113.9:8443" FAKE_WITNESS_DOWN=1 ;;
+    unclear) export WITNESS_URL="http://203.0.113.9:8443" FAKE_WITNESS_BODY='{"weird":1}' ;;
+  esac
   if [ -n "$4" ]; then printf '%s\n' "$4" > "$d/state"; fi
   if CF_TOKEN=test-cf-token CF_ZONE_ID=test-zone CF_RECORD_ID=test-record \
      CF_DOMAIN=polaris.cuijianzhuang.com CF_PRIMARY_IP=203.0.113.1 CF_STANDBY_IP=45.78.33.200 \
@@ -225,6 +269,32 @@ FAKECURL
       [ "$(cat "$d/state")" = 3 ] || fail "watchdog $name: state should count to 3"
       grep -q "PUT" "$d/put.log" || fail "watchdog $name: PUT missing"
       grep -q "DNS flipped to 45.78.33.200" "$d/log" || fail "watchdog $name: missing flip log line"
+      grep -q "no witness configured, flipping on local checks only" "$d/log" || fail "watchdog $name: missing no-witness log line"
+      [ ! -s "$d/promoted.log" ] || fail "watchdog $name: must not report promotion without a witness"
+      ;;
+    witness-agrees)
+      [ "$(cat "$d/state")" = 3 ] || fail "watchdog $name: state should count to 3"
+      grep -q "PUT" "$d/put.log" || fail "watchdog $name: PUT missing"
+      grep -q "DNS flipped to 45.78.33.200" "$d/log" || fail "watchdog $name: missing flip log line"
+      grep -q "witness agrees primary is down" "$d/log" || fail "watchdog $name: missing witness-agrees log line"
+      grep -q "PROMOTED" "$d/promoted.log" || fail "watchdog $name: promotion not reported to witness"
+      grep -q "witness recorded promotion (hk)" "$d/log" || fail "watchdog $name: missing promotion-recorded log line"
+      ;;
+    witness-says-up)
+      [ "$(cat "$d/state")" = 0 ] || fail "watchdog $name: state should reset to 0 when the witness still sees the primary"
+      [ ! -s "$d/put.log" ] || fail "watchdog $name: must not PUT when the witness says the primary is up"
+      grep -q "witness says primary reachable" "$d/log" || fail "watchdog $name: missing witness-says-up log line"
+      [ ! -s "$d/promoted.log" ] || fail "watchdog $name: must not report promotion without a flip"
+      ;;
+    witness-down)
+      [ "$(cat "$d/state")" = 3 ] || fail "watchdog $name: state must stay at 3 (retry next minute) when the witness is unreachable"
+      [ ! -s "$d/put.log" ] || fail "watchdog $name: must not PUT when the witness is unreachable"
+      grep -q "witness unreachable, skip flip" "$d/log" || fail "watchdog $name: missing witness-unreachable log line"
+      ;;
+    witness-unclear)
+      [ "$(cat "$d/state")" = 3 ] || fail "watchdog $name: state must stay at 3 when the verdict cannot be parsed"
+      [ ! -s "$d/put.log" ] || fail "watchdog $name: must not PUT on an unclear verdict"
+      grep -q "witness verdict unclear, skip flip" "$d/log" || fail "watchdog $name: missing verdict-unclear log line"
       ;;
     already-on-standby)
       grep -q "already on standby" "$d/log" || fail "watchdog $name: missing already-on-standby line"
@@ -239,9 +309,13 @@ FAKECURL
   echo "ok: watchdog $name"
 }
 
-run_watchdog_case primary-up 200 200 "" 203.0.113.1
-run_watchdog_case counting 000 200 "" 203.0.113.1
-run_watchdog_case flip 000 200 2 203.0.113.1
-run_watchdog_case already-on-standby 000 200 2 45.78.33.200
-run_watchdog_case local-unhealthy 000 000 "" 203.0.113.1
+run_watchdog_case primary-up 200 200 "" 203.0.113.1 ""
+run_watchdog_case counting 000 200 "" 203.0.113.1 ""
+run_watchdog_case flip 000 200 2 203.0.113.1 ""
+run_watchdog_case already-on-standby 000 200 2 45.78.33.200 ""
+run_watchdog_case local-unhealthy 000 000 "" 203.0.113.1 ""
+run_watchdog_case witness-agrees 000 200 2 203.0.113.1 agrees
+run_watchdog_case witness-says-up 000 200 2 203.0.113.1 says-up
+run_watchdog_case witness-down 000 200 2 203.0.113.1 down
+run_watchdog_case witness-unclear 000 200 2 203.0.113.1 unclear
 echo "all ha dry-run tests passed"

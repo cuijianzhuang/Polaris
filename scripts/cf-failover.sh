@@ -18,6 +18,14 @@
 #                  <admin-path>/api/v1; default "/" keeps /api/v1/info)
 #   CF_PRIMARY_IP  primary public IP (dmit)
 #   CF_STANDBY_IP  standby public IP (this machine, HK)
+#   WITNESS_URL    witness arbiter base URL, e.g. http://<WITNESS_IP>:8443
+#                  (optional). When set, the DNS flip needs quorum: this
+#                  machine must fail 3 checks in a row AND the witness must
+#                  also report the primary unreachable AND the witness must
+#                  answer at all. A witness that cannot be reached, or one
+#                  that still sees the primary, blocks the flip — never flip
+#                  on a single observer. When unset, the old local-only
+#                  behaviour applies.
 set -u
 [ -f /etc/cf-failover.env ] && set -a && . /etc/cf-failover.env && set +a
 CF_TOKEN="${CF_TOKEN:-}"
@@ -27,6 +35,7 @@ CF_DOMAIN="${CF_DOMAIN:-}"
 CF_ADMIN_PATH="${CF_ADMIN_PATH:-/}"
 CF_PRIMARY_IP="${CF_PRIMARY_IP:-}"
 CF_STANDBY_IP="${CF_STANDBY_IP:-}"
+WITNESS_URL="${WITNESS_URL:-}"
 # Test hooks (the installer always uses the defaults above).
 STATE="${CF_STATE_FILE:-/var/lib/cf-failover.state}"
 LOG="${CF_LOG_FILE:-/var/log/cf-failover.log}"
@@ -53,6 +62,28 @@ n=$(cat "$STATE" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$STATE"
 log "primary check failed ($n/$FAIL_N)"
 [ "$n" -lt "$FAIL_N" ] && exit 0
 
+# Quorum (three-condition rule): the witness must agree the primary is
+# down, and answer at all — asking it is itself the reachability proof.
+# Without a witness the old local-only behaviour applies; a witness that
+# cannot be reached, or one that still sees the primary, blocks the flip.
+# The witness emits compact JSON ({"reachable":false,...}), so grep for the
+# exact token; anything else is "unclear" and also blocks the flip.
+if [ -n "$WITNESS_URL" ]; then
+  verdict="$(curl -fsS --max-time 5 "$WITNESS_URL/verdict?node=dmit" 2>/dev/null)" || { log "witness unreachable, skip flip"; exit 0; }
+  if printf '%s' "$verdict" | grep -q '"reachable":false'; then
+    log "witness agrees primary is down, proceeding"
+  elif printf '%s' "$verdict" | grep -q '"reachable":true'; then
+    log "witness says primary reachable, skip flip"
+    echo 0 > "$STATE"
+    exit 0
+  else
+    log "witness verdict unclear, skip flip"
+    exit 0
+  fi
+else
+  log "no witness configured, flipping on local checks only"
+fi
+
 cur=$(curl -s -H "Authorization: Bearer $CF_TOKEN" \
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['result']['content'])" 2>/dev/null || echo "")
@@ -62,3 +93,14 @@ curl -s -X PUT -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: applicatio
   "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/dns_records/$CF_RECORD_ID" \
   --data "{\"type\":\"A\",\"name\":\"${CF_DOMAIN%%.*}\",\"content\":\"$CF_STANDBY_IP\",\"ttl\":60,\"proxied\":false}" >> "$LOG"
 log "DNS flipped to $CF_STANDBY_IP"
+
+# Report the promotion to the witness so the fencing check on the primary
+# (polaris-ha-fence.sh) blocks it from starting as primary again. Best
+# effort: the flip already happened, a witness outage must not fail it.
+if [ -n "$WITNESS_URL" ]; then
+  if curl -fsS --max-time 5 -X POST "$WITNESS_URL/promoted" -H "Content-Type: application/json" -d '{"node":"hk"}' >/dev/null 2>&1; then
+    log "witness recorded promotion (hk)"
+  else
+    log "witness promote report failed (ignored)"
+  fi
+fi

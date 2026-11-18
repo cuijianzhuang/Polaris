@@ -159,6 +159,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | `polaris ha-token` | 发加入 token（照抄 `node-token` 的写法：`LocalNodeToken` 同款，只是不建节点行）。ha-init 脚本调它；管理员也能在终端直接跑 |
 | `polaris ha-seal-secret <name>` | **PR2 新增**：从 stdin 读值（不进 argv，不进 ps 输出），用 Box 密封后存入 `cluster_secrets`（复用 `setHAClusterSecret` 的逻辑，抽成 `setHAClusterSecretDB` 供 CLI 与 HTTP 共用）。ha-init 调它存 `ha_repl_password` / `ha_redis_password`（以及有 CF token 时的 `cf_api_token`） |
 | `polaris ha sync-wg` | 读 `ha_peers`，对齐本机 WG 配置（`wg set` 加对端 / 删已移除的对端；同时重写 `wg0.conf` 保证重启后还在）。由 systemd timer 每 60 秒跑，只在主节点上启用 |
+| `polaris witness serve [--listen ADDR] [--state-file PATH]` | **PR5 新增**：见证节点服务（maintenance 子命令，见 §13）。内存记两台心跳（可选落盘 JSON），无数据库；`--listen` 默认 `0.0.0.0:8443` |
 
 ### 5.4 安装脚本
 
@@ -168,9 +169,11 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | `install-panel.sh ha-join <token> <panel-url> [--dry-run]` | §6.3 |
 | `install-panel.sh ha-join --finish [--dry-run]` | §6.3：只补证书与看门狗，不带 token；CF token 从环境变量 `CF_API_TOKEN` 取 |
 | `install-panel.sh ha-status` | 本机 HA 状态速查（角色、WG、PG、Redis、面板），给排障用 |
+| `install-panel.sh witness-init [--dry-run] [--listen ADDR]` | **PR5 新增**：在第三台主机上装见证节点（§13）：装面板二进制（即 witness 二进制）、写 `polaris-witness.service`、打印防火墙与验证命令 |
 
 `--dry-run` 只打印将要执行的动作，不改任何东西；review 和 CI 都靠它。
 `ha-init` 支持 `--endpoint <IP>`（公网 IP 探测不到时用，见 §6.1 前置检查）。
+`ha-init` / `ha-join` 支持环境变量 `WITNESS_URL`（见证节点地址，如 `http://<见证IP>:8443`，**PR5 新增**，见 §13）：配了就装心跳定时器（ha-init 还装围栏），没配就警告并跳过——见证节点可以晚于 ha-init/ha-join 再装，装好后用同一个 `WITNESS_URL` 重跑 ha-init/ha-join 补装。
 
 ## 6. 详细流程
 
@@ -183,7 +186,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | 已安装面板且版本已知（`polaris --version`） | 未安装先正常装面板 |
 | 面板二进制包含 HA 命令（`ha-token` / `ha-seal-secret` / `ha sync-wg`，从 usage 文本里 grep） | **PR2 新增**：不包含时退出并提示先 `polaris update`。旧版二进制收到未知子命令会直接启动第二个面板进程，绝不能盲调 |
 | 库是 PostgreSQL（DSN 以 `postgres://` 开头） | SQLite 时报错，提示先 `polaris migrate` |
-| `ha.role` 不是 `primary`（防重复初始化） | 已是 primary 时只打印状态 + 发新 token |
+| `ha.role` 不是 `primary`（防重复初始化） | 已是 primary 时只打印状态 + 发新 token；**PR5 补充**：已是 primary 时带 `WITNESS_URL` 重跑 ha-init，会补装心跳定时器与围栏（见 §13） |
 | PG 大版本可读 | 读不到退出 |
 | `51820/udp`、`5432`、`6379` 未被 WG/PG/Redis 以外进程占用 | 占用则退出并指明进程 |
 | 磁盘剩余空间 | 小于库大小 × 1.2 时警告（备机也要装得下整个库） |
@@ -200,7 +203,9 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
    - **PR2 偏差**：dmit 现用 Unix socket peer 认证，`polaris` 角色本来没有密码，DSN 走 TCP `10.8.0.1` 必须先 `ALTER USER polaris PASSWORD`（第 3 步里做，随机值）。§6.2 说的“业务密码就是主节点 env 里现成的那个”只在 DSN 本来就是 TCP 时成立。
 6. 写本机 env（`POLARIS_HA_ROLE=primary`、`POLARIS_HA_WG_PUBKEY`、`POLARIS_HA_WG_IP=10.8.0.1`、`POLARIS_HA_ENDPOINT=<公网IP>`）——**PR2 偏差**：原设计写 settings，见 §4，settings 放不下每台不一样的值。
 7. 启用 `polaris-ha-sync.timer`（每 60 秒跑 `polaris ha sync-wg`）。
-8. 调 `polaris ha-token` 发 token，打印加入命令：`install-panel.sh ha-join <token> https://polaris.cuijianzhuang.com`。
+8. **PR5 新增**：安装见证心跳定时器（`polaris-ha-heartbeat.timer`，每 10 秒 `curl POST <WITNESS_URL>/heartbeat -d '{"node":"dmit"}'`）。`WITNESS_URL` 未配时警告并跳过，不阻塞 init；见证节点就绪后重跑 ha-init 补装。
+9. **PR5 新增**：安装围栏检查（`polaris-ha-fence.service` oneshot + `polaris.service.d/ha-fence.conf` drop-in：`Requires` + `After`，面板启动前先跑；见 §13）。`WITNESS_URL` 未配时警告并跳过。
+10. 调 `polaris ha-token` 发 token，打印加入命令：`install-panel.sh ha-join <token> https://polaris.cuijianzhuang.com`。
    - **PR2 补充**：join 命令里的 URL 要带上管理路径（`https://域名<管理路径>`），因为加入 API 在 `<管理路径>/api/v1` 下面；管理路径是 `/` 时不用带。ha-init 打印时自动拼好。
 
 回滚：ha-init 只在主节点做加法（改配置、加账号、加槽），不删数据。任一步失败，已做的步骤保留，下次重跑跳过已完成项；彻底不要了就按手工文档第 12 节回滚（停备面板、DNS 保持指主，PG 从库停掉不影响主库）。
@@ -247,7 +252,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | `80/443/8080/9443/51820` 端口 | `8080/9443/51820` 被占退出；`443` 被节点入站占了时退出并提示先改入站端口（手工文档 §5.1 同款问题） |
 | 磁盘剩余 ≥ 主库大小 × 1.2（配置包里的 `db_size_bytes`，**PR2 偏差**：原设计调 `GET /ha/status` 取，但那个接口要管理员登录、join token 调不动） | 不够退出 |
 | 本机 PG 大版本 | 未装 PG 时从 PGDG 装与主库相同的大版本；已装但大版本不同时退出（不自动降级/升级数据库） |
-| 面板未安装或 `ha.role` 不是 `secondary` | 已是 secondary 时只做增量收尾（见下） |
+| 面板未安装或 `ha.role` 不是 `secondary` | 已是 secondary 时只做增量收尾（见下）；**PR5 补充**：带 `WITNESS_URL` 重跑时补装心跳定时器（见 §13） |
 
 执行步骤：
 
@@ -257,10 +262,11 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 4. 装 Redis，配 `replicaof 10.8.0.1 6379` + `masterauth`/`requirepass`；启动；验 `role:slave`、`master_link_status:up`。
 5. 调现有安装流程装面板：`--pro --version <配置包版本> --domain <domain> --no-caddy --db <db_dsn> --redis <redis_url> --port 8080 --agent-port 9443`，随后把 env 里的 `SECRET_KEY` / `SECRET_KEY_PREVIOUS` / `ADMIN_PATH` / `PUBLIC_URL` / `TIMEZONE` 按配置包改好，`systemctl restart polaris`。**PR2 补充**：安装时 `SECRET_OVERRIDE` 用配置包的密钥（不重新生成，否则 CA 密封用的密钥对不上）；全新库检查改成只验连通与编码（主库里已有管理员）；首次登录信息不打印（管理员沿用主节点的）。
 6. nginx：写 443 反代 + `stream` 段 9443 直通（复用手工文档 §6.2 的配置）；certbot DNS-01（有 CF token 时）拿证；`nginx -t` 通过后启动；用 `--resolve` 直接验备机 `https://<domain>/api/v1/info` 200。**PR2 补充**：没 CF token 时 nginx 配置照写、暂不启用，等 `--finish` 拿证后再启用。
-7. 装看门狗：把 `scripts/cf-failover.sh` 拷到 `/usr/local/bin/`，按配置包填 token/zone/record（zone 与 record ID 由脚本调 CF API 现查，不用人填）；写 cron 每分钟跑；只装在备机。**PR2 补充**：`install-panel.sh` 里内嵌了一份看门狗脚本（`ha_watchdog_script`），ha-join 装的是内嵌的那份，不是从 release 资产下载；`scripts/test-ha-dryrun.sh` 断言内嵌副本与 `scripts/cf-failover.sh` 字节一致，防止漂移。
-8. 备份同步 cron：每小时 rsync `/var/lib/polaris/backups/` 到对端（走 WG）。**PR2 补充**：只在免密 SSH 已通时装（先测 `ssh -o BatchMode=yes root@<对端> true`），不通则警告并给出换 key 的命令，跳过 cron。
-9. 自检：WG、PG 复制、Redis、双实例（`cluster_members` 两行）、备机直验 200，逐项打勾打印；任一项失败即报错退出，不静默通过。
-10. 写本机 env（`POLARIS_HA_ROLE=secondary` 等）——**PR2 偏差**：原设计写 settings，见 §4；实际在第 5 步的 env 同步里一起写好。
+7. 装看门狗：把 `scripts/cf-failover.sh` 拷到 `/usr/local/bin/`，按配置包填 token/zone/record（zone 与 record ID 由脚本调 CF API 现查，不用人填）；写 cron 每分钟跑；只装在备机。**PR2 补充**：`install-panel.sh` 里内嵌了一份看门狗脚本（`ha_watchdog_script`），ha-join 装的是内嵌的那份，不是从 release 资产下载；`scripts/test-ha-dryrun.sh` 断言内嵌副本与 `scripts/cf-failover.sh` 字节一致，防止漂移。**PR5 补充**：看门狗 env 里同时写 `WITNESS_URL`（ha-join 时环境变量给），看门狗切 DNS 前按 §13 的三条件规则问见证节点。
+8. **PR5 新增**：安装见证心跳定时器（与主节点同款，只是 `node` 为 `hk`）。`WITNESS_URL` 未配时警告并跳过；见证节点就绪后重跑 ha-join 补装（已是 secondary 时只做增量收尾，见 §6.3 前置检查表）。
+9. 备份同步 cron：每小时 rsync `/var/lib/polaris/backups/` 到对端（走 WG）。**PR2 补充**：只在免密 SSH 已通时装（先测 `ssh -o BatchMode=yes root@<对端> true`），不通则警告并给出换 key 的命令，跳过 cron。
+10. 自检：WG、PG 复制、Redis、双实例（`cluster_members` 两行）、备机直验 200，逐项打勾打印；任一项失败即报错退出，不静默通过。
+11. 写本机 env（`POLARIS_HA_ROLE=secondary` 等）——**PR2 偏差**：原设计写 settings，见 §4；实际在第 5 步的 env 同步里一起写好。
 
 `ha-join --finish`：补装第 6、7 步（CF token 后补的场景），其余步骤检测到已完成就跳过。**PR2 补充**：`--finish` 不带 token（`ha-join --finish [--dry-run]`），CF token 从环境变量 `CF_API_TOKEN` 取（主节点上密封的那份备机读不回来）；主节点公网 IP 默认从域名当前 A 记录取，可用 `CF_PRIMARY_IP` 覆盖。
 
@@ -281,6 +287,8 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 - ha-join 装的是 `install-panel.sh` 里内嵌的副本（见 §6.3 第 7 步），`scripts/test-ha-dryrun.sh` 断言两者字节一致。
 - 测试用环境变量 `CF_STATE_FILE` / `CF_LOG_FILE` 覆盖 state 与日志路径（只给测试用，安装时永远用默认路径）。
 
+**PR5 补充（三条件规则，见 §13）**：切 DNS 之前除本机连续 3 次不通与本机面板健康外，还要满足：见证节点也报主节点不可达（`GET <WITNESS_URL>/verdict?node=dmit` 的 `reachable=false`），且见证节点本身可达（问 verdict 成功本身即证明）。任一不满足不切，只记日志；见证节点不可达时同样不切（宁可不切，不可错切）。`WITNESS_URL` 未配时保持旧行为，并在日志写明未配置见证节点。DNS 翻转成功后，看门狗 best-effort 向见证节点 `POST /promoted {"node":"hk"}`（失败只记日志，不影响已翻转的 DNS），供 dmit 恢复时的围栏（§13）判断。
+
 ### 6.6 故障切换向导（HA 页，人工执行）
 
 向导只做两件事：**实时检查**与**给出命令**，不代劳执行。
@@ -292,6 +300,8 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 ### 6.7 故障恢复（dmit 回来）
 
 向导给重建从库的命令（停 PG → `pg_basebackup` 从备机拉 → 起为从库），与手工文档 §10 一致。两个选择写清楚：保持备机为主（推荐，什么都不用再改）或对调回去（反向再做一遍提主流程）。
+
+**PR5 补充（围栏）**：dmit 恢复后不能直接以主库身份启动——ha-init 装的围栏（`polaris-ha-fence.service`，在 `polaris.service` 之前跑）会问见证节点 `GET /primary`；若见证节点记着 `primary=hk`，围栏直接退出非 0，面板起不来，并打印“HK 已提主，按文档把本机重建成从库”的提示。恢复流程因此是：先按向导把 dmit 重建成从库（`pg_basebackup` 从 HK 拉），确认见证节点的心跳恢复后，再按 §6.7 的对调流程决定是否切回。见证节点不可达时围栏只警告、放行启动（可用性优先），这个角落情况见 §13 故障模式表。
 
 ## 7. 安全设计
 
@@ -340,6 +350,7 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 | PR2 | `ha-init` + `ha-join` + `ha sync-wg` + `cf-failover.sh` 进仓库 + `--dry-run` + shellcheck | dry-run 输出与手工文档步骤一一对应；真机跑通一次 |
 | PR3 | HA 页面（`/ha`）+ 故障切换向导 + 状态聚合 | 页面数据与 `cluster_members` / `pg_stat_replication` 一致 |
 | PR4 | user-guide 加 HA 一节；手工部署文档降为附录（故障恢复手册） | 文档里的命令与脚本实际行为一致 |
+| PR5 | 仲裁节点（§13）：`polaris witness serve` + 心跳 timer + 看门狗三条件规则 + 围栏 + `witness-init` | 见证服务心跳→裁决→提主记录实测过；看门狗 4 个见证场景测试过；dry-run 步骤顺序与内嵌副本一致性测试过 |
 
 ## 12. 待用户拍板的问题
 
@@ -351,3 +362,107 @@ token 鉴权失败记审计、不透露是“不存在”还是“已过期”�
 4. **第 3 个节点**以后再说？（v1 只支持 1 主 1 备。）
 5. **看门狗只装备机**，接受吗？（备机也挂则不切；主还活着所以业务不受影响。）
 6. **备份同步默认开启**，接受吗？（每小时 rsync 走 WG 互相同步。）
+
+## 13. 仲裁节点（见证节点，PR5）
+
+### 13.1 为什么需要
+
+两台节点分不清“主死了”还是“网断了”：HK 连不上 dmit，可能是 dmit 挂了，也可能是 dmit↔HK 之间的链路断了（这时 dmit 还在正常服务用户）。只凭 HK 自己的探测就切 DNS，第二种情况会造成双主——DNS 指到 HK，dmit 还在写库，两边数据分叉。第三台只投票不存数据的见证节点打破这个僵局：它在独立的故障域（另外商家，与 dmit/HK 的搬瓦工不同），HK 切 DNS 前必须拿到它的同意。
+
+这不是 §12 Q4 说的“第 3 个节点”——Q4 指第 3 台面板节点（跑面板、存数据），见证节点不跑面板、不存数据、不参与复制，所以 PR5 不改变 Q4“以后再说”的结论。也不做 Patroni/etcd：太重，v1 不需要。
+
+### 13.2 见证服务
+
+复用 panel 二进制，不新开二进制、不改发版流程：
+
+```
+polaris witness serve [--listen ADDR] [--state-file PATH]
+```
+
+- `--listen` 默认 `0.0.0.0:8443`；只绑公网 IP，不走 WG（见证节点不在隧道里）。
+- 内存记两台的心跳（`lastSeen`），可选落盘一个小 JSON 文件（`--state-file`，原子写 tmp+rename，0600），重启后不丢；无数据库。节点名只认 `dmit` / `hk`，其余 400。
+- 接口（纯标准库 HTTP）：
+
+| 方法与路径 | 作用 |
+|---|---|
+| `POST /heartbeat {"node":"dmit"\|"hk"}` | 记一次心跳，返回 200 |
+| `GET /verdict?node=dmit` | 返回 `{"reachable":bool,"lastSeen":RFC3339\|null,"secondsSince":number\|null}`；`reachable` 指最近 30 秒内收到过该节点心跳 |
+| `POST /promoted {"node":"hk"}` | 记一次提主（HK 提主时上报） |
+| `GET /primary` | 返回 `{"primary":"dmit"\|"hk"\|null,"at":RFC3339\|null}` |
+| `GET /health` | 200 即活着，返回 `{"ok":true}` |
+
+- 实现在 `internal/panel/witness.go`：心跳与裁决逻辑抽纯函数（`witnessState` + `verdict`/`promote`/`primaryInfo`），单元测试在 `internal/panel/witness_test.go`（心跳/裁决/提主记录/落盘重载/HTTP 全流程）。
+- 注意：`witness serve` 必须在 `LoadConfig` 之前分发——`LoadConfig` 要求 `POLARIS_SECRET_KEY`，见证节点没有面板配置，不能走那条路。
+
+### 13.3 心跳
+
+两台面板主机各装一个 systemd timer（`polaris-ha-heartbeat.timer`），每 10 秒 `curl POST <WITNESS_URL>/heartbeat`：
+
+```
+ExecStart=/usr/bin/curl -fsS -X POST --max-time 5 ${WITNESS_URL}/heartbeat \
+  -H Content-Type:application/json -d '{"node":"dmit"}'
+```
+
+- ha-init 装 dmit 的，ha-join 装 HK 的；`WITNESS_URL` 从安装时的环境变量取，写进 `/etc/polaris/witness.env`（644，无敏感值），timer 的 service 读它。
+- `WITNESS_URL` 未配时警告并跳过，不阻塞 init/join；见证节点就绪后，用同一个 `WITNESS_URL` 重跑 ha-init/ha-join 补装（已是 primary/secondary 时只做增量收尾，见 §6.1/§6.3）。
+- 心跳失败不重试、不记错（timer 10 秒后再打一次）；见证节点收不到心跳时 `verdict` 自然变 `reachable:false`——丢心跳本身就是信号，不用额外告警通道。
+
+### 13.4 看门狗三条件规则
+
+切 DNS 之前必须同时满足（`scripts/cf-failover.sh`，参数走 `/etc/cf-failover.env` 的 `WITNESS_URL`）：
+
+- (a) 本机连续 3 次连不上 dmit；
+- (b) 见证节点也报 dmit 不可达（`GET /verdict?node=dmit` 的 `reachable=false`）；
+- (c) 本机能连上见证节点（问 verdict 成功本身即证明）。
+
+任一不满足：不切 DNS，只记日志。见证节点不可达时同样不切（宁可不切，不可错切）；见证节点说 dmit 还活着时不切，并把计数清零（说明是本机到主节点的链路问题）。`WITNESS_URL` 为空时保持旧行为（只按本机探测切），并在日志写明未配置见证节点。
+
+DNS 翻转成功后，看门狗 best-effort 向见证节点 `POST /promoted {"node":"hk"}`（成功记日志，失败记日志但不影响已翻转的 DNS）。手动提主（不经过看门狗翻转）时，人要补调一次同样的 curl，否则见证节点不知道 hk 已提主，dmit 恢复时的围栏（§13.5）就拦不住它。
+
+### 13.5 围栏（dmit 恢复后不能自己当回主）
+
+ha-init 给 dmit 装一个开机一次性检查（`scripts/polaris-ha-fence.sh`，独立文件 + `install-panel.sh` 内嵌副本，测试断言两者字节一致）：
+
+- systemd oneshot `polaris-ha-fence.service`，在 `polaris.service` 之前跑（drop-in `polaris.service.d/ha-fence.conf`：`Requires` + `After`）。
+- 问见证节点 `GET /primary`；若 `primary == "hk"`，直接退出非 0 并打印“HK 已提主，按文档把本机重建成从库”的提示，阻止本机 PG 以主库身份启动。
+- 见证节点不可达时只警告、放行（可用性优先：不能因为见证节点挂了就让主节点永远起不来）。这个角落情况见 §13.7。
+- 围栏只拦面板启动，不拦 PG 本身——PG 即使以主库身份起来了，没有面板写它也不会产生新业务数据；恢复流程（§6.7）仍要求先重建为从库再重新加入。
+
+### 13.6 部署步骤
+
+部署顺序：**先装见证节点，再跑 ha-init/ha-join**（带 `WITNESS_URL`）。见证节点也可以晚于 ha-init/ha-join 再装，装好后重跑补装（§13.3）。
+
+第三台主机（另外商家、Ubuntu、上面跑着一个节点 agent；公网 IP 用占位符 `<WITNESS_IP>`，真 IP 以后再填——地址一律走配置参数，绝不 hardcode）：
+
+```bash
+# 第三台上，root 跑；--dry-run 只打印动作，敏感字段打码
+curl -fsSL https://raw.githubusercontent.com/cuijianzhuang/Polaris/main/scripts/install-panel.sh | sudo bash -s -- witness-init [--dry-run] [--listen 0.0.0.0:8443]
+# 放行端口（或云厂商安全组放行 8443/tcp）
+ufw allow 8443/tcp
+# 验证
+curl http://<WITNESS_IP>:8443/health   # 应返回 {"ok":true}
+```
+
+witness-init 做的事：下载面板二进制（checksum 校验；已装且支持 `witness serve` 时跳过下载）、写 `polaris-witness.service`（`ExecStart=<BIN> witness serve --listen 0.0.0.0:8443 --state-file /var/lib/polaris-witness/state.json`，`Restart=on-failure`）、`systemctl enable --now`、curl 验 `/health`。
+
+两台面板主机（ha-init/ha-join 时环境变量给见证地址）：
+
+```bash
+# dmit 上
+WITNESS_URL=http://<WITNESS_IP>:8443 install-panel.sh ha-init [--dry-run]
+# HK 上
+WITNESS_URL=http://<WITNESS_IP>:8443 install-panel.sh ha-join <token> https://polaris.cuijianzhuang.com
+```
+
+ha-init 还会把 `WITNESS_URL` 写进看门狗 env（`/etc/cf-failover.env`，ha-join 时写；`ha-join --finish` 补装时也写）。
+
+### 13.7 故障模式表
+
+| 场景 | 结果 |
+|---|---|
+| 见证节点本身挂了 | 看门狗问 verdict 失败 → 不切 DNS，只记日志（降级为“不切”，不是旧行为——旧行为是无见证时切；已配见证时见证不可达一律不切）。告警：看门狗日志里有 `witness unreachable`，巡检时看；dmit/HK 的心跳 timer 也在打，见证恢复后自动续上。dmit 恢复时的围栏放行（只警告）。 |
+| HK 被孤立（HK↔dmit 断，HK↔见证通，dmit↔见证通） | 见证节点仍收到 dmit 心跳 → verdict `reachable:true` → 看门狗不切，计数清零。dmit 继续服务，无双主。 |
+| dmit 与见证同时挂 | HK 问不到见证 → 不切，等人处理。DNS 不动，业务中断直到人工介入——这是有意为之：两个独立故障域同时挂，无法区分“dmit 死了”还是“HK 被孤立”，宁可停着等人工确认，不可错切。 |
+| dmit 挂了，见证活着 | 见证 30 秒后 verdict `reachable:false` → 看门狗三条件满足 → 切 DNS → 上报 `/promoted {"node":"hk"}`。dmit 恢复后围栏拦住它以主库身份启动，必须先重建为从库（§6.7）。 |
+| 见证节点重启 | state 文件落盘后重载，心跳与提主记录不丢；落盘文件损坏时服务启动报错（不静默丢状态），删文件可重建（丢心跳历史，30 秒后重新收敛）。 |
+| 时钟偏差 | 裁决用见证节点自己的时钟算 `secondsSince`（心跳到达时间），不依赖两台面板主机的时钟；面板主机时钟偏不影响裁决，只影响它自己日志的时间戳。 |
