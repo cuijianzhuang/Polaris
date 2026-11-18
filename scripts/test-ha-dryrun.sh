@@ -54,6 +54,7 @@ case "$HA_CASE" in
   finish-openresty) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
   witness) do_witness_init ;;
   pg-upgrade) PG_UPGRADE_TO=17 do_pg_upgrade ;;
+  init-retrofit) do_ha_init ;;
   *) echo "unknown HA_CASE: $HA_CASE" >&2; exit 2 ;;
 esac
 '
@@ -83,7 +84,7 @@ run_case() {
   local d="$work/case-$ha_case"
   mkdir -p "$d/bin" "$d/etc" "$d/data"
   case "$ha_case" in
-    init|finish|finish-openresty)
+    init|finish|finish-openresty|init-retrofit)
       # Fake installed panel: the binary prints a version and carries the
       # usage strings the installer greps for (ha-token / ha-seal-secret /
       # "ha sync-wg").
@@ -120,6 +121,16 @@ POLARIS_PUBLIC_URL=https://polaris.cuijianzhuang.com
 POLARIS_ADMIN_PATH=/
 POLARIS_HA_ROLE=secondary
 POLARIS_HA_PROXY_MODE=openresty
+ENV
+      ;;
+    init-retrofit)
+      cat > "$d/etc/polaris.env" <<'ENV'
+POLARIS_SECRET_KEY=fixture-secret-key-123
+POLARIS_DB_DSN=postgres://polaris:fixture-db-pass@127.0.0.1:5433/polaris
+POLARIS_PUBLIC_URL=https://polaris.cuijianzhuang.com
+POLARIS_ADMIN_PATH=/
+POLARIS_LISTEN=127.0.0.1:8080
+POLARIS_HA_ROLE=primary
 ENV
       ;;
   esac
@@ -242,6 +253,16 @@ ENV
         "验证：新集群在原端口、polaris 库在、SELECT 1 通" \
         "旧集群保留在原地"
       ;;
+    init-retrofit)
+      # Re-running ha-init on an existing primary only installs the pieces
+      # the first run skipped (notably the sync-wg timer) and prints a
+      # fresh join command; it must not redo the full init.
+      assert_contains "$d/output" "本机已是主节点"
+      assert_contains "$d/output" "安装 WireGuard 同步定时器"
+      assert_contains "$d/output" "备机加入命令"
+      assert_absent "$d/output" "配置 PostgreSQL 主库"
+      assert_absent "$d/output" "生成加入 token"
+      ;;
   esac
   echo "ok: $ha_case"
 }
@@ -267,6 +288,7 @@ run_case finish
 run_case finish-openresty
 run_case witness
 run_case pg-upgrade
+run_case init-retrofit
 
 # Watchdog scenarios with a fake curl: primary up, counting failures,
 # flipping on the third failure, already on the standby, and local panel
