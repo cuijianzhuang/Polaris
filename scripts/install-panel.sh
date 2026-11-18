@@ -36,6 +36,7 @@
 #   ha-status                     local HA state: role, WireGuard, PostgreSQL, Redis, panel
 #   witness-init [--dry-run] [--listen ADDR]   install the HA witness arbiter on this machine (third host; default listen 0.0.0.0:8443)
 #   pg-upgrade [--to VER] [--dry-run]   upgrade the local PostgreSQL cluster to a newer major version (Debian pg_upgradecluster; the upgraded cluster keeps the original port)
+#   ha-token | ha-seal-secret NAME | ha sync-wg | witness serve   panel-binary maintenance commands (forwarded to polaris-server)
 #
 # Options for install/update: --mirror URL (download prefix for github.com)
 #   --pro / --community: the professional edition (paid features, needs a
@@ -3623,6 +3624,20 @@ while [ $# -gt 0 ]; do
     --purge) PURGE=1; shift ;;
     -u) ADMIN_USER="$2"; shift 2 ;;
     -h|--help) sed -n '2,35p' "$0" 2>/dev/null || echo "see $RAW_SCRIPT"; exit 0 ;;
+    ha-token|ha-seal-secret|ha|witness)
+      # Panel-binary maintenance commands. This tool (polaris) is the
+      # management script, not the panel binary (polaris-server), so
+      # forward them instead of rejecting them as unknown. The binary
+      # reads its config from the panel env file (the sync-wg timer
+      # does the same via EnvironmentFile), so load it first; without
+      # it the binary dies on "secret_key is required".
+      [ -x "$BIN" ] || die "面板尚未安装（$BIN 不存在）"
+      [ -f "$ENV_FILE" ] || die "找不到面板配置文件（$ENV_FILE）"
+      set -a
+      # shellcheck source=/dev/null
+      . "$ENV_FILE"
+      set +a
+      exec "$BIN" "$@" ;;
     *) die "未知参数：$1（--help 查看用法）" ;;
   esac
 done
