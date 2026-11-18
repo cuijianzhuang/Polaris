@@ -126,7 +126,7 @@ func (s *Server) remotePanelAction(c *gin.Context) {
 	}
 
 	var resp map[string]any
-	status, err := cli.post(c.Request.Context(), "/api/panel/actions", req, &resp)
+	status, err := cli.post(c.Request.Context(), "/api/v1/panel/actions", req, &resp)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": classifyRemotePanelError(err)})
 		return

@@ -137,7 +137,7 @@ func (c *remotePanelClient) get(ctx context.Context, path string, out any) (stat
 // fetchSnapshot calls GET /panel/self on the member.
 func (c *remotePanelClient) fetchSnapshot(ctx context.Context) (*store.RemoteSnapshot, error) {
 	var snap store.RemoteSnapshot
-	_, err := c.get(ctx, "/api/panel/self", &snap)
+	_, err := c.get(ctx, "/api/v1/panel/self", &snap)
 	return &snap, err
 }
 
