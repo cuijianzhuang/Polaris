@@ -2458,6 +2458,24 @@ ha_setup_pg_replica() {
     runuser -u postgres -- env PGPASSFILE=/var/lib/postgresql/.pgpass \
       "$basebackup" -h "$HA_WG_PRIMARY_IP" -p "$want_port" -U replicator -D "$data_dir" -Fp -Xs -P -R -S hk_slot \
       || die "pg_basebackup 失败（检查复制账号、密码与隧道；主库端口 ${want_port}）"
+    # pg_basebackup -R should have written standby.signal and
+    # primary_conninfo, but if either is missing the replica starts as a
+    # standalone primary and never enters recovery mode. Recreate them
+    # explicitly so the join heals itself instead of failing later with
+    # "not in recovery mode" and no further clue. application_name uses
+    # HA_SYNC_APPNAME (polaris_standby) so synchronous replication keeps
+    # working when this fallback fires.
+    if [ ! -f "$data_dir/standby.signal" ]; then
+      warn "pg_basebackup 未生成 standby.signal：手动补建"
+      : > "$data_dir/standby.signal"
+      chown postgres:postgres "$data_dir/standby.signal"
+    fi
+    if ! grep -q "primary_conninfo" "$data_dir/postgresql.auto.conf" 2>/dev/null; then
+      warn "pg_basebackup 未写 primary_conninfo：手动补写"
+      printf "primary_conninfo = 'host=%s port=%s user=replicator password=%s application_name=%s'\n" \
+        "$HA_WG_PRIMARY_IP" "$want_port" "$B_REPL_PASSWORD" "$HA_SYNC_APPNAME" >> "$data_dir/postgresql.auto.conf"
+      chown postgres:postgres "$data_dir/postgresql.auto.conf"
+    fi
   fi
   # Give the walreceiver a stable application_name so the primary can name
   # it in synchronous_standby_names. pg_basebackup -R writes
@@ -2481,7 +2499,12 @@ ha_setup_pg_replica() {
   systemctl enable "postgresql@$target_ver-$target_name" >/dev/null 2>&1 || true
   for i in $(seq 1 30); do
     [ "$(ha_replica_su -tAc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = t ] && break
-    [ "$i" = 30 ] && die "从库启动后仍不在恢复模式"
+    if [ "$i" = 30 ]; then
+      if [ -f "$data_dir/standby.signal" ]; then dim "standby.signal 存在" >&2; else red "standby.signal 缺失" >&2; fi
+      red "最近的 PostgreSQL 日志（journalctl）："
+      journalctl -u "postgresql@$target_ver-$target_name" -n 20 --no-pager >&2 || true
+      die "从库启动后仍不在恢复模式"
+    fi
     sleep 1
   done
   ok "从库已启动（恢复模式）"
