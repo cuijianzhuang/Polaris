@@ -49,6 +49,7 @@ HA_DRYRUN=1
 case "$HA_CASE" in
   init) do_ha_init ;;
   join) HA_TOKEN="test-join-token" HA_PANEL_URL="https://polaris.cuijianzhuang.com" do_ha_join ;;
+  join-already-secondary) HA_TOKEN="test-join-token" HA_PANEL_URL="https://polaris.cuijianzhuang.com" do_ha_join ;;
   join-openresty) HA_PROXY_MODE=openresty HA_TOKEN="test-join-token" HA_PANEL_URL="https://polaris.cuijianzhuang.com" do_ha_join ;;
   finish) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
   finish-openresty) HA_FINISH=1 CF_API_TOKEN="test-cf-token" CF_PRIMARY_IP="203.0.113.1" do_ha_join ;;
@@ -121,6 +122,18 @@ POLARIS_PUBLIC_URL=https://polaris.cuijianzhuang.com
 POLARIS_ADMIN_PATH=/
 POLARIS_HA_ROLE=secondary
 POLARIS_HA_PROXY_MODE=openresty
+ENV
+      ;;
+    join-already-secondary)
+      cat > "$d/etc/polaris.env" <<'ENV'
+POLARIS_SECRET_KEY=fixture-secret-key-123
+POLARIS_PUBLIC_URL=https://polaris.cuijianzhuang.com
+POLARIS_ADMIN_PATH=/
+POLARIS_HA_ROLE=secondary
+POLARIS_HA_WG_IP=10.8.0.2
+POLARIS_HA_WG_PUBKEY=fixture-wg-pubkey-standby
+POLARIS_HA_PEER_WG_IP=10.8.0.1
+POLARIS_HA_ENDPOINT=45.78.33.200
 ENV
       ;;
     init-retrofit)
@@ -225,6 +238,19 @@ ENV
       assert_absent "$d/output" "certbot certonly"
       assert_absent "$d/output" "配置 nginx 与证书"
       ;;
+    join-already-secondary)
+      # Re-running ha-join on an existing standby must not redo the join,
+      # but it must re-register the peer: the ha_peers row on the primary
+      # can be lost (DB reset, re-init), and without it sync-wg would
+      # eventually drop this standby from the primary's WireGuard config.
+      # The mocked curl fails, so the re-registration warns instead of
+      # dying; the standby keeps working on its existing config.
+      assert_contains "$d/output" "本机已是备节点"
+      assert_contains "$d/output" "对端重新注册失败"
+      assert_absent "$d/output" "搭建 PostgreSQL 从库"
+      assert_absent "$d/output" "取配置包并注册对端"
+      assert_absent "$d/output" "安装面板（同版本、同库、同 Redis）"
+      ;;
     finish)
       assert_order "$d/output" "申请证书" "启用 nginx" "安装看门狗"
       assert_absent "$d/output" "搭建 PostgreSQL 从库"
@@ -300,6 +326,7 @@ echo "ok: application_name matches the panel constant ($script_app)"
 
 run_case init
 run_case join
+run_case join-already-secondary
 run_case join-openresty
 run_case finish
 run_case finish-openresty

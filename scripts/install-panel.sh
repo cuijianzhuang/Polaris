@@ -3015,6 +3015,25 @@ do_ha_join() {
       STEP_TOTAL=0
       ha_install_heartbeat hk
     fi
+    # Re-register the peer: the ha_peers row on the primary may have been
+    # lost (DB reset, panel re-init), and without it sync-wg would
+    # eventually drop this standby from the primary's WireGuard config.
+    # Re-running ha-join with a fresh token restores the row. Best-effort:
+    # the standby already works, so a failed re-registration only warns.
+    WG_PUB="$(env_get POLARIS_HA_WG_PUBKEY)"
+    [ -n "$WG_PUB" ] || WG_PUB="$(cat /etc/wireguard/publickey 2>/dev/null)"
+    local re_ip
+    re_ip="$(env_get POLARIS_HA_ENDPOINT)"
+    [ -n "$re_ip" ] || re_ip="$(public_ip 2>/dev/null)"
+    if [ -n "$WG_PUB" ] && [ -n "$re_ip" ]; then
+      if ( ha_register_peer "$re_ip" ); then
+        :
+      else
+        warn "对端重新注册失败（token 可能已过期或主节点不可达）；隧道仍按现有配置运行，主节点重跑 polaris ha-token 后再跑一次 ha-join"
+      fi
+    else
+      warn "无法读取本机 WG 公钥或公网 IP，跳过对端重新注册"
+    fi
     do_ha_status
     return 0
   fi
