@@ -37,7 +37,8 @@ func (s *sysSampler) Sample() *polarisv1.SystemStats {
 		out.CpuPercent = round1(100 * (dt - float64(idle-s.cpuIdle)) / dt)
 	}
 	s.cpuIdle, s.cpuTotal = idle, total
-	out.MemPercent = round1(readMem())
+	mem := readMeminfo()
+	out.MemPercent = round1(mem.percent())
 	netSample, netErr := readNet()
 	rx, tx := netSample.rx, netSample.tx
 	now := time.Now()
@@ -73,31 +74,158 @@ func (s *sysSampler) Sample() *polarisv1.SystemStats {
 		out.TxBytes = 0
 	}
 	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
-		f := strings.Fields(string(b))
-		if len(f) > 0 {
-			out.Load1, _ = strconv.ParseFloat(f[0], 64)
-		}
+		out.Load1, out.Load5, out.Load15 = parseLoadavg(string(b))
 	}
-	out.MemTotalBytes = readMemTotal()
+	out.MemTotalBytes = mem.totalKB * 1024
+	if mem.swapTotalKB > 0 {
+		out.SwapPercent = round1(mem.swapPercent())
+		out.SwapTotalBytes = mem.swapTotalKB * 1024
+	}
+	out.Processes = readProcessCount()
+	out.TcpConnections = readConnCount("/proc/net/tcp", "/proc/net/tcp6")
+	out.UdpConnections = readConnCount("/proc/net/udp", "/proc/net/udp6")
 	out.DiskPercent, out.DiskTotalBytes = readDisk("/")
 	out.CpuCores = uint32(runtime.NumCPU())
 	out.OsName = osName()
 	return out
 }
 
-// readMemTotal is MemTotal from /proc/meminfo in bytes.
-func readMemTotal() uint64 {
-	b, err := os.ReadFile("/proc/meminfo")
+// memInfo is the /proc/meminfo figures the sampler reports, in KiB.
+type memInfo struct {
+	totalKB     uint64
+	availKB     uint64
+	swapTotalKB uint64
+	swapFreeKB  uint64
+}
+
+func (m memInfo) percent() float64 {
+	if m.totalKB == 0 || m.availKB >= m.totalKB {
+		return 0
+	}
+	return 100 * float64(m.totalKB-m.availKB) / float64(m.totalKB)
+}
+
+// swapPercent is 0 when the host has no swap.
+func (m memInfo) swapPercent() float64 {
+	if m.swapTotalKB == 0 || m.swapFreeKB >= m.swapTotalKB {
+		return 0
+	}
+	return 100 * float64(m.swapTotalKB-m.swapFreeKB) / float64(m.swapTotalKB)
+}
+
+func parseMeminfo(r io.Reader) memInfo {
+	var m memInfo
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		v, _ := strconv.ParseUint(fields[1], 10, 64)
+		switch fields[0] {
+		case "MemTotal:":
+			m.totalKB = v
+		case "MemAvailable:":
+			m.availKB = v
+		case "SwapTotal:":
+			m.swapTotalKB = v
+		case "SwapFree:":
+			m.swapFreeKB = v
+		}
+	}
+	return m
+}
+
+// readMeminfo reads /proc/meminfo once for memory and swap alike; a failed
+// read leaves every figure zero.
+func readMeminfo() memInfo {
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return memInfo{}
+	}
+	defer f.Close()
+	return parseMeminfo(f)
+}
+
+// parseLoadavg reads the 1/5/15-minute loads from /proc/loadavg content;
+// missing or unparsable fields stay zero.
+func parseLoadavg(s string) (load1, load5, load15 float64) {
+	f := strings.Fields(s)
+	if len(f) > 0 {
+		load1, _ = strconv.ParseFloat(f[0], 64)
+	}
+	if len(f) > 1 {
+		load5, _ = strconv.ParseFloat(f[1], 64)
+	}
+	if len(f) > 2 {
+		load15, _ = strconv.ParseFloat(f[2], 64)
+	}
+	return
+}
+
+// countProcNames counts the all-digit names in a /proc listing: one per
+// process (threads live under <pid>/task, not at the top level).
+func countProcNames(names []string) uint32 {
+	var n uint32
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		digits := true
+		for _, c := range name {
+			if c < '0' || c > '9' {
+				digits = false
+				break
+			}
+		}
+		if digits {
+			n++
+		}
+	}
+	return n
+}
+
+func readProcessCount() uint32 {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return 0
 	}
-	for _, l := range strings.Split(string(b), "\n") {
-		if f := strings.Fields(l); len(f) >= 2 && f[0] == "MemTotal:" {
-			kb, _ := strconv.ParseUint(f[1], 10, 64)
-			return kb * 1024
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.Name()
+	}
+	return countProcNames(names)
+}
+
+// parseNetTable counts the entries in a /proc/net/{tcp,udp} table: every
+// line but the header is one socket.
+func parseNetTable(r io.Reader) uint32 {
+	var lines uint32
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		if strings.TrimSpace(sc.Text()) != "" {
+			lines++
 		}
 	}
-	return 0
+	if lines == 0 {
+		return 0
+	}
+	return lines - 1
+}
+
+// readConnCount sums parseNetTable over the given tables; a missing table
+// (e.g. no IPv6) contributes zero.
+func readConnCount(paths ...string) uint32 {
+	var n uint32
+	for _, p := range paths {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		n += parseNetTable(f)
+		f.Close()
+	}
+	return n
 }
 
 var osNameOnce = sync.OnceValue(func() string {
@@ -139,33 +267,6 @@ func readCPU() (idle, total uint64) {
 		}
 	}
 	return
-}
-
-func readMem() float64 {
-	f, err := os.Open("/proc/meminfo")
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	var total, avail float64
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		fields := strings.Fields(sc.Text())
-		if len(fields) < 2 {
-			continue
-		}
-		v, _ := strconv.ParseFloat(fields[1], 64)
-		switch fields[0] {
-		case "MemTotal:":
-			total = v
-		case "MemAvailable:":
-			avail = v
-		}
-	}
-	if total == 0 {
-		return 0
-	}
-	return 100 * (total - avail) / total
 }
 
 type netCounters struct {

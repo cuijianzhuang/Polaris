@@ -92,6 +92,14 @@ type SystemInfo struct {
 	DiskTotal uint64  `json:"diskTotal,omitempty"`
 	Cores     uint32  `json:"cores,omitempty"`
 	OS        string  `json:"os,omitempty"`
+	// Probe metrics added later still; zero from older agents.
+	Load5     float64 `json:"load5,omitempty"`
+	Load15    float64 `json:"load15,omitempty"`
+	Swap      float64 `json:"swap,omitempty"`
+	SwapTotal uint64  `json:"swapTotal,omitempty"`
+	Processes uint32  `json:"processes,omitempty"`
+	TCPConns  uint32  `json:"tcpConns,omitempty"`
+	UDPConns  uint32  `json:"udpConns,omitempty"`
 }
 
 // Core is a core instance installed (or desired) on a node.
@@ -1281,6 +1289,9 @@ type NodeMetric struct {
 	RxBps  uint64    `json:"rx"`
 	TxBps  uint64    `json:"tx"`
 	Load1  float64   `json:"load"`
+	Load5  float64   `json:"load5"`
+	Load15 float64   `json:"load15"`
+	Swap   float64   `json:"swap"`
 	N      int       `json:"-"` // samples averaged so far
 }
 

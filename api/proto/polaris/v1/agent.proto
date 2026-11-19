@@ -113,6 +113,14 @@ message SystemStats {
   uint64 disk_total_bytes = 15;
   uint32 cpu_cores = 16;
   string os_name = 17; // PRETTY_NAME from /etc/os-release
+  // Probe metrics added later; older agents leave them all zero.
+  double load5 = 18;
+  double load15 = 19;
+  double swap_percent = 20;
+  uint64 swap_total_bytes = 21;
+  uint32 processes = 22;
+  uint32 tcp_connections = 23;
+  uint32 udp_connections = 24;
 }
 
 message CoreState {
