@@ -376,6 +376,58 @@ type probeNode struct {
 	// Hosting cost: admins always; the public page only with status_show_cost.
 	Price    string     `json:"price,omitempty"`
 	ExpireAt *time.Time `json:"expireAt,omitempty"`
+	// Probe metrics from newer agents. Load5/Load15 are pointers so an old
+	// agent (both zero) omits them entirely and the UI can degrade; Swap
+	// follows SwapTotal the same way. Processes and connection counts are
+	// admin-only: never set on the public page.
+	Load5     *float64  `json:"load5,omitempty"`
+	Load15    *float64  `json:"load15,omitempty"`
+	Swap      *float64  `json:"swap,omitempty"`
+	SwapTotal uint64    `json:"swapTotal,omitempty"`
+	Processes uint32    `json:"processes,omitempty"`
+	TCPConns  uint32    `json:"tcpConns,omitempty"`
+	UDPConns  uint32    `json:"udpConns,omitempty"`
+	ResSpark  *resSpark `json:"resSpark,omitempty"`
+}
+
+// resSpark is a node's resource history over the last 2 hours in 5-minute
+// slots (25 points, oldest first; nil = no sample in that slot), aligned
+// like the latency sparks.
+type resSpark struct {
+	Start       time.Time  `json:"start"`
+	SlotSeconds int        `json:"slotSeconds"`
+	CPU         []*float64 `json:"cpu"`
+	Mem         []*float64 `json:"mem"`
+	Rx          []*float64 `json:"rx"`
+	Tx          []*float64 `json:"tx"`
+}
+
+// resSparksForNodes loads every node's resource spark in one query.
+func (s *Server) resSparksForNodes(ids []string, now time.Time) map[string]*resSpark {
+	out := map[string]*resSpark{}
+	if len(ids) == 0 {
+		return out
+	}
+	from := now.UTC().Add(-2 * time.Hour).Truncate(metricSlot)
+	var ms []store.NodeMetric
+	s.st.DB.Where("node_id IN ? AND at >= ?", ids, from).Order("at").Find(&ms)
+	const slots = int(2*time.Hour/metricSlot) + 1
+	for i := range ms {
+		m := &ms[i]
+		sp := out[m.NodeID]
+		if sp == nil {
+			sp = &resSpark{Start: from, SlotSeconds: int(metricSlot.Seconds()),
+				CPU: make([]*float64, slots), Mem: make([]*float64, slots), Rx: make([]*float64, slots), Tx: make([]*float64, slots)}
+			out[m.NodeID] = sp
+		}
+		idx := int(m.At.Sub(from) / metricSlot)
+		if idx < 0 || idx >= slots {
+			continue
+		}
+		cpu, mem, rx, tx := m.CPU, m.Mem, float64(m.RxBps), float64(m.TxBps)
+		sp.CPU[idx], sp.Mem[idx], sp.Rx[idx], sp.Tx[idx] = &cpu, &mem, &rx, &tx
+	}
+	return out
 }
 
 type probeTargetView struct {
@@ -404,6 +456,7 @@ func (s *Server) probeOverview(public bool) gin.H {
 	}
 	globalTargets := s.latencyTargets(true)
 	lat := s.latencySummaryForNodes(ns, globalTargets, now)
+	res := s.resSparksForNodes(ids, now)
 	showTraffic := s.st.GetSetting("status_show_traffic", "false") == "true"
 	showCost := !public || s.st.GetSetting("status_show_cost", "false") == "true"
 	costs := map[string]store.NodeCost{}
@@ -432,7 +485,17 @@ func (s *Server) probeOverview(public bool) gin.H {
 		if online {
 			p.CPU, p.Mem, p.RxBps, p.TxBps, p.Uptime, p.Load1 = sys.CPU, sys.Mem, sys.RxBps, sys.TxBps, sys.Uptime, sys.Load1
 			p.Disk = sys.Disk
+			if sys.Load5 > 0 || sys.Load15 > 0 {
+				p.Load5, p.Load15 = &sys.Load5, &sys.Load15
+			}
+			if sys.SwapTotal > 0 {
+				p.Swap, p.SwapTotal = &sys.Swap, sys.SwapTotal
+			}
+			if !public {
+				p.Processes, p.TCPConns, p.UDPConns = sys.Processes, sys.TCPConns, sys.UDPConns
+			}
 		}
+		p.ResSpark = res[n.ID]
 		p.MemTotal, p.DiskTotal, p.Cores, p.OS, p.Arch = sys.MemTotal, sys.DiskTotal, sys.Cores, sys.OS, n.Arch
 		p.IPv4, p.IPv6 = n.PublicIPv4 != "", n.PublicIPv6 != ""
 		if c, ok := costs[n.ID]; ok {

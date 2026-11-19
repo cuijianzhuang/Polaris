@@ -320,6 +320,8 @@ func (s *Server) handleHeartbeat(nodeID string, hb *polarisv1.Heartbeat) {
 	if hb.System != nil {
 		sys.CPU, sys.Mem, sys.RxBps, sys.TxBps = hb.System.CpuPercent, hb.System.MemPercent, hb.System.RxBps, hb.System.TxBps
 		sys.Uptime, sys.Load1 = hb.System.UptimeSeconds, hb.System.Load1
+		sys.Load5, sys.Load15 = hb.System.Load5, hb.System.Load15
+		sys.Swap, sys.SwapTotal, sys.Processes, sys.TCPConns, sys.UDPConns = hb.System.SwapPercent, hb.System.SwapTotalBytes, hb.System.Processes, hb.System.TcpConnections, hb.System.UdpConnections
 		sys.Disk, sys.MemTotal, sys.DiskTotal, sys.Cores, sys.OS = hb.System.DiskPercent, hb.System.MemTotalBytes, hb.System.DiskTotalBytes, hb.System.CpuCores, truncate(hb.System.OsName, 64)
 		s.recordMetric(nodeID, sys, now)
 	}
