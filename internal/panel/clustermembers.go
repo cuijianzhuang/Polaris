@@ -19,7 +19,7 @@ import (
 const (
 	memberTouch      = 15 * time.Second
 	memberOnline     = 45 * time.Second // seen within: running
-	memberForget     = 24 * time.Hour   // rows older than this are removed
+	memberForget     = 30 * time.Minute // rows older than this are removed
 	topicRestoreDone = "restore-done"
 	topicUpdate      = "update"
 )
@@ -56,7 +56,7 @@ func (s *Server) subscribeClusterOps() {
 }
 
 // memberTouch refreshes this instance's cluster_members row (at most every
-// memberTouch); the leader also forgets instances gone for a day.
+// memberTouch); the leader also forgets instances gone for 30 minutes.
 func (s *Server) memberTouch() {
 	if time.Since(s.memberAt) < memberTouch {
 		return
@@ -89,7 +89,7 @@ type clusterMember struct {
 	Self      bool      `json:"self"`
 }
 
-// clusterMembers lists the instances seen within a day, running ones first.
+// clusterMembers lists the instances seen within 30 minutes, running ones first.
 func (s *Server) clusterMembers() []clusterMember {
 	var rows []store.ClusterMember
 	s.st.DB.Order("started_at").Find(&rows)
