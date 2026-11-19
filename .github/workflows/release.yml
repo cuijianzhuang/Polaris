@@ -9,8 +9,9 @@ name: release
 # "[skip release]" skips the release, and a HEAD that already carries a
 # v* tag is not released twice. Automatic releases also require a business
 # code change in the push: backend Go (cmd/, internal/, go.mod, go.sum)
-# or frontend (web/src/, web/package.json, web/package-lock.json,
-# web/index.html, web/vite.config.*, web/tsconfig*.json). A push that only
+# or frontend (web/src/, web/public/, web/*.go, web/package.json,
+# web/package-lock.json, web/index.html, web/vite.config.*,
+# web/tsconfig*.json). A push that only
 # touches docs (*.md, docs/), scripts/, .github/, deploy/ or other
 # non-code files does not release; tag pushes and manual runs always do.
 on:
@@ -117,7 +118,7 @@ jobs:
               else
                 changed=$(git ls-tree -r --name-only HEAD)
               fi
-              if ! printf '%s\n' "$changed" | grep -qE '^(cmd/|internal/|go\.mod$|go\.sum$|web/src/|web/package\.json$|web/package-lock\.json$|web/index\.html$|web/vite\.config\..+$|web/tsconfig[^/]*\.json$)'; then
+              if ! printf '%s\n' "$changed" | grep -qE '^(cmd/|internal/|go\.mod$|go\.sum$|web/src/|web/public/|web/[^/]*\.go$|web/package\.json$|web/package-lock\.json$|web/index\.html$|web/vite\.config\..+$|web/tsconfig[^/]*\.json$)'; then
                 echo "skip=true" >> "$GITHUB_OUTPUT"; echo "no business code changed; skipping release"; exit 0
               fi
             fi
