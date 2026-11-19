@@ -210,6 +210,11 @@ ENV
       # with operating system"). The check has to be planned before the
       # copy, not discovered after an 80 GB transfer.
       assert_contains "$d/output" "确认本机 locale 包含"
+      # The bundle carries the whole cluster's collations (template1's
+      # en_US.UTF-8 as well as the polaris database's C): each one gets
+      # its own ensure step before the copy.
+      assert_contains "$d/output" "确认本机 locale 包含 C（"
+      assert_contains "$d/output" "确认本机 locale 包含 en_US.UTF-8（"
       assert_contains "$d/output" "只有残留的 standby.signal 则清空重建"
       assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       ;;
@@ -231,6 +236,9 @@ ENV
       assert_contains "$d/output" "POST https://polaris.cuijianzhuang.com/api/v1/ha/peers"
       assert_contains "$d/output" "WITNESS_URL=http://203.0.113.9:8443"
       assert_contains "$d/output" "POLARIS_HA_PROXY_MODE=openresty"
+      # Same multi-locale ensure steps as the plain join (shared code path).
+      assert_contains "$d/output" "确认本机 locale 包含 C（"
+      assert_contains "$d/output" "确认本机 locale 包含 en_US.UTF-8（"
       assert_contains "$d/output" "proxy_pass http://127.0.0.1:8080"
       assert_contains "$d/output" "listen 9443"
       assert_contains "$d/output" "1Panel"

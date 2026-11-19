@@ -86,6 +86,29 @@ func TestHAJoinTokenFlow(t *testing.T) {
 	} else if out["pg_collate"] != "" {
 		t.Fatalf("join-config pg_collate on SQLite: %v", out["pg_collate"])
 	}
+	// pg_collates carries every distinct LC_COLLATE in the primary's
+	// cluster, not just the polaris database's: pg_basebackup copies the
+	// whole cluster, so the standby needs template1's collation too. It
+	// must contain pg_collate (the current database is one of the
+	// cluster's databases).
+	if s.haIsPostgres() {
+		collates, _ := out["pg_collates"].([]any)
+		if len(collates) == 0 {
+			t.Fatalf("join-config pg_collates on PostgreSQL: %v", out["pg_collates"])
+		}
+		pgCollate, _ := out["pg_collate"].(string)
+		found := false
+		for _, c := range collates {
+			if cv, _ := c.(string); cv == pgCollate {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("join-config pg_collates %v does not contain pg_collate %q", out["pg_collates"], pgCollate)
+		}
+	} else if collates, _ := out["pg_collates"].([]any); len(collates) != 0 {
+		t.Fatalf("join-config pg_collates on SQLite: %v", out["pg_collates"])
+	}
 	if wg, ok := out["wg"].(map[string]any); !ok || wg["port"] != float64(51820) {
 		t.Fatalf("join-config wg: %v", out["wg"])
 	}

@@ -471,6 +471,21 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 			pgCollate = c
 		}
 	}
+	// One collation is not enough: pg_basebackup copies the whole cluster,
+	// not just the polaris database, so template1 (and any other database)
+	// can carry a different LC_COLLATE. The field case was a primary whose
+	// polaris database was C while template1 was en_US.UTF-8: checking only
+	// the polaris value let the join through and the standby then refused
+	// to start. Send every distinct datcollate in the cluster; pg_collate
+	// stays as the polaris database's own value for older installers that
+	// only read the single field.
+	var pgCollates []string
+	if s.haIsPostgres() {
+		var cs []string
+		if err := s.st.DB.Raw("SELECT DISTINCT datcollate FROM pg_database WHERE datcollate <> '' ORDER BY 1").Scan(&cs).Error; err == nil {
+			pgCollates = cs
+		}
+	}
 	// The primary's WireGuard identity comes from its own env file: the
 	// standby reads the same shared settings, so per-instance values cannot
 	// live there. The standby's address defaults to 10.8.0.2 when the peer
@@ -491,6 +506,7 @@ func (s *Server) haJoinConfigBundle(r *http.Request) gin.H {
 		"redis_url":           s.cfg.RedisURL,
 		"pg_version":          pgVersion,
 		"pg_collate":          pgCollate,
+		"pg_collates":         pgCollates,
 		"repl_password":       s.haClusterSecret("ha_repl_password"),
 		"wg": gin.H{
 			"pubkey":   s.cfg.HAWGPubkey,
