@@ -588,12 +588,17 @@ wait_active() {
 # wait_healthy: the service is up AND answers HTTP on its port (any status
 # counts: the admin path may 404 by design) and still does a few seconds
 # later, so a crash loop that is briefly "active" does not pass.
+# The 600 s cap is deliberate: some nodes take ~5 minutes from process start
+# to first listening (observed twice on a standby: 5m07s and 5m08s), and the
+# old 20 s cap made self-upgrade roll back a healthy new build. Fast nodes
+# still return early on two consecutive hits, so the long cap costs nothing
+# when startup is quick.
 wait_healthy() {
   local listen host port _ hits=0
   listen="$(env_get POLARIS_LISTEN)"; port="${listen##*:}"; port="${port:-8080}"
   host="${listen%:*}"
   case "$host" in ""|0.0.0.0|"[::]"|::|"$listen") host=127.0.0.1 ;; esac
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 600); do
     if running && curl -s -o /dev/null -m 2 "http://$host:$port/"; then
       hits=$((hits + 1))
       [ "$hits" -ge 2 ] && { scrub_initial_password; return 0; }
