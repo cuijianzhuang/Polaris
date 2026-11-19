@@ -7,7 +7,13 @@ name: release
 # binaries/image jobs publish it. Pushes to main still run the version
 # and test jobs first, so main stays checked; a commit message containing
 # "[skip release]" skips the release, and a HEAD that already carries a
-# v* tag is not released twice.
+# v* tag is not released twice. Automatic releases also require a business
+# code change in the push: backend Go (cmd/, internal/, go.mod, go.sum)
+# or frontend (web/src/, web/public/, web/*.go, web/package.json,
+# web/package-lock.json, web/index.html, web/vite.config.*,
+# web/tsconfig*.json). A push that only
+# touches docs (*.md, docs/), scripts/, .github/, deploy/ or other
+# non-code files does not release; tag pushes and manual runs always do.
 on:
   push:
     branches: [main]
@@ -74,6 +80,7 @@ jobs:
           BUMP: ${{ inputs.bump || 'patch' }}
           MSG: ${{ github.event.head_commit.message }}
           STALE: ${{ steps.latest.outputs.stale }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           if [ "$STALE" = true ]; then
@@ -88,6 +95,32 @@ jobs:
             # A manual run always releases (e.g. to rebuild with new settings).
             if [ "${GITHUB_EVENT_NAME}" = push ] && git tag --points-at HEAD | grep -q '^v'; then
               echo "skip=true" >> "$GITHUB_OUTPUT"; echo "HEAD is already released"; exit 0
+            fi
+            # Automatic releases need a business code change: a push that
+            # only touches docs, scripts, workflow files or other non-code
+            # files does not release. Tag pushes and manual runs skip this
+            # check and always release. The range covers the whole push
+            # (before..HEAD); a merge commit's first parent is the fallback
+            # when before is missing or unusable.
+            if [ "${GITHUB_EVENT_NAME}" = push ]; then
+              before="${BEFORE:-}"
+              if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$before^{commit}" 2>/dev/null; then
+                if git rev-parse --verify -q HEAD^1 >/dev/null; then
+                  range="HEAD^1..HEAD"
+                else
+                  range=""
+                fi
+              else
+                range="$before..HEAD"
+              fi
+              if [ -n "$range" ]; then
+                changed=$(git diff --name-only "$range")
+              else
+                changed=$(git ls-tree -r --name-only HEAD)
+              fi
+              if ! printf '%s\n' "$changed" | grep -qE '^(cmd/|internal/|go\.mod$|go\.sum$|web/src/|web/public/|web/[^/]*\.go$|web/package\.json$|web/package-lock\.json$|web/index\.html$|web/vite\.config\..+$|web/tsconfig[^/]*\.json$)'; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"; echo "no business code changed; skipping release"; exit 0
+              fi
             fi
             last=$(git tag -l 'v*' --sort=-v:refname | grep -v -- '-' | head -n1)
             last=${last:-v0.0.0}
