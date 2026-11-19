@@ -11,7 +11,10 @@ import (
 
 func TestRecordMetricFoldsNewFields(t *testing.T) {
 	s := newTestServer(t)
-	now := time.Now().UTC()
+	// Anchor inside one slot (same pattern as TestNodeMetrics): a bare
+	// time.Now() can sit in the slot's last minute, where now+1m falls into
+	// the next slot and the two samples land in different rows.
+	now := time.Now().UTC().Truncate(metricSlot).Add(time.Minute)
 	s.recordMetric("n1", store.SystemInfo{CPU: 10, Load1: 1, Load5: 2, Load15: 4, Swap: 20}, now)
 	s.recordMetric("n1", store.SystemInfo{CPU: 30, Load1: 3, Load5: 4, Load15: 8, Swap: 40}, now.Add(time.Minute))
 	var m store.NodeMetric
