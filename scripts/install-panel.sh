@@ -1717,6 +1717,24 @@ ha_ensure_locale() {
   die "无法自动生成 locale ${want}：请在备机执行「apt-get install -y locales && sed -i 's/^# *${base}\.UTF-8 UTF-8/${base}.UTF-8 UTF-8/' /etc/locale.gen && locale-gen」，或在主库上把它改成从库已有的 collation 后重建备机"
 }
 
+# ha_ensure_locales: ensure the standby's OS knows every collation in the
+# primary's cluster before pg_basebackup copies it over. The bundle
+# carries pg_collates (all distinct datcollate values in the primary's
+# cluster); older primaries only send the single pg_collate, so fall back
+# to it. Checking only the polaris database's collation is not enough: a
+# cluster whose template1 is en_US.UTF-8 while polaris is C used to slip
+# through and fail to start on a standby without it.
+ha_ensure_locales() {
+  local c
+  if [ -n "${B_PG_COLLATES:-}" ]; then
+    while IFS= read -r c; do
+      [ -n "$c" ] && ha_ensure_locale "$c"
+    done <<< "$B_PG_COLLATES"
+  else
+    ha_ensure_locale "${B_PG_COLLATE:-}"
+  fi
+}
+
 # ha_url_password URL: the password in redis://:pass@host/... ("" when the
 # URL carries no password).
 ha_url_password() {
@@ -2427,6 +2445,10 @@ out("DB_DSN", b.get("db_dsn"))
 out("REDIS_URL", b.get("redis_url"))
 out("PG_VERSION", b.get("pg_version"))
 out("PG_COLLATE", b.get("pg_collate"))
+collates = b.get("pg_collates") or []
+if isinstance(collates, str):
+    collates = [collates]
+out("PG_COLLATES", "\n".join(str(c) for c in collates if c))
 out("REPL_PASSWORD", b.get("repl_password"))
 out("DB_SIZE_BYTES", b.get("db_size_bytes"))
 out("WG_PUBKEY", wg.get("pubkey"))
@@ -2461,9 +2483,10 @@ ha_setup_pg_replica() {
   local -a clusters
   [ -n "$want_ver" ] || die "主节点未报告 PG 版本，无法安装对应版本"
   want_port="$(ha_dsn_port "$B_DB_DSN")"
-  # Before anything is copied: a basebackup brings the primary's collation
-  # with it, and the standby cannot start without the matching locale.
-  ha_ensure_locale "${B_PG_COLLATE:-}"
+  # Before anything is copied: a basebackup brings the primary's
+  # collations with it, and the standby cannot start without the matching
+  # locales.
+  ha_ensure_locales
   have_ver="$(ha_pg_major)"
   if [ "$have_ver" != "$want_ver" ] && [ -z "$(ha_pg_cluster_for_ver "$want_ver")" ]; then
     pkg_install postgresql-common || die "postgresql-common 安装失败"
@@ -3087,6 +3110,9 @@ do_ha_join() {
     B_TIMEZONE="Asia/Shanghai"; B_DB_DSN="postgres://polaris:********@10.8.0.1:5432/polaris"
     B_REDIS_URL="redis://:********@10.8.0.1:6379/0"; B_PG_VERSION="<主库PG大版本>"
     B_PG_COLLATE="<主库collation>"
+    # A real primary cluster carries more than one collation: template1's
+    # en_US.UTF-8 plus the polaris database's C is the field case.
+    B_PG_COLLATES=$'C\nen_US.UTF-8'
     B_REPL_PASSWORD="********"; B_DB_SIZE_BYTES=""
     B_WG_PUBKEY="<主节点WG公钥>"; B_WG_IP="10.8.0.1"; B_WG_ENDPOINT="<主节点公网IP>"
     B_WG_IP_PEER="10.8.0.2"; B_CF_TOKEN=""
@@ -3120,7 +3146,7 @@ do_ha_join() {
   step "搭建 PostgreSQL 从库"
   if [ "$HA_DRYRUN" = 1 ]; then
     ha_plan "装 PostgreSQL ${B_PG_VERSION}（未装或大版本不同时走 PGDG；从库用该版本集群，端口取主库配置包）"
-    ha_ensure_locale "${B_PG_COLLATE:-}"
+    ha_ensure_locales
     ha_plan "本机已是从库且真的在恢复模式时跳过重建；只有残留的 standby.signal 则清空重建"
     ha_plan "停 postgresql，清空本机空数据目录，pg_basebackup -h 10.8.0.1 -U replicator -S hk_slot"
     ha_plan ".pgpass 留在备机（0600，postgres 所有）：从库重连靠它"
