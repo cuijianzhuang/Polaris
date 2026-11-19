@@ -388,7 +388,7 @@ const m: Record<string, string> = {
   "启动时间": "Started",
   "最后在线": "Last seen",
   "主实例": "Leader",
-  "主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 1 天的实例自动移除。": "The leader runs scheduled jobs and the Telegram bot; if it stops, another instance takes over within 15 seconds. \"Update panel\" updates every running instance, and restoring a backup restarts them all. Instances offline for a day are removed from the list.",
+  "主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 30 分钟的实例自动移除。": "The leader runs scheduled jobs and the Telegram bot; if it stops, another instance takes over within 15 seconds. \"Update panel\" updates every running instance, and restoring a backup restarts them all. Instances offline for more than 30 minutes are removed from the list.",
   "优惠券（免费）": "Coupon (free)",
   "免费": "Free",
   "券": "Coupon",

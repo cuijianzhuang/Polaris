@@ -50,7 +50,7 @@ export function Cluster() {
           {ds.filter((d) => d.lastError).map((d) => <div key={d.memberId} className="note warn">{d.lastError}</div>)}</div>
       })}
       <div className="hint">{t('受理表示请求已交给本机处理，实际升级结果以版本和升级通知为准。')}</div>
-      <div className="hint">{t('主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 1 天的实例自动移除。')}</div>
+      <div className="hint">{t('主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 30 分钟的实例自动移除。')}</div>
     </section>
   )
 }
