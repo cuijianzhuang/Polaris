@@ -3600,6 +3600,7 @@ agent_menu() {
          if [ -n "$l" ] && confirm "改为接入新的主控？"; then run_action do_agent_join "$l"; fi; pause ;;
       8) if confirm "确定卸载节点 Agent？"; then confirm "同时删除 Agent 数据？" && PURGE=1; run_action do_agent_uninstall; PURGE=0; fi; pause ;;
       m|M) installed && { menu; return; } ;;
+      p|P) menu; return ;;
       0|q|Q) exit 0 ;;
     esac
   done
