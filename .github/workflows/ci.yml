@@ -2,9 +2,41 @@ name: ci
 on:
   # main is tested by the release workflow, which calls this one on every
   # merge; listing it here too would run the whole suite twice.
+  # Pushes and pull requests only start CI when business code changes
+  # (same whitelist as the release workflow): a push or PR that only
+  # touches docs, scripts, .github, deploy or other non-code files does
+  # not start CI at all. workflow_call is unaffected: the release workflow
+  # already decides whether to call CI, and reusable-workflow calls do
+  # not go through trigger paths filtering.
   push:
     branches: ['claude/**']
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/src/**'
+      - 'web/public/**'
+      - 'web/*.go'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'web/index.html'
+      - 'web/vite.config.*'
+      - 'web/tsconfig*.json'
   pull_request:
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/src/**'
+      - 'web/public/**'
+      - 'web/*.go'
+      - 'web/package.json'
+      - 'web/package-lock.json'
+      - 'web/index.html'
+      - 'web/vite.config.*'
+      - 'web/tsconfig*.json'
   workflow_call:
     inputs:
       reuse_validated_checks:
