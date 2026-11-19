@@ -566,6 +566,10 @@ fw_state() {
 
 # polaris_cmd runs a panel maintenance subcommand as the service user with
 # the service's environment (so SQLite files keep the right owner).
+# POLARIS_CMD_TIMEOUT (seconds) caps a single call: with it, the command is
+# wrapped in `timeout`, so a database connection that never answers cannot
+# stall the caller forever (a backup stuck connecting to a remote primary
+# used to hang the upgrade at its backup step indefinitely).
 polaris_cmd() {
   # Releases before v0.1.0-beta.2 lack these subcommands and would ignore the
   # arguments and start a second panel instead, so never run them blindly.
@@ -575,7 +579,11 @@ polaris_cmd() {
     return 1
   fi
   # shellcheck source=/dev/null
-  (cd "$DATA" && set -a && . "$ENV_FILE" && set +a && runuser -u polaris -- "$BIN" "$@")
+  if [ -n "${POLARIS_CMD_TIMEOUT:-}" ]; then
+    (cd "$DATA" && set -a && . "$ENV_FILE" && set +a && timeout -k 30 "$POLARIS_CMD_TIMEOUT" runuser -u polaris -- "$BIN" "$@")
+  else
+    (cd "$DATA" && set -a && . "$ENV_FILE" && set +a && runuser -u polaris -- "$BIN" "$@")
+  fi
 }
 
 wait_active() {
@@ -1193,7 +1201,12 @@ do_update() {
     mkdir -p "$backup" && cp -a "$DATA"/*.db* "$backup"/ && ok "数据库已备份到 $backup"
   elif [ -n "$(env_get POLARIS_DB_DSN)" ]; then
     backup="$DATA/backup-$(date +%Y%m%d%H%M%S).polaris"
-    if polaris_cmd backup "$backup" >/dev/null 2>&1; then ok "数据库已备份到 $backup"
+    # A backup that cannot reach the database (e.g. a standby connecting to
+    # its primary over a flaky tunnel) used to hang here forever: the backup
+    # has no connect timeout, so it neither succeeds nor fails. Cap it at
+    # 120 s (a healthy backup takes seconds); on timeout the warn branch
+    # below runs and the upgrade continues without a backup.
+    if POLARIS_CMD_TIMEOUT=120 polaris_cmd backup "$backup" >/dev/null 2>&1; then ok "数据库已备份到 $backup"
     else warn "PostgreSQL 数据库备份失败，继续升级（建议先用 polaris backup 手动备份）"; fi
   fi
   local prev=""
