@@ -10,9 +10,9 @@ import { probePresets, type ProbePreset } from '../probeTargets'
 import { CopyBox, Drawer, Empty, Field, Modal, RefreshPicker, Switch, useAction, useConfirm, useLoad, useRefresh } from '../components/ui'
 import { bps, datetime, uptime } from '../format'
 import { t } from '../i18n'
-import { alignedTimes, filterProbeNodes, freshTelemetry, latencyStats, validView } from '../probeMonitor'
+import { alignedTimes, filterProbeNodes, finite, freshTelemetry, latencyStats, validView } from '../probeMonitor'
 import type { ProbeNode, ProbeTarget, ProbeView, ProbeFilter, ProbeSort, LatencyPoint } from '../probeMonitor'
-import { NodeBadges, NodeProbeCard, ProbeSummary, ProbeTable, ProbeBadge, useProbeClock, colorOf } from '../components/ProbeMonitor'
+import { NodeBadges, NodeProbeCard, ProbeSummary, ProbeTable, ProbeBadge, useProbeClock, colorOf, hasSwap } from '../components/ProbeMonitor'
 
 // Server probe: node state and carrier latency (TCP connect time to China
 // Telecom / Unicom / Mobile endpoints, every 10 seconds).
@@ -71,17 +71,22 @@ export function LatencyChart({ nodeId }: { nodeId: string }) {
 
 const ResourceHistory = memo(function ResourceHistory({ nodeId }: { nodeId: string }) {
   const [hours, setHours] = useState(24)
-  const data = useProbeFeed<{ points: { t: string; cpu: number; mem: number; rx: number; tx: number }[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`, 5000)
+  const data = useProbeFeed<{ points: { t: string; cpu: number; mem: number; rx: number; tx: number; load?: number; load5?: number; load15?: number; swap?: number }[] }>(`/nodes/${nodeId}/metrics?hours=${hours}`, 5000)
   const points = data.data?.points ?? []
   const times = alignedTimes(points.map((p) => p.t))
   const byTime = new Map(points.map((p) => [Date.parse(p.t), p]))
   const labels = times.map((at) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` })
+  const hasSwapSeries = points.some((pt) => finite(pt.swap))
+  const hasLoad5 = points.some((pt) => finite(pt.load5))
+  const hasLoad15 = points.some((pt) => finite(pt.load15))
+  const hasLoad = points.some((pt) => finite(pt.load) || finite(pt.load5) || finite(pt.load15))
   return <section>
     <div className="ctitle"><h3>{t('资源历史')}</h3><span className="seg-mini">{ranges.map((r) => <button key={r.h} className={hours === r.h ? 'on' : ''} onClick={() => setHours(r.h)}>{r.label}</button>)}</span></div>
     {data.error && <div className="note warn">{data.error}</div>}
     {points.length < 2 ? <div className="pv-empty">{data.loading ? t('加载中…') : t('暂无资源历史数据')}</div> : <div className="pv-history-grid">
-      <section><h3>CPU / RAM</h3><Lines labels={labels} max={100} fmt={(v) => v.toFixed(1) + '%'} height={160} series={[{ name: 'CPU', color: 'var(--pv-cyan)', values: times.map((at) => byTime.get(at)?.cpu ?? null) }, { name: 'RAM', color: 'var(--pv-purple)', values: times.map((at) => byTime.get(at)?.mem ?? null) }]} /></section>
-      <section><h3>{t('接收 / 发送')}</h3><Lines labels={labels} fmt={bps} height={160} series={[{ name: t('接收速率'), color: 'var(--pv-green)', values: times.map((at) => byTime.get(at)?.rx ?? null) }, { name: t('发送速率'), color: 'var(--pv-blue)', values: times.map((at) => byTime.get(at)?.tx ?? null) }]} /></section>
+      <section><h3>CPU / RAM{hasSwapSeries ? ' / Swap' : ''}</h3><Lines labels={labels} max={100} fmt={(v) => v.toFixed(1) + '%'} height={160} series={[{ name: 'CPU', color: 'var(--pv-cyan)', values: times.map((at) => byTime.get(at)?.cpu ?? null) }, { name: 'RAM', color: 'var(--pv-purple)', values: times.map((at) => byTime.get(at)?.mem ?? null) }, ...(hasSwapSeries ? [{ name: 'Swap', color: 'var(--pv-blue)', values: times.map((at) => byTime.get(at)?.swap ?? null) }] : [])]} /></section>
+      <section><h3>{t('接收 / 发送')}</h3><Lines labels={labels} fmt={bps} height={160} series={[{ name: t('接收速率'), color: 'var(--pv-blue)', values: times.map((at) => byTime.get(at)?.rx ?? null) }, { name: t('发送速率'), color: 'var(--pv-purple)', values: times.map((at) => byTime.get(at)?.tx ?? null) }]} /></section>
+      {hasLoad && <section><h3>{t('负载')}</h3><Lines labels={labels} fmt={(v) => v.toFixed(2)} height={160} series={[{ name: t('负载') + ' 1m', color: 'var(--pv-cyan)', values: times.map((at) => byTime.get(at)?.load ?? null) }, ...(hasLoad5 ? [{ name: t('负载') + ' 5m', color: 'var(--pv-blue)', values: times.map((at) => byTime.get(at)?.load5 ?? null) }] : []), ...(hasLoad15 ? [{ name: t('负载') + ' 15m', color: 'var(--pv-purple)', values: times.map((at) => byTime.get(at)?.load15 ?? null) }] : [])]} /></section>}
     </div>}
   </section>
 })
@@ -92,7 +97,7 @@ function NodeDrawer({ n, now, onClose, onChanged }: { n: PNode; now: number; onC
   return <Drawer title={<><CountryFlag code={n.flag} /> <FlagText>{n.name}</FlagText></>} onClose={onClose} wide>
     <div className="pv">
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 14 }}><NodeBadges n={n} now={now} /><ProbeBadge n={n} now={now} /></div>
-      <div className="pv-detail-summary"><div><small>{t('运行时间')}</small><b>{fresh ? uptime(n.uptime) : '—'}</b></div><div><small>{t('接收速率')}</small><b>{fresh ? bps(n.rxBps) : '—'}</b></div><div><small>{t('发送速率')}</small><b>{fresh ? bps(n.txBps) : '—'}</b></div></div>
+      <div className="pv-detail-summary"><div><small>{t('运行时间')}</small><b>{fresh ? uptime(n.uptime) : '—'}</b></div><div><small>{t('接收速率')}</small><b>{fresh ? bps(n.rxBps) : '—'}</b></div><div><small>{t('发送速率')}</small><b>{fresh ? bps(n.txBps) : '—'}</b></div>{fresh && finite(n.processes) && <div><small>{t('进程数')}</small><b>{n.processes}</b></div>}{fresh && finite(n.tcpConns) && <div><small>{t('TCP 连接')}</small><b>{n.tcpConns}</b></div>}{fresh && finite(n.udpConns) && <div><small>{t('UDP 连接')}</small><b>{n.udpConns}</b></div>}{fresh && hasSwap(n) && <div><small>Swap</small><b>{(n.swap ?? 0).toFixed(1)}%</b></div>}</div>
       <div className="pv-subtitle">{n.address && <span className="mono">{n.address}</span>}{n.agentVersion && <span>Agent {n.agentVersion}</span>}{n.lastSeen && <span>{t('最近上报')} · {datetime(n.lastSeen)}</span>}</div>
       <ResourceHistory nodeId={n.id} />
       <LatencyChart nodeId={n.id} />

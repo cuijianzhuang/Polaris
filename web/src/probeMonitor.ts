@@ -1,9 +1,14 @@
 // Presentation rules shared by the probe dashboard and its focused tests.
 export type ProbeTarget = { id: string; name: string; carrier: string }
 export type ProbeLatency = { ms: number; avg: number | null; loss: number; at: string; spark: (number | null)[]; sparkLoss?: (number | null)[]; sparkStart?: string }
+export type ProbeResSpark = { start?: string; slotSeconds?: number; cpu?: (number | null)[]; mem?: (number | null)[]; rx?: (number | null)[]; tx?: (number | null)[] }
 export type ProbeNode = {
   id: string; name: string; region: string; flag: string; online: boolean; status: string
   cpu: number; mem: number; rxBps: number; txBps: number; uptime: number; load1: number
+  // Optional fields from newer Agents / the admin-only overview. Every one
+  // may be absent (old Agent, public page), so renderers must degrade.
+  load5?: number; load15?: number; swap?: number; swapTotal?: number
+  processes?: number; tcpConns?: number; udpConns?: number; resSpark?: ProbeResSpark
   netUsed: number; netLimit: number; netRx?: number; netTx?: number; lastSeen?: string; telemetryFresh?: boolean
   hidden?: boolean; address?: string; agentVersion?: string; latency: Record<string, ProbeLatency>; probeTargets?: ProbeTarget[]
   disk: number; memTotal?: number; diskTotal?: number; cores?: number; os?: string; arch?: string; ipv4: boolean; ipv6: boolean

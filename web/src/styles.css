@@ -1266,9 +1266,11 @@ html[data-style="blackgold"] .theme-demo-actions > .primary { background:var(--g
 .appearance .style-default .style-preview i:last-child { background:var(--pri); }
 @container (min-width:640px) { .appearance-layout { grid-template-columns:minmax(0,1fr) minmax(240px,.95fr); } }
 
-/* Admin monitor follows the panel palette; the public page remains independent. */
-html[data-mode] .pv { --pv-card:var(--card);--pv-card-2:var(--soft-2);--pv-line:var(--line);--pv-ink:var(--ink);--pv-mute:var(--mute);--pv-track:var(--soft);--pv-cyan:var(--pri-ink);--pv-green:var(--ok-ink);--pv-yellow:var(--warn-ink);--pv-orange:color-mix(in srgb,var(--bad-ink) 60%,var(--warn-ink));--pv-red:var(--bad-ink);--pv-purple:var(--sb-ink);--pv-glow:var(--shadow-1);--pv-mono:var(--mono); }
-html[data-mode] .pv-card::before { display:none; }
+/* Admin monitor neutrals follow the panel palette; probe severity, brand
+   and data-series colours are the fixed probe palette (monitor.css), in
+   both surfaces, so a threshold means the same colour everywhere. */
+html[data-mode] .pv { --pv-card:var(--card);--pv-card-2:var(--soft-2);--pv-line:var(--line);--pv-ink:var(--ink);--pv-mute:var(--mute);--pv-track:var(--soft);--pv-cyan:#0e7490;--pv-green:#16a34a;--pv-yellow:#d97706;--pv-orange:#ea580c;--pv-red:#dc2626;--pv-blue:#4c7dd9;--pv-purple:#7d6bd9;--pv-glow:var(--shadow-1);--pv-mono:var(--mono); }
+html[data-mode="dark"] .pv { --pv-cyan:#2dd4bf;--pv-green:#63c78f;--pv-yellow:#e0a93e;--pv-orange:#f08c4a;--pv-red:#f26d6d;--pv-blue:#7aa5e8;--pv-purple:#a493e8; }
 html[data-mode] .pv-tile .v.g, html[data-mode] .pv-tile .v.b, html[data-mode] .pv-tile .v.c { color:var(--ink); }
 html[data-mode] button.pv-card:hover { transform:none; }
 
