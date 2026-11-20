@@ -103,7 +103,10 @@ func TestClusterRestoreRestartsOthers(t *testing.T) {
 	}
 }
 
-// "Update" in one instance's UI writes an update request on every machine.
+// "Update" in one instance's UI upgrades the whole cluster in stages:
+// the standby writes its update request first; the leader's follows only
+// after the standby's result is in and the failover watchdog is
+// suppressed (the full cycle is covered by TestSyncUpdateFullFlow).
 func TestClusterUpdateAll(t *testing.T) {
 	ss := clusterServers(t, pgOnly(t), 2)
 	a, b := ss[0], ss[1]
@@ -111,15 +114,41 @@ func TestClusterUpdateAll(t *testing.T) {
 	withUpdater(t, true)
 	startBus(t, a)
 	startBus(t, b)
+	past := time.Now().Add(-time.Hour).UTC()
+	setMemberRow(t, a, "v0.1.15", past)
+	setMemberRow(t, b, "v0.1.15", past)
 	if err := a.requestPanelUpdate("v0.1.20", "me", true); err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []*Server{a, b} {
-		waitFor(t, "update request", func() bool {
-			raw, err := os.ReadFile(s.updateRequestPath())
-			return err == nil && strings.TrimSpace(string(raw)) == "v0.1.20"
-		})
+	if op := a.activeSyncUpdate(); op == nil {
+		t.Fatal("no sync update started")
 	}
+	// Staged: the leader must not have a request during the standby stage.
+	if _, err := os.Stat(a.updateRequestPath()); err == nil {
+		t.Fatal("leader got an update request during the standby stage")
+	}
+	b.processClusterOperations()
+	waitFor(t, "standby update request", func() bool {
+		raw, err := os.ReadFile(b.updateRequestPath())
+		return err == nil && strings.TrimSpace(string(raw)) == "v0.1.20"
+	})
+	// The standby reports success and restarts on the new version; the
+	// leader then lands suppression on the standby before its own stage.
+	writeUpdateResult(t, b, "ok=1\naction=update\narg=\nfrom=v0.1.15\nto=v0.1.20\nlog:\nok\n")
+	b.checkUpdateResult()
+	setMemberRow(t, b, "v0.1.20", time.Now().UTC())
+	a.processSyncUpdate() // standby settled -> leader phase
+	a.processSyncUpdate() // suppression queued for the standby
+	b.processClusterOperations()
+	if _, err := os.Stat(b.failoverSuppressPath()); err != nil {
+		t.Fatalf("suppression file not written on the standby: %v", err)
+	}
+	a.processSyncUpdate() // suppression accepted -> leader delivery
+	a.processClusterOperations()
+	waitFor(t, "leader update request", func() bool {
+		raw, err := os.ReadFile(a.updateRequestPath())
+		return err == nil && strings.TrimSpace(string(raw)) == "v0.1.20"
+	})
 	// A second click while they run is refused.
 	if err := b.requestPanelUpdate("", "me", false); err != errUpdatePending {
 		t.Fatalf("pending: %v", err)
