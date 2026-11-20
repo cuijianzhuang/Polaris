@@ -132,6 +132,32 @@ func (s *Server) hasClusterDelivery(kind, target string) bool {
 	return s.st.DB.Model(&store.ClusterDelivery{}).Where("member_id = ? AND operation_id IN (?)", s.memberID, s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("kind = ? AND target = ? AND expires_at > ?", kind, target, time.Now().UTC())).Count(&n).Error == nil && n > 0
 }
 
+// inferUpdateOutcome concludes an accepted update delivery from the
+// member table when the authoritative local receipt never arrived — the
+// instance was killed mid-upgrade, or runs a build without the receipt
+// write-back. since is when the current upgrade phase began. It reports
+// ("", false) while the outcome is still open: the member has not
+// restarted yet, is mid-restart, or has vanished (the phase timeout
+// settles those). A member back at the target version is done; a member
+// that restarted during the phase and came back online on another
+// version was rolled back by its updater.
+func inferUpdateOutcome(db *gorm.DB, d store.ClusterDelivery, target string, since time.Time) (string, bool) {
+	if d.Status != "accepted" {
+		return "", false
+	}
+	var m store.ClusterMember
+	if err := db.Where("member_id = ?", d.MemberID).Order("seen_at desc").First(&m).Error; err != nil {
+		return "", false
+	}
+	if m.Version == target {
+		return "done", true
+	}
+	if time.Since(m.SeenAt) < memberOnline && m.StartedAt.After(since) {
+		return "failed", true
+	}
+	return "", false
+}
+
 // saveClusterOperation runs in the same transaction as a restore when needed.
 func saveClusterOperation(tx *gorm.DB, op store.ClusterOperation, memberID, procID string, includeSelf bool) (bool, error) {
 	legacy := false

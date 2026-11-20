@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/store"
 )
 
 // Panel self-update. The panel runs unprivileged and cannot replace its own
@@ -222,6 +223,7 @@ func (s *Server) checkUpdateResult() {
 		}
 		return
 	}
+	s.recordUpdateReceipt(r)
 	switch {
 	case !r.OK:
 		s.st.SetSetting("auto_update_failed", strings.TrimPrefix(r.To, "v"))
@@ -238,6 +240,57 @@ func (s *Server) checkUpdateResult() {
 		s.st.SetSetting("update_then_agents", "false")
 		go s.upgradeAgentsAfterUpdate()
 	}
+}
+
+// updateResultMatches reports whether an updater result belongs to a
+// cluster update with the given target. The result names concrete
+// from/to versions, never the requested target: a successful run lands
+// exactly on the target, while a failed run rolls back and reports
+// from == to == the version it stayed on, so a failure matches any
+// target it did not stay on.
+func updateResultMatches(target string, r updateResult) bool {
+	if target == "" || target == "latest" {
+		return true
+	}
+	if r.OK {
+		return r.To == target
+	}
+	return r.To != target
+}
+
+// recordUpdateReceipt writes the local updater's authoritative result
+// back into this instance's outstanding cluster update delivery, so the
+// rest of the cluster can see the outcome (done / failed) instead of
+// only "accepted". It is best effort: a standalone update, or a result
+// that does not match the outstanding delivery's target, writes nothing.
+func (s *Server) recordUpdateReceipt(r updateResult) {
+	var d store.ClusterDelivery
+	err := s.st.DB.Where("member_id = ? AND status = ?", s.memberID, "accepted").
+		Where("operation_id IN (?)", s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("kind = ?", "update")).
+		Order("accepted_at desc").First(&d).Error
+	if err != nil {
+		return
+	}
+	var op store.ClusterOperation
+	if err := s.st.DB.First(&op, "id = ?", d.OperationID).Error; err != nil {
+		return
+	}
+	if !updateResultMatches(op.Target, r) {
+		return
+	}
+	now := time.Now().UTC()
+	updates := map[string]any{"finished_at": now}
+	if r.OK {
+		updates["status"] = "done"
+		updates["after_version"] = r.To
+		updates["last_error"] = ""
+	} else {
+		updates["status"] = "failed"
+		updates["last_error"] = truncate(r.Log, 255)
+	}
+	s.st.DB.Model(&store.ClusterDelivery{}).
+		Where("operation_id = ? AND member_id = ? AND status = ?", d.OperationID, d.MemberID, "accepted").
+		Updates(updates)
 }
 
 // upgradeAgentsAfterUpdate waits for agents to reconnect to the new panel,
