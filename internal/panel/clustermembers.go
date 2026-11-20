@@ -44,7 +44,7 @@ func (s *Server) subscribeClusterOps() {
 		if len(target) >= 2 && target[0] == '"' {
 			target = target[1 : len(target)-1]
 		}
-		if s.hasClusterDelivery("update", target) {
+		if s.hasClusterDelivery("update", target) || s.hasClusterDelivery("syncupdate", target) {
 			return
 		}
 		if err := s.writeUpdateRequest(target); err != nil {
@@ -79,6 +79,7 @@ func (s *Server) memberLeave() {
 
 type clusterMember struct {
 	ID        string    `json:"id"`
+	MemberID  string    `json:"memberId"`
 	Host      string    `json:"host"`
 	Version   string    `json:"version"`
 	Edition   string    `json:"edition"`
@@ -104,7 +105,7 @@ func (s *Server) clusterMembers() []clusterMember {
 	out := []clusterMember{}
 	seenSelf := false
 	for _, r := range rows {
-		m := clusterMember{ID: r.InstanceID, Host: r.Host, Version: r.Version, Edition: r.Edition, StartedAt: r.StartedAt, SeenAt: r.SeenAt,
+		m := clusterMember{ID: r.InstanceID, MemberID: r.MemberID, Host: r.Host, Version: r.Version, Edition: r.Edition, StartedAt: r.StartedAt, SeenAt: r.SeenAt,
 			Online: time.Since(r.SeenAt) < memberOnline, Self: r.InstanceID == s.procID}
 		if m.Self {
 			m.Online, seenSelf = true, true
@@ -114,7 +115,7 @@ func (s *Server) clusterMembers() []clusterMember {
 	}
 	if !seenSelf { // not written yet
 		host, _ := os.Hostname()
-		out = append(out, clusterMember{ID: s.procID, Host: host, Version: Version, Edition: Edition(), StartedAt: s.startedAt, SeenAt: time.Now(),
+		out = append(out, clusterMember{ID: s.procID, MemberID: s.memberID, Host: host, Version: Version, Edition: Edition(), StartedAt: s.startedAt, SeenAt: time.Now(),
 			Online: true, Leader: s.isLeader(), Self: true})
 	}
 	// Running instances first, in start order.
