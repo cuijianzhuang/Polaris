@@ -95,13 +95,11 @@ func (s *Server) requestPanelUpdate(target, who string, thenAgents bool) error {
 	if _, err := os.Stat(s.updateRequestPath()); err == nil {
 		return errUpdatePending
 	}
-	s.st.SetSetting("update_then_agents", strconv.FormatBool(thenAgents))
 	if s.bus != nil {
-		if _, err := s.queueClusterOperation("update", target, true); err != nil {
-			return fmt.Errorf("保存集群升级请求失败：%w", err)
-		}
-		s.processClusterOperations()
-	} else if err := s.writeUpdateRequest(target); err != nil {
+		return s.requestClusterUpdate(target, who, thenAgents)
+	}
+	s.st.SetSetting("update_then_agents", strconv.FormatBool(thenAgents))
+	if err := s.writeUpdateRequest(target); err != nil {
 		return fmt.Errorf("写入升级请求失败：%w", err)
 	}
 	s.audit(who, "panel.update_request", target, map[bool]string{true: "panel + agents", false: "panel"}[thenAgents], "")
@@ -236,7 +234,10 @@ func (s *Server) checkUpdateResult() {
 		s.audit("system", "panel.updated", r.From+" → "+r.To, "", "")
 		s.notify(Event{Kind: "panel_update", Text: s.hostTag() + "✅ 面板已升级：" + r.From + " → " + r.To})
 	}
-	if s.st.GetSetting("update_then_agents", "false") == "true" {
+	// While a sync update is orchestrating, its wrap-up triggers the
+	// agent rollout once; an instance consuming its own result here must
+	// not fire it per machine.
+	if s.st.GetSetting("update_then_agents", "false") == "true" && s.activeSyncUpdate() == nil {
 		s.st.SetSetting("update_then_agents", "false")
 		go s.upgradeAgentsAfterUpdate()
 	}
@@ -266,7 +267,7 @@ func updateResultMatches(target string, r updateResult) bool {
 func (s *Server) recordUpdateReceipt(r updateResult) {
 	var d store.ClusterDelivery
 	err := s.st.DB.Where("member_id = ? AND status = ?", s.memberID, "accepted").
-		Where("operation_id IN (?)", s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("kind = ?", "update")).
+		Where("operation_id IN (?)", s.st.DB.Model(&store.ClusterOperation{}).Select("id").Where("kind IN ?", []string{"update", "syncupdate"})).
 		Order("accepted_at desc").First(&d).Error
 	if err != nil {
 		return

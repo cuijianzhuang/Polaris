@@ -182,7 +182,7 @@ func (s *Server) haStatus(c *gin.Context) {
 	}
 	inRecovery, replayLag := s.haReplayState()
 	syncNames, syncWaiting := s.haSyncReplicationEnabled()
-	c.JSON(http.StatusOK, gin.H{
+	out := gin.H{
 		"role":             s.haRole(),
 		"members":          members,
 		"leader":           leader,
@@ -196,7 +196,13 @@ func (s *Server) haStatus(c *gin.Context) {
 		"dbSizeBytes":      s.haDBSize(),
 		"version":          Version,
 		"edition":          Edition(),
-	})
+	}
+	// The latest sync upgrade and its per-instance deliveries, so the
+	// HA page can show the staged progress without another endpoint.
+	if op := s.latestSyncUpdate(); op != nil {
+		out["syncUpdate"] = gin.H{"operation": op, "deliveries": s.syncDeliveries(op.ID)}
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 // haIssueToken is POST /ha/token (sudo). It voids unused tokens and mints a

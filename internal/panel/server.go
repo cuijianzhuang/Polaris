@@ -319,6 +319,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.memberTouch()
 	go s.runLease(ctx)
 	go s.runClusterOperations(ctx)
+	go s.runSyncUpdateOrchestrator(ctx)
 	if s.bus != nil {
 		go s.bus.run(ctx)
 		go s.shareNodeChanges(ctx)

@@ -11,6 +11,7 @@ import (
 	"github.com/cuijianzhuang/polaris/internal/core"
 	"github.com/cuijianzhuang/polaris/internal/store"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 func loadMemberID(dir string) (string, error) {
@@ -90,7 +91,10 @@ func (s *Server) processClusterOperations() {
 		switch {
 		case now.After(op.ExpiresAt):
 			err = errors.New("操作已超时，请检查实例后重新发起")
-		case op.Kind == "update":
+		case op.Kind == "update" || op.Kind == "syncupdate":
+			// A syncupdate operation carries its staged update deliveries
+			// directly: a delivery under it is this stage's instruction to
+			// upgrade this member, executed exactly like a plain update.
 			if Version == op.Target {
 				break
 			}
@@ -167,6 +171,14 @@ func inferUpdateOutcome(db *gorm.DB, d store.ClusterDelivery, target string, sin
 
 // saveClusterOperation runs in the same transaction as a restore when needed.
 func saveClusterOperation(tx *gorm.DB, op store.ClusterOperation, memberID, procID string, includeSelf bool) (bool, error) {
+	return saveClusterOperationScoped(tx, op, memberID, procID, includeSelf, nil)
+}
+
+// saveClusterOperationScoped is saveClusterOperation with the deliveries
+// restricted to the given member ids (only == nil keeps every online
+// member). Scoped operations never target legacy instances: a staged
+// delivery is meaningless to an instance that cannot acknowledge it.
+func saveClusterOperationScoped(tx *gorm.DB, op store.ClusterOperation, memberID, procID string, includeSelf bool, only map[string]bool) (bool, error) {
 	legacy := false
 	var members []store.ClusterMember
 	if e := tx.Where("seen_at > ?", op.CreatedAt.Add(-memberOnline)).Find(&members).Error; e != nil {
@@ -174,6 +186,12 @@ func saveClusterOperation(tx *gorm.DB, op store.ClusterOperation, memberID, proc
 	}
 	targets := map[string]string{}
 	for _, m := range members {
+		if only != nil {
+			if m.MemberID != "" && only[m.MemberID] {
+				targets[m.MemberID] = m.Version
+			}
+			continue
+		}
 		if m.MemberID == "" && m.InstanceID != procID {
 			legacy = true
 			targets[m.InstanceID] = m.Version
@@ -183,7 +201,11 @@ func saveClusterOperation(tx *gorm.DB, op store.ClusterOperation, memberID, proc
 			targets[m.MemberID] = m.Version
 		}
 	}
-	if includeSelf {
+	if only != nil {
+		if only[memberID] {
+			targets[memberID] = Version
+		}
+	} else if includeSelf {
 		targets[memberID] = Version
 	}
 	if e := tx.Create(&op).Error; e != nil {
@@ -196,4 +218,49 @@ func saveClusterOperation(tx *gorm.DB, op store.ClusterOperation, memberID, proc
 		}
 	}
 	return legacy, nil
+}
+
+// queueClusterOperationScoped queues an operation whose deliveries go
+// only to the given members. Unlike queueClusterOperation it never falls
+// back to the legacy bus broadcasts: staged operations (suppress,
+// unsuppress) must not be mistaken for a restore or a parallel update by
+// instances that predate member ids.
+func (s *Server) queueClusterOperationScoped(kind, target string, memberIDs []string) (string, error) {
+	now := time.Now().UTC()
+	op := store.ClusterOperation{ID: store.NewID(), Kind: kind, Target: target, CreatedAt: now, ExpiresAt: now.Add(24 * time.Hour)}
+	only := make(map[string]bool, len(memberIDs))
+	for _, id := range memberIDs {
+		only[id] = true
+	}
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
+		_, e := saveClusterOperationScoped(tx, op, s.memberID, s.procID, false, only)
+		return e
+	})
+	if err != nil {
+		return "", err
+	}
+	if s.bus != nil {
+		_ = s.bus.publish("cluster-ops", op.ID)
+	}
+	return op.ID, nil
+}
+
+// addSyncDeliveries stages update deliveries of a sync update operation
+// for one phase's members. It is idempotent: a phase retried after a
+// partial failure or a leader change re-adds nothing.
+func (s *Server) addSyncDeliveries(op store.ClusterOperation, memberIDs []string) error {
+	if len(memberIDs) == 0 {
+		return nil
+	}
+	members := s.onlineMemberRows()
+	now := time.Now().UTC()
+	return s.st.DB.Transaction(func(tx *gorm.DB) error {
+		for _, id := range memberIDs {
+			d := store.ClusterDelivery{OperationID: op.ID, MemberID: id, BeforeVersion: members[id].Version, Status: "pending", NextAt: now}
+			if e := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&d).Error; e != nil {
+				return e
+			}
+		}
+		return nil
+	})
 }

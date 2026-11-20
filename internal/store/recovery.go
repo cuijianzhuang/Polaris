@@ -57,6 +57,16 @@ type ClusterOperation struct {
 	Target    string    `gorm:"size:128" json:"target"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `gorm:"index" json:"expiresAt"`
+	// Orchestration state, used by kind = "syncupdate" only (empty for
+	// the fire-and-forget kinds): the leader advances Phase with
+	// compare-and-swap updates and leaves the outcome in State/Detail.
+	// LeaderMember pins the leader stage's target member when the phase
+	// is entered, so a lease change mid-upgrade cannot retarget it.
+	State        string    `gorm:"size:16;index" json:"state,omitempty"`
+	Phase        string    `gorm:"size:16" json:"phase,omitempty"`
+	Detail       string    `gorm:"size:512" json:"detail,omitempty"`
+	LeaderMember string    `gorm:"size:32" json:"-"`
+	UpdatedAt    time.Time `json:"updatedAt,omitempty"`
 }
 type ClusterDelivery struct {
 	OperationID   string     `gorm:"primaryKey;size:32" json:"operationId"`
