@@ -64,4 +64,24 @@ export default {
     'Every write will wait for the standby to confirm: latency increases, but committed writes survive a failure. Enable it?',
   '同步复制已开启：故障时不丢已提交的写入。':
     'Synchronous replication is on: committed writes survive a failure.',
+  '同步升级': 'Sync upgrade',
+  '把集群全部在线实例按备节点、主节点顺序逐台升级到同一版本，逐台回报结果；任一台失败即中止，不会两台同时停机。':
+    'Upgrades every online instance to the same version one at a time — standbys first, then the primary — with a reported result per instance. Any failure aborts the run; the two never go down together.',
+  '最近一次': 'Latest run',
+  '等待受理': 'Waiting',
+  '执行中': 'Running',
+  '部分成功': 'Partially succeeded',
+  '已中止': 'Aborted',
+  '备机阶段': 'Standby stage',
+  '主机阶段': 'Primary stage',
+  '校验阶段': 'Verification stage',
+  '升级状态': 'Upgrade status',
+  '升至 {v}': 'Upgraded to {v}',
+  '同步升级到 {v}？将先升级备节点、再升级主节点，最后校验各实例版本一致。':
+    'Sync-upgrade to {v}? Standbys are upgraded first, then the primary, and finally every instance’s version is verified.',
+  '全程约 10–15 分钟；主节点升级期间面板会短暂断开（约 1–6 分钟），期间看门狗不会切换 DNS。备节点升级失败会自动中止，主节点保持不动。':
+    'The whole run takes about 10–15 minutes. The panel disconnects briefly (about 1–6 minutes) while the primary upgrades, and the watchdog will not switch DNS during that window. If a standby upgrade fails, the run aborts and the primary is left untouched.',
+  '已发起同步升级': 'Sync upgrade started',
+  '进行中，本页每 15 秒自动刷新进度。': 'In progress; this page refreshes every 15 seconds.',
+  '已是最新版本，无需升级。': 'Already on the latest version; nothing to upgrade.',
 }
