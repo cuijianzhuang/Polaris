@@ -29,6 +29,15 @@ func syncOpOf(t *testing.T, s *Server, opID string) store.ClusterOperation {
 	return op
 }
 
+func syncUpdateCount(t *testing.T, s *Server) int64 {
+	t.Helper()
+	var n int64
+	if err := s.st.DB.Model(&store.ClusterOperation{}).Where("kind = ?", "syncupdate").Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
 // syncPair returns a leader (a) and a standby (b) on one database, both
 // on v0.1.15 with the updater installed.
 func syncPair(t *testing.T) (a, b *Server) {

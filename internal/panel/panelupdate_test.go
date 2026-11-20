@@ -63,11 +63,27 @@ func TestRequestPanelUpdate(t *testing.T) {
 	if err := s.requestPanelUpdate("", "me", true); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(s.updateRequestPath()); string(b) != "latest\n" {
-		t.Fatalf("request file: %q", b)
-	}
-	if s.st.GetSetting("update_then_agents", "") != "true" {
-		t.Fatal("agents flag not stored")
+	if s.bus == nil {
+		// Standalone: the request file is written immediately.
+		if b, _ := os.ReadFile(s.updateRequestPath()); string(b) != "latest\n" {
+			t.Fatalf("request file: %q", b)
+		}
+		if s.st.GetSetting("update_then_agents", "") != "true" {
+			t.Fatal("agents flag not stored")
+		}
+	} else {
+		// Cluster mode (PostgreSQL-backed servers run the bus): the
+		// request starts a staged sync update instead of writing a local
+		// request file — this instance upgrades in its own phase.
+		if _, err := os.Stat(s.updateRequestPath()); err == nil {
+			t.Fatal("cluster update wrote a local request file immediately")
+		}
+		if op := s.activeSyncUpdate(); op == nil {
+			t.Fatal("cluster update did not start a sync update")
+		}
+		if s.st.GetSetting("sync_update_then_agents", "") != "true" {
+			t.Fatal("sync agents flag not stored")
+		}
 	}
 	if err := s.requestPanelUpdate("v0.1.16", "me", false); err == nil || !strings.Contains(err.Error(), "进行中") {
 		t.Fatalf("second request while one is pending: %v", err)
@@ -130,16 +146,34 @@ func TestAutoUpdateTick(t *testing.T) {
 	if _, err := os.Stat(s.updateRequestPath()); err == nil {
 		t.Fatal("updated outside the update hour")
 	}
+	if s.bus != nil && s.activeSyncUpdate() != nil {
+		t.Fatal("sync update started outside the update hour")
+	}
 	s.st.SetSetting("auto_update_hour", strconv.Itoa(time.Now().Hour()))
 	s.autoUpdateTick()
-	if b, _ := os.ReadFile(s.updateRequestPath()); string(b) != "v0.1.16\n" || s.st.GetSetting("update_then_agents", "") != "true" {
-		t.Fatalf("auto update not requested: %q", b)
+	if s.bus == nil {
+		if b, _ := os.ReadFile(s.updateRequestPath()); string(b) != "v0.1.16\n" || s.st.GetSetting("update_then_agents", "") != "true" {
+			t.Fatalf("auto update not requested: %q", b)
+		}
+	} else {
+		// Cluster mode: the tick starts a staged sync update instead of
+		// writing a local request file.
+		op := s.activeSyncUpdate()
+		if op == nil || op.Target != "v0.1.16" {
+			t.Fatalf("auto update did not start a sync update: %+v", op)
+		}
+		if s.st.GetSetting("sync_update_then_agents", "") != "true" {
+			t.Fatal("sync agents flag not stored")
+		}
 	}
 	os.Remove(s.updateRequestPath())
 	s.st.SetSetting("auto_update_failed", "0.1.16")
 	s.autoUpdateTick()
 	if _, err := os.Stat(s.updateRequestPath()); err == nil {
 		t.Fatal("retried a release that failed")
+	}
+	if s.bus != nil && syncUpdateCount(t, s) != 1 {
+		t.Fatal("retried a release that failed (a second sync update started)")
 	}
 }
 
