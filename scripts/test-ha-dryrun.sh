@@ -348,6 +348,9 @@ run_case init-retrofit
 # witness agrees the primary is down (flip + report promotion), witness
 # says the primary is up (no flip, counter reset), witness unreachable
 # (no flip, counter kept), verdict unparseable (no flip, counter kept).
+# Plus the sync-upgrade suppression cases: an in-window suppress file
+# skips the whole check (counter untouched, no flip), an expired or
+# unreadable one falls back to the normal rules.
 run_watchdog_case() {
   local name="$1" d="$work/watchdog-$1"
   mkdir -p "$d/bin"
@@ -384,9 +387,16 @@ FAKECURL
     unclear) export WITNESS_URL="http://203.0.113.9:8443" FAKE_WITNESS_BODY='{"weird":1}' ;;
   esac
   if [ -n "$4" ]; then printf '%s\n' "$4" > "$d/state"; fi
+  # $7: suppress mode — "" (no file), active (until an hour ahead),
+  # expired (until a minute ago), garbage (until not a number).
+  case "$7" in
+    active) printf 'until=%s\nop=test-op-1\n' "$(( $(date +%s) + 3600 ))" > "$d/suppress" ;;
+    expired) printf 'until=%s\nop=test-op-1\n' "$(( $(date +%s) - 60 ))" > "$d/suppress" ;;
+    garbage) printf 'until=soon\nop=test-op-1\n' > "$d/suppress" ;;
+  esac
   if CF_TOKEN=test-cf-token CF_ZONE_ID=test-zone CF_RECORD_ID=test-record \
      CF_DOMAIN=polaris.cuijianzhuang.com CF_PRIMARY_IP=203.0.113.1 CF_STANDBY_IP=45.78.33.200 \
-     CF_STATE_FILE="$d/state" CF_LOG_FILE="$d/log" \
+     CF_STATE_FILE="$d/state" CF_LOG_FILE="$d/log" CF_SUPPRESS_FILE="$d/suppress" \
      PATH="$d/bin:$PATH" bash "$SCRIPT_DIR/cf-failover.sh" > "$d/output" 2>&1; then rc=0; else rc=$?; fi
   [ "$rc" = 0 ] || fail "watchdog $name exited $rc (see $d/output)"
   case "$name" in
@@ -439,17 +449,35 @@ FAKECURL
       [ ! -s "$d/put.log" ] || fail "watchdog $name: must not PUT when local panel is unhealthy"
       grep -q "local panel unhealthy" "$d/log" || fail "watchdog $name: missing unhealthy log line"
       ;;
+    suppress-active)
+      [ "$(cat "$d/state")" = 2 ] || fail "watchdog $name: failure counter must stay untouched while suppressed"
+      [ ! -s "$d/put.log" ] || fail "watchdog $name: must not PUT while suppressed"
+      grep -q "suppressed by sync upgrade op test-op-1" "$d/log" || fail "watchdog $name: missing suppressed log line"
+      ;;
+    suppress-expired)
+      [ "$(cat "$d/state")" = 3 ] || fail "watchdog $name: expired suppression must resume counting"
+      grep -q "PUT" "$d/put.log" || fail "watchdog $name: expired suppression must flip normally"
+      grep -q "DNS flipped to 45.78.33.200" "$d/log" || fail "watchdog $name: missing flip log line after expiry"
+      ;;
+    suppress-garbage)
+      [ "$(cat "$d/state")" = 3 ] || fail "watchdog $name: unreadable suppression must resume counting"
+      grep -q "PUT" "$d/put.log" || fail "watchdog $name: unreadable suppression must flip normally"
+      grep -q "suppress file unreadable" "$d/log" || fail "watchdog $name: missing unreadable log line"
+      ;;
   esac
   echo "ok: watchdog $name"
 }
 
-run_watchdog_case primary-up 200 200 "" 203.0.113.1 ""
-run_watchdog_case counting 000 200 "" 203.0.113.1 ""
-run_watchdog_case flip 000 200 2 203.0.113.1 ""
-run_watchdog_case already-on-standby 000 200 2 45.78.33.200 ""
-run_watchdog_case local-unhealthy 000 000 "" 203.0.113.1 ""
-run_watchdog_case witness-agrees 000 200 2 203.0.113.1 agrees
-run_watchdog_case witness-says-up 000 200 2 203.0.113.1 says-up
-run_watchdog_case witness-down 000 200 2 203.0.113.1 down
-run_watchdog_case witness-unclear 000 200 2 203.0.113.1 unclear
+run_watchdog_case primary-up 200 200 "" 203.0.113.1 "" ""
+run_watchdog_case counting 000 200 "" 203.0.113.1 "" ""
+run_watchdog_case flip 000 200 2 203.0.113.1 "" ""
+run_watchdog_case already-on-standby 000 200 2 45.78.33.200 "" ""
+run_watchdog_case local-unhealthy 000 000 "" 203.0.113.1 "" ""
+run_watchdog_case witness-agrees 000 200 2 203.0.113.1 agrees ""
+run_watchdog_case witness-says-up 000 200 2 203.0.113.1 says-up ""
+run_watchdog_case witness-down 000 200 2 203.0.113.1 down ""
+run_watchdog_case witness-unclear 000 200 2 203.0.113.1 unclear ""
+run_watchdog_case suppress-active 000 200 2 203.0.113.1 "" active
+run_watchdog_case suppress-expired 000 200 2 203.0.113.1 "" expired
+run_watchdog_case suppress-garbage 000 200 2 203.0.113.1 "" garbage
 echo "all ha dry-run tests passed"

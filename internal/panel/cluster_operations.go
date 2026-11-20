@@ -110,6 +110,13 @@ func (s *Server) processClusterOperations() {
 		case op.Kind == "restore":
 			// After a process crash the new process already reloaded the restored
 			// CA/settings; accepting the old restart request must not restart it again.
+		case op.Kind == "suppress":
+			// Sync upgrade: silence this machine's failover watchdog for
+			// the primary's planned restart. Accepted means the file is
+			// on disk and the suppression is in effect.
+			err = s.writeFailoverSuppress(op.ID)
+		case op.Kind == "unsuppress":
+			err = s.clearFailoverSuppress()
 		default:
 			err = errors.New("未知集群操作")
 		}
