@@ -47,7 +47,10 @@ type RefundJob struct {
 
 // Cluster operations outlive transient LISTEN/NOTIFY connections.
 // accepted means the local request was written / restart was scheduled;
-// updater results remain a separate, authoritative success/failure report.
+// the updater result remains a separate, authoritative success/failure
+// report — the instance writes it back into its own delivery (done /
+// failed) when it consumes update-result, so other instances can read
+// the outcome instead of guessing from the member's version alone.
 type ClusterOperation struct {
 	ID        string    `gorm:"primaryKey;size:32" json:"id"`
 	Kind      string    `gorm:"size:16" json:"kind"`
@@ -59,11 +62,17 @@ type ClusterDelivery struct {
 	OperationID   string     `gorm:"primaryKey;size:32" json:"operationId"`
 	MemberID      string     `gorm:"primaryKey;size:32" json:"memberId"`
 	BeforeVersion string     `gorm:"size:128" json:"-"`
-	Status        string     `gorm:"size:16;index" json:"status"` // pending / accepted
+	Status        string     `gorm:"size:16;index" json:"status"` // pending / accepted / done / failed
 	Attempts      int        `json:"attempts"`
 	NextAt        time.Time  `json:"nextAt"`
 	LastError     string     `gorm:"size:255" json:"lastError"`
 	AcceptedAt    *time.Time `json:"acceptedAt,omitempty"`
+	// AfterVersion and FinishedAt are the completion receipt for update
+	// deliveries: the local updater's result, written back by the instance
+	// itself (checkUpdateResult). They stay empty for other kinds and while
+	// an update is still running.
+	AfterVersion string     `gorm:"size:128" json:"afterVersion,omitempty"`
+	FinishedAt   *time.Time `json:"finishedAt,omitempty"`
 }
 
 type OperationalStatus struct {
