@@ -39,6 +39,7 @@ WITNESS_URL="${WITNESS_URL:-}"
 # Test hooks (the installer always uses the defaults above).
 STATE="${CF_STATE_FILE:-/var/lib/cf-failover.state}"
 LOG="${CF_LOG_FILE:-/var/log/cf-failover.log}"
+SUPPRESS="${CF_SUPPRESS_FILE:-/var/lib/polaris/failover-suppress}"
 FAIL_N=3
 
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
@@ -48,6 +49,25 @@ log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
   echo "cf-failover: CF_TOKEN/CF_ZONE_ID/CF_RECORD_ID/CF_DOMAIN/CF_PRIMARY_IP/CF_STANDBY_IP 未配全（/etc/cf-failover.env 或环境变量）" >&2
   exit 1
 }
+
+# Sync-upgrade suppression: during a planned cluster upgrade, the local
+# panel drops this file before the primary restarts, so the planned
+# outage is not mistaken for a failure. The panel sets until = start +
+# 30 minutes — a hard cap this script never extends. Past it the normal
+# rules below apply again, so a primary that really died during its
+# upgrade is still failed over. The failure counter is left untouched:
+# counting resumes from its previous value once the window ends.
+if [ -f "$SUPPRESS" ]; then
+  s_until="$(sed -n 's/^until=//p' "$SUPPRESS" | head -n 1)"
+  s_op="$(sed -n 's/^op=//p' "$SUPPRESS" | head -n 1)"
+  case "$s_until" in
+    ''|*[!0-9]*) log "sync upgrade suppress file unreadable, ignoring" ;;
+    *) if [ "$(date +%s)" -lt "$s_until" ]; then
+         log "suppressed by sync upgrade op ${s_op:-unknown} until $s_until"
+         exit 0
+       fi ;;
+  esac
+fi
 
 # Check the primary over its public IP directly (bypasses current DNS).
 code=$(curl -sk -o /dev/null -w "%{http_code}" --resolve "$CF_DOMAIN:443:$CF_PRIMARY_IP" --max-time 8 "https://$CF_DOMAIN${CF_ADMIN_PATH%/}/api/v1/info" || echo 000)
