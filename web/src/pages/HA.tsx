@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { del, get, post } from '../api'
 import { Copy, CopyBox, Empty, Field, useAction, useConfirm, useLoad } from '../components/ui'
-import { ago, bytes } from '../format'
+import { ago, bytes, datetime } from '../format'
 import { t } from '../i18n'
 
 // HA page (PR3): status, WireGuard peers, join token, Cloudflare token and
@@ -10,7 +10,7 @@ import { t } from '../i18n'
 // out commands for a human to run.
 
 interface HAMember {
-  id: string; host: string; version: string; edition: string
+  id: string; memberId: string; host: string; version: string; edition: string
   online: boolean; leader: boolean; self: boolean
   seenAt: string; startedAt: string
 }
@@ -27,6 +27,30 @@ interface HAStatus {
   inRecovery: boolean | null; replayLagSeconds: number | null
   syncNames: string; syncWaiting: boolean
   redisConfigured: boolean; version: string; edition: string
+  syncUpdate?: HASyncUpdate
+}
+
+// The latest sync upgrade operation and its per-instance update
+// deliveries, as reported by GET /ha/status (syncupdate.go). Delivery
+// statuses are the four states of design §4.4.
+interface SyncOperation {
+  id: string; kind: string; target: string
+  createdAt: string; updatedAt?: string
+  state?: string; phase?: string; detail?: string
+}
+
+interface SyncDelivery {
+  operationId: string; memberId: string; status: string
+  lastError: string; afterVersion?: string
+  acceptedAt?: string; finishedAt?: string
+}
+
+interface HASyncUpdate { operation: SyncOperation; deliveries: SyncDelivery[] }
+
+// Same shape as the settings page's update check (GET /system/update).
+interface UpdateInfo {
+  current: string; latest?: string; newer?: boolean
+  updater: boolean; pending?: boolean; error?: string
 }
 
 interface HAPeer {
@@ -57,9 +81,36 @@ function pgRoleText(inRecovery: boolean | null): string {
   return t('未知')
 }
 
+// Per-instance delivery states of a sync upgrade: pending waits for the
+// instance to pick the request up, accepted means its local updater is
+// working on it, done/failed are the outcome the instance reported back.
+const deliveryMeta: Record<string, { cls: string; label: string }> = {
+  pending: { cls: '', label: t('等待受理') },
+  accepted: { cls: 'warn', label: t('执行中') },
+  done: { cls: 'ok', label: t('完成') },
+  failed: { cls: 'bad', label: t('失败') },
+}
+
+const syncStateMeta: Record<string, { cls: string; label: string }> = {
+  running: { cls: 'warn', label: t('进行中') },
+  succeeded: { cls: 'ok', label: t('成功') },
+  partial: { cls: 'warn', label: t('部分成功') },
+  failed: { cls: 'bad', label: t('失败') },
+  aborted: { cls: 'bad', label: t('已中止') },
+}
+
+// The orchestration stages, in order (syncupdate.go phases standby /
+// leader / verify, then done).
+const syncPhases: { key: string; label: string }[] = [
+  { key: 'standby', label: t('备机阶段') },
+  { key: 'leader', label: t('主机阶段') },
+  { key: 'verify', label: t('校验阶段') },
+]
+
 export default function HA() {
   const status = useLoad((signal) => get<HAStatus>('/ha/status', signal))
   const peers = useLoad((signal) => get<HAPeers>('/ha/peers', signal))
+  const update = useLoad((signal) => get<UpdateInfo>('/system/update?fresh=1', signal))
   const confirm = useConfirm()
   const { busy, run } = useAction()
   const [issued, setIssued] = useState<HAToken | null>(null)
@@ -80,6 +131,60 @@ export default function HA() {
   const meta = roleMeta[role]
   const steps = check?.steps ?? []
   const doneCount = done.filter(Boolean).length
+
+  // Sync upgrade: the latest orchestrated run (if any) and its deliveries
+  // keyed by member id, so the instance table can show each member's
+  // state next to its version.
+  const sync = st?.syncUpdate
+  const op = sync?.operation
+  const syncRunning = op?.state === 'running'
+  const deliveriesByMember = new Map((sync?.deliveries ?? []).map((d) => [d.memberId, d]))
+  // While a run is in flight, follow it at the cluster pages' usual 15 s
+  // rhythm; the interval ends with the run.
+  useEffect(() => {
+    if (!syncRunning) return
+    const id = setInterval(() => status.reload(), 15000)
+    return () => clearInterval(id)
+    // status.reload is stable across renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncRunning])
+  const upd = update.data
+  const latest = upd?.latest
+  // A run is worth starting when this instance is behind, or when any
+  // online member still lags the latest version (the retry path after a
+  // partial run: up-to-date members are skipped by the executor).
+  const lagging = !!latest && members.some((m) => m.online && !!m.version && m.version !== latest)
+  const canSync = !!upd && !syncRunning && (upd.newer === true || lagging)
+  const latestCell = !upd ? '…' : upd.latest ? (
+    <><span className="mono">{upd.latest}</span>{upd.newer
+      ? <span className="tag warn" style={{ marginLeft: 8 }}>{t('可升级')}</span>
+      : <span className="tag ok" style={{ marginLeft: 8 }}>{t('已是最新')}</span>}</>
+  ) : upd.error ? <span style={{ color: 'var(--bad)' }}>{t('获取失败：{error}', { error: upd.error })}</span> : '…'
+  const phaseIdx = op ? ({ standby: 0, leader: 1, verify: 2, done: 3 } as Record<string, number>)[op.phase ?? ''] ?? 0 : 0
+  const phaseChipCls = (i: number): string => {
+    if (!op) return ''
+    if (i < phaseIdx) return op.state === 'failed' || op.state === 'aborted' ? '' : 'ok'
+    if (i > phaseIdx) return ''
+    if (op.state === 'running') return 'info-tag'
+    if (op.state === 'succeeded' || op.state === 'partial') return 'ok'
+    return 'bad'
+  }
+  const opState = op ? syncStateMeta[op.state ?? ''] ?? { cls: '', label: op.state ?? '' } : undefined
+  const detailCls = !op ? '' : op.state === 'succeeded' ? 'ok-note' : op.state === 'partial' ? 'warn' : op.state === 'running' ? '' : 'bad'
+  const deliveryCell = (m: HAMember) => {
+    const d = m.memberId ? deliveriesByMember.get(m.memberId) : undefined
+    if (!d) return '—'
+    const dm = deliveryMeta[d.status] ?? { cls: '', label: d.status }
+    return (
+      <>
+        <span className={'tag ' + dm.cls} style={{ flex: 'none' }}>{dm.label}</span>
+        {d.afterVersion && <div className="small mute">{t('升至 {v}', { v: d.afterVersion })}</div>}
+        {d.status === 'failed' && d.lastError && (
+          <div className="small" style={{ color: 'var(--bad)', whiteSpace: 'normal', overflowWrap: 'anywhere', maxWidth: 260, flexBasis: '100%', textAlign: 'left' }}>{d.lastError}</div>
+        )}
+      </>
+    )
+  }
 
   const reload = () => { status.reload(); peers.reload() }
   const issueToken = () => run(async () => {
@@ -112,6 +217,14 @@ export default function HA() {
     if (!await confirm(t('确定删除这个对端吗？仅删除库里的记录，WireGuard 配置由同步任务对齐。'), { danger: true })) return
     run(async () => { await del(`/ha/peers/${encodeURIComponent(p.wgIp)}`); peers.reload() }, t('已删除'))
   }
+  // Start a staged sync upgrade of the whole cluster. The server resolves
+  // the target to the concrete latest tag; the orchestration itself runs
+  // on whichever instance holds the leader lease.
+  const startSyncUpdate = async () => {
+    if (!latest) return
+    if (!await confirm(t('同步升级到 {v}？将先升级备节点、再升级主节点，最后校验各实例版本一致。', { v: latest }) + '\n' + t('全程约 10–15 分钟；主节点升级期间面板会短暂断开（约 1–6 分钟），期间看门狗不会切换 DNS。备节点升级失败会自动中止，主节点保持不动。'))) return
+    run(async () => { await post('/ha/sync-update', {}); status.reload() }, t('已发起同步升级'))
+  }
 
   return (
     <>
@@ -139,6 +252,45 @@ export default function HA() {
             </dl>
           </section>
         )}
+        {st && st.shared && (
+          <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <h2>{t('同步升级')}</h2>
+            <div className="sub" style={{ margin: 0 }}>{t('把集群全部在线实例按备节点、主节点顺序逐台升级到同一版本，逐台回报结果；任一台失败即中止，不会两台同时停机。')}</div>
+            <dl className="kv" style={{ margin: 0 }}>
+              <dt>{t('当前版本')}</dt><dd><span className="mono">{st.version || t('未知')}</span></dd>
+              <dt>{t('最新版本')}</dt><dd>{latestCell}</dd>
+              {op && (
+                <>
+                  <dt>{t('最近一次')}</dt>
+                  <dd>
+                    <span className="mono">{op.target}</span>{' '}
+                    {opState && <span className={'tag ' + opState.cls}>{opState.label}</span>}
+                    <div className="small mute">{datetime(op.createdAt)}</div>
+                  </dd>
+                </>
+              )}
+            </dl>
+            {op && (
+              <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                {syncPhases.map((p, i) => (
+                  <span key={p.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {i > 0 && <span className="mute">→</span>}
+                    <span className={'tag ' + phaseChipCls(i)} style={i > phaseIdx ? { opacity: 0.55 } : undefined}>
+                      {(i < phaseIdx && op.state !== 'failed' && op.state !== 'aborted' ? '✓ ' : '') + p.label}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {op?.detail && <div className={'note ' + detailCls}>{op.detail}</div>}
+            <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <button className="btn pri" type="button" disabled={busy || !canSync} onClick={startSyncUpdate}>{t('同步升级')}</button>
+              {syncRunning
+                ? <span className="mute">{t('进行中，本页每 15 秒自动刷新进度。')}</span>
+                : upd && !canSync && <span className="mute">{t('已是最新版本，无需升级。')}</span>}
+            </div>
+          </section>
+        )}
         {st && (
           <section className="card flush">
             <h2 style={{ padding: '16px 20px 0' }}>{t('实例')}</h2>
@@ -147,13 +299,14 @@ export default function HA() {
             ) : (
               <div className="scroll">
                 <table className="rtable">
-                  <thead><tr><th>{t('实例')}</th><th>{t('版本')}</th><th>{t('状态')}</th><th>Leader</th><th>{t('本机')}</th><th>{t('最近可见')}</th></tr></thead>
+                  <thead><tr><th>{t('实例')}</th><th>{t('版本')}</th><th>{t('状态')}</th>{sync && <th>{t('升级状态')}</th>}<th>Leader</th><th>{t('本机')}</th><th>{t('最近可见')}</th></tr></thead>
                   <tbody>
                     {members.map((m) => (
                       <tr key={m.id}>
                         <td style={{ fontWeight: 500 }}>{m.host || m.id}{m.self && <span className="tag" style={{ marginLeft: 6 }}>{t('本机')}</span>}</td>
                         <td><span className="mono">{m.version || t('未知')}</span>{m.edition ? <div className="small mute">{m.edition}</div> : null}</td>
                         <td><span className={'tag ' + (m.online ? 'ok' : 'bad')}>{m.online ? t('在线') : t('离线')}</span></td>
+                        {sync && <td>{deliveryCell(m)}</td>}
                         <td>{m.leader ? <span className="tag ok">Leader</span> : '—'}</td>
                         <td>{m.self ? t('是') : '—'}</td>
                         <td>{ago(m.seenAt)}</td>

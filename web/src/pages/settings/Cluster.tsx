@@ -16,7 +16,9 @@ export function Cluster() {
     return () => clearInterval(id)
   }, [])
   const ms = info.data?.members ?? []
-  const ops = info.data?.operations ?? []
+  // suppress/unsuppress are plumbing of a sync upgrade, not user-facing
+  // operations; the sync upgrade itself represents them.
+  const ops = (info.data?.operations ?? []).filter((o) => o.kind !== 'suppress' && o.kind !== 'unsuppress')
   const deliveries = info.data?.deliveries ?? []
   if (ms.length < 2 && ops.length === 0) return null
   const running = ms.filter((m) => m.online)
@@ -46,10 +48,14 @@ export function Cluster() {
       </div>
       {ops.slice(0, 5).map((op) => {
         const ds = deliveries.filter((d) => d.operationId === op.id)
-        return <div key={op.id} className="hint">{op.kind === 'update' ? t('升级面板') : t('恢复后重启')} {op.target} · {t('已受理 {n}/{m}', { n: ds.filter((d) => d.status === 'accepted').length, m: ds.length })}
+        const label = op.kind === 'update' ? t('升级面板') : op.kind === 'syncupdate' ? t('同步升级') : t('恢复后重启')
+        const failed = ds.filter((d) => d.status === 'failed').length
+        return <div key={op.id} className="hint">{label} {op.target} · {op.kind === 'restore'
+          ? t('已受理 {n}/{m}', { n: ds.filter((d) => d.status === 'accepted').length, m: ds.length })
+          : <>{t('已完成 {n}/{m}', { n: ds.filter((d) => d.status === 'done').length, m: ds.length })}{failed > 0 && <span style={{ color: 'var(--bad)' }}> · {t('失败 {n}', { n: failed })}</span>}</>}
           {ds.filter((d) => d.lastError).map((d) => <div key={d.memberId} className="note warn">{d.lastError}</div>)}</div>
       })}
-      <div className="hint">{t('受理表示请求已交给本机处理，实际升级结果以版本和升级通知为准。')}</div>
+      <div className="hint">{t('升级结果由各实例回报：已完成即成功，失败会注明原因；「恢复后重启」只统计受理。')}</div>
       <div className="hint">{t('主实例负责定时任务和 Telegram 机器人，停止后其他实例 15 秒内接管。「升级面板」会升级全部运行中的实例；恢复备份后全部实例自动重启。离线超过 30 分钟的实例自动移除。')}</div>
     </section>
   )
