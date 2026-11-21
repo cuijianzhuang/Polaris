@@ -132,7 +132,7 @@ var editableSettings = map[string]bool{
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
-	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "login_allowlist": true, "login_ban_failures": true,
+	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "resource_alert_enabled": true, "resource_alert_cpu": true, "resource_alert_mem": true, "resource_alert_disk": true, "resource_alert_minutes": true, "login_allowlist": true, "login_ban_failures": true,
 	"inbound_probe": true, "audit_changes": true, "sub_host_strict": true,
 	"tpl_traffic_warn": true, "tpl_expire_warn": true, "tpl_user_limited": true, "tpl_user_expired": true, "tpl_user_active": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
@@ -158,8 +158,9 @@ var switchSettingDefaults = map[string]string{
 	"sub_update_interval": "1", "sub_enabled": "true", "sub_routing_enabled": "false", "sub_show_bot": "true", "sub_show_rate": "true", "sub_host_strict": "1",
 	"converter_for_users": "false", "sub_apply_ops_users": "false", "allow_private_sources": "false", "sub_skip_cert": "false", "sub_force_udp": "false",
 	"audit_changes": "false", "inbound_probe": "true",
-	"usage_stats":  "true",
-	"shop_enabled": "false", "shop_web_enabled": "false", "shop_auto_create": "true", "shop_user_rename": "true", "shop_stars": "false",
+	"resource_alert_enabled": "true",
+	"usage_stats":            "true",
+	"shop_enabled":           "false", "shop_web_enabled": "false", "shop_auto_create": "true", "shop_user_rename": "true", "shop_stars": "false",
 	"shop_epay_enabled": "true", "shop_usdt_enabled": "true", "shop_code_enabled": "true",
 	"ddns_auto_address": "true",
 }
@@ -229,6 +230,26 @@ func (s *Server) putSettings(c *gin.Context) {
 		m := strings.TrimSpace(v)
 		if m != "" && !strings.HasPrefix(m, "https://") {
 			badRequest(c, errors.New("GitHub 镜像必须使用 https://：镜像只加速软件包下载，校验和始终从 GitHub 官方获取"))
+			return
+		}
+	}
+	if v, ok := req["resource_alert_enabled"]; ok && v != "true" && v != "false" {
+		badRequest(c, errors.New("资源告警开关应为 true 或 false"))
+		return
+	}
+	for _, k := range []string{"resource_alert_cpu", "resource_alert_mem", "resource_alert_disk"} {
+		if v, ok := req[k]; ok {
+			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err != nil || f < 50 || f > 100 {
+				badRequest(c, fmt.Errorf("%s 应为 50–100 之间的百分比", k))
+				return
+			}
+		}
+	}
+	if v, ok := req["resource_alert_minutes"]; ok {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 5 || n > 120 {
+			badRequest(c, errors.New("resource_alert_minutes 应为 5–120 之间的分钟数"))
 			return
 		}
 	}

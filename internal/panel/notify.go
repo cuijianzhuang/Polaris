@@ -3,7 +3,7 @@ package panel
 // Event is something worth telling operators (and sometimes users) about.
 // Delivery is pluggable; the Telegram bot is the built-in sink.
 type Event struct {
-	Kind   string // node_offline, node_online, apply_failed, user_limited, user_expired, ip_limit, ip_changed, ddns_failed, cert_failed, traffic_warn, expire_warn
+	Kind   string // node_offline, node_online, node_resource, node_resource_ok, apply_failed, user_limited, user_expired, ip_limit, ip_changed, ddns_failed, cert_failed, traffic_warn, expire_warn
 	NodeID string // scopes the event to node operators bound to this node
 	UserID string // also delivered to the user's bound chat, if any
 	Text   string
