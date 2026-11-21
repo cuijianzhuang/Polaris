@@ -46,6 +46,8 @@ var notificationKinds = map[string]notificationKind{
 	"backup_failed":     {Group: "backup_failed"},
 	"cert_failed":       {Group: "cert_failed"},
 	"node_traffic":      {Group: "node_traffic"},
+	"node_resource":     {Group: "node_resource", Paired: true},
+	"node_resource_ok":  {Group: "node_resource", Paired: true, Recovery: true},
 	"operational_alert": {Group: "operational_alert"},
 	"cdn_ips_stale":     {Group: "cdn_ips", Paired: true},
 	"cdn_ips_fresh":     {Group: "cdn_ips", Paired: true, Recovery: true},

@@ -1036,7 +1036,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &NodeResourceAlert{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},
 		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{}, &CDNIPReport{},
@@ -1286,6 +1286,7 @@ type NodeMetric struct {
 	At     time.Time `gorm:"primaryKey" json:"t"`
 	CPU    float64   `json:"cpu"`
 	Mem    float64   `json:"mem"`
+	Disk   float64   `json:"disk"`
 	RxBps  uint64    `json:"rx"`
 	TxBps  uint64    `json:"tx"`
 	Load1  float64   `json:"load"`
@@ -1293,6 +1294,19 @@ type NodeMetric struct {
 	Load15 float64   `json:"load15"`
 	Swap   float64   `json:"swap"`
 	N      int       `json:"-"` // samples averaged so far
+}
+
+// NodeResourceAlert is the persisted breach state of one (node, metric)
+// resource threshold rule. Keeping it in the database means a leader
+// change neither replays an alert that already went out nor loses the
+// recovery notice for a breach the old leader reported.
+type NodeResourceAlert struct {
+	NodeID    string    `gorm:"primaryKey;size:32"`
+	Metric    string    `gorm:"primaryKey;size:16"` // cpu / mem / disk
+	Active    bool      // a breach alert is outstanding
+	Since     time.Time // first slot of the current breach
+	LastValue float64   // latest slot value seen for the metric
+	UpdatedAt time.Time
 }
 
 // NodeExternalMetric is the latest value of a custom metric an outside

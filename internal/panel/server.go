@@ -511,6 +511,7 @@ func (s *Server) startJobs() func() {
 	add("0 0 * * * *", "auto-update", s.autoUpdateTick)
 	addLocal(jobCronSpec(s.cfg.Jobs.UpdateResult, 0), "update-result", s.checkUpdateResult) // each machine updates itself
 	add("0 37 * * * *", "traffic-spikes", s.checkTrafficSpikes)
+	add("10 */5 * * * *", "resource-alerts", s.checkResourceAlerts)
 	add(jobCronSpec(s.cfg.Jobs.InboundProbe, 30), "inbound-probe", s.probeInbounds)
 	add("0 20 4 * * *", "rule-sets", s.refreshRemoteRuleSets)
 	add("0 3 * * * *", "node-traffic-cycles", s.resetNodeCycles)

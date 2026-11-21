@@ -290,14 +290,24 @@ func (s *Server) recordMetric(nodeID string, sys store.SystemInfo, now time.Time
 	at := now.UTC().Truncate(metricSlot)
 	var m store.NodeMetric
 	if s.st.DB.First(&m, "node_id = ? AND at = ?", nodeID, at).Error != nil {
-		s.warnWrite("node metric", s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.NodeMetric{NodeID: nodeID, At: at, CPU: sys.CPU, Mem: sys.Mem,
+		s.warnWrite("node metric", s.st.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&store.NodeMetric{NodeID: nodeID, At: at, CPU: sys.CPU, Mem: sys.Mem, Disk: sys.Disk,
 			RxBps: sys.RxBps, TxBps: sys.TxBps, Load1: sys.Load1, Load5: sys.Load5, Load15: sys.Load15, Swap: sys.Swap, N: 1}).Error)
 		return
 	}
 	n := float64(m.N)
 	avg := func(old, v float64) float64 { return (old*n + v) / (n + 1) }
+	// Disk is zero from agents too old to report it; such samples must not
+	// drag the slot average down, so they simply do not contribute.
+	disk := m.Disk
+	if sys.Disk > 0 {
+		if m.Disk > 0 {
+			disk = avg(m.Disk, sys.Disk)
+		} else {
+			disk = sys.Disk
+		}
+	}
 	s.st.DB.Model(&store.NodeMetric{}).Where("node_id = ? AND at = ?", nodeID, at).Updates(map[string]any{
-		"cpu": avg(m.CPU, sys.CPU), "mem": avg(m.Mem, sys.Mem), "load1": avg(m.Load1, sys.Load1),
+		"cpu": avg(m.CPU, sys.CPU), "mem": avg(m.Mem, sys.Mem), "disk": disk, "load1": avg(m.Load1, sys.Load1),
 		"load5": avg(m.Load5, sys.Load5), "load15": avg(m.Load15, sys.Load15), "swap": avg(m.Swap, sys.Swap),
 		"rx_bps": uint64(avg(float64(m.RxBps), float64(sys.RxBps))), "tx_bps": uint64(avg(float64(m.TxBps), float64(sys.TxBps))),
 		"n": m.N + 1,
