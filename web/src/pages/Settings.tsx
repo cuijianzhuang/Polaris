@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import Passkeys from '../components/Passkeys'
 import AvatarSettings from '../components/AvatarSettings'
 import { NotificationSettings, NetworkDatabaseSettings } from '../components/NetworkSettings'
+import { ResourceAlertSettings } from '../components/ResourceAlertSettings'
 import { useEffect, useRef, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
 import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
@@ -112,7 +113,7 @@ export default function Settings() {
         </div>
         <div className="spane" key={tab}>
         {tab === 'network' && <NetworkDatabaseSettings />}
-        {tab === 'notifications' && <NotificationSettings />}
+        {tab === 'notifications' && <><NotificationSettings /><ResourceAlertSettings /></>}
         {tab === 'general' && <>
         <Access />
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
