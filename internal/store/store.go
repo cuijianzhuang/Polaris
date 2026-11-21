@@ -29,6 +29,11 @@ type Store struct {
 	DB  *gorm.DB
 	Box *secret.BoxSet
 
+	// openPhases records how long each segment of Open took, so a slow
+	// start (e.g. AutoMigrate over a high-latency database link) can be
+	// attributed from the panel's startup log instead of guessed at.
+	openPhases []OpenPhase
+
 	// Settings are read on hot paths (every subscription request, request
 	// middleware); SetSetting is the only writer, so reads come from memory.
 	setMu    sync.Mutex
@@ -118,7 +123,23 @@ func sqlitePragmaName(pragma string) string {
 
 // Open connects and migrates. PostgreSQL DSNs are recognised by
 // IsPostgresDSN; anything else is a SQLite file path.
+// OpenPhase is one timed segment of Open.
+type OpenPhase struct {
+	Name string
+	Took time.Duration
+}
+
+// OpenPhases returns the per-segment timings of the Open that produced
+// this store, in execution order.
+func (s *Store) OpenPhases() []OpenPhase { return s.openPhases }
+
 func Open(dsn string, box *secret.BoxSet, debug bool) (*Store, error) {
+	var phases []OpenPhase
+	mark := time.Now()
+	lap := func(name string) {
+		phases = append(phases, OpenPhase{Name: name, Took: time.Since(mark)})
+		mark = time.Now()
+	}
 	var dial gorm.Dialector
 	if IsPostgresDSN(dsn) {
 		dial = postgres.Open(dsn)
@@ -140,6 +161,7 @@ func Open(dsn string, box *secret.BoxSet, debug bool) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	lap("connect")
 	if sqlDB, err := db.DB(); err == nil {
 		if dial.Name() == "sqlite" {
 			sqlDB.SetMaxOpenConns(1) // SQLite: serialise writers
@@ -156,13 +178,16 @@ func Open(dsn string, box *secret.BoxSet, debug bool) (*Store, error) {
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	lap("automigrate")
 	if err := runMigrations(db, migrations, probes); err != nil {
 		return nil, err
 	}
+	lap("migrations")
 	if err := SealLegacySubSources(db, box); err != nil {
 		return nil, fmt.Errorf("encrypt subscription sources: %w", err)
 	}
-	return &Store{DB: db, Box: box}, nil
+	lap("seal_legacy")
+	return &Store{DB: db, Box: box, openPhases: phases}, nil
 }
 
 // IsPostgresDSN reports whether dsn names a PostgreSQL database: a

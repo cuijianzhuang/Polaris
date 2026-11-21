@@ -149,6 +149,16 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if cfg.AdminPath == "/" {
 		log.Warn("admin UI is served at / — set POLARIS_ADMIN_PATH to a hard-to-guess path so scanners only see 404 or the decoy site")
 	}
+	// Startup phase timings: a standby reaching its database over a
+	// high-latency tunnel once took ~5 minutes to listen with no trace of
+	// where the time went. One line per phase keeps the next slow start
+	// attributable from the journal alone.
+	started := time.Now()
+	mark := started
+	lap := func(phase string) {
+		log.Info("startup phase", "phase", phase, "took", time.Since(mark).Round(time.Millisecond))
+		mark = time.Now()
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return nil, err
 	}
@@ -160,6 +170,10 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, p := range st.OpenPhases() {
+		log.Info("startup phase", "phase", "store."+p.Name, "took", p.Took.Round(time.Millisecond))
+	}
+	lap("store_open")
 	restored := applyStagedRestore(st, cfg, box, log) // a backup chosen in the UI, before anything reads the data
 	// Refuse to start when the database names a key version this panel
 	// does not know: a half-finished rotation from a newer key would
@@ -169,10 +183,12 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err := validateKeyVersion(st, box); err != nil {
 		return nil, err
 	}
+	lap("restore_keycheck")
 	ca, err := loadOrCreateCA(st, cfg.DataDir, box)
 	if err != nil {
 		return nil, err
 	}
+	lap("ca")
 	s := &Server{
 		cfg: cfg, st: st, ca: ca, log: log, hub: newHub(),
 		jwtKey: []byte("jwt:" + cfg.SecretKey), jwtKid: box.CurrentKid(),
@@ -230,6 +246,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		s.bus.subscribe("cluster-ops", func(_ string, _ []byte) { s.processClusterOperations() })
 	}
 	s.traffic = &trafficInbox{db: st.DB}
+	lap("init")
 	s.shared = newMemState()
 	if cfg.RedisURL != "" {
 		rs, err := newRedisState(cfg.RedisURL, log)
@@ -238,6 +255,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 		}
 		s.shared = rs
 	}
+	lap("redis")
 	s.subLimit = &sharedLimiter{s: s.shared, name: "sub", perMinute: cfg.SubRateLimit}
 	s.shopLimit = &sharedLimiter{s: s.shared, name: "shop", perMinute: 10}
 	s.mailCodeLimit = &sharedLimiter{s: s.shared, name: "mailcode", perMinute: 5}
@@ -246,8 +264,12 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}
+	lap("seed")
 	s.initLicense()
+	lap("license")
 	s.memberTouch()
+	lap("member_touch")
+	log.Info("startup ready", "total", time.Since(started).Round(time.Millisecond))
 	return s, nil
 }
 
@@ -311,6 +333,7 @@ func loadOrCreateCA(st *store.Store, dir string, box *secret.BoxSet) (*pki.CA, e
 
 // Run serves HTTP and the agent endpoint until ctx is cancelled.
 func (s *Server) Run(ctx context.Context) error {
+	runStart := time.Now()
 	s.bg = ctx
 	s.updateLease() // decided before the jobs start
 	if s.isLeader() {
@@ -359,6 +382,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.log.Info("startup phase", "phase", "run_preamble", "took", time.Since(runStart).Round(time.Millisecond))
 	errc := make(chan error, 2)
 	go func() {
 		s.log.Info("panel listening", "addr", s.cfg.Listen, "admin", s.cfg.AdminPath)
