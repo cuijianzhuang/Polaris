@@ -60,6 +60,24 @@ func TestOpenAppliesPragmasWithQueryDSN(t *testing.T) {
 	}
 }
 
+func TestOpenRecordsPhases(t *testing.T) {
+	box, _ := secret.NewBoxSet("k", "")
+	s, err := Open(filepath.Join(t.TempDir(), "p.db"), box, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phases := s.OpenPhases()
+	want := []string{"connect", "automigrate", "migrations", "seal_legacy"}
+	if len(phases) != len(want) {
+		t.Fatalf("phases: %v", phases)
+	}
+	for i, name := range want {
+		if phases[i].Name != name {
+			t.Fatalf("phase %d: got %q want %q", i, phases[i].Name, name)
+		}
+	}
+}
+
 func TestOpenAndJSON(t *testing.T) {
 	box, _ := secret.NewBoxSet("k", "")
 	s, err := Open(filepath.Join(t.TempDir(), "p.db"), box, false)
