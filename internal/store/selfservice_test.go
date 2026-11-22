@@ -23,6 +23,11 @@ func TestSelfServiceBackfill(t *testing.T) {
 	if err := st.DB.Migrator().DropTable(&SchemaMigration{}); err != nil {
 		t.Fatal(err)
 	}
+	// A database from before versioned migrations has no schema stamp
+	// either; without dropping it, Open would skip the backfill.
+	if err := st.DB.Exec("DROP TABLE IF EXISTS " + schemaStampTable).Error; err != nil {
+		t.Fatal(err)
+	}
 	db, _ := st.DB.DB()
 	db.Close()
 	st, err = Open(p, nil, false)
