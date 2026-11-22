@@ -184,6 +184,13 @@ func TestMigratePinnedHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.DB.Where("version = ?", 2).Delete(&SchemaMigration{})
+	// The regression must also drop this build's schema stamp: a
+	// database from before the pinned_hosts migration cannot carry a
+	// stamp certifying the current schema, or Open would trust the
+	// stamp and skip the repair below.
+	if err := st.DB.Exec("DROP TABLE IF EXISTS " + schemaStampTable).Error; err != nil {
+		t.Fatal(err)
+	}
 	if sq, _ := st.DB.DB(); sq != nil {
 		sq.Close()
 	}
@@ -209,6 +216,11 @@ func TestCDNClientSchemeUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := st.DB.Migrator().DropColumn(&CDNProfile{}, "scheme"); err != nil {
+		t.Fatal(err)
+	}
+	// As in TestMigratePinnedHosts: the legacy database being simulated
+	// predates this build, so its schema stamp goes with the regression.
+	if err := st.DB.Exec("DROP TABLE IF EXISTS " + schemaStampTable).Error; err != nil {
 		t.Fatal(err)
 	}
 	db, _ := st.DB.DB()

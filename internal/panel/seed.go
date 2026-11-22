@@ -47,13 +47,24 @@ var defaultSettings = map[string]string{
 }
 
 func (s *Server) seed() error {
+	// One query for every existing key, then insert only the missing
+	// defaults: the per-key Count loop cost a round trip per setting,
+	// which a standby reaching the database through a tunnel felt as
+	// ~15s of startup.
+	var existing []string
+	if err := s.st.DB.Model(&store.Setting{}).Pluck("key", &existing).Error; err != nil {
+		return err
+	}
+	have := make(map[string]bool, len(existing))
+	for _, k := range existing {
+		have[k] = true
+	}
 	for k, v := range defaultSettings {
-		var n int64
-		s.st.DB.Model(&store.Setting{}).Where("key = ?", k).Count(&n)
-		if n == 0 {
-			if err := s.st.SetSetting(k, v); err != nil {
-				return err
-			}
+		if have[k] {
+			continue
+		}
+		if err := s.st.SetSetting(k, v); err != nil {
+			return err
 		}
 	}
 	var admins int64

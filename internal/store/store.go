@@ -174,15 +174,29 @@ func Open(dsn string, box *secret.BoxSet, debug bool) (*Store, error) {
 			sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 		}
 	}
-	probes := probeMigrations(db, migrations)
-	if err := db.AutoMigrate(AllModels()...); err != nil {
-		return nil, fmt.Errorf("migrate: %w", err)
+	// Skip the migration steps when the schema stamp matches this
+	// build's fingerprint: the schema is already what AutoMigrate would
+	// produce and every versioned migration is already recorded, so
+	// re-running them would be pure round trips (minutes over a tunnel).
+	// Any doubt — no stamp, a different fingerprint, a fingerprint that
+	// fails to compute — runs the full sequence, as before.
+	fp, fpErr := schemaFingerprint(db)
+	if fpErr == nil && readSchemaStamp(db) == fp {
+		lap("skip_migrate")
+	} else {
+		probes := probeMigrations(db, migrations)
+		if err := db.AutoMigrate(AllModels()...); err != nil {
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+		lap("automigrate")
+		if err := runMigrations(db, migrations, probes); err != nil {
+			return nil, err
+		}
+		lap("migrations")
+		if fpErr == nil {
+			writeSchemaStamp(db, fp)
+		}
 	}
-	lap("automigrate")
-	if err := runMigrations(db, migrations, probes); err != nil {
-		return nil, err
-	}
-	lap("migrations")
 	if err := SealLegacySubSources(db, box); err != nil {
 		return nil, fmt.Errorf("encrypt subscription sources: %w", err)
 	}
