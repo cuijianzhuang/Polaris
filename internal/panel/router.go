@@ -468,6 +468,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/ha/failover-check", s.haFailoverCheck)
 	p.POST("/ha/sync-replication", s.requireSudo, s.haSaveSyncReplication)
 	p.POST("/ha/sync-update", s.requireSudo, s.haSyncUpdate)
+	p.POST("/ha/take-leader", s.requireSudo, s.haTakeLeader)
 	p.GET("/operational-health", s.getOperationalHealth)
 	p.GET("/user-notices", s.listUserNotices)
 	p.GET("/ready", s.readiness)

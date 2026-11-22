@@ -84,4 +84,13 @@ export default {
   '已发起同步升级': 'Sync upgrade started',
   '进行中，本页每 15 秒自动刷新进度。': 'In progress; this page refreshes every 15 seconds.',
   '已是最新版本，无需升级。': 'Already on the latest version; nothing to upgrade.',
+  '接管 Leader': 'Take over leadership',
+  '接管 Leader？当前 Leader（{host}）将主动让出，本机将在数秒内接任。':
+    'Take over leadership? The current leader ({host}) will step aside and this instance will take over within seconds.',
+  '只切换后台任务的归属，不影响流量、DNS 与数据库主从。':
+    'This only moves the background duties to this instance; traffic, DNS and database replication are unaffected.',
+  '接管请求已发出': 'Takeover requested',
+  '同步升级进行中，结束后才能接管 Leader。': 'A sync upgrade is in progress; leadership can be taken over once it finishes.',
+  '接管请求已发出，等待当前 Leader 让位…': 'Takeover requested; waiting for the current leader to yield…',
+  'Leader 在其他实例上时，可让它把后台任务交回本机。': 'When the leader sits on another instance, ask it to hand the background duties back to this one.',
 }

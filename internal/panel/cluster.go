@@ -21,9 +21,16 @@ import (
 // instance takes over within leaseTTL.
 
 const (
-	leaseName  = "leader"
-	leaseTTL   = 15 * time.Second
-	leaseRenew = 5 * time.Second
+	leaseName         = "leader"
+	stepdownLeaseName = "leader-stepdown"
+	leaseTTL          = 15 * time.Second
+	leaseRenew        = 5 * time.Second
+	// stepdownTTL is how long a leadership takeover request stays valid.
+	stepdownTTL = 30 * time.Second
+	// stepdownCooldown keeps a yielding instance out of the lease race for
+	// one TTL, so the requester's next round — not the yielder's — claims
+	// the lease it just freed.
+	stepdownCooldown = leaseTTL
 )
 
 // isLeader reports whether this instance runs the cluster-wide work. A
@@ -38,6 +45,9 @@ func (s *Server) tryLease() bool {
 	if db.Dialector.Name() != "postgres" {
 		return true
 	}
+	if s.inStepdownCooldown(time.Now()) {
+		return false
+	}
 	db.Exec("INSERT INTO cluster_leases (name, holder, expires_at) VALUES (?, '', now()) ON CONFLICT (name) DO NOTHING", leaseName)
 	r := db.Exec("UPDATE cluster_leases SET holder = ?, expires_at = now() + make_interval(secs => ?) WHERE name = ? AND (holder = ? OR expires_at < now())",
 		s.procID, leaseTTL.Seconds(), leaseName, s.procID)
@@ -46,6 +56,7 @@ func (s *Server) tryLease() bool {
 
 // updateLease runs one lease round and logs leadership changes.
 func (s *Server) updateLease() {
+	s.honorStepdown()
 	now := s.tryLease()
 	if was := s.leader.Swap(now); was != now {
 		if now {
@@ -81,6 +92,66 @@ func (s *Server) runLease(ctx context.Context) {
 			s.memberTouch()
 		}
 	}
+}
+
+// shouldStepDown decides whether the current leader yields to a takeover
+// request (see haTakeLeader): the request must exist, still be live, and
+// name another instance as the requester. It is a pure function of the
+// request row so the handover rules are testable without a cluster.
+func shouldStepDown(holder string, expiresAt time.Time, self string, now time.Time, leader bool) bool {
+	if !leader || holder == "" || holder == self {
+		return false
+	}
+	return expiresAt.After(now)
+}
+
+// inStepdownCooldown reports whether tryLease must stay out of the race:
+// this instance yielded recently and the requester has not claimed the
+// freed lease yet.
+func (s *Server) inStepdownCooldown(now time.Time) bool {
+	until := s.stepdownUntil.Load()
+	return until > 0 && now.UnixNano() < until
+}
+
+// honorStepdown yields the lease when another instance has asked to take
+// over. It runs at the top of each lease round, before the renewal: the
+// leader expires its own lease row at once, consumes the request and sits
+// out one TTL. The requester claims the freed lease on its own round, so
+// the handover completes within a couple of ticks without either side
+// restarting. The request names who wants the lease, not who must give it
+// up, so a leader that was not the intended target honors it the same way.
+func (s *Server) honorStepdown() {
+	if !s.isLeader() || s.st.DB.Dialector.Name() != "postgres" {
+		return
+	}
+	var row store.ClusterLease
+	if err := s.st.DB.Where("name = ?", stepdownLeaseName).First(&row).Error; err != nil {
+		return
+	}
+	// Times come from the database, as in tryLease, so instances with
+	// skewed clocks agree on whether the request is still live.
+	var now time.Time
+	if err := s.st.DB.Raw("SELECT now()").Scan(&now).Error; err != nil {
+		return
+	}
+	if !shouldStepDown(row.Holder, row.ExpiresAt, s.procID, now, true) {
+		return
+	}
+	s.st.DB.Exec("UPDATE cluster_leases SET expires_at = now() WHERE name = ? AND holder = ?", leaseName, s.procID)
+	s.st.DB.Exec("DELETE FROM cluster_leases WHERE name = ? AND holder = ?", stepdownLeaseName, row.Holder)
+	s.stepdownUntil.Store(time.Now().Add(stepdownCooldown).UnixNano())
+	s.leader.Store(false)
+	s.log.Info("leader lease yielded on request; the requesting instance takes over", "instance", s.procID, "to", row.Holder)
+}
+
+// requestLeaderTakeover records this instance's wish to lead as a
+// short-lived row in cluster_leases naming this process. Whoever leads
+// honors it on their next lease round (see honorStepdown); the row
+// expires on its own, so a request nobody honors leaves nothing behind.
+func (s *Server) requestLeaderTakeover() error {
+	return s.st.DB.Exec("INSERT INTO cluster_leases (name, holder, expires_at) VALUES (?, ?, now() + make_interval(secs => ?)) "+
+		"ON CONFLICT (name) DO UPDATE SET holder = EXCLUDED.holder, expires_at = EXCLUDED.expires_at",
+		stepdownLeaseName, s.procID, stepdownTTL.Seconds()).Error
 }
 
 // --- agents connected to other instances ---

@@ -305,6 +305,34 @@ func (s *Server) haSaveSyncReplication(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"syncNames": names, "syncWaiting": waiting})
 }
 
+// haTakeLeader is POST /ha/take-leader (sudo). It asks the current leader
+// to step aside so this instance takes over the lease: the manual fix for
+// a lease that landed on the wrong instance, since a standby that grabbed
+// it while the primary restarted never hands it back on its own. Only the
+// request is recorded here (see requestLeaderTakeover); the handover
+// completes over the next lease rounds and the page watches /ha/status
+// for the leader badge to move.
+func (s *Server) haTakeLeader(c *gin.Context) {
+	if !s.haIsPostgres() {
+		badRequest(c, errors.New("接管 Leader 仅在集群模式（PostgreSQL）下可用，单机面板本身就是 Leader"))
+		return
+	}
+	if s.isLeader() {
+		badRequest(c, errors.New("本机已是 Leader"))
+		return
+	}
+	if s.activeSyncUpdate() != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "同步升级进行中，等它结束后再接管 Leader"})
+		return
+	}
+	if err := s.requestLeaderTakeover(); err != nil {
+		serverError(c, err)
+		return
+	}
+	s.auditCtx(c, "ha.take_leader", "", "")
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 // haSyncAppName is the application_name the installer gives the standby's
 // walreceiver, so synchronous_standby_names can name it.
 const haSyncAppName = "polaris_standby"
