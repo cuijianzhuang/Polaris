@@ -113,8 +113,9 @@ type Server struct {
 	routeASNMu        sync.Mutex
 	routeASNCache     *routeDatabaseEntry[*asn.Database]
 	routeScheduleBusy atomic.Bool
-	leader            atomic.Bool // holds the lease: runs scheduled jobs and the Telegram bot
-	bus               *clusterBus // messages between instances (PostgreSQL only)
+	leader            atomic.Bool  // holds the lease: runs scheduled jobs and the Telegram bot
+	stepdownUntil     atomic.Int64 // after yielding on request: stay out of the lease race until this unix nano
+	bus               *clusterBus  // messages between instances (PostgreSQL only)
 	presMu            sync.Mutex
 	presAt            map[string]time.Time // last presence refresh per node
 	specAt            map[string]time.Time // last SpecChanged re-sent on a lagging heartbeat

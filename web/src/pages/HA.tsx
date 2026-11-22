@@ -119,6 +119,7 @@ export default function HA() {
   const [check, setCheck] = useState<FailoverCheck | null>(null)
   const [done, setDone] = useState<boolean[]>([])
   const [syncBusy, setSyncBusy] = useState(false)
+  const [takeoverSent, setTakeoverSent] = useState(false)
 
   // The audit fixture answers unknown endpoints with []; tolerate that
   // shape instead of crashing on a missing field.
@@ -127,6 +128,8 @@ export default function HA() {
   const peerList: HAPeer[] = Array.isArray(peerData) ? peerData : (peerData?.peers ?? [])
   const members = st?.members ?? []
   const leaderMember = members.find((m) => m.leader) ?? members.find((m) => m.id === st?.leader)
+  const selfMember = members.find((m) => m.self)
+  const selfIsLeader = !!selfMember?.leader
   const role = st?.role ?? 'none'
   const meta = roleMeta[role]
   const steps = check?.steps ?? []
@@ -148,6 +151,14 @@ export default function HA() {
     // status.reload is stable across renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncRunning])
+  // A leadership takeover completes over a few lease rounds; poll faster
+  // until the badge lands on this instance (or the request expires).
+  useEffect(() => {
+    if (!takeoverSent || selfIsLeader) return
+    const id = setInterval(() => status.reload(), 3000)
+    return () => clearInterval(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeoverSent, selfIsLeader])
   const upd = update.data
   const latest = upd?.latest
   // A run is worth starting when this instance is behind, or when any
@@ -225,6 +236,13 @@ export default function HA() {
     if (!await confirm(t('同步升级到 {v}？将先升级备节点、再升级主节点，最后校验各实例版本一致。', { v: latest }) + '\n' + t('全程约 10–15 分钟；主节点升级期间面板会短暂断开（约 1–6 分钟），期间看门狗不会切换 DNS。备节点升级失败会自动中止，主节点保持不动。'))) return
     run(async () => { await post('/ha/sync-update', {}); status.reload() }, t('已发起同步升级'))
   }
+  // Ask the current leader to yield so this instance takes over the
+  // lease. The server only records the request; the handover completes
+  // over the next lease rounds and the badge follows via /ha/status.
+  const takeLeader = async () => {
+    if (!await confirm(t('接管 Leader？当前 Leader（{host}）将主动让出，本机将在数秒内接任。', { host: leaderMember?.host ?? t('未知') }) + '\n' + t('只切换后台任务的归属，不影响流量、DNS 与数据库主从。'))) return
+    run(async () => { await post('/ha/take-leader', {}); setTakeoverSent(true); status.reload() }, t('接管请求已发出'))
+  }
 
   return (
     <>
@@ -250,6 +268,16 @@ export default function HA() {
               <dt>{t('面板版本')}</dt><dd><span className="mono">{st.version || t('未知')}</span>{st.edition ? <span className="mute"> · {st.edition}</span> : null}</dd>
               <dt>{t('实例间共享')}</dt><dd>{st.shared ? t('已启用') : t('未启用')}</dd>
             </dl>
+            {st.shared && selfMember && !selfMember.leader && (
+              <div className="row" style={{ marginTop: 14, alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <button className="btn" type="button" disabled={busy || syncRunning} onClick={takeLeader}>{t('接管 Leader')}</button>
+                {syncRunning
+                  ? <span className="mute">{t('同步升级进行中，结束后才能接管 Leader。')}</span>
+                  : takeoverSent
+                    ? <span className="mute">{t('接管请求已发出，等待当前 Leader 让位…')}</span>
+                    : <span className="mute">{t('Leader 在其他实例上时，可让它把后台任务交回本机。')}</span>}
+              </div>
+            )}
           </section>
         )}
         {st && st.shared && (
