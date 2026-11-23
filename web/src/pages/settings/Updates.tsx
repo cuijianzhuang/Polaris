@@ -37,21 +37,23 @@ export function Updates() {
   const s = useLoad(readSettings)
   const [mode, setMode] = useState<string | null>(null)
   const [hour, setHour] = useState<string | null>(null)
+  const [chat, setChat] = useState<string | null>(null)
   const { busy: actionBusy, run } = useAction()
   const saver = useSettingsSave()
   const busy = actionBusy || saver.busy
   const [baseline, setBaseline] = useState('')
-  useEffect(() => { if (s.data) { setBaseline(JSON.stringify([s.data.auto_update || 'notify', s.data.auto_update_hour || '4'])) } }, [s.data])
+  useEffect(() => { if (s.data) { setBaseline(JSON.stringify([s.data.auto_update || 'notify', s.data.auto_update_hour || '4', s.data.update_notify_chat || ''])) } }, [s.data])
   const confirm = useConfirm()
   const m = mode ?? (s.data?.auto_update || 'notify')
   const h = hour ?? (s.data?.auto_update_hour || '4')
-  const dirty = !!baseline && JSON.stringify([m,h]) !== baseline
+  const ch = chat ?? (s.data?.update_notify_chat || '')
+  const dirty = !!baseline && JSON.stringify([m,h,ch.trim()]) !== baseline
   const save = async () => {
     if (!dirty) return true
     if (busy || s.loading) return false
-    return saver.run(async () => { await put('/settings', { auto_update: m, auto_update_hour: h }); setBaseline(JSON.stringify([m,h])); s.reload() })
+    return saver.run(async () => { await put('/settings', { auto_update: m, auto_update_hour: h, update_notify_chat: ch.trim() }); setBaseline(JSON.stringify([m,h,ch.trim()])); s.reload() })
   }
-  useSettingsDraft({ label: t('版本与更新'), dirty, busy, save, discard: () => { setMode(null); setHour(null) } })
+  useSettingsDraft({ label: t('版本与更新'), dirty, busy, save, discard: () => { setMode(null); setHour(null); setChat(null) } })
   const d = info.data
   const start = async (agents: boolean) => {
     if (!await confirm(t('升级面板到 {v}？', { v: d?.latest }) + (agents ? '\n' + t('完成后会接着升级所有在线节点的 Agent。') : '') + '\n' + t('升级约需 1 分钟，期间面板会重启、网页短暂断开；结果会通过 Telegram 通知并记入审计日志。'))) return
@@ -85,6 +87,9 @@ export function Updates() {
           <select className="input mono" value={h} disabled={busy || s.loading || !baseline || (m !== 'panel' && m !== 'all')} onChange={(e) => setHour(e.target.value)}>
             {Array.from({ length: 24 }, (_, i) => <option key={i} value={String(i)}>{String(i).padStart(2, '0')}:00</option>)}
           </select>
+        </Field>
+        <Field label={t('版本通知群组')} hint={t('把机器人拉进群后，在群里发送 /chatid 获取群 ID；发现新版本时同步在群里公告，留空不发')}>
+          <input className="input mono" value={ch} disabled={busy || s.loading || !baseline} onChange={(e) => setChat(e.target.value)} placeholder="-1001234567890" inputMode="numeric" />
         </Field>
       </div>
       <SettingsSaveBar loading={s.loading} dirty={dirty} busy={saver.busy} error={saver.error || s.error} disabled={busy || s.loading || !s.data} onSave={save} /></SettingsGate>

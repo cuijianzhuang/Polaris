@@ -78,6 +78,8 @@ const m: Record<string, string> = {
   '已开始升级，稍后刷新页面': 'Upgrade started; refresh the page shortly',
   '当前版本': 'Current version',
   '项目地址': 'Project',
+  '版本通知群组': 'Release notification group',
+  '把机器人拉进群后，在群里发送 /chatid 获取群 ID；发现新版本时同步在群里公告，留空不发': 'Add the bot to the group, then send /chatid in the group to get its ID; new releases are announced in the group too. Leave empty to disable.',
   '最新版本': 'Latest version',
   '可升级': 'Update available',
   '已是最新': 'Up to date',

@@ -453,6 +453,14 @@ func (b *tgBot) handle(u tgUpdate) {
 	}
 	chat := u.Message.Chat.ID
 	if u.Message.Chat.Type != "private" {
+		// The one group-safe command: /chatid only echoes the group's own
+		// ID (which the admin needs to aim notifications at the group) and
+		// touches no binding or state.
+		first, _, _ := strings.Cut(strings.TrimSpace(u.Message.Text), " ")
+		if strings.EqualFold(strings.SplitN(first, "@", 2)[0], "/chatid") {
+			b.send(chat, fmt.Sprintf("本群 ID：%d", chat))
+			return
+		}
 		if strings.HasPrefix(u.Message.Text, "/") {
 			b.send(chat, "出于安全考虑，请私聊机器人使用。")
 		}
