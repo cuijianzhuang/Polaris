@@ -77,6 +77,7 @@ const m: Record<string, string> = {
   '升级约需 1 分钟，期间面板会重启、网页短暂断开；结果会通过 Telegram 通知并记入审计日志。': 'The upgrade takes about a minute; the panel restarts and the page briefly disconnects. The result is sent via Telegram and recorded in the audit log.',
   '已开始升级，稍后刷新页面': 'Upgrade started; refresh the page shortly',
   '当前版本': 'Current version',
+  '项目地址': 'Project',
   '最新版本': 'Latest version',
   '可升级': 'Update available',
   '已是最新': 'Up to date',
