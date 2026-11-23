@@ -19,6 +19,7 @@
   <a href="https://github.com/cuijianzhuang/Polaris/network/members"><img src="https://img.shields.io/github/forks/cuijianzhuang/Polaris?style=social" alt="Forks"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/commits/main"><img src="https://img.shields.io/github/last-commit/cuijianzhuang/Polaris?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4" alt="最近提交"></a>
   <a href="https://github.com/cuijianzhuang/Polaris/issues"><img src="https://img.shields.io/github/issues/cuijianzhuang/Polaris?label=Issues" alt="Issues"></a>
+  <a href="https://t.me/PolarisPanelOrg"><img src="https://img.shields.io/badge/Telegram-%E5%AE%98%E6%96%B9%E7%BE%A4%E7%BB%84-26A5E4?logo=telegram&logoColor=white" alt="Telegram 官方群组"></a>
 </p>
 
 <p align="center">
