@@ -62,6 +62,7 @@ export function Updates() {
       <h2>{t('版本与更新')}</h2>
       <dl className="kv" style={{ margin: 0, gridTemplateColumns: '120px minmax(0,1fr)' }}>
         <dt>{t('当前版本')}</dt><dd className="mono">{d?.current ?? '…'}</dd>
+        <dt>{t('项目地址')}</dt><dd><a href="https://github.com/cuijianzhuang/Polaris" target="_blank" rel="noopener noreferrer">github.com/cuijianzhuang/Polaris ↗</a></dd>
         <dt>{t('最新版本')}</dt><dd className="mono">{d?.latest ? <>{d.latest}{d.newer ? <span className="tag warn" style={{ marginLeft: 8 }}>{t('可升级')}</span> : <span className="tag ok" style={{ marginLeft: 8 }}>{t('已是最新')}</span>}</> : d?.error ? <span style={{ color: 'var(--bad)' }}>{t('获取失败：{error}', { error: d.error })}</span> : '…'}</dd>
       </dl>
       {d && !d.updater && <div className="note warn">{t('这台服务器还没有安装在线升级组件：在服务器上执行')} <code>polaris update --force</code> {t('安装（只需一次，之后的版本都能在这里或 Telegram 里一键升级）。Docker 部署请更新镜像。')}</div>}
