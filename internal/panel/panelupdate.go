@@ -335,6 +335,24 @@ func agentUpgradeSummary(res []agentUpgradeResult) string {
 	return text
 }
 
+// announceReleaseToGroup posts the public new-release announcement to the
+// Telegram group configured in update_notify_chat, if any. Admin
+// notifications keep going to the bound admins; this is the outward-facing
+// copy for a project group, without operator hints. The admin learns the
+// group ID by adding the bot to the group and sending /chatid there.
+func (s *Server) announceReleaseToGroup(latest string) {
+	raw := strings.TrimSpace(s.st.GetSetting("update_notify_chat", ""))
+	if raw == "" || !s.tg.isRunning() {
+		return
+	}
+	chatID, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || chatID == 0 {
+		return
+	}
+	text := fmt.Sprintf("🆕 Polaris 新版本 %s 已发布\n更新日志：https://github.com/%s/releases/tag/%s", esc(latest), panelRepo, latest)
+	_ = s.tg.send(chatID, text)
+}
+
 // autoUpdateTick runs hourly: announces a new release once and, in the
 // panel / all modes, installs it during auto_update_hour.
 func (s *Server) autoUpdateTick() {
@@ -355,6 +373,7 @@ func (s *Server) autoUpdateTick() {
 			hint = fmt.Sprintf("将在 %s 点自动升级", s.st.GetSetting("auto_update_hour", "4"))
 		}
 		s.notify(Event{Kind: "panel_update", Text: fmt.Sprintf("🆕 发现新版本 %s（当前 %s）\n%s\nhttps://github.com/%s/releases/tag/%s", latest, Version, hint, panelRepo, latest)})
+		s.announceReleaseToGroup(latest)
 	}
 	if mode != "panel" && mode != "all" {
 		return

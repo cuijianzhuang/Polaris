@@ -137,7 +137,7 @@ var editableSettings = map[string]bool{
 	"tpl_traffic_warn": true, "tpl_expire_warn": true, "tpl_user_limited": true, "tpl_user_expired": true, "tpl_user_active": true,
 	"sub_scheme": true, "github_mirror": true, "sub_skip_cert": true, "sub_force_udp": true,
 	"geodata_cron": true, "geodata_outbound": true, "geodata_assets": true, "ip_limit_trusted": true,
-	"auto_update": true, "auto_update_hour": true,
+	"auto_update": true, "auto_update_hour": true, "update_notify_chat": true,
 	"shop_enabled": true, "shop_web_enabled": true, "shop_auto_create": true, "shop_user_rename": true, "shop_user_prefix": true, "shop_order_minutes": true, "shop_stars": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_epay_key": true, "shop_epay_types": true,
 	"shop_epay_enabled": true, "shop_usdt_enabled": true, "shop_code_enabled": true, "shop_epay_disabled_types": true,
@@ -224,6 +224,14 @@ func (s *Server) putSettings(c *gin.Context) {
 		if err := validatePaymentSetting(k, v); err != nil {
 			badRequest(c, err)
 			return
+		}
+	}
+	if v, ok := req["update_notify_chat"]; ok {
+		if m := strings.TrimSpace(v); m != "" {
+			if id, err := strconv.ParseInt(m, 10, 64); err != nil || id == 0 {
+				badRequest(c, errors.New("版本通知群组应为群组 ID（负数），把机器人拉进群后在群里发送 /chatid 获取"))
+				return
+			}
 		}
 	}
 	if v, ok := req["github_mirror"]; ok {
