@@ -76,6 +76,9 @@ func portalIdentity(cl *claims) string {
 	if cl.PwFP != "" {
 		return "pw:" + cl.PwFP
 	}
+	if cl.GhFP != "" {
+		return "gh:" + cl.GhFP
+	}
 	return "mail:" + cl.MailFP
 }
 
@@ -131,6 +134,12 @@ func (s *Server) listPortalSessions(c *gin.Context) {
 	}
 	if u.Email != "" {
 		identities = append(identities, "mail:"+mailFP(u.Email))
+	}
+	if u.PasswordHash != "" {
+		identities = append(identities, "pw:"+pwFP(u.PasswordHash))
+	}
+	if u.GitHubID != 0 {
+		identities = append(identities, "gh:"+ghFP(u.GitHubID))
 	}
 	var rows []store.PortalSession
 	if err := s.st.DB.Where("user_id = ? AND epoch = ? AND revoked = ? AND expires_at > ? AND sub_fp = ? AND identity_fp IN ?", u.ID, cl.PortalEpoch, false, time.Now().UTC(), subFingerprint(u.SubToken), identities).Order("last_seen DESC, id DESC").Limit(101).Find(&rows).Error; err != nil {

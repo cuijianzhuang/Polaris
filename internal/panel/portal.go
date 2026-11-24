@@ -108,6 +108,23 @@ func (s *Server) issuePortalPasswordToken(u *store.User, contexts ...*gin.Contex
 	return s.issuePortalTokenMode(u, "password", contexts...)
 }
 
+// ghFP fingerprints the bound GitHub account id for portal claims: a
+// GitHub session stays valid only while that same account stays bound,
+// so unbinding ends it even apart from the portal generation bump.
+func ghFP(id int64) string {
+	if id == 0 {
+		return ""
+	}
+	h := sha256.Sum256([]byte("gh:" + strconv.FormatInt(id, 10)))
+	return hex.EncodeToString(h[:8])
+}
+
+// issuePortalGitHubToken signs a user-center session from a GitHub
+// sign-in (usergithub.go).
+func (s *Server) issuePortalGitHubToken(u *store.User, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenMode(u, "github", contexts...)
+}
+
 // issuePortalTokenMode signs a user-center session for one sign-in
 // mode: "telegram" (bound chat), "email" (bound address) or "password"
 // (current password hash). The mode is stamped into the claims as the
@@ -128,6 +145,8 @@ func (s *Server) issuePortalTokenMode(u *store.User, via string, contexts ...*gi
 		c.MailFP = mailFP(u.Email)
 	case "password":
 		c.PwFP = pwFP(u.PasswordHash)
+	case "github":
+		c.GhFP = ghFP(u.GitHubID)
 	default:
 		via = "telegram"
 		c.Chat = u.TelegramID
@@ -148,6 +167,8 @@ func (s *Server) portalSessionMode(c *gin.Context) string {
 		return "email"
 	case cl != nil && cl.PwFP != "":
 		return "password"
+	case cl != nil && cl.GhFP != "":
+		return "github"
 	default:
 		return "telegram"
 	}
@@ -185,13 +206,16 @@ func portalActor(u *store.User, viaMail bool) string {
 }
 
 // portalActorForClaims names the session's user by its sign-in mode:
-// mail: for e-mail sessions, pw: for password sessions, tg: otherwise.
+// mail: for e-mail sessions, pw: for password sessions, gh: for GitHub
+// sessions, tg: otherwise.
 func portalActorForClaims(cl *claims, u *store.User) string {
 	switch {
 	case cl != nil && cl.MailFP != "":
 		return "mail:" + u.Username
 	case cl != nil && cl.PwFP != "":
 		return "pw:" + u.Username
+	case cl != nil && cl.GhFP != "":
+		return "gh:" + u.Username
 	default:
 		return "tg:" + u.Username
 	}
@@ -221,6 +245,7 @@ func (s *Server) portalUser(c *gin.Context) *store.User {
 	case cl.Chat != 0 && u.TelegramID == cl.Chat:
 	case cl.Chat == 0 && cl.MailFP != "" && u.Email != "" && mailFP(u.Email) == cl.MailFP:
 	case cl.PwFP != "" && u.PasswordHash != "" && pwFP(u.PasswordHash) == cl.PwFP:
+	case cl.GhFP != "" && u.GitHubID != 0 && ghFP(u.GitHubID) == cl.GhFP:
 	default:
 		return nil
 	}
@@ -266,6 +291,7 @@ func (s *Server) portalPage(c *gin.Context) {
 			"Lang":         portalLang(c),
 			"Title":        s.subTitle(s.st.GetSetting("site_title", "Polaris")),
 			"Bot":          s.portalTelegramConfigured(),
+			"GitHub":       s.githubEnabled(),
 			"Mail":         s.mailLoginOn(),
 			"Register":     s.mailRegisterOn(),
 			"PwRegister":   s.passwordRegisterOn(),
@@ -325,7 +351,12 @@ func (s *Server) portalPage(c *gin.Context) {
 	if cl := s.portalClaims(c); cl != nil && cl.PwFP != "" {
 		info.LoginVia = "密码"
 	}
+	if cl := s.portalClaims(c); cl != nil && cl.GhFP != "" {
+		info.LoginVia = "GitHub"
+	}
 	info.PasswordSet = u.PasswordHash != ""
+	info.GitHubBound, info.GitHubLogin = u.GitHubID != 0, u.GitHubLogin
+	info.GitHubBind = s.githubEnabled()
 	info.Rename = u.SelfService && s.selfRenameOn()
 	info.CarrierPick, info.Carrier = s.cdnCarrierSplitOn(), u.CDNCarrier
 	if err := s.portalCDNInfo(&info, u, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {

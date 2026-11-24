@@ -235,8 +235,17 @@ type User struct {
 	PasswordHash string `gorm:"size:100" json:"-"`
 	// HasLoginPassword mirrors PasswordHash != "" for the admin user
 	// editor; the hash itself never leaves the server.
-	HasLoginPassword bool   `gorm:"-" json:"hasLoginPassword,omitempty"`
-	AvatarURL        string `gorm:"-" json:"avatarURL,omitempty"`
+	HasLoginPassword bool `gorm:"-" json:"hasLoginPassword,omitempty"`
+	// GitHubID / GitHubLogin are the bound GitHub account for sign-in
+	// (identity batch 2), mirroring the Admin fields of the same name
+	// but a separate namespace: lookups never cross the two tables.
+	// 0 = unbound.
+	GitHubID    int64  `gorm:"index" json:"-"`
+	GitHubLogin string `gorm:"size:64" json:"githubLogin"`
+	// HasGitHub mirrors GitHubID != 0 for the admin user editor; the
+	// id itself never leaves the server.
+	HasGitHub bool   `gorm:"-" json:"hasGithub,omitempty"`
+	AvatarURL string `gorm:"-" json:"avatarURL,omitempty"`
 	// SelfService marks an account the shop created for its buyer: the buyer
 	// may rename it (Telegram /rename, user center) when the shop allows it.
 	SelfService bool `json:"selfService"`

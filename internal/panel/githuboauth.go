@@ -33,6 +33,14 @@ type oauthState struct {
 	AdminID  string `json:"a,omitempty"` // bind: the signed-in admin
 	Provider string `json:"p,omitempty"` // SSO provider id ("" = GitHub)
 	Verifier string `json:"v,omitempty"` // SSO: PKCE code verifier
+	// Registered-user flow (usergithub.go): Kind "user" marks a state
+	// minted by the user login/bind entry points; Target is the face
+	// the browser returns to ("panel" / "portal") and UserID, for
+	// bind, is the user who started the flow. Admin states leave all
+	// three empty and keep the behaviour they always had.
+	Kind   string `json:"k,omitempty"`
+	Target string `json:"t,omitempty"`
+	UserID string `json:"u,omitempty"`
 }
 
 type oauthTicket struct {
@@ -155,6 +163,13 @@ func (s *Server) githubCallback(c *gin.Context) {
 	}
 	if !ok {
 		fail("登录请求已过期，请重试")
+		return
+	}
+	if st.Kind == "user" {
+		// Registered-user flow: same OAuth app, same callback, its own
+		// landing and session rules (usergithub.go). The admin switch
+		// below never sees these states.
+		s.githubUserCallback(c, st)
 		return
 	}
 	if e := c.Query("error"); e != "" {

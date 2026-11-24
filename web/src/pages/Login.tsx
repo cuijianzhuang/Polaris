@@ -33,6 +33,9 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   // shown when member admission is on (registration also needs its switch).
   const [pwLogin, setPwLogin] = useState(!!LOGIN_INFO?.memberPasswordLogin)
   const [pwRegister, setPwRegister] = useState(!!LOGIN_INFO?.memberPasswordRegister)
+  // Member sign-in with GitHub: shown when GitHub OAuth is configured
+  // and member admission is on (loginInfo's memberGithubLogin).
+  const [memberGithub, setMemberGithub] = useState(!!LOGIN_INFO?.memberGithubLogin)
   const [mode, setMode] = useState<'admin' | 'mail' | 'pw'>('admin')
   const mailMode = mode === 'mail'
   const pwMode = mode === 'pw'
@@ -50,7 +53,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   useEffect(() => {
     // Production index.html inlines the flags; only fetch when they are
     // absent (vite dev server), otherwise the buttons would pop in late.
-    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setSso(i.sso ?? []) }).catch(() => {})
+    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMemberGithub(!!i.memberGithubLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
@@ -67,6 +70,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const githubLogin = async () => {
     setBusy(true); setErr('')
     try { location.href = (await post<{ url: string }>('/auth/github/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
+  }
+  const memberGithubLogin = async () => {
+    setBusy(true); setErr('')
+    try { location.href = (await post<{ url: string }>('/auth/github/user/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
   }
   const ssoLogin = async (id: string) => {
     setBusy(true); setErr('')
@@ -314,6 +321,8 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         {mode === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         {mode === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
         {mode === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
+        {mode !== 'admin' && memberGithub && <div className="or"><span>{t('或')}</span></div>}
+        {mode !== 'admin' && memberGithub && <button className="btn github" type="button" disabled={busy} onClick={memberGithubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         </form>
       </section>
     </div>

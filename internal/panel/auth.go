@@ -43,6 +43,9 @@ type claims struct {
 	// PwFP: a session from a password sign-in (Chat is 0, MailFP empty),
 	// valid while the password hash it was issued against is current.
 	PwFP string `json:"pfp,omitempty"`
+	// GhFP: a session from a GitHub sign-in (Chat is 0, MailFP/PwFP
+	// empty), valid while the same GitHub account stays bound.
+	GhFP string `json:"gfp,omitempty"`
 }
 
 // issueToken signs a session for an admin who just signed in (via:
