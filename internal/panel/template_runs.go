@@ -407,6 +407,9 @@ func (s *Server) applyFrozenNode(snapshot *frozenTemplate, n *frozenTemplateNode
 				eps = []store.EndpointTemplate{{Kind: "direct"}}
 			}
 			for _, e := range eps {
+				if node.OwnerID != "" && e.Kind == "relay" {
+					continue // user-owned nodes never take part in relays
+				}
 				ep := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: e.Kind, Address: expandVars(e.Address, &node, "", nil), Port: e.Port, CDNProfileID: orDefault(e.CDNProfileID, snapshot.Options.CDNProfileID), RelayChainID: e.RelayChainID}
 				if e.Kind == "cdn" && !cdnEndpointUsable(tx, m, ep.CDNProfileID, ep.Port) {
 					continue
@@ -419,9 +422,11 @@ func (s *Server) applyFrozenNode(snapshot *frozenTemplate, n *frozenTemplateNode
 					return err
 				}
 			}
-			for _, g := range snapshot.Groups {
-				if err := tx.Create(&store.GroupInbound{GroupID: g, InboundID: row.ID}).Error; err != nil {
-					return err
+			if node.OwnerID == "" { // a user-owned node's inbounds serve its owner alone
+				for _, g := range snapshot.Groups {
+					if err := tx.Create(&store.GroupInbound{GroupID: g, InboundID: row.ID}).Error; err != nil {
+						return err
+					}
 				}
 			}
 		}

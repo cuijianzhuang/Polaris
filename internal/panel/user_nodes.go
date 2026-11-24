@@ -105,6 +105,125 @@ func (s *Server) withOwnNodeCounts(us []store.User) {
 	}
 }
 
+// nodeDisplayLabel is how a node is named in admin-facing messages: the
+// owner's display name for a user node, the internal name otherwise.
+func nodeDisplayLabel(n *store.Node) string {
+	if n.OwnerID != "" && n.DisplayName != "" {
+		return n.DisplayName
+	}
+	return n.Name
+}
+
+// checkGroupTargets refuses to place user-owned nodes — or inbounds on
+// them — into a group or plan. A user node may only ever serve its owner
+// (through the owner's own direct bindings); group membership would hand
+// it to every member of the group. Called on every group/plan save path
+// before any binding row is written.
+func (s *Server) checkGroupTargets(nodeIDs, inboundIDs []string) error {
+	if len(nodeIDs) > 0 {
+		var ns []store.Node
+		if err := s.st.DB.Where("id IN ?", nodeIDs).Find(&ns).Error; err != nil {
+			return err
+		}
+		for i := range ns {
+			if ns[i].OwnerID != "" {
+				return commandInputError{fmt.Sprintf("节点「%s」是用户自带节点，只能服务其主人，不能加入分组或套餐", nodeDisplayLabel(&ns[i]))}
+			}
+		}
+	}
+	if len(inboundIDs) > 0 {
+		var ins []store.Inbound
+		if err := s.st.DB.Where("id IN ?", inboundIDs).Find(&ins).Error; err != nil {
+			return err
+		}
+		owners, err := s.nodeOwnersOf(ins)
+		if err != nil {
+			return err
+		}
+		for i := range ins {
+			if owners[ins[i].NodeID] != "" {
+				return commandInputError{fmt.Sprintf("入站「%s」位于用户自带节点上，只能服务其主人，不能加入分组或套餐", ins[i].Tag)}
+			}
+		}
+	}
+	return nil
+}
+
+// nodeOwnersOf maps node ID → OwnerID for the nodes hosting ins.
+func (s *Server) nodeOwnersOf(ins []store.Inbound) (map[string]string, error) {
+	owners := map[string]string{}
+	if len(ins) == 0 {
+		return owners, nil
+	}
+	ids := make([]string, 0, len(ins))
+	seen := map[string]bool{}
+	for i := range ins {
+		if !seen[ins[i].NodeID] {
+			seen[ins[i].NodeID] = true
+			ids = append(ids, ins[i].NodeID)
+		}
+	}
+	var ns []store.Node
+	if err := s.st.DB.Where("id IN ?", ids).Find(&ns).Error; err != nil {
+		return nil, err
+	}
+	for i := range ns {
+		owners[ns[i].ID] = ns[i].OwnerID
+	}
+	return owners, nil
+}
+
+// checkAccessTargets refuses a direct binding (UserAccess) that would hand
+// a user-owned node — or an inbound on one — to anyone but its owner.
+// Bindings for the owner themself pass. Called from setAccess/addAccess so
+// every admin path that writes user_accesses is covered.
+func checkAccessTargets(tx *gorm.DB, userID, kind string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	switch kind {
+	case "node":
+		var ns []store.Node
+		if err := tx.Where("id IN ?", ids).Find(&ns).Error; err != nil {
+			return err
+		}
+		for i := range ns {
+			if ns[i].OwnerID != "" && ns[i].OwnerID != userID {
+				return commandInputError{fmt.Sprintf("节点「%s」是用户自带节点，只能绑定给其主人", nodeDisplayLabel(&ns[i]))}
+			}
+		}
+	case "inbound":
+		var ins []store.Inbound
+		if err := tx.Where("id IN ?", ids).Find(&ins).Error; err != nil {
+			return err
+		}
+		nodeIDs := make([]string, 0, len(ins))
+		seen := map[string]bool{}
+		for i := range ins {
+			if !seen[ins[i].NodeID] {
+				seen[ins[i].NodeID] = true
+				nodeIDs = append(nodeIDs, ins[i].NodeID)
+			}
+		}
+		if len(nodeIDs) > 0 {
+			var ns []store.Node
+			if err := tx.Where("id IN ?", nodeIDs).Find(&ns).Error; err != nil {
+				return err
+			}
+			byID := map[string]*store.Node{}
+			for i := range ns {
+				byID[ns[i].ID] = &ns[i]
+			}
+			for i := range ins {
+				if n := byID[ins[i].NodeID]; n != nil && n.OwnerID != "" && n.OwnerID != userID {
+					return commandInputError{fmt.Sprintf("入站「%s」位于用户自带节点上，只能绑定给其主人", ins[i].Tag)}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // portalNodeUser answers 401 and returns nil when the portal session is
 // gone; the JSON node APIs use it instead of the page handlers' redirect.
 func (s *Server) portalNodeUser(c *gin.Context) *store.User {

@@ -262,10 +262,13 @@ function InstallModal({ install, node, onClose }: { install: Install; node?: Nod
 
 function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void; onSaved: (install?: Install) => void }) {
   const { nodes } = useNodes()
+  // A user-owned node's visible name is its displayName; the internal name
+  // (un-<id>) is never shown or edited here, and user nodes never relay.
+  const isUserNode = !!node?.ownerId
   const [relayFor, setRelayFor] = useState<string[]>(node?.relayFor ?? [])
-  const relayTargets = nodes.filter((n) => n.id !== node?.id)
+  const relayTargets = nodes.filter((n) => n.id !== node?.id && !n.ownerId)
   const [f, setF] = useState({
-    name: node?.name ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
+    name: node?.name ?? '', displayName: node?.displayName ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', lat: node?.lat != null ? String(node.lat) : '', lng: node?.lng != null ? String(node.lng) : '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
     netLimitGb: node?.netLimit ? +(node.netLimit / GB).toFixed(2) : 0, netMode: node?.netMode || 'sum', netResetDay: node?.netResetDay ?? 1, netWarnPct: node?.netWarnPct || 80,
     netUsedGb: node ? +(netUsed(node) / GB).toFixed(2) : 0,
@@ -281,9 +284,10 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
     if (lat !== '' && (!(Math.abs(Number(lat)) <= 90) || !(Math.abs(Number(lng)) <= 180))) throw new Error(t('纬度应在 -90 到 90、经度应在 -180 到 180 之间'))
     const body: any = {
       lat: lat === '' ? null : Number(lat), lng: lng === '' ? null : Number(lng),
-      name: f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate), level: Number(f.level) || 0,
-      labels: f.labels.split(/[,\s]+/).filter(Boolean), relayFor, defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
+      name: isUserNode ? node!.name : f.name, address: f.address, domain: f.domain, region: f.region, flag: f.flag, trafficRate: Number(f.trafficRate), level: Number(f.level) || 0,
+      labels: f.labels.split(/[,\s]+/).filter(Boolean), relayFor: isUserNode ? [] : relayFor, defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
+    if (isUserNode) body.displayName = f.displayName
     const net: any = { limitGb: Number(f.netLimitGb) || 0, mode: f.netMode, resetDay: Number(f.netResetDay) || 0, warnPct: Number(f.netWarnPct) || 0 }
     if (node) {
       await put('/nodes/' + node.id, body)
@@ -304,10 +308,10 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   return (
     <Drawer title={node ? t('编辑节点') : t('添加节点')} onClose={onClose} footer={<>
       <button className="btn" type="button" onClick={onClose}>{t('取消')}</button>
-      <button className="btn pri" type="button" disabled={busy || !f.name} onClick={save}>{node ? t('保存') : t('创建并生成安装命令')}</button>
+      <button className="btn pri" type="button" disabled={busy || !(isUserNode ? f.displayName.trim() : f.name)} onClick={save}>{node ? t('保存') : t('创建并生成安装命令')}</button>
     </>}>
       <div className="form-grid">
-        <Field label={t('名称')} htmlFor="n-name"><input id="n-name" className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="tokyo-1" /></Field>
+        <Field label={t('名称')} htmlFor="n-name"><input id="n-name" className="input" value={isUserNode ? f.displayName : f.name} onChange={(e) => set(isUserNode ? 'displayName' : 'name', e.target.value)} placeholder="tokyo-1" /></Field>
         <Field label={t('地区')} htmlFor="n-region"><input id="n-region" className="input" value={f.region} onChange={(e) => set('region', e.target.value)} placeholder={t('东京')} /></Field>
         <Field label={t('公网地址')} htmlFor="n-addr" hint={t('没填节点域名时，订阅里客户端连接这个 IP 或域名；都留空则用 Agent 检测到的公网 IP')}><input id="n-addr" className="input mono" value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="203.0.113.10" /></Field>
         <Field label={t('节点域名')} htmlFor="n-domain" hint={t('填了就优先用于订阅（客户端连这个域名），也用于 ACME 证书与 {node.domain}')}><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>
@@ -340,7 +344,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
         <Field label={t('防火墙')} full hint={t('Agent 自动在节点的 ufw / firewalld / iptables 中放行入站端口，删除入站后收回；只关闭自己放行的端口，不动已有规则。云厂商的安全组（如 Oracle 安全列表、AWS 安全组）需在云控制台另行放行')}>
           <label className="row small"><Switch label={t('自动放行端口')} on={f.firewall} onChange={(v) => set('firewall', v)} />{t('自动放行入站端口')}</label>
         </Field>
-        <Field label={t('外部中转目标')} full>
+        {!isUserNode && <Field label={t('外部中转目标')} full>
           <div id="n-relay-hint" className="hint">{t('仅记录此节点在面板外配置的中转目标，补充面板管理的链路；不会配置转发，也不会据此将用户 IP 视为中转来源。最多选择 64 个节点。')}</div>
           <div className="pick-list" role="group" aria-label={t('外部中转目标')} aria-describedby="n-relay-hint">
             {relayTargets.map((target) => <label key={target.id} className="chk">
@@ -350,7 +354,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
             </label>)}
             {relayTargets.length === 0 && <div className="mute small">{t('没有其他可选节点')}</div>}
           </div>
-        </Field>
+        </Field>}
         <Field label={t('标签')} htmlFor="n-labels" full hint={t('逗号分隔；模板可绑定标签，新节点上线后自动套用')}><input id="n-labels" className="input" value={f.labels} onChange={(e) => set('labels', e.target.value)} placeholder="asia, cn2" /></Field>
       </div>
       {!node && (

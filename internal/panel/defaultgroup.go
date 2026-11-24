@@ -42,7 +42,8 @@ func (s *Server) ensureDefaultGroup() error {
 		if err := tx.Create(&g).Error; err != nil {
 			return err
 		}
-		if err := tx.Model(&store.Inbound{}).Where("service_only = ?", false).Pluck("id", &ins).Error; err != nil {
+		if err := tx.Model(&store.Inbound{}).Where("service_only = ? AND node_id NOT IN (?)", false,
+			tx.Model(&store.Node{}).Select("id").Where("owner_id <> ''")).Pluck("id", &ins).Error; err != nil {
 			return err
 		}
 		gi := make([]store.GroupInbound, len(ins))

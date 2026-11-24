@@ -147,7 +147,8 @@ type nodeReq struct {
 	Lat         *float64         `json:"lat"` // map position; both or neither, null clears
 	Lng         *float64         `json:"lng"`
 	Labels      []string         `json:"labels"`
-	RelayFor    *[]string        `json:"relayFor"` // absent preserves externally configured relay metadata
+	DisplayName *string          `json:"displayName"` // user-owned nodes only: the owner's display name (internal Name is untouched)
+	RelayFor    *[]string        `json:"relayFor"`    // absent preserves externally configured relay metadata
 	DefaultCore model.CoreType   `json:"defaultCore"`
 	TrafficRate float64          `json:"trafficRate"`
 	SortOrder   int              `json:"sortOrder"`
@@ -227,6 +228,21 @@ func validateNodeRelayFor(tx *gorm.DB, id string, targets []string) ([]string, e
 			if !existing[target] {
 				return invalid("relayFor target does not exist: " + target)
 			}
+		}
+		// User-owned nodes never take part in relays, as either end: the
+		// source may not declare relay targets, and no node may declare a
+		// user-owned node as its target. (Clearing the list is always fine;
+		// a not-yet-created source simply has no row to find.)
+		var src store.Node
+		if err := tx.First(&src, "id = ?", id).Error; err == nil && src.OwnerID != "" {
+			return invalid("用户自带节点不能作为中转来源（relayFor）")
+		}
+		var owned []store.Node
+		if err := tx.Where("id IN ? AND owner_id <> ''", normalized).Find(&owned).Error; err != nil {
+			return nil, err
+		}
+		if len(owned) > 0 {
+			return invalid("relayFor 目标不能是用户自带节点：" + nodeDisplayLabel(&owned[0]))
 		}
 	}
 	// Opposing relationships can describe different external listeners; node
@@ -376,6 +392,11 @@ func (s *Server) updateNode(c *gin.Context) {
 				return err
 			}
 			upd["relay_for"] = store.NewJSON(targets)
+		}
+		if req.DisplayName != nil && n.OwnerID != "" {
+			// A user node's visible name lives in DisplayName; its internal
+			// Name (un-<id>) is an implementation detail and never edited.
+			upd["display_name"] = strings.TrimSpace(*req.DisplayName)
 		}
 		if req.DefaultCore != "" {
 			if err := tx.Model(&store.Core{}).Where("node_id = ?", n.ID).Update("is_default", gorm.Expr("type = ?", req.DefaultCore)).Error; err != nil {

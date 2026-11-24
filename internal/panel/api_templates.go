@@ -675,6 +675,9 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 					eps = []store.EndpointTemplate{{Kind: "direct"}}
 				}
 				for _, e := range eps {
+					if nodes[i].OwnerID != "" && e.Kind == "relay" {
+						continue // user-owned nodes never take part in relays
+					}
 					ep := store.Endpoint{ID: store.NewID(), InboundID: row.ID, Kind: e.Kind, Port: e.Port,
 						Address: expandVars(e.Address, &nodes[i], "", nil)}
 					switch e.Kind {
@@ -694,7 +697,11 @@ func (s *Server) applyPlan(t *store.InboundTemplate, opt *planOptions) ([]nodePl
 						return err
 					}
 				}
-				for _, g := range groupsOr(t.Groups.V, defGroups) {
+				groups := groupsOr(t.Groups.V, defGroups)
+				if nodes[i].OwnerID != "" {
+					groups = nil // a user-owned node's inbounds serve its owner alone
+				}
+				for _, g := range groups {
 					if err := tx.Create(&store.GroupInbound{GroupID: g, InboundID: row.ID}).Error; err != nil {
 						return err
 					}
