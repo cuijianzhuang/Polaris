@@ -87,6 +87,7 @@ const m: Record<string, string> = {
   '去登录': 'Sign in',
   '使用密码登录': 'Sign in with a password',
   '使用邮箱验证码登录': 'Sign in with an e-mail code',
+  '其他登录方式': 'Other sign-in options',
   '请输入邮箱以使用验证码登录': 'Enter your e-mail address to sign in with a code',
   '忘记密码': 'Forgot password',
   '注册并登录': 'Sign up & sign in',

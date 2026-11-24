@@ -163,6 +163,13 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     backToAccount()
     setAccountHint(t('请输入邮箱以使用验证码登录'))
   }
+  // An e-mail account already carries its address: jump straight to
+  // the code step with it filled in. A username has no address yet,
+  // so it goes back to the account box with a hint instead.
+  const switchToMailCode = () => {
+    if (isEmail) { setEmail(account); setStep('mail'); setErr('') }
+    else askEmailForCode()
+  }
   // Dual attempt: the admin endpoint answers first. Only a plain
   // credential failure (401 with neither a TOTP demand nor a lockout
   // marker) falls through to the member endpoint — a TOTP demand
@@ -358,6 +365,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
                   <div className="hint">{mailRegister ? t('注册用户用邮箱验证码登录，只能管理自己的节点；没有账号且开放注册时将自动注册。') : t('注册用户用邮箱验证码登录，只能管理自己的节点。')}</div>
                   <div className="row">
                     <button className="link small" type="button" onClick={() => { setStep('password'); setErr('') }}>{t('使用密码登录')}</button>
+                    <button className="link small" type="button" onClick={backToAccount}>{t('其他登录方式')}</button>
                   </div>
                 </>
               )}
@@ -377,8 +385,9 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
                   )}
                   {note && <div className="note">{note}</div>}
                   <div className="row">
-                    {!isEmail && mailLogin && <button className="link small" type="button" onClick={askEmailForCode}>{t('使用邮箱验证码登录')}</button>}
+                    {mailLogin && <button className="link small" type="button" onClick={switchToMailCode}>{t('使用邮箱验证码登录')}</button>}
                     {pwLogin && <button className="link small" type="button" onClick={() => { if (isEmail) setEmail(account); setStep('reset'); setErr('') }}>{t('忘记密码')}</button>}
+                    <button className="link small" type="button" onClick={backToAccount}>{t('其他登录方式')}</button>
                   </div>
                 </>
               )}
