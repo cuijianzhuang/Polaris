@@ -86,6 +86,8 @@ export interface User {
   hasLoginPassword?: boolean // sign-in password (user center / member panel) is set; the hash itself is never sent
   hasGithub?: boolean // a GitHub account is bound for sign-in; the id itself is never sent
   githubLogin?: string // the bound GitHub username, for display
+  passkeyCount?: number // registered passkeys (any RP); the credentials themselves never leave the server
+  ssoCount?: number // bound SSO accounts across providers; subjects never leave the server
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
   ownNodes?: number; ownPendingNodes?: number // brought-in VPS nodes (user-nodes feature), filled by the admin user list
 }

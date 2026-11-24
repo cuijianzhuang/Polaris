@@ -40,6 +40,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   // and the panel's relying party is configured (memberPasskeyLogin).
   // The ceremony is the admins', against the user credential table.
   const [memberPasskey, setMemberPasskey] = useState(!!LOGIN_INFO?.memberPasskeyLogin)
+  // Member sign-in with SSO: shown when the admin opened SSO to
+  // registered users and member admission is on (memberSSOLogin); the
+  // provider buttons are the same list the admin face uses.
+  const [memberSSO, setMemberSSO] = useState(!!LOGIN_INFO?.memberSSOLogin)
   const [mode, setMode] = useState<'admin' | 'mail' | 'pw'>('admin')
   const mailMode = mode === 'mail'
   const pwMode = mode === 'pw'
@@ -57,7 +61,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   useEffect(() => {
     // Production index.html inlines the flags; only fetch when they are
     // absent (vite dev server), otherwise the buttons would pop in late.
-    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMemberGithub(!!i.memberGithubLogin); setMemberPasskey(!!i.memberPasskeyLogin); setSso(i.sso ?? []) }).catch(() => {})
+    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; memberSSOLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMemberGithub(!!i.memberGithubLogin); setMemberPasskey(!!i.memberPasskeyLogin); setMemberSSO(!!i.memberSSOLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
@@ -91,6 +95,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const ssoLogin = async (id: string) => {
     setBusy(true); setErr('')
     try { location.href = (await post<{ url: string }>(`/auth/sso/${id}/login-url`)).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
+  }
+  const memberSSOLogin = async (id: string) => {
+    setBusy(true); setErr('')
+    try { location.href = (await post<{ url: string }>('/auth/sso/user/login-url', { providerId: id })).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
   }
   const telegramLogin = async () => {
     setBusy(true); setErr('')
@@ -334,9 +342,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         {mode === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         {mode === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
         {mode === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
-        {mode !== 'admin' && (memberGithub || (memberPasskey && passkeysSupported())) && <div className="or"><span>{t('或')}</span></div>}
+        {mode !== 'admin' && (memberGithub || (memberPasskey && passkeysSupported()) || (memberSSO && sso.length > 0)) && <div className="or"><span>{t('或')}</span></div>}
         {mode !== 'admin' && memberPasskey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={memberPasskeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
         {mode !== 'admin' && memberGithub && <button className="btn github" type="button" disabled={busy} onClick={memberGithubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
+        {mode !== 'admin' && memberSSO && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => memberSSOLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
         </form>
       </section>
     </div>

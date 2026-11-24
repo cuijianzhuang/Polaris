@@ -50,6 +50,11 @@ type claims struct {
 	// fingerprints empty), valid while the key that issued it still
 	// exists for the user (userpasskey.go).
 	PkFP string `json:"kfp,omitempty"`
+	// SsoFP: a session from an SSO sign-in (Chat is 0, the other
+	// fingerprints empty), fingerprinting the (provider, subject)
+	// binding it was issued against; valid while that binding row
+	// still exists for the user (usersso.go).
+	SsoFP string `json:"ofp,omitempty"`
 }
 
 // issueToken signs a session for an admin who just signed in (via:

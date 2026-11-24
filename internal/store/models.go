@@ -244,8 +244,14 @@ type User struct {
 	GitHubLogin string `gorm:"size:64" json:"githubLogin"`
 	// HasGitHub mirrors GitHubID != 0 for the admin user editor; the
 	// id itself never leaves the server.
-	HasGitHub bool   `gorm:"-" json:"hasGithub,omitempty"`
-	AvatarURL string `gorm:"-" json:"avatarURL,omitempty"`
+	HasGitHub bool `gorm:"-" json:"hasGithub,omitempty"`
+	// PasskeyCount / SSOCount are the user's registered passkeys and
+	// SSO bindings (identity batch 3), filled for the admin user
+	// editor's sign-in methods overview; the credentials themselves
+	// live in user_passkeys / user_sso_bindings and never leave.
+	PasskeyCount int    `gorm:"-" json:"passkeyCount,omitempty"`
+	SSOCount     int    `gorm:"-" json:"ssoCount,omitempty"`
+	AvatarURL    string `gorm:"-" json:"avatarURL,omitempty"`
 	// SelfService marks an account the shop created for its buyer: the buyer
 	// may rename it (Telegram /rename, user center) when the shop allows it.
 	SelfService bool `json:"selfService"`
@@ -1080,7 +1086,7 @@ func AllModels() []any {
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
-		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &NodeResourceAlert{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
+		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &NodeResourceAlert{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &UserSSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},
 		&ClusterOperation{}, &ClusterDelivery{}, &OperationalStatus{}, &NotificationState{}, &RelayBusinessStatus{}, &PaymentReceipt{}, &ShopBuyerLock{}, &RefundJob{}, &USDTReservation{}, &TrafficInbox{}, &TrafficCursor{}, &TrafficBatchSeen{}, &ClusterLease{}, &ClusterSecret{}, &AgentPresence{}, &BusPayload{}, &EphemeralKV{}, &ClusterMember{}, &Coupon{}, &CouponUse{}, &Ticket{}, &TicketMessage{}, &NodeProvider{}, &ProbeTarget{}, &NodeLatency{}, &NodeRouteTrace{}, &NodeRouteSchedule{}, &NodeRouteScheduleState{}, &UpgradeRollout{}, &NodeExternalMetric{}, &CDNIPReport{},

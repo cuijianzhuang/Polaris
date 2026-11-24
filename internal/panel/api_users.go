@@ -46,6 +46,40 @@ type userReq struct {
 	LoginPassword *string `json:"loginPassword"`
 }
 
+// fillMethodCounts fills the passkey / SSO binding counts of the
+// admin user editor's sign-in methods overview (identity batch 3):
+// two grouped counts over the credential tables, never the rows
+// themselves.
+func (s *Server) fillMethodCounts(us []store.User) {
+	if len(us) == 0 {
+		return
+	}
+	ids := make([]string, len(us))
+	for i, u := range us {
+		ids[i] = u.ID
+	}
+	type countRow struct {
+		UserID string
+		N      int
+	}
+	var pk []countRow
+	s.st.DB.Model(&store.UserPasskey{}).Select("user_id, COUNT(*) AS n").Where("user_id IN ?", ids).Group("user_id").Scan(&pk)
+	pkBy := map[string]int{}
+	for _, r := range pk {
+		pkBy[r.UserID] = r.N
+	}
+	var sb []countRow
+	s.st.DB.Model(&store.UserSSOBinding{}).Select("user_id, COUNT(*) AS n").Where("user_id IN ?", ids).Group("user_id").Scan(&sb)
+	ssoBy := map[string]int{}
+	for _, r := range sb {
+		ssoBy[r.UserID] = r.N
+	}
+	for i := range us {
+		us[i].PasskeyCount = pkBy[us[i].ID]
+		us[i].SSOCount = ssoBy[us[i].ID]
+	}
+}
+
 func (s *Server) withGroups(us []store.User) {
 	if len(us) == 0 {
 		return
@@ -57,6 +91,7 @@ func (s *Server) withGroups(us []store.User) {
 		us[i].HasLoginPassword = u.PasswordHash != ""
 		us[i].HasGitHub = u.GitHubID != 0
 	}
+	s.fillMethodCounts(us)
 	var ugs []store.UserGroup
 	s.st.DB.Where("user_id IN ? AND group_id NOT IN (?)", ids, plansOnly(s.st.DB)).Find(&ugs)
 	m := map[string][]string{}
@@ -747,6 +782,9 @@ func (s *Server) updateUser(c *gin.Context) {
 	}
 	u.HasLoginPassword = u.PasswordHash != ""
 	u.HasGitHub = u.GitHubID != 0
+	one := []store.User{u}
+	s.fillMethodCounts(one)
+	u.PasskeyCount, u.SSOCount = one[0].PasskeyCount, one[0].SSOCount
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
 	s.wakeBusinessEvents()
