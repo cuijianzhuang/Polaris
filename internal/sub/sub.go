@@ -143,6 +143,11 @@ type Info struct {
 	GitHubBound bool
 	GitHubLogin string
 	GitHubBind  bool
+	// PasskeyCount is how many passkeys the user has registered (any
+	// RP); PasskeyBind says this face's relying party is configured,
+	// so the account page may offer passkey management at all.
+	PasskeyCount int
+	PasskeyBind  bool
 	// Extras are links plugins add to the user center (Portal pages only).
 	Extras []ExtraLink
 	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").

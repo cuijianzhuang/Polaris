@@ -128,7 +128,7 @@ function NodeNameTemplate() {
   </section>
 }
 
-const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'portal_email_register', 'register_password', 'register_email_domains', 'register_trial_plan', 'register_ip_daily', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
+const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'portal_public_url', 'portal_email_register', 'register_password', 'register_email_domains', 'register_trial_plan', 'register_ip_daily', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
 
 const routingExample = `{
   "Name": "${t('直连国内')}",
@@ -199,6 +199,7 @@ function SubSettings() {
         <Field label={t('每个 IP 每天最多注册')} hint={t('防止批量注册；0 表示不限，默认 3')}><input className="input mono" inputMode="numeric" value={f.register_ip_daily ?? ''} onChange={(e) => set('register_ip_daily', e.target.value.replace(/[^\d]/g, ''))} placeholder="3" /></Field>
       </div>}
       {on('portal_enabled') && s.data?.portal_url && <div className="hint">{t('用户登录地址：')}<a className="mono" href={s.data.portal_url + '/login'} target="_blank" rel="noreferrer">{s.data.portal_url + '/login'}</a>{t('（保存后生效；机器人发送订阅链接时也会附上）')}</div>}
+      {on('portal_enabled') && <Field label={t('用户中心公开地址')} hint={t('用户实际访问用户中心的 HTTPS 地址，如 https://sub.example.com；用于通行密钥的域名校验与链接生成。用户中心与面板不同域名时必须填写，否则用户中心无法使用通行密钥；通行密钥按域名区分，填错会导致该面通行密钥全部不可用')}><input className="input mono" value={f.portal_public_url ?? ''} onChange={(e) => set('portal_public_url', e.target.value)} placeholder={s.data?.portal_url || 'https://sub.example.com'} /></Field>}
       <Field label={t('公告')} hint={t('显示在订阅信息页顶部，并通过 announce 头推送给支持的客户端（Happ、Streisand 等）；开启「信息节点」时也会出现在节点列表')}>
         <textarea className="input" style={{ minHeight: 70 }} value={f.sub_announce ?? ''} onChange={(e) => set('sub_announce', e.target.value)} placeholder={t('例：本周六 02:00–04:00 维护，请提前更新订阅')} />
       </Field>

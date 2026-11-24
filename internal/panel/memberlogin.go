@@ -81,6 +81,13 @@ var memberRoutes = map[string]bool{
 	"GET /auth/bindings":                   true,
 	"POST /auth/bindings/github/unbind":    true,
 	"POST /auth/bindings/password/clear":   true,
+	// Identity batch 3a: the member's own passkeys (registration is a
+	// binding action behind the binding second factor; login itself
+	// is a public route, not a member route).
+	"POST /auth/passkeys/user/register/begin":  true,
+	"POST /auth/passkeys/user/register/finish": true,
+	"POST /auth/passkeys/user/delete":          true,
+	"POST /auth/passkeys/user/rename":          true,
 }
 
 // memberActor names a member in the audit log, distinct from admin actors

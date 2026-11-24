@@ -36,6 +36,10 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   // Member sign-in with GitHub: shown when GitHub OAuth is configured
   // and member admission is on (loginInfo's memberGithubLogin).
   const [memberGithub, setMemberGithub] = useState(!!LOGIN_INFO?.memberGithubLogin)
+  // Member sign-in with a passkey: shown when member admission is on
+  // and the panel's relying party is configured (memberPasskeyLogin).
+  // The ceremony is the admins', against the user credential table.
+  const [memberPasskey, setMemberPasskey] = useState(!!LOGIN_INFO?.memberPasskeyLogin)
   const [mode, setMode] = useState<'admin' | 'mail' | 'pw'>('admin')
   const mailMode = mode === 'mail'
   const pwMode = mode === 'pw'
@@ -53,7 +57,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   useEffect(() => {
     // Production index.html inlines the flags; only fetch when they are
     // absent (vite dev server), otherwise the buttons would pop in late.
-    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMemberGithub(!!i.memberGithubLogin); setSso(i.sso ?? []) }).catch(() => {})
+    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMemberGithub(!!i.memberGithubLogin); setMemberPasskey(!!i.memberPasskeyLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
@@ -74,6 +78,15 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const memberGithubLogin = async () => {
     setBusy(true); setErr('')
     try { location.href = (await post<{ url: string }>('/auth/github/user/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
+  }
+  const memberPasskeyLogin = async () => {
+    setBusy(true); setErr('')
+    try {
+      const begin = await post<{ challengeId: string; options: any }>('/auth/passkeys/user/login/begin')
+      const credential = await usePasskey(begin.options)
+      const r = await post<{ token: string; username: string }>('/auth/passkeys/user/login/finish', { challengeId: begin.challengeId, credential })
+      setToken(r.token); onLogin(r.username)
+    } catch (e) { setErr(e instanceof DOMException && e.name === 'NotAllowedError' ? t('设备验证已取消或超时，请重试。') : e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
   const ssoLogin = async (id: string) => {
     setBusy(true); setErr('')
@@ -321,7 +334,8 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         {mode === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         {mode === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
         {mode === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
-        {mode !== 'admin' && memberGithub && <div className="or"><span>{t('或')}</span></div>}
+        {mode !== 'admin' && (memberGithub || (memberPasskey && passkeysSupported())) && <div className="or"><span>{t('或')}</span></div>}
+        {mode !== 'admin' && memberPasskey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={memberPasskeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
         {mode !== 'admin' && memberGithub && <button className="btn github" type="button" disabled={busy} onClick={memberGithubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
         </form>
       </section>
