@@ -84,6 +84,8 @@ export interface User {
   onlineIpState?: 'available' | 'partial' | 'unavailable' | 'expired' | 'none'; onlineIpSeenAt?: string; onlineIpCount?: number; onlineNodes?: OnlineNode[]
   nodeIds: string[]; inboundIds: string[]; telegramId: number; email?: string; avatarURL?: string; planId?: string; extraTraffic?: number
   hasLoginPassword?: boolean // sign-in password (user center / member panel) is set; the hash itself is never sent
+  hasGithub?: boolean // a GitHub account is bound for sign-in; the id itself is never sent
+  githubLogin?: string // the bound GitHub username, for display
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
   ownNodes?: number; ownPendingNodes?: number // brought-in VPS nodes (user-nodes feature), filled by the admin user list
 }

@@ -137,6 +137,12 @@ type Info struct {
 	// PasswordSet reports whether the user has a sign-in password
 	// (User.PasswordHash), for the account page's password row.
 	PasswordSet bool
+	// GitHubBound / GitHubLogin describe the bound GitHub account for
+	// the account page's sign-in methods card; GitHubBind says the
+	// deployment has GitHub OAuth configured at all.
+	GitHubBound bool
+	GitHubLogin string
+	GitHubBind  bool
 	// Extras are links plugins add to the user center (Portal pages only).
 	Extras []ExtraLink
 	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").

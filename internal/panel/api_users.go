@@ -55,6 +55,7 @@ func (s *Server) withGroups(us []store.User) {
 		ids[i] = u.ID
 		us[i].AvatarURL = sub.AvatarURL(u.Email)
 		us[i].HasLoginPassword = u.PasswordHash != ""
+		us[i].HasGitHub = u.GitHubID != 0
 	}
 	var ugs []store.UserGroup
 	s.st.DB.Where("user_id IN ? AND group_id NOT IN (?)", ids, plansOnly(s.st.DB)).Find(&ugs)
@@ -745,6 +746,7 @@ func (s *Server) updateUser(c *gin.Context) {
 		s.auditCtx(c, "user.password_reset", u.Username, "")
 	}
 	u.HasLoginPassword = u.PasswordHash != ""
+	u.HasGitHub = u.GitHubID != 0
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
 	s.wakeBusinessEvents()

@@ -73,6 +73,14 @@ var memberRoutes = map[string]bool{
 	"GET /inbounds/:id":             true,
 	"PUT /inbounds/:id":             true,
 	"DELETE /inbounds/:id":          true,
+	// Identity batch 2: the member's own sign-in methods (user-identity
+	// D7's named exception to the batch-2 self-route narrowing — this
+	// group only, every handler resolves the member principal itself).
+	"POST /auth/github/user/bind-url":      true,
+	"POST /auth/github/user/bind-complete": true,
+	"GET /auth/bindings":                   true,
+	"POST /auth/bindings/github/unbind":    true,
+	"POST /auth/bindings/password/clear":   true,
 }
 
 // memberActor names a member in the audit log, distinct from admin actors

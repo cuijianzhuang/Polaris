@@ -64,6 +64,10 @@ body{background:radial-gradient(ellipse at 12% 0%,color-mix(in srgb,var(--pri) 8
 <p class="mute tg-note">还没绑定 Telegram？打开订阅链接，点「Telegram 机器人绑定」。</p>
 {{else}}<p class="mute tg-note">管理员尚未启用 Telegram 机器人登录，请联系管理员。{{if not .Mail}}邮箱登录也未配置，暂时无法登录。{{end}}</p>{{end}}
 </div>
+{{if .GitHub}}<div id="gh-area"{{if .RegisterMode}} hidden{{end}}>
+<button class="btn alt" id="ghgo" type="button"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>使用 GitHub 登录</button>
+<p class="err" id="gherr" role="alert" hidden></p>
+</div>{{end}}
 {{if .Shop}}<a class="shop" href="/u/shop">购买套餐</a>{{end}}
 </section><p class="foot">{{.Title}} 用户中心</p></main>
 <script>
@@ -170,4 +174,16 @@ rsend.addEventListener('click',function(){show(rerr,'');if(!remail.value.trim()|
 rgo.addEventListener('click',function(){show(rerr,'');if(!remail.value.trim()||!remail.checkValidity()){show(rerr,'请填写正确的邮箱地址');remail.focus();return}if(!/^\d{6}$/.test(rcode.value.trim())){show(rerr,'请输入 6 位验证码');rcode.focus();return}if(rpw.value.length<8){show(rerr,'新密码至少 8 位');rpw.focus();return}rgo.disabled=true;post('email/verify',{email:remail.value.trim(),code:rcode.value.trim(),purpose:'reset',newPassword:rpw.value}).then(function(){reset.hidden=true;show(lnote,'密码已重置，请用新密码登录');lp.focus()}).catch(function(e){rgo.disabled=false;show(rerr,e.message)})});}
 })();
 </script>
+{{if .GitHub}}<script>
+(function(){
+var btn=document.getElementById('ghgo'),err=document.getElementById('gherr'),area=document.getElementById('gh-area');
+function show(m){if(err){err.textContent=m;err.hidden=!m}}
+var q=new URLSearchParams(location.search).get('gh_error');
+if(q){show(q);history.replaceState(null,'',location.pathname)}
+function sync(){if(area)area.hidden=location.pathname.indexOf('/register')>=0}
+document.querySelectorAll('[data-auth-mode]').forEach(function(a){a.addEventListener('click',function(){setTimeout(sync,0)})});
+window.addEventListener('portal-auth-mode',sync);
+if(btn)btn.addEventListener('click',function(){show('');btn.disabled=true;fetch('/u/github/login-url',{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:'{}',credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'操作失败，请重试');location.href=j.url})}).catch(function(e){btn.disabled=false;show(e.message)})});
+})();
+</script>{{end}}
 </body></html>
