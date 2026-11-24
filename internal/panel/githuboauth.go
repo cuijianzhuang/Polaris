@@ -172,6 +172,13 @@ func (s *Server) githubCallback(c *gin.Context) {
 		s.githubUserCallback(c, st)
 		return
 	}
+	if st.Kind == "any" {
+		// Unified login-page flow (anylogin.go): the callback resolves
+		// admin first, then registered user. The admin switch below
+		// never sees these states either.
+		s.githubAnyCallback(c, st)
+		return
+	}
 	if e := c.Query("error"); e != "" {
 		fail("已取消 GitHub 授权")
 		return

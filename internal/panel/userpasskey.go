@@ -669,15 +669,26 @@ func (s *Server) finishUserPasskeyLogin(c *gin.Context) {
 	if !ok {
 		return
 	}
+	s.completeMemberPasskeyLogin(c, u, key)
+}
+
+// completeMemberPasskeyLogin issues the member session for a
+// validated user passkey login and stamps the session with the key's
+// id, so deleting the key ends exactly the sessions it minted. It
+// answers its own failures; validation failures were already answered
+// by userPasskeyLoginFinish (or, for the unified finish, by its own
+// dispatch). Shared by the user-only finish and the unified finish
+// (anylogin.go).
+func (s *Server) completeMemberPasskeyLogin(c *gin.Context, u *store.User, key *store.UserPasskey) bool {
 	tok, err := s.issueMemberToken(u, c)
 	if err != nil {
 		serverError(c, err)
-		return
+		return false
 	}
 	claims, err := s.parseToken(tok)
 	if err != nil {
 		serverError(c, err)
-		return
+		return false
 	}
 	err = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := reservePasskeys(tx); err != nil {
@@ -703,10 +714,11 @@ func (s *Server) finishUserPasskeyLogin(c *gin.Context) {
 	if err != nil {
 		s.st.DB.Model(&store.AdminSession{}).Where("id = ?", claims.SID).Update("revoked", true)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "账号或密钥已撤销，请重新登录"})
-		return
+		return false
 	}
 	s.audit(memberActor(u), "member.login", u.Username, "passkey", clientIP(c.Request))
 	c.JSON(http.StatusOK, gin.H{"token": tok, "username": memberDisplayName(u), "expiresIn": int(tokenTTL.Seconds())})
+	return true
 }
 
 // portalPasskeyLoginBegin: POST /u/passkeys/login/begin — the user
