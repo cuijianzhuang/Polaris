@@ -168,6 +168,12 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/password/login", s.portalGate(decoy, s.portalPasswordLogin))
 		r.POST(portalPath+"/password/register", s.portalGate(decoy, s.portalPasswordRegister))
 		r.POST(portalPath+"/password/set", s.portalGate(decoy, s.portalPasswordSet))
+		r.POST(portalPath+"/github/login-url", s.portalGate(decoy, s.userGitHubLoginURLPortal))
+		r.POST(portalPath+"/github/bind-url", s.portalGate(decoy, s.userGitHubBindURLPortal))
+		r.GET(portalPath+"/bindings", s.portalGate(decoy, s.portalBindings))
+		r.POST(portalPath+"/bindings/github/complete", s.portalGate(decoy, s.portalGitHubBindComplete))
+		r.POST(portalPath+"/bindings/github/unbind", s.portalGate(decoy, s.portalGitHubUnbind))
+		r.POST(portalPath+"/bindings/password/clear", s.portalGate(decoy, s.portalPasswordClear))
 		r.GET(shopWebPath, s.portalGate(decoy, s.webShopPage))
 		r.POST(shopWebPath+"/order", s.portalGate(decoy, s.webShopBuy))
 		r.POST(shopWebPath+"/redeem", s.portalGate(decoy, s.webShopRedeem))
@@ -183,6 +189,7 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/passkeys/login/finish", s.loginGuard, s.finishPasskeyLogin)
 	api.POST("/auth/account-recovery", s.loginGuard, s.recoverPasskeyAccount)
 	api.POST("/auth/github/login-url", s.loginGuard, s.githubLoginURL)
+	api.POST("/auth/github/user/login-url", s.loginGuard, s.userGitHubLoginURLPanel)
 	api.GET("/auth/github/callback", s.githubCallback)
 	api.POST("/auth/github/totp", s.loginGuard, s.githubTOTP)
 	api.GET("/info", s.publicInfo)
@@ -244,6 +251,13 @@ func (s *Server) Router() http.Handler {
 	p.GET("/auth/github", s.githubInfo)
 	p.POST("/auth/github/bind-url", s.requireSudo, s.githubBindURL)
 	p.POST("/auth/github/unbind", s.requireSudo, s.githubUnbind)
+	// Registered users' GitHub flow + binding management (member
+	// role only; the handlers refuse every other principal).
+	p.POST("/auth/github/user/bind-url", s.userGitHubBindURLPanel)
+	p.POST("/auth/github/user/bind-complete", s.userGitHubBindComplete)
+	p.GET("/auth/bindings", s.memberBindings)
+	p.POST("/auth/bindings/github/unbind", s.memberGitHubUnbind)
+	p.POST("/auth/bindings/password/clear", s.memberPasswordClear)
 	p.POST("/auth/logout", s.logout)
 	p.POST("/auth/sudo", s.sudo)
 	p.GET("/auth/sessions", s.listSessions)
@@ -698,7 +712,8 @@ func (s *Server) loginInfo() gin.H {
 	return gin.H{"githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
 		"passkeyLogin": s.passkeysAvailable(), "memberMailLogin": s.memberMailLoginAvailable(),
 		"memberPasswordLogin": s.memberLoginEnabled(), "memberPasswordRegister": s.memberLoginEnabled() && s.passwordRegisterOn(),
-		"sso": s.publicSSOProviders()}
+		"memberGithubLogin": s.githubEnabled() && s.memberLoginEnabled(),
+		"sso":               s.publicSSOProviders()}
 }
 
 func (s *Server) publicInfo(c *gin.Context) {

@@ -238,6 +238,12 @@ func bindingSession(tx *gorm.DB, cl *claims, u store.User) error {
 	if cl.Chat == 0 && cl.MailFP != "" && u.Email != "" && cl.MailFP == mailFP(u.Email) {
 		return nil
 	}
+	if cl.PwFP != "" && u.PasswordHash != "" && cl.PwFP == pwFP(u.PasswordHash) {
+		return nil
+	}
+	if cl.GhFP != "" && u.GitHubID != 0 && cl.GhFP == ghFP(u.GitHubID) {
+		return nil
+	}
 	return errPortalSessionEnded
 }
 

@@ -72,6 +72,35 @@
   if(pending&&pending.expires>Date.now()&&/^[A-Za-z0-9_-]{16,64}$/.test(pending.token)){location.hash='account';open(dialog);link.value=pending.token;link.focus()}
 })();
 (function(){
+  // GitHub binding + sign-in method removals (identity batch 2). The
+  // bind round trip leaves for GitHub; the callback parks a one-use
+  // ticket in the query string and this page redeems it under the
+  // portal session that started the flow.
+  function post(path,body){return fetch('/u/'+path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body||{})}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok){if(r.status===401)location.replace('/u/login');throw new Error(j.error||'操作失败，请重试')}return j})})}
+  function showCardError(text){var el=document.getElementById('p-binding-gh-error');if(el){el.textContent=text;el.hidden=!text}}
+  var bindButton=document.getElementById('p-bind-github');
+  if(bindButton)bindButton.addEventListener('click',function(){showCardError('');bindButton.disabled=true;post('github/bind-url',{}).then(function(d){location.href=d.url}).catch(function(e){bindButton.disabled=false;showCardError(e.message)})});
+  var params=new URLSearchParams(location.search),ticket=params.get('ghbind'),ghError=params.get('gh_error');
+  if(ticket||ghError){
+    history.replaceState(null,'',location.pathname+'#account');
+    if(ghError)showCardError(ghError);
+    else post('bindings/github/complete',{ticket:ticket}).then(function(){location.replace('/u#account');location.reload()}).catch(function(e){showCardError(e.message)});
+  }
+  function wireRemoval(dialogId,openId,formId,errorId,closeAttr,path,body){
+    var dialog=document.getElementById(dialogId),openButton=document.getElementById(openId);
+    if(!dialog||!openButton)return;
+    function show(text){var el=document.getElementById(errorId);if(el){el.textContent=text;el.hidden=!text}}
+    openButton.addEventListener('click',function(){show('');if(!dialog.open)dialog.showModal()});
+    dialog.querySelectorAll('['+closeAttr+']').forEach(function(b){b.addEventListener('click',function(){dialog.close()})});
+    document.getElementById(formId).addEventListener('submit',function(event){
+      event.preventDefault();show('');
+      post(path,body()).then(function(){location.replace('/u/login')}).catch(function(e){show(e.message)});
+    });
+  }
+  wireRemoval('p-github-unbind','p-unbind-github','p-github-unbind-form','p-gh-error','data-gh-close','bindings/github/unbind',function(){var cur=document.getElementById('p-gh-current');return cur?{currentPassword:cur.value}:{}});
+  wireRemoval('p-password-clear','p-clear-password','p-password-clear-form','p-pwc-error','data-pwc-close','bindings/password/clear',function(){return {currentPassword:document.getElementById('p-pwc-current').value}});
+})();
+(function(){
   var dialog=document.getElementById('p-password-set'),openButton=document.getElementById('p-set-password');
   if(!dialog||!openButton)return;
   function show(id,text){var el=document.getElementById(id);if(el){el.textContent=text;el.hidden=!text}}

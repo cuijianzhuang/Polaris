@@ -300,6 +300,12 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
           <dt>{t('订阅密码')}</dt><dd className="mono">{user.password}</dd>
           <dt>{t('登录密码')}</dt><dd>{user.hasLoginPassword ? t('已设置') : t('未设置')}</dd>
+          <dt>{t('登录方式')}</dt><dd>{[
+            user.email ? t('邮箱') : '',
+            user.hasLoginPassword ? t('密码') : '',
+            user.telegramId ? 'Telegram' : '',
+            user.hasGithub ? `GitHub${user.githubLogin ? `（${user.githubLogin}）` : ''}` : '',
+          ].filter(Boolean).join(' · ') || t('无')}</dd>
           {(user.extraTraffic ?? 0) > 0 && <><dt>{t('流量包')}</dt><dd className="mono">+{bytes(user.extraTraffic!)} <span className="mute small">{t('（本周期有效，已计入流量配额）')}</span></dd></>}
           <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
           <dt>{t('在线 IP')}</dt>

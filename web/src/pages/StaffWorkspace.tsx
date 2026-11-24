@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from 'react'
 import { get, post, setToken } from '../api'
 import { CopyBox, Field, QR, useAction, useLoad, usePoll } from '../components/ui'
 import { Sessions, RecoveryCodesModal } from '../components/SecurityCards'
+import AccountBindings from '../components/AccountBindings'
 import Passkeys from '../components/Passkeys'
 import AvatarSettings from '../components/AvatarSettings'
 import Avatar from '../components/Avatar'
@@ -11,13 +12,14 @@ import { bytes, datetime } from '../format'
 import { t } from '../i18n'
 
 export function StaffAccount() {
-  const me = useLoad((signal) => get<{ totpEnabled: boolean }>('/auth/me', signal))
+  const me = useLoad((signal) => get<{ totpEnabled: boolean; role?: string }>('/auth/me', signal))
   const [pw, setPw] = useState({ old: '', next: '', again: '' })
   const [totp, setTotp] = useState<{ secret: string; url: string } | null>(null)
   const [code, setCode] = useState('')
   const [codes, setCodes] = useState<string[] | null>(null)
   const { busy, run } = useAction()
   return <div style={{ display: 'grid', gap: 16 }}><AvatarSettings />
+    {me.data?.role === 'member' && <AccountBindings />}
     <section className="card"><h2>{t('修改密码')}</h2><form style={{ display: 'grid', gap: 12 }} onSubmit={(e) => { e.preventDefault(); if (!busy && pw.next === pw.again) run(async () => { const r = await post<{ token: string }>('/auth/password', { old: pw.old, new: pw.next }); setToken(r.token); setPw({ old: '', next: '', again: '' }) }, t('密码已修改')) }}>
       <Field label={t('原密码')}><input className="input" type="password" autoComplete="current-password" required value={pw.old} onChange={(e) => setPw({ ...pw, old: e.target.value })} /></Field>
       <Field label={t('新密码')}><input className="input" type="password" autoComplete="new-password" required minLength={12} maxLength={72} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
