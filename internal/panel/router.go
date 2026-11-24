@@ -199,10 +199,14 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/passkeys/login/finish", s.loginGuard, s.finishPasskeyLogin)
 	api.POST("/auth/passkeys/user/login/begin", s.loginGuard, s.beginUserPasskeyLogin)
 	api.POST("/auth/passkeys/user/login/finish", s.loginGuard, s.finishUserPasskeyLogin)
+	api.POST("/auth/passkeys/any/login/begin", s.loginGuard, s.beginAnyPasskeyLogin)
+	api.POST("/auth/passkeys/any/login/finish", s.loginGuard, s.finishAnyPasskeyLogin)
 	api.POST("/auth/account-recovery", s.loginGuard, s.recoverPasskeyAccount)
 	api.POST("/auth/github/login-url", s.loginGuard, s.githubLoginURL)
 	api.POST("/auth/github/user/login-url", s.loginGuard, s.userGitHubLoginURLPanel)
+	api.POST("/auth/github/any/login-url", s.loginGuard, s.githubAnyLoginURL)
 	api.POST("/auth/sso/user/login-url", s.loginGuard, s.userSSOLoginURLPanel)
+	api.POST("/auth/sso/any/login-url", s.loginGuard, s.ssoAnyLoginURL)
 	api.GET("/auth/github/callback", s.githubCallback)
 	api.POST("/auth/github/totp", s.loginGuard, s.githubTOTP)
 	api.GET("/info", s.publicInfo)
@@ -732,6 +736,7 @@ func (s *Server) loginInfo() gin.H {
 	return gin.H{"githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
 		"passkeyLogin": s.passkeysAvailable(), "memberMailLogin": s.memberMailLoginAvailable(),
 		"memberPasswordLogin": s.memberLoginEnabled(), "memberPasswordRegister": s.memberLoginEnabled() && s.passwordRegisterOn(),
+		"memberMailRegister": s.memberLoginEnabled() && s.mailRegisterOn(),
 		"memberGithubLogin":  s.githubEnabled() && s.memberLoginEnabled(),
 		"memberPasskeyLogin": s.memberPasskeyLoginAvailable(),
 		"memberSSOLogin":     s.ssoUserLoginOn() && s.memberLoginEnabled(),

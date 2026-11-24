@@ -349,9 +349,27 @@ func (s *Server) finishPasskeyLogin(c *gin.Context) {
 		badRequest(c, errors.New("无效的通行密钥响应"))
 		return
 	}
+	a, keyID, e := s.validateAdminPasskeyLogin(w, ch, parsed)
+	if e != nil {
+		s.recordIPFailure(clientIP(c.Request), "通行密钥登录失败")
+		c.JSON(401, gin.H{"error": "通行密钥验证失败，请重试或使用其他登录方式"})
+		return
+	}
+	s.completeAdminPasskeyLogin(c, a, keyID)
+}
+
+// validateAdminPasskeyLogin runs the admins' discoverable-login
+// transaction: the credential is located by hash within the RP, the
+// handle must name the key's admin, a locked account fails, a clone
+// warning rejects, and a good login reseals the credential with its
+// advanced sign count and clears the admin's failure counters. It is
+// the shared core of the admin-only finish and the unified finish
+// (anylogin.go), which decides the credential's table by hash before
+// calling it.
+func (s *Server) validateAdminPasskeyLogin(w *webauthn.WebAuthn, ch passkeyChallenge, parsed *protocol.ParsedCredentialAssertionData) (*store.Admin, string, error) {
 	var a store.Admin
 	var keyID string
-	e = s.st.DB.Transaction(func(tx *gorm.DB) error {
+	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if e := reservePasskeys(tx); e != nil {
 			return e
 		}
@@ -390,20 +408,27 @@ func (s *Server) finishPasskeyLogin(c *gin.Context) {
 		}
 		return tx.Model(&store.Admin{}).Where("id = ?", a.ID).Updates(map[string]any{"failed_attempts": 0, "locked_until": nil, "last_login_at": now}).Error
 	})
-	if e != nil {
-		s.recordIPFailure(clientIP(c.Request), "通行密钥登录失败")
-		c.JSON(401, gin.H{"error": "通行密钥验证失败，请重试或使用其他登录方式"})
-		return
+	if err != nil {
+		return nil, "", err
 	}
-	tok, e := s.issueToken(&a, c, "passkey")
+	return &a, keyID, nil
+}
+
+// completeAdminPasskeyLogin issues the admin session for a validated
+// passkey login and stamps the session with the key's id, so revoking
+// the key ends exactly the sessions it minted. It answers its own
+// failures; the caller has already answered validation failures.
+// Shared by the admin-only finish and the unified finish.
+func (s *Server) completeAdminPasskeyLogin(c *gin.Context, a *store.Admin, keyID string) bool {
+	tok, e := s.issueToken(a, c, "passkey")
 	if e != nil {
 		serverError(c, e)
-		return
+		return false
 	}
 	claims, e := s.parseToken(tok)
 	if e != nil {
 		serverError(c, e)
-		return
+		return false
 	}
 	e = s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if e := reservePasskeys(tx); e != nil {
@@ -432,10 +457,11 @@ func (s *Server) finishPasskeyLogin(c *gin.Context) {
 	if e != nil {
 		s.st.DB.Model(&store.AdminSession{}).Where("id = ?", claims.SID).Update("revoked", true)
 		c.JSON(401, gin.H{"error": "账号或密钥已撤销，请重新登录"})
-		return
+		return false
 	}
 	s.audit(a.Username, "admin.login", a.Username, "passkey", clientIP(c.Request))
 	c.JSON(200, gin.H{"token": tok, "username": a.Username, "expiresIn": int(tokenTTL.Seconds())})
+	return true
 }
 func (s *Server) revokePasskey(c *gin.Context) {
 	a, ok := s.passkeyAccount(c)

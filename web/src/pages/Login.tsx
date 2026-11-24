@@ -6,13 +6,22 @@ import LangToggle from '../components/LangToggle'
 import { t } from '../i18n'
 import { useBrand } from '../brand'
 
+// One card, one entry point — the shape of a mature sign-in page. The
+// visitor is never asked "admin or registered user?": third-party
+// buttons are unified (the server resolves admin first, then member),
+// the single account box branches by shape (an address continues with
+// an e-mail code, a name with a password), and a password attempt tries
+// the admin table first and the member table second, so both
+// populations share the one form. Registration is the same card
+// flipped, not another page.
 export default function Login({ onLogin }: { onLogin: (user: string) => void }) {
   const brand = useBrand()
-  const [username, setUsername] = useState('')
+  const [username, setUsername] = useState('') // the one account box: a username or an e-mail address
   const [password, setPassword] = useState('')
   const [totp, setTotp] = useState('')
   const [recovery, setRecovery] = useState(false) // a recovery code instead of the 6-digit code
   const [needTotp, setNeedTotp] = useState(false)
+  const [adminTrack, setAdminTrack] = useState(false) // the password attempt proved an admin account (TOTP step)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [passkey, setPasskey] = useState(!!LOGIN_INFO?.passkeyLogin)
@@ -26,33 +35,26 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   const [telegram, setTelegram] = useState(!!LOGIN_INFO?.telegramLogin)
   const [sso, setSso] = useState<{ id: string; name: string }[]>(LOGIN_INFO?.sso ?? [])
   const [tg, setTg] = useState<TGRequest | null>(null)
-  // Member sign-in: registered users with an e-mail code (their own nodes
-  // only). Shown only when the admin enabled it and mail works.
+  // Member sign-in flags (registered users, their own nodes only). The
+  // unified page shows a method when either population can use it; the
+  // member flags still gate the member-only paths (password fallback,
+  // reset, registration).
   const [mailLogin, setMailLogin] = useState(!!LOGIN_INFO?.memberMailLogin)
-  // Member sign-in with a username + password, and password registration:
-  // shown when member admission is on (registration also needs its switch).
   const [pwLogin, setPwLogin] = useState(!!LOGIN_INFO?.memberPasswordLogin)
   const [pwRegister, setPwRegister] = useState(!!LOGIN_INFO?.memberPasswordRegister)
-  // Member sign-in with GitHub: shown when GitHub OAuth is configured
-  // and member admission is on (loginInfo's memberGithubLogin).
+  const [mailRegister, setMailRegister] = useState(!!LOGIN_INFO?.memberMailRegister)
   const [memberGithub, setMemberGithub] = useState(!!LOGIN_INFO?.memberGithubLogin)
-  // Member sign-in with a passkey: shown when member admission is on
-  // and the panel's relying party is configured (memberPasskeyLogin).
-  // The ceremony is the admins', against the user credential table.
   const [memberPasskey, setMemberPasskey] = useState(!!LOGIN_INFO?.memberPasskeyLogin)
-  // Member sign-in with SSO: shown when the admin opened SSO to
-  // registered users and member admission is on (memberSSOLogin); the
-  // provider buttons are the same list the admin face uses.
-  const [memberSSO, setMemberSSO] = useState(!!LOGIN_INFO?.memberSSOLogin)
-  const [mode, setMode] = useState<'admin' | 'mail' | 'pw'>('admin')
-  const mailMode = mode === 'mail'
-  const pwMode = mode === 'pw'
-  const [pwView, setPwView] = useState<'login' | 'register' | 'reset'>('login')
+  const [view, setView] = useState<'login' | 'register'>('login')
+  const [step, setStep] = useState<'account' | 'mail' | 'password' | 'reset'>('account')
+  const [regMode, setRegMode] = useState<'mail' | 'pw'>('mail')
   const [regEmail, setRegEmail] = useState('')
-  const [pwNote, setPwNote] = useState('')
+  const [note, setNote] = useState('')
+  const [accountHint, setAccountHint] = useState('')
   const [email, setEmail] = useState('')
   const [mailCode, setMailCode] = useState('')
   const [cooldown, setCooldown] = useState(0)
+  const accountRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     if (!cooldown) return
     const id = setTimeout(() => setCooldown(cooldown - 1), 1000)
@@ -61,44 +63,36 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   useEffect(() => {
     // Production index.html inlines the flags; only fetch when they are
     // absent (vite dev server), otherwise the buttons would pop in late.
-    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; memberSSOLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMemberGithub(!!i.memberGithubLogin); setMemberPasskey(!!i.memberPasskeyLogin); setMemberSSO(!!i.memberSSOLogin); setSso(i.sso ?? []) }).catch(() => {})
+    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberMailRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; memberSSOLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setMailRegister(!!i.memberMailRegister); setMemberGithub(!!i.memberGithubLogin); setMemberPasskey(!!i.memberPasskeyLogin); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
   }, [])
-  const passkeyLogin = async () => {
-    setBusy(true);setErr('')
+
+  const account = username.trim()
+  const isEmail = account.includes('@')
+  const anyGithub = github || memberGithub
+  const anyPasskey = passkey || memberPasskey
+  const anyThirdParty = anyGithub || sso.length > 0 || anyPasskey || telegram
+  const anyRegister = mailRegister || pwRegister
+
+  // --- unified third-party entries (server resolves admin → member) ---
+  const githubAnyLogin = async () => {
+    setBusy(true); setErr('')
+    try { location.href = (await post<{ url: string }>('/auth/github/any/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
+  }
+  const ssoAnyLogin = async (id: string) => {
+    setBusy(true); setErr('')
+    try { location.href = (await post<{ url: string }>('/auth/sso/any/login-url', { providerId: id })).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
+  }
+  const passkeyAnyLogin = async () => {
+    setBusy(true); setErr('')
     try {
-      const begin=await post<{challengeId:string;options:any}>('/auth/passkeys/login/begin')
-      const credential=await usePasskey(begin.options)
-      const r=await post<{token:string;username:string}>('/auth/passkeys/login/finish',{challengeId:begin.challengeId,credential})
-      setToken(r.token);onLogin(r.username)
-    } catch(e) {setErr(e instanceof DOMException && e.name==='NotAllowedError' ? t('设备验证已取消或超时，请重试。') : e instanceof Error ? e.message : String(e))} finally {setBusy(false)}
-  }
-  const githubLogin = async () => {
-    setBusy(true); setErr('')
-    try { location.href = (await post<{ url: string }>('/auth/github/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
-  }
-  const memberGithubLogin = async () => {
-    setBusy(true); setErr('')
-    try { location.href = (await post<{ url: string }>('/auth/github/user/login-url')).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
-  }
-  const memberPasskeyLogin = async () => {
-    setBusy(true); setErr('')
-    try {
-      const begin = await post<{ challengeId: string; options: any }>('/auth/passkeys/user/login/begin')
+      const begin = await post<{ challengeId: string; options: any }>('/auth/passkeys/any/login/begin')
       const credential = await usePasskey(begin.options)
-      const r = await post<{ token: string; username: string }>('/auth/passkeys/user/login/finish', { challengeId: begin.challengeId, credential })
+      const r = await post<{ token: string; username: string }>('/auth/passkeys/any/login/finish', { challengeId: begin.challengeId, credential })
       setToken(r.token); onLogin(r.username)
     } catch (e) { setErr(e instanceof DOMException && e.name === 'NotAllowedError' ? t('设备验证已取消或超时，请重试。') : e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
-  }
-  const ssoLogin = async (id: string) => {
-    setBusy(true); setErr('')
-    try { location.href = (await post<{ url: string }>(`/auth/sso/${id}/login-url`)).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
-  }
-  const memberSSOLogin = async (id: string) => {
-    setBusy(true); setErr('')
-    try { location.href = (await post<{ url: string }>('/auth/sso/user/login-url', { providerId: id })).url } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setBusy(false) }
   }
   const telegramLogin = async () => {
     setBusy(true); setErr('')
@@ -119,6 +113,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     } finally { setBusy(false) }
   }
 
+  // --- e-mail code (sign-in and, with sign-up open, registration) ---
   const sendMailCode = async () => {
     setBusy(true); setErr('')
     try {
@@ -136,6 +131,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
 
+  // --- password reset by e-mail code (member accounts) ---
   const sendResetCode = async () => {
     setBusy(true); setErr('')
     try {
@@ -143,46 +139,83 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
       setCooldown(r.cooldown ?? 60)
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
-  // Member password face: sign-in, registration and mail-code reset
-  // share this card; the endpoints only ever read User accounts.
-  const submitPw = async (e: FormEvent) => {
+  const submitReset = async (e: FormEvent) => {
     e.preventDefault()
     setBusy(true); setErr('')
     try {
-      if (pwView === 'reset') {
-        await post('/auth/member/password/reset', { email, code: mailCode, newPassword })
-        setPwView('login'); setPwNote(t('密码已重置，请用新密码登录')); setMailCode(''); setNewPassword('')
-      } else if (pwView === 'register') {
-        const r = await post<{ token: string; username: string }>('/auth/member/register', { username, password, email: regEmail || undefined })
-        setToken(r.token)
-        onLogin(r.username)
-      } else {
-        const r = await post<{ token: string; username: string }>('/auth/member/password', { username, password })
-        setToken(r.token)
-        onLogin(r.username)
-      }
+      await post('/auth/member/password/reset', { email, code: mailCode, newPassword })
+      setStep('password'); setNote(t('密码已重置，请用新密码登录')); setMailCode(''); setNewPassword('')
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
 
-  const submit = async (e: FormEvent) => {
+  // --- the account box and the password step ---
+  const submitAccount = (e: FormEvent) => {
     e.preventDefault()
-    setBusy(true)
-    setErr('')
+    if (!account) return
+    setErr(''); setAccountHint(''); setNote('')
+    if (isEmail) { setEmail(account); setStep('mail') } else setStep('password')
+  }
+  const backToAccount = () => {
+    setStep('account'); setErr(''); setNeedTotp(false); setAdminTrack(false); setTotp('')
+    setTimeout(() => accountRef.current?.focus(), 0)
+  }
+  const askEmailForCode = () => {
+    backToAccount()
+    setAccountHint(t('请输入邮箱以使用验证码登录'))
+  }
+  // Dual attempt: the admin endpoint answers first. Only a plain
+  // credential failure (401 with neither a TOTP demand nor a lockout
+  // marker) falls through to the member endpoint — a TOTP demand
+  // proves the account is an admin's and stays on the admin track,
+  // and a lockout or rate limit must not be spent twice. Both
+  // endpoints feed the same server-side IP ban pool either way.
+  const submitPassword = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true); setErr('')
     try {
-      const r = await post<{ token: string; username: string }>('/auth/login', { username, password, totp })
+      const r = await post<{ token: string; username: string }>('/auth/login', { username: account, password, totp })
       setToken(r.token)
       onLogin(r.username)
-    } catch (e) {
-      if (e instanceof ApiError && e.data?.totpRequired) {
-        setNeedTotp(true)
-        setErr(t('请输入二次验证码'))
+    } catch (e1) {
+      if (e1 instanceof ApiError && e1.data?.totpRequired) {
+        setNeedTotp(true); setAdminTrack(true); setErr(t('请输入二次验证码'))
+      } else if (adminTrack) {
+        setErr(e1 instanceof Error ? e1.message : String(e1))
+      } else if (pwLogin && e1 instanceof ApiError && e1.status === 401 && !e1.data?.lockedUntil) {
+        try {
+          const r = await post<{ token: string; username: string }>('/auth/member/password', { username: account, password })
+          setToken(r.token)
+          onLogin(r.username)
+        } catch (e2) { setErr(e2 instanceof Error ? e2.message : String(e2)) }
       } else {
-        setErr(e instanceof Error ? e.message : String(e))
+        setErr(e1 instanceof Error ? e1.message : String(e1))
       }
-    } finally {
-      setBusy(false)
-    }
+    } finally { setBusy(false) }
   }
+
+  // --- registration (password form; the mail form is submitMail) ---
+  const submitRegisterPw = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true); setErr('')
+    try {
+      const r = await post<{ token: string; username: string }>('/auth/member/register', { username: account, password, email: regEmail || undefined })
+      setToken(r.token)
+      onLogin(r.username)
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+  }
+  const goRegister = () => {
+    setView('register'); setErr(''); setNote('')
+    setRegMode(mailRegister ? 'mail' : 'pw')
+    if (isEmail) setEmail(account)
+  }
+  const goLogin = () => { setView('login'); setStep('account'); setErr('') }
+
+  const onSubmit = view === 'register'
+    ? (regMode === 'mail' ? submitMail : submitRegisterPw)
+    : step === 'account' ? submitAccount
+    : step === 'mail' ? submitMail
+    : step === 'reset' ? submitReset
+    : submitPassword
 
   if (accountRecovery) return <div className="login"><form className="card" onSubmit={async(e)=>{
     e.preventDefault();setBusy(true);setErr('')
@@ -222,6 +255,22 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
     )
   }
 
+  const accountChip = (
+    <div className="login-acct">
+      <span className="mono">{account}</span>
+      <button className="link small" type="button" onClick={backToAccount}>{t('换一个')}</button>
+    </div>
+  )
+  const codeField = (id: string, send: () => void) => (
+    <div className="field">
+      <label className="lbl" htmlFor={id}>{t('邮箱验证码')}</label>
+      <div className="row">
+        <input className="input mono" id={id} inputMode="numeric" autoCapitalize="none" autoComplete="one-time-code" placeholder={t('6 位数字')} value={mailCode} onChange={(e) => setMailCode(e.target.value)} required />
+        <button className="btn" type="button" disabled={busy || cooldown > 0 || !email} onClick={send}>{cooldown > 0 ? t('{n} 秒后重发', { n: cooldown }) : t('发送验证码')}</button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="login login-home">
       <aside className="login-visual">
@@ -241,111 +290,120 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         </div>
         <div className="login-visual-foot"><Icon.Lock /><span>{t('为日常运维打造的统一控制台')}</span></div>
       </aside>
-      <section className="login-stage" aria-label={t('管理员登录')}>
-        <form className="card login-card" onSubmit={mailMode ? submitMail : pwMode ? submitPw : submit}>
+      <section className="login-stage" aria-label={t('登录')}>
+        <form className="card login-card" onSubmit={onSubmit}>
  {recovered && <div className="note">{t('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。')}</div>}
           <div className="row login-card-brand"><LangToggle /></div>
-          <div className="login-form-copy"><h2>{t('欢迎回来')}</h2><p>{t('登录以继续管理节点。')}</p></div>
-        {(mailLogin || pwLogin) && (
-          <div className="seg" role="tablist" aria-label={t('登录方式')}>
-            <button type="button" className={'opt' + (mode === 'admin' ? ' on' : '')} aria-pressed={mode === 'admin'} onClick={() => { setMode('admin'); setErr('') }}>{t('密码登录')}</button>
-            {mailLogin && <button type="button" className={'opt' + (mailMode ? ' on' : '')} aria-pressed={mailMode} onClick={() => { setMode('mail'); setErr('') }}>{t('邮箱验证码')}</button>}
-            {pwLogin && <button type="button" className={'opt' + (pwMode ? ' on' : '')} aria-pressed={pwMode} onClick={() => { setMode('pw'); setPwView('login'); setErr('') }}>{t('账号密码')}</button>}
-          </div>
-        )}
-        {pwMode ? (
-          pwView === 'reset' ? (
+          {view === 'register' ? (
             <>
-              <div className="field">
-                <label className="lbl" htmlFor="rem">{t('邮箱')}</label>
-                <input className="input" id="rem" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} required />
-              </div>
-              <div className="field">
-                <label className="lbl" htmlFor="rmc">{t('邮箱验证码')}</label>
-                <div className="row">
-                  <input className="input mono" id="rmc" inputMode="numeric" autoCapitalize="none" autoComplete="one-time-code" placeholder={t('6 位数字')} value={mailCode} onChange={(e) => setMailCode(e.target.value)} required />
-                  <button className="btn" type="button" disabled={busy || cooldown > 0 || !email} onClick={sendResetCode}>{cooldown > 0 ? t('{n} 秒后重发', { n: cooldown }) : t('发送验证码')}</button>
+              <div className="login-form-copy"><h2>{t('创建账号')}</h2><p>{t('注册用户只能管理自己的节点。')}</p></div>
+              {mailRegister && pwRegister && (
+                <div className="seg" role="tablist" aria-label={t('注册方式')}>
+                  <button type="button" className={'opt' + (regMode === 'mail' ? ' on' : '')} aria-pressed={regMode === 'mail'} onClick={() => { setRegMode('mail'); setErr('') }}>{t('邮箱验证码')}</button>
+                  <button type="button" className={'opt' + (regMode === 'pw' ? ' on' : '')} aria-pressed={regMode === 'pw'} onClick={() => { setRegMode('pw'); setErr('') }}>{t('账号密码')}</button>
                 </div>
-              </div>
-              <div className="field">
-                <label className="lbl" htmlFor="rnp">{t('新密码')}</label>
-                <input className="input" id="rnp" type="password" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
-                <div className="hint">{t('用账号绑定的邮箱验证码重置登录密码；重置后所有设备的登录都会失效。')}</div>
-              </div>
-              <button className="link small" type="button" style={{ justifySelf: 'start' }} onClick={() => { setPwView('login'); setErr('') }}>{t('返回登录')}</button>
+              )}
+              {regMode === 'mail' ? (
+                <>
+                  <div className="field">
+                    <label className="lbl" htmlFor="remail">{t('邮箱')}</label>
+                    <input className="input" id="remail" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  </div>
+                  {codeField('rmc', sendMailCode)}
+                  <div className="hint">{t('验证邮箱后即完成注册并登录；注册用户只能管理自己的节点。')}</div>
+                </>
+              ) : (
+                <>
+                  <div className="field">
+                    <label className="lbl" htmlFor="ru">{t('用户名')}</label>
+                    <input className="input" id="ru" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
+                  </div>
+                  <div className="field">
+                    <label className="lbl" htmlFor="rp">{t('密码')}</label>
+                    <input className="input" id="rp" type="password" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} required />
+                  </div>
+                  <div className="field">
+                    <label className="lbl" htmlFor="rre">{t('邮箱（选填）')}</label>
+                    <input className="input" id="rre" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} />
+                    <div className="hint">{t('选填，仅作联系信息；绑定邮箱需在用户中心用验证码确认。')}</div>
+                  </div>
+                </>
+              )}
+              {err && <div className="note bad">{err}</div>}
+              <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : t('注册并登录')}</button>
+              <div className="hint login-alt">{t('已有账号？')} <button className="link small" type="button" onClick={goLogin}>{t('去登录')}</button></div>
             </>
           ) : (
             <>
-              <div className="field">
-                <label className="lbl" htmlFor="mu">{t('用户名')}</label>
-                <input className="input" id="mu" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
-              </div>
-              <div className="field">
-                <label className="lbl" htmlFor="mp">{t('密码')}</label>
-                <input className="input" id="mp" type="password" autoComplete={pwView === 'register' ? 'new-password' : 'current-password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={pwView === 'register' ? 8 : undefined} value={password} onChange={(e) => setPassword(e.target.value)} required />
-              </div>
-              {pwView === 'register' && (
-                <div className="field">
-                  <label className="lbl" htmlFor="mre">{t('邮箱（选填）')}</label>
-                  <input className="input" id="mre" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} />
-                  <div className="hint">{t('选填，仅作联系信息；绑定邮箱需在用户中心用验证码确认。')}</div>
-                </div>
+              <div className="login-form-copy"><h2>{t('欢迎回来')}</h2><p>{t('登录以继续管理节点。')}</p></div>
+              {step === 'account' && (
+                <>
+                  {anyGithub && <button className="btn github" type="button" disabled={busy} onClick={githubAnyLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
+                  {sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoAnyLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
+                  {anyPasskey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyAnyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
+                  {passkey && <button className="link small" type="button" disabled={busy} onClick={() => { setAccountRecovery(true); setErr('') }}>{t('无法使用通行密钥？恢复账号')}</button>}
+                  {telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
+                  {anyThirdParty && <div className="or"><span>{t('或')}</span></div>}
+                  <div className="field">
+                    <label className="lbl" htmlFor="acct">{t('账号')}</label>
+                    <input className="input" id="acct" ref={accountRef} autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder={t('用户名或邮箱')} value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+                    {accountHint && <div className="hint">{accountHint}</div>}
+                  </div>
+                </>
               )}
-              {pwNote && <div className="note">{pwNote}</div>}
-              <div className="hint">{t('注册用户用账号密码登录，只能管理自己的节点。')}</div>
-              <div className="row">
-                {pwView === 'login' && pwRegister && <button className="link small" type="button" onClick={() => { setPwView('register'); setErr(''); setPwNote('') }}>{t('没有账号？注册')}</button>}
-                {pwView === 'login' && mailLogin && <button className="link small" type="button" onClick={() => { setPwView('reset'); setErr('') }}>{t('忘记密码')}</button>}
-                {pwView === 'register' && <button className="link small" type="button" onClick={() => { setPwView('login'); setErr('') }}>{t('已有账号？登录')}</button>}
-              </div>
+              {step === 'mail' && (
+                <>
+                  {accountChip}
+                  {codeField('mc', sendMailCode)}
+                  <div className="hint">{mailRegister ? t('注册用户用邮箱验证码登录，只能管理自己的节点；没有账号且开放注册时将自动注册。') : t('注册用户用邮箱验证码登录，只能管理自己的节点。')}</div>
+                  <div className="row">
+                    <button className="link small" type="button" onClick={() => { setStep('password'); setErr('') }}>{t('使用密码登录')}</button>
+                  </div>
+                </>
+              )}
+              {step === 'password' && (
+                <>
+                  {accountChip}
+                  <div className="field">
+                    <label className="lbl" htmlFor="p">{t('密码')}</label>
+                    <input className="input" id="p" type="password" autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} autoFocus required />
+                  </div>
+                  {needTotp && (
+                    <div className="field">
+                      <label className="lbl" htmlFor="t">{t('二次验证码')}</label>
+                      <input className="input mono" id="t" inputMode={recovery ? 'text' : 'numeric'} autoCapitalize="none" autoComplete="one-time-code" placeholder={recovery ? 'xxxxx-xxxxx' : t('6 位数字')} value={totp} onChange={(e) => setTotp(e.target.value)} autoFocus />
+                      <button className="link small" type="button" style={{ justifySelf: 'start', marginTop: 4 }} onClick={() => { setRecovery(!recovery); setTotp('') }}>{recovery ? t('使用验证器的 6 位验证码') : t('验证器不在身边？使用恢复码')}</button>
+                    </div>
+                  )}
+                  {note && <div className="note">{note}</div>}
+                  <div className="row">
+                    {!isEmail && mailLogin && <button className="link small" type="button" onClick={askEmailForCode}>{t('使用邮箱验证码登录')}</button>}
+                    {pwLogin && <button className="link small" type="button" onClick={() => { if (isEmail) setEmail(account); setStep('reset'); setErr('') }}>{t('忘记密码')}</button>}
+                  </div>
+                </>
+              )}
+              {step === 'reset' && (
+                <>
+                  <div className="field">
+                    <label className="lbl" htmlFor="rem">{t('邮箱')}</label>
+                    <input className="input" id="rem" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  </div>
+                  {codeField('rmc2', sendResetCode)}
+                  <div className="field">
+                    <label className="lbl" htmlFor="rnp">{t('新密码')}</label>
+                    <input className="input" id="rnp" type="password" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+                    <div className="hint">{t('用账号绑定的邮箱验证码重置登录密码；重置后所有设备的登录都会失效。')}</div>
+                  </div>
+                  <button className="link small" type="button" style={{ justifySelf: 'start' }} onClick={() => { setStep('password'); setErr('') }}>{t('返回登录')}</button>
+                </>
+              )}
+              {err && <div className="note bad">{err}</div>}
+              <button className="btn pri" type="submit" disabled={busy || (step === 'account' && !account)}>{busy ? t('登录中…') : step === 'account' ? t('下一步') : step === 'reset' ? t('重置密码') : t('登录')}</button>
+              {step === 'account' && anyRegister && (
+                <div className="hint login-alt">{t('没有账号？')} <button className="link small" type="button" onClick={goRegister}>{t('立即注册')}</button></div>
+              )}
             </>
-          )
-        ) : mailMode ? (
-          <>
-            <div className="field">
-              <label className="lbl" htmlFor="em">{t('邮箱')}</label>
-              <input className="input" id="em" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label className="lbl" htmlFor="mc">{t('邮箱验证码')}</label>
-              <div className="row">
-                <input className="input mono" id="mc" inputMode="numeric" autoCapitalize="none" autoComplete="one-time-code" placeholder={t('6 位数字')} value={mailCode} onChange={(e) => setMailCode(e.target.value)} required />
-                <button className="btn" type="button" disabled={busy || cooldown > 0 || !email} onClick={sendMailCode}>{cooldown > 0 ? t('{n} 秒后重发', { n: cooldown }) : t('发送验证码')}</button>
-              </div>
-              <div className="hint">{t('注册用户用邮箱验证码登录，只能管理自己的节点；没有账号且开放注册时将自动注册。')}</div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="field">
-              <label className="lbl" htmlFor="u">{t('用户名')}</label>
-              <input className="input" id="u" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label className="lbl" htmlFor="p">{t('密码')}</label>
-              <input className="input" id="p" type="password" autoComplete="current-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={password} onChange={(e) => setPassword(e.target.value)} required />
-            </div>
-            {needTotp && (
-              <div className="field">
-                <label className="lbl" htmlFor="t">{t('二次验证码')}</label>
-                <input className="input mono" id="t" inputMode={recovery ? 'text' : 'numeric'} autoCapitalize="none" autoComplete="one-time-code" placeholder={recovery ? 'xxxxx-xxxxx' : t('6 位数字')} value={totp} onChange={(e) => setTotp(e.target.value)} autoFocus />
-                <button className="link small" type="button" style={{ justifySelf: 'start', marginTop: 4 }} onClick={() => { setRecovery(!recovery); setTotp('') }}>{recovery ? t('使用验证器的 6 位验证码') : t('验证器不在身边？使用恢复码')}</button>
-              </div>
-            )}
-          </>
-        )}
-        {err && <div className="note bad">{err}</div>}
-        <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : pwMode && pwView === 'register' ? t('注册并登录') : pwMode && pwView === 'reset' ? t('重置密码') : t('登录')}</button>
-        {mode === 'admin' && (passkey || github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
-        {mode === 'admin' && passkey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
-        {mode === 'admin' && passkey && <button className="link small" type="button" disabled={busy} onClick={()=>{setAccountRecovery(true);setErr('')}}>{t('无法使用通行密钥？恢复账号')}</button>}
-        {mode === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
-        {mode === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
-        {mode === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
-        {mode !== 'admin' && (memberGithub || (memberPasskey && passkeysSupported()) || (memberSSO && sso.length > 0)) && <div className="or"><span>{t('或')}</span></div>}
-        {mode !== 'admin' && memberPasskey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={memberPasskeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
-        {mode !== 'admin' && memberGithub && <button className="btn github" type="button" disabled={busy} onClick={memberGithubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
-        {mode !== 'admin' && memberSSO && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => memberSSOLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
+          )}
         </form>
       </section>
     </div>

@@ -7,7 +7,7 @@ declare global {
     __POLARIS_BASE__?: string
     // Inlined by serveIndex (see internal/panel/router.go); undefined when
     // served by the vite dev server, where Login falls back to GET /info.
-    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; memberSSOLogin?: boolean; sso?: { id: string; name: string }[] }
+    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberMailRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; memberSSOLogin?: boolean; sso?: { id: string; name: string }[] }
   }
 }
 
@@ -74,7 +74,7 @@ async function request<T>(method: string, path: string, body?: unknown, extraHea
   let data: unknown = undefined
   try { data = text ? JSON.parse(text) : undefined } catch { data = text }
   if (!resp.ok) {
-    if (resp.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/passkeys/login/') && path !== '/auth/account-recovery') onUnauthorized()
+    if (resp.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/passkeys/login/') && !path.startsWith('/auth/passkeys/any/') && !path.startsWith('/auth/member/') && path !== '/auth/account-recovery') onUnauthorized()
     const message = isRecord(data) && typeof data.error === 'string' && data.error ? data.error : resp.statusText
     throw new ApiError(resp.status, message, data)
   }

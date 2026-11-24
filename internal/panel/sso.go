@@ -317,6 +317,13 @@ func (s *Server) ssoCallback(c *gin.Context) {
 		s.ssoUserCallback(c, st)
 		return
 	}
+	if ok && st.Kind == "any" {
+		// Unified login-page flow (anylogin.go): admin binding first,
+		// then the registered-user resolution. The admin switch below
+		// never sees these states either.
+		s.ssoAnyCallback(c, st)
+		return
+	}
 	if ok && st.Mode == "bind" {
 		page = "settings"
 	}
