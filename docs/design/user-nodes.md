@@ -168,7 +168,7 @@
 |---|---|
 | **面板（Polaris）** | 功能本体（上述 4 批）+ `internal/license` 定义：`Limits.UserNodes`、限额 kind `user_nodes`、功能 `user_nodes_open`、社区默认 3 台。面板侧与签发侧的字段名/功能 ID 必须同名同义（`userNodes` / `user_nodes_open`） |
 | **许可证（polaris-license）** | 签发侧配套：`internal/lic/lic.go` 的 `Limits` 加 `UserNodes`（参照 Plugins 的 omitempty 处理）、`AllFeatures` 加 `user_nodes_open` 及显示名；签发后台能填每用户节点上限、能勾选开放制功能，套餐预设带默认值。第 1 批并行交付 |
-| **专业版（polaris-pro）** | pro 构建的许可行为回归：参照 `license_pro_test.go` 口径，验证 pro 构建 + 许可证（含 `userNodes` 限额与 `user_nodes_open`）时配额放宽与开放制生效、不含时降级审批制——随第 1 批的 go-pro CI 一起验。v1 不为拆分而拆分：开放制没有独立于面板的第二套实现，若后续做批量审批等管理增强再落 `*_pro.go` |
+| **专业版（polaris-pro）** | **不写专用代码（2026-11-24 用户拍板：保持现状，许可证数据驱动）**。曾议过按 DDNS 的 edition 拆分把放宽判定落进 pro（社区构建硬编码 3 台+审批制），用户选不拆：免费层须在社区构建完整可用，专业版差异全部由许可证数据（限额 + `user_nodes_open`）驱动、判定在面板主仓，pro 构建与社区构建跑同一套代码。pro 侧仅有 go-pro CI 回归（第 1 批已绿）证明同一代码在 pro 构建下行为正确 |
 
 ## 11. 风险与注意
 
