@@ -62,7 +62,16 @@ func reservePasskeys(tx *gorm.DB) error {
 
 // Trust only the configured URL, never Host / X-Forwarded-Host headers.
 func (s *Server) webAuthn() (*webauthn.WebAuthn, string, error) {
-	u, e := url.Parse(s.cfg.PublicURL)
+	return webAuthnFromURL(s.cfg.PublicURL)
+}
+
+// webAuthnFromURL derives the relying party from one configured public
+// URL — the panel's PublicURL for admins, the user center's
+// portal_public_url setting for the portal face (userpasskey.go). The
+// derivation rules and their messages are shared verbatim: HTTPS (or
+// localhost), a domain name, never an IP.
+func webAuthnFromURL(raw string) (*webauthn.WebAuthn, string, error) {
+	u, e := url.Parse(raw)
 	if e != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, "", fmt.Errorf("请先配置公开 HTTPS 地址以使用通行密钥")
 	}

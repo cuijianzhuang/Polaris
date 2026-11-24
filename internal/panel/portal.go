@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -125,11 +126,39 @@ func (s *Server) issuePortalGitHubToken(u *store.User, contexts ...*gin.Context)
 	return s.issuePortalTokenMode(u, "github", contexts...)
 }
 
+// pkFP fingerprints the passkey a user-center session was issued with,
+// by the key's credential hash: the session stays valid only while
+// that key still exists for the user, so deleting the key ends it
+// even apart from the portal generation bump (userpasskey.go).
+func pkFP(credentialHash string) string {
+	if credentialHash == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte("pk:" + credentialHash))
+	return hex.EncodeToString(h[:8])
+}
+
+// issuePortalPasskeyToken signs a user-center session from a passkey
+// sign-in, stamped with the issuing key's fingerprint.
+func (s *Server) issuePortalPasskeyToken(u *store.User, credentialHash string, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenModeFP(u, "passkey", pkFP(credentialHash), contexts...)
+}
+
 // issuePortalTokenMode signs a user-center session for one sign-in
 // mode: "telegram" (bound chat), "email" (bound address) or "password"
 // (current password hash). The mode is stamped into the claims as the
 // identity the session is later checked against in portalUser.
 func (s *Server) issuePortalTokenMode(u *store.User, via string, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenModeFP(u, via, "", contexts...)
+}
+
+// issuePortalTokenModeFP is issuePortalTokenMode with an explicit
+// passkey fingerprint: a passkey session is bound to one key, which
+// the user row alone cannot name. Mode-preserving re-issues (session
+// renewal, subscription reset) pass no fingerprint and inherit the
+// current session's, exactly like the other modes inherit theirs
+// from the user row.
+func (s *Server) issuePortalTokenModeFP(u *store.User, via, passkeyFP string, contexts ...*gin.Context) (string, error) {
 	c := claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "u:" + u.ID,
@@ -147,6 +176,16 @@ func (s *Server) issuePortalTokenMode(u *store.User, via string, contexts ...*gi
 		c.PwFP = pwFP(u.PasswordHash)
 	case "github":
 		c.GhFP = ghFP(u.GitHubID)
+	case "passkey":
+		c.PkFP = passkeyFP
+		if c.PkFP == "" && len(contexts) > 0 && contexts[0] != nil {
+			if prev := s.portalClaims(contexts[0]); prev != nil && prev.User == u.ID {
+				c.PkFP = prev.PkFP
+			}
+		}
+		if c.PkFP == "" {
+			return "", errors.New("passkey session needs a key fingerprint")
+		}
 	default:
 		via = "telegram"
 		c.Chat = u.TelegramID
@@ -169,6 +208,8 @@ func (s *Server) portalSessionMode(c *gin.Context) string {
 		return "password"
 	case cl != nil && cl.GhFP != "":
 		return "github"
+	case cl != nil && cl.PkFP != "":
+		return "passkey"
 	default:
 		return "telegram"
 	}
@@ -207,7 +248,7 @@ func portalActor(u *store.User, viaMail bool) string {
 
 // portalActorForClaims names the session's user by its sign-in mode:
 // mail: for e-mail sessions, pw: for password sessions, gh: for GitHub
-// sessions, tg: otherwise.
+// sessions, pk: for passkey sessions, tg: otherwise.
 func portalActorForClaims(cl *claims, u *store.User) string {
 	switch {
 	case cl != nil && cl.MailFP != "":
@@ -216,6 +257,8 @@ func portalActorForClaims(cl *claims, u *store.User) string {
 		return "pw:" + u.Username
 	case cl != nil && cl.GhFP != "":
 		return "gh:" + u.Username
+	case cl != nil && cl.PkFP != "":
+		return "pk:" + u.Username
 	default:
 		return "tg:" + u.Username
 	}
@@ -246,6 +289,7 @@ func (s *Server) portalUser(c *gin.Context) *store.User {
 	case cl.Chat == 0 && cl.MailFP != "" && u.Email != "" && mailFP(u.Email) == cl.MailFP:
 	case cl.PwFP != "" && u.PasswordHash != "" && pwFP(u.PasswordHash) == cl.PwFP:
 	case cl.GhFP != "" && u.GitHubID != 0 && ghFP(u.GitHubID) == cl.GhFP:
+	case cl.PkFP != "" && s.userPasskeyFPExists(u.ID, cl.PkFP):
 	default:
 		return nil
 	}
@@ -292,6 +336,7 @@ func (s *Server) portalPage(c *gin.Context) {
 			"Title":        s.subTitle(s.st.GetSetting("site_title", "Polaris")),
 			"Bot":          s.portalTelegramConfigured(),
 			"GitHub":       s.githubEnabled(),
+			"Passkey":      s.userPasskeyAvailable("portal"),
 			"Mail":         s.mailLoginOn(),
 			"Register":     s.mailRegisterOn(),
 			"PwRegister":   s.passwordRegisterOn(),
@@ -354,9 +399,14 @@ func (s *Server) portalPage(c *gin.Context) {
 	if cl := s.portalClaims(c); cl != nil && cl.GhFP != "" {
 		info.LoginVia = "GitHub"
 	}
+	if cl := s.portalClaims(c); cl != nil && cl.PkFP != "" {
+		info.LoginVia = "通行密钥"
+	}
 	info.PasswordSet = u.PasswordHash != ""
 	info.GitHubBound, info.GitHubLogin = u.GitHubID != 0, u.GitHubLogin
 	info.GitHubBind = s.githubEnabled()
+	info.PasskeyCount = s.userPasskeyCount(u.ID)
+	info.PasskeyBind = s.userPasskeyAvailable("portal")
 	info.Rename = u.SelfService && s.selfRenameOn()
 	info.CarrierPick, info.Carrier = s.cdnCarrierSplitOn(), u.CDNCarrier
 	if err := s.portalCDNInfo(&info, u, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {

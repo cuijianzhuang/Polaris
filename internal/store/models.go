@@ -1076,7 +1076,7 @@ type TGAdmin struct {
 func AllModels() []any {
 	return []any{
 		&Website{}, &RestoreDrill{}, &Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
-		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &Passkey{}, &AccountRecoveryCode{}, &AuditLog{},
+		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &Passkey{}, &UserPasskey{}, &AccountRecoveryCode{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},

@@ -170,6 +170,12 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/password/set", s.portalGate(decoy, s.portalPasswordSet))
 		r.POST(portalPath+"/github/login-url", s.portalGate(decoy, s.userGitHubLoginURLPortal))
 		r.POST(portalPath+"/github/bind-url", s.portalGate(decoy, s.userGitHubBindURLPortal))
+		r.POST(portalPath+"/passkeys/login/begin", s.portalGate(decoy, s.portalPasskeyLoginBegin))
+		r.POST(portalPath+"/passkeys/login/finish", s.portalGate(decoy, s.portalPasskeyLoginFinish))
+		r.POST(portalPath+"/passkeys/register/begin", s.portalGate(decoy, s.portalPasskeyRegisterBegin))
+		r.POST(portalPath+"/passkeys/register/finish", s.portalGate(decoy, s.portalPasskeyRegisterFinish))
+		r.POST(portalPath+"/passkeys/delete", s.portalGate(decoy, s.portalPasskeyDelete))
+		r.POST(portalPath+"/passkeys/rename", s.portalGate(decoy, s.portalPasskeyRename))
 		r.GET(portalPath+"/bindings", s.portalGate(decoy, s.portalBindings))
 		r.POST(portalPath+"/bindings/github/complete", s.portalGate(decoy, s.portalGitHubBindComplete))
 		r.POST(portalPath+"/bindings/github/unbind", s.portalGate(decoy, s.portalGitHubUnbind))
@@ -187,6 +193,8 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/login", s.loginGuard, s.login)
 	api.POST("/auth/passkeys/login/begin", s.loginGuard, s.beginPasskeyLogin)
 	api.POST("/auth/passkeys/login/finish", s.loginGuard, s.finishPasskeyLogin)
+	api.POST("/auth/passkeys/user/login/begin", s.loginGuard, s.beginUserPasskeyLogin)
+	api.POST("/auth/passkeys/user/login/finish", s.loginGuard, s.finishUserPasskeyLogin)
 	api.POST("/auth/account-recovery", s.loginGuard, s.recoverPasskeyAccount)
 	api.POST("/auth/github/login-url", s.loginGuard, s.githubLoginURL)
 	api.POST("/auth/github/user/login-url", s.loginGuard, s.userGitHubLoginURLPanel)
@@ -258,6 +266,10 @@ func (s *Server) Router() http.Handler {
 	p.GET("/auth/bindings", s.memberBindings)
 	p.POST("/auth/bindings/github/unbind", s.memberGitHubUnbind)
 	p.POST("/auth/bindings/password/clear", s.memberPasswordClear)
+	p.POST("/auth/passkeys/user/register/begin", s.memberPasskeyRegisterBegin)
+	p.POST("/auth/passkeys/user/register/finish", s.memberPasskeyRegisterFinish)
+	p.POST("/auth/passkeys/user/delete", s.memberPasskeyDelete)
+	p.POST("/auth/passkeys/user/rename", s.memberPasskeyRename)
 	p.POST("/auth/logout", s.logout)
 	p.POST("/auth/sudo", s.sudo)
 	p.GET("/auth/sessions", s.listSessions)
@@ -712,8 +724,9 @@ func (s *Server) loginInfo() gin.H {
 	return gin.H{"githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
 		"passkeyLogin": s.passkeysAvailable(), "memberMailLogin": s.memberMailLoginAvailable(),
 		"memberPasswordLogin": s.memberLoginEnabled(), "memberPasswordRegister": s.memberLoginEnabled() && s.passwordRegisterOn(),
-		"memberGithubLogin": s.githubEnabled() && s.memberLoginEnabled(),
-		"sso":               s.publicSSOProviders()}
+		"memberGithubLogin":  s.githubEnabled() && s.memberLoginEnabled(),
+		"memberPasskeyLogin": s.memberPasskeyLoginAvailable(),
+		"sso":                s.publicSSOProviders()}
 }
 
 func (s *Server) publicInfo(c *gin.Context) {

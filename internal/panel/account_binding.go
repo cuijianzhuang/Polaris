@@ -244,6 +244,16 @@ func bindingSession(tx *gorm.DB, cl *claims, u store.User) error {
 	if cl.GhFP != "" && u.GitHubID != 0 && cl.GhFP == ghFP(u.GitHubID) {
 		return nil
 	}
+	if cl.PkFP != "" {
+		var rows []store.UserPasskey
+		if err := tx.Where("user_id = ?", u.ID).Find(&rows).Error; err == nil {
+			for _, r := range rows {
+				if pkFP(r.CredentialHash) == cl.PkFP {
+					return nil
+				}
+			}
+		}
+	}
 	return errPortalSessionEnded
 }
 

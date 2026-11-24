@@ -120,3 +120,68 @@
     post('password/set',body).then(function(){location.replace('/u/login')}).catch(function(e){show('p-pw-error',e.message)});
   });
 })();
+(function(){
+  // Passkey management (identity batch 3a). The list comes from the
+  // same /u/bindings view as the other methods; ceremonies run against
+  // this face's relying party, which the server configured from
+  // portal_public_url — keys registered under another domain simply
+  // cannot be used here, and the list shows each key's domain.
+  var listEl=document.getElementById('p-passkey-list'),regDialog=document.getElementById('p-passkey-register'),delDialog=document.getElementById('p-passkey-delete'),renDialog=document.getElementById('p-passkey-rename'),regButton=document.getElementById('p-bind-passkey');
+  if(!listEl&&!regButton)return;
+  function post(path,body){return fetch('/u/'+path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body||{})}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok){if(r.status===401)location.replace('/u/login');throw new Error(j.error||'操作失败，请重试')}return j})})}
+  function get(path){return fetch('/u/'+path,{credentials:'same-origin',cache:'no-store',headers:{'X-Polaris-Portal':'1'}}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'操作失败，请重试');return j})})}
+  function show(id,text){var el=document.getElementById(id);if(el){el.textContent=text;el.hidden=!text}}
+  function dec(s){s=String(s).replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var raw=atob(s),buf=new Uint8Array(raw.length);for(var i=0;i<raw.length;i++)buf[i]=raw.charCodeAt(i);return buf.buffer}
+  function enc(v){if(!v)return null;var b='',u=new Uint8Array(v);for(var i=0;i<u.length;i++)b+=String.fromCharCode(u[i]);return btoa(b).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+  function supported(){return window.isSecureContext&&typeof PublicKeyCredential!=='undefined'}
+  function createCredential(options){
+    var p=options.publicKey;
+    return navigator.credentials.create({publicKey:{challenge:dec(p.challenge),rp:p.rp,user:{id:dec(p.user.id),name:p.user.name,displayName:p.user.displayName},pubKeyCredParams:p.pubKeyCredParams,timeout:p.timeout,attestation:p.attestation,authenticatorSelection:p.authenticatorSelection,excludeCredentials:(p.excludeCredentials||[]).map(function(c){return {type:c.type||'public-key',id:dec(c.id),transports:c.transports}})}}).then(function(cred){
+      var r=cred.response;
+      return {id:cred.id,rawId:enc(cred.rawId),type:cred.type,authenticatorAttachment:cred.authenticatorAttachment,clientExtensionResults:cred.getClientExtensionResults?cred.getClientExtensionResults():{},response:{clientDataJSON:enc(r.clientDataJSON),attestationObject:enc(r.attestationObject),transports:r.getTransports?r.getTransports():[]}};
+    });
+  }
+  function render(keys){
+    if(!listEl)return;
+    listEl.innerHTML='';
+    (keys||[]).forEach(function(k){
+      var row=document.createElement('div');row.className='p-inline-actions';row.style.alignItems='center';
+      var label=document.createElement('span');label.textContent=k.name+' · '+k.rpId+(k.lastUsedAt?' · 最近使用 '+String(k.lastUsedAt).slice(0,10):'');
+      var ren=document.createElement('button');ren.className='btn alt';ren.type='button';ren.textContent='改名';
+      ren.addEventListener('click',function(){openDialog(renDialog);renaming=k;document.getElementById('p-pk-rename-name').value=k.name;show('p-pk-rename-error','')});
+      var del=document.createElement('button');del.className='btn alt';del.type='button';del.textContent='删除';
+      del.addEventListener('click',function(){deleting=k;document.getElementById('p-pk-del-name').textContent=k.name;show('p-pk-del-error','');openDialog(delDialog)});
+      row.appendChild(label);row.appendChild(ren);row.appendChild(del);listEl.appendChild(row);
+    });
+  }
+  function refresh(){get('bindings').then(function(m){render(m.passkeys)}).catch(function(){})}
+  function openDialog(d){if(d&&!d.open)d.showModal()}
+  document.querySelectorAll('[data-pk-close]').forEach(function(b){b.addEventListener('click',function(){b.closest('dialog').close()})});
+  var deleting=null,renaming=null;
+  if(regButton){
+    if(!supported())regButton.disabled=true;
+    regButton.addEventListener('click',function(){show('p-pk-reg-error','');openDialog(regDialog)});
+  }
+  var regForm=document.getElementById('p-passkey-register-form');
+  if(regForm)regForm.addEventListener('submit',function(event){
+    event.preventDefault();show('p-pk-reg-error','');
+    var name=document.getElementById('p-pk-name').value.trim(),cur=document.getElementById('p-pk-current');
+    post('passkeys/register/begin',{name:name,currentPassword:cur?cur.value:undefined}).then(function(b){
+      return createCredential(b.options).then(function(credential){
+        return post('passkeys/register/finish',{challengeId:b.challengeId,credential:credential});
+      });
+    }).then(function(){location.replace('/u#account');location.reload()}).catch(function(e){show('p-pk-reg-error',e&&e.name==='NotAllowedError'?'设备验证已取消或超时，请重试':(e.message||'操作失败，请重试'))});
+  });
+  var delForm=document.getElementById('p-passkey-delete-form');
+  if(delForm)delForm.addEventListener('submit',function(event){
+    event.preventDefault();if(!deleting)return;show('p-pk-del-error','');
+    var cur=document.getElementById('p-pk-del-current');
+    post('passkeys/delete',{id:deleting.id,currentPassword:cur?cur.value:undefined}).then(function(){location.replace('/u/login')}).catch(function(e){show('p-pk-del-error',e.message)});
+  });
+  var renForm=document.getElementById('p-passkey-rename-form');
+  if(renForm)renForm.addEventListener('submit',function(event){
+    event.preventDefault();if(!renaming)return;show('p-pk-rename-error','');
+    post('passkeys/rename',{id:renaming.id,name:document.getElementById('p-pk-rename-name').value}).then(function(){renDialog.close();refresh()}).catch(function(e){show('p-pk-rename-error',e.message)});
+  });
+  refresh();
+})();
