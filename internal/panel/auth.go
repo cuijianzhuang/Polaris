@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ type claims struct {
 	Username    string `json:"usr"`
 	Version     int    `json:"ver"`
 	TG          string `json:"tg,omitempty"`  // Telegram admin id for bot sign-ins
+	Mem         string `json:"mem,omitempty"` // registered user id for member sign-ins (memberlogin.go)
 	PortalEpoch uint64 `json:"pe,omitempty"`  // user-center generation, independent of admin sessions
 	SID         string `json:"sid,omitempty"` // admin session (store.AdminSession)
 	// User center sessions (portal.go): never valid for the admin API.
@@ -177,6 +179,13 @@ func (s *Server) authRequired(c *gin.Context) {
 		c.Next()
 		return
 	}
+	if cl.Mem != "" {
+		// Registered-user sign-in: admission, account state, the portal
+		// generation and the node scope are all re-derived per request
+		// (memberlogin.go, design D4/D6).
+		s.authMember(c, cl)
+		return
+	}
 	// Sessions die with the admin account and on password change.
 	var a store.Admin
 	if s.st.DB.Select("id", "username", "token_version", "role", "node_ids").First(&a, "id = ?", cl.Subject).Error != nil || a.TokenVersion != cl.Version {
@@ -271,6 +280,18 @@ func (s *Server) login(c *gin.Context) {
 }
 
 func (s *Server) me(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		// The nodeIds are the freshly computed operation scope, for
+		// rendering only; the backend re-derives it on every request.
+		ids := []string{}
+		for id := range nodeScope(c) {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		c.JSON(http.StatusOK, gin.H{"username": memberDisplayName(u), "email": u.Email, "role": memberRole, "scoped": true,
+			"nodeIds": ids, "avatarURL": sub.AvatarURL(u.Email)})
+		return
+	}
 	if v, ok := c.Get("tgAdmin"); ok {
 		a := v.(*store.TGAdmin)
 		out := gin.H{"username": "tg:" + a.Name, "telegram": true, "role": a.Role, "avatarEmail": a.AvatarEmail, "avatarURL": sub.AvatarURL(a.AvatarEmail)}

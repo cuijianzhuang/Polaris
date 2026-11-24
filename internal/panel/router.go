@@ -187,6 +187,8 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/tg", s.loginGuard, s.tgLogin)
 	api.POST("/auth/tg/start", s.loginGuard, s.tgWebLoginStart)
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
+	api.POST("/auth/mail/code", s.loginGuard, s.panelMailCode)
+	api.POST("/auth/mail/verify", s.loginGuard, s.panelMailVerify)
 	api.POST("/auth/sso/:id/login-url", s.loginGuard, s.ssoLoginURL)
 	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
 	// HA join endpoints use one-time join tokens, never the admin session.
@@ -688,7 +690,7 @@ func (s *Server) decoy() gin.HandlerFunc {
 // index.html by serveIndex so the buttons render on first paint.
 func (s *Server) loginInfo() gin.H {
 	return gin.H{"githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
-		"passkeyLogin": s.passkeysAvailable(), "sso": s.publicSSOProviders()}
+		"passkeyLogin": s.passkeysAvailable(), "memberMailLogin": s.memberMailLoginAvailable(), "sso": s.publicSSOProviders()}
 }
 
 func (s *Server) publicInfo(c *gin.Context) {

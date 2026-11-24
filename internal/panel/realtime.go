@@ -103,6 +103,16 @@ func (s *Server) sessionCheck(c *gin.Context) func() bool {
 			return n > 0
 		}
 	}
+	if u := memberUserOf(c); u != nil {
+		id := u.ID
+		return func() bool {
+			if !alive() {
+				return false
+			}
+			var mu store.User
+			return s.st.DB.Select("id", "status").First(&mu, "id = ?", id).Error == nil && mu.Status != "disabled"
+		}
+	}
 	adminID, version := c.GetString("adminID"), c.GetInt("tokenVersion")
 	return func() bool {
 		var a store.Admin
