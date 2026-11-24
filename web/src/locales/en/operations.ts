@@ -676,5 +676,8 @@ const operations: Record<string, string> = {
   "用户接入的节点先待审批：能上线供你核对机器信息，但不下发配置、不被订阅使用，你批准后才生效。": "Nodes users bring in wait for review first: they can come online so you can check the machine, but no configuration is delivered and no subscription can use them until you approve.",
   "用户接入的节点立即生效，不经审批。": "Nodes users bring in take effect immediately, without review.",
   "开放制需专业版许可：当前许可不含「用户节点开放接入」，保存后实际按审批制生效。": "Open mode needs a professional licence: the current licence does not include “User-node open access”, so after saving it effectively runs as approval mode.",
+  "注册用户登录面板": "Registered-user panel sign-in",
+  "注册用户登录面板：开启后注册用户可用邮箱验证码登录面板，只能查看和运维自己的节点": "Registered-user panel sign-in: when on, registered users can sign in to the panel with an e-mail code and only see and operate their own nodes",
+  "接入模式为「关闭」时，注册用户登录面板不可用。": "While the access mode is “Off”, registered-user panel sign-in is unavailable.",
 }
 export default operations

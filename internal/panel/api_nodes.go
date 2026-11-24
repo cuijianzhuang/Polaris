@@ -98,7 +98,21 @@ func (s *Server) nodeViews() []nodeView {
 // the admin's own nodes, user = any user-brought node, anything else = that
 // owner's user id) and ?reviewState= (pending / approved / rejected).
 func (s *Server) listNodes(c *gin.Context) {
-	vs := scopedNodeViews(s.nodeViews(), nodeScope(c))
+	var vs []nodeView
+	if u := memberUserOf(c); u != nil {
+		// Members list every node they own, pending and rejected included
+		// (design D4's list exception): the list is metadata about their
+		// own machines, while every operation path stays limited to the
+		// approved scope the guards enforce.
+		vs = make([]nodeView, 0)
+		for _, v := range s.nodeViews() {
+			if v.OwnerID == u.ID {
+				vs = append(vs, v)
+			}
+		}
+	} else {
+		vs = scopedNodeViews(s.nodeViews(), nodeScope(c))
+	}
 	owner, review := c.Query("owner"), c.Query("reviewState")
 	if owner != "" || review != "" {
 		out := make([]nodeView, 0, len(vs))

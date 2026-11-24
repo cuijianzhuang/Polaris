@@ -130,7 +130,9 @@ var scopedRoutes = map[string]bool{
 	"GET /stats/traffic":                true, // only with ?node= in scope, see scopeGuard
 }
 
-// scopeGuard enforces scopedRoutes and the node scope of path parameters.
+// scopeGuard enforces the caller's route whitelist (scopedRoutes for
+// operators, memberRoutes for members) and the node scope of path
+// parameters.
 func (s *Server) scopeGuard(c *gin.Context) {
 	sc := nodeScope(c)
 	if sc == nil {
@@ -138,7 +140,16 @@ func (s *Server) scopeGuard(c *gin.Context) {
 		return
 	}
 	route := strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
-	if !scopedRoutes[c.Request.Method+" "+route] && !(c.GetString("adminID") != "" && selfAccountRoutes[c.Request.Method+" "+route]) {
+	key := c.Request.Method + " " + route
+	member := c.GetString("adminRole") == memberRole
+	allowed := scopedRoutes[key]
+	if member {
+		allowed = memberRoutes[key]
+	}
+	if !allowed && (c.GetString("adminID") != "" || member) && selfAccountRoutes[key] {
+		allowed = true
+	}
+	if !allowed {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员无权访问此功能"})
 		return
 	}

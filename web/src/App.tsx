@@ -464,7 +464,7 @@ function Session() {
   }, [])
   useEffect(() => {
     if (!user || !getToken()) return
-    get<{ username: string; role?: string; nodeIds?: string[]; avatarURL?: string }>('/auth/me').then((m) => { setUser(m.username); setAvatar({ username: m.username, url: m.avatarURL || '' }); setRole(m.role || 'owner'); setScoped(m.role === 'operator' || !!m.nodeIds); setAccessError('') }).catch((e) => setAccessError(String(e)))
+    get<{ username: string; role?: string; scoped?: boolean; nodeIds?: string[]; avatarURL?: string }>('/auth/me').then((m) => { setUser(m.username); setAvatar({ username: m.username, url: m.avatarURL || '' }); setRole(m.role || 'owner'); setScoped(m.role === 'operator' || m.role === 'member' || !!m.scoped || !!m.nodeIds); setAccessError('') }).catch((e) => setAccessError(String(e)))
   }, [user === null])
   useEffect(() => {
     const refreshAvatar = () => { get<{ username: string; avatarURL?: string }>('/auth/me').then((m) => setAvatar({ username: m.username, url: m.avatarURL || '' })).catch(() => {}) }
@@ -484,7 +484,7 @@ function Session() {
             accessError ? (
               <div className="card" style={{ margin: 20 }}><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={() => location.reload()}>{t('重新加载')}</button></div>
             ) : <AppShellSkeleton />
-          ) : !['owner', 'operator', 'viewer', 'support', 'finance'].includes(role) ? (
+          ) : !['owner', 'operator', 'viewer', 'support', 'finance', 'member'].includes(role) ? (
             <div className="card" style={{ margin: 20 }}><p role="alert">{t('无法读取账号权限')}</p><button className="btn" onClick={logout}>{t('退出登录')}</button></div>
           ) : ['viewer', 'support', 'finance'].includes(role) ? (
             <StaffWorkspace role={role} username={user} avatarURL={avatarURL} onLogout={logout} />

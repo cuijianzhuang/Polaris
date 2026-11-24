@@ -188,6 +188,9 @@ func sessionOwner(c *gin.Context) string {
 	if v, ok := c.Get("tgAdmin"); ok {
 		return "tg:" + v.(*store.TGAdmin).ID
 	}
+	if u := memberUserOf(c); u != nil {
+		return u.ID
+	}
 	return c.GetString("adminID")
 }
 
@@ -257,8 +260,13 @@ func (s *Server) logout(c *gin.Context) {
 
 // sudoOK reports a recent re-verification on the caller's session. Telegram
 // sessions are confirmed on a bound device at sign-in and have no password,
-// so they pass.
+// so they pass. Member sessions never pass: a registered user has no
+// password to re-verify with, and copying the Telegram pass would hand
+// every sensitive action to a self-registered account (design red line 2).
 func (s *Server) sudoOK(c *gin.Context) bool {
+	if memberUserOf(c) != nil {
+		return false
+	}
 	if _, ok := c.Get("tgAdmin"); ok {
 		return true
 	}
@@ -295,6 +303,10 @@ func (s *Server) sudo(c *gin.Context) {
 	}
 	if _, ok := c.Get("tgAdmin"); ok {
 		c.JSON(http.StatusOK, gin.H{"until": time.Now().Add(sudoTTL)})
+		return
+	}
+	if memberUserOf(c) != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "当前账号不支持身份复验"})
 		return
 	}
 	ip := clientIP(c.Request)

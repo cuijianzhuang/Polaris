@@ -58,6 +58,10 @@ func (s *Server) adminRoleGuard(c *gin.Context) {
 	switch role {
 	case "operator":
 		allowed = allowed || scopedRoutes[route]
+	case memberRole:
+		// Members check their own table only: three tables stay isolated
+		// so growing scopedRoutes never grows the member surface.
+		allowed = allowed || memberRoutes[route]
 	case "viewer":
 		allowed = allowed || route == "GET /staff/nodes"
 	case "support":

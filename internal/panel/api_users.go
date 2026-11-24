@@ -570,8 +570,10 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	// rebuilds now.
 	if req.Action == "disable" {
 		s.revokeOwnedNodes(req.IDs...)
+		s.revokeMemberSessions(req.IDs...)
 	}
 	if req.Action == "delete" {
+		s.revokeMemberSessions(req.IDs...)
 		for _, id := range ownedDeleted {
 			s.hub.Kick(id)
 		}
@@ -703,6 +705,8 @@ func (s *Server) updateUser(c *gin.Context) {
 	if u.Status == "disabled" {
 		// D6: a disabled account's own nodes stop serving at once.
 		s.revokeOwnedNodes(u.ID)
+		// Its member panel sessions end with the account state.
+		s.revokeMemberSessions(u.ID)
 	}
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
@@ -741,6 +745,8 @@ func (s *Server) deleteUser(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
+	// The deleted account's member panel sessions end with it.
+	s.revokeMemberSessions(u.ID)
 	for _, id := range ownedDeleted {
 		s.hub.Kick(id)
 	}

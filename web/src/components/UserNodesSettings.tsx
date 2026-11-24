@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { get, put } from '../api'
 import { t } from '../i18n'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from './SettingsDrafts'
-import { Field, useLoad } from './ui'
+import { Field, Switch, useLoad } from './ui'
 import { ProTag, useFeature } from './License'
 
 // User-nodes card (general settings tab): how registered users may bring
@@ -20,20 +20,24 @@ export function UserNodesSettings() {
   const openOK = useFeature('user_nodes_open')
   const [mode, setMode] = useState('')
   const [baseline, setBaseline] = useState('')
+  const [memberLogin, setMemberLogin] = useState(false)
+  const [memberBaseline, setMemberBaseline] = useState<boolean | null>(null)
   const saver = useSettingsSave()
   useEffect(() => {
     if (info.data) {
       const v = info.data.user_nodes_mode || 'approval'
       setMode(v); setBaseline(v)
+      const ml = info.data.panel_member_login === 'true'
+      setMemberLogin(ml); setMemberBaseline(ml)
     }
   }, [info.data])
-  const dirty = !!baseline && mode !== baseline
+  const dirty = (!!baseline && mode !== baseline) || (memberBaseline !== null && memberLogin !== memberBaseline)
   const save = async () => {
     if (!dirty) return true
     if (saver.busy || info.loading) return false
-    return saver.run(async () => { await put('/settings', { user_nodes_mode: mode }); setBaseline(mode); info.reload() })
+    return saver.run(async () => { await put('/settings', { user_nodes_mode: mode, panel_member_login: String(memberLogin) }); setBaseline(mode); setMemberBaseline(memberLogin); info.reload() })
   }
-  useSettingsDraft({ label: t('用户节点'), dirty, busy: saver.busy, save, discard: () => { if (baseline) setMode(baseline) } })
+  useSettingsDraft({ label: t('用户节点'), dirty, busy: saver.busy, save, discard: () => { if (baseline) setMode(baseline); if (memberBaseline !== null) setMemberLogin(memberBaseline) } })
   return (
     <section className="card ops-stack">
       <div className="ctitle"><h2>{t('用户节点')}</h2></div>
@@ -54,6 +58,8 @@ export function UserNodesSettings() {
         {mode === 'open' && (openOK
           ? <div className="hint">{t('用户接入的节点立即生效，不经审批。')}</div>
           : <div className="note warn">{t('开放制需专业版许可：当前许可不含「用户节点开放接入」，保存后实际按审批制生效。')}</div>)}
+        <div className="toggle"><span>{t('注册用户登录面板：开启后注册用户可用邮箱验证码登录面板，只能查看和运维自己的节点')}</span><Switch label={t('注册用户登录面板')} on={memberLogin} onChange={setMemberLogin} /></div>
+        {memberLogin && mode === 'off' && <div className="note warn">{t('接入模式为「关闭」时，注册用户登录面板不可用。')}</div>}
         <SettingsSaveBar loading={info.loading} dirty={dirty} busy={saver.busy} error={saver.error || info.error} disabled={info.loading || !info.data} onSave={save} />
       </fieldset>
     </section>
