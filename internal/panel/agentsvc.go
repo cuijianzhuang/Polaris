@@ -94,8 +94,12 @@ func (a *agentService) Enroll(ctx context.Context, req *connect.Request[polarisv
 		return nil, err
 	}
 	a.s.audit("system", "node.enroll", n.Name, req.Msg.Hostname, req.Peer().Addr)
-	if n.CertSerial == "" {
-		a.s.applyBoundTemplates(n.ID) // first enrolment: apply label-bound templates
+	if n.CertSerial == "" && n.OwnerID == "" {
+		// First enrolment of an admin node: apply label-bound templates and
+		// run auto-binding. User-owned nodes skip both on purpose (design
+		// user-nodes, red line 8): the admin's label templates and automatic
+		// bindings must never land on a user's own machine.
+		a.s.applyBoundTemplates(n.ID)
 		go a.s.autoBindAfterEnroll(n.ID)
 	}
 	a.s.MarkDirty("enrolled", n.ID)

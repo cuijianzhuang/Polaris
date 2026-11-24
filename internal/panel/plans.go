@@ -181,6 +181,7 @@ type planReq struct {
 	ResetDay     int     `json:"resetDay"`
 	DeviceLimit  int     `json:"deviceLimit"`
 	IPLimit      int     `json:"ipLimit"`
+	NodeLimit    int     `json:"nodeLimit"`
 	Price        string  `json:"price"`
 	FallbackID   string  `json:"fallbackId"`
 	Sort         int     `json:"sort"`
@@ -201,8 +202,8 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 		return
 	}
 	switch {
-	case req.TrafficLimit < 0 || req.Days < 0 || req.Days > 3650 || req.DeviceLimit < 0 || req.IPLimit < 0:
-		badRequest(c, errors.New("流量、天数（0–3650）、设备数和 IP 数不能为负"))
+	case req.TrafficLimit < 0 || req.Days < 0 || req.Days > 3650 || req.DeviceLimit < 0 || req.IPLimit < 0 || req.NodeLimit < 0:
+		badRequest(c, errors.New("流量、天数（0–3650）、设备数、IP 数和自有节点数不能为负"))
 		return
 	case !slices.Contains(planResetPolicies, req.ResetPolicy):
 		badRequest(c, fmt.Errorf("未知的重置周期 %q", req.ResetPolicy))
@@ -259,6 +260,7 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 	g.Plan, g.IsDefault = true, false
 	g.TrafficLimit, g.Days, g.ResetPolicy, g.ResetDay = req.TrafficLimit, req.Days, req.ResetPolicy, req.ResetDay
 	g.DeviceLimit, g.IPLimit, g.Price, g.FallbackID, g.Sort = req.DeviceLimit, req.IPLimit, req.Price, req.FallbackID, req.Sort
+	g.NodeLimit = req.NodeLimit
 	g.Sale, g.PriceStars = req.Sale, req.PriceStars
 	g.ForwardEntitlement = req.ForwardEntitlement
 	g.PriceCNY, g.PriceUSDT = math.Round(req.PriceCNY*100)/100, math.Round(req.PriceUSDT*100)/100

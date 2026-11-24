@@ -372,6 +372,38 @@ func (s *Server) deleteNode(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	upstream, err := s.deleteNodeCascade(id)
+	var relayInUse *nodeRelayInUseError
+	if errors.As(err, &relayInUse) {
+		c.JSON(http.StatusConflict, gin.H{"error": relayInUse.Error()})
+		return
+	}
+	var inUse *nodeInUseError
+	if errors.As(err, &inUse) {
+		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("其他节点有 %d 个出站 / 链路引用该节点的入站，请先删除", inUse.refs)})
+		return
+	}
+	if err != nil {
+		serverError(c, err)
+		return
+	}
+	s.hub.Kick(id)
+	s.MarkDirty("upstream node deleted", upstream...)
+	s.auditCtx(c, "node.delete", n.Name, "")
+	c.Status(http.StatusNoContent)
+}
+
+// deleteNodeCascade removes a node and everything that hangs off it
+// (cores, inbounds, bindings, metrics, revisions…). It refuses while
+// other nodes still reference the node — relay targets or outbound
+// refs — with the typed errors the HTTP handlers map to 409s, and returns
+// the other nodes whose specs the deletion affects. Callers hold relayMu
+// and do the post-commit work (hub kick, MarkDirty, audit) themselves.
+//
+// The affected-node lookup runs before the transaction on purpose:
+// nodesForInbounds reads through the root DB handle, which would
+// deadlock against the transaction's connection on SQLite.
+func (s *Server) deleteNodeCascade(id string) ([]string, error) {
 	var inIDs []string
 	s.st.DB.Model(&store.Inbound{}).Where("node_id = ?", id).Pluck("id", &inIDs)
 	upstream := s.nodesForInbounds(inIDs...)
@@ -384,6 +416,7 @@ func (s *Server) deleteNode(c *gin.Context) {
 		if err := tx.Exec("UPDATE nodes SET net_last_rx=net_last_rx WHERE id = ?", id).Error; err != nil {
 			return err
 		}
+		var n store.Node
 		if err := tx.First(&n, "id = ?", id).Error; err != nil {
 			return err
 		}
@@ -444,24 +477,10 @@ func (s *Server) deleteNode(c *gin.Context) {
 		}
 		return tx.Delete(&store.Node{}, "id = ?", id).Error
 	})
-	var relayInUse *nodeRelayInUseError
-	if errors.As(err, &relayInUse) {
-		c.JSON(http.StatusConflict, gin.H{"error": relayInUse.Error()})
-		return
-	}
-	var inUse *nodeInUseError
-	if errors.As(err, &inUse) {
-		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("其他节点有 %d 个出站 / 链路引用该节点的入站，请先删除", inUse.refs)})
-		return
-	}
 	if err != nil {
-		serverError(c, err)
-		return
+		return nil, err
 	}
-	s.hub.Kick(id)
-	s.MarkDirty("upstream node deleted", upstream...)
-	s.auditCtx(c, "node.delete", n.Name, "")
-	c.Status(http.StatusNoContent)
+	return upstream, nil
 }
 
 // agentURL is the address agents dial.

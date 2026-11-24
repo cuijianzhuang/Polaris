@@ -17,41 +17,50 @@ import (
 
 // Paid features.
 const (
-	FeatureSpeedLimit   = "speed_limit"   // per-user speed limits
-	FeatureTGMenu       = "tg_menu"       // Telegram admin menus
-	FeatureBackupPush   = "backup_push"   // backups pushed to S3 / WebDAV / Telegram
-	FeatureSubConvert   = "sub_convert"   // subscription sources and groups
-	FeatureDDNS         = "ddns"          // domain bindings, addresses following node IPs
-	FeatureBranding     = "branding"      // custom logo on the panel, login page and favicon
-	FeatureThemes       = "themes"        // exclusive themes (black gold)
-	FeaturePlanAddons   = "plan_addons"   // traffic packs and per-plan node rates
-	FeatureShopPayments = "shop_payments" // online payments in the bot shop (Stars, EPay, USDT)
-	FeatureMultiPanel   = "multi_panel"   // manage several panels from one console
+	FeatureSpeedLimit    = "speed_limit"     // per-user speed limits
+	FeatureTGMenu        = "tg_menu"         // Telegram admin menus
+	FeatureBackupPush    = "backup_push"     // backups pushed to S3 / WebDAV / Telegram
+	FeatureSubConvert    = "sub_convert"     // subscription sources and groups
+	FeatureDDNS          = "ddns"            // domain bindings, addresses following node IPs
+	FeatureBranding      = "branding"        // custom logo on the panel, login page and favicon
+	FeatureThemes        = "themes"          // exclusive themes (black gold)
+	FeaturePlanAddons    = "plan_addons"     // traffic packs and per-plan node rates
+	FeatureShopPayments  = "shop_payments"   // online payments in the bot shop (Stars, EPay, USDT)
+	FeatureMultiPanel    = "multi_panel"     // manage several panels from one console
+	FeatureUserNodesOpen = "user_nodes_open" // user-owned nodes may skip admin review (open enrolment)
 )
 
 // AllFeatures lists every paid feature (what a trial unlocks).
-var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons, FeatureShopPayments, FeatureMultiPanel}
+var AllFeatures = []string{FeatureSpeedLimit, FeatureTGMenu, FeatureBackupPush, FeatureSubConvert, FeatureDDNS, FeatureBranding, FeatureThemes, FeaturePlanAddons, FeatureShopPayments, FeatureMultiPanel, FeatureUserNodesOpen}
 
 // Limit kinds.
 const (
-	LimitNodes   = "nodes"
-	LimitUsers   = "users"
-	LimitPlugins = "plugins"
+	LimitNodes     = "nodes"
+	LimitUsers     = "users"
+	LimitPlugins   = "plugins"
+	LimitUserNodes = "user_nodes"
 )
 
 // CommunityPlugins is how many plugins the community edition may install.
 const CommunityPlugins = 3
 
+// CommunityUserNodes is how many own servers each portal user may manage
+// on the community edition.
+const CommunityUserNodes = 3
+
 // Community edition: no paid features; node and user caps are not set yet
-// (0 = unlimited); plugins are capped at CommunityPlugins.
-var Community = Limits{Nodes: 0, Users: 0, Plugins: CommunityPlugins}
+// (0 = unlimited); plugins are capped at CommunityPlugins and each user's
+// own nodes at CommunityUserNodes.
+var Community = Limits{Nodes: 0, Users: 0, Plugins: CommunityPlugins, UserNodes: CommunityUserNodes}
 
 // Limits caps what an instance may manage (0 = unlimited). A license issued
-// before plugins existed carries no plugins cap, which means unlimited.
+// before plugins existed carries no plugins cap, which means unlimited; the
+// same applies to userNodes for licenses issued before user-owned nodes.
 type Limits struct {
-	Nodes   int `json:"nodes"`
-	Users   int `json:"users"`
-	Plugins int `json:"plugins,omitempty"`
+	Nodes     int `json:"nodes"`
+	Users     int `json:"users"`
+	Plugins   int `json:"plugins,omitempty"`
+	UserNodes int `json:"userNodes,omitempty"`
 }
 
 // License is the signed document.

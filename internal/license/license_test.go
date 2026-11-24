@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -163,5 +164,51 @@ func TestOnlineGraceReadOnly(t *testing.T) {
 				t.Fatal("grace must not revoke existing runtime entitlements")
 			}
 		})
+	}
+}
+
+func TestUserNodesLimits(t *testing.T) {
+	// Community edition: each user may manage CommunityUserNodes (3) own
+	// servers.
+	if CommunityUserNodes != 3 {
+		t.Fatalf("CommunityUserNodes = %d, want 3", CommunityUserNodes)
+	}
+	st := Evaluate(Inputs{Now: time.Now()})
+	if got := st.Limit(LimitUserNodes); got != CommunityUserNodes {
+		t.Fatalf("community user-node limit = %d, want %d", got, CommunityUserNodes)
+	}
+	// A licence cap is honoured as-is.
+	if got := (State{Limits: Limits{UserNodes: 7}}).Limit(LimitUserNodes); got != 7 {
+		t.Fatalf("licence user-node limit = %d, want 7", got)
+	}
+	// Licences issued before user-owned nodes carry no userNodes field:
+	// 0 = unlimited, the same grandfathering plugins got.
+	pub, priv := keypair(t)
+	l := &License{ID: "lic_old", Plan: "pro", Limits: Limits{Nodes: 20}, IssuedAt: "2026-01-01"}
+	text, err := Sign(l, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Parse(text, []ed25519.PublicKey{pub}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Limits.UserNodes != 0 {
+		t.Fatalf("old licence userNodes = %d, want 0 (unlimited)", got.Limits.UserNodes)
+	}
+	// A licence that sets the field round-trips it.
+	l.Limits.UserNodes = 9
+	text, err = Sign(l, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Parse(text, []ed25519.PublicKey{pub}, "")
+	if err != nil || got.Limits.UserNodes != 9 {
+		t.Fatalf("userNodes round trip: %+v %v", got.Limits, err)
+	}
+	// Open enrolment is a regular paid feature.
+	l2 := &License{Features: []string{FeatureUserNodesOpen}}
+	if !l2.Has(FeatureUserNodesOpen) || !slices.Contains(AllFeatures, FeatureUserNodesOpen) {
+		t.Fatal("user_nodes_open not wired as a paid feature")
 	}
 }
