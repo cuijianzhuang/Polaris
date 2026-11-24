@@ -179,6 +179,9 @@ func (s *Server) validateChain(req *chainReq, chainID string) error {
 		if err := s.st.DB.First(&n, "id = ?", h.NodeID).Error; err != nil {
 			return fmt.Errorf("节点 %s 不存在", h.NodeID)
 		}
+		if n.OwnerID != "" {
+			return fmt.Errorf("用户自带节点不能用作中转链路节点：%s", nodeDisplayLabel(&n))
+		}
 	}
 	last := req.Hops[len(req.Hops)-1]
 	var landing store.Inbound

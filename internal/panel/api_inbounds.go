@@ -276,6 +276,16 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 		endpoints = append(endpoints, ep)
 	}
 	s.sealInbound(&row)
+	if node.OwnerID != "" {
+		// An inbound on a user-owned node serves its owner alone (through
+		// the owner's direct binding): it must never land in a group — not
+		// via an explicit list from any caller, and not via the default
+		// group fallback either.
+		if len(groupIDs) > 0 {
+			return store.Inbound{}, fmt.Errorf("用户自带节点的入站不能绑定分组")
+		}
+		groupIDs = []string{}
+	}
 	if groupIDs == nil {
 		groupIDs = s.defaultGroupIDs() // looked up outside the transaction (single SQLite connection)
 	}
@@ -329,6 +339,10 @@ func (s *Server) updateInbound(c *gin.Context) {
 	var node store.Node
 	if err := s.st.DB.First(&node, "id = ?", row.NodeID).Error; err != nil {
 		dbError(c, err)
+		return
+	}
+	if node.OwnerID != "" && len(req.GroupIDs) > 0 {
+		badRequest(c, fmt.Errorf("用户自带节点的入站不能绑定分组"))
 		return
 	}
 	old := s.toModelInbound(&row)

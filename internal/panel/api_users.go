@@ -76,6 +76,9 @@ func setAccess(tx *gorm.DB, userID, kind string, ids []string) error {
 	if ids == nil {
 		return nil
 	}
+	if err := checkAccessTargets(tx, userID, kind, ids); err != nil {
+		return err
+	}
 	if err := tx.Where("user_id = ? AND kind = ?", userID, kind).Delete(&store.UserAccess{}).Error; err != nil {
 		return err
 	}
@@ -95,6 +98,9 @@ func setAccess(tx *gorm.DB, userID, kind string, ids []string) error {
 // addAccess adds one binding to many users (idempotent).
 func addAccess(tx *gorm.DB, userIDs []string, kind string, targets []string) error {
 	for _, u := range userIDs {
+		if err := checkAccessTargets(tx, u, kind, targets); err != nil {
+			return err
+		}
 		for _, t := range targets {
 			if err := tx.Where(store.UserAccess{UserID: u, Kind: kind, TargetID: t}).FirstOrCreate(&store.UserAccess{UserID: u, Kind: kind, TargetID: t}).Error; err != nil {
 				return err
@@ -881,6 +887,11 @@ func (s *Server) saveGroup(c *gin.Context, g *store.Group, req *groupReq, create
 	speedChanged := (req.SpeedUpMbps != nil && max(*req.SpeedUpMbps, 0) != g.SpeedUpMbps) ||
 		(req.SpeedDownMbps != nil && max(*req.SpeedDownMbps, 0) != g.SpeedDownMbps)
 	if speedChanged && !s.requireFeature(c, license.FeatureSpeedLimit) {
+		return
+	}
+	// User-owned nodes and their inbounds never enter a group/plan pool.
+	if err := s.checkGroupTargets(req.NodeIDs, req.InboundIDs); err != nil {
+		badRequest(c, err)
 		return
 	}
 	nodesChanged := req.NodeIDs != nil || (req.Level != nil && *req.Level != g.Level)

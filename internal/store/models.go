@@ -411,11 +411,19 @@ type UserAccess struct {
 // GrantsSQL selects (user_id, inbound_id) for every way a user can be
 // authorised on an inbound: group membership (its inbounds, its whole nodes,
 // or nodes within its level), a direct inbound binding, or a node binding.
-const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id
-UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua WHERE ua.kind = 'inbound'
-UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id WHERE ua.kind = 'node'
-UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN group_nodes gn ON gn.group_id = ug.group_id JOIN inbounds i ON i.node_id = gn.node_id
-UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN "groups" g ON g.id = ug.group_id JOIN nodes n ON n.level > 0 AND n.level <= g.level JOIN inbounds i ON i.node_id = n.id`
+//
+// Every branch also joins the inbound's node and applies the user-node
+// isolation rule: an inbound on a user-owned node (nodes.owner_id set) is
+// granted to its owner alone, and only once the node is approved — no grant
+// path (group, level, direct binding, or a stale row written before the
+// save-time checks existed) can hand it to anyone else or surface a
+// pending/rejected node. Admin nodes (owner_id '' or NULL on rows that
+// predate the column) are unaffected.
+const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id JOIN inbounds i ON i.id = gi.inbound_id JOIN nodes n ON n.id = i.node_id WHERE COALESCE(n.owner_id, '') = '' OR (n.owner_id = ug.user_id AND n.review_state = 'approved')
+UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua JOIN inbounds i ON i.id = ua.target_id JOIN nodes n ON n.id = i.node_id WHERE ua.kind = 'inbound' AND (COALESCE(n.owner_id, '') = '' OR (n.owner_id = ua.user_id AND n.review_state = 'approved'))
+UNION SELECT ua.user_id, i.id FROM user_accesses ua JOIN inbounds i ON i.node_id = ua.target_id JOIN nodes n ON n.id = i.node_id WHERE ua.kind = 'node' AND (COALESCE(n.owner_id, '') = '' OR (n.owner_id = ua.user_id AND n.review_state = 'approved'))
+UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN group_nodes gn ON gn.group_id = ug.group_id JOIN inbounds i ON i.node_id = gn.node_id JOIN nodes n ON n.id = i.node_id WHERE COALESCE(n.owner_id, '') = '' OR (n.owner_id = ug.user_id AND n.review_state = 'approved')
+UNION SELECT ug.user_id, i.id FROM user_groups ug JOIN "groups" g ON g.id = ug.group_id JOIN nodes n ON n.level > 0 AND n.level <= g.level JOIN inbounds i ON i.node_id = n.id WHERE COALESCE(n.owner_id, '') = '' OR (n.owner_id = ug.user_id AND n.review_state = 'approved')`
 
 // TrafficHourly keeps hourly traffic per user and node (90 days).
 type TrafficHourly struct {
