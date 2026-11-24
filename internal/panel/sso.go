@@ -178,6 +178,10 @@ func (s *Server) deleteSSOProvider(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if err := s.st.DB.Where("provider_id = ?", c.Param("id")).Delete(&store.UserSSOBinding{}).Error; err != nil {
+		dbError(c, err)
+		return
+	}
 	if err := s.st.DB.Delete(&store.SSOProvider{}, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
 		return
@@ -306,6 +310,13 @@ func (s *Server) ssoCallback(c *gin.Context) {
 	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(c.Request, page, fragment)) }
 	fail := func(msg string) { back("gh_error=" + url.QueryEscape(msg)) }
 	st, ok := s.ghAuth.take(c.Query("state"))
+	if ok && st.Kind == "user" {
+		// Registered-user flow (usersso.go): dispatched before the
+		// admin switch, which must never see a user state — the same
+		// discipline as the GitHub callback's Kind dispatch.
+		s.ssoUserCallback(c, st)
+		return
+	}
 	if ok && st.Mode == "bind" {
 		page = "settings"
 	}

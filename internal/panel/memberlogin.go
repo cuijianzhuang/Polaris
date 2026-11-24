@@ -88,6 +88,12 @@ var memberRoutes = map[string]bool{
 	"POST /auth/passkeys/user/register/finish": true,
 	"POST /auth/passkeys/user/delete":          true,
 	"POST /auth/passkeys/user/rename":          true,
+	// Identity batch 3b: the member's own SSO bindings (bind starts
+	// here, completes by redeeming the callback's ticket here, and
+	// unbinds here; login itself is a public route).
+	"POST /auth/sso/user/bind-url":     true,
+	"POST /auth/bindings/sso/complete": true,
+	"POST /auth/bindings/sso/unbind":   true,
 }
 
 // memberActor names a member in the audit log, distinct from admin actors

@@ -144,21 +144,42 @@ func (s *Server) issuePortalPasskeyToken(u *store.User, credentialHash string, c
 	return s.issuePortalTokenModeFP(u, "passkey", pkFP(credentialHash), contexts...)
 }
 
+// ssoFP fingerprints the SSO binding a portal session was issued
+// against: the session stays valid only while a binding row with this
+// (provider, subject) still belongs to the user, so unbinding ends it
+// even apart from the portal generation bump (usersso.go).
+func ssoFP(providerID, subject string) string {
+	if providerID == "" || subject == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte("sso:" + providerID + ":" + subject))
+	return hex.EncodeToString(h[:8])
+}
+
+// issuePortalSSOToken signs a user-center session from an SSO sign-in
+// (usersso.go), stamped with the issuing binding's fingerprint.
+func (s *Server) issuePortalSSOToken(u *store.User, providerID, subject string, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenModeFP(u, "sso", ssoFP(providerID, subject), contexts...)
+}
+
 // issuePortalTokenMode signs a user-center session for one sign-in
-// mode: "telegram" (bound chat), "email" (bound address) or "password"
-// (current password hash). The mode is stamped into the claims as the
+// mode: "telegram" (bound chat), "email" (bound address), "password"
+// (current password hash) or "github" (bound account). The
+// fingerprint-bound modes ("passkey", "sso") go through
+// issuePortalTokenModeFP. The mode is stamped into the claims as the
 // identity the session is later checked against in portalUser.
 func (s *Server) issuePortalTokenMode(u *store.User, via string, contexts ...*gin.Context) (string, error) {
 	return s.issuePortalTokenModeFP(u, via, "", contexts...)
 }
 
 // issuePortalTokenModeFP is issuePortalTokenMode with an explicit
-// passkey fingerprint: a passkey session is bound to one key, which
-// the user row alone cannot name. Mode-preserving re-issues (session
-// renewal, subscription reset) pass no fingerprint and inherit the
-// current session's, exactly like the other modes inherit theirs
-// from the user row.
-func (s *Server) issuePortalTokenModeFP(u *store.User, via, passkeyFP string, contexts ...*gin.Context) (string, error) {
+// fingerprint for the modes whose identity the user row alone cannot
+// name: a passkey session is bound to one key, an SSO session to one
+// binding row. Mode-preserving re-issues (session renewal,
+// subscription reset) pass no fingerprint and inherit the current
+// session's, exactly like the other modes inherit theirs from the
+// user row.
+func (s *Server) issuePortalTokenModeFP(u *store.User, via, fp string, contexts ...*gin.Context) (string, error) {
 	c := claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "u:" + u.ID,
@@ -177,7 +198,7 @@ func (s *Server) issuePortalTokenModeFP(u *store.User, via, passkeyFP string, co
 	case "github":
 		c.GhFP = ghFP(u.GitHubID)
 	case "passkey":
-		c.PkFP = passkeyFP
+		c.PkFP = fp
 		if c.PkFP == "" && len(contexts) > 0 && contexts[0] != nil {
 			if prev := s.portalClaims(contexts[0]); prev != nil && prev.User == u.ID {
 				c.PkFP = prev.PkFP
@@ -185,6 +206,16 @@ func (s *Server) issuePortalTokenModeFP(u *store.User, via, passkeyFP string, co
 		}
 		if c.PkFP == "" {
 			return "", errors.New("passkey session needs a key fingerprint")
+		}
+	case "sso":
+		c.SsoFP = fp
+		if c.SsoFP == "" && len(contexts) > 0 && contexts[0] != nil {
+			if prev := s.portalClaims(contexts[0]); prev != nil && prev.User == u.ID {
+				c.SsoFP = prev.SsoFP
+			}
+		}
+		if c.SsoFP == "" {
+			return "", errors.New("sso session needs a binding fingerprint")
 		}
 	default:
 		via = "telegram"
@@ -210,6 +241,8 @@ func (s *Server) portalSessionMode(c *gin.Context) string {
 		return "github"
 	case cl != nil && cl.PkFP != "":
 		return "passkey"
+	case cl != nil && cl.SsoFP != "":
+		return "sso"
 	default:
 		return "telegram"
 	}
@@ -248,7 +281,8 @@ func portalActor(u *store.User, viaMail bool) string {
 
 // portalActorForClaims names the session's user by its sign-in mode:
 // mail: for e-mail sessions, pw: for password sessions, gh: for GitHub
-// sessions, pk: for passkey sessions, tg: otherwise.
+// sessions, pk: for passkey sessions, sso: for SSO sessions, tg:
+// otherwise.
 func portalActorForClaims(cl *claims, u *store.User) string {
 	switch {
 	case cl != nil && cl.MailFP != "":
@@ -259,6 +293,8 @@ func portalActorForClaims(cl *claims, u *store.User) string {
 		return "gh:" + u.Username
 	case cl != nil && cl.PkFP != "":
 		return "pk:" + u.Username
+	case cl != nil && cl.SsoFP != "":
+		return "sso:" + u.Username
 	default:
 		return "tg:" + u.Username
 	}
@@ -290,6 +326,7 @@ func (s *Server) portalUser(c *gin.Context) *store.User {
 	case cl.PwFP != "" && u.PasswordHash != "" && pwFP(u.PasswordHash) == cl.PwFP:
 	case cl.GhFP != "" && u.GitHubID != 0 && ghFP(u.GitHubID) == cl.GhFP:
 	case cl.PkFP != "" && s.userPasskeyFPExists(u.ID, cl.PkFP):
+	case cl.SsoFP != "" && s.userSSOBindingFPExists(u.ID, cl.SsoFP):
 	default:
 		return nil
 	}
@@ -330,12 +367,15 @@ func (s *Server) portalPage(c *gin.Context) {
 		return
 	}
 	if u == nil {
+		ssoProviders := s.publicSSOProviders()
 		var buf strings.Builder
 		if err := portalLoginTpl.Execute(&buf, map[string]any{
 			"Lang":         portalLang(c),
 			"Title":        s.subTitle(s.st.GetSetting("site_title", "Polaris")),
 			"Bot":          s.portalTelegramConfigured(),
 			"GitHub":       s.githubEnabled(),
+			"SSO":          s.ssoUserLoginOn() && len(ssoProviders) > 0,
+			"SSOProviders": ssoProviders,
 			"Passkey":      s.userPasskeyAvailable("portal"),
 			"Mail":         s.mailLoginOn(),
 			"Register":     s.mailRegisterOn(),
@@ -402,11 +442,18 @@ func (s *Server) portalPage(c *gin.Context) {
 	if cl := s.portalClaims(c); cl != nil && cl.PkFP != "" {
 		info.LoginVia = "通行密钥"
 	}
+	if cl := s.portalClaims(c); cl != nil && cl.SsoFP != "" {
+		info.LoginVia = "单点登录"
+	}
 	info.PasswordSet = u.PasswordHash != ""
 	info.GitHubBound, info.GitHubLogin = u.GitHubID != 0, u.GitHubLogin
 	info.GitHubBind = s.githubEnabled()
 	info.PasskeyCount = s.userPasskeyCount(u.ID)
 	info.PasskeyBind = s.userPasskeyAvailable("portal")
+	for _, b := range s.userSSOBindings(u.ID) {
+		info.SSOBindings = append(info.SSOBindings, sub.SSOBindingInfo{ProviderName: s.ssoProviderName(b.ProviderID), Login: b.Login})
+	}
+	info.SSOUserLogin = s.ssoUserLoginOn()
 	info.Rename = u.SelfService && s.selfRenameOn()
 	info.CarrierPick, info.Carrier = s.cdnCarrierSplitOn(), u.CDNCarrier
 	if err := s.portalCDNInfo(&info, u, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {

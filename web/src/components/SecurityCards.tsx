@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { SettingsSaveBar, useSettingsDraft, useSettingsSave } from './SettingsDrafts'
 import { del, get, post, put } from '../api'
 import { ago } from '../format'
-import { copyText, Field, Modal, useAction, useConfirm, useLoad } from './ui'
+import { copyText, Field, Modal, Switch, useAction, useConfirm, useLoad } from './ui'
 import { t } from '../i18n'
 
 // RecoveryCodesModal shows freshly issued recovery codes once.
@@ -138,6 +138,9 @@ const ssoPresets: { label: string; f: ProviderForm }[] = [
 export function SSOProviders() {
   const list = useLoad((signal) => get<{ providers: Provider[]; callbackUrl: string }>('/sso/providers', signal))
   const mine = useLoad((signal) => get<{ providerId: string; login: string }[]>('/auth/sso/bindings', signal))
+  const settings = useLoad((signal) => get<Record<string, any>>('/settings', signal))
+  const [ssoUser, setSsoUser] = useState<boolean | null>(null)
+  useEffect(() => { if (settings.data) setSsoUser(settings.data.sso_user_login === 'true') }, [settings.data])
   const [edit, setEdit] = useState<ProviderForm | null>(null)
   const [editBaseline, setEditBaseline] = useState('')
   const openEditor = (form: ProviderForm) => { setEdit(form); setEditBaseline(providerDraftValue(form)) }
@@ -155,6 +158,7 @@ export function SSOProviders() {
     <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div className="ctitle"><span>{t('单点登录')}</span><button className="btn sm" type="button" onClick={() => openEditor({ kind: 'oidc', name: '' })}>{t('+ 添加登录方式')}</button></div>
       <div className="sub" style={{ margin: 0 }}>{t('为登录页添加「使用 … 登录」：任意 OpenID Connect 提供方（Google、Microsoft、GitLab、Keycloak、Authentik、Okta、Auth0…）或 OAuth 2.0 服务。添加后点「绑定」把你的外部账号关联到当前管理员；开启了二次验证时仍需输入验证码。')}</div>
+      <div className="toggle"><span>{t('允许注册用户使用已启用的单点登录提供方登录用户中心与面板（用户需先绑定，或以已验证邮箱自动注册）')}</span><Switch label={t('注册用户单点登录')} on={!!ssoUser} onChange={(v) => { setSsoUser(v); run(async () => { await put('/settings', { sso_user_login: String(v) }); settings.reload() }) }} /></div>
       {ps.length === 0 && <div className="hint">{t('还没有添加单点登录。')}</div>}
       {ps.map((p) => {
         const b = bound(p.id)

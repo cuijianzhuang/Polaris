@@ -101,6 +101,54 @@
   wireRemoval('p-password-clear','p-clear-password','p-password-clear-form','p-pwc-error','data-pwc-close','bindings/password/clear',function(){return {currentPassword:document.getElementById('p-pwc-current').value}});
 })();
 (function(){
+  // SSO binding (identity batch 3b). Same ticket pattern as GitHub:
+  // the callback parks a one-use ticket in the query string and this
+  // page redeems it under the portal session that started the flow.
+  // The provider rows render from the same /u/bindings view as the
+  // other methods.
+  var listEl=document.getElementById('p-sso-list'),dialog=document.getElementById('p-sso-unbind');
+  if(!listEl&&!dialog)return;
+  function post(path,body){return fetch('/u/'+path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body||{})}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok){if(r.status===401)location.replace('/u/login');throw new Error(j.error||'操作失败，请重试')}return j})})}
+  function get(path){return fetch('/u/'+path,{credentials:'same-origin',cache:'no-store',headers:{'X-Polaris-Portal':'1'}}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok)throw new Error(j.error||'操作失败，请重试');return j})})}
+  function showCardError(text){var el=document.getElementById('p-binding-gh-error');if(el){el.textContent=text;el.hidden=!text}}
+  var params=new URLSearchParams(location.search),ticket=params.get('ssobind'),ssoError=params.get('sso_error');
+  if(ticket||ssoError){
+    history.replaceState(null,'',location.pathname+'#account');
+    if(ssoError)showCardError(ssoError);
+    else post('bindings/sso/complete',{ticket:ticket}).then(function(){location.replace('/u#account');location.reload()}).catch(function(e){showCardError(e.message)});
+  }
+  var unbinding=null;
+  function showUnbindError(text){var el=document.getElementById('p-sso-unbind-error');if(el){el.textContent=text;el.hidden=!text}}
+  if(dialog){
+    dialog.querySelectorAll('[data-sso-close]').forEach(function(b){b.addEventListener('click',function(){dialog.close()})});
+    document.getElementById('p-sso-unbind-form').addEventListener('submit',function(event){
+      event.preventDefault();if(!unbinding)return;showUnbindError('');
+      var cur=document.getElementById('p-sso-current');
+      post('bindings/sso/unbind',{providerId:unbinding.providerId,currentPassword:cur?cur.value:undefined}).then(function(){location.replace('/u/login')}).catch(function(e){showUnbindError(e.message)});
+    });
+  }
+  function render(m){
+    if(!listEl)return;
+    listEl.innerHTML='';
+    (m.ssoProviders||[]).forEach(function(p){
+      var bound=(m.sso||[]).filter(function(x){return x.providerId===p.id})[0];
+      var row=document.createElement('div');row.className='p-inline-actions';row.style.alignItems='center';
+      var label=document.createElement('span');label.textContent=p.name+' · '+(bound?('已绑定'+(bound.login?' · '+bound.login:'')):'未绑定');
+      var btn=document.createElement('button');btn.className='btn alt';btn.type='button';
+      if(bound){
+        btn.textContent='解绑';
+        btn.addEventListener('click',function(){unbinding={providerId:p.id};document.getElementById('p-sso-name').textContent=p.name;showUnbindError('');if(dialog&&!dialog.open)dialog.showModal()});
+      }else{
+        btn.textContent='绑定';
+        if(!m.ssoAvailable)btn.disabled=true;
+        btn.addEventListener('click',function(){showCardError('');btn.disabled=true;post('sso/bind-url',{providerId:p.id}).then(function(d){location.href=d.url}).catch(function(e){btn.disabled=false;showCardError(e.message)})});
+      }
+      row.appendChild(label);row.appendChild(btn);listEl.appendChild(row);
+    });
+  }
+  if(listEl)get('bindings').then(render).catch(function(){});
+})();
+(function(){
   var dialog=document.getElementById('p-password-set'),openButton=document.getElementById('p-set-password');
   if(!dialog||!openButton)return;
   function show(id,text){var el=document.getElementById(id);if(el){el.textContent=text;el.hidden=!text}}

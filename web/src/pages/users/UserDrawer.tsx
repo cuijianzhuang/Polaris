@@ -305,6 +305,8 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
             user.hasLoginPassword ? t('密码') : '',
             user.telegramId ? 'Telegram' : '',
             user.hasGithub ? `GitHub${user.githubLogin ? `（${user.githubLogin}）` : ''}` : '',
+            user.passkeyCount ? `${t('通行密钥')}（${user.passkeyCount}）` : '',
+            user.ssoCount ? `SSO（${user.ssoCount}）` : '',
           ].filter(Boolean).join(' · ') || t('无')}</dd>
           {(user.extraTraffic ?? 0) > 0 && <><dt>{t('流量包')}</dt><dd className="mono">+{bytes(user.extraTraffic!)} <span className="mute small">{t('（本周期有效，已计入流量配额）')}</span></dd></>}
           <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>

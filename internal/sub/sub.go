@@ -148,6 +148,12 @@ type Info struct {
 	// so the account page may offer passkey management at all.
 	PasskeyCount int
 	PasskeyBind  bool
+	// SSOBindings lists the user's bound SSO accounts (provider display
+	// name + external login) for the account page's sign-in methods
+	// card; SSOUserLogin says the deployment lets registered users use
+	// SSO at all, so the card may offer binding.
+	SSOBindings  []SSOBindingInfo
+	SSOUserLogin bool
 	// Extras are links plugins add to the user center (Portal pages only).
 	Extras []ExtraLink
 	// NodeQuotas lists per-node traffic packs and caps ("香港", "流量包剩余 20 GB").
@@ -165,6 +171,13 @@ type Info struct {
 
 	// Scheme is the rule scheme for client configs (nil = minimal default).
 	Scheme *Scheme `json:"-"`
+}
+
+// SSOBindingInfo is one bound SSO account as the account page shows
+// it: the provider's display name and the external account's login.
+type SSOBindingInfo struct {
+	ProviderName string
+	Login        string
 }
 
 // PortalOrder contains only the public summary of an order owned by the

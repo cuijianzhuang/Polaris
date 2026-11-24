@@ -170,6 +170,8 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/password/set", s.portalGate(decoy, s.portalPasswordSet))
 		r.POST(portalPath+"/github/login-url", s.portalGate(decoy, s.userGitHubLoginURLPortal))
 		r.POST(portalPath+"/github/bind-url", s.portalGate(decoy, s.userGitHubBindURLPortal))
+		r.POST(portalPath+"/sso/login-url", s.portalGate(decoy, s.userSSOLoginURLPortal))
+		r.POST(portalPath+"/sso/bind-url", s.portalGate(decoy, s.userSSOBindURLPortal))
 		r.POST(portalPath+"/passkeys/login/begin", s.portalGate(decoy, s.portalPasskeyLoginBegin))
 		r.POST(portalPath+"/passkeys/login/finish", s.portalGate(decoy, s.portalPasskeyLoginFinish))
 		r.POST(portalPath+"/passkeys/register/begin", s.portalGate(decoy, s.portalPasskeyRegisterBegin))
@@ -180,6 +182,8 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/bindings/github/complete", s.portalGate(decoy, s.portalGitHubBindComplete))
 		r.POST(portalPath+"/bindings/github/unbind", s.portalGate(decoy, s.portalGitHubUnbind))
 		r.POST(portalPath+"/bindings/password/clear", s.portalGate(decoy, s.portalPasswordClear))
+		r.POST(portalPath+"/bindings/sso/complete", s.portalGate(decoy, s.portalSSOBindComplete))
+		r.POST(portalPath+"/bindings/sso/unbind", s.portalGate(decoy, s.portalSSOUnbind))
 		r.GET(shopWebPath, s.portalGate(decoy, s.webShopPage))
 		r.POST(shopWebPath+"/order", s.portalGate(decoy, s.webShopBuy))
 		r.POST(shopWebPath+"/redeem", s.portalGate(decoy, s.webShopRedeem))
@@ -198,6 +202,7 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/account-recovery", s.loginGuard, s.recoverPasskeyAccount)
 	api.POST("/auth/github/login-url", s.loginGuard, s.githubLoginURL)
 	api.POST("/auth/github/user/login-url", s.loginGuard, s.userGitHubLoginURLPanel)
+	api.POST("/auth/sso/user/login-url", s.loginGuard, s.userSSOLoginURLPanel)
 	api.GET("/auth/github/callback", s.githubCallback)
 	api.POST("/auth/github/totp", s.loginGuard, s.githubTOTP)
 	api.GET("/info", s.publicInfo)
@@ -263,9 +268,12 @@ func (s *Server) Router() http.Handler {
 	// role only; the handlers refuse every other principal).
 	p.POST("/auth/github/user/bind-url", s.userGitHubBindURLPanel)
 	p.POST("/auth/github/user/bind-complete", s.userGitHubBindComplete)
+	p.POST("/auth/sso/user/bind-url", s.userSSOBindURLPanel)
 	p.GET("/auth/bindings", s.memberBindings)
 	p.POST("/auth/bindings/github/unbind", s.memberGitHubUnbind)
 	p.POST("/auth/bindings/password/clear", s.memberPasswordClear)
+	p.POST("/auth/bindings/sso/complete", s.memberSSOBindComplete)
+	p.POST("/auth/bindings/sso/unbind", s.memberSSOUnbind)
 	p.POST("/auth/passkeys/user/register/begin", s.memberPasskeyRegisterBegin)
 	p.POST("/auth/passkeys/user/register/finish", s.memberPasskeyRegisterFinish)
 	p.POST("/auth/passkeys/user/delete", s.memberPasskeyDelete)
@@ -726,6 +734,7 @@ func (s *Server) loginInfo() gin.H {
 		"memberPasswordLogin": s.memberLoginEnabled(), "memberPasswordRegister": s.memberLoginEnabled() && s.passwordRegisterOn(),
 		"memberGithubLogin":  s.githubEnabled() && s.memberLoginEnabled(),
 		"memberPasskeyLogin": s.memberPasskeyLoginAvailable(),
+		"memberSSOLogin":     s.ssoUserLoginOn() && s.memberLoginEnabled(),
 		"sso":                s.publicSSOProviders()}
 }
 

@@ -227,6 +227,8 @@ const m: Record<string, string> = {
   '+ 添加登录方式': '+ Add sign-in method',
   '为登录页添加「使用 … 登录」：任意 OpenID Connect 提供方（Google、Microsoft、GitLab、Keycloak、Authentik、Okta、Auth0…）或 OAuth 2.0 服务。添加后点「绑定」把你的外部账号关联到当前管理员；开启了二次验证时仍需输入验证码。': 'Add "Sign in with …" to the login page: any OpenID Connect provider (Google, Microsoft, GitLab, Keycloak, Authentik, Okta, Auth0…) or OAuth 2.0 service. After adding, click "Link" to connect your external account to the current admin; a two-factor code is still required if two-factor is on.',
   '还没有添加单点登录。': 'No single sign-on methods yet.',
+  '允许注册用户使用已启用的单点登录提供方登录用户中心与面板（用户需先绑定，或以已验证邮箱自动注册）': 'Allow registered users to sign in to the user center and panel with the enabled SSO providers (users bind first, or auto-register with a verified e-mail)',
+  '注册用户单点登录': 'Registered-user SSO',
   '已绑定：{login}': 'Linked: {login}',
   '当前管理员未绑定': 'Not linked to the current admin',
   '删除登录方式 {name}？已绑定的账号一并解除。': 'Delete sign-in method {name}? Linked accounts will be unlinked too.',

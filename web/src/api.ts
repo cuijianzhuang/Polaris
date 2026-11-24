@@ -7,7 +7,7 @@ declare global {
     __POLARIS_BASE__?: string
     // Inlined by serveIndex (see internal/panel/router.go); undefined when
     // served by the vite dev server, where Login falls back to GET /info.
-    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; sso?: { id: string; name: string }[] }
+    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; memberGithubLogin?: boolean; memberPasskeyLogin?: boolean; memberSSOLogin?: boolean; sso?: { id: string; name: string }[] }
   }
 }
 
@@ -96,15 +96,15 @@ export function wsURL(): string {
 
 // The GitHub sign-in round trip comes back with its result in the URL
 // fragment (never sent to the server). Read it once and clear the address bar.
-export type OAuthResult = { token?: string; user?: string; error?: string; ticket?: string; bound?: string; ssoBound?: string; tg?: string; bindTicket?: string }
+export type OAuthResult = { token?: string; user?: string; error?: string; ticket?: string; bound?: string; ssoBound?: string; tg?: string; bindTicket?: string; ssoBindTicket?: string }
 let oauthResult: OAuthResult | null = null
 export function takeOAuthResult(): OAuthResult {
   if (oauthResult === null) {
     const h = new URLSearchParams(location.hash.replace(/^#/, ''))
     oauthResult = { token: h.get('token') ?? undefined, user: h.get('user') ?? undefined, error: h.get('gh_error') ?? undefined,
       ticket: h.get('gh_ticket') ?? undefined, bound: h.get('gh_bound') ?? undefined, ssoBound: h.get('sso_bound') ?? undefined, tg: h.get('tg') ?? undefined,
-      bindTicket: h.get('gh_bind_ticket') ?? undefined }
-    if (h.has('token') || h.has('gh_error') || h.has('gh_ticket') || h.has('gh_bound') || h.has('sso_bound') || h.has('tg') || h.has('gh_bind_ticket')) {
+      bindTicket: h.get('gh_bind_ticket') ?? undefined, ssoBindTicket: h.get('sso_bind_ticket') ?? undefined }
+    if (h.has('token') || h.has('gh_error') || h.has('gh_ticket') || h.has('gh_bound') || h.has('sso_bound') || h.has('tg') || h.has('gh_bind_ticket') || h.has('sso_bind_ticket')) {
       history.replaceState(null, '', location.pathname + location.search)
     }
   }

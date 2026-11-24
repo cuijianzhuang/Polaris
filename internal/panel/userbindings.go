@@ -13,13 +13,14 @@ import (
 // Binding management for registered users — see
 // docs/design/user-identity.md (batch 2, D7): one view of the
 // sign-in methods (e-mail code, password, Telegram, GitHub, and —
-// since batch 3a — passkeys, whose ceremonies live in
-// userpasskey.go), the same semantics on the user-center and
-// member-panel faces. Binding actions reuse each method's own flow;
-// this file owns the status view and the two removals that had no
-// self-service endpoint yet — GitHub unbind and sign-in password
-// clear — under one red line: an account must always keep at least
-// one sign-in method (design D8 red line 5).
+// since batch 3a/3b — passkeys, whose ceremonies live in
+// userpasskey.go, and SSO bindings, whose flow lives in usersso.go),
+// the same semantics on the user-center and member-panel faces.
+// Binding actions reuse each method's own flow; this file owns the
+// status view and the two removals that had no self-service endpoint
+// yet — GitHub unbind and sign-in password clear — under one red
+// line: an account must always keep at least one sign-in method
+// (design D8 red line 5).
 
 var errLastLoginMethod = errors.New("至少保留一种登录方式，无法解绑最后一个")
 
@@ -45,19 +46,37 @@ func loginMethodCount(u *store.User) int {
 // userLoginMethodCount is the count the last-method red line judges
 // by (design user-identity-oauth-passkey D7.1): the row-carried
 // methods plus passkeys — any registered key counts as one method,
-// however many keys there are. Every removal path consults this one
+// however many keys there are — plus one per SSO binding, each of
+// which signs in on its own. Every removal path consults this one
 // function; no endpoint counts for itself.
 func (s *Server) userLoginMethodCount(u *store.User) int {
 	n := loginMethodCount(u)
 	if s.userPasskeyCount(u.ID) > 0 {
 		n++
 	}
-	return n
+	return n + s.userSSOCount(u.ID)
 }
 
 // loginMethodsView is the status payload both faces render.
 func (s *Server) loginMethodsView(u *store.User) gin.H {
 	keys := s.userPasskeyViews(u.ID)
+	// SSO providers a user may bind to follow the master switch, but
+	// a provider the user is already bound to stays listed with the
+	// switch off: an existing binding must remain visible — and
+	// removable — on the card that owns it.
+	ssoProviders := s.userSSOProviders()
+	if !s.ssoUserLoginOn() {
+		seen := map[string]bool{}
+		for _, p := range ssoProviders {
+			seen[p["id"].(string)] = true
+		}
+		for _, b := range s.userSSOBindings(u.ID) {
+			if !seen[b.ProviderID] {
+				ssoProviders = append(ssoProviders, gin.H{"id": b.ProviderID, "name": s.ssoProviderName(b.ProviderID)})
+				seen[b.ProviderID] = true
+			}
+		}
+	}
 	return gin.H{
 		"email": u.Email != "", "emailAddress": u.Email,
 		"password": u.PasswordHash != "",
@@ -65,6 +84,7 @@ func (s *Server) loginMethodsView(u *store.User) gin.H {
 		"github":   u.GitHubID != 0, "githubLogin": u.GitHubLogin,
 		"githubAvailable": s.githubEnabled(),
 		"passkey":         len(keys) > 0, "passkeyCount": len(keys), "passkeys": keys,
+		"sso": s.userSSOBindingViews(u.ID), "ssoAvailable": s.ssoUserLoginOn(), "ssoProviders": ssoProviders,
 		"count": s.userLoginMethodCount(u),
 	}
 }
