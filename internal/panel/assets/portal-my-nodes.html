@@ -1,0 +1,104 @@
+<section class="p-service-page">
+<div class="p-heading"><div><h1>我的节点</h1><p class="mute">把自己的服务器接入面板管理，节点只服务你自己的订阅账号</p></div><a class="btn alt" href="/u#account">个人中心</a></div>
+<section class="card"><h2>自有节点额度</h2><dl class="p-definition"><div><dt>节点数量</dt><dd>{{.Count}} / {{if .Unlimited}}不限{{else}}{{.Limit}}{{end}} 台</dd></div><div><dt>接入模式</dt><dd>{{if .Off}}已关闭{{else if eq .Mode "open"}}开放制（接入即用）{{else}}审批制（接入后需管理员批准）{{end}}</dd></div></dl>{{if .Off}}<p class="err">管理员已关闭自带节点功能：现有节点仍可管理，新节点暂不可添加。</p>{{end}}</section>
+{{if .CanAdd}}<details class="card"><summary>添加节点</summary><div class="p-ticket-form"><div><label>节点名称</label><input class="p-input" id="nn-name" maxlength="64" placeholder="例如：香港小鸡"></div><div><label>服务器地址（IP 或域名）</label><input class="p-input" id="nn-address" placeholder="203.0.113.10"></div><div><label>地区（可选）</label><input class="p-input" id="nn-region" placeholder="香港"></div><div><label>国旗代码（可选）</label><input class="p-input" id="nn-flag" maxlength="2" placeholder="HK"></div><div><label>标签（可选，逗号分隔）</label><input class="p-input" id="nn-labels"></div><div><button class="btn pri" id="nn-add" type="button">添加并获取安装命令</button></div></div><div id="nn-result" hidden><p>节点已创建，在服务器上执行下面的命令完成接入：</p><p><code id="nn-cmd"></code></p><p><button class="btn alt" id="nn-copy" type="button">复制命令</button> <button class="btn alt" id="nn-reload" type="button">刷新页面</button></p><p class="mute">命令中的令牌 24 小时内有效且只能使用一次；接入后回到本页管理入站。</p></div></details>{{end}}
+<p class="err" id="err" role="alert" hidden></p>
+{{range .Nodes}}{{$nodeID := .ID}}<section class="card" data-node-card="{{.ID}}">
+<div class="p-heading"><div><h2>{{.DisplayName}}</h2><p class="mute">{{if .Online}}在线{{else}}离线{{end}}{{if .ReviewText}} · {{.ReviewText}}{{end}}{{if .LastSeenText}} · 最近在线 {{.LastSeenText}}{{end}}</p></div></div>
+<dl class="p-definition"><div><dt>地址</dt><dd><code>{{.Address}}</code></dd></div>{{if .Region}}<div><dt>地区</dt><dd>{{.Region}}{{if .Flag}}（{{.Flag}}）{{end}}</dd></div>{{end}}{{if .Hostname}}<div><dt>主机名</dt><dd>{{.Hostname}}</dd></div>{{end}}{{if .OS}}<div><dt>系统</dt><dd>{{.OS}}</dd></div>{{end}}{{if .CPUText}}<div><dt>CPU / 内存</dt><dd>{{.CPUText}} / {{.MemText}}</dd></div>{{end}}{{if .AgentVersion}}<div><dt>Agent 版本</dt><dd>{{.AgentVersion}}</dd></div>{{end}}{{if .LabelsText}}<div><dt>标签</dt><dd>{{.LabelsText}}</dd></div>{{end}}</dl>
+{{if .Pending}}<p class="err">等待管理员审批：审批通过前节点不会下发任何配置，也不能管理入站。可以先在服务器上完成接入，方便管理员核验机器信息。</p>{{end}}
+{{if .Rejected}}<p class="err">该节点已被管理员拒绝，无法继续使用。请删除后重新添加。</p>{{end}}
+{{if not .Rejected}}<p><button class="btn alt act-install" data-id="{{.ID}}" type="button">{{if .Enrolled}}重新接入 / 查看{{else}}安装命令{{end}}</button> <button class="btn alt act-reset" data-id="{{.ID}}" type="button">重置接入</button> <button class="btn alt p-danger act-del" data-id="{{.ID}}" type="button">删除节点</button></p>
+<div class="cmdbox" hidden><p>在服务器上执行：</p><p><code class="cmdtext"></code></p><p><button class="btn alt act-copy" type="button">复制命令</button></p></div>{{end}}
+<details><summary>编辑节点信息</summary><div class="p-ticket-form"><div><label>节点名称</label><input class="p-input nd-name" value="{{.DisplayName}}" maxlength="64"></div><div><label>服务器地址</label><input class="p-input nd-address" value="{{.Address}}"></div><div><label>地区</label><input class="p-input nd-region" value="{{.Region}}"></div><div><label>国旗代码</label><input class="p-input nd-flag" value="{{.Flag}}" maxlength="2"></div><div><label>标签（逗号分隔）</label><input class="p-input nd-labels" value="{{.LabelsText}}"></div><div><button class="btn pri act-save-node" data-id="{{.ID}}" type="button">保存</button></div></div></details>
+{{if .Approved}}<h3>入站</h3>
+{{range .Inbounds}}<article class="p-forward-row"><div><b>{{.Tag}}</b><p class="mute">{{index .Protocol "type"}} · {{index .Transport "type"}} · {{index .Security "type"}} · 端口 {{.Port}}{{if not .Enabled}} · 已停用{{end}}</p>{{if .Remark}}<p class="mute">{{.Remark}}</p>{{end}}</div><button class="btn alt p-danger act-del-ib" data-node="{{$nodeID}}" data-id="{{.ID}}" type="button">删除</button></article>
+<details><summary>编辑入站 {{.Tag}}</summary><form class="ib-form" data-node="{{$nodeID}}" data-inbound="{{.ID}}">{{template "ibfields" .}}<div><button class="btn pri act-save-ib" type="button">保存入站</button></div></form></details>
+{{else}}<p class="mute p-empty">还没有入站，用下面的表单添加。</p>{{end}}
+<details><summary>添加入站</summary><form class="ib-form" data-node="{{$nodeID}}" data-inbound="">{{template "ibfields" $.EmptyInbound}}<div><button class="btn pri act-save-ib" type="button">添加入站</button></div></form></details>
+{{end}}
+</section>
+{{else}}<section class="card"><p class="mute p-empty">还没有自有节点。{{if .CanAdd}}用上面的表单添加第一台。{{end}}</p></section>{{end}}
+{{define "ibfields"}}
+<div class="p-ticket-form">
+<div><label>标签（节点内唯一）</label><input class="p-input ib-tag" value="{{.Tag}}" maxlength="64" placeholder="例如：vless-reality"></div>
+<div><label>端口</label><input class="p-input ib-port" type="number" min="1" max="65535" value="{{if .Port}}{{.Port}}{{end}}" placeholder="443"></div>
+<div><label>监听地址（可选，留空为全部）</label><input class="p-input ib-listen" value="{{.Listen}}" placeholder="0.0.0.0"></div>
+<div><label>协议</label><select class="p-input ib-proto" data-value="{{index .Protocol "type"}}"><option value="vless">VLESS</option><option value="vmess">VMess</option><option value="trojan">Trojan</option><option value="shadowsocks">Shadowsocks</option><option value="hysteria2">Hysteria2</option><option value="tuic">TUIC</option><option value="anytls">AnyTLS</option><option value="snell">Snell</option><option value="shadowtls">ShadowTLS</option><option value="naive">Naive</option><option value="socks">SOCKS</option><option value="http">HTTP</option></select></div>
+<div data-proto="vless"><label>流控（VLESS）</label><select class="p-input ib-flow" data-value="{{index .Protocol "flow"}}"><option value="">无</option><option value="xtls-rprx-vision">xtls-rprx-vision</option></select></div>
+<div data-proto="shadowsocks"><label>加密方式（Shadowsocks）</label><select class="p-input ib-method" data-value="{{index .Protocol "method"}}"><option value="2022-blake3-aes-128-gcm">2022-blake3-aes-128-gcm</option><option value="2022-blake3-aes-256-gcm">2022-blake3-aes-256-gcm</option><option value="2022-blake3-chacha20-poly1305">2022-blake3-chacha20-poly1305</option></select></div>
+<div data-proto="hysteria2"><label>上行带宽 Mbps（Hysteria2，0 为不填）</label><input class="p-input ib-hy-up" type="number" min="0" value="{{index .Protocol "upMbps"}}"></div>
+<div data-proto="hysteria2"><label>下行带宽 Mbps（Hysteria2）</label><input class="p-input ib-hy-down" type="number" min="0" value="{{index .Protocol "downMbps"}}"></div>
+<div data-proto="hysteria2"><label>混淆（Hysteria2）</label><select class="p-input ib-hy-obfs" data-value="{{index .Protocol "obfs"}}"><option value="">无</option><option value="salamander">salamander</option></select></div>
+<div data-proto="hysteria2"><label>混淆密码</label><input class="p-input ib-hy-obfspw" value="{{index .Protocol "obfsPassword"}}"></div>
+<div data-proto="tuic"><label>拥塞控制（TUIC）</label><select class="p-input ib-tuic-cc" data-value="{{index .Protocol "congestionControl"}}"><option value="bbr">bbr</option><option value="cubic">cubic</option><option value="new_reno">new_reno</option></select></div>
+<div><label>传输</label><select class="p-input ib-trans" data-value="{{index .Transport "type"}}"><option value="tcp">TCP</option><option value="ws">WebSocket</option><option value="httpupgrade">HTTPUpgrade</option><option value="xhttp">XHTTP</option><option value="grpc">gRPC</option><option value="kcp">KCP</option><option value="quic">QUIC</option></select></div>
+<div data-trans="ws httpupgrade xhttp"><label>路径</label><input class="p-input ib-path" value="{{index .Transport "path"}}" placeholder="/"></div>
+<div data-trans="ws httpupgrade xhttp"><label>主机名（Host，可选）</label><input class="p-input ib-host" value="{{index .Transport "host"}}"></div>
+<div data-trans="xhttp"><label>模式（XHTTP）</label><select class="p-input ib-xmode" data-value="{{index .Transport "mode"}}"><option value="auto">auto</option><option value="packet-up">packet-up</option><option value="stream-up">stream-up</option><option value="stream-one">stream-one</option></select></div>
+<div data-trans="grpc"><label>服务名（gRPC）</label><input class="p-input ib-svc" value="{{index .Transport "serviceName"}}"></div>
+<div><label>安全层</label><select class="p-input ib-sec" data-value="{{index .Security "type"}}"><option value="none">无</option><option value="tls">TLS</option><option value="reality">REALITY</option></select></div>
+<div data-sec="tls reality"><label>服务器名 SNI</label><input class="p-input ib-sni" value="{{index .Security "serverName"}}" placeholder="www.example.com"></div>
+<div data-sec="reality"><label>REALITY 目标（dest，主机:端口）</label><input class="p-input ib-dest" value="{{index .Security "realityDest"}}" placeholder="www.example.com:443"></div>
+<div data-sec="tls reality"><label>指纹（可选）</label><input class="p-input ib-fp" value="{{index .Security "fingerprint"}}" placeholder="chrome"></div>
+<div><label>备注（可选）</label><input class="p-input ib-remark" value="{{.Remark}}" maxlength="255"></div>
+<label class="chk"><input type="checkbox" class="ib-sniff" {{if index .Sniffing "enabled"}}checked{{end}}> 启用嗅探（sniffing）</label>
+<label class="chk"><input type="checkbox" class="ib-enabled" {{if or (not .ID) .Enabled}}checked{{end}}> 启用该入站</label>
+</div>
+{{end}}
+<script>
+function jreq(method,path,body){var opt={method:method,headers:{'X-Polaris-Portal':'1'},credentials:'same-origin'};if(body!==undefined){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body)}return fetch(path,opt).then(function(r){if(r.status===204)return{};return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
+function ferr(m){var e=document.getElementById('err');if(e){e.textContent=m;e.hidden=!m}else if(m){alert(m)}}
+function splitLabels(v){return v.split(/[,，]/).map(function(x){return x.trim()}).filter(Boolean)}
+var nnAdd=document.getElementById('nn-add');
+if(nnAdd)nnAdd.addEventListener('click',function(){var b=this;b.disabled=true;ferr('');
+jreq('POST','/u/my-nodes',{displayName:document.getElementById('nn-name').value,address:document.getElementById('nn-address').value,region:document.getElementById('nn-region').value,flag:document.getElementById('nn-flag').value,labels:splitLabels(document.getElementById('nn-labels').value)}).then(function(j){var r=document.getElementById('nn-result');r.hidden=false;document.getElementById('nn-cmd').textContent=j.command||'';b.disabled=false}).catch(function(e){b.disabled=false;ferr(e.message)})});
+var nnCopy=document.getElementById('nn-copy');
+if(nnCopy)nnCopy.addEventListener('click',function(){copyText(document.getElementById('nn-cmd').textContent,this)});
+var nnReload=document.getElementById('nn-reload');
+if(nnReload)nnReload.addEventListener('click',function(){location.reload()});
+function copyText(t,btn){if(navigator.clipboard)navigator.clipboard.writeText(t).then(function(){if(btn){var o=btn.textContent;btn.textContent='已复制';setTimeout(function(){btn.textContent=o},1200)}})}
+document.querySelectorAll('.act-install').forEach(function(b){b.addEventListener('click',function(){var card=b.closest('[data-node-card]');var box=card.querySelector('.cmdbox');ferr('');
+jreq('GET','/u/my-nodes/'+b.dataset.id+'/install').then(function(j){box.hidden=false;box.querySelector('.cmdtext').textContent=j.enrolled?'该节点已完成接入。如需重装，请用「重置接入」获取新命令。':(j.command||'')}).catch(function(e){ferr(e.message)})})});
+document.querySelectorAll('.act-copy').forEach(function(b){b.addEventListener('click',function(){copyText(b.closest('.cmdbox').querySelector('.cmdtext').textContent,b)})});
+document.querySelectorAll('.act-reset').forEach(function(b){b.addEventListener('click',function(){if(!confirm('重置接入会吊销当前证书，节点上的 Agent 需要重新执行安装命令。继续？'))return;var card=b.closest('[data-node-card]');var box=card.querySelector('.cmdbox');b.disabled=true;ferr('');
+jreq('POST','/u/my-nodes/'+b.dataset.id+'/reset-access',{}).then(function(j){box.hidden=false;box.querySelector('.cmdtext').textContent=j.command||'';b.disabled=false}).catch(function(e){b.disabled=false;ferr(e.message)})})});
+document.querySelectorAll('.act-del').forEach(function(b){b.addEventListener('click',function(){if(!confirm('删除这个节点？其上的入站会一并删除。'))return;b.disabled=true;
+jreq('DELETE','/u/my-nodes/'+b.dataset.id).then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})})});
+document.querySelectorAll('.act-save-node').forEach(function(b){b.addEventListener('click',function(){var card=b.closest('[data-node-card]');b.disabled=true;ferr('');
+jreq('PATCH','/u/my-nodes/'+b.dataset.id,{displayName:card.querySelector('.nd-name').value,address:card.querySelector('.nd-address').value,region:card.querySelector('.nd-region').value,flag:card.querySelector('.nd-flag').value,labels:splitLabels(card.querySelector('.nd-labels').value)}).then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})})});
+function groupVisibility(form,attr,sel){var v=sel.value;form.querySelectorAll('['+attr+']').forEach(function(el){el.style.display=el.getAttribute(attr).split(' ').indexOf(v)>=0?'':'none'})}
+function wireIBForm(form){
+var proto=form.querySelector('.ib-proto'),trans=form.querySelector('.ib-trans'),sec=form.querySelector('.ib-sec');
+[proto,trans,sec].forEach(function(sel){if(sel&&sel.dataset.value!==undefined&&sel.dataset.value!==''){for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===sel.dataset.value){sel.selectedIndex=i;break}}}});
+form.querySelectorAll('select[data-value]').forEach(function(sel){if(sel.dataset.value){for(var i=0;i<sel.options.length;i++){if(sel.options[i].value===sel.dataset.value){sel.selectedIndex=i;break}}}});
+function sync(){groupVisibility(form,'data-proto',proto);groupVisibility(form,'data-trans',trans);groupVisibility(form,'data-sec',sec)}
+[proto,trans,sec].forEach(function(sel){sel.addEventListener('change',sync)});sync();
+form.querySelector('.act-save-ib').addEventListener('click',function(){var b=this;b.disabled=true;ferr('');
+var body=collectIB(form);var nid=form.dataset.node,iid=form.dataset.inbound;
+var p=iid?jreq('PATCH','/u/my-nodes/'+nid+'/inbounds/'+iid,body):jreq('POST','/u/my-nodes/'+nid+'/inbounds',body);
+p.then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})});
+}
+function val(form,cls){var el=form.querySelector(cls);return el?el.value.trim():''}
+function num(form,cls){var v=parseInt(val(form,cls),10);return isNaN(v)?0:v}
+function collectIB(form){
+var proto={type:val(form,'.ib-proto')};
+if(proto.type==='vless'&&val(form,'.ib-flow'))proto.flow=val(form,'.ib-flow');
+if(proto.type==='shadowsocks')proto.method=val(form,'.ib-method');
+if(proto.type==='hysteria2'){proto.upMbps=num(form,'.ib-hy-up');proto.downMbps=num(form,'.ib-hy-down');if(val(form,'.ib-hy-obfs')){proto.obfs=val(form,'.ib-hy-obfs');proto.obfsPassword=val(form,'.ib-hy-obfspw')}}
+if(proto.type==='tuic')proto.congestionControl=val(form,'.ib-tuic-cc');
+var trans={type:val(form,'.ib-trans')};
+if(['ws','httpupgrade','xhttp'].indexOf(trans.type)>=0){trans.path=val(form,'.ib-path');trans.host=val(form,'.ib-host')}
+if(trans.type==='xhttp')trans.mode=val(form,'.ib-xmode');
+if(trans.type==='grpc')trans.serviceName=val(form,'.ib-svc');
+var sec={type:val(form,'.ib-sec')};
+if(sec.type==='tls'||sec.type==='reality'){sec.serverName=val(form,'.ib-sni');if(val(form,'.ib-fp'))sec.fingerprint=val(form,'.ib-fp')}
+if(sec.type==='reality')sec.realityDest=val(form,'.ib-dest');
+var sniff=form.querySelector('.ib-sniff').checked?{enabled:true,destOverride:['http','tls','quic']}:{enabled:false};
+return {tag:val(form,'.ib-tag'),listen:val(form,'.ib-listen'),port:num(form,'.ib-port'),protocol:proto,transport:trans,security:sec,sniffing:sniff,enabled:form.querySelector('.ib-enabled').checked,remark:val(form,'.ib-remark')};
+}
+document.querySelectorAll('.ib-form').forEach(wireIBForm);
+document.querySelectorAll('.act-del-ib').forEach(function(b){b.addEventListener('click',function(){if(!confirm('删除这个入站？'))return;b.disabled=true;
+jreq('DELETE','/u/my-nodes/'+b.dataset.node+'/inbounds/'+b.dataset.id).then(function(){location.reload()}).catch(function(e){b.disabled=false;ferr(e.message)})})});
+</script>
+</section>
