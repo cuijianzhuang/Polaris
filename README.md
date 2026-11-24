@@ -41,14 +41,14 @@ Polaris 将节点、入站、用户和订阅集中在一个面板中管理。每
 | --- | --- |
 | 节点与内核 | 一次性令牌接入、节点状态与资源监控、多内核共存、Agent 升级、内核版本切换与失败回退 |
 | 协议与入站 | VLESS、VMess、Trojan、Shadowsocks 2022、Hysteria2、TUIC、AnyTLS、Snell 等；支持 REALITY、Vision、XHTTP、WS、gRPC 等组合，按内核版本校验兼容性；入站模板批量生成、REALITY 目标检测 |
-| 用户与套餐 | 流量配额、固定 / 首次使用后到期、周期重置、自动续订、分组和等级授权、节点流量包、IP / HWID 限制、批量操作 |
-| 售卖与客服 | 套餐、Telegram 机器人商店与网页商店、兑换码与优惠券、易支付 / USDT / Telegram Stars 在线收款（专业版）、用户中心、邮箱注册登录、工单、到期与续费提醒 |
+| 用户与套餐 | 流量配额、固定 / 首次使用后到期、周期重置、自动续订、分组和等级授权、节点流量包、IP / HWID 限制、批量操作；注册用户可自带节点托管（把自己的 VPS 接入面板自助管理，审批制，见[手册 · 注册用户与自带节点](docs/user-guide.md#member-nodes)） |
+| 售卖与客服 | 套餐、Telegram 机器人商店与网页商店、兑换码与优惠券、易支付 / USDT / Telegram Stars 在线收款（专业版）、用户中心、邮箱 / 账号密码注册登录、工单、到期与续费提醒 |
 | 订阅分发 | 通用链接、Clash / mihomo、sing-box、Surge、Loon、Quantumult X；订阅信息页、二维码、客户端导入、独立订阅域名 |
 | 路由与中转 | 出站与负载均衡（组间回退）、全局 / 节点路由、WARP 分流、realm / GOST 端口转发、一键中转（多入口、诊断）、链式代理、CDN 入口（一键配置、连通检测、多节点自动子域名）与 Caddy 回源、CDN 优选 IP / 优选域名（测速点上报、Cloudflare 配置档共用测速点、Shodan 第三方反代候选（可选）、节点剔除） |
 | 节点地图 | 世界地图展示所有节点的位置与在线状态，纯内置矢量图，无需外部地图服务，离线可用 |
 | 日常运维 | 流量统计与月报、探针与公开状态页、三网延迟与回程检测、入站健康检测、通知策略（Telegram / 邮件 / Webhook）、Agent 与内核小批升级、定时备份与恢复、审计日志、服务器成本、多主控高可用 |
 | 扩展与对接 | API 令牌（按权限范围）、OpenAPI、签名 Webhook、插件（订阅格式、订阅改写、外部指标），见 [polaris-plugins](https://github.com/cuijianzhuang/polaris-plugins) |
-| 账号与安全 | 主控与 Agent 使用 mTLS；敏感字段加密；自定义后台路径、两步验证、通行密钥（Passkey）、GitHub / Telegram / OIDC / OAuth2 登录、后台多角色账号 |
+| 账号与安全 | 主控与 Agent 使用 mTLS；敏感字段加密；自定义后台路径。管理员与注册用户两套独立身份共用一个统一登录页：管理员用两步验证、通行密钥（Passkey）、GitHub / Telegram / OIDC / OAuth2 登录与后台多角色账号；注册用户可用邮箱验证码、账号密码、GitHub / 通行密钥 / SSO 登录并管理绑定，开通后可直登面板管理自己的节点（见[手册 · 注册用户身份](docs/user-guide.md#member-nodes)） |
 | 专业版扩展 | 客户独立限速、订阅转换与处理组、DDNS 与域名绑定、Telegram 管理菜单、备份推送、在线收款、流量包 / 套餐节点倍率 / 端口转发商品、自定义 Logo、黑金专属主题 |
 
 协议、传输和客户端并非任意组合。请以界面的能力提示为准，常见限制见[使用手册 · 兼容性](docs/user-guide.md#compatibility)。
@@ -82,6 +82,7 @@ Copyright © 2026 Polaris contributors.
 | Telegram 管理菜单、备份推送到 Telegram / WebDAV / S3 | — | 需要相应许可证授权 |
 | 在线收款（Telegram Stars、易支付、USDT） | 兑换码售卖 | 需要相应许可证授权 |
 | 套餐增值：流量包、套餐专属节点倍率、端口转发商品 | — | 需要相应许可证授权 |
+| 用户自带节点（每用户可托管的自有节点数 / 免审批开放制） | 每用户 3 台、审批制 | 由许可证 `userNodes` 限额放宽（未设为不限），开放制需许可证包含相应功能 |
 | 自定义 Logo、黑金专属主题 | — | 激活许可证后在「设置 → 外观」配置 |
 | 源码 | 本仓库 | 本仓库 + 私有 `polaris-pro` 代码 |
 | Docker 镜像 | `ghcr.io/cuijianzhuang/polaris:latest` | `ghcr.io/cuijianzhuang/polaris:latest-pro` |

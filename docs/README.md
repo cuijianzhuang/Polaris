@@ -18,6 +18,7 @@
 | 订阅设置、订阅转换、处理组 | [订阅设置与订阅转换](user-guide.md#subscriptions) |
 | CDN、CDN 优选 IP、中转、路由、WARP | [域名、CDN、中转与路由](user-guide.md#networking)、[CDN 配置与排查](user-guide.md#cdn-setup) |
 | Telegram、邮件、登录、通行密钥、通知策略、API 令牌、Webhook | [Telegram、登录与审计](user-guide.md#security) |
+| 注册用户的注册 / 登录方式与绑定、自带节点、直登面板 | [注册用户身份、自带节点与直登面板](user-guide.md#member-nodes) |
 | 升级（含小批升级）、备份、迁移 | [升级、备份与迁移](user-guide.md#maintenance) |
 | 多主控高可用（主备、见证仲裁、故障切换） | [高可用（主备）](user-guide/ha.md) |
 | 专业版与许可证 | [专业版与许可证](user-guide.md#license) |
@@ -92,6 +93,9 @@
 | 文档 | 内容 |
 | --- | --- |
 | [管理员通行密钥与账号恢复](design/passkeys.md) | Passkey 注册、登录、撤销与恢复码 |
+| [用户自带节点](design/user-nodes.md) | 注册用户托管自己 VPS 的归属、审批与配额 |
+| [注册用户身份体系](design/user-identity.md) | 注册用户的邮箱 / 密码 / GitHub 登录与绑定管理 |
+| [注册用户 SSO 与通行密钥](design/user-identity-oauth-passkey.md) | SSO、Passkey 的用户侧登录与绑定 |
 | [授权管理（许可证）](design/licensing.md) | 社区版 / 专业版、联网激活与离线许可证 |
 | [插件系统设计](design/plugins.md) | 插件框架的分阶段设计 |
 | [设置工作流与移动端完善](design/settings-workflows.md) | 设置页的未保存保护等交互 |
