@@ -317,34 +317,47 @@ func (s *Server) portalCreateNode(c *gin.Context) {
 	if u == nil {
 		return
 	}
+	n, tok, cmd, ok := s.createOwnedNode(c, u, portalActor(u, s.portalViaMail(c)))
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"node": s.portalNodeViewOf(n), "token": tok, "command": cmd})
+}
+
+// createOwnedNode is the shared creation flow for a user-owned node:
+// the portal's POST /u/my-nodes and the panel member's POST /nodes run
+// the same mode, quota and field rules — only the actor and the view
+// the caller renders differ. Failures are answered here; ok=false means
+// the response is already written.
+func (s *Server) createOwnedNode(c *gin.Context, u *store.User, actor string) (*store.Node, string, string, bool) {
 	mode := s.effectiveUserNodesMode()
 	if mode == userNodesOff {
 		c.JSON(http.StatusForbidden, gin.H{"error": "管理员已关闭用户自带节点功能"})
-		return
+		return nil, "", "", false
 	}
 	var req portalNodeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
-		return
+		return nil, "", "", false
 	}
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	if req.DisplayName == "" {
 		badRequest(c, errors.New("请填写节点名称"))
-		return
+		return nil, "", "", false
 	}
 	if len([]rune(req.DisplayName)) > 64 {
 		badRequest(c, errors.New("节点名称最长 64 个字符"))
-		return
+		return nil, "", "", false
 	}
 	if !s.limitOK(c, license.LimitNodes, 1) {
-		return // user nodes also count toward the panel-wide node cap
+		return nil, "", "", false // user nodes also count toward the panel-wide node cap
 	}
 	if limit := s.userNodeCap(u); limit > 0 {
 		if count := s.userNodeCount(u.ID); count >= int64(limit) {
 			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
 				"error": fmt.Sprintf("每个用户最多管理 %d 台自有服务器（已有 %d 台），请升级许可证或套餐", limit, count),
 				"limit": license.LimitUserNodes, "plan": "pro"})
-			return
+			return nil, "", "", false
 		}
 	}
 	id := store.NewID()
@@ -366,15 +379,15 @@ func (s *Server) portalCreateNode(c *gin.Context) {
 	})
 	if err != nil {
 		dbError(c, err)
-		return
+		return nil, "", "", false
 	}
 	tok, cmd, err := s.newInstallToken(&n, c.Request)
 	if err != nil {
 		serverError(c, err)
-		return
+		return nil, "", "", false
 	}
-	s.audit(portalActor(u, s.portalViaMail(c)), "node.create", n.DisplayName, n.Address, clientIP(c.Request))
-	c.JSON(http.StatusCreated, gin.H{"node": s.portalNodeViewOf(&n), "token": tok, "command": cmd})
+	s.audit(actor, "node.create", n.DisplayName, n.Address, clientIP(c.Request))
+	return &n, tok, cmd, true
 }
 
 // portalNodeInstall is GET /u/my-nodes/:id/install: the install command
@@ -463,27 +476,42 @@ func (s *Server) portalUpdateNode(c *gin.Context) {
 	if n == nil {
 		return
 	}
-	var req struct {
-		DisplayName *string   `json:"displayName"`
-		Address     *string   `json:"address"`
-		Region      *string   `json:"region"`
-		Flag        *string   `json:"flag"`
-		Labels      *[]string `json:"labels"`
+	updated, ok := s.updateOwnedNode(c, portalActor(u, s.portalViaMail(c)), n)
+	if !ok {
+		return
 	}
+	c.JSON(http.StatusOK, s.portalNodeViewOf(updated))
+}
+
+// ownedNodePatch is the display-field patch a node owner may apply;
+// the portal's PATCH and the panel member's PUT share it verbatim.
+type ownedNodePatch struct {
+	DisplayName *string   `json:"displayName"`
+	Address     *string   `json:"address"`
+	Region      *string   `json:"region"`
+	Flag        *string   `json:"flag"`
+	Labels      *[]string `json:"labels"`
+}
+
+// updateOwnedNode applies an ownedNodePatch to n (already resolved as
+// the caller's own node). Failures are answered here; ok=false means
+// the response is already written.
+func (s *Server) updateOwnedNode(c *gin.Context, actor string, n *store.Node) (*store.Node, bool) {
+	var req ownedNodePatch
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
-		return
+		return nil, false
 	}
 	upd := map[string]any{}
 	if req.DisplayName != nil {
 		name := strings.TrimSpace(*req.DisplayName)
 		if name == "" {
 			badRequest(c, errors.New("节点名称不能为空"))
-			return
+			return nil, false
 		}
 		if len([]rune(name)) > 64 {
 			badRequest(c, errors.New("节点名称最长 64 个字符"))
-			return
+			return nil, false
 		}
 		upd["display_name"] = name
 	}
@@ -502,16 +530,16 @@ func (s *Server) portalUpdateNode(c *gin.Context) {
 	if len(upd) > 0 {
 		if err := s.st.DB.Model(&store.Node{}).Where("id = ?", n.ID).Updates(upd).Error; err != nil {
 			dbError(c, err)
-			return
+			return nil, false
 		}
 		s.MarkDirty("user node updated", n.ID)
-		s.audit(portalActor(u, s.portalViaMail(c)), "node.update", n.DisplayName, "", clientIP(c.Request))
+		s.audit(actor, "node.update", n.DisplayName, "", clientIP(c.Request))
 		if err := s.st.DB.First(n, "id = ?", n.ID).Error; err != nil {
 			dbError(c, err)
-			return
+			return nil, false
 		}
 	}
-	c.JSON(http.StatusOK, s.portalNodeViewOf(n))
+	return n, true
 }
 
 // nodeDeleteError maps a failed node cascade to its HTTP answer (the
@@ -544,17 +572,27 @@ func (s *Server) portalDeleteNode(c *gin.Context) {
 	if n == nil {
 		return
 	}
+	if !s.deleteOwnedNode(c, portalActor(u, s.portalViaMail(c)), n) {
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// deleteOwnedNode cascade-deletes a user-owned node (the portal's
+// DELETE and the panel member's DELETE share it). Failures are answered
+// here with nodeDeleteError's mapping; the caller writes the 204.
+func (s *Server) deleteOwnedNode(c *gin.Context, actor string, n *store.Node) bool {
 	s.relayMu.Lock()
 	upstream, err := s.deleteNodeCascade(n.ID)
 	s.relayMu.Unlock()
 	if err != nil {
 		nodeDeleteError(c, err)
-		return
+		return false
 	}
 	s.hub.Kick(n.ID)
 	s.MarkDirty("upstream node deleted", upstream...)
-	s.audit(portalActor(u, s.portalViaMail(c)), "node.delete", n.DisplayName, "", clientIP(c.Request))
-	c.Status(http.StatusNoContent)
+	s.audit(actor, "node.delete", n.DisplayName, "", clientIP(c.Request))
+	return true
 }
 
 // reviewNode is POST /nodes/:id/review (admin): approve / reject / suspend

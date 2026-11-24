@@ -47,7 +47,7 @@ export function normalizeDraft(d: InboundDraft, caps: CapSet[]): InboundDraft {
   return { ...d, protocol, transport: { ...d.transport, type: t }, security: { ...d.security, type: s } }
 }
 
-export default function InboundFields({ draft, onChange, caps, allCaps, coreChoices, certs, showFlowHint = true, nodeId }: {
+export default function InboundFields({ draft, onChange, caps, allCaps, coreChoices, certs, showFlowHint = true, nodeId, hideSnellOwner = false }: {
   draft: InboundDraft
   onChange: (d: InboundDraft) => void
   caps: CapSet[] // capabilities of the selected core (or all cores for "auto")
@@ -56,6 +56,7 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
   certs?: Certificate[]
   showFlowHint?: boolean
   nodeId?: string // for the REALITY scanner (probes from the node)
+  hideSnellOwner?: boolean // member editor: the owner picker reads /users, which members cannot see (and the server strips snellUserId for them anyway)
 }) {
   const [scanning, setScanning] = useState(false)
   const isXray = caps.some((c) => c.core === 'xray') // newer options are Xray-only
@@ -161,7 +162,7 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
               <option value="userkey">{t('多用户 userkey（sing-box）')}</option><option value="psk">{t('独立 PSK / 端口（Surge 兼容）')}</option>
             </select>
           </Field>
-          {p.snellAuth === 'psk' && <SnellOwner value={p.snellUserId ?? ''} onChange={(v) => setP({ snellUserId: v })} />}
+          {p.snellAuth === 'psk' && !hideSnellOwner && <SnellOwner value={p.snellUserId ?? ''} onChange={(v) => setP({ snellUserId: v })} />}
           <Field label={t('Snell 服务端版本')} htmlFor="f-snell-version" hint={t('v5 输出 v4 客户端协议。Surge 使用独立 PSK 模式；v6 需 Surge iOS 5.20+ 或 Mac 6.7+，并仍需实际客户端验收。')}>
             <select id="f-snell-version" className="input" value={p.snellVersion ?? 5} onChange={(e) => setP({ snellVersion: Number(e.target.value) as 5 | 6, snellMode: undefined, snellObfs: undefined })}>
               <option value="5">Snell v5 (v4)</option><option value="6">Snell v6</option>

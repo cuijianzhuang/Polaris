@@ -67,7 +67,9 @@ const LicensePage = page('LicensePage', () => import('./pages/LicensePage'))
 const Extensions = page('Extensions', () => import('./pages/Extensions'))
 
 // Scope of the session: Telegram node operators see only their own nodes.
-const ScopeCtx = createContext<{ scoped: boolean }>({ scoped: false })
+// role rides along so pages can tell a member (registered user managing
+// their own nodes, batch 2 write UI) from an operator (view/operate only).
+const ScopeCtx = createContext<{ scoped: boolean; role: string }>({ scoped: false, role: '' })
 export function useScope() { return useContext(ScopeCtx) }
 
 // Live node list shared by pages, fed by the WebSocket.
@@ -489,7 +491,7 @@ function Session() {
           ) : ['viewer', 'support', 'finance'].includes(role) ? (
             <StaffWorkspace role={role} username={user} avatarURL={avatarURL} onLogout={logout} />
           ) : (
-            <ScopeCtx.Provider value={{ scoped }}>
+            <ScopeCtx.Provider value={{ scoped, role }}>
               <NodesProvider>
                 <Layout user={user} avatarURL={avatarURL} onLogout={logout}>
                   <Suspense fallback={<PageSkeleton />}>

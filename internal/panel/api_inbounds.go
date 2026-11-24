@@ -112,6 +112,10 @@ func (s *Server) nodeNames() map[string]string {
 }
 
 func (s *Server) listInbounds(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberListInbounds(c, u)
+		return
+	}
 	q := s.st.DB.Order("node_id, port")
 	if v := c.Query("node"); v != "" {
 		q = q.Where("node_id = ?", v)
@@ -141,6 +145,10 @@ func (s *Server) listInbounds(c *gin.Context) {
 }
 
 func (s *Server) getInbound(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberGetInbound(c, u)
+		return
+	}
 	var in store.Inbound
 	if err := s.st.DB.First(&in, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)
@@ -208,6 +216,10 @@ func fromModel(m *model.Inbound, row *store.Inbound) {
 }
 
 func (s *Server) createInbound(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberCreateInbound(c, u)
+		return
+	}
 	var req inboundReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -319,6 +331,10 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 }
 
 func (s *Server) updateInbound(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberUpdateInbound(c, u)
+		return
+	}
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
 	var row store.Inbound
@@ -438,6 +454,10 @@ func (s *Server) updateInbound(c *gin.Context) {
 }
 
 func (s *Server) deleteInbound(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberDeleteInbound(c, u)
+		return
+	}
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
 	var row store.Inbound

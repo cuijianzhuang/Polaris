@@ -13,6 +13,7 @@ import { NetUsage, NodeActivity, nodeDisplayName, NodeReviewBadge } from '../com
 import NodeBrowser, { type NodeReviewAction } from '../components/NodeBrowser'
 import NodeProvider from '../components/NodeProvider'
 import NetCollectionHealth from '../components/NetCollectionHealth'
+import { MemberInbounds, MemberNodeForm } from '../components/MemberNodes'
 import { ProTag, useFeature } from '../components/License'
 import { CopyBox, copyText, Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, usePoll, useToast } from '../components/ui'
 import { ago, bytes, coreColor, coreLabel, datetime, protoLabel, uptime, userStatus, GB, netUsed, coreInstalling } from '../format'
@@ -417,7 +418,9 @@ export function CoreForm({ node, core, onClose, onSaved }: { node: Node; core?: 
 
 export default function Nodes() {
   const { nodes, refresh } = useNodes()
-  const { scoped } = useScope() // Telegram node operator: view, sync, rollback, restart only
+  const { scoped, role } = useScope() // Telegram node operator: view, sync, rollback, restart only
+  const member = role === 'member' // registered user: own nodes, plus the batch-2 write UI
+  const [memberForm, setMemberForm] = useState<Node | 'new' | null>(null)
   const [params, setParams] = useSearchParams()
   const [ownerFilter, setOwnerFilter] = useState(() => params.get('owner') ?? '')
   useEffect(() => { const v = params.get('owner'); if (v !== null) setOwnerFilter(v) }, [params])
@@ -482,6 +485,23 @@ export default function Nodes() {
     setInstall({ cmd: r.command, nodeId: n.id })
   })
 
+  // A member re-viewing the install command on an unenrolled node just
+  // re-mints the token; on an enrolled node the same endpoint resets
+  // access (certificate revoked), so that case confirms first.
+  const memberInstall = async (n: Node) => {
+    if (n.agentVersion && !(await confirm(t('该节点已接入。重新生成安装命令将吊销当前证书，节点会断开，需在服务器上重新执行新命令。'), { danger: true, ok: t('重置并生成') }))) return
+    showInstall(n)
+  }
+  const memberDelete = async (n: Node) => {
+    if (!(await confirm(t('删除节点 {name} 及其所有入站？此操作不可恢复。', { name: nodeDisplayName(n) }), { danger: true, ok: t('删除') }))) return
+    run(async () => {
+      await del('/nodes/' + n.id)
+      setSelId(null)
+      const next = new URLSearchParams(params); next.delete('id'); setParams(next, { replace: true }); setBrowserOpen(true)
+      refresh()
+    }, t('已删除'))
+  }
+
   // Review a user-brought node (batch 1 endpoint). Rejecting revokes the
   // node's certificate, so it asks first; failures surface via run's toast.
   const review = async (n: Node, action: NodeReviewAction) => {
@@ -494,7 +514,10 @@ export default function Nodes() {
   return (
     <>
       <div className="top">
-        <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{scoped ? t('仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('集中查看节点状态、资源和配置下发进度')}</div></div>
+        <div><h1>{scoped ? t('我的节点') : t('节点与内核')}</h1><div className="sub">{member ? t('管理你自己的服务器：添加节点、查看状态、管理入站') : scoped ? t('仅显示分配给你的节点，可查看状态、强制同步、回滚与重启内核') : t('集中查看节点状态、资源和配置下发进度')}</div></div>
+        {member && <div className="row">
+          <button className="btn pri" type="button" onClick={() => setMemberForm('new')}>+ {t('添加节点')}</button>
+        </div>}
         {!scoped && <div className="row">
           {outdatedNodes.length > 0 && (
             <button className="btn" type="button" disabled={busy} onClick={() => setUpgradeAll(true)}>
@@ -506,7 +529,7 @@ export default function Nodes() {
         </div>}
       </div>
       {!scoped && <RolloutPanel nodes={nodes} refresh={rolloutTick} />}
-      {nodes.length === 0 ? <div className="card"><Empty>{scoped ? t('没有分配给你的节点，请联系超级管理员。') : t('还没有节点。')}{scoped ? null : t('点击「添加节点」生成一行安装命令，在服务器上执行即可接入。')}</Empty></div> : (
+      {nodes.length === 0 ? <div className="card"><Empty>{member ? t('你还没有自己的节点。点击「添加节点」生成一行安装命令，在你的服务器上执行即可接入。') : scoped ? t('没有分配给你的节点，请联系超级管理员。') : <>{t('还没有节点。')}{t('点击「添加节点」生成一行安装命令，在服务器上执行即可接入。')}</>}</Empty></div> : (
         <>
           <NodeBrowser nodes={nodes} selected={sel} traffic={traffic.data} open={browserOpen} onOpen={setBrowserOpen} onSelect={selectNode}
             owner={ownerFilter} onOwnerChange={setOwnerFilter} onReview={scoped ? undefined : review}
@@ -553,6 +576,9 @@ export default function Nodes() {
                     <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                       if (await confirm(t('回滚到上一个成功应用的配置版本？'))) run(() => post(`/nodes/${sel.id}/rollback`, {}), t('已回滚'))
                     }}>{t('回滚到上一版')}</button>
+                    {member && <button className="btn sm" type="button" onClick={() => setMemberForm(sel)}>{t('编辑')}</button>}
+                    {member && <button className="btn sm" type="button" disabled={busy} onClick={() => memberInstall(sel)}>{t('安装命令')}</button>}
+                    {member && <button className="btn sm danger" type="button" disabled={busy} onClick={() => memberDelete(sel)}>{t('删除节点')}</button>}
                     {!scoped && sel.ownerId && sel.reviewState === 'pending' && <><button className="btn sm pri" type="button" disabled={busy} onClick={() => review(sel, 'approve')}>{t('批准')}</button><button className="btn sm danger" type="button" disabled={busy} onClick={() => review(sel, 'reject')}>{t('拒绝')}</button></>}
                     {!scoped && sel.ownerId && sel.reviewState === 'approved' && <button className="btn sm" type="button" disabled={busy} onClick={() => review(sel, 'suspend')}>{t('停用')}</button>}
                     {!scoped && <button className="btn sm" type="button" onClick={() => showInstall(sel)}>{t('安装命令')}</button>}
@@ -565,6 +591,7 @@ export default function Nodes() {
               <NetCollectionHealth health={sel.netHealth} onRefresh={refresh} />
               <section className="card"><TrafficChart query={'node=' + sel.id} title={t('节点用户流量')} /></section>
               <section className="card"><NodeMetrics nodeId={sel.id} /></section>
+              {member && <MemberInbounds key={sel.id} node={sel} />}
               {!scoped && <NodeExternalMetrics nodeId={sel.id} />}
               {!scoped && <NodeNetworkTools key={sel.id} node={sel} />}
               {!scoped && <NodeProvider nodeId={sel.id} onSynced={refresh} />}
@@ -680,6 +707,7 @@ export default function Nodes() {
         </>
       )}
       {editing && <NodeForm node={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} onSaved={(i) => { setEditing(null); refresh(); if (i) setInstall(i) }} />}
+      {memberForm && <MemberNodeForm node={memberForm === 'new' ? undefined : memberForm} onClose={() => setMemberForm(null)} onSaved={(i) => { setMemberForm(null); refresh(); if (i) setInstall(i) }} />}
       {coreForm && sel && <CoreForm node={sel} core={coreForm.core} onClose={() => setCoreForm(null)} onSaved={() => { setCoreForm(null); refresh() }} />}
       {batchCore && <BatchCoreUpgrade nodes={nodes} latest={latest.data ?? {}} onClose={() => setBatchCore(false)} onDone={() => { setBatchCore(false); setRolloutTick((x) => x + 1); refresh() }} />}
       {upgradeAll && <UpgradeAgentsModal count={outdatedNodes.length} version={vnorm(panelVer)} onClose={() => setUpgradeAll(false)} onDone={() => { setUpgradeAll(false); setRolloutTick((x) => x + 1); refresh() }} />}

@@ -132,7 +132,9 @@ var scopedRoutes = map[string]bool{
 
 // scopeGuard enforces the caller's route whitelist (scopedRoutes for
 // operators, memberRoutes for members) and the node scope of path
-// parameters.
+// parameters. Members take their own branch: their whitelist has no
+// selfAccountRoutes spillover, and their write targets are resolved
+// through ownership (404), not the operator's scope semantics.
 func (s *Server) scopeGuard(c *gin.Context) {
 	sc := nodeScope(c)
 	if sc == nil {
@@ -141,16 +143,94 @@ func (s *Server) scopeGuard(c *gin.Context) {
 	}
 	route := strings.TrimPrefix(c.FullPath(), s.cfg.APIBase())
 	key := c.Request.Method + " " + route
-	member := c.GetString("adminRole") == memberRole
-	allowed := scopedRoutes[key]
-	if member {
-		allowed = memberRoutes[key]
+	if c.GetString("adminRole") == memberRole {
+		s.memberScopeGuard(c, route, key)
+		return
 	}
-	if !allowed && (c.GetString("adminID") != "" || member) && selfAccountRoutes[key] {
+	allowed := scopedRoutes[key]
+	if !allowed && c.GetString("adminID") != "" && selfAccountRoutes[key] {
 		allowed = true
 	}
 	if !allowed {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员无权访问此功能"})
+		return
+	}
+	nodeID := ""
+	switch {
+	case strings.HasPrefix(route, "/nodes/:id"):
+		nodeID = c.Param("id")
+	case strings.HasPrefix(route, "/cores/:id"):
+		var cr store.Core
+		if s.st.DB.Select("node_id").First(&cr, "id = ?", c.Param("id")).Error != nil {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		nodeID = cr.NodeID
+	case route == "/capabilities":
+		nodeID = c.Query("node")
+	case route == "/stats/traffic":
+		if nodeID = c.Query("node"); nodeID == "" || c.Query("user") != "" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员只能查看自己节点的流量"})
+			return
+		}
+	}
+	if nodeID != "" && !sc[nodeID] {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "无权访问该节点"})
+		return
+	}
+	c.Next()
+}
+
+// memberScopeGuard is the member branch of scopeGuard. The whitelist
+// check is memberRoutes alone. The batch-2 write routes then resolve
+// their target through ownership before the handler runs: another
+// user's node or inbound is a 404 (the portal's rule — existence must
+// not leak), and an inbound on the member's own unapproved node is a
+// 403. The batch-1 read/operate routes keep their scope semantics
+// (out-of-scope is a 403), as does the inbound list's ?node= filter.
+func (s *Server) memberScopeGuard(c *gin.Context, route, key string) {
+	if !memberRoutes[key] {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员无权访问此功能"})
+		return
+	}
+	u := memberUserOf(c)
+	if u == nil {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点管理员无权访问此功能"})
+		return
+	}
+	sc := nodeScope(c)
+	switch key {
+	case "PUT /nodes/:id", "DELETE /nodes/:id", "POST /nodes/:id/install-token":
+		var n store.Node
+		if s.st.DB.Select("id").First(&n, "id = ? AND owner_id = ?", c.Param("id"), u.ID).Error != nil {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "节点不存在"})
+			return
+		}
+		c.Next()
+		return
+	case "GET /inbounds/:id", "PUT /inbounds/:id", "DELETE /inbounds/:id":
+		var row store.Inbound
+		if s.st.DB.Select("id", "node_id").First(&row, "id = ?", c.Param("id")).Error != nil {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "入站不存在"})
+			return
+		}
+		var n store.Node
+		if s.st.DB.Select("id", "review_state").First(&n, "id = ? AND owner_id = ?", row.NodeID, u.ID).Error != nil {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "入站不存在"})
+			return
+		}
+		if n.ReviewState != "approved" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "节点未通过审批，无法管理入站"})
+			return
+		}
+		c.Next()
+		return
+	case "GET /inbounds":
+		if v := c.Query("node"); v != "" && !sc[v] {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "无权访问该节点"})
+			return
+		}
+		c.Next()
 		return
 	}
 	nodeID := ""

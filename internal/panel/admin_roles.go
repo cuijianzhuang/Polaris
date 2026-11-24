@@ -60,8 +60,12 @@ func (s *Server) adminRoleGuard(c *gin.Context) {
 		allowed = allowed || scopedRoutes[route]
 	case memberRole:
 		// Members check their own table only: three tables stay isolated
-		// so growing scopedRoutes never grows the member surface.
-		allowed = allowed || memberRoutes[route]
+		// so growing scopedRoutes never grows the member surface. The
+		// selfAccountRoutes spillover does not apply either (batch 2):
+		// a member's session self-service lives in memberRoutes itself,
+		// and the Admin-oriented self routes (password, passkeys, SSO
+		// bindings…) are a plain 403 for members, not an empty result.
+		allowed = memberRoutes[route]
 	case "viewer":
 		allowed = allowed || route == "GET /staff/nodes"
 	case "support":
