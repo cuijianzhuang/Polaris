@@ -1,6 +1,6 @@
 # 注册用户登录面板（受限角色 member）
 
-> 状态：方向已批准（2026-11-24，用户拍板：注册用户能直接登录管理面板、新建只看自己节点的受限角色）；D3 可达面范围未决（见 §15），其余决策按推荐待确认。本设计只解决「同一注册账号进入面板」这一层，不改用户节点的既有语义（归属、审批、配额见 [user-nodes.md](user-nodes.md)）。
+> 状态：已批准（2026-11-24，用户拍板：注册用户能直接登录管理面板、新建只看自己节点的受限角色；D3 选案 B 完整自助、分两批落地），D1–D8 按本文执行。本设计只解决「同一注册账号进入面板」这一层，不改用户节点的既有语义（归属、审批、配额见 [user-nodes.md](user-nodes.md)）。
 >
 > 一句话方案：**把 `store.User` 做成面板的第三类登录主体（照 TGAdmin 的范式：新 claims 字段判别、独立签发函数、`authRequired` 第三分支、共用 AdminSession 与签名），角色值 `member`，走独立路由白名单；scope 不用登录快照，每请求按 `owner_id = 本人 AND review_state = 'approved'` 现算。登录方式复用邮箱验证码全链路，不给注册用户设密码。**
 
@@ -91,7 +91,7 @@ member 与 operator 的根本区别：operator 的节点集是「管理员给的
 - 可用条件是合取：`panel_member_login` 开（D6）且邮件体系可用（SMTP 已配）。`GET /info` 加一个开关字段（如 `memberMailLogin`），`Login.tsx` 据此显隐邮箱 tab——与现有登录方式的显隐机制一致。
 - 不给注册用户设密码：不加密码字段、不进 TOTP/passkey 体系。将来若要密码登录，另行立项，不在本设计内预埋。
 
-## 7. D3 可达面范围（未决，主体按案 B 写）
+## 7. D3 可达面范围（已定：案 B 完整自助，分两批）
 
 | | 案 A：只读 + 运维 | 案 B：完整自助（推荐） |
 |---|---|---|
@@ -177,7 +177,7 @@ member 与 operator 的根本区别：operator 的节点集是「管理员给的
 |---|---|---|
 | D1 | 主体路线 | User 作第三类面板主体，照 TGAdmin 范式（新 claims 字段 + 独立签发 + authRequired 第三分支 + 共用 AdminSession/signToken）；排除影子 operator 路线（理由见 §5） |
 | D2 | 登录方式 | 邮箱验证码，复用 mailcode（新 purpose）；不给注册用户设密码 |
-| D3 | 可达面范围 | **未决**：案 A 只读+运维 / 案 B 完整自助。推荐 B、分两批落地（批 1 先上 A 面）；文档主体按 B 写、A 作降级注脚（§7） |
+| D3 | 可达面范围 | **案 B 完整自助**（2026-11-24 用户拍板），分两批落地（批 1 先上只读+运维面，批 2 开写面）；案 A 仅作降级注脚（§7） |
 | D4 | scope 计算 | 每请求现算 `owner_id=本人 AND review_state='approved'`，不用登录快照；代价一次索引查询，收益审批/处置即时生效 |
 | D5 | 白名单与归属校验 | 新 role `member` + 独立 memberRoutes 表（三表隔离）；入站进白名单的前提是 scopeGuard 新增 inbound→node→owner 反查；写面按门户净化清单收口字段 |
 | D6 | 准入与开关 | 新设置键 `panel_member_login` 默认关、管理员显式开；`user_nodes_mode=off` 时不可用；每请求查 User 状态 + 比对 PortalEpoch，禁用/删除/改邮箱即时失效 |
