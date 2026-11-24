@@ -239,13 +239,20 @@ func TestMemberForbiddenSurfaces(t *testing.T) {
 	mc := memberMailLogin(t, admin.base, m, u.Email, 1)
 
 	// Whitelist-out routes are 403 across the whole admin surface.
+	// (Batch 2 opened the node/inbound write routes for members; their
+	// ownership behaviour is covered by TestMemberWriteSurface — here
+	// only routes that stay shut for members are asserted.)
 	for _, x := range []struct{ method, path string }{
 		{"GET", "/users"}, {"POST", "/users"}, {"GET", "/settings"}, {"PUT", "/settings"},
 		{"GET", "/groups"}, {"GET", "/plans"}, {"GET", "/license"}, {"GET", "/admins"},
 		{"GET", "/audit-logs"}, {"GET", "/tokens"}, {"GET", "/backup"}, {"GET", "/security"},
-		{"POST", "/nodes"}, {"DELETE", "/nodes/m-ok"}, {"PUT", "/nodes/m-ok"},
-		{"GET", "/inbounds"}, {"POST", "/inbounds"}, {"GET", "/templates"},
-		{"GET", "/stats/overview"}, {"GET", "/openapi.json"},
+		{"GET", "/templates"}, {"GET", "/stats/overview"}, {"GET", "/openapi.json"},
+		// The inbound side doors stay shut: publication, relay access,
+		// outbound IP strategy, relays, preview, export, clone, bulk.
+		{"PUT", "/inbounds/x/publication"}, {"PUT", "/inbounds/x/relay-access"},
+		{"PUT", "/inbounds/x/outbound-ip"}, {"POST", "/inbounds/preview"},
+		{"GET", "/inbounds/x/export"}, {"POST", "/inbounds/bulk"},
+		{"POST", "/inbounds/x/clone"}, {"POST", "/nodes/x/review"},
 	} {
 		if code, out := mc.do(x.method, x.path, nil); code != 403 {
 			t.Fatalf("%s %s: %d (want 403) %v", x.method, x.path, code, out)
@@ -256,8 +263,20 @@ func TestMemberForbiddenSurfaces(t *testing.T) {
 	if code, out := mc.do("POST", "/auth/sudo", map[string]any{"password": "whatever"}); code != 403 {
 		t.Fatalf("member sudo: %d %v", code, out)
 	}
-	if code, out := mc.do("POST", "/auth/passkeys/register/begin", nil); code != 403 || out["sudoRequired"] != true {
+	if code, out := mc.do("POST", "/auth/passkeys/register/begin", nil); code != 403 {
 		t.Fatalf("member sudo-gated route: %d %v", code, out)
+	}
+	// Batch-2 tightening: the Admin-oriented self routes are a plain 403
+	// for members now (password, passkeys, TOTP, GitHub/SSO bindings) —
+	// no more empty-result fallthrough behind an empty adminID.
+	for _, x := range []struct{ method, path string }{
+		{"POST", "/auth/password"}, {"GET", "/auth/passkeys"}, {"PUT", "/auth/avatar"},
+		{"POST", "/auth/totp/setup"}, {"GET", "/auth/github"}, {"GET", "/auth/sso/bindings"},
+		{"POST", "/auth/account-recovery-codes"},
+	} {
+		if code, out := mc.do(x.method, x.path, nil); code != 403 {
+			t.Fatalf("member self route %s %s: %d (want 403) %v", x.method, x.path, code, out)
+		}
 	}
 	// The member's own session list works and shows only their sessions.
 	code, body := staffRaw(t, mc, "/auth/sessions")

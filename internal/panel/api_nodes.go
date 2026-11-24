@@ -274,6 +274,10 @@ func nodeRelayChangeError(c *gin.Context, err error) {
 }
 
 func (s *Server) createNode(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberCreateNode(c, u)
+		return
+	}
 	var req nodeReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -352,6 +356,10 @@ func (s *Server) createNode(c *gin.Context) {
 }
 
 func (s *Server) updateNode(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberUpdateNode(c, u)
+		return
+	}
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
 	var n store.Node
@@ -455,6 +463,10 @@ func (e *nodeRelayInUseError) Error() string {
 }
 
 func (s *Server) deleteNode(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberDeleteNode(c, u)
+		return
+	}
 	s.relayMu.Lock()
 	defer s.relayMu.Unlock()
 	id := c.Param("id")
@@ -612,6 +624,10 @@ func (s *Server) joinCommand(r *http.Request, tok string) string {
 }
 
 func (s *Server) installToken(c *gin.Context) {
+	if u := memberUserOf(c); u != nil {
+		s.memberInstallToken(c, u)
+		return
+	}
 	var n store.Node
 	if err := s.st.DB.First(&n, "id = ?", c.Param("id")).Error; err != nil {
 		dbError(c, err)

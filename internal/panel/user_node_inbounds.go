@@ -173,6 +173,19 @@ func (s *Server) portalCreateNodeInbound(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	row, ok := s.createOwnedInbound(c, u, portalActor(u, s.portalViaMail(c)), n, req)
+	if !ok {
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"inbound": s.portalInboundViewOf(row)})
+}
+
+// createOwnedInbound is the shared creation flow for an inbound on a
+// user-owned node: the portal's POST and the panel member's POST run
+// the same sanitising, the same insertInbound core and the same
+// owner-only binding — only the actor and the rendered view differ.
+// Failures are answered here; ok=false means the response is written.
+func (s *Server) createOwnedInbound(c *gin.Context, u *store.User, actor string, n *store.Node, req portalInboundReq) (*store.Inbound, bool) {
 	adminReq := req.toAdmin()
 	adminReq.NodeID = n.ID // the node is never the client's choice
 	m := adminReq.toModel()
@@ -180,7 +193,7 @@ func (s *Server) portalCreateNodeInbound(c *gin.Context) {
 	row, err := s.insertInbound(n, &m, adminReq.meta(), []string{})
 	if err != nil {
 		badRequest(c, err)
-		return
+		return nil, false
 	}
 	if err := s.st.DB.Create(&store.UserAccess{UserID: u.ID, Kind: "inbound", TargetID: row.ID}).Error; err != nil {
 		// The grant is what makes the inbound the owner's; without it the
@@ -191,12 +204,12 @@ func (s *Server) portalCreateNodeInbound(c *gin.Context) {
 			return tx.Delete(&store.Inbound{}, "id = ?", row.ID).Error
 		})
 		serverError(c, err)
-		return
+		return nil, false
 	}
 	s.MarkDirty("inbound "+row.Tag+" created", n.ID)
-	s.audit(portalActor(u, s.portalViaMail(c)), "inbound.create", n.DisplayName+"/"+row.Tag,
+	s.audit(actor, "inbound.create", n.DisplayName+"/"+row.Tag,
 		fmt.Sprintf("%s %s+%s+%s :%d", row.Core, m.Protocol.Type, m.Transport.Type, m.Security.Type, m.Port), clientIP(c.Request))
-	c.JSON(http.StatusCreated, gin.H{"inbound": s.portalInboundViewOf(&row)})
+	return &row, true
 }
 
 // portalOwnedInbound loads an inbound of the node by :inboundId; anything
@@ -233,18 +246,30 @@ func (s *Server) portalUpdateNodeInbound(c *gin.Context) {
 	if row == nil {
 		return
 	}
+	if !s.updateOwnedInbound(c, portalActor(u, s.portalViaMail(c)), n, row) {
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"inbound": s.portalInboundViewOf(row)})
+}
+
+// updateOwnedInbound is the shared update flow for an inbound on a
+// user-owned node (portal PATCH and panel member PUT): the portal's
+// field set and preserve rules, run under the caller's relayMu with the
+// node and row already resolved as the caller's own. Failures are
+// answered here; false means the response is already written.
+func (s *Server) updateOwnedInbound(c *gin.Context, actor string, n *store.Node, row *store.Inbound) bool {
 	if row.TemplateID != "" {
 		badRequest(c, errors.New("该入站由模板管理，请联系管理员"))
-		return
+		return false
 	}
 	if row.RelayAccess.V.Enabled {
 		badRequest(c, errors.New("该入站开启了来源限制，请联系管理员"))
-		return
+		return false
 	}
 	var req portalInboundReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
-		return
+		return false
 	}
 	adminReq := req.toAdmin()
 	adminReq.NodeID = n.ID
@@ -274,7 +299,7 @@ func (s *Server) portalUpdateNodeInbound(c *gin.Context) {
 	m.Extra = old.Extra // the raw escape hatch is admin-only; preserve, never accept
 	if err := s.validateInbound(n, &m, row.ID); err != nil {
 		badRequest(c, err)
-		return
+		return false
 	}
 	fromModel(&m, row)
 	row.Remark = req.Remark
@@ -293,11 +318,11 @@ func (s *Server) portalUpdateNodeInbound(c *gin.Context) {
 	})
 	if err != nil {
 		dbError(c, err)
-		return
+		return false
 	}
 	s.MarkDirty("inbound "+row.Tag+" updated", s.nodesForInbounds(row.ID)...)
-	s.audit(portalActor(u, s.portalViaMail(c)), "inbound.update", n.DisplayName+"/"+row.Tag, "", clientIP(c.Request))
-	c.JSON(http.StatusOK, gin.H{"inbound": s.portalInboundViewOf(row)})
+	s.audit(actor, "inbound.update", n.DisplayName+"/"+row.Tag, "", clientIP(c.Request))
+	return true
 }
 
 // portalDeleteNodeInbound is DELETE /u/my-nodes/:id/inbounds/:inboundId:
@@ -320,15 +345,27 @@ func (s *Server) portalDeleteNodeInbound(c *gin.Context) {
 	if row == nil {
 		return
 	}
+	if !s.deleteOwnedInbound(c, portalActor(u, s.portalViaMail(c)), n, row) {
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// deleteOwnedInbound is the shared delete flow for an inbound on a
+// user-owned node (portal DELETE and panel member DELETE): the same
+// reference checks and cleanup cascade deleteInbound runs, under the
+// caller's relayMu with node and row already resolved as the caller's
+// own. Failures are answered here; false means the response is written.
+func (s *Server) deleteOwnedInbound(c *gin.Context, actor string, n *store.Node, row *store.Inbound) bool {
 	var refs int64
 	s.st.DB.Model(&store.Outbound{}).Where("node_ref_inbound_id = ?", row.ID).Count(&refs)
 	if refs > 0 {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("有 %d 个出站 / 链路引用该入站，请先删除", refs)})
-		return
+		return false
 	}
 	if master := s.referencingMaster(row.ID); master != "" {
 		c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("入站「%s」把它作为回落目标，请先在该入站中移除", master)})
-		return
+		return false
 	}
 	nodes := s.nodesForInbounds(row.ID)
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
@@ -344,9 +381,9 @@ func (s *Server) portalDeleteNodeInbound(c *gin.Context) {
 	})
 	if err != nil {
 		serverError(c, err)
-		return
+		return false
 	}
 	s.MarkDirty("inbound "+row.Tag+" deleted", nodes...)
-	s.audit(portalActor(u, s.portalViaMail(c)), "inbound.delete", n.DisplayName+"/"+row.Tag, "", clientIP(c.Request))
-	c.Status(http.StatusNoContent)
+	s.audit(actor, "inbound.delete", n.DisplayName+"/"+row.Tag, "", clientIP(c.Request))
+	return true
 }

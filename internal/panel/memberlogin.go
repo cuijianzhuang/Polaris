@@ -33,8 +33,11 @@ const (
 
 // memberRoutes is the member role's route whitelist (batch 1: read +
 // operate own nodes, plus the session/self routes the scoped workspace
-// needs). It is deliberately a separate table from scopedRoutes: widening
-// the operator surface must never widen the member surface by accident.
+// needs; batch 2: manage own nodes and their inbounds, §7/§9). It is
+// deliberately a separate table from scopedRoutes: widening the operator
+// surface must never widen the member surface by accident. Members are
+// confined to this table alone — the selfAccountRoutes spillover the
+// operator branch allows does not apply to them (batch 2 tightening).
 var memberRoutes = map[string]bool{
 	"GET /auth/me":                      true,
 	"POST /auth/logout":                 true,
@@ -57,6 +60,19 @@ var memberRoutes = map[string]bool{
 	"GET /core-latest":                  true,
 	"GET /stats/nodes":                  true,
 	"GET /stats/traffic":                true, // only with ?node= in scope, see scopeGuard
+	// Batch 2: the write surface. Every one of these resolves its target
+	// through the member ownership checks before doing anything (see
+	// memberScopeGuard and member_nodes.go); node publication, relay,
+	// CDN and template routes are deliberately absent.
+	"POST /nodes":                   true,
+	"PUT /nodes/:id":                true,
+	"DELETE /nodes/:id":             true,
+	"POST /nodes/:id/install-token": true,
+	"GET /inbounds":                 true,
+	"POST /inbounds":                true,
+	"GET /inbounds/:id":             true,
+	"PUT /inbounds/:id":             true,
+	"DELETE /inbounds/:id":          true,
 }
 
 // memberActor names a member in the audit log, distinct from admin actors
