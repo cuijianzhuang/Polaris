@@ -19,6 +19,7 @@ export function planSummary(p: Group) {
     p.trafficLimit ? bytes(p.trafficLimit) : t('不限流量'),
     p.days ? t('{n} 天', { n: p.days }) : t('不限期'),
     p.deviceLimit ? t('{n} 台设备', { n: p.deviceLimit }) : '',
+    p.nodeLimit ? t('自有节点 {n} 台', { n: p.nodeLimit }) : '',
     p.speedUpMbps || p.speedDownMbps ? `↑${p.speedUpMbps || '∞'} ↓${p.speedDownMbps || '∞'} Mbps` : '',
     p.fwdMax ? t('{n} 条转发', { n: p.fwdMax }) : '',
   ].filter(Boolean).join(' · ')
@@ -30,19 +31,19 @@ const resetText = (p: string | undefined, day: number | undefined) => ({
 
 type Edit = {
   id?: string; name: string; price: string; sort: number; level: number; nodeIds: string[]; limitGB: string; days: string
-  resetPolicy: string; resetDay: string; deviceLimit: string; ipLimit: string; speedUp: string; speedDown: string; fallbackId: string
+  resetPolicy: string; resetDay: string; deviceLimit: string; ipLimit: string; nodeLimit: string; speedUp: string; speedDown: string; fallbackId: string
   sale: boolean; priceStars: string; priceCny: string; priceUsdt: string
   nodeRates: Record<string, string>
   fwdMax: string; fwdPortLo: string; fwdPortHi: string; fwdGB: string; fwdRate: string; fwdSpeed: string
 }
 
-const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {}, fwdMax: '', fwdPortLo: '', fwdPortHi: '', fwdGB: '', fwdRate: '', fwdSpeed: '' }
+const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', nodeLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {}, fwdMax: '', fwdPortLo: '', fwdPortHi: '', fwdGB: '', fwdRate: '', fwdSpeed: '' }
 
 function toEdit(p: Group): Edit {
   return {
     id: p.id, name: p.name, price: p.price ?? '', sort: p.sort ?? 0, level: p.level, nodeIds: p.nodeIds ?? [],
     limitGB: p.trafficLimit ? String(+(p.trafficLimit / GB).toFixed(2)) : '', days: p.days ? String(p.days) : '',
-    resetPolicy: p.resetPolicy || 'none', resetDay: String(p.resetDay || 1), deviceLimit: String(p.deviceLimit ?? 0), ipLimit: String(p.ipLimit ?? 0),
+    resetPolicy: p.resetPolicy || 'none', resetDay: String(p.resetDay || 1), deviceLimit: String(p.deviceLimit ?? 0), ipLimit: String(p.ipLimit ?? 0), nodeLimit: String(p.nodeLimit ?? 0),
     speedUp: p.speedUpMbps ? String(p.speedUpMbps) : '', speedDown: p.speedDownMbps ? String(p.speedDownMbps) : '', fallbackId: p.fallbackId ?? '',
     sale: !!p.sale, priceStars: p.priceStars ? String(p.priceStars) : '', priceCny: p.priceCny ? String(p.priceCny) : '', priceUsdt: p.priceUsdt ? String(p.priceUsdt) : '',
     nodeRates: Object.fromEntries(Object.entries(p.nodeRates ?? {}).map(([k, v]) => [k, String(v)])),
@@ -69,7 +70,7 @@ function planBody(e: Edit) {
     name: e.name.trim(), price: e.price.trim(), sort: Number(e.sort) || 0, level: e.level, nodeIds: e.nodeIds,
     trafficLimit: Math.round(Number(e.limitGB || 0) * GB), days: Number(e.days) || 0,
     resetPolicy: e.resetPolicy === 'none' ? '' : e.resetPolicy, resetDay: Number(e.resetDay) || 0,
-    deviceLimit: Number(e.deviceLimit) || 0, ipLimit: Number(e.ipLimit) || 0,
+    deviceLimit: Number(e.deviceLimit) || 0, ipLimit: Number(e.ipLimit) || 0, nodeLimit: Number(e.nodeLimit) || 0,
     speedUpMbps: Number(e.speedUp) || 0, speedDownMbps: Number(e.speedDown) || 0, fallbackId: e.fallbackId,
     sale: e.sale, priceStars: Math.round(Number(e.priceStars) || 0), priceCny: Number(e.priceCny) || 0, priceUsdt: Number(e.priceUsdt) || 0,
     nodeRates: Object.fromEntries(Object.entries(e.nodeRates).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => (v as number) > 0)),
@@ -155,6 +156,7 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
           )}
           <Field label={t('设备数（HWID）')} htmlFor="p-dev" hint={t('0 为不限')}><input id="p-dev" className="input mono" inputMode="numeric" value={edit.deviceLimit} onChange={(e) => set('deviceLimit', e.target.value)} /></Field>
           <Field label={t('同时在线 IP 数')} htmlFor="p-ip" hint={t('0 为不限')}><input id="p-ip" className="input mono" inputMode="numeric" value={edit.ipLimit} onChange={(e) => set('ipLimit', e.target.value)} /></Field>
+          <Field label={t('自有节点上限')} htmlFor="p-nodes" hint={t('该套餐用户可自助接入的 VPS 台数；0 = 不额外限制（只受许可证上限，社区版 3 台）')}><input id="p-nodes" className="input mono" inputMode="numeric" value={edit.nodeLimit} onChange={(e) => set('nodeLimit', e.target.value)} /></Field>
           <Field label={<>{t('限速 上行 / 下行 (Mbps)')}<ProTag on={speedOK} /></>} hint={t('留空为不限')}>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
               <input aria-label={t('上行 Mbps')} disabled={!speedOK} className="input mono" inputMode="numeric" value={edit.speedUp} placeholder={t('上行')} onChange={(e) => set('speedUp', e.target.value)} />

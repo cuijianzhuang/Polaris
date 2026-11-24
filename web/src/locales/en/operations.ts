@@ -668,5 +668,13 @@ const operations: Record<string, string> = {
   "配置不兼容": "Incompatible configuration",
   "请更换兼容的落地入站，或调整入口内核后重新保存下发。": "Choose a compatible landing inbound or adjust the entry core, then save and apply again.",
   "下一跳的协议和传输必须受上游内核支持。sing-box 不支持 XHTTP 出站；保留 AnyTLS 入口时，可选择兼容的 WS / gRPC 落地。": "The upstream core must support the next hop's protocol and transport. sing-box cannot dial XHTTP. To retain an AnyTLS entry, choose a compatible WS/gRPC landing.",
+  "接入模式": "Access mode",
+  "审批制": "Approval required",
+  "开放制": "Open",
+  "注册用户可把自己的 VPS 接入面板自助管理；节点只服务归属用户自己的账号，不进公共订阅池。社区版每用户最多 3 台，付费许可证可放宽上限。": "Registered users can bring their own VPS into the panel and manage them self-service; a node only serves its owner's own accounts and never joins the public subscription pool. The community edition allows up to 3 per user; a paid licence can raise the cap.",
+  "关闭后用户不能再接入新节点；已接入的节点不受影响，仍可管理与删除。": "When off, users can no longer bring in new nodes; nodes already connected are unaffected and can still be managed or deleted.",
+  "用户接入的节点先待审批：能上线供你核对机器信息，但不下发配置、不被订阅使用，你批准后才生效。": "Nodes users bring in wait for review first: they can come online so you can check the machine, but no configuration is delivered and no subscription can use them until you approve.",
+  "用户接入的节点立即生效，不经审批。": "Nodes users bring in take effect immediately, without review.",
+  "开放制需专业版许可：当前许可不含「用户节点开放接入」，保存后实际按审批制生效。": "Open mode needs a professional licence: the current licence does not include “User-node open access”, so after saving it effectively runs as approval mode.",
 }
 export default operations

@@ -215,6 +215,10 @@ type User struct {
 	OnlineIPState  string     `gorm:"-" json:"onlineIpState,omitempty"`
 	OnlineIPSeenAt *time.Time `gorm:"-" json:"onlineIpSeenAt,omitempty"`
 	OnlineIPCount  *int       `gorm:"-" json:"onlineIpCount,omitempty"`
+	// OwnNodes / OwnPendingNodes count the user's own brought-in nodes
+	// (user-nodes feature), filled per request by the admin user list.
+	OwnNodes        int `gorm:"-" json:"ownNodes"`
+	OwnPendingNodes int `gorm:"-" json:"ownPendingNodes"`
 	// ExtraTraffic is the part of TrafficLimit added by traffic packs this
 	// period; it goes when the period ends (traffic reset or a new period).
 	ExtraTraffic int64 `json:"extraTraffic"`

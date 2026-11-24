@@ -5,6 +5,7 @@ import Passkeys from '../components/Passkeys'
 import AvatarSettings from '../components/AvatarSettings'
 import { NotificationSettings, NetworkDatabaseSettings } from '../components/NetworkSettings'
 import { ResourceAlertSettings } from '../components/ResourceAlertSettings'
+import { UserNodesSettings } from '../components/UserNodesSettings'
 import { useEffect, useRef, useState } from 'react'
 import { get, post, put, setToken, takeOAuthResult } from '../api'
 import { APITokens, LoginProtection, RecoveryCodesModal, Sessions, SSOProviders } from '../components/SecurityCards'
@@ -153,6 +154,7 @@ export default function Settings() {
           <SettingsSaveBar loading={s.loading} dirty={generalDirty} busy={generalSaver.busy} error={generalSaver.error || s.error} disabled={s.loading || !s.data} onSave={saveGeneral} />
           </fieldset>
         </section>
+        <UserNodesSettings />
         <details className="card settings-disclosure"><summary>{t('部署信息')}</summary><div className="settings-fields">
           <dl className="kv" style={{ margin: 0, gridTemplateColumns: '120px minmax(0,1fr)' }}>
             <dt>{t('版本')}</dt><dd className="mono">{s.data?.version}</dd>
