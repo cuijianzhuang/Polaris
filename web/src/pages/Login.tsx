@@ -44,9 +44,19 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   // registered users and member admission is on (memberSSOLogin); the
   // provider buttons are the same list the admin face uses.
   const [memberSSO, setMemberSSO] = useState(!!LOGIN_INFO?.memberSSOLogin)
-  const [mode, setMode] = useState<'admin' | 'mail' | 'pw'>('admin')
-  const mailMode = mode === 'mail'
-  const pwMode = mode === 'pw'
+  // Two-level face switch: the audience first (admin vs registered
+  // user), then, inside the member face, the credential method (mail
+  // code vs account password). The admin face is the default, so an
+  // admin lands on the password form exactly as before.
+  const [face, setFace] = useState<'admin' | 'member'>('admin')
+  const [memberTab, setMemberTab] = useState<'mail' | 'pw'>('mail')
+  const memberAny = mailLogin || pwLogin || memberGithub || memberPasskey || memberSSO
+  // The member credential form actually shown: the level-2 switch only
+  // exists when both methods are on; with just one, that one is the
+  // form; with none, the member face is only its third-party buttons.
+  const mTab: 'mail' | 'pw' | null = mailLogin && pwLogin ? memberTab : mailLogin ? 'mail' : pwLogin ? 'pw' : null
+  const mailMode = face === 'member' && mTab === 'mail'
+  const pwMode = face === 'member' && mTab === 'pw'
   const [pwView, setPwView] = useState<'login' | 'register' | 'reset'>('login')
   const [regEmail, setRegEmail] = useState('')
   const [pwNote, setPwNote] = useState('')
@@ -242,15 +252,20 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         <div className="login-visual-foot"><Icon.Lock /><span>{t('为日常运维打造的统一控制台')}</span></div>
       </aside>
       <section className="login-stage" aria-label={t('管理员登录')}>
-        <form className="card login-card" onSubmit={mailMode ? submitMail : pwMode ? submitPw : submit}>
+        <form className="card login-card" onSubmit={face === 'admin' ? submit : mailMode ? submitMail : pwMode ? submitPw : (e) => e.preventDefault()}>
  {recovered && <div className="note">{t('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。')}</div>}
           <div className="row login-card-brand"><LangToggle /></div>
           <div className="login-form-copy"><h2>{t('欢迎回来')}</h2><p>{t('登录以继续管理节点。')}</p></div>
-        {(mailLogin || pwLogin) && (
-          <div className="seg" role="tablist" aria-label={t('登录方式')}>
-            <button type="button" className={'opt' + (mode === 'admin' ? ' on' : '')} aria-pressed={mode === 'admin'} onClick={() => { setMode('admin'); setErr('') }}>{t('密码登录')}</button>
-            {mailLogin && <button type="button" className={'opt' + (mailMode ? ' on' : '')} aria-pressed={mailMode} onClick={() => { setMode('mail'); setErr('') }}>{t('邮箱验证码')}</button>}
-            {pwLogin && <button type="button" className={'opt' + (pwMode ? ' on' : '')} aria-pressed={pwMode} onClick={() => { setMode('pw'); setPwView('login'); setErr('') }}>{t('账号密码')}</button>}
+        {memberAny && (
+          <div className="login-seg" role="tablist" aria-label={t('登录方式')}>
+            <button type="button" className={face === 'admin' ? 'on' : ''} aria-pressed={face === 'admin'} onClick={() => { setFace('admin'); setErr('') }}>{t('管理员')}</button>
+            <button type="button" className={face === 'member' ? 'on' : ''} aria-pressed={face === 'member'} onClick={() => { setFace('member'); setErr('') }}>{t('注册用户')}</button>
+          </div>
+        )}
+        {face === 'member' && mailLogin && pwLogin && (
+          <div className="login-seg" role="tablist" aria-label={t('登录方式')}>
+            <button type="button" className={mTab === 'mail' ? 'on' : ''} aria-pressed={mTab === 'mail'} onClick={() => { setMemberTab('mail'); setErr('') }}>{t('邮箱验证码')}</button>
+            <button type="button" className={mTab === 'pw' ? 'on' : ''} aria-pressed={mTab === 'pw'} onClick={() => { setMemberTab('pw'); setPwView('login'); setErr('') }}>{t('账号密码')}</button>
           </div>
         )}
         {pwMode ? (
@@ -315,7 +330,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
               <div className="hint">{t('注册用户用邮箱验证码登录，只能管理自己的节点；没有账号且开放注册时将自动注册。')}</div>
             </div>
           </>
-        ) : (
+        ) : face === 'admin' ? (
           <>
             <div className="field">
               <label className="lbl" htmlFor="u">{t('用户名')}</label>
@@ -333,19 +348,19 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
               </div>
             )}
           </>
-        )}
+        ) : null}
         {err && <div className="note bad">{err}</div>}
-        <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : pwMode && pwView === 'register' ? t('注册并登录') : pwMode && pwView === 'reset' ? t('重置密码') : t('登录')}</button>
-        {mode === 'admin' && (passkey || github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
-        {mode === 'admin' && passkey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
-        {mode === 'admin' && passkey && <button className="link small" type="button" disabled={busy} onClick={()=>{setAccountRecovery(true);setErr('')}}>{t('无法使用通行密钥？恢复账号')}</button>}
-        {mode === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
-        {mode === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
-        {mode === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
-        {mode !== 'admin' && (memberGithub || (memberPasskey && passkeysSupported()) || (memberSSO && sso.length > 0)) && <div className="or"><span>{t('或')}</span></div>}
-        {mode !== 'admin' && memberPasskey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={memberPasskeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
-        {mode !== 'admin' && memberGithub && <button className="btn github" type="button" disabled={busy} onClick={memberGithubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
-        {mode !== 'admin' && memberSSO && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => memberSSOLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
+        {(face === 'admin' || mTab !== null) && <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : pwMode && pwView === 'register' ? t('注册并登录') : pwMode && pwView === 'reset' ? t('重置密码') : t('登录')}</button>}
+        {face === 'admin' && (passkey || github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
+        {face === 'admin' && passkey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
+        {face === 'admin' && passkey && <button className="link small" type="button" disabled={busy} onClick={()=>{setAccountRecovery(true);setErr('')}}>{t('无法使用通行密钥？恢复账号')}</button>}
+        {face === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
+        {face === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
+        {face === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
+        {face === 'member' && mTab !== null && (memberGithub || (memberPasskey && passkeysSupported()) || (memberSSO && sso.length > 0)) && <div className="or"><span>{t('或')}</span></div>}
+        {face === 'member' && memberPasskey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={memberPasskeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
+        {face === 'member' && memberGithub && <button className="btn github" type="button" disabled={busy} onClick={memberGithubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
+        {face === 'member' && memberSSO && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => memberSSOLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
         </form>
       </section>
     </div>

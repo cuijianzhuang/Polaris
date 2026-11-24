@@ -275,6 +275,17 @@ tr.sel td { background: var(--pri-soft); }
 .login.login-home .login-card .or { gap: 12px; }
 .login.login-home .login-card .or::before, .login.login-home .login-card .or::after { background: var(--line); }
 .login.login-home .login-card :is(.btn.github, .btn.telegram) { border-radius: 10px; }
+/* Login face switch: two-level segmented control (audience first, then
+   the member credential method). Same visual language as .appearance
+   .seg: a muted track, the selected segment on the card surface with a
+   soft shadow — not the bordered option boxes .seg/.opt use elsewhere. */
+.login-seg { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.login-seg button { min-height: 35px; padding: 4px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--mute); font: inherit; font-size: 13px; font-weight: 550; text-align: center; white-space: nowrap; cursor: pointer; transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
+.login-seg button:hover:not(.on) { color: var(--ink-2); }
+.login-seg button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+@media (pointer: coarse) {
+  .login-seg button { min-height: 44px; }
+}
 
 @media (max-width: 900px) {
   .login.login-home { grid-template-columns: minmax(0, 1fr); gap: 0; padding: 0; }
