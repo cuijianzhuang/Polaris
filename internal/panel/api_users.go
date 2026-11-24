@@ -383,6 +383,25 @@ func (s *Server) bulkUsers(c *gin.Context) {
 	if len(req.IDs) > 0 && req.Action != "create" {
 		before = s.nodesForUsers(req.IDs...)
 	}
+	// D6 (design user-nodes): deleting users deletes their own nodes with
+	// them, through the full node cascade. It runs before the transaction
+	// (the cascade takes its own, like the lookup above); a node that
+	// cannot be deleted aborts the whole bulk delete.
+	var ownedDeleted, ownedUpstream []string
+	if req.Action == "delete" && len(req.IDs) > 0 {
+		s.relayMu.Lock()
+		for _, uid := range req.IDs {
+			deleted, upstream, cerr := s.deleteOwnedNodes(uid)
+			ownedDeleted = append(ownedDeleted, deleted...)
+			ownedUpstream = append(ownedUpstream, upstream...)
+			if cerr != nil {
+				s.relayMu.Unlock()
+				nodeDeleteError(c, cerr)
+				return
+			}
+		}
+		s.relayMu.Unlock()
+	}
 	if t := req.Template; req.Action == "create" && t != nil && t.GroupIDs == nil && t.NodeIDs == nil && t.InboundIDs == nil && (t.PlanID == nil || *t.PlanID == "") {
 		t.GroupIDs = s.defaultGroupIDs()
 	}
@@ -539,6 +558,18 @@ func (s *Server) bulkUsers(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
+	// D6: disabled accounts' own nodes are revoked; deleted accounts' own
+	// nodes were cascade-deleted above and only need their kicks and spec
+	// rebuilds now.
+	if req.Action == "disable" {
+		s.revokeOwnedNodes(req.IDs...)
+	}
+	if req.Action == "delete" {
+		for _, id := range ownedDeleted {
+			s.hub.Kick(id)
+		}
+		before = append(before, ownedUpstream...)
+	}
 	if len(affected) > 0 {
 		s.recomputeStatus(affected...)
 	}
@@ -662,6 +693,10 @@ func (s *Server) updateUser(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
+	if u.Status == "disabled" {
+		// D6: a disabled account's own nodes stop serving at once.
+		s.revokeOwnedNodes(u.ID)
+	}
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
 	s.wakeBusinessEvents()
@@ -675,6 +710,15 @@ func (s *Server) deleteUser(c *gin.Context) {
 		return
 	}
 	nodes := s.nodesForUsers(u.ID)
+	// D6: the user's own nodes are deleted with the account, through the
+	// same cascade as an admin node delete.
+	s.relayMu.Lock()
+	ownedDeleted, ownedUpstream, cerr := s.deleteOwnedNodes(u.ID)
+	s.relayMu.Unlock()
+	if cerr != nil {
+		nodeDeleteError(c, cerr)
+		return
+	}
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		for _, m := range []any{&store.UserGroup{}, &store.UserAccess{}, &store.UserNodeQuota{}, &store.ForwardRule{}} {
 			if err := tx.Where("user_id = ?", u.ID).Delete(m).Error; err != nil {
@@ -690,6 +734,10 @@ func (s *Server) deleteUser(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
+	for _, id := range ownedDeleted {
+		s.hub.Kick(id)
+	}
+	nodes = append(nodes, ownedUpstream...)
 	s.MarkDirty("user deleted", nodes...)
 	s.auditCtx(c, "user.delete", u.Username, "")
 	s.wakeBusinessEvents()

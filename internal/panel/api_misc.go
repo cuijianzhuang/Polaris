@@ -130,6 +130,7 @@ var editableSettings = map[string]bool{
 	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true, "status_show_cost": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
+	"user_nodes_mode":    true,
 	"remind_expire_days": true, "remind_usage_pct": true, "tg_daily_report": true, "tg_daily_report_hour": true,
 	"sub_enabled": true, "sub_base_url": true, "sub_title": true, "sub_support_url": true, "sub_show_info": true, "sub_announce": true,
 	"sub_routing_enabled": true, "sub_routing_rules": true, "sub_show_bot": true, "portal_enabled": true, "sub_show_rate": true, "traffic_spike_factor": true, "traffic_spike_min_gb": true, "resource_alert_enabled": true, "resource_alert_cpu": true, "resource_alert_mem": true, "resource_alert_disk": true, "resource_alert_minutes": true, "login_allowlist": true, "login_ban_failures": true,
@@ -238,6 +239,14 @@ func (s *Server) putSettings(c *gin.Context) {
 		m := strings.TrimSpace(v)
 		if m != "" && !strings.HasPrefix(m, "https://") {
 			badRequest(c, errors.New("GitHub 镜像必须使用 https://：镜像只加速软件包下载，校验和始终从 GitHub 官方获取"))
+			return
+		}
+	}
+	if v, ok := req["user_nodes_mode"]; ok {
+		switch strings.TrimSpace(v) {
+		case "off", "approval", "open":
+		default:
+			badRequest(c, errors.New("user_nodes_mode 应为 off、approval 或 open"))
 			return
 		}
 	}

@@ -183,6 +183,17 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		spec.Cores = append(spec.Cores, model.CoreSpec{Type: c.Type, Version: c.Version})
 	}
 
+	if node.OwnerID != "" && node.ReviewState != "approved" {
+		// A user-owned node that has not passed review (pending / rejected)
+		// gets an empty configuration: the agent stays connected so the
+		// admin can inspect the machine, and its core may install, but no
+		// inbounds, users or anything else flows to it (design user-nodes
+		// §6/§8). Admin nodes (OwnerID "") and pre-existing rows
+		// (ReviewState "") never take this branch in practice — user nodes
+		// always carry a review state from creation.
+		return spec, nil
+	}
+
 	var ins []store.Inbound
 	if err := s.st.DB.Where("node_id = ?", node.ID).Order("port, tag").Find(&ins).Error; err != nil {
 		return nil, err
