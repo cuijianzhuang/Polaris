@@ -19,7 +19,8 @@ with sync_playwright() as p:
  cdp=page.context.new_cdp_session(page);cdp.send('WebAuthn.enable')
  auth=cdp.send('WebAuthn.addVirtualAuthenticator',dict(options=dict(protocol='ctap2',transport='internal',hasResidentKey=True,hasUserVerification=True,isUserVerified=True,automaticPresenceSimulation=True)))['authenticatorId']
  page.goto(url+'/')
- page.get_by_label('用户名',exact=True).fill('root');page.get_by_label('密码',exact=True).fill('old-password')
+ page.get_by_label('账号',exact=True).fill('root');page.get_by_role('button',name='下一步',exact=True).click()
+ page.get_by_label('密码',exact=True).fill('old-password')
  page.get_by_role('button',name='登录',exact=True).click()
  page.wait_for_function("!!localStorage.getItem('polaris.token')")
  password_token=page.evaluate("localStorage.getItem('polaris.token')")
@@ -37,11 +38,11 @@ with sync_playwright() as p:
  expect(page.get_by_role('cell',name='Browser device',exact=True)).to_be_visible()
  # Sign-in from a fresh application state with a real authenticator assertion.
  page.evaluate("localStorage.removeItem('polaris.token')");page.goto(url+'/')
- with page.expect_response(lambda r:'/auth/passkeys/login/finish' in r.url and r.status==200) as login:
+ with page.expect_response(lambda r:'/auth/passkeys/any/login/finish' in r.url and r.status==200) as login:
   page.get_by_role('button',name='使用通行密钥登录',exact=True).click()
  token=login.value.json()['token']
  request=login.value.request.post_data_json
- replay=page.request.post(url+'/api/v1/auth/passkeys/login/finish',data=request)
+ replay=page.request.post(url+'/api/v1/auth/passkeys/any/login/finish',data=request)
  assert replay.status==400, 'assertion challenge was replayed'
  # A bad origin and missing user verification must not authenticate.
  begin=page.request.post(url+'/api/v1/auth/passkeys/login/begin',data={}).json()
@@ -84,6 +85,7 @@ with sync_playwright() as p:
  expect(page.get_by_text('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。',exact=True)).to_be_visible()
  assert page.request.get(url+'/api/v1/auth/me',headers=headers).status==401
  assert page.request.post(url+'/api/v1/auth/account-recovery',data=dict(username='root',code=codes[0],password='another-password')).status==401
+ page.get_by_label('账号',exact=True).fill('root');page.get_by_role('button',name='下一步',exact=True).click()
  page.get_by_label('密码',exact=True).fill('new-browser-password');page.get_by_role('button',name='登录',exact=True).click()
  page.wait_for_function("!!localStorage.getItem('polaris.token')")
  page.set_viewport_size(dict(width=1440,height=1000));page.goto(url+'/settings#security')
