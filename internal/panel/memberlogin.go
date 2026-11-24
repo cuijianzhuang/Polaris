@@ -215,7 +215,8 @@ func (s *Server) panelMailCode(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Email string `json:"email"`
+		Email   string `json:"email"`
+		Purpose string `json:"purpose"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -230,7 +231,16 @@ func (s *Server) panelMailCode(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "操作太频繁，请稍后再试"})
 		return
 	}
-	key := mailKey(mailPurposePanel, addr)
+	purpose := mailPurposePanel
+	if req.Purpose == "reset" {
+		// Password reset codes share the portal's purpose, so a code
+		// asked on either face spends on the other.
+		purpose = mailPurposeReset
+	} else if req.Purpose != "" {
+		badRequest(c, errors.New("无效的验证码用途"))
+		return
+	}
+	key := mailKey(purpose, addr)
 	var prev mailCode
 	if s.eph.get(key, &prev) && time.Since(prev.Sent) < mailCodeCooldown {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": fmt.Sprintf("验证码已发送，请 %d 秒后再试", int((mailCodeCooldown-time.Since(prev.Sent)).Seconds())+1)})
@@ -238,9 +248,10 @@ func (s *Server) panelMailCode(c *gin.Context) {
 	}
 	// Who may get a panel code: an existing account, or anyone when
 	// sign-up is open and the domain allowed (the code then registers).
+	// A reset code only ever goes to an existing account.
 	var n int64
 	s.st.DB.Model(&store.User{}).Where("email = ? AND is_service = ?", addr, false).Count(&n)
-	send := n > 0 || (s.mailRegisterOn() && s.registerDomainOK(addr))
+	send := n > 0 || (purpose == mailPurposePanel && s.mailRegisterOn() && s.registerDomainOK(addr))
 	res := gin.H{"ok": true, "ttl": int(mailCodeTTL.Seconds()), "cooldown": int(mailCodeCooldown.Seconds())}
 	// The daily cap applies whether or not a mail goes out: a 429 only
 	// for real accounts would tell them apart (same key as the portal's).
@@ -263,6 +274,9 @@ func (s *Server) panelMailCode(c *gin.Context) {
 		return
 	}
 	title := "面板登录验证码"
+	if purpose == mailPurposeReset {
+		title = "重置密码验证码"
+	}
 	plain, body := s.mailCodeBody(title, code)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()

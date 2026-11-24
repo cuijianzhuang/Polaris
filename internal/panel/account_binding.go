@@ -383,7 +383,7 @@ func (s *Server) portalSubscriptionBind(c *gin.Context) {
 		return
 	}
 	s.setPortalCookie(c, token, int(portalSessionTTL.Seconds()))
-	s.audit(portalActor(current, cl.MailFP != ""), "user.subscription_bound", kept.Username, "verified account association", clientIP(c.Request))
+	s.audit(portalActorForClaims(cl, current), "user.subscription_bound", kept.Username, "verified account association", clientIP(c.Request))
 	s.wakeBusinessEvents()
 	c.JSON(http.StatusOK, gin.H{"ok": true, "username": kept.Username})
 }

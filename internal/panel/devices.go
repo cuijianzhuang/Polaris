@@ -165,6 +165,6 @@ func (s *Server) portalDeleteDevice(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "设备不存在"})
 		return
 	}
-	s.audit(portalActor(u, s.portalViaMail(c)), "user.device_delete", u.Username, id, clientIP(c.Request))
+	s.audit(s.portalActorFor(c, u), "user.device_delete", u.Username, id, clientIP(c.Request))
 	c.Status(http.StatusNoContent)
 }

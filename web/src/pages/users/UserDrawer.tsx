@@ -138,6 +138,7 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
     nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [], telegramId: user?.telegramId ? String(user.telegramId) : '', email: user?.email ?? '',
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
     renewDays: user?.renewDays ? String(user.renewDays) : '', renewMax: user?.renewMax ? String(user.renewMax) : '',
+    loginPw: '', clearLoginPw: false,
     deviceLimit: String(user?.deviceLimit ?? 0),
     speedUp: user?.speedUpMbps ? String(user.speedUpMbps) : '', speedDown: user?.speedDownMbps ? String(user.speedDownMbps) : '',
     planId: user?.planId ?? '',
@@ -169,6 +170,9 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
       telegramId: Number(f.telegramId.trim()) || 0, email: f.email.trim(),
       renewDays: Number(f.renewDays) || 0, renewMax: Number(f.renewMax) || 0, deviceLimit: Number(f.deviceLimit) || 0,
       speedUpMbps: Number(f.speedUp) || 0, speedDownMbps: Number(f.speedDown) || 0, planId: f.planId,
+      // Only sent when the admin typed a new sign-in password or asked
+      // to clear it; absent means unchanged.
+      ...(user && (f.loginPw || f.clearLoginPw) ? { loginPassword: f.clearLoginPw ? '' : f.loginPw } : {}),
     }
     if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error(t('Telegram User ID 应为纯数字'))
     if (user) await put('/users/' + user.id, body)
@@ -280,6 +284,10 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
           <Field label={t('邮箱')} htmlFor="u-mail" full hint={t('配置 SMTP 后，提醒和订单开通通知也会发到这个邮箱；留空表示不发邮件')}>
             <input id="u-mail" className="input mono" type="email" autoComplete="off" value={f.email} onChange={(e) => set('email', e.target.value)} placeholder="user@example.com" />
           </Field>
+          {user && <Field label={t('登录密码')} htmlFor="u-loginpw" full hint={t('只用于登录用户中心和面板，与下面的订阅密码是两个不同的密码；留空不改，设置或清除后该用户所有登录都会失效')}>
+            <input id="u-loginpw" className="input" type="password" autoComplete="new-password" value={f.loginPw} disabled={f.clearLoginPw} onChange={(e) => set('loginPw', e.target.value)} placeholder={user.hasLoginPassword ? t('已设置 · 输入新密码可重置') : t('未设置 · 输入可代为设置')} />
+            {user.hasLoginPassword && <label className="row small" style={{ marginTop: 6 }}><input type="checkbox" checked={f.clearLoginPw} onChange={(e) => set('clearLoginPw', e.target.checked)} />{t('清除登录密码')}</label>}
+          </Field>}
       </Section>
       {user && <UserLinks userId={user.id} />}
       {user && <NodeQuotas userId={user.id} />}
@@ -290,7 +298,8 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
       {user && (
         <div className="kv">
           <dt>UUID</dt><dd className="mono">{user.uuid}</dd>
-          <dt>{t('密码')}</dt><dd className="mono">{user.password}</dd>
+          <dt>{t('订阅密码')}</dt><dd className="mono">{user.password}</dd>
+          <dt>{t('登录密码')}</dt><dd>{user.hasLoginPassword ? t('已设置') : t('未设置')}</dd>
           {(user.extraTraffic ?? 0) > 0 && <><dt>{t('流量包')}</dt><dd className="mono">+{bytes(user.extraTraffic!)} <span className="mute small">{t('（本周期有效，已计入流量配额）')}</span></dd></>}
           <dt>{t('已用')}</dt><dd className="mono">↑ {bytes(user.usedUp)} · ↓ {bytes(user.usedDown)} <TrafficEdit user={user} onSaved={onSaved} /></dd>
           <dt>{t('在线 IP')}</dt>

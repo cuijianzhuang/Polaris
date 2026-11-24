@@ -7,7 +7,7 @@ declare global {
     __POLARIS_BASE__?: string
     // Inlined by serveIndex (see internal/panel/router.go); undefined when
     // served by the vite dev server, where Login falls back to GET /info.
-    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; sso?: { id: string; name: string }[] }
+    __POLARIS_LOGIN__?: { passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; sso?: { id: string; name: string }[] }
   }
 }
 

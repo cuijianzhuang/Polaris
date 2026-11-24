@@ -134,7 +134,7 @@ func (s *Server) portalTelegramBindPoll(c *gin.Context) {
 		return
 	}
 	s.setPortalCookie(c, token, int(portalSessionTTL.Seconds()))
-	s.audit(portalActor(current, cl.MailFP != ""), "user.telegram_bound", kept.Username, "portal number confirmation", clientIP(c.Request))
+	s.audit(portalActorForClaims(cl, current), "user.telegram_bound", kept.Username, "portal number confirmation", clientIP(c.Request))
 	s.wakeBusinessEvents()
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "username": kept.Username})
 }

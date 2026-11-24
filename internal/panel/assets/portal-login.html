@@ -22,14 +22,39 @@ body{background:radial-gradient(ellipse at 12% 0%,color-mix(in srgb,var(--pri) 8
 <main><section class="card" aria-label="用户登录与注册">
 <h1 id="auth-title">{{if .RegisterMode}}{{t .Lang "createAccount"}}{{else}}{{t .Lang "loginWelcome"}}{{end}}</h1>
 <p class="intro" id="auth-intro">{{if .RegisterMode}}{{t .Lang "registerStart"}}{{else}}{{t .Lang "loginManage"}}{{end}}</p>
-{{if and .Register .Mail}}<nav class="tabs" aria-label="账号操作"><a href="/u/login" data-auth-mode="login"{{if not .RegisterMode}} aria-current="page"{{end}}>登录</a><a href="/u/register" data-auth-mode="register"{{if .RegisterMode}} aria-current="page"{{end}}>注册</a></nav>{{end}}
-<div class="notice" id="registration-notice"{{if .Register}} hidden{{end}}>暂未开放注册<br><span class="mute">已有账号可继续登录</span></div>
+{{if and .AnyRegister (or .Mail .PwRegister)}}<nav class="tabs" aria-label="账号操作"><a href="/u/login" data-auth-mode="login"{{if not .RegisterMode}} aria-current="page"{{end}}>登录</a><a href="/u/register" data-auth-mode="register"{{if .RegisterMode}} aria-current="page"{{end}}>注册</a></nav>{{end}}
+<div class="notice" id="registration-notice"{{if .AnyRegister}} hidden{{end}}>暂未开放注册<br><span class="mute">已有账号可继续登录</span></div>
 {{if .Mail}}<div id="m1" class="mail">
 <div><label for="memail">{{t .Lang "email"}}</label><input id="memail" type="email" placeholder="name@example.com" autocomplete="email" maxlength="254" required></div>
 <div id="m2"><label for="mcode">{{t .Lang "emailCode"}}</label><div class="code-row"><input id="mcode" inputmode="numeric" pattern="[0-9]{6}" placeholder="请输入 6 位验证码" autocomplete="one-time-code" maxlength="6"><button id="msend" type="button">发送验证码</button></div></div>
 <p class="mute" id="mnote" role="status" hidden></p><p class="err" id="merr" role="alert" hidden></p>
 <button class="btn" id="mgo" type="button">{{if .RegisterMode}}注册并进入用户中心{{else}}登录用户中心{{end}}</button>
 </div>{{end}}
+<div id="pw-area">
+{{if .Mail}}<div class="divider">或使用其他方式</div>{{end}}
+<div id="pw-login" class="mail"{{if .RegisterMode}} hidden{{end}}>
+<div><label for="pwuser">用户名</label><input id="pwuser" type="text" placeholder="注册时设置的用户名" autocomplete="username" maxlength="32" required></div>
+<div><label for="pwpw">密码</label><input id="pwpw" type="password" autocomplete="current-password" required></div>
+<p class="err" id="pwerr" role="alert" hidden></p><p class="mute" id="pwnote" role="status" hidden></p>
+<button class="btn" id="pwgo" type="button">登录用户中心</button>
+{{if .Mail}}<p class="mute" style="text-align:center"><a href="#" id="pw-forgot">忘记密码？用邮箱验证码重置</a></p>
+<div id="pw-reset" hidden>
+<div><label for="pwremail">绑定邮箱</label><input id="pwremail" type="email" placeholder="name@example.com" autocomplete="email" maxlength="254"></div>
+<div><label for="pwrcode">邮箱验证码</label><div class="code-row"><input id="pwrcode" inputmode="numeric" pattern="[0-9]{6}" placeholder="请输入 6 位验证码" autocomplete="one-time-code" maxlength="6"><button id="pwrsend" type="button">发送验证码</button></div></div>
+<div><label for="pwrpw">新密码</label><input id="pwrpw" type="password" autocomplete="new-password" minlength="8" placeholder="至少 8 位"></div>
+<p class="mute" id="pwrnote" role="status" hidden></p><p class="err" id="pwrerr" role="alert" hidden></p>
+<button class="btn alt" id="pwrgo" type="button">重置密码</button>
+</div>{{end}}
+</div>
+{{if .PwRegister}}<div id="pw-register" class="mail"{{if not .RegisterMode}} hidden{{end}}>
+<div><label for="pruser">用户名</label><input id="pruser" type="text" placeholder="3–32 位字母、数字或 _ . -" autocomplete="username" maxlength="32" required></div>
+<div><label for="prpw">密码</label><input id="prpw" type="password" autocomplete="new-password" minlength="8" placeholder="至少 8 位" required></div>
+<div><label for="premail">邮箱（选填）</label><input id="premail" type="email" placeholder="name@example.com" autocomplete="email" maxlength="254"></div>
+<p class="mute">邮箱仅作联系信息，不验证；正式绑定需登录后在个人中心用验证码确认。</p>
+<p class="err" id="prerr" role="alert" hidden></p>
+<button class="btn" id="prgo" type="button">注册并进入用户中心</button>
+</div>{{end}}
+</div>
 <div id="tg-area"{{if .RegisterMode}} hidden{{end}}>
 {{if .Mail}}<div class="divider">或使用其他方式</div>{{end}}
 <div id="s1"><button class="btn alt" id="go" type="button"{{if not .Bot}} disabled{{end}}><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m21.6 3.6-3.2 16c-.2 1.1-.9 1.4-1.8.9l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5.1 9.3-8.4c.4-.4-.1-.6-.6-.2L5.9 13.2 1 11.7c-1.1-.3-1.1-1.1.2-1.6L20.3 2.7c.9-.3 1.6.2 1.3.9Z"/></svg>使用 Telegram 登录</button></div>
@@ -119,4 +144,30 @@ go.addEventListener('click',function(){
 });
 })();
 </script>{{end}}
+<script>
+(function(){
+var pwLogin=document.getElementById('pw-login'),pwReg=document.getElementById('pw-register'),tgArea=document.getElementById('tg-area');
+var mode={{if .RegisterMode}}'register'{{else}}'login'{{end}};
+function show(el,text){if(el){el.textContent=text;el.hidden=!text}}
+function post(path,body){return fetch('/u/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||'操作失败，请重试');return j})})}
+function sync(){var reg=mode==='register';if(pwLogin)pwLogin.hidden=reg;if(pwReg)pwReg.hidden=!reg;if(tgArea)tgArea.hidden=reg}
+window.addEventListener('portal-auth-mode',function(){mode=location.pathname.indexOf('/register')>=0?'register':'login';sync()});
+{{if not .Mail}}var tabs=document.querySelectorAll('[data-auth-mode]');
+function applyMode(next){mode=next==='register'?'register':'login';document.getElementById('auth-title').textContent=mode==='register'?'创建账号':'欢迎回来';document.getElementById('auth-intro').textContent=mode==='register'?'设置用户名和密码，开始使用用户中心':'登录用户中心，管理订阅与流量';tabs.forEach(function(a){if(a.dataset.authMode===mode)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});history.replaceState(null,'',(mode==='register'?'/u/register':'/u/login')+location.search);sync()}
+tabs.forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();applyMode(a.dataset.authMode)})});{{end}}
+sync();
+var lu=document.getElementById('pwuser'),lp=document.getElementById('pwpw'),lerr=document.getElementById('pwerr'),lnote=document.getElementById('pwnote'),lgo=document.getElementById('pwgo');
+function pwLoginSubmit(){show(lerr,'');if(!lu.value.trim()){show(lerr,'请填写用户名');lu.focus();return}if(!lp.value){show(lerr,'请填写密码');lp.focus();return}lgo.disabled=true;post('password/login',{username:lu.value.trim(),password:lp.value}).then(function(){location.replace({{.Next}})}).catch(function(e){lgo.disabled=false;show(lerr,e.message)})}
+lgo.addEventListener('click',pwLoginSubmit);lp.addEventListener('keydown',function(e){if(e.key==='Enter')pwLoginSubmit()});
+if(pwReg){var ru=document.getElementById('pruser'),rp=document.getElementById('prpw'),re=document.getElementById('premail'),rerr=document.getElementById('prerr'),rgo=document.getElementById('prgo');
+function pwRegSubmit(){show(rerr,'');var name=ru.value.trim();if(!/^[A-Za-z0-9_.-]{3,32}$/.test(name)||/^[.-]/.test(name)||/[.-]$/.test(name)){show(rerr,'用户名需为 3–32 位字母、数字或 _ . -，且不能以 . 或 - 开头结尾');ru.focus();return}if(rp.value.length<8){show(rerr,'密码至少 8 位');rp.focus();return}var em=re.value.trim();if(em&&!re.checkValidity()){show(rerr,'请填写正确的邮箱地址');re.focus();return}rgo.disabled=true;post('password/register',{username:name,password:rp.value,email:em||undefined}).then(function(){location.replace({{.Next}})}).catch(function(e){rgo.disabled=false;show(rerr,e.message)})}
+rgo.addEventListener('click',pwRegSubmit)}
+var forgot=document.getElementById('pw-forgot');
+if(forgot){var reset=document.getElementById('pw-reset'),remail=document.getElementById('pwremail'),rcode=document.getElementById('pwrcode'),rsend=document.getElementById('pwrsend'),rpw=document.getElementById('pwrpw'),rnote=document.getElementById('pwrnote'),rerr=document.getElementById('pwrerr'),rgo=document.getElementById('pwrgo'),rtimer=0;
+forgot.addEventListener('click',function(e){e.preventDefault();reset.hidden=!reset.hidden;if(!reset.hidden)remail.focus()});
+function rcooldown(n){clearInterval(rtimer);rsend.disabled=true;rsend.textContent='重新发送（'+n+'）';rtimer=setInterval(function(){n--;if(n<=0){clearInterval(rtimer);rsend.disabled=false;rsend.textContent='重新发送'}else rsend.textContent='重新发送（'+n+'）'},1000)}
+rsend.addEventListener('click',function(){show(rerr,'');if(!remail.value.trim()||!remail.checkValidity()){show(rerr,'请填写正确的邮箱地址');remail.focus();return}rsend.disabled=true;post('email/code',{email:remail.value.trim(),purpose:'reset'}).then(function(j){show(rnote,'如果这个邮箱绑定了账号，验证码已经发出，'+Math.round(j.ttl/60)+' 分钟内有效。请同时检查垃圾邮件。');rcode.focus();rcooldown(j.cooldown||60)}).catch(function(e){rsend.disabled=false;show(rerr,e.message)})});
+rgo.addEventListener('click',function(){show(rerr,'');if(!remail.value.trim()||!remail.checkValidity()){show(rerr,'请填写正确的邮箱地址');remail.focus();return}if(!/^\d{6}$/.test(rcode.value.trim())){show(rerr,'请输入 6 位验证码');rcode.focus();return}if(rpw.value.length<8){show(rerr,'新密码至少 8 位');rpw.focus();return}rgo.disabled=true;post('email/verify',{email:remail.value.trim(),code:rcode.value.trim(),purpose:'reset',newPassword:rpw.value}).then(function(){reset.hidden=true;show(lnote,'密码已重置，请用新密码登录');lp.focus()}).catch(function(e){rgo.disabled=false;show(rerr,e.message)})});}
+})();
+</script>
 </body></html>

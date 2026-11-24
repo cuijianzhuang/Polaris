@@ -73,6 +73,9 @@ func portalIdentity(cl *claims) string {
 	if cl.Chat != 0 {
 		return "tg:" + strconv.FormatInt(cl.Chat, 10)
 	}
+	if cl.PwFP != "" {
+		return "pw:" + cl.PwFP
+	}
 	return "mail:" + cl.MailFP
 }
 
@@ -217,7 +220,7 @@ func (s *Server) revokePortalSession(others bool) gin.HandlerFunc {
 		} else if renewed != "" {
 			s.setPortalCookie(c, renewed, int(time.Until(cl.ExpiresAt.Time).Seconds()))
 		}
-		s.audit(portalActor(u, s.portalViaMail(c)), "user.session_revoke", u.Username, target, clientIP(c.Request))
+		s.audit(s.portalActorFor(c, u), "user.session_revoke", u.Username, target, clientIP(c.Request))
 		c.JSON(http.StatusOK, gin.H{"revoked": count, "current": current})
 	}
 }

@@ -317,7 +317,7 @@ func (s *Server) portalCreateNode(c *gin.Context) {
 	if u == nil {
 		return
 	}
-	n, tok, cmd, ok := s.createOwnedNode(c, u, portalActor(u, s.portalViaMail(c)))
+	n, tok, cmd, ok := s.createOwnedNode(c, u, s.portalActorFor(c, u))
 	if !ok {
 		return
 	}
@@ -412,7 +412,7 @@ func (s *Server) portalNodeInstall(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.audit(portalActor(u, s.portalViaMail(c)), "node.install_token", n.DisplayName, "", clientIP(c.Request))
+	s.audit(s.portalActorFor(c, u), "node.install_token", n.DisplayName, "", clientIP(c.Request))
 	c.JSON(http.StatusOK, gin.H{"enrolled": false, "token": tok, "command": cmd, "url": s.joinURL(c.Request, tok),
 		"wget": "wget -qO- " + s.joinURL(c.Request, tok) + " | bash", "expiresIn": 86400})
 }
@@ -458,7 +458,7 @@ func (s *Server) portalNodeResetAccess(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	s.audit(portalActor(u, s.portalViaMail(c)), "node.reset_access", n.DisplayName, "", clientIP(c.Request))
+	s.audit(s.portalActorFor(c, u), "node.reset_access", n.DisplayName, "", clientIP(c.Request))
 	c.JSON(http.StatusOK, gin.H{"token": tok, "command": cmd, "url": s.joinURL(c.Request, tok), "expiresIn": 86400})
 }
 
@@ -476,7 +476,7 @@ func (s *Server) portalUpdateNode(c *gin.Context) {
 	if n == nil {
 		return
 	}
-	updated, ok := s.updateOwnedNode(c, portalActor(u, s.portalViaMail(c)), n)
+	updated, ok := s.updateOwnedNode(c, s.portalActorFor(c, u), n)
 	if !ok {
 		return
 	}
@@ -572,7 +572,7 @@ func (s *Server) portalDeleteNode(c *gin.Context) {
 	if n == nil {
 		return
 	}
-	if !s.deleteOwnedNode(c, portalActor(u, s.portalViaMail(c)), n) {
+	if !s.deleteOwnedNode(c, s.portalActorFor(c, u), n) {
 		return
 	}
 	c.Status(http.StatusNoContent)

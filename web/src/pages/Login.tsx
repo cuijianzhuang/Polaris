@@ -29,7 +29,16 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   // Member sign-in: registered users with an e-mail code (their own nodes
   // only). Shown only when the admin enabled it and mail works.
   const [mailLogin, setMailLogin] = useState(!!LOGIN_INFO?.memberMailLogin)
-  const [mailMode, setMailMode] = useState(false)
+  // Member sign-in with a username + password, and password registration:
+  // shown when member admission is on (registration also needs its switch).
+  const [pwLogin, setPwLogin] = useState(!!LOGIN_INFO?.memberPasswordLogin)
+  const [pwRegister, setPwRegister] = useState(!!LOGIN_INFO?.memberPasswordRegister)
+  const [mode, setMode] = useState<'admin' | 'mail' | 'pw'>('admin')
+  const mailMode = mode === 'mail'
+  const pwMode = mode === 'pw'
+  const [pwView, setPwView] = useState<'login' | 'register' | 'reset'>('login')
+  const [regEmail, setRegEmail] = useState('')
+  const [pwNote, setPwNote] = useState('')
   const [email, setEmail] = useState('')
   const [mailCode, setMailCode] = useState('')
   const [cooldown, setCooldown] = useState(0)
@@ -41,7 +50,7 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
   useEffect(() => {
     // Production index.html inlines the flags; only fetch when they are
     // absent (vite dev server), otherwise the buttons would pop in late.
-    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setSso(i.sso ?? []) }).catch(() => {})
+    if (!LOGIN_INFO) get<{ passkeyLogin?: boolean; githubLogin?: boolean; telegramLogin?: boolean; memberMailLogin?: boolean; memberPasswordLogin?: boolean; memberPasswordRegister?: boolean; sso?: { id: string; name: string }[] }>('/info').then((i) => { setPasskey(!!i.passkeyLogin); setGithub(!!i.githubLogin); setTelegram(!!i.telegramLogin); setMailLogin(!!i.memberMailLogin); setPwLogin(!!i.memberPasswordLogin); setPwRegister(!!i.memberPasswordRegister); setSso(i.sso ?? []) }).catch(() => {})
     const r = takeOAuthResult()
     if (r.error) setErr(r.error)
     if (r.ticket) { setTicket(r.ticket); setErr('') }
@@ -96,6 +105,34 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
       const r = await post<{ token: string; username: string }>('/auth/mail/verify', { email, code: mailCode })
       setToken(r.token)
       onLogin(r.username)
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+  }
+
+  const sendResetCode = async () => {
+    setBusy(true); setErr('')
+    try {
+      const r = await post<{ cooldown?: number }>('/auth/mail/code', { email, purpose: 'reset' })
+      setCooldown(r.cooldown ?? 60)
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
+  }
+  // Member password face: sign-in, registration and mail-code reset
+  // share this card; the endpoints only ever read User accounts.
+  const submitPw = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true); setErr('')
+    try {
+      if (pwView === 'reset') {
+        await post('/auth/member/password/reset', { email, code: mailCode, newPassword })
+        setPwView('login'); setPwNote(t('密码已重置，请用新密码登录')); setMailCode(''); setNewPassword('')
+      } else if (pwView === 'register') {
+        const r = await post<{ token: string; username: string }>('/auth/member/register', { username, password, email: regEmail || undefined })
+        setToken(r.token)
+        onLogin(r.username)
+      } else {
+        const r = await post<{ token: string; username: string }>('/auth/member/password', { username, password })
+        setToken(r.token)
+        onLogin(r.username)
+      }
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)) } finally { setBusy(false) }
   }
 
@@ -177,17 +214,65 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
         <div className="login-visual-foot"><Icon.Lock /><span>{t('为日常运维打造的统一控制台')}</span></div>
       </aside>
       <section className="login-stage" aria-label={t('管理员登录')}>
-        <form className="card login-card" onSubmit={mailMode ? submitMail : submit}>
+        <form className="card login-card" onSubmit={mailMode ? submitMail : pwMode ? submitPw : submit}>
  {recovered && <div className="note">{t('账号已恢复，请用新密码登录，并重新设置通行密钥和二次验证。')}</div>}
           <div className="row login-card-brand"><LangToggle /></div>
           <div className="login-form-copy"><h2>{t('欢迎回来')}</h2><p>{t('登录以继续管理节点。')}</p></div>
-        {mailLogin && (
+        {(mailLogin || pwLogin) && (
           <div className="seg" role="tablist" aria-label={t('登录方式')}>
-            <button type="button" className={'opt' + (!mailMode ? ' on' : '')} aria-pressed={!mailMode} onClick={() => { setMailMode(false); setErr('') }}>{t('密码登录')}</button>
-            <button type="button" className={'opt' + (mailMode ? ' on' : '')} aria-pressed={mailMode} onClick={() => { setMailMode(true); setErr('') }}>{t('邮箱验证码')}</button>
+            <button type="button" className={'opt' + (mode === 'admin' ? ' on' : '')} aria-pressed={mode === 'admin'} onClick={() => { setMode('admin'); setErr('') }}>{t('密码登录')}</button>
+            {mailLogin && <button type="button" className={'opt' + (mailMode ? ' on' : '')} aria-pressed={mailMode} onClick={() => { setMode('mail'); setErr('') }}>{t('邮箱验证码')}</button>}
+            {pwLogin && <button type="button" className={'opt' + (pwMode ? ' on' : '')} aria-pressed={pwMode} onClick={() => { setMode('pw'); setPwView('login'); setErr('') }}>{t('账号密码')}</button>}
           </div>
         )}
-        {mailMode ? (
+        {pwMode ? (
+          pwView === 'reset' ? (
+            <>
+              <div className="field">
+                <label className="lbl" htmlFor="rem">{t('邮箱')}</label>
+                <input className="input" id="rem" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label className="lbl" htmlFor="rmc">{t('邮箱验证码')}</label>
+                <div className="row">
+                  <input className="input mono" id="rmc" inputMode="numeric" autoCapitalize="none" autoComplete="one-time-code" placeholder={t('6 位数字')} value={mailCode} onChange={(e) => setMailCode(e.target.value)} required />
+                  <button className="btn" type="button" disabled={busy || cooldown > 0 || !email} onClick={sendResetCode}>{cooldown > 0 ? t('{n} 秒后重发', { n: cooldown }) : t('发送验证码')}</button>
+                </div>
+              </div>
+              <div className="field">
+                <label className="lbl" htmlFor="rnp">{t('新密码')}</label>
+                <input className="input" id="rnp" type="password" autoComplete="new-password" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={8} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+                <div className="hint">{t('用账号绑定的邮箱验证码重置登录密码；重置后所有设备的登录都会失效。')}</div>
+              </div>
+              <button className="link small" type="button" style={{ justifySelf: 'start' }} onClick={() => { setPwView('login'); setErr('') }}>{t('返回登录')}</button>
+            </>
+          ) : (
+            <>
+              <div className="field">
+                <label className="lbl" htmlFor="mu">{t('用户名')}</label>
+                <input className="input" id="mu" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label className="lbl" htmlFor="mp">{t('密码')}</label>
+                <input className="input" id="mp" type="password" autoComplete={pwView === 'register' ? 'new-password' : 'current-password'} autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={pwView === 'register' ? 8 : undefined} value={password} onChange={(e) => setPassword(e.target.value)} required />
+              </div>
+              {pwView === 'register' && (
+                <div className="field">
+                  <label className="lbl" htmlFor="mre">{t('邮箱（选填）')}</label>
+                  <input className="input" id="mre" type="email" autoComplete="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={regEmail} onChange={(e) => setRegEmail(e.target.value)} />
+                  <div className="hint">{t('选填，仅作联系信息；绑定邮箱需在用户中心用验证码确认。')}</div>
+                </div>
+              )}
+              {pwNote && <div className="note">{pwNote}</div>}
+              <div className="hint">{t('注册用户用账号密码登录，只能管理自己的节点。')}</div>
+              <div className="row">
+                {pwView === 'login' && pwRegister && <button className="link small" type="button" onClick={() => { setPwView('register'); setErr(''); setPwNote('') }}>{t('没有账号？注册')}</button>}
+                {pwView === 'login' && mailLogin && <button className="link small" type="button" onClick={() => { setPwView('reset'); setErr('') }}>{t('忘记密码')}</button>}
+                {pwView === 'register' && <button className="link small" type="button" onClick={() => { setPwView('login'); setErr('') }}>{t('已有账号？登录')}</button>}
+              </div>
+            </>
+          )
+        ) : mailMode ? (
           <>
             <div className="field">
               <label className="lbl" htmlFor="em">{t('邮箱')}</label>
@@ -222,13 +307,13 @@ export default function Login({ onLogin }: { onLogin: (user: string) => void }) 
           </>
         )}
         {err && <div className="note bad">{err}</div>}
-        <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : t('登录')}</button>
-        {!mailMode && (passkey || github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
-        {!mailMode && passkey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
-        {!mailMode && passkey && <button className="link small" type="button" disabled={busy} onClick={()=>{setAccountRecovery(true);setErr('')}}>{t('无法使用通行密钥？恢复账号')}</button>}
-        {!mailMode && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
-        {!mailMode && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
-        {!mailMode && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
+        <button className="btn pri" type="submit" disabled={busy}>{busy ? t('登录中…') : pwMode && pwView === 'register' ? t('注册并登录') : pwMode && pwView === 'reset' ? t('重置密码') : t('登录')}</button>
+        {mode === 'admin' && (passkey || github || telegram || sso.length > 0) && <div className="or"><span>{t('或')}</span></div>}
+        {mode === 'admin' && passkey && passkeysSupported() && <button className="btn" type="button" disabled={busy} onClick={passkeyLogin}><Icon.Lock />{t('使用通行密钥登录')}</button>}
+        {mode === 'admin' && passkey && <button className="link small" type="button" disabled={busy} onClick={()=>{setAccountRecovery(true);setErr('')}}>{t('无法使用通行密钥？恢复账号')}</button>}
+        {mode === 'admin' && github && <button className="btn github" type="button" disabled={busy} onClick={githubLogin}><Icon.GitHub />{t('使用 GitHub 登录')}</button>}
+        {mode === 'admin' && telegram && <button className="btn telegram" type="button" disabled={busy} onClick={telegramLogin}><Icon.Telegram />{t('使用 Telegram 登录')}</button>}
+        {mode === 'admin' && sso.map((p) => <button key={p.id} className="btn" type="button" disabled={busy} onClick={() => ssoLogin(p.id)}><Icon.Lock />{t('使用 {name} 登录', { name: p.name })}</button>)}
         </form>
       </section>
     </div>
