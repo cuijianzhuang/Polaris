@@ -165,6 +165,9 @@ func (s *Server) Router() http.Handler {
 		r.POST(portalPath+"/tickets/:no/reply", s.portalGate(decoy, s.portalTicketAction(false)))
 		r.POST(portalPath+"/tickets/:no/close", s.portalGate(decoy, s.portalTicketAction(true)))
 		r.POST(portalPath+"/email/verify", s.portalGate(decoy, s.portalMailVerify))
+		r.POST(portalPath+"/password/login", s.portalGate(decoy, s.portalPasswordLogin))
+		r.POST(portalPath+"/password/register", s.portalGate(decoy, s.portalPasswordRegister))
+		r.POST(portalPath+"/password/set", s.portalGate(decoy, s.portalPasswordSet))
 		r.GET(shopWebPath, s.portalGate(decoy, s.webShopPage))
 		r.POST(shopWebPath+"/order", s.portalGate(decoy, s.webShopBuy))
 		r.POST(shopWebPath+"/redeem", s.portalGate(decoy, s.webShopRedeem))
@@ -189,6 +192,9 @@ func (s *Server) Router() http.Handler {
 	api.POST("/auth/tg/poll", s.loginGuard, s.tgWebLoginPoll)
 	api.POST("/auth/mail/code", s.loginGuard, s.panelMailCode)
 	api.POST("/auth/mail/verify", s.loginGuard, s.panelMailVerify)
+	api.POST("/auth/member/password", s.loginGuard, s.memberPasswordLogin)
+	api.POST("/auth/member/register", s.loginGuard, s.memberPasswordRegister)
+	api.POST("/auth/member/password/reset", s.loginGuard, s.memberPasswordReset)
 	api.POST("/auth/sso/:id/login-url", s.loginGuard, s.ssoLoginURL)
 	api.GET("/auth/sso/callback", s.loginGuard, s.ssoCallback)
 	// HA join endpoints use one-time join tokens, never the admin session.
@@ -690,7 +696,9 @@ func (s *Server) decoy() gin.HandlerFunc {
 // index.html by serveIndex so the buttons render on first paint.
 func (s *Server) loginInfo() gin.H {
 	return gin.H{"githubLogin": s.githubEnabled(), "telegramLogin": s.tgWebLoginEnabled(),
-		"passkeyLogin": s.passkeysAvailable(), "memberMailLogin": s.memberMailLoginAvailable(), "sso": s.publicSSOProviders()}
+		"passkeyLogin": s.passkeysAvailable(), "memberMailLogin": s.memberMailLoginAvailable(),
+		"memberPasswordLogin": s.memberLoginEnabled(), "memberPasswordRegister": s.memberLoginEnabled() && s.passwordRegisterOn(),
+		"sso": s.publicSSOProviders()}
 }
 
 func (s *Server) publicInfo(c *gin.Context) {
@@ -779,6 +787,7 @@ func (s *Server) openAPIFor(r *gin.Engine, token *store.APIToken) map[string]any
 			op["parameters"] = params
 		}
 		public := p == "/auth/login" || p == "/info" || p == "/brand/logo" && rt.Method == "GET" || strings.HasPrefix(p, "/auth/github/") || strings.HasPrefix(p, "/auth/tg") ||
+			strings.HasPrefix(p, "/auth/mail/") || strings.HasPrefix(p, "/auth/member/") ||
 			p == "/auth/sso/callback" || strings.HasPrefix(p, "/auth/sso/") && strings.HasSuffix(p, "/login-url")
 		if !public || p == "/auth/github/bind-url" || p == "/auth/github/unbind" {
 			op["security"] = []map[string][]string{{"bearer": {}}}

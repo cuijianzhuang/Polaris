@@ -227,7 +227,16 @@ type User struct {
 	IsService  bool   `gorm:"index" json:"isService"`      // chain service account
 	TelegramID int64  `gorm:"index" json:"telegramId"`     // bound Telegram chat
 	Email      string `gorm:"size:254;index" json:"email"` // lower case; "" = none
-	AvatarURL  string `gorm:"-" json:"avatarURL,omitempty"`
+	// PasswordHash is the sign-in password (bcrypt) for the user center
+	// and the member panel. It is strictly separate from Password above —
+	// that one is the subscription/core credential handed to proxy cores
+	// — and the two must never be copied into each other. "" = the user
+	// has no password sign-in.
+	PasswordHash string `gorm:"size:100" json:"-"`
+	// HasLoginPassword mirrors PasswordHash != "" for the admin user
+	// editor; the hash itself never leaves the server.
+	HasLoginPassword bool   `gorm:"-" json:"hasLoginPassword,omitempty"`
+	AvatarURL        string `gorm:"-" json:"avatarURL,omitempty"`
 	// SelfService marks an account the shop created for its buyer: the buyer
 	// may rename it (Telegram /rename, user center) when the shop allows it.
 	SelfService bool `json:"selfService"`

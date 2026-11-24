@@ -250,6 +250,8 @@ const m: Record<string, string> = {
   "试用套餐": "Trial plan",
   "逗号分隔，如 gmail.com, qq.com；留空不限": "Comma separated, e.g. gmail.com, qq.com; empty allows any",
   "邮箱注册": "E-mail sign-up",
+  "开放用户名密码注册：显示注册入口，用户以用户名和密码创建账号（邮箱选填，不验证）；关闭后已设密码的账号仍可登录，不需要配置邮件": "Open username + password registration: show sign-up and create accounts with a username and password (e-mail optional, unverified); accounts with a password can still sign in when closed, and no mail setup is needed",
+  "用户名密码注册": "Username + password sign-up",
   "配置了邮件（设置 → 邮件）后，用户也可以用邮箱验证码登录用户中心，并在用户中心绑定邮箱。": "With mail set up (Settings → Mail), users can also sign in to the user center with an e-mail code and bind an address there.",
   "防止批量注册；0 表示不限，默认 3": "Limits bulk sign-ups; 0 means unlimited, default 3",
 }

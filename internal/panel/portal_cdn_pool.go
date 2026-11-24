@@ -260,6 +260,6 @@ func (s *Server) portalCDNPool(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.audit(portalActor(u, s.portalViaMail(c)), "user.cdn_pool."+req.Action, u.Username, p.ID, clientIP(c.Request))
+	s.audit(s.portalActorFor(c, u), "user.cdn_pool."+req.Action, u.Username, p.ID, clientIP(c.Request))
 	c.JSON(http.StatusOK, response)
 }

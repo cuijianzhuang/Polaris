@@ -39,6 +39,11 @@ type userReq struct {
 	Email           *string    `json:"email"`      // nil = unchanged, "" = none
 	UUID            string     `json:"uuid"`
 	Password        string     `json:"password"`
+	// LoginPassword is the user's sign-in password (PasswordHash),
+	// never the core credential above: nil = unchanged, "" = clear,
+	// anything else is validated and set (admin password rescue,
+	// design user-identity D3).
+	LoginPassword *string `json:"loginPassword"`
 }
 
 func (s *Server) withGroups(us []store.User) {
@@ -49,6 +54,7 @@ func (s *Server) withGroups(us []store.User) {
 	for i, u := range us {
 		ids[i] = u.ID
 		us[i].AvatarURL = sub.AvatarURL(u.Email)
+		us[i].HasLoginPassword = u.PasswordHash != ""
 	}
 	var ugs []store.UserGroup
 	s.st.DB.Where("user_id IN ? AND group_id NOT IN (?)", ids, plansOnly(s.st.DB)).Find(&ugs)
@@ -638,6 +644,21 @@ func (s *Server) updateUser(c *gin.Context) {
 	if req.Password != "" {
 		u.Password = req.Password
 	}
+	loginPwChanged := req.LoginPassword != nil
+	if loginPwChanged && *req.LoginPassword != "" {
+		if err := validateUserPassword(*req.LoginPassword); err != nil {
+			badRequest(c, err)
+			return
+		}
+		h, err := hashUserPassword(*req.LoginPassword)
+		if err != nil {
+			serverError(c, err)
+			return
+		}
+		u.PasswordHash = h
+	} else if loginPwChanged {
+		u.PasswordHash = ""
+	}
 	if req.TelegramID != nil {
 		if *req.TelegramID < 0 {
 			badRequest(c, fmt.Errorf("Telegram User ID 无效"))
@@ -666,9 +687,20 @@ func (s *Server) updateUser(c *gin.Context) {
 		// Only the edited columns: traffic settlement, IP bans and resets
 		// update the counters concurrently and must not be overwritten.
 		if err := tx.Model(&u).Select("username", "traffic_limit", "extra_traffic", "expire_at", "ip_limit", "expire_after_days",
-			"reset_policy", "reset_day", "remark", "uuid", "password", "telegram_id", "email", "status",
+			"reset_policy", "reset_day", "remark", "uuid", "password", "password_hash", "telegram_id", "email", "status",
 			"renew_days", "renew_max", "renew_count", "device_limit", "speed_up_mbps", "speed_down_mbps").Updates(&u).Error; err != nil {
 			return err
+		}
+		if loginPwChanged {
+			// A set/cleared sign-in password ends every session on both
+			// faces, like a self-service change (design D3).
+			epoch, err := lockPortalEpoch(tx, u.ID)
+			if err != nil {
+				return err
+			}
+			if err := tx.Model(&store.PortalSessionEpoch{}).Where("user_id = ?", u.ID).Update("version", epoch.Version+1).Error; err != nil {
+				return err
+			}
 		}
 		if req.PlanID != nil {
 			if err := userPlanID(tx, &u, req.PlanID); err != nil {
@@ -708,6 +740,11 @@ func (s *Server) updateUser(c *gin.Context) {
 		// Its member panel sessions end with the account state.
 		s.revokeMemberSessions(u.ID)
 	}
+	if loginPwChanged {
+		s.revokeMemberSessions(u.ID)
+		s.auditCtx(c, "user.password_reset", u.Username, "")
+	}
+	u.HasLoginPassword = u.PasswordHash != ""
 	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
 	s.auditCtx(c, "user.update", u.Username, "")
 	s.wakeBusinessEvents()

@@ -219,6 +219,6 @@ func (s *Server) portalCDNPreferences(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	s.audit(portalActor(u, s.portalViaMail(c)), "user.cdn_preferred", u.Username, req.ProfileID, clientIP(c.Request))
+	s.audit(s.portalActorFor(c, u), "user.cdn_preferred", u.Username, req.ProfileID, clientIP(c.Request))
 	c.JSON(200, gin.H{"ok": true, "addresses": addresses})
 }

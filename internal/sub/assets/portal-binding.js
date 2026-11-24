@@ -71,3 +71,23 @@
   try{if(!pending)pending=JSON.parse(sessionStorage.getItem('polaris.pendingSubscription')||'null');sessionStorage.removeItem('polaris.pendingSubscription')}catch(_){}
   if(pending&&pending.expires>Date.now()&&/^[A-Za-z0-9_-]{16,64}$/.test(pending.token)){location.hash='account';open(dialog);link.value=pending.token;link.focus()}
 })();
+(function(){
+  var dialog=document.getElementById('p-password-set'),openButton=document.getElementById('p-set-password');
+  if(!dialog||!openButton)return;
+  function show(id,text){var el=document.getElementById(id);if(el){el.textContent=text;el.hidden=!text}}
+  function post(path,body){return fetch('/u/'+path,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(body)}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok){if(r.status===401)location.replace('/u/login');throw new Error(j.error||'操作失败，请重试')}return j})})}
+  openButton.addEventListener('click',function(){show('p-pw-error','');show('p-pw-note','');if(!dialog.open)dialog.showModal()});
+  dialog.querySelectorAll('[data-pw-close]').forEach(function(b){b.addEventListener('click',function(){dialog.close()})});
+  var send=document.getElementById('p-pw-send'),sendUntil=0;
+  function updateCooldown(){if(!send)return;var s=Math.max(0,Math.ceil((sendUntil-Date.now())/1000));send.disabled=s>0;send.textContent=s?s+' 秒后重发':'发送验证码'}
+  if(send){send.addEventListener('click',function(){if(Date.now()<sendUntil)return;show('p-pw-error','');post('email/code',{email:send.getAttribute('data-email'),purpose:'setpw'}).then(function(data){sendUntil=Date.now()+(data.cooldown||60)*1000;updateCooldown();show('p-pw-note','验证码已发送，请检查邮箱和垃圾邮件。')}).catch(function(e){show('p-pw-error',e.message)})});setInterval(updateCooldown,1000)}
+  document.getElementById('p-password-set-form').addEventListener('submit',function(event){
+    event.preventDefault();show('p-pw-error','');
+    var nw=document.getElementById('p-pw-new'),again=document.getElementById('p-pw-again');
+    if(nw.value!==again.value){show('p-pw-error','两次输入的新密码不一致');again.focus();return}
+    var body={newPassword:nw.value},cur=document.getElementById('p-pw-current'),code=document.getElementById('p-pw-code');
+    if(cur)body.currentPassword=cur.value;
+    if(code)body.code=code.value.trim();
+    post('password/set',body).then(function(){location.replace('/u/login')}).catch(function(e){show('p-pw-error',e.message)});
+  });
+})();

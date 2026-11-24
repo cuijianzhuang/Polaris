@@ -83,7 +83,36 @@ func (s *Server) issuePortalMailToken(u *store.User, contexts ...*gin.Context) (
 	return s.issuePortalTokenVia(u, true, contexts...)
 }
 
+// pwFP fingerprints the sign-in password hash for portal claims: a
+// password session stays valid only while the hash it was issued
+// against is current, so setting or changing the password ends it even
+// apart from the portal generation bump.
+func pwFP(hash string) string {
+	if hash == "" {
+		return ""
+	}
+	h := sha256.Sum256([]byte("pw:" + hash))
+	return hex.EncodeToString(h[:8])
+}
+
 func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool, contexts ...*gin.Context) (string, error) {
+	if viaMail {
+		return s.issuePortalTokenMode(u, "email", contexts...)
+	}
+	return s.issuePortalTokenMode(u, "telegram", contexts...)
+}
+
+// issuePortalPasswordToken signs a user-center session from a password
+// sign-in (userpassword.go).
+func (s *Server) issuePortalPasswordToken(u *store.User, contexts ...*gin.Context) (string, error) {
+	return s.issuePortalTokenMode(u, "password", contexts...)
+}
+
+// issuePortalTokenMode signs a user-center session for one sign-in
+// mode: "telegram" (bound chat), "email" (bound address) or "password"
+// (current password hash). The mode is stamped into the claims as the
+// identity the session is later checked against in portalUser.
+func (s *Server) issuePortalTokenMode(u *store.User, via string, contexts ...*gin.Context) (string, error) {
 	c := claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   "u:" + u.ID,
@@ -92,21 +121,36 @@ func (s *Server) issuePortalTokenVia(u *store.User, viaMail bool, contexts ...*g
 		},
 		Username: u.Username,
 		User:     u.ID,
-		Chat:     u.TelegramID,
 		SubFP:    subFingerprint(u.SubToken),
 	}
-	if viaMail {
-		c.Chat, c.MailFP = 0, mailFP(u.Email)
-	}
-	via := "telegram"
-	if viaMail {
-		via = "email"
+	switch via {
+	case "email":
+		c.MailFP = mailFP(u.Email)
+	case "password":
+		c.PwFP = pwFP(u.PasswordHash)
+	default:
+		via = "telegram"
+		c.Chat = u.TelegramID
 	}
 	if err := s.recordPortalSession(u, &c, via, contexts...); err != nil {
 		return "", err
 	}
 	token, err := s.signToken(jwt.NewWithClaims(jwt.SigningMethodHS256, c))
 	return token, err
+}
+
+// portalSessionMode names the sign-in mode of the current session, so
+// credential renewals keep the identity they started with.
+func (s *Server) portalSessionMode(c *gin.Context) string {
+	cl := s.portalClaims(c)
+	switch {
+	case cl != nil && cl.MailFP != "":
+		return "email"
+	case cl != nil && cl.PwFP != "":
+		return "password"
+	default:
+		return "telegram"
+	}
 }
 
 // portalClaims are the session's claims, or nil.
@@ -140,6 +184,24 @@ func portalActor(u *store.User, viaMail bool) string {
 	return "tg:" + u.Username
 }
 
+// portalActorForClaims names the session's user by its sign-in mode:
+// mail: for e-mail sessions, pw: for password sessions, tg: otherwise.
+func portalActorForClaims(cl *claims, u *store.User) string {
+	switch {
+	case cl != nil && cl.MailFP != "":
+		return "mail:" + u.Username
+	case cl != nil && cl.PwFP != "":
+		return "pw:" + u.Username
+	default:
+		return "tg:" + u.Username
+	}
+}
+
+// portalActorFor is portalActorForClaims for the current request.
+func (s *Server) portalActorFor(c *gin.Context, u *store.User) string {
+	return portalActorForClaims(s.portalClaims(c), u)
+}
+
 // portalUser returns the signed-in user, or nil. A Telegram session needs
 // the same bound chat, an e-mail one the same address; both end when the
 // subscription link is reset.
@@ -158,6 +220,7 @@ func (s *Server) portalUser(c *gin.Context) *store.User {
 	switch {
 	case cl.Chat != 0 && u.TelegramID == cl.Chat:
 	case cl.Chat == 0 && cl.MailFP != "" && u.Email != "" && mailFP(u.Email) == cl.MailFP:
+	case cl.PwFP != "" && u.PasswordHash != "" && pwFP(u.PasswordHash) == cl.PwFP:
 	default:
 		return nil
 	}
@@ -205,7 +268,9 @@ func (s *Server) portalPage(c *gin.Context) {
 			"Bot":          s.portalTelegramConfigured(),
 			"Mail":         s.mailLoginOn(),
 			"Register":     s.mailRegisterOn(),
-			"RegisterMode": c.Request.URL.Path == portalPath+"/register" && s.mailRegisterOn(),
+			"PwRegister":   s.passwordRegisterOn(),
+			"AnyRegister":  s.mailRegisterOn() || s.passwordRegisterOn(),
+			"RegisterMode": c.Request.URL.Path == portalPath+"/register" && (s.mailRegisterOn() || s.passwordRegisterOn()),
 			"Next":         next,
 			"Shop":         s.webShopOn(),
 		}); err != nil {
@@ -257,6 +322,10 @@ func (s *Server) portalPage(c *gin.Context) {
 	if s.portalViaMail(c) {
 		info.LoginVia = "邮箱"
 	}
+	if cl := s.portalClaims(c); cl != nil && cl.PwFP != "" {
+		info.LoginVia = "密码"
+	}
+	info.PasswordSet = u.PasswordHash != ""
 	info.Rename = u.SelfService && s.selfRenameOn()
 	info.CarrierPick, info.Carrier = s.cdnCarrierSplitOn(), u.CDNCarrier
 	if err := s.portalCDNInfo(&info, u, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {
@@ -419,9 +488,8 @@ func (s *Server) portalReset(c *gin.Context) {
 		serverError(c, err)
 		return
 	}
-	viaMail := s.portalViaMail(c)
-	s.audit(portalActor(u, viaMail), "user.reset_token", u.Username, "user center", clientIP(c.Request))
-	tok, err := s.issuePortalTokenVia(u, viaMail, c)
+	s.audit(s.portalActorFor(c, u), "user.reset_token", u.Username, "user center", clientIP(c.Request))
+	tok, err := s.issuePortalTokenMode(u, s.portalSessionMode(c), c)
 	if err != nil {
 		serverError(c, err)
 		return

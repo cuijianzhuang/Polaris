@@ -173,7 +173,7 @@ func (s *Server) portalCreateNodeInbound(c *gin.Context) {
 		badRequest(c, err)
 		return
 	}
-	row, ok := s.createOwnedInbound(c, u, portalActor(u, s.portalViaMail(c)), n, req)
+	row, ok := s.createOwnedInbound(c, u, s.portalActorFor(c, u), n, req)
 	if !ok {
 		return
 	}
@@ -246,7 +246,7 @@ func (s *Server) portalUpdateNodeInbound(c *gin.Context) {
 	if row == nil {
 		return
 	}
-	if !s.updateOwnedInbound(c, portalActor(u, s.portalViaMail(c)), n, row) {
+	if !s.updateOwnedInbound(c, s.portalActorFor(c, u), n, row) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"inbound": s.portalInboundViewOf(row)})
@@ -345,7 +345,7 @@ func (s *Server) portalDeleteNodeInbound(c *gin.Context) {
 	if row == nil {
 		return
 	}
-	if !s.deleteOwnedInbound(c, portalActor(u, s.portalViaMail(c)), n, row) {
+	if !s.deleteOwnedInbound(c, s.portalActorFor(c, u), n, row) {
 		return
 	}
 	c.Status(http.StatusNoContent)

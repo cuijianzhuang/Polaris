@@ -128,7 +128,7 @@ function NodeNameTemplate() {
   </section>
 }
 
-const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'portal_email_register', 'register_email_domains', 'register_trial_plan', 'register_ip_daily', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
+const settingKeys = ['sub_enabled', 'sub_base_url', 'sub_host_strict', 'sub_title', 'sub_update_interval', 'sub_support_url', 'sub_show_info', 'sub_show_bot', 'portal_enabled', 'portal_email_register', 'register_password', 'register_email_domains', 'register_trial_plan', 'register_ip_daily', 'sub_show_rate', 'sub_announce', 'sub_routing_enabled', 'sub_routing_rules'] as const
 
 const routingExample = `{
   "Name": "${t('直连国内')}",
@@ -187,7 +187,8 @@ function SubSettings() {
       <div className="toggle"><span>{t('用户中心：独立的用户登录入口，查看订阅、用量、节点与订单')}</span><Switch label={t('用户中心')} on={on('portal_enabled')} onChange={(v) => set('portal_enabled', String(v))} /></div>
       {on('portal_enabled') && <div className="hint">{t('配置了邮件（设置 → 邮件）后，用户也可以用邮箱验证码登录用户中心，并在用户中心绑定邮箱。')}</div>}
       {on('portal_enabled') && <div className="toggle"><span>{t('开放邮箱注册：显示注册入口，验证后创建账号；关闭后已有账号仍可登录（需配置邮件）')}</span><Switch label={t('邮箱注册')} on={on('portal_email_register')} onChange={(v) => set('portal_email_register', String(v))} /></div>}
-      {on('portal_enabled') && on('portal_email_register') && <div className="form-grid">
+      {on('portal_enabled') && <div className="toggle"><span>{t('开放用户名密码注册：显示注册入口，用户以用户名和密码创建账号（邮箱选填，不验证）；关闭后已设密码的账号仍可登录，不需要配置邮件')}</span><Switch label={t('用户名密码注册')} on={on('register_password')} onChange={(v) => set('register_password', String(v))} /></div>}
+      {on('portal_enabled') && (on('portal_email_register') || on('register_password')) && <div className="form-grid">
         <Field label={t('试用套餐')} hint={t('新用户自动开通的套餐；不选则账号没有可用服务，需要先购买')}>
           <select className="input" value={f.register_trial_plan ?? ''} onChange={(e) => set('register_trial_plan', e.target.value)}>
             <option value="">{t('不送试用')}</option>

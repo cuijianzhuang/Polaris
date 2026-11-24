@@ -146,6 +146,24 @@ func (s *Server) portalMailCode(c *gin.Context) {
 		purpose = "register"
 	} else if req.Purpose == "login" {
 		purpose = "signin"
+	} else if req.Purpose == "reset" {
+		// Password reset (userpassword.go): the code only ever goes to
+		// an address that has an account, but the answer stays the same
+		// either way.
+		purpose = mailPurposeReset
+	} else if req.Purpose == "setpw" {
+		// Setting a first sign-in password: the code goes to the
+		// signed-in user's own bound address, nowhere else.
+		u := s.portalUser(c)
+		if u == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "请重新登录"})
+			return
+		}
+		if u.Email == "" || addr != u.Email {
+			badRequest(c, errors.New("请使用账号绑定的邮箱接收验证码"))
+			return
+		}
+		purpose, userID = mailPurposeSetPW+":"+u.ID, u.ID
 	} else if req.Purpose != "" && req.Purpose != "bind" {
 		badRequest(c, errors.New("无效的验证码用途"))
 		return
@@ -173,7 +191,13 @@ func (s *Server) portalMailCode(c *gin.Context) {
 	if !send {
 		var n int64
 		s.st.DB.Model(&store.User{}).Where("email = ? AND is_service = ?", addr, false).Count(&n)
-		send = n > 0 || (purpose != "signin" && s.mailRegisterOn() && s.registerDomainOK(addr))
+		if purpose == mailPurposeReset {
+			// A reset code for an address without an account would be a
+			// password for nobody: never send, answer unchanged.
+			send = n > 0
+		} else {
+			send = n > 0 || (purpose != "signin" && s.mailRegisterOn() && s.registerDomainOK(addr))
+		}
 	}
 	res := gin.H{"ok": true, "ttl": int(mailCodeTTL.Seconds()), "cooldown": int(mailCodeCooldown.Seconds())}
 	// The cooldown and the daily cap apply whether or not a mail goes out:
@@ -201,7 +225,12 @@ func (s *Server) portalMailCode(c *gin.Context) {
 	if purpose == "register" {
 		title = "注册验证码"
 	}
-	if userID != "" {
+	if purpose == mailPurposeReset {
+		title = "重置密码验证码"
+	}
+	if strings.HasPrefix(purpose, mailPurposeSetPW+":") {
+		title = "设置密码验证码"
+	} else if userID != "" {
 		title = "绑定邮箱验证码"
 	}
 	plain, body := s.mailCodeBody(title, code)
@@ -257,9 +286,10 @@ func (s *Server) portalMailVerify(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Email   string `json:"email"`
-		Code    string `json:"code"`
-		Purpose string `json:"purpose"`
+		Email       string `json:"email"`
+		Code        string `json:"code"`
+		Purpose     string `json:"purpose"`
+		NewPassword string `json:"newPassword"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		badRequest(c, err)
@@ -276,6 +306,10 @@ func (s *Server) portalMailVerify(c *gin.Context) {
 	}
 	if req.Purpose == "bind" {
 		s.portalMailBind(c, addr, req.Code)
+		return
+	}
+	if req.Purpose == "reset" {
+		s.portalPasswordReset(c, addr, req.Code, req.NewPassword)
 		return
 	}
 	purpose := "login" // Compatibility for existing API callers.
@@ -329,7 +363,7 @@ func (s *Server) portalMailBind(c *gin.Context, addr, code string) {
 		badRequest(c, err)
 		return
 	}
-	viaMail := s.portalViaMail(c)
+	mode := s.portalSessionMode(c)
 	var kept store.User
 	if err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAccountBindings(tx); err != nil {
@@ -364,16 +398,53 @@ func (s *Server) portalMailBind(c *gin.Context, addr, code string) {
 		bindingError(c, err)
 		return
 	}
-	s.audit(portalActor(u, viaMail), "user.email_bound", kept.Username, addr, clientIP(c.Request))
+	s.audit(s.portalActorFor(c, &kept), "user.email_bound", kept.Username, addr, clientIP(c.Request))
 	s.wakeBusinessEvents()
-	// A session made from the old address would end: renew it.
-	tok, err := s.issuePortalTokenVia(&kept, viaMail, c)
+	// A session made from the old address would end: renew it, keeping
+	// the sign-in mode it started with.
+	tok, err := s.issuePortalTokenMode(&kept, mode, c)
 	if err != nil {
 		serverError(c, err)
 		return
 	}
 	s.setPortalCookie(c, tok, int(portalSessionTTL.Seconds()))
 	c.JSON(http.StatusOK, gin.H{"ok": true, "email": addr})
+}
+
+// createRegisteredUser is the shared tail of every self-service
+// registration (e-mail, password, later GitHub): inside the caller's
+// transaction, with the account row prepared, it applies the trial
+// plan — or leaves the account expired until a plan is bought — and
+// queues the registration event. trialID is passed in because the
+// store's SQLite pool has a single connection: nothing inside the
+// transaction may touch the store outside the transaction.
+func (s *Server) createRegisteredUser(tx *gorm.DB, u *store.User, via, trialID string) error {
+	now := time.Now().UTC()
+	if trialID != "" {
+		p, err := loadPlan(tx, trialID)
+		if err != nil {
+			return errors.New("试用套餐不存在，请联系管理员")
+		}
+		if err := tx.Create(u).Error; err != nil {
+			return err
+		}
+		if _, err := applyPlan(tx, u, p, false, now); err != nil {
+			return err
+		}
+		u.Status = computeStatus(u, now)
+		if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error; err != nil {
+			return err
+		}
+		return s.queueUserEvent(tx, "user.registered", u, map[string]any{"via": via, "trial": trialID})
+	}
+	// No trial: no service until a plan is bought.
+	gone := now.Add(-time.Second)
+	u.ExpireAt = &gone
+	u.Status = computeStatus(u, now)
+	if err := tx.Create(u).Error; err != nil {
+		return err
+	}
+	return s.queueUserEvent(tx, "user.registered", u, map[string]any{"via": via, "trial": trialID})
 }
 
 // registerByMail creates the account of a new e-mail user: a trial plan
@@ -407,7 +478,6 @@ func (s *Server) registerByMail(addr, ip string) (*store.User, error) {
 		return nil, errUserCap
 	}
 	trialID := strings.TrimSpace(s.st.GetSetting("register_trial_plan", ""))
-	now := time.Now().UTC()
 	var u store.User
 	err := s.st.DB.Transaction(func(tx *gorm.DB) error {
 		if err := lockAccountBindings(tx); err != nil {
@@ -420,31 +490,7 @@ func (s *Server) registerByMail(addr, ip string) (*store.User, error) {
 		}
 		u = newUser(&userReq{Username: local + "_" + strings.ToLower(pki.Token(4)), Remark: "邮箱注册"})
 		u.Email, u.SelfService = addr, true
-		if trialID != "" {
-			p, err := loadPlan(tx, trialID)
-			if err != nil {
-				return errors.New("试用套餐不存在，请联系管理员")
-			}
-			if err := tx.Create(&u).Error; err != nil {
-				return err
-			}
-			if _, err := applyPlan(tx, &u, p, false, now); err != nil {
-				return err
-			}
-			u.Status = computeStatus(&u, now)
-			if err := tx.Model(&store.User{}).Where("id = ?", u.ID).Update("status", u.Status).Error; err != nil {
-				return err
-			}
-			return s.queueUserEvent(tx, "user.registered", &u, map[string]any{"via": "email", "trial": trialID})
-		}
-		// No trial: no service until a plan is bought.
-		gone := now.Add(-time.Second)
-		u.ExpireAt = &gone
-		u.Status = computeStatus(&u, now)
-		if err := tx.Create(&u).Error; err != nil {
-			return err
-		}
-		return s.queueUserEvent(tx, "user.registered", &u, map[string]any{"via": "email", "trial": trialID})
+		return s.createRegisteredUser(tx, &u, "email", trialID)
 	})
 	if err != nil {
 		return nil, err
