@@ -22,7 +22,7 @@ def run_engine(p, engine, browser):
         context.route('https://www.gravatar.com/**',lambda route:route.abort())
         page=context.new_page();errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
         page.goto(base+'/')
-        page.locator('#u').fill(fixture['username']);page.locator('#p').fill(fixture['password']);page.locator('form button[type=submit]').click()
+        page.locator('#acct').fill(fixture['username']);page.locator('form button[type=submit]').click();page.locator('#p').fill(fixture['password']);page.locator('form button[type=submit]').click()
         expect(page.locator('.page-content h1')).to_be_visible()
         page.goto(base+'/settings#ai')
         expect(page.get_by_role('heading',name='AI 助手',exact=True)).to_be_visible()
