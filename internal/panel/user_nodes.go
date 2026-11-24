@@ -70,6 +70,41 @@ func (s *Server) userNodeCount(userID string) int64 {
 	return n
 }
 
+// withOwnNodeCounts fills OwnNodes / OwnPendingNodes on a page of users
+// with one grouped query over their brought-in nodes (rejected nodes are
+// dead weight and do not count, same as the quota's counting rule).
+func (s *Server) withOwnNodeCounts(us []store.User) {
+	if len(us) == 0 {
+		return
+	}
+	ids := make([]string, len(us))
+	for i := range us {
+		ids[i] = us[i].ID
+	}
+	type cnt struct {
+		OwnerID     string
+		ReviewState string
+		N           int64
+	}
+	var rows []cnt
+	s.st.DB.Model(&store.Node{}).Select("owner_id, review_state, count(*) AS n").
+		Where("owner_id IN ?", ids).Group("owner_id, review_state").Scan(&rows)
+	total := map[string]int{}
+	pending := map[string]int{}
+	for _, r := range rows {
+		if r.ReviewState != "rejected" {
+			total[r.OwnerID] += int(r.N)
+		}
+		if r.ReviewState == "pending" {
+			pending[r.OwnerID] += int(r.N)
+		}
+	}
+	for i := range us {
+		us[i].OwnNodes = total[us[i].ID]
+		us[i].OwnPendingNodes = pending[us[i].ID]
+	}
+}
+
 // portalNodeUser answers 401 and returns nil when the portal session is
 // gone; the JSON node APIs use it instead of the page handlers' redirect.
 func (s *Server) portalNodeUser(c *gin.Context) *store.User {

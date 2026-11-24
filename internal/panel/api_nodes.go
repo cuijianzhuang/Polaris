@@ -30,6 +30,9 @@ type nodeView struct {
 	InboundCount int64         `json:"inboundCount"`
 	Connected    bool          `json:"connected"`
 	Progress     *nodeProgress `json:"progress,omitempty"`
+	// OwnerName is the display name of the portal user who brought this
+	// node ("" for the admin's own nodes).
+	OwnerName string `json:"ownerName,omitempty"`
 }
 
 func (s *Server) nodeViews() []nodeView {
@@ -44,10 +47,33 @@ func (s *Server) nodeViews() []nodeView {
 	}
 	var counts []cnt
 	s.st.DB.Model(&store.Inbound{}).Select("node_id, core, count(*) AS n").Group("node_id, core").Scan(&counts)
+	// Owner display names for user-brought nodes, one query for all owners.
+	ownerNames := map[string]string{}
+	{
+		seen := map[string]bool{}
+		var ids []string
+		for _, n := range ns {
+			if n.OwnerID != "" && !seen[n.OwnerID] {
+				seen[n.OwnerID] = true
+				ids = append(ids, n.OwnerID)
+			}
+		}
+		if len(ids) > 0 {
+			var us []store.User
+			s.st.DB.Select("id, username, email").Where("id IN ?", ids).Find(&us)
+			for _, u := range us {
+				name := u.Username
+				if name == "" {
+					name = u.Email
+				}
+				ownerNames[u.ID] = name
+			}
+		}
+	}
 	out := make([]nodeView, 0, len(ns))
 	now := time.Now()
 	for _, n := range ns {
-		v := nodeView{Node: n, NetHealth: nodeNetHealthOf(&n, now), Cores: []store.Core{}, Connected: s.hub.Online(n.ID), Progress: s.nodeProgressFor(n.ID)}
+		v := nodeView{Node: n, NetHealth: nodeNetHealthOf(&n, now), Cores: []store.Core{}, Connected: s.hub.Online(n.ID), Progress: s.nodeProgressFor(n.ID), OwnerName: ownerNames[n.OwnerID]}
 		for _, c := range cores {
 			if c.NodeID == n.ID {
 				for _, k := range counts {
@@ -68,8 +94,38 @@ func (s *Server) nodeViews() []nodeView {
 	return out
 }
 
+// listNodes returns node views, optionally narrowed by ?owner= (admin =
+// the admin's own nodes, user = any user-brought node, anything else = that
+// owner's user id) and ?reviewState= (pending / approved / rejected).
 func (s *Server) listNodes(c *gin.Context) {
-	c.JSON(http.StatusOK, scopedNodeViews(s.nodeViews(), nodeScope(c)))
+	vs := scopedNodeViews(s.nodeViews(), nodeScope(c))
+	owner, review := c.Query("owner"), c.Query("reviewState")
+	if owner != "" || review != "" {
+		out := make([]nodeView, 0, len(vs))
+		for _, v := range vs {
+			switch owner {
+			case "":
+			case "admin":
+				if v.OwnerID != "" {
+					continue
+				}
+			case "user":
+				if v.OwnerID == "" {
+					continue
+				}
+			default:
+				if v.OwnerID != owner {
+					continue
+				}
+			}
+			if review != "" && v.ReviewState != review {
+				continue
+			}
+			out = append(out, v)
+		}
+		vs = out
+	}
+	c.JSON(http.StatusOK, vs)
 }
 
 func (s *Server) getNode(c *gin.Context) {

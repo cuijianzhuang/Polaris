@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { bps, coreLabel, coreShort, coreTagClass, netUsed, nodeStatus } from '../format'
 import { t } from '../i18n'
 import type { Node, NodeTraffic } from '../types'
-import NodeCard, { NetUsage } from './NodeCard'
+import NodeCard, { NetUsage, nodeDisplayName, NodeReviewBadge } from './NodeCard'
 import { Icon } from './Icons'
 import { Empty } from './ui'
 
@@ -16,11 +16,19 @@ function Resource({ value, label, connected }: { value: number; label: string; c
   return <div className="node-resource"><span>{label}</span><span className="node-resource-track" aria-hidden="true"><i style={{ width: connected ? v + '%' : 0, background: v >= 85 ? 'var(--bad)' : v >= 60 ? 'var(--warn)' : 'var(--pri)' }} /></span><span className="mono">{connected ? `${Math.round(v)}%` : '—'}</span></div>
 }
 
-export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, onSelect, badge }: {
+export type NodeReviewAction = 'approve' | 'reject' | 'suspend'
+
+export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, onSelect, badge, owner, onOwnerChange, onReview }: {
   nodes: Node[]; selected?: Node; traffic?: Record<string, NodeTraffic>; open: boolean
   onOpen: (open: boolean) => void; onSelect: (node: Node) => void; badge: (node: Node) => ReactNode
+  // Owner filter is controlled by the page so /nodes?owner=<userId> (from
+  // the user list) lands pre-filtered: '' = all, 'admin', 'user', or a user id.
+  owner: string; onOwnerChange: (v: string) => void
+  // When set, user-brought rows get inline review actions (admin only).
+  onReview?: (node: Node, action: NodeReviewAction) => void
 }) {
   const [query, setQuery] = useState(''), [status, setStatus] = useState(''), [region, setRegion] = useState(''), [core, setCore] = useState('')
+  const [pendingOnly, setPendingOnly] = useState(false)
   const [sort, setSort] = useState('default'), [page, setPage] = useState(1), [size, setSize] = useState(12)
   const [preference, setPreference] = useState<View | null>(() => {
     try { const v = localStorage.getItem(VIEW_KEY); return v === 'cards' || v === 'list' ? v : null } catch { return null }
@@ -30,11 +38,18 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
   const chooseView = (v: View) => { setPreference(v); try { localStorage.setItem(VIEW_KEY, v) } catch { /* storage unavailable */ } }
   const regions = useMemo(() => [...new Set(nodes.map((n) => n.region).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [nodes])
   const cores = useMemo(() => [...new Set(nodes.flatMap((n) => n.cores.map((c) => c.type)))].sort(), [nodes])
+  const owners = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const n of nodes) if (n.ownerId && !m.has(n.ownerId)) m.set(n.ownerId, n.ownerName || n.ownerId)
+    return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]))
+  }, [nodes])
   const online = nodes.filter((n) => n.status === 'online').length
   const attention = nodes.filter(needsAttention).length
+  const pending = nodes.filter((n) => n.ownerId && n.reviewState === 'pending').length
   const filtered = useMemo(() => {
     const words = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
-    const rows = nodes.filter((n) => (!status || (status === 'attention' ? needsAttention(n) : n.status === status)) && (!region || n.region === region) && (!core || n.cores.some((c) => c.type === core)) && words.every((word) => [n.name, n.id, n.region, n.address, n.domain, n.publicIpv4, n.publicIpv6, ...(n.labels ?? [])].filter(Boolean).join(' ').toLocaleLowerCase().includes(word)))
+    const ownerMatch = (n: Node) => !owner || (owner === 'admin' ? !n.ownerId : owner === 'user' ? !!n.ownerId : n.ownerId === owner)
+    const rows = nodes.filter((n) => (!status || (status === 'attention' ? needsAttention(n) : n.status === status)) && (!region || n.region === region) && (!core || n.cores.some((c) => c.type === core)) && ownerMatch(n) && (!pendingOnly || n.reviewState === 'pending') && words.every((word) => [n.name, n.displayName, n.ownerName, n.id, n.region, n.address, n.domain, n.publicIpv4, n.publicIpv6, ...(n.labels ?? [])].filter(Boolean).join(' ').toLocaleLowerCase().includes(word)))
     const byName = (a: Node, b: Node) => a.name.localeCompare(b.name, undefined, { numeric: true }) || a.id.localeCompare(b.id)
     // Live values only reorder rows when the operator explicitly chooses it.
     if (sort === 'name') rows.sort(byName)
@@ -42,14 +57,14 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
     else if (sort === 'cpu' || sort === 'mem') rows.sort((a, b) => Number(b.connected) - Number(a.connected) || (b.system[sort] || 0) - (a.system[sort] || 0) || byName(a, b))
     else if (sort === 'traffic') rows.sort((a, b) => netUsed(b) - netUsed(a) || byName(a, b))
     return rows
-  }, [nodes, query, status, region, core, sort])
-  useEffect(() => setPage(1), [query, status, region, core, sort, size])
+  }, [nodes, query, status, region, core, sort, owner, pendingOnly])
+  useEffect(() => setPage(1), [query, status, region, core, sort, size, owner, pendingOnly])
   const pages = Math.max(1, Math.ceil(filtered.length / size)), current = Math.min(page, pages)
   useEffect(() => setPage((p) => Math.min(p, pages)), [pages])
   const shown = filtered.slice((current - 1) * size, current * size)
-  const activeCount = [query, status, region, core, sort === 'default' ? '' : sort].filter(Boolean).length
+  const activeCount = [query, status, region, core, owner, pendingOnly ? 'pending' : '', sort === 'default' ? '' : sort].filter(Boolean).length
   const active = activeCount > 0
-  const clear = () => { setQuery(''); setStatus(''); setRegion(''); setCore(''); setSort('default') }
+  const clear = () => { setQuery(''); setStatus(''); setRegion(''); setCore(''); setSort('default'); setPendingOnly(false); onOwnerChange('') }
   const selectedVisible = !selected || filtered.some((n) => n.id === selected.id)
 
   return <section className={'node-browser' + (open ? '' : ' collapsed')} aria-label={t('节点浏览')} id="node-browser">
@@ -58,6 +73,7 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
         <button className="link node-total" type="button" onClick={() => { clear(); onOpen(true) }}>{t('节点')} <b>{nodes.length}</b></button>
         <button className={'link node-total' + (status === 'online' ? ' active' : '')} type="button" aria-pressed={status === 'online'} onClick={() => { setStatus(status === 'online' ? '' : 'online'); onOpen(true) }}><i className="dot" style={{ background: 'var(--ok)' }} />{t('在线')} <b>{online}</b></button>
         {attention > 0 && <button className={'link node-attention' + (status === 'attention' ? ' active' : '')} type="button" aria-pressed={status === 'attention'} onClick={() => { setStatus(status === 'attention' ? '' : 'attention'); onOpen(true) }}>{t('需关注')} <b>{attention}</b></button>}
+        {pending > 0 && <button className={'link node-attention' + (pendingOnly ? ' active' : '')} type="button" aria-pressed={pendingOnly} onClick={() => { setPendingOnly(!pendingOnly); onOpen(true) }}>{t('待审批')} <b>{pending}</b></button>}
       </div>
       <div className="node-browser-tools">
         {open && <>
@@ -76,6 +92,10 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
         </select>
         <select className="input" aria-label={t('节点地区')} value={region} onChange={(e) => setRegion(e.target.value)}><option value="">{t('全部地区')}</option>{regions.map((r) => <option key={r}>{r}</option>)}</select>
         <select className="input" aria-label={t('节点内核')} value={core} onChange={(e) => setCore(e.target.value)}><option value="">{t('全部内核')}</option>{cores.map((c) => <option key={c} value={c}>{coreLabel[c] ?? c}</option>)}</select>
+        <select className="input" aria-label={t('节点归属')} value={owner} onChange={(e) => onOwnerChange(e.target.value)}>
+          <option value="">{t('全部归属')}</option><option value="admin">{t('管理员')}</option><option value="user">{t('用户节点')}</option>
+          {owners.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
         <select className="input" aria-label={t('节点排序')} value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="default">{t('默认顺序')}</option><option value="name">{t('名称排序')}</option><option value="attention">{t('需关注优先')}</option><option value="cpu">{t('CPU 从高到低')}</option><option value="mem">{t('内存从高到低')}</option><option value="traffic">{t('服务器流量从高到低')}</option>
         </select>
@@ -85,19 +105,24 @@ export default function NodeBrowser({ nodes, selected, traffic, open, onOpen, on
         {shown.map((n) => <NodeCard key={n.id} n={n} on={selected?.id === n.id} onClick={() => onSelect(n)} traffic={traffic?.[n.id]} badge={badge(n)} />)}
       </div> : <div className="card flush node-list"><div className="scroll">
         <table className="rtable" aria-label={t('节点列表')}>
-          <thead><tr><th scope="col">{t('节点')}</th><th scope="col">{t('状态')}</th><th scope="col">{t('资源')}</th><th scope="col">{t('实时速率')}</th><th scope="col">{t('服务器流量')}</th><th scope="col">{t('内核')}</th></tr></thead>
+          <thead><tr><th scope="col">{t('节点')}</th><th scope="col">{t('状态')}</th><th scope="col">{t('归属')}</th><th scope="col">{t('资源')}</th><th scope="col">{t('实时速率')}</th><th scope="col">{t('服务器流量')}</th><th scope="col">{t('内核')}</th>{onReview && <th scope="col">{t('操作')}</th>}</tr></thead>
           <tbody>{shown.map((n) => {
             const st = nodeStatus[n.status] ?? nodeStatus.pending
             const problem = n.progress?.error || n.lastError || n.cores.find((c) => c.error)?.error
             return <tr key={n.id} className={selected?.id === n.id ? 'sel' : ''} data-node-id={n.id}>
-              <td className="rt-head"><button className="node-list-select" type="button" title={[n.name, n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join('\n')} aria-pressed={selected?.id === n.id} aria-label={t('查看节点 {name}', { name: n.name })} onClick={() => onSelect(n)}>
-                <span className="node-list-name"><i className="dot" style={{ background: st.color }} /><CountryFlag code={n.flag} /> <FlagText>{n.name}</FlagText>{badge(n)}</span><span className="node-list-address">{[n.region, n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join(' · ') || t('无公网地址')}</span>
+              <td className="rt-head"><button className="node-list-select" type="button" title={[nodeDisplayName(n), n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join('\n')} aria-pressed={selected?.id === n.id} aria-label={t('查看节点 {name}', { name: nodeDisplayName(n) })} onClick={() => onSelect(n)}>
+                <span className="node-list-name"><i className="dot" style={{ background: st.color }} /><CountryFlag code={n.flag} /> <FlagText>{nodeDisplayName(n)}</FlagText>{badge(n)}</span><span className="node-list-address">{[n.region, n.domain || n.address || n.publicIpv4 || n.publicIpv6].filter(Boolean).join(' · ') || t('无公网地址')}</span>
               </button></td>
               <td data-label={t('状态')}><div className="node-list-state"><span className={'st ' + st.cls}>{st.label}</span>{n.progress?.active ? <span className="small mute">{t('处理中…')}</span> : problem ? <span className="small node-problem" title={problem}>{t('有错误')}</span> : n.appliedRev < n.desiredRev ? <span className="small mute">{t('等待同步')}</span> : null}</div></td>
+              <td data-label={t('归属')}>{n.ownerId ? <span>{n.ownerName || n.ownerId}<NodeReviewBadge n={n} /></span> : <span className="mute">{t('管理员')}</span>}</td>
               <td data-label={t('资源')}><div className="node-resources"><Resource value={n.system.cpu} label="CPU" connected={n.connected} /><Resource value={n.system.mem} label={t('内存')} connected={n.connected} /></div></td>
               <td data-label={t('实时速率')}><div className="node-list-rates mono">{n.connected ? <><span>↓ {bps(n.system.rxBps)}</span><span>↑ {bps(n.system.txBps)}</span></> : '—'}</div></td>
               <td data-label={t('服务器流量')}>{n.netLimit || netUsed(n) ? <NetUsage n={n} /> : <span className="mute">—</span>}</td>
               <td data-label={t('内核')}><div className="node-list-cores" title={n.cores.map((c) => coreLabel[c.type]).join(' · ')}>{n.cores.slice(0, 3).map((c) => <span key={c.id} className={coreTagClass(c.type)}>{coreShort[c.type]}</span>)}{n.cores.length > 3 && <span className="tag">+{n.cores.length - 3}</span>}{n.cores.length === 0 && <span className="mute">—</span>}</div></td>
+              {onReview && <td data-label={t('操作')}><div className="row" style={{ flexWrap: 'nowrap' }}>
+                {n.ownerId && n.reviewState === 'pending' && <><button className="btn sm pri" type="button" onClick={() => onReview(n, 'approve')}>{t('批准')}</button><button className="btn sm danger" type="button" onClick={() => onReview(n, 'reject')}>{t('拒绝')}</button></>}
+                {n.ownerId && n.reviewState === 'approved' && <button className="btn sm" type="button" onClick={() => onReview(n, 'suspend')}>{t('停用')}</button>}
+              </div></td>}
             </tr>
           })}</tbody>
         </table>

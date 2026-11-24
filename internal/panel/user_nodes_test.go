@@ -444,3 +444,110 @@ func TestUserDisableDeleteCascadesToOwnedNodes(t *testing.T) {
 		t.Fatal("bulk-deleted user's node survived")
 	}
 }
+
+// adminNodeList GETs /nodes as the admin and decodes the array response.
+func adminNodeList(t *testing.T, admin *apiClient, query string) []map[string]any {
+	t.Helper()
+	req, _ := http.NewRequest("GET", admin.base+"/nodes"+query, nil)
+	req.Header.Set("Authorization", "Bearer "+admin.tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /nodes%s: %d", query, resp.StatusCode)
+	}
+	var out []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestAdminNodeListOwnerFieldsAndFilters(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	s.st.SetSetting("portal_enabled", "true")
+	if err := s.st.DB.Create(&store.Node{ID: "adminnode9", Name: "admin-hk", Status: "online"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	pa, ua := userNodesClient(t, s, srv.URL, "list-alice")
+	_, outA := createPortalNode(t, pa, "alice-box")
+	idA := portalNodeID(t, outA)
+	pb, _ := userNodesClient(t, s, srv.URL, "list-bob")
+	_, outB := createPortalNode(t, pb, "bob-box")
+	idB := portalNodeID(t, outB)
+
+	all := adminNodeList(t, admin, "")
+	if len(all) != 3 {
+		t.Fatalf("all nodes: %d", len(all))
+	}
+	byID := map[string]map[string]any{}
+	for _, v := range all {
+		byID[v["id"].(string)] = v
+	}
+	if byID["adminnode9"]["ownerName"] != nil {
+		t.Fatalf("admin node ownerName: %v", byID["adminnode9"]["ownerName"])
+	}
+	if byID[idA]["ownerName"] != ua.Username || byID[idA]["reviewState"] != "pending" || byID[idA]["displayName"] != "alice-box" {
+		t.Fatalf("alice node view: %v", byID[idA])
+	}
+	if got := adminNodeList(t, admin, "?owner=admin"); len(got) != 1 || got[0]["id"] != "adminnode9" {
+		t.Fatalf("owner=admin: %v", got)
+	}
+	if got := adminNodeList(t, admin, "?owner=user"); len(got) != 2 {
+		t.Fatalf("owner=user: %d", len(got))
+	}
+	if got := adminNodeList(t, admin, "?owner="+ua.ID); len(got) != 1 || got[0]["id"] != idA {
+		t.Fatalf("owner=<alice>: %v", got)
+	}
+	if got := adminNodeList(t, admin, "?reviewState=pending"); len(got) != 2 {
+		t.Fatalf("reviewState=pending: %d", len(got))
+	}
+	if code, out := admin.do("POST", "/nodes/"+idB+"/review", map[string]any{"action": "approve"}); code != http.StatusOK {
+		t.Fatalf("approve bob: %d %v", code, out)
+	}
+	if got := adminNodeList(t, admin, "?reviewState=pending"); len(got) != 1 || got[0]["id"] != idA {
+		t.Fatalf("pending after approve: %v", got)
+	}
+	if got := adminNodeList(t, admin, "?owner=user&reviewState=approved"); len(got) != 1 || got[0]["id"] != idB {
+		t.Fatalf("owner=user&approved: %v", got)
+	}
+}
+
+func TestAdminUserListOwnNodeCounts(t *testing.T) {
+	s, srv, admin := newAdminClient(t)
+	s.st.SetSetting("portal_enabled", "true")
+	pa, ua := userNodesClient(t, s, srv.URL, "count-alice")
+	_, out1 := createPortalNode(t, pa, "a1")
+	_, out2 := createPortalNode(t, pa, "a2")
+	id2 := portalNodeID(t, out2)
+	if code, out := admin.do("POST", "/nodes/"+id2+"/review", map[string]any{"action": "approve"}); code != http.StatusOK {
+		t.Fatalf("approve: %d %v", code, out)
+	}
+	// A rejected node must not count as an owned node.
+	_, out3 := createPortalNode(t, pa, "a3")
+	id3 := portalNodeID(t, out3)
+	if code, out := admin.do("POST", "/nodes/"+id3+"/review", map[string]any{"action": "reject"}); code != http.StatusOK {
+		t.Fatalf("reject: %d %v", code, out)
+	}
+	_, ub := userNodesClient(t, s, srv.URL, "count-bob")
+
+	code, out := admin.do("GET", "/users?q=count-", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list users: %d %v", code, out)
+	}
+	items, _ := out["items"].([]any)
+	byName := map[string]map[string]any{}
+	for _, it := range items {
+		m, _ := it.(map[string]any)
+		byName[m["username"].(string)] = m
+	}
+	if a := byName[ua.Username]; a["ownNodes"] != float64(2) || a["ownPendingNodes"] != float64(1) {
+		t.Fatalf("alice counts: %v", a)
+	}
+	if b := byName[ub.Username]; b["ownNodes"] != float64(0) || b["ownPendingNodes"] != float64(0) {
+		t.Fatalf("bob counts: %v", b)
+	}
+	_ = out1
+}

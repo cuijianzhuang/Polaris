@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { get, post, put } from '../api'
 import { useNodes } from '../App'
 import { Icon } from '../components/Icons'
@@ -205,7 +205,8 @@ export default function Users() {
                       {u.planId && <span className="tag info-tag" title={t('套餐')}>{gname(u.planId)}</span>}
                       {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
                       {(u.inboundIds ?? []).length > 0 && <span className="tag" title={t('单独授权的入站')}>{t('+{n} 入站', { n: u.inboundIds.length })}</span>}
-                      {!u.planId && !u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && <span className="st warn">{t('未授权')}</span>}
+                      {(u.ownNodes ?? 0) > 0 && <Link className="tag info-tag" to={'/nodes?owner=' + u.id} onClick={(e) => e.stopPropagation()} title={t('查看并审批该用户的自有节点')}>{t('自有节点 {n}', { n: u.ownNodes })}{(u.ownPendingNodes ?? 0) > 0 && t(' · 待审批 {n}', { n: u.ownPendingNodes })}</Link>}
+                      {!u.planId && !u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && !(u.ownNodes ?? 0) && <span className="st warn">{t('未授权')}</span>}
                     </div></td>
                     <td data-label={t('流量')} className="rt-wrap" style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : t('不限')}</span>

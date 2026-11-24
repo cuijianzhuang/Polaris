@@ -9,8 +9,8 @@ import TrafficChart from '../components/TrafficChart'
 import NodeMetrics from '../components/NodeMetrics'
 import NodeExternalMetrics from '../components/NodeExternalMetrics'
 import LimitedUsers from '../components/LimitedUsers'
-import { NetUsage, NodeActivity } from '../components/NodeCard'
-import NodeBrowser from '../components/NodeBrowser'
+import { NetUsage, NodeActivity, nodeDisplayName, NodeReviewBadge } from '../components/NodeCard'
+import NodeBrowser, { type NodeReviewAction } from '../components/NodeBrowser'
 import NodeProvider from '../components/NodeProvider'
 import NetCollectionHealth from '../components/NetCollectionHealth'
 import { ProTag, useFeature } from '../components/License'
@@ -415,6 +415,8 @@ export default function Nodes() {
   const { nodes, refresh } = useNodes()
   const { scoped } = useScope() // Telegram node operator: view, sync, rollback, restart only
   const [params, setParams] = useSearchParams()
+  const [ownerFilter, setOwnerFilter] = useState(() => params.get('owner') ?? '')
+  useEffect(() => { const v = params.get('owner'); if (v !== null) setOwnerFilter(v) }, [params])
   const [selId, setSelId] = useState<string | null>(params.get('id'))
   const [browserOpen, setBrowserOpen] = useState(true)
   const [editing, setEditing] = useState<Node | 'new' | null>(params.get('new') ? 'new' : null)
@@ -476,6 +478,15 @@ export default function Nodes() {
     setInstall({ cmd: r.command, nodeId: n.id })
   })
 
+  // Review a user-brought node (batch 1 endpoint). Rejecting revokes the
+  // node's certificate, so it asks first; failures surface via run's toast.
+  const review = async (n: Node, action: NodeReviewAction) => {
+    if (action === 'reject' && !(await confirm(t('拒绝 {name} 的接入？将吊销其证书，节点立即断开，用户可删除后重新申请。', { name: nodeDisplayName(n) }), { danger: true, ok: t('拒绝') }))) return
+    if (action === 'suspend' && !(await confirm(t('停用 {name}？将退回待审批状态，配置立即停止下发，重新批准后恢复。', { name: nodeDisplayName(n) }), { ok: t('停用') }))) return
+    run(async () => { await post(`/nodes/${n.id}/review`, { action }); refresh() },
+      action === 'approve' ? t('已批准，开始下发配置') : action === 'reject' ? t('已拒绝，证书已吊销') : t('已停用，退回待审批'))
+  }
+
   return (
     <>
       <div className="top">
@@ -494,12 +505,13 @@ export default function Nodes() {
       {nodes.length === 0 ? <div className="card"><Empty>{scoped ? t('没有分配给你的节点，请联系超级管理员。') : t('还没有节点。')}{scoped ? null : t('点击「添加节点」生成一行安装命令，在服务器上执行即可接入。')}</Empty></div> : (
         <>
           <NodeBrowser nodes={nodes} selected={sel} traffic={traffic.data} open={browserOpen} onOpen={setBrowserOpen} onSelect={selectNode}
+            owner={ownerFilter} onOwnerChange={setOwnerFilter} onReview={scoped ? undefined : review}
             badge={(n) => upgrading[n.id] ? <span className="tag info-tag">{t('升级中…')}</span> : outdated(n) ? <span className="tag warn">{t('可升级')}</span> : null} />
           {selId && !sel && <div className="note warn" role="status">{t('所选节点已不存在，请重新选择节点')}</div>}
           {sel && (
             <>
               <section className="card">
-                <div className="node-detail-heading"><h2 id="node-detail-title" tabIndex={-1}><CountryFlag code={sel.flag} /> <FlagText>{sel.name}</FlagText></h2><span className="small mute">{t('当前节点')}</span>{!browserOpen && <button className="btn sm" type="button" onClick={() => {
+                <div className="node-detail-heading"><h2 id="node-detail-title" tabIndex={-1}><CountryFlag code={sel.flag} /> <FlagText>{nodeDisplayName(sel)}</FlagText></h2><span className="small mute">{t('当前节点')}</span>{sel.ownerId && <span className="small mute">{t('归属')} {sel.ownerName || sel.ownerId}</span>}<NodeReviewBadge n={sel} />{!browserOpen && <button className="btn sm" type="button" onClick={() => {
                   setBrowserOpen(true)
                   requestAnimationFrame(() => {
                     document.getElementById('node-browser')?.scrollIntoView({ block: 'start' })
@@ -537,6 +549,8 @@ export default function Nodes() {
                     <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                       if (await confirm(t('回滚到上一个成功应用的配置版本？'))) run(() => post(`/nodes/${sel.id}/rollback`, {}), t('已回滚'))
                     }}>{t('回滚到上一版')}</button>
+                    {!scoped && sel.ownerId && sel.reviewState === 'pending' && <><button className="btn sm pri" type="button" disabled={busy} onClick={() => review(sel, 'approve')}>{t('批准')}</button><button className="btn sm danger" type="button" disabled={busy} onClick={() => review(sel, 'reject')}>{t('拒绝')}</button></>}
+                    {!scoped && sel.ownerId && sel.reviewState === 'approved' && <button className="btn sm" type="button" disabled={busy} onClick={() => review(sel, 'suspend')}>{t('停用')}</button>}
                     {!scoped && <button className="btn sm" type="button" onClick={() => showInstall(sel)}>{t('安装命令')}</button>}
                     {!scoped && <button className="btn sm" type="button" onClick={() => setEditing(sel)}>{t('编辑')}</button>}
                   </div>

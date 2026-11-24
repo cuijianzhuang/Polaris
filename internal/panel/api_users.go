@@ -196,6 +196,7 @@ func (s *Server) listUsers(c *gin.Context) {
 	}
 	s.withGroups(us)
 	s.withOnline(us)
+	s.withOwnNodeCounts(us)
 	c.JSON(http.StatusOK, gin.H{"items": us, "total": total, "summary": summary})
 }
 

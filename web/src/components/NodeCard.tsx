@@ -129,6 +129,19 @@ export function NetUsage({ n }: { n: Node }) {
   )
 }
 
+// User-brought nodes carry an internal name (un-<id>) nobody should see;
+// the admin UI shows the owner's display name instead.
+export function nodeDisplayName(n: Node) { return n.ownerId ? (n.displayName || n.name) : n.name }
+
+// NodeReviewBadge marks a user-brought node waiting for (or refused) the
+// admin's review; approved and admin nodes get no badge.
+export function NodeReviewBadge({ n }: { n: Node }) {
+  if (!n.ownerId) return null
+  if (n.reviewState === 'pending') return <span className="tag warn" style={{ marginLeft: 6 }}>{t('待审批')}</span>
+  if (n.reviewState === 'rejected') return <span className="tag" style={{ marginLeft: 6, color: 'var(--bad)' }}>{t('已拒绝')}</span>
+  return null
+}
+
 // NodeCard is one tile of the node wall: status, live rate with a sparkline,
 // CPU and memory rings, today's traffic and cores.
 export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; on: boolean; onClick: () => void; traffic?: NodeTraffic; badge?: ReactNode }) {
@@ -137,10 +150,10 @@ export default function NodeCard({ n, on, onClick, traffic, badge }: { n: Node; 
   return (
     <button type="button" className={'ncard' + (on ? ' on' : '') + (n.connected ? '' : ' down')} aria-pressed={on} onClick={onClick}>
       <div className="nc-head">
-        <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} /><CountryFlag code={n.flag} /> <FlagText>{n.name}</FlagText>{(n.level ?? 0) > 0 && <span className="tag info-tag" style={{ marginLeft: 6 }}>Lv.{n.level}</span>}</span>
+        <span className="nc-name"><span className={'dot' + (n.status === 'online' ? ' live' : '')} style={{ background: st.color, color: st.color }} /><CountryFlag code={n.flag} /> <FlagText>{nodeDisplayName(n)}</FlagText>{(n.level ?? 0) > 0 && <span className="tag info-tag" style={{ marginLeft: 6 }}>Lv.{n.level}</span>}<NodeReviewBadge n={n} /></span>
         <span className={'st ' + st.cls}>{st.label}</span>
       </div>
-      <div className="nc-sub">{[n.region, addr].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>{t('无公网地址')}</span>}{badge}</div>
+      <div className="nc-sub">{[n.region, addr].filter(Boolean).join(' · ') || <span style={{ color: 'var(--warn-ink)' }}>{t('无公网地址')}</span>}{n.ownerId && <span className="tag" style={{ marginLeft: 6 }} title={t('归属用户')}>{n.ownerName || n.ownerId}</span>}{badge}</div>
       {n.connected ? (
         <div className="nc-body">
           <div className="nc-rate">

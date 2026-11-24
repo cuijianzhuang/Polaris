@@ -44,6 +44,8 @@ export interface Node {
   id: string; name: string; address: string; domain: string; region: string; flag: string; lat?: number | null; lng?: number | null; labels: string[]
   agentFeatures?: string[]; agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string; relayFor?: string[]
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
+  // User-brought nodes (user-nodes feature): ownerId "" = the admin's node.
+  ownerId?: string; ownerName?: string; reviewState?: string; displayName?: string
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
   level?: number // tier a group needs to reach the node (0 = not tiered)
@@ -82,12 +84,13 @@ export interface User {
   onlineIpState?: 'available' | 'partial' | 'unavailable' | 'expired' | 'none'; onlineIpSeenAt?: string; onlineIpCount?: number; onlineNodes?: OnlineNode[]
   nodeIds: string[]; inboundIds: string[]; telegramId: number; email?: string; avatarURL?: string; planId?: string; extraTraffic?: number
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
+  ownNodes?: number; ownPendingNodes?: number // brought-in VPS nodes (user-nodes feature), filled by the admin user list
 }
 export interface UserDevice { id: string; hwid: string; os: string; model: string; userAgent: string; ip: string; firstSeen: string; lastSeen: string }
 export interface Group {
   id: string; name: string; remark: string; inboundIds: string[]; nodeIds: string[]; level: number; userCount: number; isDefault?: boolean; speedUpMbps?: number; speedDownMbps?: number
   // A plan is a group sold as a package.
-  plan?: boolean; trafficLimit?: number; days?: number; resetPolicy?: string; resetDay?: number; deviceLimit?: number; ipLimit?: number
+  plan?: boolean; trafficLimit?: number; days?: number; resetPolicy?: string; resetDay?: number; deviceLimit?: number; ipLimit?: number; nodeLimit?: number
   // Self-service port forwarding (professional edition).
   fwdMax?: number; fwdPortLo?: number; fwdPortHi?: number; fwdTraffic?: number; fwdRate?: number; fwdSpeedMbps?: number
   price?: string; fallbackId?: string; fallbackName?: string; sort?: number
