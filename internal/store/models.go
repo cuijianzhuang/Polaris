@@ -417,7 +417,7 @@ type UserAccess struct {
 // granted to its owner alone, and only once the node is approved — no grant
 // path (group, level, direct binding, or a stale row written before the
 // save-time checks existed) can hand it to anyone else or surface a
-// pending/rejected node. Admin nodes (owner_id '' or NULL on rows that
+// pending/rejected node. Admin nodes (owner_id ” or NULL on rows that
 // predate the column) are unaffected.
 const GrantsSQL = `SELECT ug.user_id AS user_id, gi.inbound_id AS inbound_id FROM user_groups ug JOIN group_inbounds gi ON gi.group_id = ug.group_id JOIN inbounds i ON i.id = gi.inbound_id JOIN nodes n ON n.id = i.node_id WHERE COALESCE(n.owner_id, '') = '' OR (n.owner_id = ug.user_id AND n.review_state = 'approved')
 UNION SELECT ua.user_id, ua.target_id FROM user_accesses ua JOIN inbounds i ON i.id = ua.target_id JOIN nodes n ON n.id = i.node_id WHERE ua.kind = 'inbound' AND (COALESCE(n.owner_id, '') = '' OR (n.owner_id = ua.user_id AND n.review_state = 'approved'))
