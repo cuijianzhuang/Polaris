@@ -103,7 +103,8 @@ func (s *Server) renewCert(c *gin.Context) {
 
 var secretSettings = map[string]bool{"acme_cf_token": true, "cdn_cf_token": true, "tg_token": true, "github_client_secret": true,
 	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true,
-	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true, "shodan_api_key": true}
+	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true, "shodan_api_key": true,
+	"resend_api_key": true, "cf_mail_api_token": true}
 
 // sudoSettings change who can sign in, or hold credentials: saving them
 // needs a recent re-verification (secrets only when a new value is set).
@@ -111,6 +112,7 @@ var sudoSettings = map[string]bool{"login_allowlist": true, "tg_api_base": true,
 	"login_ban_failures": true, "github_client_id": true, "audit_changes": true,
 	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_from": true, "mail_admin_to": true, "backup_store": true,
+	"mail_provider": true, "resend_from": true, "cf_mail_account_id": true, "cf_mail_from": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,
 	"shop_usdt_rpc_bsc": true, "shop_usdt_rpc_polygon": true, "shop_usdt_rpc_arbitrum": true} // where payments go, and who confirms them
 
@@ -126,6 +128,8 @@ var editableSettings = map[string]bool{
 	"backup_store": true, "backup_s3_path_style": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
 	"mail_notify_users": true, "mail_notify_admin": true, "mail_admin_to": true,
+	"mail_provider": true, "resend_api_key": true, "resend_from": true, "resend_from_name": true,
+	"cf_mail_account_id": true, "cf_mail_api_token": true, "cf_mail_from": true, "cf_mail_from_name": true,
 	"shodan_api_key": true,
 	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true, "status_show_cost": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,

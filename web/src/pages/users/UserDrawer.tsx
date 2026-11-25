@@ -281,7 +281,7 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
           <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? t('已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒') : t('纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定')}>
             <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder={t('例如 123456789')} />
           </Field>
-          <Field label={t('邮箱')} htmlFor="u-mail" full hint={t('配置 SMTP 后，提醒和订单开通通知也会发到这个邮箱；留空表示不发邮件')}>
+          <Field label={t('邮箱')} htmlFor="u-mail" full hint={t('配置邮件发送通道后，提醒和订单开通通知也会发到这个邮箱；留空表示不发邮件')}>
             <input id="u-mail" className="input mono" type="email" autoComplete="off" value={f.email} onChange={(e) => set('email', e.target.value)} placeholder="user@example.com" />
           </Field>
           {user && <Field label={t('登录密码')} htmlFor="u-loginpw" full hint={t('只用于登录用户中心和面板，与下面的订阅密码是两个不同的密码；留空不改，设置或清除后该用户所有登录都会失效')}>

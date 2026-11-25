@@ -1,6 +1,7 @@
-// Package mailer sends mail through an SMTP server: STARTTLS (port 587),
-// implicit TLS (465) or plain (25, local relays), with PLAIN/LOGIN auth and
-// UTF-8 text + HTML bodies.
+// Package mailer sends mail through one of several providers: an SMTP
+// server (STARTTLS on port 587, implicit TLS on 465, or plain 25 for local
+// relays, with PLAIN/LOGIN auth), the Resend HTTPS API, or the Cloudflare
+// Email Sending HTTPS API. Bodies are UTF-8 text plus optional HTML.
 package mailer
 
 import (
@@ -28,7 +29,7 @@ const (
 	None     = "none"
 )
 
-// Config is an SMTP account.
+// Config is an SMTP account; it is the SMTP Sender.
 type Config struct {
 	Host     string
 	Port     int
@@ -47,6 +48,12 @@ type Message struct {
 	Subject string
 	Text    string
 	HTML    string // optional
+}
+
+// Sender delivers one message. Config (SMTP), ResendConfig and
+// CloudflareConfig each implement it; the panel picks one by setting.
+type Sender interface {
+	Send(ctx context.Context, m Message) error
 }
 
 // Valid reports whether addr is a plain e-mail address.
