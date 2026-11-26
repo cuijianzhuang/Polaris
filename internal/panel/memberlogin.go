@@ -52,6 +52,7 @@ var memberRoutes = map[string]bool{
 	"GET /nodes/:id/cores":              true,
 	"GET /nodes/:id/metrics":            true,
 	"GET /nodes/:id/net-daily":          true,
+	"GET /nodes/:id/carriers":           true,
 	"POST /nodes/:id/sync":              true,
 	"POST /nodes/:id/rollback":          true,
 	"POST /cores/:id/restart":           true,

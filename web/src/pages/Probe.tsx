@@ -13,6 +13,7 @@ import { t } from '../i18n'
 import { alignedTimes, filterProbeNodes, finite, freshTelemetry, latencyStats, validView } from '../probeMonitor'
 import type { ProbeNode, ProbeTarget, ProbeView, ProbeFilter, ProbeSort, LatencyPoint } from '../probeMonitor'
 import { NodeBadges, NodeProbeCard, ProbeSummary, ProbeTable, ProbeBadge, useProbeClock, colorOf, hasSwap } from '../components/ProbeMonitor'
+import NodeCarriers from '../components/NodeCarriers'
 
 // Server probe: node state and carrier latency (TCP connect time to China
 // Telecom / Unicom / Mobile endpoints, every 10 seconds).
@@ -101,6 +102,7 @@ function NodeDrawer({ n, now, onClose, onChanged }: { n: PNode; now: number; onC
       <div className="pv-subtitle">{n.address && <span className="mono">{n.address}</span>}{n.agentVersion && <span>Agent {n.agentVersion}</span>}{n.lastSeen && <span>{t('最近上报')} · {datetime(n.lastSeen)}</span>}</div>
       <ResourceHistory nodeId={n.id} />
       <LatencyChart nodeId={n.id} />
+      <NodeCarriers nodeId={n.id} />
       <div className="pv-footnote">{t('失败率表示 TCP 连接探测失败的比例，不是 ICMP 丢包率。')}</div>
       <Field label={t('公开状态页')} hint={t('关闭后这个节点不出现在公开状态页上，后台仍然照常探测')}>
         <label className="row small"><Switch label={t('在公开状态页显示')} on={!n.hidden} disabled={busy} onChange={(v) => run(async () => { await put(`/probe/nodes/${n.id}`, { hidden: !v }); onChanged() })} />{t('在公开状态页显示')}</label>
