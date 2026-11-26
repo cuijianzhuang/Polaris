@@ -11,15 +11,15 @@ export type RestoreDrill = { needPassphrase?: boolean; id: string; source: strin
 
 export const drillCheckNames = (): Record<string, string> => ({ archive: t('备份读取'), source_secrets: t('原密钥与备份数据'), restore: t('隔离数据库恢复'), data_and_secrets: t('数据与密钥迁移'), ca_identity: t('CA 身份'), database_restart: t('数据库重新打开'), live_acceptance: t('线上验收') })
 
-export type BackupInfo = { supported: boolean; db: string; dbSize: number; dir: string; store?: string; storeError?: string; encrypted: boolean; targets: string[] | null
+export type BackupInfo = { supported: boolean; db: string; dbSize: number; dir: string; store?: string; storeError?: string; encrypted: boolean; targets: string[] | null; gistId?: string
   files: { name: string; size: number; created: string; encrypted: boolean }[] }
 
 export const backupKeys = ['backup_schedule', 'backup_hour', 'backup_keep', 'backup_tg', 'backup_webdav_url', 'backup_webdav_user',
-  'backup_s3_endpoint', 'backup_s3_region', 'backup_s3_bucket', 'backup_s3_prefix', 'backup_s3_access_key', 'backup_store', 'backup_s3_path_style'] as const
+  'backup_s3_endpoint', 'backup_s3_region', 'backup_s3_bucket', 'backup_s3_prefix', 'backup_s3_access_key', 'backup_store', 'backup_s3_path_style', 'backup_gist'] as const
 
-export const secretKeys = ['backup_passphrase', 'backup_webdav_pass', 'backup_s3_secret_key'] as const
+export const secretKeys = ['backup_passphrase', 'backup_webdav_pass', 'backup_s3_secret_key', 'backup_gist_token'] as const
 
-export const targetLabel: Record<string, string> = { telegram: 'Telegram', webdav: 'WebDAV', s3: 'S3' }
+export const targetLabel: Record<string, string> = { telegram: 'Telegram', webdav: 'WebDAV', s3: 'S3', gist: 'GitHub Gist' }
 
 // Backups: on-demand and scheduled archives (all data + internal CA),
 // optionally encrypted and pushed off-site; download, upload-and-restore.
@@ -103,6 +103,24 @@ export function Backups() {
     })
     if (!r.ok) throw new Error(t('连接失败：{err}', { err: r.error ?? '' }))
   }, t('S3 连接正常：写入、读取、列出、删除都成功'))
+  const testGist = () => run(async () => {
+    const r = await post<{ ok: boolean; error?: string }>('/backup/gist/test', { token: sec.backup_gist_token ?? '' })
+    if (!r.ok) throw new Error(t('连接失败：{err}', { err: r.error ?? '' }))
+  }, t('GitHub 连接正常：令牌有效，Gist 可读写'))
+  const gistFields = (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div className="toggle"><span>{t('推送到 GitHub Gist（加密备份的异地副本，Gist 里只保留最新一份，历史在修订记录中）')}</span><Switch label="GitHub Gist" on={f.backup_gist === 'true'} onChange={(v) => set('backup_gist', String(v))} /></div>
+      {f.backup_gist === 'true' && !isSet('backup_passphrase') && !sec.backup_passphrase && <div className="note warn">{t('Gist 只接受加密备份：请先在上方设置备份口令，未设置口令时此目标不会生效。')}</div>}
+      <div className="form-grid">
+        <Field label={t('GitHub 令牌')} hint={isSet('backup_gist_token') ? t('已保存（留空不修改）') : t('个人访问令牌，只勾 gist 权限即可')}><input className="input mono" type="password" autoComplete="off" value={sec.backup_gist_token ?? ''} onChange={(e) => setSec({ ...sec, backup_gist_token: e.target.value })} /></Field>
+      </div>
+      <div className="hint">{t('备份口令就是 Gist 备份的唯一钥匙：口令丢失，Gist 上的备份全部无法恢复，请离线另存一份。轮换口令后旧修订仍能被旧口令解开，届时需要在 GitHub 上删除整个 Gist 重新开始。原档超过 50 MB 时 Gist 推送会失败，请改用 S3 / WebDAV。')}</div>
+      <div className="row">
+        <button className="btn sm" type="button" disabled={busy} onClick={testGist}>{t('测试连接')}</button>
+        {d?.gistId && <a className="btn sm" href={`https://gist.github.com/${d.gistId}`} target="_blank" rel="noreferrer">{t('打开 Gist')}</a>}
+      </div>
+    </div>
+  )
   const s3Fields = (
     <div style={{ display: 'grid', gap: 12 }}>
       <div className="form-grid">
@@ -159,6 +177,7 @@ export function Backups() {
             <Field label={t('WebDAV 用户名')}><input className="input mono" value={f.backup_webdav_user || ''} onChange={(e) => set('backup_webdav_user', e.target.value.trim())} /></Field>
             <Field label={t('WebDAV 密码')} hint={isSet('backup_webdav_pass') ? t('已保存（留空不修改）') : t('应用密码')}><input className="input mono" type="password" autoComplete="off" value={sec.backup_webdav_pass ?? ''} onChange={(e) => setSec({ ...sec, backup_webdav_pass: e.target.value })} /></Field>
           </div>
+          {gistFields}
           {inS3 ? <div className="hint">{t('S3 已用作备份存储，不再重复推送到 S3。')}</div> : s3Fields}
         </div>
       </details>

@@ -102,7 +102,7 @@ func (s *Server) renewCert(c *gin.Context) {
 // --- settings ---
 
 var secretSettings = map[string]bool{"acme_cf_token": true, "cdn_cf_token": true, "tg_token": true, "github_client_secret": true,
-	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true,
+	"backup_passphrase": true, "backup_webdav_pass": true, "backup_s3_secret_key": true, "backup_gist_token": true,
 	"shop_epay_key": true, "shop_usdt_apikey": true, "smtp_password": true, "shodan_api_key": true,
 	"resend_api_key": true, "cf_mail_api_token": true}
 
@@ -111,6 +111,7 @@ var secretSettings = map[string]bool{"acme_cf_token": true, "cdn_cf_token": true
 var sudoSettings = map[string]bool{"login_allowlist": true, "tg_api_base": true, // the bot token is sent there, and its replies act as admin commands
 	"login_ban_failures": true, "github_client_id": true, "audit_changes": true,
 	"backup_webdav_url": true, "backup_webdav_user": true, "backup_s3_endpoint": true, "backup_s3_bucket": true, "backup_s3_access_key": true, "backup_tg": true,
+	"backup_gist": true, "backup_gist_token": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_from": true, "mail_admin_to": true, "backup_store": true,
 	"mail_provider": true, "resend_from": true, "cf_mail_account_id": true, "cf_mail_from": true,
 	"shop_epay_url": true, "shop_epay_pid": true, "shop_usdt_address": true, "shop_usdt_evm_address": true, "shop_usdt_chains": true,
@@ -124,6 +125,7 @@ var editableSettings = map[string]bool{
 	"tg_enabled": true, "tg_token": true, "tg_api_base": true, "tg_notify_users": true,
 	"backup_schedule": true, "backup_hour": true, "backup_keep": true, "backup_tg": true,
 	"backup_passphrase": true, "backup_webdav_url": true, "backup_webdav_user": true, "backup_webdav_pass": true,
+	"backup_gist": true, "backup_gist_token": true,
 	"backup_s3_endpoint": true, "backup_s3_region": true, "backup_s3_bucket": true, "backup_s3_prefix": true, "backup_s3_access_key": true, "backup_s3_secret_key": true,
 	"backup_store": true, "backup_s3_path_style": true,
 	"smtp_host": true, "smtp_port": true, "smtp_security": true, "smtp_user": true, "smtp_password": true, "smtp_from": true, "smtp_from_name": true,
