@@ -91,6 +91,7 @@
 | [外部订阅节点资源与服务器引用](design/subscription-node-resources.md) | 外部节点的稳定标识与引用 |
 | [用户流量采集与来源排查](design/user-traffic-attribution.md) | “没用却有流量”的排查方法 |
 | [订单、计费与备份的故障一致性](design/transaction-durability.md) | 订单快照、交付与恢复 |
+| [Gist 加密备份](design/gist-backup.md) | 加密备份推送到 GitHub Gist（固定 Gist、分片、恢复） |
 
 ### 账号、授权与界面
 
