@@ -344,6 +344,7 @@ func (s *Server) Run(ctx context.Context) error {
 	go s.runLease(ctx)
 	go s.runClusterOperations(ctx)
 	go s.runSyncUpdateOrchestrator(ctx)
+	go s.runLeaderAutoReturn(ctx)
 	if s.bus != nil {
 		go s.bus.run(ctx)
 		go s.shareNodeChanges(ctx)

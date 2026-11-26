@@ -201,6 +201,10 @@ func (s *Server) haStatus(c *gin.Context) {
 	// HA page can show the staged progress without another endpoint.
 	if op := s.latestSyncUpdate(); op != nil {
 		out["syncUpdate"] = gin.H{"operation": op, "deliveries": s.syncDeliveries(op.ID)}
+		// Where the post-upgrade leader auto-return stands (leaderreturn.go).
+		if st := s.leaderReturnStatus(op); st != "" {
+			out["leaderReturn"] = gin.H{"state": st, "member": op.LeaderMember}
+		}
 	}
 	c.JSON(http.StatusOK, out)
 }
