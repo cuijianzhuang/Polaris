@@ -56,6 +56,7 @@
 | [节点小批升级](design/staged-upgrade.md) | Agent / 内核按批升级、观察期、失败停止和本机试运行回退 |
 | [每节点探针策略](design/node-probe-policy.md) | 测试点继承、独立、关闭 |
 | [节点双栈回程检测](design/node-route-trace.md) | traceroute 回程、定时检测、环境检查 |
+| [三网回程监控](design/backhaul-monitor.md) | 三网延迟聚合、回程线路识别与运营商质量告警（设计稿，待审定） |
 | [回程的本地 ASN 归属](design/route-asn.md) | ASN 数据库的获取、上传与启用 |
 | [回程国家、省份、城市归属](design/route-geo.md) | 城市数据库与地理注释 |
 | [探针大盘优化](design/probe-monitor.md) | 探针页与公开状态页的界面设计 |
