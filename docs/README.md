@@ -59,6 +59,7 @@
 | [回程的本地 ASN 归属](design/route-asn.md) | ASN 数据库的获取、上传与启用 |
 | [回程国家、省份、城市归属](design/route-geo.md) | 城市数据库与地理注释 |
 | [探针大盘优化](design/probe-monitor.md) | 探针页与公开状态页的界面设计 |
+| [公开状态页（服务状态）](design/public-status-page.md) | 面向客户的服务状态视图、字段白名单与可用率口径 |
 | [运维通知策略](design/notification-policy.md) | 事件 × 渠道、合并窗口、维护静默 |
 | [概览运维异常汇总](design/operational-overview.md) | 仪表盘「运维汇总」的统计口径 |
 | [管理界面：运维与中转功能接入](design/operations-ui.md) | 各运维功能的界面入口与接口对照 |
