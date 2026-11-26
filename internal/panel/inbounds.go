@@ -22,7 +22,7 @@ func (s *Server) toModelInbound(in *store.Inbound) model.Inbound {
 	m := model.Inbound{
 		ID: in.ID, NodeID: in.NodeID, Tag: in.Tag, Core: in.Core, Listen: in.Listen, Port: in.Port,
 		Protocol: in.Protocol.V, Transport: in.Transport.V, Security: in.Security.V, Sniffing: in.Sniffing.V,
-		Extra: in.Extra, Enabled: in.Enabled, OutboundIPStrategy: in.OutboundIPStrategy,
+		Extra: in.Extra, Enabled: in.Enabled, OutboundIPStrategy: in.OutboundIPStrategy, MuxGroupID: in.MuxGroupID,
 	}
 	m.Security.RealityPrivateKey = s.st.Box.MustOpen(m.Security.RealityPrivateKey)
 	// Older imports or key replacements may have retained another public
@@ -223,6 +223,9 @@ func (s *Server) portConflictExcept(nodeID string, m *model.Inbound, excludeID, 
 			// The source guard is per port: a sibling on the other L4
 			// network would leave the node unable to render.
 			return fmt.Errorf("port %d belongs to inbound %s, which only accepts relay traffic; no other inbound may share it", m.Port, o.Tag)
+		}
+		if m.MuxGroupID != "" && o.MuxGroupID == m.MuxGroupID {
+			continue // SNI mux members deliberately share their group's port
 		}
 		om := s.toModelInbound(&o)
 		om.Normalize()

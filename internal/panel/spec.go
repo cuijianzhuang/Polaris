@@ -306,6 +306,9 @@ func (s *Server) BuildSpec(nodeID string) (*model.NodeSpec, error) {
 		spec.Cores = append(spec.Cores, model.CoreSpec{Type: model.CoreForwarder})
 	}
 	spec.Fronts = s.buildFronts(spec)
+	// Mux members continue the fronting loopback allocation so the two
+	// port-sharing mechanisms never hand out the same internal port.
+	spec.Muxes = s.buildMuxes(spec, frontInternalBase+len(spec.Fronts))
 	if err := s.buildWebsites(spec); err != nil {
 		return nil, err
 	}

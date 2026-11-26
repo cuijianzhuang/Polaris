@@ -116,10 +116,11 @@ type Agent struct {
 	stream  *connect.BidiStreamForClient[polarisv1.AgentMessage, polarisv1.PanelMessage]
 	wantRev chan int64
 
-	acme acmeHTTP  // ACME HTTP-01 challenge server (panel-driven)
-	fw   *firewall // host firewall rules for the spec's ports
-	sh   *shaper   // tc bandwidth caps for the spec's limited ports
-	lim  *limiter  // per-user speed limits (cores detour limited users here)
+	acme acmeHTTP    // ACME HTTP-01 challenge server (panel-driven)
+	fw   *firewall   // host firewall rules for the spec's ports
+	sh   *shaper     // tc bandwidth caps for the spec's limited ports
+	lim  *limiter    // per-user speed limits (cores detour limited users here)
+	mux  *muxManager // SNI mux listeners (spec.Muxes), agent-internal
 
 	updateMu  sync.Mutex // only one staged binary/upgrade journal at a time
 	restartMu sync.Mutex
@@ -154,6 +155,7 @@ func New(cfg Config, log *slog.Logger) (*Agent, error) {
 	a.fw = newFirewall(cfg.DataDir)
 	a.sh = newShaper(cfg.DataDir)
 	a.lim = newLimiter(cfg.DataDir, log)
+	a.mux = newMuxManager(log)
 	a.installer = &Installer{Dir: filepath.Join(cfg.DataDir, "cores"), Mirror: cfg.Mirror, AllowUnverified: cfg.AllowUnverified}
 	a.progress.send = func(p *polarisv1.Progress) {
 		_ = a.send(&polarisv1.AgentMessage{Msg: &polarisv1.AgentMessage_Progress{Progress: p}})

@@ -367,6 +367,11 @@ func (s *Server) Router() http.Handler {
 	p.GET("/cores/:id/logs", s.coreLogs)
 	p.GET("/capabilities", s.capabilities)
 
+	p.GET("/mux-groups", s.listMuxGroups)
+	p.POST("/mux-groups", s.createMuxGroup)
+	p.PUT("/mux-groups/:id", s.updateMuxGroup)
+	p.DELETE("/mux-groups/:id", s.deleteMuxGroup)
+
 	p.GET("/inbounds", s.listInbounds)
 	p.POST("/inbounds", s.createInbound)
 	p.POST("/inbounds/preview", s.previewDraftInbound)

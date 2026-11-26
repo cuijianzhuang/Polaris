@@ -30,6 +30,7 @@ type inboundReq struct {
 	Sniffing           model.SniffSpec           `json:"sniffing"`
 	Extra              json.RawMessage           `json:"extra"`
 	Enabled            *bool                     `json:"enabled"`
+	MuxGroupID         string                    `json:"muxGroupId,omitempty"`
 	RelayOnly          *bool                     `json:"relayOnly,omitempty"`
 	RelayAccess        *store.RelayAccessPolicy  `json:"relayAccess,omitempty"`
 	Remark             string                    `json:"remark"`
@@ -188,6 +189,9 @@ func (s *Server) validateInbound(node *store.Node, m *model.Inbound, excludeID s
 	if err := s.validateFallbacks(m, excludeID); err != nil {
 		return err
 	}
+	if err := s.validateMuxMember(node, m, excludeID); err != nil {
+		return err
+	}
 	return s.portConflict(node.ID, m, excludeID)
 }
 
@@ -197,7 +201,8 @@ func (r *inboundReq) toModel() model.Inbound {
 		en = *r.Enabled
 	}
 	return model.Inbound{NodeID: r.NodeID, Core: r.Core, Tag: r.Tag, Listen: r.Listen, Port: r.Port, Protocol: r.Protocol,
-		Transport: r.Transport, Security: r.Security, Sniffing: r.Sniffing, Extra: r.Extra, Enabled: en, OutboundIPStrategy: r.ipStrategy()}
+		Transport: r.Transport, Security: r.Security, Sniffing: r.Sniffing, Extra: r.Extra, Enabled: en, OutboundIPStrategy: r.ipStrategy(),
+		MuxGroupID: r.MuxGroupID}
 }
 
 func (r *inboundReq) ipStrategy() model.OutboundIPStrategy {
@@ -213,6 +218,7 @@ func fromModel(m *model.Inbound, row *store.Inbound) {
 	row.Protocol, row.Transport = store.NewJSON(m.Protocol), store.NewJSON(m.Transport)
 	row.Security, row.Sniffing = store.NewJSON(m.Security), store.NewJSON(m.Sniffing)
 	row.Extra, row.Enabled = m.Extra, m.Enabled
+	row.MuxGroupID = m.MuxGroupID
 }
 
 func (s *Server) createInbound(c *gin.Context) {
@@ -253,6 +259,15 @@ func (s *Server) insertInbound(node *store.Node, m *model.Inbound, meta inboundM
 	}
 	if err := s.validateInbound(node, m, ""); err != nil {
 		return store.Inbound{}, err
+	}
+	if m.MuxGroupID != "" && meta.RelayAccess.Enabled {
+		return store.Inbound{}, fmt.Errorf("已启用中转来源限制的入站不能加入 SNI 复用组")
+	}
+	if m.MuxGroupID != "" && meta.CDNProfileID != "" {
+		var p store.CDNProfile
+		if s.st.DB.First(&p, "id = ?", meta.CDNProfileID).Error == nil && p.CaddyFronting {
+			return store.Inbound{}, fmt.Errorf("入站已通过 Caddy 前置发布，不能同时加入 SNI 复用组")
+		}
 	}
 	if err := s.checkOutboundTag(node.ID, meta.OutboundTag); err != nil {
 		return store.Inbound{}, err
@@ -382,6 +397,10 @@ func (s *Server) updateInbound(c *gin.Context) {
 	keepSecrets(&m, &old)
 	if err := s.validateInbound(&node, &m, row.ID); err != nil {
 		badRequest(c, err)
+		return
+	}
+	if m.MuxGroupID != "" && row.RelayAccess.V.Enabled {
+		badRequest(c, fmt.Errorf("已启用中转来源限制的入站不能加入 SNI 复用组"))
 		return
 	}
 	if row.TemplateID != "" {
@@ -643,6 +662,13 @@ func (s *Server) createEndpoint(c *gin.Context) {
 		if err := s.checkCDNEndpoint(&m, row.ID, row.RelayAccess.V.Enabled, e.CDNProfileID, e.Port); err != nil {
 			badRequest(c, err)
 			return
+		}
+		if row.MuxGroupID != "" {
+			var p store.CDNProfile
+			if s.st.DB.First(&p, "id = ?", e.CDNProfileID).Error == nil && p.CaddyFronting {
+				badRequest(c, fmt.Errorf("SNI 复用组成员不能再通过 Caddy 前置发布"))
+				return
+			}
 		}
 	case "relay":
 		var ch store.Chain

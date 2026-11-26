@@ -71,7 +71,13 @@ export interface Inbound {
   enabled: boolean; templateId?: string; overriddenFields: string[]; remark: string
   nodeName: string; userCount: number; groupIds: string[]; endpoints: number; network: string; cdnCapable: boolean
   outboundTag: string; speedLimitMbps: number; outboundIPStrategy?: OutboundIPStrategy; relayOnly?: boolean; relayAccess?: { enabled: boolean; proxyProtocol: number; sourceOverrides?: Record<string, string[]> }
+  muxGroupId?: string // SNI mux group this inbound belongs to (shares the group's port)
   health?: InboundHealth
+}
+export interface MuxGroup {
+  id: string; nodeId: string; name: string; listen: string; port: number
+  fallbackKind: '' | 'member' | 'external'; fallbackInboundId?: string; fallbackTarget?: string
+  enabled: boolean; memberCount: number
 }
 export interface NodeQuota { userId: string; nodeId: string; nodeName: string; extra: number; extraUsed: number; limit: number; used: number }
 export interface OnlineNodeRef { id: string; name: string }

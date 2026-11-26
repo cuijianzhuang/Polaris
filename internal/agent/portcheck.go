@@ -64,6 +64,12 @@ func portsOf(spec *model.NodeSpec) []portUse {
 			out = append(out, portUse{"tcp", "", f.Port, "CDN 回源 " + f.Domain})
 		}
 	}
+	for _, mx := range spec.Muxes {
+		if !seen[mx.Port] {
+			seen[mx.Port] = true
+			out = append(out, portUse{"tcp", host(mx.Listen), mx.Port, "SNI 复用组「" + mx.Name + "」"})
+		}
+	}
 	for _, w := range spec.Websites {
 		if !seen[w.Port] {
 			seen[w.Port] = true
