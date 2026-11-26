@@ -239,7 +239,7 @@ func (s *Server) settle() (enforced bool, err error) {
 		for _, users := range data {
 			for uid := range users {
 				if !isTagCounter(uid) {
-					ids = append(ids, uid)
+					ids = append(ids, mainIdentity(uid))
 				}
 			}
 		}
@@ -288,6 +288,12 @@ func (s *Server) settle() (enforced bool, err error) {
 					}
 					continue
 				}
+				// Share traffic arrives under the composite identity
+				// "<user>#<share>" (design share-subscriptions D4). Batch 1
+				// has no per-share ledger yet: strip the suffix so the bytes
+				// land on the main account exactly like the main
+				// subscription's own traffic — nothing lost, nothing split.
+				uid = mainIdentity(uid)
 				rate := rate
 				if r := prates[userPlan[uid]][nodeID]; r > 0 {
 					rate = r
@@ -646,6 +652,10 @@ func (s *Server) enforceLimits() {
 	if len(changed) > 0 {
 		s.MarkDirty("user status changed", s.nodesForUsers(changed...)...)
 	}
+	// Shares carry their own expiry (design share-subscriptions §7): their
+	// served-ness is computed, so the sweep only pushes fresh specs when a
+	// share's expiry passes.
+	s.sweepShareExpiries(now)
 }
 
 // autoRenew extends an expired account with a renewal plan: expiry moves on

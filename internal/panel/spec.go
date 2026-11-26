@@ -358,6 +358,39 @@ func (s *Server) inboundUsers(inboundIDs []string, packIDs ...string) (map[strin
 			out[o.NodeRefInboundID] = appendUnique(out[o.NodeRefInboundID], u)
 		}
 	}
+	// Share subscriptions (design share-subscriptions §5): every served
+	// main user also appears once per served share, under the composite
+	// identity "<user>#<share>" and with the share's own credentials, so
+	// cores distinguish the share's connections (and SS2022 derives a
+	// per-share password from its seed). A share is only pushed while its
+	// main user is in this inbound's served set — a stopped main account
+	// takes all its shares down with it (D5). The dedicated-Snell filter
+	// below keys on exact user ids, so share identities never match it.
+	{
+		seen := map[string]bool{}
+		var mainIDs []string
+		for _, us := range out {
+			for _, u := range us {
+				if !seen[u.ID] {
+					seen[u.ID] = true
+					mainIDs = append(mainIDs, u.ID)
+				}
+			}
+		}
+		byUser, err := s.servedShares(mainIDs, now)
+		if err != nil {
+			return nil, err
+		}
+		for inID, us := range out {
+			for _, u := range us {
+				for _, sh := range byUser[u.ID] {
+					shadow := shadowUser(&u, &sh)
+					shadow.ID = shareIdentity(u.ID, sh.ID)
+					out[inID] = append(out[inID], shadow)
+				}
+			}
+		}
+	}
 	var dedicated []store.Inbound
 	if err := s.st.DB.Where("id IN ?", inboundIDs).Find(&dedicated).Error; err != nil {
 		return nil, err
