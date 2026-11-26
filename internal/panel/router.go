@@ -112,7 +112,8 @@ func (s *Server) Router() http.Handler {
 	decoy := s.decoy()
 	if admin != statusPath { // public status page (off by default)
 		r.GET(statusPath, s.statusGate(decoy, s.statusPageHTML))
-		r.GET(statusPath+"/data", s.statusGate(decoy, s.statusData))
+		r.GET(statusPath+"/data", s.statusDataGate(decoy, s.statusData))
+		r.GET(statusPath+"/service", s.statusGate(decoy, s.statusService))
 	}
 	if admin != portalPath { // user center (off by default: the decoy answers)
 		r.GET(portalPath, s.portalGate(decoy, s.portalPage))

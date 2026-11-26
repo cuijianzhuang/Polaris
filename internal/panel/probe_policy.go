@@ -125,6 +125,7 @@ func (s *Server) putNodeProbePolicy(c *gin.Context) {
 		return
 	}
 	s.statusCache.Store(nil)
+	s.svcCache.Store(nil)
 	s.auditCtx(c, "node.probe.update", updated.Name, r.Mode)
 	c.JSON(http.StatusOK, probePolicyView(&updated, s.latencyTargets(true)))
 }

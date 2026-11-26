@@ -162,6 +162,7 @@ type nodeReq struct {
 	Lng         *float64         `json:"lng"`
 	Labels      []string         `json:"labels"`
 	DisplayName *string          `json:"displayName"` // user-owned nodes only: the owner's display name (internal Name is untouched)
+	PublicName  *string          `json:"publicName"`  // admin nodes only: name shown on the public service status page; nil = unchanged
 	RelayFor    *[]string        `json:"relayFor"`    // absent preserves externally configured relay metadata
 	DefaultCore model.CoreType   `json:"defaultCore"`
 	TrafficRate float64          `json:"trafficRate"`
@@ -310,6 +311,9 @@ func (s *Server) createNode(c *gin.Context) {
 	n := store.Node{ID: store.NewID(), Name: req.Name, Address: req.Address, Domain: req.Domain, Region: req.Region,
 		Flag: strings.ToUpper(req.Flag), Lat: req.Lat, Lng: req.Lng, Labels: store.NewJSON(nonNilStrs(req.Labels)), DefaultCore: req.DefaultCore,
 		TrafficRate: req.TrafficRate, SortOrder: req.SortOrder, Status: "pending", DDNS: req.DDNS, NoFirewall: req.NoFirewall}
+	if req.PublicName != nil {
+		n.PublicName = strings.TrimSpace(*req.PublicName)
+	}
 	if req.Level != nil && *req.Level > 0 && *req.Level <= 99 {
 		n.Level = *req.Level
 	}
@@ -420,6 +424,11 @@ func (s *Server) updateNode(c *gin.Context) {
 			// Name (un-<id>) is an implementation detail and never edited.
 			upd["display_name"] = strings.TrimSpace(*req.DisplayName)
 		}
+		if req.PublicName != nil && n.OwnerID == "" {
+			// Only admin nodes appear on the public service status page,
+			// so only they carry a public alias.
+			upd["public_name"] = strings.TrimSpace(*req.PublicName)
+		}
 		if req.DefaultCore != "" {
 			if err := tx.Model(&store.Core{}).Where("node_id = ?", n.ID).Update("is_default", gorm.Expr("type = ?", req.DefaultCore)).Error; err != nil {
 				return err
@@ -448,6 +457,7 @@ func (s *Server) updateNode(c *gin.Context) {
 		s.MarkDirty("node level changed", s.nodesForInbounds(ids...)...)
 	}
 	s.MarkDirty("node updated", n.ID)
+	s.svcCache.Store(nil) // a rename or public alias applies to the service page at once
 	s.auditCtx(c, "node.update", req.Name, "")
 	c.JSON(http.StatusOK, n)
 }

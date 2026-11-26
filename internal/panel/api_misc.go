@@ -131,7 +131,7 @@ var editableSettings = map[string]bool{
 	"mail_provider": true, "resend_api_key": true, "resend_from": true, "resend_from_name": true,
 	"cf_mail_account_id": true, "cf_mail_api_token": true, "cf_mail_from": true, "cf_mail_from_name": true,
 	"shodan_api_key": true,
-	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true, "status_show_cost": true,
+	"probe_enabled":  true, "status_page": true, "status_title": true, "status_note": true, "status_show_traffic": true, "status_show_cost": true, "status_service_only": true,
 	"tickets_enabled": true, "ticket_max_open": true, "ticket_autoclose_days": true,
 	"portal_email_register": true, "register_email_domains": true, "register_trial_plan": true, "register_ip_daily": true,
 	"register_password": true, "user_nodes_mode": true, "panel_member_login": true, "portal_public_url": true, "sso_user_login": true,
@@ -158,7 +158,7 @@ var switchSettingDefaults = map[string]string{
 	"tg_enabled": "false", "tg_notify_users": "true", "tg_daily_report": "true",
 	"mail_notify_users": "true", "mail_notify_admin": "true",
 	"backup_tg": "false", "backup_s3_path_style": "true",
-	"probe_enabled": "true", "status_page": "false", "status_show_traffic": "false", "status_show_cost": "false",
+	"probe_enabled": "true", "status_page": "false", "status_show_traffic": "false", "status_show_cost": "false", "status_service_only": "false",
 	"tickets_enabled": "false", "portal_enabled": "false", "portal_email_register": "false", "register_password": "false", "panel_member_login": "false", "sso_user_login": "false",
 	"sub_update_interval": "1", "sub_enabled": "true", "sub_routing_enabled": "false", "sub_show_bot": "true", "sub_show_rate": "true", "sub_host_strict": "1",
 	"converter_for_users": "false", "sub_apply_ops_users": "false", "allow_private_sources": "false", "sub_skip_cert": "false", "sub_force_udp": "false",
@@ -344,6 +344,7 @@ func (s *Server) putSettings(c *gin.Context) {
 	s.auditChanges.Store(s.st.GetSetting("audit_changes", "false") == "true")
 	resetSubHostCache()
 	s.statusCache.Store(nil) // status page switches apply at once
+	s.svcCache.Store(nil)
 	for _, k := range keys {
 		if geodataSettings[k] { // part of every node's spec
 			var ids []string

@@ -208,7 +208,9 @@
   for (const v of ['card', 'ring', 'table']) $('v-' + v).onclick = () => { view = v; try { localStorage.setItem(key, v); } catch (_) {} draw(); };
   $('search').oninput = draw; $('sort').onchange = draw;
   async function load() {
-    if (busy || document.hidden) return;
+    // The service view is the page's default; service.js flips
+    // __svcMonitorActive when the visitor switches to the monitor tab.
+    if (busy || document.hidden || window.__svcMonitorActive === false) return;
     busy = true;
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 8000);
     try {

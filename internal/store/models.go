@@ -34,7 +34,11 @@ type Node struct {
 	// DisplayName is the owner-chosen name of a user-owned node. Their
 	// internal Name is generated ("un-<id>") because Name is globally
 	// unique and two users may well pick the same display name.
-	DisplayName  string              `gorm:"size:64" json:"displayName"`
+	DisplayName string `gorm:"size:64" json:"displayName"`
+	// PublicName is the name the public service status page shows for an
+	// admin node; "" falls back to Name there. The snapshot never carries
+	// the internal Name alongside it.
+	PublicName   string              `gorm:"size:64" json:"publicName"`
 	ProbeMode    string              `gorm:"size:16" json:"probeMode"` // empty/inherit, custom, off
 	ProbeTargets JSON[[]ProbeTarget] `json:"-"`                        // independent targets; never expose addresses in node/public views
 	LastSeen     *time.Time          `json:"lastSeen"`

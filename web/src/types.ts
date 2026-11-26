@@ -45,7 +45,7 @@ export interface Node {
   agentFeatures?: string[]; agentVersion: string; status: string; lastSeen?: string; desiredRev: number; appliedRev: number; lastError: string; relayFor?: string[]
   defaultCore: CoreType; trafficRate: number; system: SystemInfo; revoked: boolean; sortOrder: number
   // User-brought nodes (user-nodes feature): ownerId "" = the admin's node.
-  ownerId?: string; ownerName?: string; reviewState?: string; displayName?: string
+  ownerId?: string; ownerName?: string; reviewState?: string; displayName?: string; publicName?: string
   cores: Core[]; inboundCount: number; connected: boolean; progress?: NodeProgress
   ddns: boolean; publicIpv4: string; publicIpv6: string; ipChangedAt?: string; noFirewall?: boolean
   level?: number // tier a group needs to reach the node (0 = not tiered)
