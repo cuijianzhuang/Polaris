@@ -340,6 +340,7 @@ func (s *Server) Router() http.Handler {
 	p.POST("/tools/vlessenc", s.genVLESSEnc)
 	p.POST("/tools/mldsa65", s.genMLDSA65)
 	p.POST("/nodes/:id/upgrade-agent", s.upgradeAgentAPI)
+	p.POST("/nodes/:id/reboot", s.rebootNode)
 	p.GET("/nodes/:id/users", s.nodeUsersAPI)
 	p.POST("/nodes/:id/users", s.bindNodeUsers)
 	p.POST("/nodes/upgrade-agents", s.upgradeAllAgents)

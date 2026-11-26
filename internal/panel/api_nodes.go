@@ -887,6 +887,36 @@ func (s *Server) restartCore(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// rebootNode schedules a reboot of the node's host machine (not just a
+// core). The agent acks as soon as the reboot is scheduled — it fires a
+// few seconds later — so success here means "will reboot"; the node
+// dropping offline and reconnecting minutes later is the completion
+// signal. The route is deliberately absent from the operator and member
+// whitelists (scopedRoutes / memberRoutes), matching upgrade-agent:
+// whole-host disruption stays with full administrators. No sudo step:
+// in this codebase sudo guards credential-level operations (admin
+// accounts, passkeys, provider secrets), not node operations.
+func (s *Server) rebootNode(c *gin.Context) {
+	var n store.Node
+	if err := s.st.DB.First(&n, "id = ?", c.Param("id")).Error; err != nil {
+		dbError(c, err)
+		return
+	}
+	res, err := s.hub.Command(c, n.ID, "reboot_host", nil, 15*time.Second)
+	if err != nil {
+		// An offline (or unresponsive) node never receives the command;
+		// say that plainly instead of leaking the hub's timeout text.
+		c.JSON(http.StatusBadGateway, gin.H{"error": "节点离线或未响应，无法下发重启命令"})
+		return
+	}
+	s.auditCtx(c, "node.reboot", n.Name, "")
+	if !res.Ok {
+		c.JSON(http.StatusBadGateway, gin.H{"error": res.Error})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
 func (s *Server) coreLogs(c *gin.Context) {
 	var cur store.Core
 	if err := s.st.DB.First(&cur, "id = ?", c.Param("id")).Error; err != nil {

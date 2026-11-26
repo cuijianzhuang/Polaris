@@ -477,6 +477,13 @@ export default function Nodes() {
     setUpgrading((x) => ({ ...x, [n.id]: false }))
     if (r !== undefined) { setRolloutTick((x) => x + 1); refresh() }
   }
+  // Whole-host reboot: the agent acks once the reboot is scheduled (it
+  // fires seconds later), so the toast says "scheduled" — the node going
+  // offline and coming back is the real completion signal.
+  const rebootHost = async (n: Node) => {
+    if (!(await confirm(t('重启服务器 {name}？', { name: nodeDisplayName(n) }) + '\n' + t('整机重启：该服务器上的全部内核与连接将中断，节点会离线数分钟，重启完成后自动恢复。'), { danger: true, ok: t('重启服务器') }))) return
+    run(() => post(`/nodes/${n.id}/reboot`), t('已安排重启，节点即将离线'))
+  }
   const [upgradeAll, setUpgradeAll] = useState(false)
   const [rolloutTick, setRolloutTick] = useState(0)
 
@@ -576,6 +583,7 @@ export default function Nodes() {
                     <button className="btn sm" type="button" disabled={busy} onClick={async () => {
                       if (await confirm(t('回滚到上一个成功应用的配置版本？'))) run(() => post(`/nodes/${sel.id}/rollback`, {}), t('已回滚'))
                     }}>{t('回滚到上一版')}</button>
+                    {!scoped && <button className="btn sm danger" type="button" disabled={busy || !sel.connected} title={!sel.connected ? t('节点离线，无法重启') : undefined} onClick={() => rebootHost(sel)}>{t('重启服务器')}</button>}
                     {member && <button className="btn sm" type="button" onClick={() => setMemberForm(sel)}>{t('编辑')}</button>}
                     {member && <button className="btn sm" type="button" disabled={busy} onClick={() => memberInstall(sel)}>{t('安装命令')}</button>}
                     {member && <button className="btn sm danger" type="button" disabled={busy} onClick={() => memberDelete(sel)}>{t('删除节点')}</button>}
