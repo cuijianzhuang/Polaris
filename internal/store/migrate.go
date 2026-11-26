@@ -93,6 +93,20 @@ var migrations = []Migration{
 			return nil
 		},
 	},
+	{
+		Version: 3,
+		Name:    "backfill forward entitlement source from plan",
+		// Users already holding a plan's forwarding terms are plan-managed;
+		// users with terms but no plan keep "" (source unknown, an admin
+		// may claim the grant later). Only the marker is filled — no
+		// entitlement value changes. Safe on restored backups: it only
+		// touches rows whose source is still empty.
+		Up: func(tx *gorm.DB, probe any) error {
+			return tx.Model(&User{}).
+				Where("fwd_source = '' AND fwd_max > 0 AND plan_id <> ''").
+				Update("fwd_source", "plan").Error
+		},
+	},
 }
 
 // migrationLock is the PostgreSQL advisory lock key ("polaris" in ASCII).

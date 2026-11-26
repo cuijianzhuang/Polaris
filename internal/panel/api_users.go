@@ -44,6 +44,9 @@ type userReq struct {
 	// anything else is validated and set (admin password rescue,
 	// design user-identity D3).
 	LoginPassword *string `json:"loginPassword"`
+	// Fwd is the direct-grant forwarding quota group (user-relay-quota
+	// D2): nil = leave the forwarding quota untouched.
+	Fwd *userFwdReq `json:"fwd"`
 }
 
 // fillMethodCounts fills the passkey / SSO binding counts of the
@@ -662,6 +665,15 @@ func (s *Server) updateUser(c *gin.Context) {
 	if (max(req.SpeedUpMbps, 0) != u.SpeedUpMbps || max(req.SpeedDownMbps, 0) != u.SpeedDownMbps) && !s.requireFeature(c, license.FeatureSpeedLimit) {
 		return
 	}
+	fwdAudit := ""
+	if req.Fwd != nil {
+		detail, err := applyFwdGrant(&u, req.Fwd)
+		if err != nil {
+			badRequest(c, err)
+			return
+		}
+		fwdAudit = detail
+	}
 	before := s.nodesForUsers(u.ID)
 	if req.TrafficLimit != u.TrafficLimit {
 		u.ExtraTraffic = 0 // the admin set the quota outright
@@ -727,6 +739,14 @@ func (s *Server) updateUser(c *gin.Context) {
 			"renew_days", "renew_max", "renew_count", "device_limit", "speed_up_mbps", "speed_down_mbps").Updates(&u).Error; err != nil {
 			return err
 		}
+		if req.Fwd != nil {
+			// Only when the grant group was submitted: a plan application
+			// racing this edit owns the columns otherwise.
+			if err := tx.Model(&u).Select("fwd_max", "fwd_port_lo", "fwd_port_hi", "fwd_traffic", "fwd_rate", "fwd_speed_mbps",
+				"fwd_source", "fwd_reset_day", "fwd_expire_at").Updates(&u).Error; err != nil {
+				return err
+			}
+		}
 		if loginPwChanged {
 			// A set/cleared sign-in password ends every session on both
 			// faces, like a self-service change (design D3).
@@ -785,8 +805,17 @@ func (s *Server) updateUser(c *gin.Context) {
 	one := []store.User{u}
 	s.fillMethodCounts(one)
 	u.PasskeyCount, u.SSOCount = one[0].PasskeyCount, one[0].SSOCount
-	s.MarkDirty("user "+u.Username+" updated", append(before, s.nodesForUsers(u.ID)...)...)
+	nodes := append(before, s.nodesForUsers(u.ID)...)
+	if req.Fwd != nil {
+		// A grant change can start or stop the user's own rules, which
+		// live on nodes the account grants do not cover.
+		nodes = append(nodes, s.userForwardNodes(u.ID)...)
+	}
+	s.MarkDirty("user "+u.Username+" updated", nodes...)
 	s.auditCtx(c, "user.update", u.Username, "")
+	if fwdAudit != "" {
+		s.auditCtx(c, "forward.grant_update", u.Username, fwdAudit)
+	}
 	s.wakeBusinessEvents()
 	c.JSON(http.StatusOK, u)
 }

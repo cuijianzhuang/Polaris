@@ -203,10 +203,11 @@ export default function Users() {
                     <td data-label={t('授权')}><div className="user-grants">
                       {(u.nodeIds ?? []).map((n) => <span key={n} className="tag xray" title={t('整台节点')}>{nname(n)}</span>)}
                       {u.planId && <span className="tag info-tag" title={t('套餐')}>{gname(u.planId)}</span>}
+                      {(u.fwdMax ?? 0) > 0 && <span className="tag" title={t('中转额度：本周期计费流量 {used} / {total}', { used: bytes(u.fwdUsed ?? 0), total: u.fwdTraffic ? bytes(u.fwdTraffic) : t('不限') })}>{u.fwdSource === 'grant' ? t('直授转发 {n} 条', { n: u.fwdMax }) : t('转发 {n} 条', { n: u.fwdMax })}</span>}
                       {u.groupIds.map((g) => <span key={g} className="tag">{gname(g)}</span>)}
                       {(u.inboundIds ?? []).length > 0 && <span className="tag" title={t('单独授权的入站')}>{t('+{n} 入站', { n: u.inboundIds.length })}</span>}
                       {(u.ownNodes ?? 0) > 0 && <Link className="tag info-tag" to={'/nodes?owner=' + u.id} onClick={(e) => e.stopPropagation()} title={t('查看并审批该用户的自有节点')}>{t('自有节点 {n}', { n: u.ownNodes })}{(u.ownPendingNodes ?? 0) > 0 && t(' · 待审批 {n}', { n: u.ownPendingNodes })}</Link>}
-                      {!u.planId && !u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && !(u.ownNodes ?? 0) && <span className="st warn">{t('未授权')}</span>}
+                      {!u.planId && !u.groupIds.length && !(u.nodeIds ?? []).length && !(u.inboundIds ?? []).length && !(u.ownNodes ?? 0) && !(u.fwdMax ?? 0) && <span className="st warn">{t('未授权')}</span>}
                     </div></td>
                     <td data-label={t('流量')} className="rt-wrap" style={{ minWidth: 180 }}>
                       <span className="mono">{bytes(used)} / {u.trafficLimit ? bytes(u.trafficLimit) : t('不限')}</span>

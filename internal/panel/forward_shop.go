@@ -61,9 +61,88 @@ func fwdRate(e store.ForwardEntitlement) float64 {
 
 // fwdServes reports whether u's rules are delivered: the feature is
 // licensed, the account is active and the forwarding allowance is left.
+// The forwarding quota's own expiry (FwdExpireAt) stops service on its
+// own, whichever of it and the account expiry comes first.
 func (s *Server) fwdServes(u *store.User) bool {
+	if u.FwdExpireAt != nil && time.Now().After(*u.FwdExpireAt) {
+		return false
+	}
 	return s.license().Allow(license.FeaturePlanAddons) && u.Status == "active" && u.FwdMax > 0 &&
 		!u.FwdCapped && (u.FwdTraffic == 0 || u.FwdUsed < u.FwdTraffic)
+}
+
+// userFwdReq is the direct-grant forwarding quota group of an updateUser
+// request (user-relay-quota D2). A nil group leaves the quota untouched;
+// inside the group a nil field keeps its current value, except ExpireAt:
+// absent = unchanged, null = follow the account expiry, a value = set.
+type userFwdReq struct {
+	Max       *int        `json:"max"`
+	PortLo    *int        `json:"portLo"`
+	PortHi    *int        `json:"portHi"`
+	Traffic   *int64      `json:"traffic"` // charged bytes per period, 0 = unlimited
+	Rate      *float64    `json:"rate"`
+	SpeedMbps *int        `json:"speedMbps"`
+	ResetDay  *int        `json:"resetDay"` // 0 = follow the account cycle, 1–28 = own day
+	ExpireAt  **time.Time `json:"expireAt"`
+	Convert   bool        `json:"convert"` // take a plan-managed quota over as a direct grant
+}
+
+// applyFwdGrant validates a direct grant and applies it to u in memory,
+// returning an audit detail. A plan-managed quota (FwdSource "plan") is
+// read-only here: the admin must convert it first (Convert), which copies
+// the current values into a grant detached from the plan. Granting
+// nothing (max 0) revokes: the source clears with the quota.
+func applyFwdGrant(u *store.User, req *userFwdReq) (string, error) {
+	if u.FwdSource == "plan" && !req.Convert {
+		return "", errors.New("该用户的中转额度由套餐管理，请先转为直授")
+	}
+	ent := u.ForwardEntitlement
+	if req.Max != nil {
+		ent.FwdMax = *req.Max
+	}
+	if req.PortLo != nil {
+		ent.FwdPortLo = *req.PortLo
+	}
+	if req.PortHi != nil {
+		ent.FwdPortHi = *req.PortHi
+	}
+	if req.Traffic != nil {
+		ent.FwdTraffic = *req.Traffic
+	}
+	if req.Rate != nil {
+		ent.FwdRate = *req.Rate
+	}
+	if req.SpeedMbps != nil {
+		ent.FwdSpeedMbps = *req.SpeedMbps
+	}
+	if err := validFwdEntitlement(&ent); err != nil {
+		return "", err
+	}
+	resetDay := u.FwdResetDay
+	if req.ResetDay != nil {
+		if *req.ResetDay < 0 || *req.ResetDay > 28 {
+			return "", errors.New("中转重置日应为 0（跟随账号周期）或 1–28")
+		}
+		resetDay = *req.ResetDay
+	}
+	prev := u.FwdSource
+	u.ForwardEntitlement = ent
+	u.FwdResetDay = resetDay
+	if req.ExpireAt != nil {
+		u.FwdExpireAt = *req.ExpireAt
+	}
+	if ent.FwdMax == 0 {
+		u.FwdSource = ""
+	} else {
+		u.FwdSource = "grant"
+	}
+	detail := fmt.Sprintf("来源 %s → %s：%d 条，端口 %d–%d，每周期 %d 字节，倍率 %g，限速 %d Mbps，重置日 %d",
+		orDefault(prev, "无"), orDefault(u.FwdSource, "无"), ent.FwdMax, ent.FwdPortLo, ent.FwdPortHi,
+		ent.FwdTraffic, ent.FwdRate, ent.FwdSpeedMbps, resetDay)
+	if u.FwdExpireAt != nil {
+		detail += "，中转到期 " + u.FwdExpireAt.Format("2006-01-02")
+	}
+	return detail, nil
 }
 
 // fwdNodes are the nodes u may forward on: those hosting an inbound u can use.

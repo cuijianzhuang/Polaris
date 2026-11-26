@@ -95,13 +95,23 @@ func applyPlan(tx *gorm.DB, u *store.User, p *store.Group, renew bool, now time.
 	if limit > 0 {
 		limit += extra
 	}
+	// A plan application owns the whole forwarding group (user-relay-quota
+	// D2): the source becomes the plan's, and any independent reset day /
+	// expiry a direct grant set is cleared — the plan's cycle and the
+	// account expiry govern from here.
+	prevFwdSource, prevFwdEnt := u.FwdSource, u.ForwardEntitlement
+	fwdSource := ""
+	if p.FwdMax > 0 {
+		fwdSource = "plan"
+	}
 	upd := map[string]any{"plan_id": p.ID, "traffic_limit": limit, "extra_traffic": extra, "expire_at": exp, "expire_after_days": 0,
 		"reset_policy": orDefault(p.ResetPolicy, "none"), "reset_day": p.ResetDay, "device_limit": p.DeviceLimit, "ip_limit": p.IPLimit,
 		"speed_up_mbps": 0, "speed_down_mbps": 0, "warned_expire": nil,
-		"fwd_max": p.FwdMax, "fwd_port_lo": p.FwdPortLo, "fwd_port_hi": p.FwdPortHi, "fwd_traffic": p.FwdTraffic, "fwd_rate": p.FwdRate, "fwd_speed_mbps": p.FwdSpeedMbps}
+		"fwd_max": p.FwdMax, "fwd_port_lo": p.FwdPortLo, "fwd_port_hi": p.FwdPortHi, "fwd_traffic": p.FwdTraffic, "fwd_rate": p.FwdRate, "fwd_speed_mbps": p.FwdSpeedMbps,
+		"fwd_source": fwdSource, "fwd_expire_at": nil, "fwd_reset_day": 0}
 	if reset {
 		upd["used_up"], upd["used_down"], upd["last_reset_at"], upd["warned_usage"] = 0, 0, now, false
-		upd["fwd_used"], upd["fwd_capped"] = 0, false
+		upd["fwd_used"], upd["fwd_capped"], upd["fwd_last_reset_at"] = 0, false, now
 		if err := tx.Model(&store.UserNodeQuota{}).Where("user_id = ?", u.ID).Update("used", 0).Error; err != nil {
 			return "", err
 		}
@@ -112,13 +122,23 @@ func applyPlan(tx *gorm.DB, u *store.User, p *store.Group, renew bool, now time.
 	if err := setPlanMembership(tx, u.ID, p.ID); err != nil {
 		return "", err
 	}
+	if prevFwdSource == "grant" && prevFwdEnt.FwdMax > 0 {
+		// Never silent: a direct grant the admin gave this user is gone,
+		// replaced by the plan's terms.
+		if err := tx.Create(&store.AuditLog{Admin: "system", Action: "forward.grant_overwritten_by_plan", Target: u.Username,
+			Detail: fmt.Sprintf("直授中转额度被套餐「%s」覆盖（原直授：%d 条，端口 %d–%d，每周期 %d 字节）",
+				p.Name, prevFwdEnt.FwdMax, prevFwdEnt.FwdPortLo, prevFwdEnt.FwdPortHi, prevFwdEnt.FwdTraffic)}).Error; err != nil {
+			return "", err
+		}
+	}
 	u.PlanID, u.TrafficLimit, u.ExtraTraffic, u.ExpireAt, u.ExpireAfterDays = p.ID, limit, extra, exp, 0
 	u.ResetPolicy, u.ResetDay, u.DeviceLimit, u.IPLimit = orDefault(p.ResetPolicy, "none"), p.ResetDay, p.DeviceLimit, p.IPLimit
 	u.SpeedUpMbps, u.SpeedDownMbps = 0, 0
 	u.ForwardEntitlement = p.ForwardEntitlement
+	u.FwdSource, u.FwdExpireAt, u.FwdResetDay = fwdSource, nil, 0
 	if reset {
 		u.UsedUp, u.UsedDown, u.LastResetAt = 0, 0, &now
-		u.FwdUsed, u.FwdCapped = 0, false
+		u.FwdUsed, u.FwdCapped, u.FwdLastResetAt = 0, false, &now
 	}
 	verb := "开通"
 	if renew {

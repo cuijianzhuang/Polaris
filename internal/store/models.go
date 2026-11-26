@@ -269,13 +269,26 @@ type User struct {
 	// edition): FwdUsed counts this period's forwarded traffic, FwdCapped
 	// records that FwdTraffic was reached (the rules are then withheld).
 	ForwardEntitlement
-	FwdUsed    int64     `json:"fwdUsed"`
-	FwdCapped  bool      `json:"fwdCapped"`
-	GroupIDs   []string  `gorm:"-" json:"groupIds"`
-	NodeIDs    []string  `gorm:"-" json:"nodeIds"`    // direct node bindings
-	InboundIDs []string  `gorm:"-" json:"inboundIds"` // direct inbound bindings
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	FwdUsed   int64 `json:"fwdUsed"`
+	FwdCapped bool  `json:"fwdCapped"`
+	// FwdSource says who owns the entitlement above: "" = none,
+	// "plan" = written by a plan application (managed by the plan),
+	// "grant" = granted directly by an admin (user-relay-quota D2).
+	FwdSource string `gorm:"size:8" json:"fwdSource"`
+	// FwdResetDay is the forwarding quota's own monthly reset day:
+	// 0 = it resets with the account cycle, 1–28 = independently.
+	FwdResetDay int `json:"fwdResetDay"`
+	// FwdExpireAt is the forwarding quota's own expiry: nil = it follows
+	// the account expiry; when set, the earlier of the two stops service.
+	FwdExpireAt *time.Time `gorm:"index" json:"fwdExpireAt"`
+	// FwdLastResetAt is the last independent forwarding reset; only used
+	// while FwdResetDay > 0.
+	FwdLastResetAt *time.Time `json:"-"`
+	GroupIDs       []string   `gorm:"-" json:"groupIds"`
+	NodeIDs        []string   `gorm:"-" json:"nodeIds"`    // direct node bindings
+	InboundIDs     []string   `gorm:"-" json:"inboundIds"` // direct inbound bindings
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
 }
 
 // Used returns total used bytes.
