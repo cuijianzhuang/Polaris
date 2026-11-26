@@ -245,11 +245,17 @@ func (s *Server) haSaveCFToken(c *gin.Context) {
 // synchronous_standby_names, the option the HA design left to the wizard
 // (§12 Q3).
 //
-// The value comes from ha_peers, never from the request: a name that does
-// not match a connected standby's application_name makes PostgreSQL wait
-// for a confirmation that never arrives, which would block every write
-// instead of protecting it. An empty peer list therefore refuses to enable
-// rather than setting a wildcard.
+// The names come from the live replication connections
+// (pg_stat_replication), never from the request and never from ha_peers:
+// the GUC only makes the primary wait when a listed name matches the
+// application_name a standby actually connected with, and a hand-built
+// cluster's standby can use any name at all (a stock Debian standby
+// connects as e.g. "17/main") while never registering in ha_peers. An
+// earlier version always wrote the installer's name (haSyncAppName); on
+// such a cluster PostgreSQL waited for a confirmation that never arrives
+// and synchronous replication silently never engaged. With no standby
+// streaming, enabling is refused rather than setting a wildcard or a
+// name nothing is connected with.
 //
 // The change is ALTER SYSTEM + pg_reload_conf(), so it survives a restart
 // and takes effect without dropping the connection that writes it.
@@ -271,22 +277,11 @@ func (s *Server) haSaveSyncReplication(c *gin.Context) {
 	}
 	value := ""
 	if req.Enabled {
-		var peers []store.HAPeer
-		s.st.DB.Order("created_at").Find(&peers)
-		names := make([]string, 0, len(peers))
-		for _, p := range peers {
-			if strings.TrimSpace(p.Pubkey) != "" {
-				names = append(names, haSyncAppName)
-			}
-		}
-		if len(names) == 0 {
-			badRequest(c, errors.New("no standby has joined yet: joining the standby first lets PostgreSQL name it"))
+		value = buildSyncStandbyNames(s.haReplication())
+		if value == "" {
+			badRequest(c, errors.New("no standby is streaming yet: wait until a standby is connected and streaming, then enable"))
 			return
 		}
-		// ONE standby, not ANY n: with a single standby ANY 1 behaves the
-		// same, but FIRST 1 cannot fall back to a standby that is not
-		// streaming, which is what makes a synchronous commit actually wait.
-		value = "FIRST 1 (" + strings.Join(uniqueStrings(names), ",") + ")"
 	}
 	// Both statements go through one connection in this order: ALTER SYSTEM
 	// writes postgresql.auto.conf, the reload applies it. The reload is a
@@ -333,8 +328,48 @@ func (s *Server) haTakeLeader(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// haSyncAppName is the application_name the installer gives the standby's
-// walreceiver, so synchronous_standby_names can name it.
+// buildSyncStandbyNames builds the synchronous_standby_names value from
+// the primary's live replication connections: the application_name of
+// every standby that is streaming right now, deduplicated in connection
+// order. It returns "" when no standby is streaming, which the caller
+// treats as "refuse to enable".
+//
+// The names are the ones the standbys actually connected with, read from
+// pg_stat_replication at enable time — that is what makes enabling work
+// on clusters the installer never touched, whose standbys may not be
+// named haSyncAppName. Each name is double-quoted per the
+// synchronous_standby_names list grammar (an embedded double quote is
+// doubled), so names containing characters like "/" or spaces stay safe.
+//
+// ONE standby, not ANY n: with a single standby ANY 1 behaves the same,
+// but FIRST 1 cannot fall back to a standby that is not streaming, which
+// is what makes a synchronous commit actually wait.
+func buildSyncStandbyNames(replicas []haReplica) string {
+	names := make([]string, 0, len(replicas))
+	for _, r := range replicas {
+		if r.State != "streaming" {
+			continue
+		}
+		if name := strings.TrimSpace(r.AppName); name != "" {
+			names = append(names, name)
+		}
+	}
+	names = uniqueStrings(names)
+	if len(names) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, `"`+strings.ReplaceAll(n, `"`, `""`)+`"`)
+	}
+	return "FIRST 1 (" + strings.Join(quoted, ",") + ")"
+}
+
+// haSyncAppName is the application_name the installer gives a joined
+// standby's walreceiver (scripts/install-panel.sh, HA_SYNC_APPNAME). It
+// is kept for parity with the installer; haSaveSyncReplication no longer
+// assumes it — it reads the name each standby actually connected with,
+// which also covers hand-built clusters whose standbys use another name.
 const haSyncAppName = "polaris_standby"
 
 // uniqueStrings drops duplicates while keeping the order.
