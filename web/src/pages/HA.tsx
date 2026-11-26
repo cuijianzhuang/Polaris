@@ -28,6 +28,7 @@ interface HAStatus {
   syncNames: string; syncWaiting: boolean
   redisConfigured: boolean; version: string; edition: string
   syncUpdate?: HASyncUpdate
+  leaderReturn?: { state: string; member: string }
 }
 
 // The latest sync upgrade operation and its per-instance update
@@ -97,6 +98,15 @@ const syncStateMeta: Record<string, { cls: string; label: string }> = {
   partial: { cls: 'warn', label: t('部分成功') },
   failed: { cls: 'bad', label: t('失败') },
   aborted: { cls: 'bad', label: t('已中止') },
+}
+
+// Post-upgrade leader auto-return states, as reported by GET /ha/status
+// (leaderreturn.go): the lease coming back to the pre-upgrade leader.
+const leaderReturnMeta: Record<string, { cls: string; label: string }> = {
+  returned: { cls: 'ok', label: t('已归位') },
+  pending: { cls: 'warn', label: t('待归位') },
+  attempted: { cls: 'warn', label: t('已发起归位') },
+  skipped: { cls: '', label: t('未自动归位') },
 }
 
 // The orchestration stages, in order (syncupdate.go phases standby /
@@ -311,6 +321,14 @@ export default function HA() {
               </div>
             )}
             {op?.detail && <div className={'note ' + detailCls}>{op.detail}</div>}
+            {st.leaderReturn && (
+              <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+                <span className="mute">{t('Leader 归位')}</span>
+                <span className={'tag ' + (leaderReturnMeta[st.leaderReturn.state]?.cls ?? '')}>
+                  {leaderReturnMeta[st.leaderReturn.state]?.label ?? st.leaderReturn.state}
+                </span>
+              </div>
+            )}
             <div className="row" style={{ alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <button className="btn pri" type="button" disabled={busy || !canSync} onClick={startSyncUpdate}>{t('同步升级')}</button>
               {syncRunning

@@ -93,4 +93,9 @@ export default {
   '同步升级进行中，结束后才能接管 Leader。': 'A sync upgrade is in progress; leadership can be taken over once it finishes.',
   '接管请求已发出，等待当前 Leader 让位…': 'Takeover requested; waiting for the current leader to yield…',
   'Leader 在其他实例上时，可让它把后台任务交回本机。': 'When the leader sits on another instance, ask it to hand the background duties back to this one.',
+  'Leader 归位': 'Leader return',
+  '已归位': 'Returned',
+  '待归位': 'Return pending',
+  '已发起归位': 'Return requested',
+  '未自动归位': 'Not returned automatically',
 }
