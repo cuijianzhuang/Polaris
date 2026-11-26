@@ -37,19 +37,26 @@ export default function OperatorChain({ ops, onChange, meta, maxSteps }: { ops: 
             <Field label={t('只保留地区（不选为全部）')}>
               <div className="row">{(meta?.regions ?? []).map((r) => <button key={r.Code} type="button" className={'chip' + (o.regions?.includes(r.Code) ? ' on' : '')} onClick={() => set(i, { ...o, regions: toggleIn(o.regions, r.Code) })}>{r.Name}</button>)}</div>
             </Field>
+            <Field label={t('只保留形态（不选为全部，仅面板节点）')}>
+              <div className="row">{[['direct', t('直连')], ['cdn', 'CDN'], ['relay', t('中转')]].map(([k, l]) => <button key={k} type="button" className={'chip' + (o.kinds?.includes(k) ? ' on' : '')} onClick={() => set(i, { ...o, kinds: toggleIn(o.kinds, k) })}>{l}</button>)}</div>
+            </Field>
+            <div className="form-grid">
+              <Field label={t('只保留入站标签')} hint={t('逗号分隔，与入站 Tag 完全一致才保留')}><input className="input mono" value={(o.tags ?? []).join(',')} onChange={(e) => set(i, { ...o, tags: e.target.value.split(/[,，\s]+/).filter(Boolean) })} placeholder="hk-iepl, jp-bgp" /></Field>
+              <Field label={t('倍率上限')} hint={t('只保留倍率不超过此值的节点，留空不限')}><input className="input mono" inputMode="decimal" value={o.maxRate ?? ''} onChange={(e) => set(i, { ...o, maxRate: e.target.value === '' ? undefined : Number(e.target.value) })} placeholder="1.5" /></Field>
+            </div>
           </>}
           {o.type === 'rename' && <>
             <div className="form-grid">
               <Field label={t('查找（正则）')}><input className="input mono" value={o.pattern ?? ''} onChange={(e) => set(i, { ...o, pattern: e.target.value })} placeholder="^\[.*?\]\s*" /></Field>
               <Field label={t('替换为')} hint={t('支持 $1')}><input className="input mono" value={o.replace ?? ''} onChange={(e) => set(i, { ...o, replace: e.target.value })} /></Field>
             </div>
-            <Field label={t('或：名称模板')} hint={t('变量 {emoji} 旗帜 · {region} 地区代码 · {regionZh} 中文地区 · {name} 原名 · {protocol} · {source} 来源 · {index} 地区内序号 · {server} · {port}')}>
+            <Field label={t('或：名称模板')} hint={t('变量 {emoji} 旗帜 · {region} 地区代码 · {regionZh} 中文地区 · {name} 原名 · {protocol} · {source} 来源 · {index} 地区内序号 · {server} · {port} · {kind} 形态 · {chain} 中转链 · {group} 视图组')}>
               <input className="input mono" value={o.template ?? ''} onChange={(e) => set(i, { ...o, template: e.target.value })} placeholder="{emoji} {regionZh} {index}" />
             </Field>
           </>}
           {o.type === 'sort' && <>
             <Field label={t('排序键（按点击顺序）')}>
-              <div className="row">{[['region', t('地区')], ['protocol', t('协议')], ['name', t('名称')], ['server', t('地址')]].map(([k, l]) => {
+              <div className="row">{[['region', t('地区')], ['protocol', t('协议')], ['name', t('名称')], ['server', t('地址')], ['rate', t('倍率')]].map(([k, l]) => {
                 const idx = (o.sortBy ?? []).indexOf(k)
                 return <button key={k} type="button" className={'chip' + (idx >= 0 ? ' on' : '')} onClick={() => set(i, { ...o, sortBy: toggleIn(o.sortBy, k) })}>{idx >= 0 ? `${idx + 1}. ` : ''}{l}</button>
               })}</div>

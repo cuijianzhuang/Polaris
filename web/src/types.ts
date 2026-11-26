@@ -101,6 +101,7 @@ export interface Group {
   price?: string; fallbackId?: string; fallbackName?: string; sort?: number
   sale?: boolean; priceStars?: number; priceCny?: number; priceUsdt?: number
   nodeRates?: Record<string, number>
+  viewGroups?: string[] // ordered SubViewGroup ids bound to this plan
 }
 export interface TrafficPack {
   id: string; name: string; traffic: number; planIds: string[]; sale: boolean; priceStars: number; priceCny: number; priceUsdt: number; sort: number
@@ -160,6 +161,7 @@ export interface DomainBinding {
 export interface Operator {
   type: 'filter' | 'rename' | 'sort' | 'dedup'; disabled?: boolean
   protocols?: string[]; regions?: string[]; include?: string; exclude?: string; dropInfo?: boolean
+  kinds?: string[]; chainIds?: string[]; maxRate?: number; tags?: string[]
   pattern?: string; replace?: string; template?: string
   sortBy?: string[]; regionOrder?: string[]; desc?: boolean
 }
@@ -170,8 +172,15 @@ export interface SubSource {
 }
 export interface SubProcessingRef { groupId: string; revision: number }
 export interface SubProcessingGroup { id: string; name: string; remark: string; operators: Operator[]; revision: number; createdAt: string; updatedAt: string }
+export interface SubViewGroup {
+  id: string; name: string; remark: string
+  selector: Operator; processingGroups: SubProcessingRef[]; operators: Operator[]
+  kinds: string[]; chainIds: string[]; icon: string; sortOrder: number; pinned: boolean; grouped: boolean
+  enabled: boolean; revision: number; createdAt: string; updatedAt: string
+}
 export interface SubProfile {
   processingGroups?: SubProcessingRef[]
+  viewGroups?: string[]
   id: string; name: string; token: string; enabled: boolean; sourceIds: string[]; panelUserId: string; operators: Operator[]
   useGlobalOps: boolean; templates: Record<string, string>; converter: string; backend: string; backendConfig: string
   scheme: string; skipCert: boolean | null; forceUdp: boolean | null

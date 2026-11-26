@@ -324,6 +324,10 @@ type Group struct {
 	// NodeRates overrides node traffic multipliers for the plan's users
 	// (professional edition), filled per request.
 	NodeRates map[string]float64 `gorm:"-" json:"nodeRates,omitempty"`
+	// ViewGroups binds an ordered list of SubViewGroup ids whose
+	// presentation pipeline runs over this plan's users' subscriptions.
+	// Empty = subscriptions render exactly as before view groups existed.
+	ViewGroups JSON[[]string] `json:"viewGroups"`
 	ForwardEntitlement
 	NodeIDs    []string  `gorm:"-" json:"nodeIds"`
 	InboundIDs []string  `gorm:"-" json:"inboundIds"`
@@ -1037,6 +1041,7 @@ type SubProfile struct {
 	Enabled          bool                     `json:"enabled"`
 	SourceIDs        JSON[[]string]           `json:"sourceIds"`
 	PanelUserID      string                   `gorm:"size:32;index" json:"panelUserId"` // include this user's panel nodes
+	ViewGroups       JSON[[]string]           `json:"viewGroups"`                       // ordered SubViewGroup ids (execution lives with the profile pipeline)
 	Operators        JSON[[]sub.Operator]     `json:"operators"`                        // empty = global default chain
 	UseGlobalOps     bool                     `json:"useGlobalOps"`
 	Templates        JSON[map[string]string]  `json:"templates"`                // format -> sub template id
@@ -1084,7 +1089,7 @@ func AllModels() []any {
 		&Website{}, &RestoreDrill{}, &Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &Passkey{}, &UserPasskey{}, &AccountRecoveryCode{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
-		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
+		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &SubViewGroup{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
 		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &NodeResourceAlert{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &UserSSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},

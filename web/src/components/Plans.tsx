@@ -3,6 +3,7 @@ import { del, get, post, put } from '../api'
 import { useNodes } from '../App'
 import { ProTag, useFeature } from './License'
 import { Field, Modal, Switch, useAction, useConfirm, useLoad } from './ui'
+import { ViewGroupPicker } from './ViewGroups'
 import { bytes, GB } from '../format'
 import type { Group, Node } from '../types'
 import { t } from '../i18n'
@@ -35,9 +36,10 @@ type Edit = {
   sale: boolean; priceStars: string; priceCny: string; priceUsdt: string
   nodeRates: Record<string, string>
   fwdMax: string; fwdPortLo: string; fwdPortHi: string; fwdGB: string; fwdRate: string; fwdSpeed: string
+  viewGroups: string[]
 }
 
-const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', nodeLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {}, fwdMax: '', fwdPortLo: '', fwdPortHi: '', fwdGB: '', fwdRate: '', fwdSpeed: '' }
+const blank: Edit = { name: '', price: '', sort: 0, level: 1, nodeIds: [], limitGB: '', days: '30', resetPolicy: 'none', resetDay: '1', deviceLimit: '0', ipLimit: '0', nodeLimit: '0', speedUp: '', speedDown: '', fallbackId: '', sale: false, priceStars: '', priceCny: '', priceUsdt: '', nodeRates: {}, fwdMax: '', fwdPortLo: '', fwdPortHi: '', fwdGB: '', fwdRate: '', fwdSpeed: '', viewGroups: [] }
 
 function toEdit(p: Group): Edit {
   return {
@@ -49,6 +51,7 @@ function toEdit(p: Group): Edit {
     nodeRates: Object.fromEntries(Object.entries(p.nodeRates ?? {}).map(([k, v]) => [k, String(v)])),
     fwdMax: p.fwdMax ? String(p.fwdMax) : '', fwdPortLo: p.fwdPortLo ? String(p.fwdPortLo) : '', fwdPortHi: p.fwdPortHi ? String(p.fwdPortHi) : '',
     fwdGB: p.fwdTraffic ? String(+(p.fwdTraffic / GB).toFixed(2)) : '', fwdRate: p.fwdRate ? String(p.fwdRate) : '', fwdSpeed: p.fwdSpeedMbps ? String(p.fwdSpeedMbps) : '',
+    viewGroups: [...(p.viewGroups ?? [])],
   }
 }
 
@@ -76,6 +79,7 @@ function planBody(e: Edit) {
     nodeRates: Object.fromEntries(Object.entries(e.nodeRates).map(([k, v]) => [k, Number(v) || 0]).filter(([, v]) => (v as number) > 0)),
     fwdMax: Math.round(Number(e.fwdMax) || 0), fwdPortLo: Math.round(Number(e.fwdPortLo) || 0), fwdPortHi: Math.round(Number(e.fwdPortHi) || 0),
     fwdTraffic: Math.round(Number(e.fwdGB || 0) * GB), fwdRate: Number(e.fwdRate) || 0, fwdSpeedMbps: Math.round(Number(e.fwdSpeed) || 0),
+    viewGroups: e.viewGroups,
   }
 }
 
@@ -222,6 +226,7 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
             <Field label={t('每条限速 (Mbps)')} htmlFor="p-fwd-speed" hint={t('上下行各自限速；留空为不限')}><input id="p-fwd-speed" className="input mono" inputMode="numeric" disabled={!addonsOK} value={edit.fwdSpeed} onChange={(e) => set('fwdSpeed', e.target.value)} /></Field>
           </div>
         </Field>
+        <ViewGroupPicker value={edit.viewGroups} onChange={(v) => set('viewGroups', v)} />
         {edit.id && <div className="sub">{t('修改后：已开通的用户立即按新的节点和限速生效；流量、到期时间在下次开通或续费时更新。')}</div>}
       </Modal>
     )
