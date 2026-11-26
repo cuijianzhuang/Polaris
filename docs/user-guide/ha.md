@@ -320,7 +320,7 @@ curl -s -X POST http://<WITNESS_IP>:8443/promoted -H 'Content-Type: application/
 
 默认异步复制，故障瞬间可能丢几秒写入。若接受每次写库多一次 dmit↔HK 往返延迟，在面板「高可用」页的「PostgreSQL 复制」卡片里点「开启同步复制」（需要二次验证），「恢复异步」点回来。
 
-开启后卡片会显示当前使用的规则（`FIRST 1 (polaris_standby)`）和状态：
+开启后卡片会显示当前使用的规则（形如 `FIRST 1 ("17/main")`，名字取自备机当前实际的连接名）和状态：
 
 | 状态 | 含义 |
 |---|---|
@@ -328,9 +328,9 @@ curl -s -X POST http://<WITNESS_IP>:8443/promoted -H 'Content-Type: application/
 | 已设置但未生效 | 规则已写入，但当前没有对得上的备机在流复制：写入仍是异步的，先把备机连上 |
 | 异步复制 | `synchronous_standby_names` 为空，即默认状态 |
 
-还没有备节点加入时，面板会拒绝开启，不会写入一个没人应答的规则——那会让每次写库都卡住，而不是被保护。
+当前没有备机在流复制时，面板会拒绝开启，不会写入一个没人应答的规则——那会让每次写库都卡住，而不是被保护。
 
-**前置条件**：备机 `primary_conninfo` 里的 `application_name` 必须是 `polaris_standby`（新版 `ha-join` 会自动写入；旧版装的是 `walreceiver`，需要手工改，面板会把状态显示成「已设置但未生效」）。改完 `systemctl reload postgresql` 生效。
+**前置条件**：无。面板开启时读取 `pg_stat_replication` 里备机实际的 `application_name` 下发规则，备机叫什么名都可以（向导加入的备机是 `polaris_standby`，发行版自带备库常见 `17/main` 这类默认名），不需要手工改名。
 
 **改回去**：点「恢复异步」，或手工
 

@@ -399,11 +399,14 @@ func TestHAFailoverCheckPrimaryProbe(t *testing.T) {
 	}
 }
 
-// TestHASyncReplicationRequiresStandby: enabling synchronous replication
-// without a joined standby must be refused, not turned into a wildcard. A
-// synchronous_standby_names that names nothing connected makes PostgreSQL
-// wait for a confirmation that never arrives, blocking every write.
-func TestHASyncReplicationRequiresStandby(t *testing.T) {
+// TestHASyncReplicationRequiresStreamingStandby: enabling synchronous
+// replication without a standby that is streaming right now must be
+// refused, not turned into a wildcard. A synchronous_standby_names that
+// names nothing connected makes PostgreSQL wait for a confirmation that
+// never arrives, blocking every write. The gate reads the live
+// replication connections, so a registered ha_peers row is neither
+// required nor sufficient on its own.
+func TestHASyncReplicationRequiresStreamingStandby(t *testing.T) {
 	s, _, c := newAdminClient(t)
 	s.cfg.HARole = "primary"
 	code, out := c.do("POST", "/ha/sync-replication", map[string]any{"enabled": true})
@@ -416,12 +419,78 @@ func TestHASyncReplicationRequiresStandby(t *testing.T) {
 		return
 	}
 	if code != http.StatusBadRequest {
-		t.Fatalf("enable without a standby must be refused: %d %v", code, out)
+		t.Fatalf("enable without a streaming standby must be refused: %d %v", code, out)
 	}
 	var n int64
 	s.st.DB.Model(&store.HAPeer{}).Count(&n)
 	if n != 0 {
 		t.Fatalf("a refused request must not create a peer: %d", n)
+	}
+}
+
+// TestBuildSyncStandbyNames pins the value written by enabling: the
+// application_name each standby actually connected with (a hand-built
+// Debian standby is "17/main", not the installer's name), quoted per the
+// synchronous_standby_names grammar, and "" — refuse — when nothing is
+// streaming.
+func TestBuildSyncStandbyNames(t *testing.T) {
+	streaming := func(name string) haReplica {
+		return haReplica{AppName: name, State: "streaming", SyncState: "async"}
+	}
+	cases := []struct {
+		name string
+		in   []haReplica
+		want string
+	}{
+		{"no connections", nil, ""},
+		{"empty list", []haReplica{}, ""},
+		{"debian default name", []haReplica{streaming("17/main")}, `FIRST 1 ("17/main")`},
+		{"installer name", []haReplica{streaming("polaris_standby")}, `FIRST 1 ("polaris_standby")`},
+		{"not streaming yet", []haReplica{{AppName: "17/main", State: "catchup"}}, ""},
+		{"empty application name", []haReplica{streaming("")}, ""},
+		{"blank application name", []haReplica{streaming("  ")}, ""},
+		{"only the streaming one counts", []haReplica{
+			{AppName: "gone", State: "catchup"}, streaming("17/main"),
+		}, `FIRST 1 ("17/main")`},
+		{"duplicates collapse, order kept", []haReplica{
+			streaming("b"), streaming("a"), streaming("b"),
+		}, `FIRST 1 ("b","a")`},
+		{"quote in name is doubled", []haReplica{streaming(`we"ird`)}, `FIRST 1 ("we""ird")`},
+		{"space in name stays quoted", []haReplica{streaming("my standby")}, `FIRST 1 ("my standby")`},
+	}
+	for _, tc := range cases {
+		if got := buildSyncStandbyNames(tc.in); got != tc.want {
+			t.Errorf("%s: buildSyncStandbyNames = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestHASyncReplicationDisableClearsSetting: disabling always writes the
+// empty string, whether or not a standby is streaming — the off path
+// never consults the replication connections.
+func TestHASyncReplicationDisableClearsSetting(t *testing.T) {
+	s, _, c := newAdminClient(t)
+	s.cfg.HARole = "primary"
+	code, out := c.do("POST", "/ha/sync-replication", map[string]any{"enabled": false})
+	if !s.haIsPostgres() {
+		// Same pre-PostgreSQL refusal as enabling; nothing is written.
+		if code != http.StatusBadRequest {
+			t.Fatalf("sync replication on SQLite: %d %v", code, out)
+		}
+		return
+	}
+	if code != http.StatusOK {
+		t.Fatalf("disable: %d %v", code, out)
+	}
+	if out["syncNames"] != "" {
+		t.Fatalf("disable must report no sync names: %v", out)
+	}
+	var cur string
+	if err := s.st.DB.Raw("SELECT COALESCE(current_setting('synchronous_standby_names', true), '')").Scan(&cur).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cur != "" {
+		t.Fatalf("disable must clear synchronous_standby_names, got %q", cur)
 	}
 }
 
