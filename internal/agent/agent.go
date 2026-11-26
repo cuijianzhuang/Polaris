@@ -845,6 +845,12 @@ func (a *Agent) handleCommand(ctx context.Context, c *polarisv1.Command) {
 			fail(err)
 		}
 		a.applyMu.Unlock()
+	case "reboot_host":
+		// Ack-first: scheduleHostReboot only arranges the reboot (it
+		// fires hostRebootDelay later, from its own goroutine), so the
+		// result sent below means "scheduled", not "rebooted".
+		a.scheduleHostReboot()
+		res.Output = "reboot scheduled"
 	case "geodata_update":
 		out, err := a.updateGeodata(ctx, c.Args)
 		res.Output = out
