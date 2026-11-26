@@ -83,6 +83,7 @@
 | --- | --- |
 | [客户独立限速](design/per-user-speed-limit.md) | Agent 限速转发（专业版） |
 | [端口转发商品化](design/forward-shop.md) | 套餐内的用户自助转发（专业版） |
+| [用户级中转配额](design/user-relay-quota.md) | 管理员直授中转额度、独立重置/到期与自有节点自助转发（设计稿） |
 | [可复用订阅处理组](design/sub-processing-groups.md) | 订阅转换的共享处理步骤（专业版） |
 | [外部订阅节点资源与服务器引用](design/subscription-node-resources.md) | 外部节点的稳定标识与引用 |
 | [用户流量采集与来源排查](design/user-traffic-attribution.md) | “没用却有流量”的排查方法 |
