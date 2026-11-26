@@ -175,6 +175,13 @@ func TestLeaderAutoReturn(t *testing.T) {
 	// A manual takeover afterwards stands: b asks, a yields, and the
 	// auto-return does not undo it (the attempt is spent, and the
 	// return only ever belonged to the upgrade).
+	//
+	// b yielded to the return above, so b is inside its stepdown
+	// cooldown (one lease TTL) and tryLease would refuse the claim.
+	// Live rounds tick 5s apart and the cooldown lapses long before a
+	// human clicks take-leader; the test calls the rounds back to back,
+	// so expire the cooldown to model that elapsed time.
+	b.stepdownUntil.Store(0)
 	if err := b.requestLeaderTakeover(); err != nil {
 		t.Fatal(err)
 	}

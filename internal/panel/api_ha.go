@@ -291,7 +291,15 @@ func (s *Server) haSaveSyncReplication(c *gin.Context) {
 	// writes postgresql.auto.conf, the reload applies it. The reload is a
 	// separate request because an ALTER SYSTEM inside an explicit
 	// transaction is rejected.
-	if err := s.st.DB.Exec("ALTER SYSTEM SET synchronous_standby_names = ?", value).Error; err != nil {
+	//
+	// The value is inlined as a quoted literal, never a bind parameter:
+	// PostgreSQL rejects parameters in utility statements ("syntax error
+	// at or near $1"), so the parameterized form failed on every real
+	// primary — the toggle only ever worked as far as its refusal gates.
+	// The value is server-built (buildSyncStandbyNames) or empty; single
+	// quotes are doubled for the literal.
+	stmt := "ALTER SYSTEM SET synchronous_standby_names = '" + strings.ReplaceAll(value, "'", "''") + "'"
+	if err := s.st.DB.Exec(stmt).Error; err != nil {
 		serverError(c, err)
 		return
 	}
