@@ -168,7 +168,9 @@ type serviceSnapshotData struct {
 func (s *Server) buildServiceSnapshot() (*serviceSnapshotData, error) {
 	now := time.Now()
 	var ns []store.Node
-	q := s.st.DB.Where("revoked = ?", false).Where("owner_id = ?", "").
+	// OwnerID was added additively with no column default, so nodes that
+	// predate user-owned nodes carry NULL, not ""; both mean an admin node.
+	q := s.st.DB.Where("revoked = ?", false).Where("owner_id = ? OR owner_id IS NULL", "").
 		Where("status_hidden = ? OR status_hidden IS NULL", false).
 		Order("sort_order, name")
 	if err := q.Find(&ns).Error; err != nil {
