@@ -154,11 +154,29 @@ with sync_playwright() as p:
         # Sticky workbench navigation must not cover bulk actions after scrolling.
         page.goto(url + '/inbounds')
         page.wait_for_load_state('networkidle')
-        page.set_viewport_size(dict(width=width, height=400))
+        # Select the row at the tall viewport: at 400px height the first
+        # row sits under the fixed mobile tab bar / sticky toolbar no
+        # matter the scroll position Playwright picks, and its click
+        # times out on whichever bar is on top. The short viewport is
+        # only needed for the scroll assertion below.
         page.locator('tbody input[type=checkbox]').first.check()
         clear = page.get_by_role('button', name='取消选择' if lang == 'zh' else 'Clear selection', exact=True)
         clear.wait_for(state='visible')
-        page.evaluate('window.scrollTo(0, document.documentElement.scrollHeight)')
+        page.set_viewport_size(dict(width=width, height=400))
+        # Scroll to the bottom and let layout settle before measuring:
+        # late data (mux groups) can still grow the document right after
+        # networkidle, and measuring the sticky header mid-reflow reads a
+        # stale position (its settled state is what users actually get).
+        page.evaluate('''async () => {
+            let last = -1;
+            for (let i = 0; i < 20; i++) {
+                window.scrollTo(0, document.documentElement.scrollHeight);
+                await new Promise(r => setTimeout(r, 150));
+                const h = document.documentElement.scrollHeight;
+                if (h === last && window.scrollY >= h - window.innerHeight - 1) break;
+                last = h;
+            }
+        }''')
         header = page.locator('.mtop' if width <= 760 else '.workspace-bar').bounding_box()
         reachable = clear.evaluate('''e => {
             const r = e.getBoundingClientRect(), hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
