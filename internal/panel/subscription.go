@@ -106,7 +106,7 @@ func (s *Server) serveUserSubscription(c *gin.Context, u *store.User, sh *store.
 		}
 		// View groups bound to the user's plan run after the global chain.
 		// Any failure keeps the unprocessed nodes, like the global chain.
-		if out, err := s.applyPlanViewGroups(&u, nodes); err == nil {
+		if out, err := s.applyPlanViewGroups(u, nodes); err == nil {
 			nodes = out
 		} else {
 			s.log.Warn("view group pipeline failed, serving unprocessed nodes", "err", err)
