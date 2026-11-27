@@ -467,6 +467,9 @@ func (s *Server) portalPage(c *gin.Context) {
 	if u.FwdMax > 0 && s.license().Allow(license.FeaturePlanAddons) {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🔀 我的转发", URL: portalPath + "/forwards"})
 	}
+	if s.shareCreationOpen() {
+		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🔗 分享订阅", URL: portalPath + "/shares"})
+	}
 	if s.effectiveUserNodesMode() != userNodesOff {
 		info.Extras = append(info.Extras, sub.ExtraLink{Title: "🖥️ 我的节点", URL: portalPath + "/my-nodes-page"})
 	}

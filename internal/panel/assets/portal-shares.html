@@ -1,0 +1,22 @@
+<section class="p-service-page">
+<div class="p-heading"><div><h1>分享订阅</h1><p class="mute">把订阅分享给家人朋友：每份分享有独立链接、独立节点凭据、独立流量上限与到期，可单独停用或吊销，不影响你的主订阅和其他分享。</p></div><a class="btn alt" href="/u#account">个人中心</a></div>
+<section class="card"><h2>分享额度</h2><dl class="p-definition"><div><dt>已创建</dt><dd>{{.Count}} / {{.Max}} 份</dd></div></dl>{{if .Closed}}<p class="err">分享功能已关闭：不能新建分享，已有分享在各自到期前继续有效。</p>{{end}}<p class="mute">吊销是双层的：链接立即失效，对方已导入的节点凭据也会随之作废。重置凭据同理，只影响这一份分享。注意：mihomo 内核的 SS 入站没有用户维度，在这类节点上分享与主订阅共用同一密码、流量计入主账号，无法单独计量。</p></section>
+{{if .CanCreate}}<details class="card"><summary>新建分享</summary><div class="p-ticket-form"><div><label for="sname">备注名</label><input class="p-input" id="sname" maxlength="64" placeholder="如：给父亲"></div><div><label for="slimit">流量上限 GB（留空 = 不限，仍受主账号总额度约束）</label><input class="p-input" id="slimit" type="number" min="0" step="0.1" placeholder="不限"></div><div><label for="sexpire">到期日期（留空 = 跟随主账号）</label><input class="p-input" id="sexpire" type="date"></div><div><button class="btn pri" id="sadd" type="button">创建分享</button></div></div></details>{{end}}
+<p class="err" id="err" role="alert" hidden></p>
+<section class="card"><h2>分享列表</h2>{{range .Rows}}<article class="p-forward-row"><div><b>{{.Name}}</b><p class="mute">{{.Status}} · 已用 {{.Used}} / {{.Quota}} · 到期 {{.Expire}} · 最后活跃 {{.LastUsed}}</p><dl class="p-definition"><div><dt>订阅链接</dt><dd><code>{{.URL}}</code></dd></div></dl></div><div>
+<button class="btn alt toggle" data-id="{{.ID}}" data-on="{{if .Enabled}}0{{else}}1{{end}}" type="button">{{if .Enabled}}停用{{else}}启用{{end}}</button>
+<button class="btn alt resetc" data-id="{{.ID}}" type="button">重置凭据</button>
+<button class="btn alt p-danger revoke" data-id="{{.ID}}" type="button">吊销</button>
+</div></article>{{else}}<p class="mute p-empty">还没有分享。</p>{{end}}</section>
+</section>
+<script>
+function spost(p,b){return fetch('/u/shares'+p,{method:'POST',headers:{'Content-Type':'application/json','X-Polaris-Portal':'1'},body:JSON.stringify(b||{}),credentials:'same-origin'}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||r.statusText);return j})})}
+function serr(m){var e=document.getElementById('err');if(e){e.textContent=m;e.hidden=!m}else if(m){alert(m)}}
+var add=document.getElementById('sadd');if(add)add.addEventListener('click',function(){var b=this;b.disabled=true;serr('');
+var gb=parseFloat(document.getElementById('slimit').value||'0')||0;
+var d=document.getElementById('sexpire').value;var exp=d?new Date(d+'T23:59:59').toISOString():'';
+spost('',{name:document.getElementById('sname').value,trafficLimit:Math.round(gb*1073741824),expireAt:exp}).then(function(){location.reload()}).catch(function(e){b.disabled=false;serr(e.message)})});
+document.querySelectorAll('.toggle').forEach(function(b){b.addEventListener('click',function(){b.disabled=true;spost('/'+b.dataset.id+'/toggle',{enabled:b.dataset.on==='1'}).then(function(){location.reload()}).catch(function(e){b.disabled=false;serr(e.message)})})});
+document.querySelectorAll('.resetc').forEach(function(b){b.addEventListener('click',function(){if(!confirm('重置这份分享的凭据？旧链接立即失效，对方需要重新导入新链接。'))return;b.disabled=true;spost('/'+b.dataset.id+'/reset-credentials').then(function(){location.reload()}).catch(function(e){b.disabled=false;serr(e.message)})})});
+document.querySelectorAll('.revoke').forEach(function(b){b.addEventListener('click',function(){if(!confirm('吊销这份分享？链接立即失效，对方已导入的节点也会断开，且不可恢复。'))return;b.disabled=true;spost('/'+b.dataset.id+'/revoke').then(function(){location.reload()}).catch(function(e){b.disabled=false;serr(e.message)})})});
+</script>

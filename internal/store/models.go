@@ -326,6 +326,43 @@ func (u *User) ToModel() model.User {
 	return model.User{ID: u.ID, UUID: u.UUID, Password: u.Password, SSSeed: u.SSSeed}
 }
 
+// ShareSubscription is one shared copy of a user's subscription (design
+// share-subscriptions D1): its own token, its own core credential set, its
+// own traffic limit and expiry. Revoking a share deletes the row, which
+// destroys the credentials with it. The main user's credentials stay the
+// untouched "share zero". Credentials never leave the server in JSON; the
+// portal renders the share link itself.
+type ShareSubscription struct {
+	ID           string     `gorm:"primaryKey;size:32" json:"id"`
+	UserID       string     `gorm:"size:32;index" json:"userId"`
+	Name         string     `gorm:"size:64" json:"name"`
+	Token        string     `gorm:"size:64;uniqueIndex" json:"-"`
+	Enabled      bool       `json:"enabled"`
+	TrafficLimit int64      `json:"trafficLimit"` // bytes, 0 = unlimited (the main pool still caps, D3)
+	UsedUp       int64      `json:"usedUp"`
+	UsedDown     int64      `json:"usedDown"`
+	ExpireAt     *time.Time `gorm:"index" json:"expireAt"`
+	CredUUID     string     `gorm:"size:36" json:"-"`
+	CredPassword string     `gorm:"size:64" json:"-"`
+	CredSSSeed   string     `gorm:"size:64" json:"-"`
+	LastUsedAt   *time.Time `json:"lastUsedAt"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
+}
+
+// Used returns the share's total used bytes.
+func (sh *ShareSubscription) Used() int64 { return sh.UsedUp + sh.UsedDown }
+
+// Capped reports whether the share's own traffic limit is exhausted.
+func (sh *ShareSubscription) Capped() bool {
+	return sh.TrafficLimit > 0 && sh.Used() >= sh.TrafficLimit
+}
+
+// Expired reports whether the share's own expiry has passed.
+func (sh *ShareSubscription) Expired(now time.Time) bool {
+	return sh.ExpireAt != nil && now.After(*sh.ExpireAt)
+}
+
 // Group grants inbounds to users.
 type Group struct {
 	ID        string `gorm:"primaryKey;size:32" json:"id"`
@@ -1130,7 +1167,7 @@ func AllModels() []any {
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &Passkey{}, &UserPasskey{}, &AccountRecoveryCode{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &SubViewGroup{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
-		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{},
+		&UserDevice{}, &TagTraffic{}, &ForwardRule{}, &UserNodeQuota{}, &ShareSubscription{},
 		&TrafficDaily{}, &TagTrafficDaily{}, &NodeMetric{}, &NodeResourceAlert{}, &AdminSession{}, &PortalSession{}, &PortalSessionEpoch{}, &LoginBan{}, &InboundHealth{}, &SSOProvider{}, &SSOBinding{}, &UserSSOBinding{}, &GroupNode{}, &NodeTrafficDaily{}, &NodeNetBoot{}, &NodeCost{},
 		&DNSConfig{}, &RuleSet{}, &APIToken{}, &IdempotencyKey{}, &Webhook{}, &WebhookDelivery{}, &Plugin{},
 		&Order{}, &RedeemCode{}, &TrafficPack{}, &PlanNodeRate{}, &UserNotice{},

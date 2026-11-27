@@ -46,19 +46,56 @@ func (s *Server) subscription(c *gin.Context) {
 		return
 	}
 	var u store.User
-	if err := s.st.DB.First(&u, "sub_token = ? AND is_service = ?", tok, false).Error; err != nil {
+	if err := s.st.DB.First(&u, "sub_token = ? AND is_service = ?", tok, false).Error; err == nil {
+		s.serveUserSubscription(c, &u, nil)
+		return
+	}
+	// Dual-path resolution (design share-subscriptions §5): a share token
+	// resolves to its owning user plus the share; everything else about
+	// the request — grants, limits, device checks — stays the owner's,
+	// while the rendered credentials are the share's own. Missing,
+	// disabled and revoked shares are indistinguishable from a bad token.
+	var sh store.ShareSubscription
+	if err := s.st.DB.First(&sh, "token = ? AND enabled = ?", tok, true).Error; err != nil {
 		c.String(http.StatusNotFound, "404 page not found")
 		return
 	}
-	deviceOK := s.checkDevice(&u, c.Request)
+	if err := s.st.DB.First(&u, "id = ? AND is_service = ?", sh.UserID, false).Error; err != nil {
+		c.String(http.StatusNotFound, "404 page not found")
+		return
+	}
+	s.serveUserSubscription(c, &u, &sh)
+}
+
+// serveUserSubscription renders /sub for a main user (sh == nil) or for
+// one of their shares (sh != nil, rendered with the share's credentials).
+func (s *Server) serveUserSubscription(c *gin.Context, u *store.User, sh *store.ShareSubscription) {
+	deviceOK := s.checkDevice(u, c.Request)
 	title := s.st.GetSetting("site_title", "Polaris")
+	token, renderUser := u.SubToken, u
 	info := sub.Info{Title: title, Username: u.Username, Upload: u.UsedUp, Download: u.UsedDown, Total: u.TrafficLimit,
 		Expire: u.ExpireAt, URL: s.subURL(u.SubToken)}
+	if sh != nil {
+		// Batch 1 info header: the share's own usage and limit once it has
+		// one, the earlier of the two expiries (D5); full per-share header
+		// semantics land with metering in batch 2.
+		shadow := shadowUser(u, sh)
+		renderUser = &shadow
+		token = sh.Token
+		info.Upload, info.Download = sh.UsedUp, sh.UsedDown
+		if sh.TrafficLimit > 0 {
+			info.Total = sh.TrafficLimit
+		}
+		info.Expire = shareExpiry(u, sh)
+		info.URL = s.subURL(sh.Token)
+		s.touchShareUsed(sh)
+	}
 	info.URL = cdnkit.ExplicitSelectionURL(info.URL, c.Request.URL.Query())
 	var nodes []sub.Node
-	if s.servedUser(&u) && deviceOK {
+	served := s.servedUser(u) && (sh == nil || shareServed(sh, time.Now().UTC()))
+	if served && deviceOK {
 		var err error
-		if nodes, err = s.subNodesFor(&u, s.subCarrier(c.Request, &u), s.subRegion(c.Request, &u)); err != nil {
+		if nodes, err = s.subNodesFor(renderUser, s.subCarrier(c.Request, u), s.subRegion(c.Request, u)); err != nil {
 			serverError(c, err)
 			return
 		}
@@ -69,7 +106,7 @@ func (s *Server) subscription(c *gin.Context) {
 		}
 		// View groups bound to the user's plan run after the global chain.
 		// Any failure keeps the unprocessed nodes, like the global chain.
-		if out, err := s.applyPlanViewGroups(&u, nodes); err == nil {
+		if out, err := s.applyPlanViewGroups(u, nodes); err == nil {
 			nodes = out
 		} else {
 			s.log.Warn("view group pipeline failed, serving unprocessed nodes", "err", err)
@@ -77,13 +114,29 @@ func (s *Server) subscription(c *gin.Context) {
 	}
 	if len(nodes) == 0 && c.Query("raw") != "1" && sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent")) != "html" {
 		// Tell the user why instead of handing clients an empty list.
-		reason := s.emptyReason(&u)
+		reason := s.emptyReason(u)
+		if sh != nil && s.servedUser(u) && !shareServed(sh, time.Now().UTC()) {
+			reason = shareEmptyReason(sh)
+		}
 		if !deviceOK {
 			reason = fmt.Sprintf("设备数已达上限（%d 台），请在面板移除旧设备", u.DeviceLimit)
 		}
 		nodes = []sub.Node{reasonNode(reason)}
 	}
-	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.renderOptsFor(nil), "/sub/"+u.SubToken, &u)
+	s.serveNodes(c, nodes, info, nil, s.converterFor(nil), s.renderOptsFor(nil), "/sub/"+token, renderUser)
+}
+
+// shareEmptyReason explains, in the placeholder node, why a share that
+// resolved serves no nodes.
+func shareEmptyReason(sh *store.ShareSubscription) string {
+	switch {
+	case sh.Expired(time.Now().UTC()):
+		return "这份分享已到期，请联系分享者续期"
+	case sh.Capped():
+		return "这份分享的流量已用完"
+	default:
+		return "这份分享已停用"
+	}
 }
 
 // subNodes expands every authorised inbound × endpoint into client nodes.
