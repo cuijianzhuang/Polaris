@@ -48,7 +48,7 @@ export function setNotificationChannel(policy: NotificationPolicy, events: Event
 }
 
 export function notificationGroups(events: EventCatalog): { id: string; events: string[] }[] {
-  const ordered = ['node_availability', 'inbound_availability', 'plugin_availability', 'apply_failed', 'backup_failed', 'cert_failed', 'routing_health', 'node_traffic', 'node_resource', 'operational_alert', 'route_changed']
+  const ordered = ['node_availability', 'inbound_availability', 'plugin_availability', 'apply_failed', 'backup_failed', 'cert_failed', 'routing_health', 'node_traffic', 'node_resource', 'operational_alert', 'route_changed', 'route_line_changed']
   const groups = new Map<string, string[]>()
   for (const [event, kind] of Object.entries(events)) {
     const id = kind.group || event

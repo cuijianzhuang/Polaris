@@ -14,7 +14,20 @@ type CarrierTrendPoint = { t: string; avg: number | null; loss: number | null }
 type CarrierTarget = { id: string; name: string; state: string; current: CarrierCurrent | null; hourAvg: number | null; loss1h: number | null }
 type CarrierView = {
   state: string; current: CarrierCurrent | null; hourAvg: number | null; loss1h: number | null
+  line: string | null; confidence: string | null; lineAt: string | null
   trend: CarrierTrendPoint[]; targets: CarrierTarget[]
+}
+
+// Heuristic line label (design D5/D9): a suspected GIA is worded as a
+// suspicion, an ASN-only match says so; the label is never stated as a
+// carrier fact.
+function lineText(v: CarrierView): string {
+  if (!v.line) return ''
+  const base: Record<string, string> = { cn2: 'CN2', '163': '163', '9929': '9929', '4837': '4837', cmin2: 'CMIN2', cmi: 'CMI', cmnet: 'CMNET', unknown: t('无法识别') }
+  let s = base[v.line] ?? v.line
+  if (v.line === 'cn2' && v.confidence === 'suspect') s += t('（疑似 GIA）')
+  else if (v.confidence === 'asn') s += t('（按 ASN 识别）')
+  return s
 }
 type CarriersResp = { probeEnabled: boolean; carriers: Record<string, CarrierView> }
 
@@ -41,6 +54,8 @@ function CarrierColumn({ carrier, v }: { carrier: string; v: CarrierView }) {
           <div><span>{t('连接失败率')}</span><b style={{ color: v.current?.loss != null ? lossColor(v.current.loss) : undefined }}>{pctText(v.current?.loss ?? null)}</b></div>
           <div><span>{t('近 1 小时失败率')}</span><b style={{ color: v.loss1h != null ? lossColor(v.loss1h) : undefined }}>{pctText(v.loss1h)}</b></div>
           {v.current && <div><span>{t('最近探测')}</span><b>{datetime(v.current.at)}</b></div>}
+          {v.line && <div><span>{t('识别线路')}</span><b>{lineText(v)}</b></div>}
+          {v.line && v.lineAt && <div><span>{t('最近分类')}</span><b>{datetime(v.lineAt)}</b></div>}
         </div>
         {v.targets.length > 1 && <div className="pv-carrier-targets">
           {v.targets.map((tg) => (
@@ -54,6 +69,10 @@ function CarrierColumn({ carrier, v }: { carrier: string; v: CarrierView }) {
           <Lines labels={labels} max={100} fmt={(x) => `${x.toFixed(0)}%`} height={40} series={[{ name: t('连接失败率'), color, values: v.trend.map((p) => p.loss) }]} />
         </>}
       </>}
+      {v.line && v.state !== 'ok' && v.state !== 'stale' && <div className="pv-carrier-rows">
+        <div><span>{t('识别线路')}</span><b>{lineText(v)}</b></div>
+        {v.lineAt && <div><span>{t('最近分类')}</span><b>{datetime(v.lineAt)}</b></div>}
+      </div>}
     </div>
   )
 }
@@ -66,7 +85,7 @@ export default function NodeCarriers({ nodeId }: { nodeId: string }) {
       <div className="ctitle"><span>{t('三网回程')}</span></div>
       {!d ? <div className="sub" style={{ marginTop: 10 }}>{data.error ?? t('加载中…')}</div> : (
         <div className="pv-carriers">
-          {['ct', 'cu', 'cm'].map((ck) => <CarrierColumn key={ck} carrier={ck} v={d.carriers[ck] ?? { state: 'no_target', current: null, hourAvg: null, loss1h: null, trend: [], targets: [] }} />)}
+          {['ct', 'cu', 'cm'].map((ck) => <CarrierColumn key={ck} carrier={ck} v={d.carriers[ck] ?? { state: 'no_target', current: null, hourAvg: null, loss1h: null, line: null, confidence: null, lineAt: null, trend: [], targets: [] }} />)}
         </div>
       )}
     </div>
