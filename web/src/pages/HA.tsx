@@ -435,7 +435,6 @@ export default function HA() {
               </table>
             </div>
           )}
-          <div className="small mute" style={{ padding: '12px 20px 16px' }}>{t('本机 WG 地址未在接口中返回，暂不可用。')}</div>
         </section>
         <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <h2>{t('加入备节点')}</h2>

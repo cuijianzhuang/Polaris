@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/store"
 )
@@ -35,6 +37,9 @@ type wgPeerState struct {
 	Pubkey     string
 	Endpoint   string
 	AllowedIPs string
+	// Handshake is the latest-handshake column as unix seconds (0 = the
+	// peer has never completed a handshake).
+	Handshake int64
 }
 
 // parseWGDump parses `wg show <iface> dump`. The first line is the
@@ -53,9 +58,32 @@ func parseWGDump(out string) map[string]wgPeerState {
 		if len(fields) < 4 {
 			continue
 		}
-		have[fields[0]] = wgPeerState{Pubkey: fields[0], Endpoint: fields[2], AllowedIPs: fields[3]}
+		st := wgPeerState{Pubkey: fields[0], Endpoint: fields[2], AllowedIPs: fields[3]}
+		if len(fields) >= 5 {
+			st.Handshake, _ = strconv.ParseInt(fields[4], 10, 64)
+		}
+		have[fields[0]] = st
 	}
 	return have
+}
+
+// peerLastSeenUpdates returns the ha_peers rows (by WG IP) whose last_seen
+// should advance to the peer's latest handshake. A handshake of 0 (never)
+// never updates, and the stored value never moves backwards, so the HA
+// page's "last seen" is the newest handshake this node has observed.
+func peerLastSeenUpdates(peers []store.HAPeer, have map[string]wgPeerState) map[string]time.Time {
+	out := map[string]time.Time{}
+	for _, p := range peers {
+		live, ok := have[p.Pubkey]
+		if !ok || live.Handshake <= 0 {
+			continue
+		}
+		hs := time.Unix(live.Handshake, 0).UTC()
+		if p.LastSeen == nil || hs.After(*p.LastSeen) {
+			out[p.WGIP] = hs
+		}
+	}
+	return out
 }
 
 // diffWGPeers compares the wanted peers (ha_peers rows) with the live
@@ -180,7 +208,16 @@ func SyncWG(cfg *Config) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("wg show wg0 dump: %w", err)
 	}
-	add, remove := diffWGPeers(peers, parseWGDump(string(out)))
+	have := parseWGDump(string(out))
+	// Refresh last_seen from live handshakes: the column is otherwise only
+	// ever set at join time, so the HA page would show the join date
+	// forever even while the tunnel (and replication over it) is healthy.
+	for wgIP, hs := range peerLastSeenUpdates(peers, have) {
+		if err := st.DB.Model(&store.HAPeer{}).Where("wg_ip = ?", wgIP).Update("last_seen", hs).Error; err != nil {
+			return "", fmt.Errorf("update peer %s last_seen: %w", wgIP, err)
+		}
+	}
+	add, remove := diffWGPeers(peers, have)
 	for _, p := range add {
 		args := []string{"set", "wg0", "peer", p.Pubkey, "allowed-ips", p.WGIP + "/32"}
 		if p.Endpoint != "" {

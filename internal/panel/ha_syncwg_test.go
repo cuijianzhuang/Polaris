@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cuijianzhuang/polaris/internal/secret"
 	"github.com/cuijianzhuang/polaris/internal/store"
@@ -216,5 +217,34 @@ func TestHASealSecretRoundTrip(t *testing.T) {
 	st.DB.Model(&store.ClusterSecret{}).Where("name = ?", "ha_repl_password").Count(&n)
 	if n != 1 {
 		t.Fatalf("rows: %d", n)
+	}
+}
+
+func TestPeerLastSeenUpdates(t *testing.T) {
+	joined := time.Unix(1700000000, 0).UTC()
+	peers := []store.HAPeer{
+		{WGIP: "10.8.0.2", Pubkey: "peerAAA=", LastSeen: &joined},
+		{WGIP: "10.8.0.3", Pubkey: "peerBBB="},
+		{WGIP: "10.8.0.4", Pubkey: "peerCCC=", LastSeen: &joined},
+	}
+	have := parseWGDump("pub (none) 51820 off\n" +
+		"peerAAA= (none) 203.0.113.1:51820 10.8.0.2/32 1700003600 0 0 25\n" +
+		"peerBBB= (none) (none) 10.8.0.3/32 0 0 0 off\n" +
+		"peerCCC= (none) 203.0.113.3:51820 10.8.0.4/32 1699990000 0 0 25\n")
+	if have["peerAAA="].Handshake != 1700003600 {
+		t.Fatalf("handshake not parsed: %+v", have["peerAAA="])
+	}
+	ups := peerLastSeenUpdates(peers, have)
+	// AAA advanced past its join time; BBB never handshook (0) so no
+	// update; CCC's handshake predates the stored value, never backwards.
+	if len(ups) != 1 || !ups["10.8.0.2"].Equal(time.Unix(1700003600, 0).UTC()) {
+		t.Fatalf("updates: %v", ups)
+	}
+	// A peer with no stored value takes its first observed handshake.
+	peers[1].LastSeen = nil
+	have["peerBBB="] = wgPeerState{Pubkey: "peerBBB=", Handshake: 1700007200}
+	ups = peerLastSeenUpdates(peers, have)
+	if !ups["10.8.0.3"].Equal(time.Unix(1700007200, 0).UTC()) {
+		t.Fatalf("first handshake for BBB: %v", ups)
 	}
 }
