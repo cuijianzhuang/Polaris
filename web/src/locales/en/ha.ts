@@ -25,7 +25,6 @@ export default {
   '公钥': 'Public key',
   '对端地址': 'Peer address',
   '最近可见': 'Last seen',
-  '本机 WG 地址未在接口中返回，暂不可用。': 'This instance’s WireGuard address is not returned by the API, so it is unavailable here.',
   '确定删除这个对端吗？仅删除库里的记录，WireGuard 配置由同步任务对齐。': 'Delete this peer? Only the database record is removed; the WireGuard config is reconciled by the sync job.',
   '加入备节点': 'Join a standby',
   '生成一条加入命令，在备节点上执行即可完成加入。': 'Generate a join command and run it on the standby to join it.',
