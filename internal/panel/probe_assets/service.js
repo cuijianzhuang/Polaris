@@ -13,7 +13,9 @@
     if (/^[\u{1F1E6}-\u{1F1FF}]{2}$/u.test(cc)) return flagText(cc);
     return cc === 'TW' ? taiwanFlag : /^[A-Z]{2}$/.test(cc) ? String.fromCodePoint(...cc.split('').map((v) => 127397 + v.charCodeAt(0))) : '◎';
   };
-  const pc = (v) => v == null ? 'var(--pv-mute)' : v <= 0 ? 'var(--pv-red)' : v <= 50 ? 'var(--pv-green)' : v <= 120 ? 'var(--pv-yellow)' : v <= 200 ? 'var(--pv-orange)' : 'var(--pv-red)';
+  // Latency figures stay in the ink colour (the number itself carries the
+  // magnitude); only the failure rate keeps the shared severity colours,
+  // as the one alert signal per carrier.
   const lc = (v) => v > 3 ? 'var(--pv-red)' : v > 1 ? 'var(--pv-orange)' : v > .2 ? 'var(--pv-yellow)' : 'var(--pv-green)';
 
   // --- theme (service-only mode only; status.js owns it otherwise) ---
@@ -81,23 +83,35 @@
   const stateText = { online: '在线', degraded: '降级', offline: '离线' };
   function latencyCell(l) {
     const ms = l.ms == null ? '—' : l.ms.toFixed(l.ms < 1 ? 1 : 0) + ' ms';
-    return '<span class="svc-lat"><span class="svc-lat-name">' + esc(l.name) + '</span><b style="color:' + pc(l.ms) + '">' + ms + '</b><span style="color:' + lc(l.loss || 0) + '">' + (l.loss || 0).toFixed(1) + '%</span></span>';
+    return '<span class="svc-lat"><span class="svc-lat-name">' + esc(l.name) + '</span><b>' + ms + '</b><span class="svc-loss" style="color:' + lc(l.loss || 0) + '">' + (l.loss || 0).toFixed(1) + '%</span></span>';
   }
-  // Carriers segment (present only when the snapshot carries it): one
-  // chip per carrier that has a figure or a line label; an all-null
-  // carrier renders nothing, and no carriers object renders no segment.
+  // Carriers segment (present only when the snapshot carries it): the
+  // three networks are the customer-facing summary of the same samples
+  // the per-target latency list shows, so when any carrier has data the
+  // segment replaces that list instead of duplicating it under longer
+  // target names. A carrier with no figure keeps an em-dash placeholder
+  // so the three columns stay aligned within the row.
   const carrierName = { ct: '电信', cu: '联通', cm: '移动' };
   function carrierCell(k, c) {
-    if (!c || (c.ms == null && !c.line)) return '';
+    if (!c || (c.ms == null && !c.line)) {
+      return '<span class="svc-lat svc-lat-none"><span class="svc-lat-name">' + carrierName[k] + '</span><b>—</b></span>';
+    }
     const ms = c.ms == null ? '—' : c.ms.toFixed(c.ms < 1 ? 1 : 0) + ' ms';
-    return '<span class="svc-lat"><span class="svc-lat-name">' + carrierName[k] + '</span><b style="color:' + pc(c.ms) + '">' + ms + '</b>' +
-      (c.loss != null ? '<span style="color:' + lc(c.loss) + '">' + c.loss.toFixed(1) + '%</span>' : '') +
+    return '<span class="svc-lat"><span class="svc-lat-name">' + carrierName[k] + '</span><b>' + ms + '</b>' +
+      (c.loss != null ? '<span class="svc-loss" style="color:' + lc(c.loss) + '">' + c.loss.toFixed(1) + '%</span>' : '') +
       (c.line ? '<span class="svc-line">' + esc(String(c.line).toUpperCase()) + '</span>' : '') + '</span>';
   }
   function carriersHTML(n) {
     if (!n.carriers) return '';
-    const h = ['ct', 'cu', 'cm'].map((k) => carrierCell(k, n.carriers[k])).join('');
-    return h ? '<span class="svc-lats svc-carriers">' + h + '</span>' : '';
+    const any = ['ct', 'cu', 'cm'].some((k) => { const c = n.carriers[k]; return c && (c.ms != null || c.line); });
+    if (!any) return '';
+    return '<span class="svc-nets">' + ['ct', 'cu', 'cm'].map((k) => carrierCell(k, n.carriers[k])).join('') + '</span>';
+  }
+  function netsHTML(n) {
+    const carriers = carriersHTML(n);
+    if (carriers) return carriers;
+    const lats = (n.latency || []).map(latencyCell).join('');
+    return lats ? '<span class="svc-nets">' + lats + '</span>' : '<span class="svc-nets svc-none">暂无网络数据</span>';
   }
   function uptimeHTML(n) {
     const f = (v) => v == null ? '数据不足' : v.toFixed(1) + '%';
@@ -129,7 +143,7 @@
     for (const [region, ns] of groups) {
       const on = ns.filter((n) => n.state === 'online').length;
       h += '<section class="svc-group"><h2><span>' + esc(region || '未分组') + '</span><small>' + on + '/' + ns.length + ' 在线</small></h2>' + ns.map((n) =>
-        '<div class="svc-row"><span class="svc-dot ' + n.state + '"></span><span class="svc-flag">' + flag(n.flag) + '</span><span class="svc-name">' + flagText(n.name) + '</span><span class="svc-state">' + (stateText[n.state] || n.state) + '</span><span class="svc-lats">' + (n.latency || []).map(latencyCell).join('') + '</span>' + carriersHTML(n) + uptimeHTML(n) + '</div>'
+        '<div class="svc-row"><span class="svc-id"><span class="svc-dot ' + n.state + '"></span><span class="svc-flag">' + flag(n.flag) + '</span><span class="svc-name">' + flagText(n.name) + '</span><span class="svc-state">' + (stateText[n.state] || n.state) + '</span></span>' + netsHTML(n) + uptimeHTML(n) + '</div>'
       ).join('') + '</section>';
     }
     $('svc-groups').innerHTML = h || '<div class="pv-empty">暂无公开节点</div>';

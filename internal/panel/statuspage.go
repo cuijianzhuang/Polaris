@@ -483,23 +483,29 @@ main.pv-monitor{padding:34px 24px 48px}
 .svc-group{margin-bottom:22px}
 .svc-group h2{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;margin:0 0 8px;color:var(--pv-ink)}
 .svc-group h2 small{color:var(--pv-mute);font-weight:400}
-.svc-row{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--pv-line);border-radius:8px;background:var(--pv-card);margin-bottom:6px;flex-wrap:wrap}
+.svc-row{display:grid;grid-template-columns:minmax(170px,240px) 1fr auto;grid-template-areas:"id nets up";align-items:center;gap:10px 22px;padding:12px 16px;border:1px solid var(--pv-line);border-radius:10px;background:var(--pv-card);margin-bottom:8px}
+.svc-id{grid-area:id;display:flex;align-items:center;gap:8px;min-width:0}
 .svc-dot{width:9px;height:9px;border-radius:50%;flex:none}
 .svc-dot.online{background:var(--pv-green)}
 .svc-dot.degraded{background:var(--pv-yellow)}
 .svc-dot.offline{background:var(--pv-red)}
 .svc-name{font-weight:600;overflow-wrap:anywhere}
-.svc-state{color:var(--pv-mute);font-size:12px}
-.svc-lats{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap}
-.svc-lat{display:inline-flex;gap:5px;align-items:baseline;font-size:12px}
+.svc-state{color:var(--pv-mute);font-size:12px;flex:none}
+.svc-nets{grid-area:nets;display:flex;gap:8px;flex-wrap:wrap}
+.svc-nets.svc-none{color:var(--pv-mute);font-size:12px}
+.svc-lat{display:inline-flex;gap:6px;align-items:baseline;font-size:12px;background:var(--pv-card-2);border-radius:6px;padding:5px 10px;min-width:138px}
+.svc-lat b{color:var(--pv-ink);font-size:13px;font-weight:600}
+.svc-lat-none{opacity:.55}
+.svc-lat-none b{color:var(--pv-mute)}
 .svc-lat-name{color:var(--pv-mute)}
-.svc-carriers{margin-left:0}
+.svc-loss{font-size:11px}
 .svc-line{color:var(--pv-mute);font-size:11px;border:1px solid var(--pv-line);border-radius:4px;padding:0 4px}
-.svc-up{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--pv-mute)}
+.svc-up{grid-area:up;display:inline-flex;gap:10px;align-items:center;font-size:12px;color:var(--pv-mute);white-space:nowrap}
 .svc-up b{color:var(--pv-ink)}
-.svc-days{display:inline-flex;gap:2px;align-items:flex-end;height:14px}
-.svc-days i{display:block;width:4px;border-radius:1px}
-@media(max-width:640px){.svc-lats{margin-left:0}}
+.svc-days{display:inline-flex;gap:2px;align-items:flex-end;height:16px}
+.svc-days i{display:block;width:5px;border-radius:1px}
+@media(max-width:1020px){.svc-row{grid-template-columns:1fr auto;grid-template-areas:"id up" "nets nets"}}
+@media(max-width:640px){.svc-row{grid-template-columns:1fr;grid-template-areas:"id" "nets" "up"}.svc-up{white-space:normal}}
 ` + statusCSS + `
 @media(prefers-color-scheme:dark){body.public-status:not([data-theme="light"]){background:#000;color-scheme:dark;background-image:none}.public-status:not([data-theme="light"]) .pv{--pv-card:#0A0A0A;--pv-card-2:#18181B;--pv-line:#2E2E2E;--pv-ink:#FAFAFA;--pv-mute:#A1A1AA;--pv-track:#1C1C1F;--pv-green:#63c78f;--pv-blue:#7aa5e8;--pv-yellow:#e0a93e;--pv-orange:#f08c4a;--pv-red:#f26d6d;--pv-cyan:#2DD4BF;--pv-purple:#a493e8;--pv-glow:0 0 0 1px rgba(255,255,255,.03),0 8px 24px -12px rgba(0,0,0,.8)}}
 </style></head><body class="public-status"><template id="taiwan-flag">{{taiwanFlag}}</template><main class="pv pv-monitor">
