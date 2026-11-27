@@ -499,3 +499,32 @@ func TestStatusServiceRateLimit(t *testing.T) {
 		t.Fatalf("request 11: %d, want 429", code)
 	}
 }
+
+// TestStatusServiceIncludesLegacyNullOwner pins the production bug where
+// the service view was empty: nodes created before the user-nodes feature
+// carry owner_id NULL (the column was added without a default), and the
+// snapshot's owner filter must treat NULL like "" (an admin node).
+func TestStatusServiceIncludesLegacyNullOwner(t *testing.T) {
+	s, srv, _ := newAdminClient(t)
+	if err := s.st.SetSetting("status_page", "true"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := s.st.DB.Create(&store.Node{ID: "n-legacy", Name: "legacy-node", Status: "online", LastSeen: &now}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := s.st.DB.Exec("UPDATE nodes SET owner_id = NULL WHERE id = ?", "n-legacy").Error; err != nil {
+		t.Fatal(err)
+	}
+	code, _, body := getRaw(t, srv.URL+"/status/service")
+	if code != http.StatusOK {
+		t.Fatalf("service snapshot: %d %s", code, body)
+	}
+	var snap svcSnapshotJSON
+	if err := json.Unmarshal(body, &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Nodes) != 1 || snap.Nodes[0].Name != "legacy-node" {
+		t.Fatalf("legacy NULL-owner node missing from service snapshot: %s", body)
+	}
+}
