@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -108,6 +109,11 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 				return err
 			}
 			rows[i] = row
+			if ev, ok, err := routeLineClassifyTx(tx, row, now); err != nil {
+				return err
+			} else if ok {
+				events = append(events, ev)
+			}
 			if row.Comparison.V.State == "changed" {
 				var newer int64
 				if err := tx.Model(&store.NodeRouteTrace{}).Where("node_id = ? AND family = ? AND target = ? AND id > ?", row.NodeID, row.Family, row.Target, row.ID).Count(&newer).Error; err != nil {
@@ -129,9 +135,16 @@ func (s *Server) finishRouteTrace(rows []store.NodeRouteTrace, results []model.R
 			return err
 		}
 		if len(stale) > 0 {
+			if err := tx.Where("trace_id IN ?", stale).Delete(&store.NodeRouteLine{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("id IN ?", stale).Delete(&store.NodeRouteTrace{}).Error; err != nil {
 				return err
 			}
+		}
+		expired := tx.Model(&store.NodeRouteTrace{}).Select("id").Where("node_id = ? AND started_at < ?", rows[0].NodeID, now.Add(-routeTraceKeep))
+		if err := tx.Where("trace_id IN (?)", expired).Delete(&store.NodeRouteLine{}).Error; err != nil {
+			return err
 		}
 		return tx.Where("node_id = ? AND started_at < ?", rows[0].NodeID, now.Add(-routeTraceKeep)).Delete(&store.NodeRouteTrace{}).Error
 	})
@@ -212,6 +225,13 @@ func compareRouteTrace(current, previous store.NodeRouteTrace) store.RouteTraceC
 }
 
 func routeTraceView(row store.NodeRouteTrace, detail bool) gin.H {
+	return routeTraceViewLine(row, detail, nil)
+}
+
+// routeTraceViewLine adds the batch-2 classification fields when a
+// classification row exists (design §8: additive fields, old clients
+// ignore them). The evidence summary is detail-only.
+func routeTraceViewLine(row store.NodeRouteTrace, detail bool, lr *store.NodeRouteLine) gin.H {
 	// A process crash or lost HTTP handler cannot leave a forever-running UI.
 	state := row.State
 	comparison := row.Comparison.V
@@ -223,7 +243,32 @@ func routeTraceView(row store.NodeRouteTrace, detail bool) gin.H {
 	if !detail {
 		result.Raw = ""
 	}
-	return gin.H{"id": row.ID, "runId": row.RunID, "nodeId": row.NodeID, "family": row.Family, "target": row.Target, "profile": row.Profile, "source": orDefault(row.Source, "manual"), "scheduleRevision": row.ScheduleRevision, "state": state, "startedAt": row.StartedAt, "finishedAt": row.FinishedAt, "result": result, "comparison": comparison}
+	v := gin.H{"id": row.ID, "runId": row.RunID, "nodeId": row.NodeID, "family": row.Family, "target": row.Target, "profile": row.Profile, "source": orDefault(row.Source, "manual"), "scheduleRevision": row.ScheduleRevision, "state": state, "startedAt": row.StartedAt, "finishedAt": row.FinishedAt, "result": result, "comparison": comparison}
+	if lr != nil {
+		v["line"] = lr.Line
+		v["confidence"] = lr.Confidence
+		if detail {
+			v["classifierVersion"] = lr.ClassifierVersion
+			if lr.Evidence != "" {
+				v["lineEvidence"] = json.RawMessage(lr.Evidence)
+			}
+		}
+	}
+	return v
+}
+
+// routeLinesFor batch-loads classifications for a page of history rows.
+func (s *Server) routeLinesFor(ids []int64) map[int64]*store.NodeRouteLine {
+	out := map[int64]*store.NodeRouteLine{}
+	if len(ids) == 0 {
+		return out
+	}
+	var rows []store.NodeRouteLine
+	s.st.DB.Where("trace_id IN ?", ids).Find(&rows)
+	for i := range rows {
+		out[rows[i].TraceID] = &rows[i]
+	}
+	return out
 }
 
 func (s *Server) nodeRouteHistory(c *gin.Context) {
@@ -274,9 +319,14 @@ func (s *Server) nodeRouteHistory(c *gin.Context) {
 	if hasMore {
 		rows = rows[:limit]
 	}
+	ids := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.ID)
+	}
+	lines := s.routeLinesFor(ids)
 	views := make([]gin.H, 0, len(rows))
 	for _, row := range rows {
-		views = append(views, routeTraceView(row, false))
+		views = append(views, routeTraceViewLine(row, false, lines[row.ID]))
 	}
 	var next int64
 	if hasMore {
@@ -296,5 +346,10 @@ func (s *Server) nodeRouteDetail(c *gin.Context) {
 		dbError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, routeTraceView(row, true))
+	var lr store.NodeRouteLine
+	line := &lr
+	if err := s.st.DB.First(&lr, "trace_id = ?", row.ID).Error; err != nil {
+		line = nil
+	}
+	c.JSON(http.StatusOK, routeTraceViewLine(row, true, line))
 }

@@ -31,8 +31,8 @@ import (
 
 // kindTypes names the internal event kinds for the outside world.
 var kindTypes = map[string]string{
-	"route_changed": "node.route_changed",
-	"node_offline":  "node.offline", "node_online": "node.online", "apply_failed": "node.apply_failed",
+	"route_changed": "node.route_changed", "route_line_changed": "node.route_line_changed",
+	"node_offline": "node.offline", "node_online": "node.online", "apply_failed": "node.apply_failed",
 	"node_traffic": "node.traffic_alert", "node_resource": "node.resource_alert", "node_resource_ok": "node.resource_recovered", "server_renewal": "node.renewal_due", "health": "routing.health",
 	"inbound_down": "inbound.down", "inbound_up": "inbound.up",
 	"user_limited": "user.traffic_exceeded", "user_expired": "user.expired", "user_active": "user.reactivated",
@@ -50,7 +50,7 @@ var EventTypes = []string{
 	"user.bulk", "user.expired", "user.traffic_exceeded", "user.reactivated", "user.traffic_warn", "user.expire_warn",
 	"user.ip_limit", "user.traffic_spike", "user.plan_changed", "order.paid", "order.failed",
 	"ticket.created", "ticket.replied", "ticket.closed",
-	"node.route_changed", "node.offline", "node.online", "node.apply_failed", "node.traffic_alert", "node.renewal_due", "node.resource_alert", "node.resource_recovered",
+	"node.route_changed", "node.route_line_changed", "node.offline", "node.online", "node.apply_failed", "node.traffic_alert", "node.renewal_due", "node.resource_alert", "node.resource_recovered",
 	"inbound.down", "inbound.up", "routing.health",
 	"admin.login_banned", "admin.login_new_ip", "admin.recovery_code_used",
 	"system.backup_failed", "system.cert_failed", "system.license", "system.panel_update", "system.operational_alert",

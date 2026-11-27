@@ -10,10 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Three-carrier ("backhaul") view, design docs/design/backhaul-monitor.md
-// batch 1: aggregate the latency the TCP probe already collects by the
-// target's carrier (ct/cu/cm). No new tables, no agent changes, no line
-// classification (batch 2 fills the line fields, null until then).
+// Three-carrier ("backhaul") view, design docs/design/backhaul-monitor.md:
+// aggregate the latency the TCP probe already collects by the target's
+// carrier (ct/cu/cm), plus the newest route-line classification per
+// carrier from node_route_lines (batch 2, see route_line.go).
 
 // carrierFreshWindow is how old the newest probe sample may be before the
 // "current" figures stop being presented as current (the probe's 90-second
@@ -50,8 +50,9 @@ type carrierTargetView struct {
 }
 
 // carrierView is one carrier's column of the three-carrier section.
-// State: ok / stale / no_data / no_target / disabled. Line fields stay
-// null in batch 1; batch 2 (route classification) fills them.
+// State: ok / stale / no_data / no_target / disabled. Line fields carry
+// the newest route classification for the carrier (batch 2); they stay
+// null when no measurable trace exists.
 type carrierView struct {
 	State      string              `json:"state"`
 	Current    *carrierCurrent     `json:"current"`
@@ -236,6 +237,23 @@ func (s *Server) carrierSummary(n *store.Node, now time.Time) gin.H {
 				v.HourAvg, v.Loss1h = hourAcc.avg(), hourAcc.loss()
 			}
 		}
+		out[ck] = v
+	}
+	// Batch 2: fill each carrier's current line from the newest IPv4
+	// classification whose detected line belongs to that carrier. An
+	// unmeasured latest attempt leaves the fields null (no trace data is
+	// not a line); unknown is a real result and is reported as such.
+	for _, ck := range carrierKeys {
+		var lr store.NodeRouteLine
+		if err := s.st.DB.Where("node_id = ? AND family = ? AND carrier = ?", n.ID, "ipv4", ck).Order("trace_id DESC").First(&lr).Error; err != nil {
+			continue
+		}
+		if lr.Line == "" || lr.Line == "unmeasured" {
+			continue
+		}
+		v := out[ck].(carrierView)
+		line, conf, at := lr.Line, lr.Confidence, lr.CreatedAt
+		v.Line, v.Confidence, v.LineAt = &line, &conf, &at
 		out[ck] = v
 	}
 	return gin.H{"probeEnabled": s.probeEnabled(), "slotSeconds": int(latencySlot.Seconds()), "carriers": out}

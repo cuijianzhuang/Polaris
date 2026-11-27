@@ -57,9 +57,14 @@ func (s *Server) traceNodeRoute(c *gin.Context) {
 		}
 		return
 	}
+	ids := make([]int64, 0, len(saved))
+	for _, row := range saved {
+		ids = append(ids, row.ID)
+	}
+	lines := s.routeLinesFor(ids)
 	history := make([]gin.H, 0, len(saved))
 	for _, row := range saved {
-		history = append(history, routeTraceView(row, false))
+		history = append(history, routeTraceViewLine(row, false, lines[row.ID]))
 	}
 	c.JSON(http.StatusOK, gin.H{"nodeId": n.ID, "results": results, "history": history})
 }

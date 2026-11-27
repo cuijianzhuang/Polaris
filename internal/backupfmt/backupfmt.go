@@ -234,7 +234,7 @@ func ExportSnapshot(db *gorm.DB) (map[string][]byte, map[string]int, error) {
 func ImportAll(tx *gorm.DB, tables map[string][]byte, reseal func(string) string) error {
 	for _, m := range store.AllModels() {
 		switch m.(type) {
-		case *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteScheduleState:
+		case *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteLine, *store.NodeRouteScheduleState:
 			if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(m).Error; err != nil {
 				return err
 			}
@@ -762,7 +762,7 @@ func RuntimeControlModel(m any) bool {
 	switch m.(type) {
 	case *store.PortalSession, *store.PortalSessionEpoch:
 		return true
-	case *store.RestoreDrill, *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus, *store.NotificationState, *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteScheduleState, *store.UpgradeRollout:
+	case *store.RestoreDrill, *store.ClusterOperation, *store.ClusterDelivery, *store.ClusterMember, *store.OperationalStatus, *store.NotificationState, *store.RelayBusinessStatus, *store.NodeRouteTrace, *store.NodeRouteLine, *store.NodeRouteScheduleState, *store.UpgradeRollout:
 		return true
 	}
 	return false
