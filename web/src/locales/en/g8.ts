@@ -492,6 +492,8 @@ const m: Record<string, string> = {
   "显示价格和到期": "Show price and expiry",
   "仅服务视图": "Service view only",
   "开启后公开页只显示面向客户的服务状态（在线状态与延迟），详细监控视图和其数据接口一并关闭": "When on, the public page shows only the customer-facing service status (online state and latency); the detailed monitor view and its data endpoint are closed too",
+  "公开三网信息": "Public carrier info",
+  "开启后，公开状态页的服务视图会附带每个节点的三网（电信 / 联通 / 移动）延迟与识别线路；只出聚合数字和标签，不含探针目标地址": "When on, the public status page's service view also shows each node's three-carrier (Telecom / Unicom / Mobile) latency and identified line; aggregate numbers and labels only, never probe target addresses",
   "在公开页显示服务器价格和剩余天数（来自节点的成本设置）": "Show server prices and days left on the public page (from each node's cost settings)",
   "探针设置": "Probe settings",
   "搜索节点": "Search nodes",

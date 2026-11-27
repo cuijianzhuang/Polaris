@@ -46,7 +46,23 @@ type svcSnapshotJSON struct {
 			Ms      *float64 `json:"ms"`
 			Loss    float64  `json:"loss"`
 		} `json:"latency"`
+		Uptime7d   *float64       `json:"uptime7d"`
+		Uptime30d  *float64       `json:"uptime30d"`
+		UptimeDays []*float64     `json:"uptimeDays"`
+		Carriers   *svcCarriersIn `json:"carriers"`
 	} `json:"nodes"`
+}
+
+type svcCarrierIn struct {
+	Ms   *float64 `json:"ms"`
+	Loss *float64 `json:"loss"`
+	Line *string  `json:"line"`
+}
+
+type svcCarriersIn struct {
+	CT svcCarrierIn `json:"ct"`
+	CU svcCarrierIn `json:"cu"`
+	CM svcCarrierIn `json:"cm"`
 }
 
 func keysOf(m map[string]any) map[string]bool {
@@ -151,7 +167,7 @@ func TestStatusServiceWhitelistAndScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, rn := range rawNodes {
-		assertKeysSubset(t, "node", rn, "name", "region", "flag", "state", "latency")
+		assertKeysSubset(t, "node", rn, "name", "region", "flag", "state", "latency", "uptime7d", "uptime30d", "uptimeDays", "carriers")
 		var rawLat []map[string]any
 		lb, _ := json.Marshal(rn["latency"])
 		if err := json.Unmarshal(lb, &rawLat); err != nil {
@@ -265,6 +281,203 @@ func TestStatusServiceCacheAndStale(t *testing.T) {
 	}
 	if len(snap.Nodes) != 1 || snap.Nodes[0].Name != "one" {
 		t.Errorf("fallback snapshot lost its nodes: %s", stale)
+	}
+}
+
+// Availability (design D6): NodeMetric slot presence over rolling windows.
+// Missing slots count as unavailable (a panel-downtime gap is
+// indistinguishable from node downtime and is counted, per the footnote
+// the page carries); too little history yields null, never a made-up
+// number.
+func TestStatusServiceUptime(t *testing.T) {
+	s := newTestServer(t)
+	now := time.Now()
+	slotNow := now.UTC().Truncate(metricSlot)
+	today := time.Date(slotNow.Year(), slotNow.Month(), slotNow.Day(), 0, 0, 0, 0, time.UTC)
+	old := slotNow.AddDate(0, 0, -40)
+
+	mkNode := func(id string, created time.Time) {
+		t.Helper()
+		if err := s.st.DB.Create(&store.Node{ID: id, Name: id, Status: "offline", CreatedAt: created}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed := func(id string, slots []time.Time) {
+		t.Helper()
+		rows := make([]store.NodeMetric, len(slots))
+		for i, at := range slots {
+			rows[i] = store.NodeMetric{NodeID: id, At: at, CPU: 1, N: 1}
+		}
+		if err := s.st.DB.CreateInBatches(&rows, 1000).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Node A: full 30 days of heartbeats except a 1-hour gap three days
+	// ago and the second half of the day ten days ago.
+	mkNode("up-a", old)
+	gapDay := today.AddDate(0, 0, -3)
+	halfDay := today.AddDate(0, 0, -10)
+	var slotsA []time.Time
+	for at := slotNow.AddDate(0, 0, -30); at.Before(slotNow); at = at.Add(metricSlot) {
+		if !at.Before(gapDay) && at.Before(gapDay.Add(time.Hour)) {
+			continue
+		}
+		if !at.Before(halfDay.Add(12*time.Hour)) && at.Before(halfDay.AddDate(0, 0, 1)) {
+			continue
+		}
+		slotsA = append(slotsA, at)
+	}
+	seed("up-a", slotsA)
+
+	// Node B: created 12 hours ago, heartbeating ever since.
+	createdB := slotNow.Add(-12 * time.Hour)
+	mkNode("up-b", createdB)
+	var slotsB []time.Time
+	for at := createdB; at.Before(slotNow); at = at.Add(metricSlot) {
+		slotsB = append(slotsB, at)
+	}
+	seed("up-b", slotsB)
+
+	// Node C: old, but never a single heartbeat.
+	mkNode("up-c", old)
+
+	data, err := s.buildServiceSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]serviceNode{}
+	for _, n := range data.Nodes {
+		byName[n.Name] = n
+	}
+	a := byName["up-a"]
+	if a.Uptime7d == nil || *a.Uptime7d != 99.4 {
+		t.Errorf("up-a uptime7d = %v, want 99.4 (2004/2016 slots)", a.Uptime7d)
+	}
+	if a.Uptime30d == nil || *a.Uptime30d != 98.2 {
+		t.Errorf("up-a uptime30d = %v, want 98.2 (8484/8640 slots)", a.Uptime30d)
+	}
+	if len(a.UptimeDays) != 30 {
+		t.Fatalf("up-a uptimeDays len = %d, want 30", len(a.UptimeDays))
+	}
+	if a.UptimeDays[26] == nil || *a.UptimeDays[26] != 95.8 {
+		t.Errorf("up-a day -3 = %v, want 95.8 (276/288, the 1h gap counts as down)", a.UptimeDays[26])
+	}
+	if a.UptimeDays[19] == nil || *a.UptimeDays[19] != 50.0 {
+		t.Errorf("up-a day -10 = %v, want 50.0 (144/288)", a.UptimeDays[19])
+	}
+	if a.UptimeDays[0] == nil || *a.UptimeDays[0] != 100.0 {
+		t.Errorf("up-a day -29 = %v, want 100.0", a.UptimeDays[0])
+	}
+
+	b := byName["up-b"]
+	if b.Uptime7d != nil || b.Uptime30d != nil {
+		t.Errorf("up-b uptimes = %v / %v, want null/null (node younger than 24h)", b.Uptime7d, b.Uptime30d)
+	}
+	nonNil := 0
+	for _, d := range b.UptimeDays {
+		if d != nil {
+			nonNil++
+			if *d != 100.0 {
+				t.Errorf("up-b day = %v, want 100.0 where a figure exists", *d)
+			}
+		}
+	}
+	if nonNil == 0 {
+		t.Error("up-b: expected at least one day bar with a figure (12h of slots)")
+	}
+
+	c := byName["up-c"]
+	if c.Uptime7d == nil || *c.Uptime7d != 0 || c.Uptime30d == nil || *c.Uptime30d != 0 {
+		t.Errorf("up-c uptimes = %v / %v, want 0/0 (full history, no heartbeats)", c.Uptime7d, c.Uptime30d)
+	}
+	if c.UptimeDays[0] == nil || *c.UptimeDays[0] != 0 {
+		t.Errorf("up-c day -29 = %v, want 0", c.UptimeDays[0])
+	}
+}
+
+// Carriers passthrough (design D7, shape fixed by backhaul D10): the
+// field is absent while probe_public_carriers is off, and appears with
+// the shared projection when on — aggregates and labels only, never a
+// target address.
+func TestStatusServiceCarriersSwitch(t *testing.T) {
+	s, srv, _ := newAdminClient(t)
+	if err := s.st.SetSetting("status_page", "true"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	target := store.ProbeTarget{ID: "t-ct", Name: "上海电信", Carrier: "ct", Addr: "secret-target.example:80", Enabled: true}
+	if err := s.st.DB.Create(&target).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []store.Node{
+		{ID: "n-admin", Name: "admin-node", Status: "online", LastSeen: &now},
+		{ID: "n-plain", Name: "plain-node", Status: "offline"},
+	} {
+		n := n
+		if err := s.st.DB.Create(&n).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	lat := store.NodeLatency{NodeID: "n-admin", TargetID: "t-ct", At: now.UTC().Truncate(latencySlot),
+		Sent: 100, Lost: 10, SumMs: 4500, MinMs: 40, MaxMs: 60, LastMs: 42, LastAt: now}
+	if err := s.st.DB.Create(&lat).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, body := getRaw(t, srv.URL+"/status/service")
+	if strings.Contains(string(body), `"carriers"`) {
+		t.Fatalf("carriers present while probe_public_carriers is off: %s", body)
+	}
+
+	if err := s.st.SetSetting("probe_public_carriers", "true"); err != nil {
+		t.Fatal(err)
+	}
+	s.svcCache.Store(nil) // settings writes via API clear it; SetSetting does not
+	_, _, body = getRaw(t, srv.URL+"/status/service")
+	if strings.Contains(string(body), "secret-target.example") {
+		t.Fatalf("carriers leak the probe target address: %s", body)
+	}
+	var snap svcSnapshotJSON
+	if err := json.Unmarshal(body, &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Nodes) != 2 {
+		t.Fatalf("nodes = %d, want 2", len(snap.Nodes))
+	}
+	car := snap.Nodes[0].Carriers
+	if car == nil {
+		t.Fatalf("carriers missing after switch on: %s", body)
+	}
+	if car.CT.Ms == nil || *car.CT.Ms != 42 || car.CT.Loss == nil || *car.CT.Loss != 10 || car.CT.Line != nil {
+		t.Errorf("ct = %+v, want ms 42, loss 10, line null (classification not landed yet)", car.CT)
+	}
+	if car.CU.Ms != nil || car.CU.Loss != nil || car.CM.Ms != nil || car.CM.Loss != nil {
+		t.Errorf("cu/cm = %+v / %+v, want all-null (fixed shape, no data)", car.CU, car.CM)
+	}
+	if snap.Nodes[1].Carriers != nil {
+		t.Errorf("plain node carriers = %+v, want nil (no samples at all)", snap.Nodes[1].Carriers)
+	}
+
+	// Whitelist discipline extends to the new object: exact key sets.
+	var top map[string]any
+	if err := json.Unmarshal(body, &top); err != nil {
+		t.Fatal(err)
+	}
+	rawNodes, _ := json.Marshal(top["nodes"])
+	var rawList []map[string]any
+	if err := json.Unmarshal(rawNodes, &rawList); err != nil {
+		t.Fatal(err)
+	}
+	rawCar, _ := json.Marshal(rawList[0]["carriers"])
+	var carMap map[string]any
+	if err := json.Unmarshal(rawCar, &carMap); err != nil {
+		t.Fatal(err)
+	}
+	assertKeysSubset(t, "carriers", carMap, "ct", "cu", "cm")
+	for k, v := range carMap {
+		vm, _ := v.(map[string]any)
+		assertKeysSubset(t, "carrier "+k, vm, "ms", "loss", "line")
 	}
 }
 
