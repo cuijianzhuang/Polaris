@@ -66,7 +66,7 @@ function CarrierColumn({ carrier, v }: { carrier: string; v: CarrierView }) {
           <div className="small mute" style={{ marginTop: 8 }}>{t('近 24 小时延迟')}</div>
           <Lines labels={labels} fmt={(x) => `${x.toFixed(0)} ms`} height={64} series={[{ name: carrierNames[carrier], color, values: v.trend.map((p) => p.avg) }]} />
           <div className="small mute" style={{ marginTop: 4 }}>{t('连接失败率')}</div>
-          <Lines labels={labels} max={100} fmt={(x) => `${x.toFixed(0)}%`} height={40} series={[{ name: t('连接失败率'), color, values: v.trend.map((p) => p.loss) }]} />
+          <Lines labels={labels} max={100} fmt={(x) => `${x.toFixed(0)}%`} height={64} series={[{ name: t('连接失败率'), color, values: v.trend.map((p) => p.loss) }]} />
         </>}
       </>}
       {v.line && v.state !== 'ok' && v.state !== 'stale' && <div className="pv-carrier-rows">
