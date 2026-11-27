@@ -72,6 +72,7 @@
 | 文档 | 内容 |
 | --- | --- |
 | [入站模板](design/inbound-templates.md) | 预览、应用与同步 |
+| [443 端口复用（SNI 分流）](design/port-443-mux.md) | 设计稿（待审定）：多协议共用 443、SNI 分流与网站回落 |
 | [REALITY 目标发现与复核](design/reality-scanner.md) | 目标扫描与节点侧检测 |
 | [Snell 独立用户接入](design/snell.md) | 多用户与独立 PSK 两种模式 |
 | [按入站设置出站 IP 策略](design/outbound-ip-strategy.md) | 自动 / 仅 IPv4 / 仅 IPv6 / 优先 IPv4 / 优先 IPv6 |
