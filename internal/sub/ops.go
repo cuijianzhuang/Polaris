@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Operator chain: nodes flow through an ordered list of operators
@@ -22,19 +23,65 @@ type Operator struct {
 	Include   string   `json:"include,omitempty"`   // keep names matching this regex
 	Exclude   string   `json:"exclude,omitempty"`   // drop names matching this regex
 	DropInfo  bool     `json:"dropInfo,omitempty"`  // drop pseudo nodes ("剩余流量", "到期时间", "官网"…)
+	// View-group predicate dimensions (panel nodes only): endpoint kind
+	// (direct / cdn / relay), relay chain id whitelist, traffic-rate ceiling
+	// and inbound tag whitelist. Empty / nil = unconstrained.
+	Kinds    []string `json:"kinds,omitempty"`
+	ChainIDs []string `json:"chainIds,omitempty"`
+	MaxRate  *float64 `json:"maxRate,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
 
 	// rename
 	Pattern  string `json:"pattern,omitempty"`  // regex
 	Replace  string `json:"replace,omitempty"`  // replacement ($1 supported)
 	Template string `json:"template,omitempty"` // e.g. "{emoji} {regionZh} {protocol} {index}"
 
-	// sort: keys applied in order: region / protocol / name / server
+	// sort: keys applied in order: region / protocol / name / server / rate
 	SortBy      []string `json:"sortBy,omitempty"`
 	RegionOrder []string `json:"regionOrder,omitempty"` // custom region priority
 	Desc        bool     `json:"desc,omitempty"`
 }
 
 var infoNodeRe = regexp.MustCompile(`(?i)剩余|流量|到期|过期|官网|重置|expire|traffic|官方|套餐|网址|客服|Telegram频道`)
+
+// reCache memoises compiled patterns: chains are validated (compiled) when
+// saved and re-run on every subscription render, so execution must not pay
+// regexp.Compile per request. Patterns are administrator-authored and few.
+var reCache sync.Map // string -> *regexp.Regexp
+
+func compileRe(pattern string) (*regexp.Regexp, error) {
+	if v, ok := reCache.Load(pattern); ok {
+		return v.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	reCache.Store(pattern, re)
+	return re, nil
+}
+
+// effectiveRate is the multiplier a node is billed at; 0 means "unset" and
+// counts as 1, matching the panel's expansion default.
+func effectiveRate(n Node) float64 {
+	if n.TrafficRate <= 0 {
+		return 1
+	}
+	return n.TrafficRate
+}
+
+// kindLabel renders a panel endpoint kind for the rename {kind} variable.
+func kindLabel(n Node) string {
+	switch n.PanelKind {
+	case "direct":
+		return "直连"
+	case "cdn":
+		return "CDN"
+	case "relay":
+		return "中转"
+	}
+	return n.PanelKind
+}
 
 // ApplyChain runs the operators in order.
 func ApplyChain(nodes []Node, ops []Operator) ([]Node, error) {
@@ -74,56 +121,112 @@ func ValidateChain(ops []Operator) error {
 			if re == "" {
 				continue
 			}
-			if _, err := regexp.Compile(re); err != nil {
+			if _, err := compileRe(re); err != nil {
 				return fmt.Errorf("operator %d: %w", i+1, err)
+			}
+		}
+		if op.MaxRate != nil && *op.MaxRate < 0 {
+			return fmt.Errorf("operator %d: maxRate must not be negative", i+1)
+		}
+		for _, k := range op.Kinds {
+			switch k {
+			case "direct", "cdn", "relay":
+			default:
+				return fmt.Errorf("operator %d: unknown kind %q", i+1, k)
 			}
 		}
 	}
 	return nil
 }
 
-func opFilter(nodes []Node, op Operator) ([]Node, error) {
-	var inc, exc *regexp.Regexp
+// filterPred is a compiled filter operator: regexes compiled once, lookup
+// sets built once, then matched per node.
+type filterPred struct {
+	op                  Operator
+	inc, exc            *regexp.Regexp
+	protos, regions     map[string]bool
+	kinds, chains, tags map[string]bool
+}
+
+func compileFilterPred(op Operator) (filterPred, error) {
+	p := filterPred{op: op, protos: set(op.Protocols), regions: set(op.Regions),
+		kinds: set(op.Kinds), chains: set(op.ChainIDs), tags: set(op.Tags)}
 	var err error
 	if op.Include != "" {
-		if inc, err = regexp.Compile(op.Include); err != nil {
-			return nil, err
+		if p.inc, err = compileRe(op.Include); err != nil {
+			return p, err
 		}
 	}
 	if op.Exclude != "" {
-		if exc, err = regexp.Compile(op.Exclude); err != nil {
-			return nil, err
+		if p.exc, err = compileRe(op.Exclude); err != nil {
+			return p, err
 		}
 	}
-	protos := set(op.Protocols)
-	regions := set(op.Regions)
+	return p, nil
+}
+
+func (p filterPred) match(n Node) bool {
+	op := p.op
+	switch {
+	case len(p.protos) > 0 && !p.protos[string(n.Protocol)]:
+		return false
+	case len(p.regions) > 0 && !p.regions[NodeRegion(n)]:
+		return false
+	case len(p.kinds) > 0 && !p.kinds[n.PanelKind]:
+		return false
+	case len(p.chains) > 0 && !p.chains[n.PanelChainID]:
+		return false
+	case op.MaxRate != nil && effectiveRate(n) > *op.MaxRate:
+		return false
+	case len(p.tags) > 0 && !p.tags[n.PanelTag]:
+		return false
+	case p.inc != nil && !p.inc.MatchString(n.Name):
+		return false
+	case p.exc != nil && p.exc.MatchString(n.Name):
+		return false
+	case op.DropInfo && infoNodeRe.MatchString(n.Name):
+		return false
+	}
+	return true
+}
+
+func opFilter(nodes []Node, op Operator) ([]Node, error) {
+	p, err := compileFilterPred(op)
+	if err != nil {
+		return nil, err
+	}
 	var out []Node
 	for _, n := range nodes {
-		if len(protos) > 0 && !protos[string(n.Protocol)] {
-			continue
+		if p.match(n) {
+			out = append(out, n)
 		}
-		if len(regions) > 0 && !regions[NodeRegion(n)] {
-			continue
-		}
-		if inc != nil && !inc.MatchString(n.Name) {
-			continue
-		}
-		if exc != nil && exc.MatchString(n.Name) {
-			continue
-		}
-		if op.DropInfo && infoNodeRe.MatchString(n.Name) {
-			continue
-		}
-		out = append(out, n)
 	}
 	return out, nil
+}
+
+// SplitByFilter partitions nodes by a filter operator used as a predicate
+// (the view-group selector form): matched nodes satisfy the predicate, rest
+// are the complement; both keep their original order.
+func SplitByFilter(nodes []Node, pred Operator) (matched, rest []Node, err error) {
+	p, err := compileFilterPred(pred)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, n := range nodes {
+		if p.match(n) {
+			matched = append(matched, n)
+		} else {
+			rest = append(rest, n)
+		}
+	}
+	return matched, rest, nil
 }
 
 func opRename(nodes []Node, op Operator) ([]Node, error) {
 	var re *regexp.Regexp
 	if op.Pattern != "" {
 		var err error
-		if re, err = regexp.Compile(op.Pattern); err != nil {
+		if re, err = compileRe(op.Pattern); err != nil {
 			return nil, err
 		}
 	}
@@ -142,6 +245,7 @@ func opRename(nodes []Node, op Operator) ([]Node, error) {
 				"emoji": Flag(code), "region": code, "regionZh": r.Zh, "regionEn": r.En,
 				"protocol": ProtocolLabel(*n), "index": fmt.Sprintf("%02d", counters[key]), "name": n.Name,
 				"server": n.Server, "port": strconv.Itoa(n.Port), "source": n.Source,
+				"kind": kindLabel(*n), "chain": n.PanelChainName, "group": n.PanelViewGroup,
 			})
 		}
 		n.Name = strings.TrimSpace(n.Name)
@@ -178,6 +282,13 @@ func opSort(nodes []Node, op Operator) {
 				c = strings.Compare(string(a.Protocol), string(b.Protocol))
 			case "server":
 				c = strings.Compare(a.Server, b.Server)
+			case "rate":
+				ra, rb := effectiveRate(a), effectiveRate(b)
+				if ra < rb {
+					c = -1
+				} else if ra > rb {
+					c = 1
+				}
 			default:
 				c = naturalCompare(a.Name, b.Name)
 			}

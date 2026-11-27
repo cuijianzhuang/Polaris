@@ -18,6 +18,9 @@ type Node struct {
 	PanelEndpointID string  `json:"-"`
 	PanelChainID    string  `json:"-"`
 	PanelKind       string  `json:"-"`
+	PanelTag        string  `json:"-"` // inbound tag, for view-group predicates
+	PanelChainName  string  `json:"-"` // relay chain name, for rename {chain}
+	PanelViewGroup  string  `json:"-"` // view group currently processing the node, for rename {group}
 	TrafficRate     float64 `json:"-"`
 	ResourceID      string  `json:",omitempty"` // stable external resource identity; never a client credential
 	Name            string

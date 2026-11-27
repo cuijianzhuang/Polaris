@@ -212,6 +212,9 @@ type planReq struct {
 	// NodeRates replaces node multipliers for the plan's users (nil =
 	// unchanged; professional edition).
 	NodeRates map[string]float64 `json:"nodeRates"`
+	// ViewGroups binds an ordered list of subscription view groups
+	// (nil = unchanged).
+	ViewGroups *[]string `json:"viewGroups"`
 	store.ForwardEntitlement
 }
 
@@ -276,6 +279,13 @@ func (s *Server) savePlan(c *gin.Context, g *store.Group, create bool) {
 			badRequest(c, errors.New("到期降级的套餐不存在"))
 			return
 		}
+	}
+	if req.ViewGroups != nil {
+		if err := s.validateViewGroupBinding(*req.ViewGroups); err != nil {
+			badRequest(c, err)
+			return
+		}
+		g.ViewGroups = store.NewJSON(*req.ViewGroups)
 	}
 	g.Plan, g.IsDefault = true, false
 	g.TrafficLimit, g.Days, g.ResetPolicy, g.ResetDay = req.TrafficLimit, req.Days, req.ResetPolicy, req.ResetDay

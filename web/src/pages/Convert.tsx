@@ -2,6 +2,7 @@ import { SettingsGate, useSettingsForm } from '../components/SettingsLoad'
 import SourceResources from '../components/SourceResources'
 import OpChain from '../components/OperatorChain'
 import ProcessingGroups, { ProcessingGroupPicker } from '../components/ProcessingGroups'
+import ViewGroups from '../components/ViewGroups'
 import { useEffect, useState } from 'react'
 import { del, get, post, put } from '../api'
 import { CopyBox, Drawer, Empty, ErrorNote, Field, Modal, QR, Switch, useAction, useConfirm, useLoad, useToast } from '../components/ui'
@@ -10,7 +11,7 @@ import { t } from '../i18n'
 import { ProTag, useFeature } from '../components/License'
 import type { NodeRow, Operator, SubProfile, SubSource, SubTemplate, User } from '../types'
 
-type Tab = 'profiles' | 'sources' | 'processing' | 'settings'
+type Tab = 'profiles' | 'sources' | 'processing' | 'viewgroups' | 'settings'
 type SchemePreset = { id: string; name: string; group: string; desc: string; url?: string }
 type Meta = { formats: string[]; regions: { Code: string; Name: string }[]; schemes?: SchemePreset[] }
 
@@ -29,13 +30,14 @@ export default function Convert() {
       </div>
       {!ok && <div className="note warn">{t('订阅源和订阅组是专业版功能：需要在许可证页面激活专业版许可证。已有的订阅组照常输出，只是不能再新建或修改。下方「转换设置」对所有订阅生效，不受影响。')}</div>}
       <div className="tabs" role="tablist">
-        {([['profiles', t('订阅组')], ['sources', t('订阅源')], ['processing', t('处理组')], ['settings', t('转换设置')]] as [Tab, string][]).map(([k, l]) => (
+        {([['profiles', t('订阅组')], ['sources', t('订阅源')], ['processing', t('处理组')], ['viewgroups', t('视图组')], ['settings', t('转换设置')]] as [Tab, string][]).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
       {tab === 'profiles' && <Profiles meta={meta.data} sources={sources.data ?? []} />}
       {tab === 'sources' && <Sources list={sources} />}
       {tab === 'processing' && <ProcessingGroups meta={meta.data} />}
+      {tab === 'viewgroups' && <ViewGroups meta={meta.data} />}
       {tab === 'settings' && <ConvertSettings meta={meta.data} />}
     </>
   )

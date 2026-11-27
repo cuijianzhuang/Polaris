@@ -67,6 +67,13 @@ func (s *Server) subscription(c *gin.Context) {
 				nodes = out
 			}
 		}
+		// View groups bound to the user's plan run after the global chain.
+		// Any failure keeps the unprocessed nodes, like the global chain.
+		if out, err := s.applyPlanViewGroups(&u, nodes); err == nil {
+			nodes = out
+		} else {
+			s.log.Warn("view group pipeline failed, serving unprocessed nodes", "err", err)
+		}
 	}
 	if len(nodes) == 0 && c.Query("raw") != "1" && sub.DetectFormat(c.Query("format"), c.GetHeader("User-Agent")) != "html" {
 		// Tell the user why instead of handing clients an empty list.
@@ -172,6 +179,7 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 			m.Port, m.Security = mm.Port, mm.Security
 		}
 		base := s.clientNode(&m, node, u)
+		base.PanelTag = in.Tag
 		base.TrafficRate = node.TrafficRate
 		if rate := prates[node.ID]; rate > 0 {
 			base.TrafficRate = rate
@@ -234,6 +242,14 @@ func (s *Server) subNodesForTrace(u *store.User, carrier, region string, trace m
 			expanded := s.expandEndpoint(base, ep, vars, nameTpl, nodes, chains, &m, &in, pre, carrier, audience)
 			for i := range expanded {
 				expanded[i].PanelEndpointID, expanded[i].PanelChainID, expanded[i].PanelKind = ep.ID, ep.RelayChainID, ep.Kind
+				if ep.RelayChainID != "" {
+					for _, ch := range chains {
+						if ch.ID == ep.RelayChainID {
+							expanded[i].PanelChainName = ch.Name
+							break
+						}
+					}
+				}
 			}
 			if trace != nil {
 				trace[ep.ID] = append(trace[ep.ID], expanded...)
