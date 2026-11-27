@@ -21,8 +21,9 @@ import (
 
 type forwardView struct {
 	store.ForwardRule
-	NodeName string `json:"nodeName"`
-	Username string `json:"username,omitempty"` // owner of a self-service rule
+	NodeName  string `json:"nodeName"`
+	Username  string `json:"username,omitempty"`  // owner of a self-service rule
+	FwdSource string `json:"fwdSource,omitempty"` // owner's quota source: plan / grant
 }
 
 func (s *Server) listForwards(c *gin.Context) {
@@ -37,6 +38,7 @@ func (s *Server) listForwards(c *gin.Context) {
 	q.Find(&rs)
 	names := s.nodeNames()
 	owners := map[string]string{}
+	sources := map[string]string{}
 	var uids []string
 	for _, r := range rs {
 		if r.UserID != "" {
@@ -45,14 +47,15 @@ func (s *Server) listForwards(c *gin.Context) {
 	}
 	if len(uids) > 0 {
 		var us []store.User
-		s.st.DB.Select("id", "username").Where("id IN ?", uids).Find(&us)
+		s.st.DB.Select("id", "username", "fwd_source").Where("id IN ?", uids).Find(&us)
 		for _, u := range us {
 			owners[u.ID] = u.Username
+			sources[u.ID] = u.FwdSource
 		}
 	}
 	out := make([]forwardView, 0, len(rs))
 	for _, r := range rs {
-		out = append(out, forwardView{r, names[r.NodeID], owners[r.UserID]})
+		out = append(out, forwardView{r, names[r.NodeID], owners[r.UserID], sources[r.UserID]})
 	}
 	c.JSON(http.StatusOK, out)
 }

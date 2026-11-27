@@ -4,7 +4,7 @@ import { useNodes } from '../App'
 import { ProTag, useFeature } from './License'
 import { Field, Modal, Switch, useAction, useConfirm, useLoad } from './ui'
 import { bytes, GB } from '../format'
-import type { Group, Node } from '../types'
+import type { Group, Node, User } from '../types'
 import { t } from '../i18n'
 
 // Plans are groups sold as packages: the level and nodes decide the
@@ -291,6 +291,9 @@ export function PlansPanel({ onChanged }: { onChanged?: () => void }) {
 // UserPlanModal starts or renews a plan for one user or a selection.
 export function UserPlanModal({ ids, current, onClose, onDone }: { ids: string[]; current?: string; onClose: () => void; onDone: () => void }) {
   const plans = useLoad((signal) => get<Group[]>('/plans', signal))
+  // For a single user, warn before a plan application wipes a direct
+  // forwarding grant (the overwrite itself is audited either way).
+  const one = useLoad((signal) => (ids.length === 1 ? get<User>(`/users/${ids[0]}`, signal) : Promise.resolve(null)), [ids.join(',')])
   const [planId, setPlanId] = useState(current ?? '')
   const [mode, setMode] = useState<'renew' | 'switch'>('renew')
   const { busy, run } = useAction()
@@ -313,6 +316,7 @@ export function UserPlanModal({ ids, current, onClose, onDone }: { ids: string[]
         </select>
       </Field>
       {p && <div className="note">{planSummary(p)}</div>}
+      {one.data?.fwdSource === 'grant' && <div className="note bad">{t('该用户有管理员直授的中转额度，开通套餐后将被套餐的转发条款整组覆盖（会留下审计记录）。')}</div>}
       <Field label={t('方式')}>
         <div className="seg">
           <button type="button" className={'opt' + (mode === 'renew' ? ' on' : '')} onClick={() => setMode('renew')}>{t('续费 / 开通')}<small>{t('已是这个套餐则顺延到期时间、保留已用流量；否则从今天开始')}</small></button>

@@ -90,6 +90,12 @@ export interface User {
   ssoCount?: number // bound SSO accounts across providers; subjects never leave the server
   renewDays: number; renewMax: number; renewCount: number; deviceLimit: number; speedUpMbps?: number; speedDownMbps?: number; lastSubAt?: string | null; lastSubUa?: string
   ownNodes?: number; ownPendingNodes?: number // brought-in VPS nodes (user-nodes feature), filled by the admin user list
+  // Self-service forwarding quota: from the plan or granted directly.
+  fwdMax?: number; fwdPortLo?: number; fwdPortHi?: number; fwdTraffic?: number; fwdRate?: number; fwdSpeedMbps?: number
+  fwdUsed?: number; fwdCapped?: boolean
+  fwdSource?: string // '' none / 'plan' / 'grant'
+  fwdResetDay?: number // 0 = follows the account cycle
+  fwdExpireAt?: string | null // null = follows the account expiry
 }
 export interface UserDevice { id: string; hwid: string; os: string; model: string; userAgent: string; ip: string; firstSeen: string; lastSeen: string }
 export interface Group {

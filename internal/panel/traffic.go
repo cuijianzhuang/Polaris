@@ -759,9 +759,16 @@ func (s *Server) resetTrafficCycles() {
 		}
 		if due {
 			// A new period: traffic packs bought for the last one expire.
-			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": resetAt,
-				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0, "fwd_used": 0, "fwd_capped": false})
-			if u.FwdCapped {
+			upd := map[string]any{"used_up": 0, "used_down": 0, "last_reset_at": resetAt,
+				"traffic_limit": packLimit(u.TrafficLimit, u.ExtraTraffic), "extra_traffic": 0}
+			if u.FwdResetDay == 0 {
+				// The forwarding quota follows the account cycle; a quota
+				// with its own reset day belongs to the independent
+				// branch below, so the two never clear it twice.
+				upd["fwd_used"], upd["fwd_capped"] = 0, false
+			}
+			s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(upd)
+			if u.FwdResetDay == 0 && u.FwdCapped {
 				cappedNodes = append(cappedNodes, s.userForwardNodes(u.ID)...) // their forwards come back
 			}
 			capped, _ := s.nodeAccess(u.ID)
@@ -774,6 +781,31 @@ func (s *Server) resetTrafficCycles() {
 				changed = append(changed, u.ID)
 			}
 		}
+	}
+	// Forwarding quotas with their own reset day (FwdResetDay > 0) cycle
+	// independently of the account: a user with no reset policy at all
+	// still gets a monthly forwarding reset, and only the forwarding
+	// counters clear.
+	var fus []store.User
+	s.st.DB.Where("fwd_reset_day > 0").Find(&fus)
+	for _, u := range fus {
+		last := u.CreatedAt
+		if u.FwdLastResetAt != nil {
+			last = *u.FwdLastResetAt
+		}
+		boundary := monthlyBoundary(now, u.FwdResetDay, 0)
+		if now.Before(boundary) {
+			boundary = monthlyBoundary(now, u.FwdResetDay, -1)
+		}
+		if !last.Before(boundary) {
+			continue
+		}
+		s.st.DB.Model(&store.User{}).Where("id = ?", u.ID).Updates(map[string]any{
+			"fwd_used": 0, "fwd_capped": false, "fwd_last_reset_at": now})
+		if u.FwdCapped {
+			cappedNodes = append(cappedNodes, s.userForwardNodes(u.ID)...) // their forwards come back
+		}
+		s.audit("system", "user.reset_forward_traffic", u.Username, fmt.Sprintf("每月 %d 日", u.FwdResetDay), "")
 	}
 	if len(cappedNodes) > 0 {
 		s.MarkDirty("node quota reset", cappedNodes...)

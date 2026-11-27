@@ -125,11 +125,19 @@ export function SubCheck({ userId }: { userId: string }) {
 
 export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { user?: User; groups: Group[]; onClose: () => void; onSaved: () => void; onDelete: (u: User) => void }) {
   const speedOK = useFeature('speed_limit')
+  const addonsOK = useFeature('plan_addons')
   const groups = all.filter((g) => !g.plan)
   const plans = all.filter((g) => g.plan)
   const [planModal, setPlanModal] = useState(false)
   const sp = plans.length > 0 || user?.planId ? 1 : 0 // the plan section shifts the step numbers
   const initLimitGB = user?.trafficLimit ? String(+(user.trafficLimit / GB).toFixed(2)) : ''
+  const initFwdGB = user?.fwdTraffic ? String(+(user.fwdTraffic / GB).toFixed(2)) : ''
+  // A plan-managed forwarding quota is read-only until the admin converts
+  // it into a direct grant (user-relay-quota D2).
+  const fwdPlanManaged = user?.fwdSource === 'plan'
+  const [fwdConvert, setFwdConvert] = useState(false)
+  const fwdRO = fwdPlanManaged && !fwdConvert
+  const confirm = useConfirm()
   const [f, setF] = useState({
     username: user?.username ?? '', limitGB: initLimitGB,
     expire: user?.expireAt ? date(user.expireAt) : '', ipLimit: String(user?.ipLimit ?? 0), resetPolicy: user?.resetPolicy ?? 'none',
@@ -138,6 +146,9 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
     nodeIds: user?.nodeIds ?? [], inboundIds: user?.inboundIds ?? [], telegramId: user?.telegramId ? String(user.telegramId) : '', email: user?.email ?? '',
     expireMode: !user?.expireAt && user?.expireAfterDays ? 'first' : 'date',
     renewDays: user?.renewDays ? String(user.renewDays) : '', renewMax: user?.renewMax ? String(user.renewMax) : '',
+    fwdMax: user?.fwdMax ? String(user.fwdMax) : '', fwdPortLo: user?.fwdPortLo ? String(user.fwdPortLo) : '', fwdPortHi: user?.fwdPortHi ? String(user.fwdPortHi) : '',
+    fwdGB: initFwdGB, fwdRate: user?.fwdRate ? String(user.fwdRate) : '', fwdSpeed: user?.fwdSpeedMbps ? String(user.fwdSpeedMbps) : '',
+    fwdResetDay: String(user?.fwdResetDay ?? 0), fwdExpire: user?.fwdExpireAt ? date(user.fwdExpireAt) : '',
     loginPw: '', clearLoginPw: false,
     deviceLimit: String(user?.deviceLimit ?? 0),
     speedUp: user?.speedUpMbps ? String(user.speedUpMbps) : '', speedDown: user?.speedDownMbps ? String(user.speedDownMbps) : '',
@@ -173,6 +184,20 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
       // Only sent when the admin typed a new sign-in password or asked
       // to clear it; absent means unchanged.
       ...(user && (f.loginPw || f.clearLoginPw) ? { loginPassword: f.clearLoginPw ? '' : f.loginPw } : {}),
+      // The forwarding grant group goes out only when it is editable:
+      // a plan-managed quota the admin did not convert stays untouched.
+      ...(user && !fwdRO ? {
+        fwd: {
+          max: Number(f.fwdMax) || 0, portLo: Number(f.fwdPortLo) || 0, portHi: Number(f.fwdPortHi) || 0,
+          // Same exactness rule as the traffic quota: untouched means
+          // the stored bytes, not a GB round-trip.
+          traffic: f.fwdGB === initFwdGB ? (user.fwdTraffic ?? 0) : Math.round(Number(f.fwdGB || 0) * GB),
+          rate: Number(f.fwdRate) || 0, speedMbps: Number(f.fwdSpeed) || 0,
+          resetDay: Number(f.fwdResetDay) || 0,
+          expireAt: f.fwdExpire ? new Date(f.fwdExpire + 'T23:59:59').toISOString() : null,
+          convert: fwdConvert,
+        },
+      } : {}),
     }
     if (f.telegramId.trim() && !/^\d{4,15}$/.test(f.telegramId.trim())) throw new Error(t('Telegram User ID 应为纯数字'))
     if (user) await put('/users/' + user.id, body)
@@ -272,11 +297,55 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
           </Field>
         </div>
       </Section>
-      <Section step={4 + sp} title={t('节点授权')}>
+      {user && (
+        <Section step={4 + sp} title={t('中转额度')} summary={[
+          fwdPlanManaged ? t('套餐 · {name}', { name: plans.find((p) => p.id === user.planId)?.name ?? user.planId }) : user.fwdSource === 'grant' ? t('管理员直授') : (user.fwdMax ?? 0) > 0 ? t('来源未知') : t('未开通'),
+          Number(f.fwdMax) ? t('{n} 条', { n: Number(f.fwdMax) }) : '',
+          user.fwdExpireAt ? t('中转 {date} 到期', { date: date(user.fwdExpireAt) }) : '',
+        ].filter(Boolean).join(' · ')}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="small mute">
+              {t('本周期已用计费流量')} <b className="mono">{bytes(user.fwdUsed ?? 0)}</b>
+              {user.fwdTraffic ? <> / <span className="mono">{bytes(user.fwdTraffic)}</span></> : t('（不限）')}
+              {user.fwdCapped && <span style={{ color: 'var(--bad)' }}> · {t('已触顶停发')}</span>}
+              {' · '}<FwdRuleCount userId={user.id} />
+            </span>
+            {fwdPlanManaged && !fwdConvert && (
+              <button className="btn sm" type="button" onClick={async () => {
+                if (await confirm(t('转为直授后，这份中转额度与套餐脱钩、按下方的填值执行；之后套餐续费或重新开通会整组覆盖它，并留下审计记录。'), { ok: t('转为直授') })) setFwdConvert(true)
+              }}>{t('转为直授')}</button>
+            )}
+            {fwdConvert && <span className="tag info-tag">{t('已转为直授，保存后生效')}</span>}
+          </div>
+          {fwdRO && <div className="hint">{t('这份额度由套餐管理，此处只读；要单独调整，先转为直授。')}</div>}
+          {!fwdPlanManaged && (user.fwdMax ?? 0) > 0 && !user.fwdSource && <div className="hint">{t('来源未知（早期数据），保存后即认领为直授。')}</div>}
+          <div className="form-grid">
+            <Field label={t('最多条数')} htmlFor="u-fwd-max" hint={t('0 为不开放（收回额度）')}><input id="u-fwd-max" className="input mono" inputMode="numeric" disabled={fwdRO || !addonsOK} value={f.fwdMax} onChange={(e) => set('fwdMax', e.target.value)} placeholder="0" /></Field>
+            <Field label={t('每周期转发流量 (GB)')} htmlFor="u-fwd-gb" hint={t('计费流量：原始字节 × 节点倍率 × 转发倍率；留空为不限')}><input id="u-fwd-gb" className="input mono" inputMode="decimal" disabled={fwdRO || !addonsOK} value={f.fwdGB} onChange={(e) => set('fwdGB', e.target.value)} /></Field>
+            <Field label={t('入口端口范围')} hint={t('留空为 10000–60000')}>
+              <div className="row" style={{ flexWrap: 'nowrap' }}>
+                <input className="input mono" inputMode="numeric" aria-label={t('起始端口')} disabled={fwdRO || !addonsOK} placeholder="10000" value={f.fwdPortLo} onChange={(e) => set('fwdPortLo', e.target.value)} />
+                <span className="mute">–</span>
+                <input className="input mono" inputMode="numeric" aria-label={t('结束端口')} disabled={fwdRO || !addonsOK} placeholder="60000" value={f.fwdPortHi} onChange={(e) => set('fwdPortHi', e.target.value)} />
+              </div>
+            </Field>
+            <Field label={t('转发倍率')} htmlFor="u-fwd-rate" hint={t('在节点倍率之上再乘；留空为 1')}><input id="u-fwd-rate" className="input mono" inputMode="decimal" disabled={fwdRO || !addonsOK} placeholder="1" value={f.fwdRate} onChange={(e) => set('fwdRate', e.target.value)} /></Field>
+            <Field label={t('每条限速 (Mbps)')} htmlFor="u-fwd-speed" hint={t('上下行各自限速；留空为不限。直授建议设置：计量有 10–30 秒延迟，限速能把超量压住')}><input id="u-fwd-speed" className="input mono" inputMode="numeric" disabled={fwdRO || !addonsOK} value={f.fwdSpeed} onChange={(e) => set('fwdSpeed', e.target.value)} /></Field>
+            <Field label={t('中转重置日')} htmlFor="u-fwd-reset">
+              <select id="u-fwd-reset" className="input" disabled={fwdRO || !addonsOK} value={f.fwdResetDay} onChange={(e) => set('fwdResetDay', e.target.value)}>
+                <option value="0">{t('跟随账号周期')}</option>
+                {Array.from({ length: 28 }, (_, i) => <option key={i + 1} value={String(i + 1)}>{t('每月 {n} 日（独立）', { n: i + 1 })}</option>)}
+              </select>
+            </Field>
+            <Field label={t('中转到期')} htmlFor="u-fwd-exp" hint={t('留空为跟随账号到期；设置后与账号到期取先到者，只停中转不停账号')}><input id="u-fwd-exp" className="input mono" type="date" disabled={fwdRO || !addonsOK} value={f.fwdExpire} onChange={(e) => set('fwdExpire', e.target.value)} /></Field>
+          </div>
+        </Section>
+      )}
+      <Section step={5 + sp} title={t('节点授权')}>
         <Access groups={groups} nodeIds={f.nodeIds} groupIds={f.groupIds} inboundIds={f.inboundIds}
           onChange={(k, v) => set(k, v)} />
       </Section>
-      <Section step={5 + sp} title={t('Telegram 与邮箱')} defaultOpen={!!user?.telegramId || !!user?.email}
+      <Section step={6 + sp} title={t('Telegram 与邮箱')} defaultOpen={!!user?.telegramId || !!user?.email}
         summary={[f.telegramId ? t('已绑定 {id}', { id: f.telegramId }) : t('未绑定'), f.email].filter(Boolean).join(' · ')}>
           <Field label="Telegram User ID" htmlFor="u-tg" full hint={user?.telegramId ? t('已绑定 · 清空即解绑；用户可在机器人中查询流量、到期并接收提醒') : t('纯数字，用户在机器人里发 /whoami 可查看；也可让用户发「/bind 订阅链接」自行绑定')}>
             <input id="u-tg" className="input mono" inputMode="numeric" value={f.telegramId} onChange={(e) => set('telegramId', e.target.value.replace(/[^\d]/g, ''))} placeholder={t('例如 123456789')} />
@@ -319,6 +388,15 @@ export function UserDrawer({ user, groups: all, onClose, onSaved, onDelete }: { 
       )}
     </Drawer>
   )
+}
+
+// FwdRuleCount shows how many self-service forward rules the user has
+// built against their quota (the rules themselves live on the Forwards
+// page, filterable by owner).
+export function FwdRuleCount({ userId }: { userId: string }) {
+  const data = useLoad((signal) => get<unknown[]>(`/forwards?user=${userId}`, signal), [userId])
+  if (!data.data) return null
+  return <>{t('已建 {n} 条', { n: data.data.length })}</>
 }
 
 // UserLinks lists one share link per node with copy and QR code.
