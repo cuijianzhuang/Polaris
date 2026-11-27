@@ -66,6 +66,8 @@ type Server struct {
 	cdnAddressCheckBusy atomic.Bool
 	statusCache         atomic.Pointer[statusSnap]  // public status page data
 	statusBuildMu       sync.Mutex                  // coalesce concurrent status rebuilds
+	svcCache            atomic.Pointer[svcSnap]     // public service status snapshot
+	svcBuildMu          sync.Mutex                  // coalesce concurrent service snapshot rebuilds
 	statsOvCache        atomic.Pointer[statsOvSnap] // dashboard aggregates (api_stats.go)
 	statsOvMu           sync.Mutex                  // coalesce concurrent stats rebuilds
 	usageMu             sync.Mutex                  // guards the global usage-count cache
@@ -127,6 +129,7 @@ type Server struct {
 	mailCodeLimit *sharedLimiter
 	ticketLimit   *sharedLimiter
 	haJoinLimit   *sharedLimiter
+	statusLimit   *sharedLimiter
 	callbacks     callbackStore
 	nodeUserSets  nodeUsersCache
 	schemes       schemeCache
@@ -262,6 +265,7 @@ func New(cfg *Config, log *slog.Logger, web http.FileSystem) (*Server, error) {
 	s.mailCodeLimit = &sharedLimiter{s: s.shared, name: "mailcode", perMinute: 5}
 	s.ticketLimit = &sharedLimiter{s: s.shared, name: "ticket", perMinute: 6}
 	s.haJoinLimit = &sharedLimiter{s: s.shared, name: "ha-join", perMinute: 10}
+	s.statusLimit = &sharedLimiter{s: s.shared, name: "status", perMinute: 120}
 	if err := s.seed(); err != nil {
 		return nil, fmt.Errorf("seed: %w", err)
 	}

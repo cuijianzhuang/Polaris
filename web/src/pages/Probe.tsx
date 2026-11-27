@@ -203,7 +203,7 @@ function Targets({ nodes, onClose, onChanged }: { nodes: PNode[]; onClose: () =>
 function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () => void; onSaved: () => void }) {
   const s = useLoad(readSettings)
   const [f, setF] = useState<Record<string, string> | null>(null)
-  const v = f ?? (s.data ? { probe_enabled: s.data.probe_enabled ?? 'true', status_page: s.data.status_page ?? 'false', status_title: s.data.status_title ?? '', status_note: s.data.status_note ?? '', status_show_traffic: s.data.status_show_traffic ?? 'false', status_show_cost: s.data.status_show_cost ?? 'false' } : null)
+  const v = f ?? (s.data ? { probe_enabled: s.data.probe_enabled ?? 'true', status_page: s.data.status_page ?? 'false', status_title: s.data.status_title ?? '', status_note: s.data.status_note ?? '', status_show_traffic: s.data.status_show_traffic ?? 'false', status_show_cost: s.data.status_show_cost ?? 'false', status_service_only: s.data.status_service_only ?? 'false' } : null)
   const set = (k: string, x: string) => setF({ ...(v ?? {}), [k]: x })
   const { busy, run } = useAction()
   return (
@@ -217,6 +217,7 @@ function StatusSettings({ url, onClose, onSaved }: { url: string; onClose: () =>
           <label className="row small"><Switch label={t('公开状态页')} on={v.status_page === 'true'} onChange={(x) => set('status_page', String(x))} />{t('开启')} <span className="mono">{url}</span></label>
         </Field>
         {v.status_page === 'true' && <CopyBox text={url} />}
+        <Field label={t('仅服务视图')} hint={t('开启后公开页只显示面向客户的服务状态（在线状态与延迟），详细监控视图和其数据接口一并关闭')}><label className="row small"><Switch label={t('仅服务视图')} on={v.status_service_only === 'true'} onChange={(x) => set('status_service_only', String(x))} />{t('开启')}</label></Field>
         <Field label={t('页面标题')} htmlFor="st-title"><input id="st-title" className="input" value={v.status_title} onChange={(e) => set('status_title', e.target.value)} placeholder={t('留空则用「站点名称 · 服务器状态」')} /></Field>
         <Field label={t('公告')} htmlFor="st-note"><textarea id="st-note" className="input" rows={3} value={v.status_note} onChange={(e) => set('status_note', e.target.value)} placeholder={t('可选，显示在页面顶部')} /></Field>
         <Field label={t('显示服务器流量')}><label className="row small"><Switch label={t('显示服务器流量')} on={v.status_show_traffic === 'true'} onChange={(x) => set('status_show_traffic', String(x))} />{t('在公开页显示各节点本月流量和额度')}</label></Field>

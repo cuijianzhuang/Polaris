@@ -269,7 +269,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
   const [relayFor, setRelayFor] = useState<string[]>(node?.relayFor ?? [])
   const relayTargets = nodes.filter((n) => n.id !== node?.id && !n.ownerId)
   const [f, setF] = useState({
-    name: node?.name ?? '', displayName: node?.displayName ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
+    name: node?.name ?? '', displayName: node?.displayName ?? '', publicName: node?.publicName ?? '', address: node?.address ?? '', domain: node?.domain ?? '', region: node?.region ?? '',
     flag: node?.flag ?? '', lat: node?.lat != null ? String(node.lat) : '', lng: node?.lng != null ? String(node.lng) : '', labels: (node?.labels ?? []).join(', '), trafficRate: node?.trafficRate ?? 1, level: node?.level ?? 0,
     netLimitGb: node?.netLimit ? +(node.netLimit / GB).toFixed(2) : 0, netMode: node?.netMode || 'sum', netResetDay: node?.netResetDay ?? 1, netWarnPct: node?.netWarnPct || 80,
     netUsedGb: node ? +(netUsed(node) / GB).toFixed(2) : 0,
@@ -289,6 +289,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
       labels: f.labels.split(/[,\s]+/).filter(Boolean), relayFor: isUserNode ? [] : relayFor, defaultCore: f.defaultCore, ddns: f.ddns, noFirewall: !f.firewall, sortOrder: node?.sortOrder ?? 0,
     }
     if (isUserNode) body.displayName = f.displayName
+    else body.publicName = f.publicName
     const net: any = { limitGb: Number(f.netLimitGb) || 0, mode: f.netMode, resetDay: Number(f.netResetDay) || 0, warnPct: Number(f.netWarnPct) || 0 }
     if (node) {
       await put('/nodes/' + node.id, body)
@@ -313,6 +314,7 @@ function NodeForm({ node, onClose, onSaved }: { node?: Node; onClose: () => void
     </>}>
       <div className="form-grid">
         <Field label={t('名称')} htmlFor="n-name"><input id="n-name" className="input" value={isUserNode ? f.displayName : f.name} onChange={(e) => set(isUserNode ? 'displayName' : 'name', e.target.value)} placeholder="tokyo-1" /></Field>
+        {!isUserNode && <Field label={t('公开名称')} htmlFor="n-publicname" hint={t('公开状态页的服务视图显示这个名字；留空则显示内部名称')}><input id="n-publicname" className="input" value={f.publicName} onChange={(e) => set('publicName', e.target.value)} placeholder={t('如：东京 01')} /></Field>}
         <Field label={t('地区')} htmlFor="n-region"><input id="n-region" className="input" value={f.region} onChange={(e) => set('region', e.target.value)} placeholder={t('东京')} /></Field>
         <Field label={t('公网地址')} htmlFor="n-addr" hint={t('没填节点域名时，订阅里客户端连接这个 IP 或域名；都留空则用 Agent 检测到的公网 IP')}><input id="n-addr" className="input mono" value={f.address} onChange={(e) => set('address', e.target.value)} placeholder="203.0.113.10" /></Field>
         <Field label={t('节点域名')} htmlFor="n-domain" hint={t('填了就优先用于订阅（客户端连这个域名），也用于 ACME 证书与 {node.domain}')}><input id="n-domain" className="input mono" value={f.domain} onChange={(e) => set('domain', e.target.value)} placeholder="jp1.example.com" /></Field>

@@ -490,6 +490,8 @@ const m: Record<string, string> = {
   "卡片": "Cards",
   "表格": "Table",
   "显示价格和到期": "Show price and expiry",
+  "仅服务视图": "Service view only",
+  "开启后公开页只显示面向客户的服务状态（在线状态与延迟），详细监控视图和其数据接口一并关闭": "When on, the public page shows only the customer-facing service status (online state and latency); the detailed monitor view and its data endpoint are closed too",
   "在公开页显示服务器价格和剩余天数（来自节点的成本设置）": "Show server prices and days left on the public page (from each node's cost settings)",
   "探针设置": "Probe settings",
   "搜索节点": "Search nodes",

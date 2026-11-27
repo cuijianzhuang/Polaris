@@ -667,6 +667,7 @@ func (s *Server) updateProbeTarget(c *gin.Context) {
 		return
 	}
 	s.statusCache.Store(nil)
+	s.svcCache.Store(nil)
 	s.auditCtx(c, "probe.target.update", r.Name, r.Addr)
 	s.st.DB.First(&t, "id = ?", t.ID)
 	c.JSON(http.StatusOK, t)
@@ -693,6 +694,7 @@ func (s *Server) deleteProbeTarget(c *gin.Context) {
 		return
 	}
 	s.statusCache.Store(nil)
+	s.svcCache.Store(nil)
 	s.auditCtx(c, "probe.target.delete", t.Name, t.Addr)
 	c.Status(http.StatusNoContent)
 }
@@ -743,6 +745,7 @@ func (s *Server) setNodeStatusHidden(c *gin.Context) {
 		return
 	}
 	s.statusCache.Store(nil)
+	s.svcCache.Store(nil)
 	c.Status(http.StatusNoContent)
 }
 
