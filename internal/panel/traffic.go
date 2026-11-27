@@ -327,8 +327,14 @@ func (s *Server) settle() (enforced bool, err error) {
 				dailies = append(dailies, store.TrafficDaily{UserID: uid, NodeID: nodeID, Day: day, Up: up, Down: down})
 			}
 		}
-		// Each conflict key occurs once per batch (data is keyed by node, then
-		// user or tag), so "excluded" is this round's amount for that row.
+		// Merge rows that share a conflict key before the batched upserts:
+		// share identities strip to their main account above, so one batch
+		// can hold two rows for the same (user, node, hour/day) key, and a
+		// multi-row INSERT ... ON CONFLICT DO UPDATE must never see a key
+		// twice (PostgreSQL SQLSTATE 21000; SQLite tolerates it). After the
+		// merge each key occurs once, so "excluded" is this round's amount.
+		hourlies = mergeHourly(hourlies)
+		dailies = mergeDaily(dailies)
 		if err := upsertAll(tx, tags, clause.OnConflict{
 			Columns: []clause.Column{{Name: "node_id"}, {Name: "kind"}, {Name: "tag"}},
 			DoUpdates: clause.Assignments(map[string]any{
@@ -422,6 +428,70 @@ func (s *Server) settle() (enforced bool, err error) {
 	// call would leave time-based expiry unenforced on idle/failed rounds.
 	s.enforceLimits()
 	return true, nil
+}
+
+// mergeHourly folds rows sharing the (user, node, hour) conflict key into
+// one, summing the additive counters and widening the rate range. First
+// occurrence order is kept.
+func mergeHourly(rows []store.TrafficHourly) []store.TrafficHourly {
+	if len(rows) < 2 {
+		return rows
+	}
+	type key struct {
+		user, node string
+		hour       time.Time
+	}
+	pos := make(map[key]int, len(rows))
+	out := rows[:0]
+	for _, r := range rows {
+		k := key{r.UserID, r.NodeID, r.Hour}
+		if i, ok := pos[k]; ok {
+			m := &out[i]
+			m.Up += r.Up
+			m.Down += r.Down
+			m.RawRecorded = m.RawRecorded || r.RawRecorded
+			m.RawUp += r.RawUp
+			m.RawDown += r.RawDown
+			m.RecordedUp += r.RecordedUp
+			m.RecordedDown += r.RecordedDown
+			m.AccountUp += r.AccountUp
+			m.AccountDown += r.AccountDown
+			if r.RateMin < m.RateMin {
+				m.RateMin = r.RateMin
+			}
+			if r.RateMax > m.RateMax {
+				m.RateMax = r.RateMax
+			}
+			continue
+		}
+		pos[k] = len(out)
+		out = append(out, r)
+	}
+	return out
+}
+
+// mergeDaily folds rows sharing the (user, node, day) conflict key into
+// one, summing the counters. First occurrence order is kept.
+func mergeDaily(rows []store.TrafficDaily) []store.TrafficDaily {
+	if len(rows) < 2 {
+		return rows
+	}
+	type key struct {
+		user, node, day string
+	}
+	pos := make(map[key]int, len(rows))
+	out := rows[:0]
+	for _, r := range rows {
+		k := key{r.UserID, r.NodeID, r.Day}
+		if i, ok := pos[k]; ok {
+			out[i].Up += r.Up
+			out[i].Down += r.Down
+			continue
+		}
+		pos[k] = len(out)
+		out = append(out, r)
+	}
+	return out
 }
 
 // settleBatch is how many rows one batched statement writes.
