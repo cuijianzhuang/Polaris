@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"html/template"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -137,6 +138,13 @@ type serviceNode struct {
 	Flag    string           `json:"flag"`
 	State   string           `json:"state"` // online / degraded / offline
 	Latency []serviceLatency `json:"latency"`
+	// Availability from NodeMetric heartbeat slots (design D6); nil means
+	// too little history to state a number. UptimeDays always has 30
+	// entries (oldest first, today last), nil per day likewise.
+	Uptime7d   *float64         `json:"uptime7d"`
+	Uptime30d  *float64         `json:"uptime30d"`
+	UptimeDays []*float64       `json:"uptimeDays"`
+	Carriers   *serviceCarriers `json:"carriers,omitempty"` // only when probe_public_carriers is on and data exists
 }
 
 type serviceSummary struct {
@@ -168,6 +176,11 @@ func (s *Server) buildServiceSnapshot() (*serviceSnapshotData, error) {
 	}
 	targets := s.latencyTargets(true)
 	lat := s.latencySummaryForNodes(ns, targets, now)
+	ups, err := s.uptimesForNodes(ns, now)
+	if err != nil {
+		return nil, err
+	}
+	showCarriers := s.st.GetSetting("probe_public_carriers", "false") == "true"
 	out := &serviceSnapshotData{
 		Title: s.statusTitle(),
 		Note:  s.st.GetSetting("status_note", ""),
@@ -179,7 +192,13 @@ func (s *Server) buildServiceSnapshot() (*serviceSnapshotData, error) {
 		n := &ns[i]
 		onlineClass := n.Status == "online" || n.Status == "syncing" || n.Status == "error"
 		fresh := onlineClass && n.LastSeen != nil && now.Sub(*n.LastSeen) <= 90*time.Second && !n.LastSeen.After(now.Add(time.Minute))
-		sn := serviceNode{Region: n.Region, Flag: n.Flag, Latency: []serviceLatency{}}
+		sn := serviceNode{Region: n.Region, Flag: n.Flag, Latency: []serviceLatency{}, UptimeDays: make([]*float64, 30)}
+		if u := ups[n.ID]; u != nil {
+			sn.Uptime7d, sn.Uptime30d, sn.UptimeDays = u.d7, u.d30, u.days
+		}
+		if showCarriers {
+			sn.Carriers = s.publicCarriers(n, now)
+		}
 		sn.Name = strings.TrimSpace(n.PublicName)
 		if sn.Name == "" {
 			sn.Name = n.Name
@@ -222,6 +241,153 @@ func (s *Server) buildServiceSnapshot() (*serviceSnapshotData, error) {
 		out.Summary.State = "partial"
 	default:
 		out.Summary.State = "major"
+	}
+	return out, nil
+}
+
+// --- availability (design D6): NodeMetric heartbeat slots, no new tables ---
+
+// nodeUptime is one node's availability over the rolling 7/30-day windows
+// plus the per-day bars of the last 30 UTC days. A nil figure means the
+// window has too little history to state a number honestly.
+type nodeUptime struct {
+	d7   *float64
+	d30  *float64
+	days []*float64 // 30 entries, oldest first, today last
+}
+
+// ceilSlot rounds t up to the next metric slot boundary (t itself when it
+// already sits on one): the first slot a node created at t can appear in.
+func ceilSlot(t time.Time) time.Time {
+	u := t.UTC()
+	tr := u.Truncate(metricSlot)
+	if tr.Before(u) {
+		return tr.Add(metricSlot)
+	}
+	return tr
+}
+
+// uptimePct renders present/expected as a one-decimal percentage, or nil
+// when the window is too small to mean anything (design D6: fewer than 12
+// expected slots — under an hour of history — is "data insufficient",
+// never 0% or 100%).
+func uptimePct(present, expected int) *float64 {
+	if expected < 12 {
+		return nil
+	}
+	if present > expected {
+		present = expected
+	}
+	v := math.Round(1000*float64(present)/float64(expected)) / 10
+	return &v
+}
+
+// uptimesForNodes aggregates availability for the whole snapshot fleet in
+// three grouped queries: slot presence is the only signal — a missing
+// 5-minute slot counts as unavailable, including slots the panel itself
+// was down for (the page footnote says so; see design D6). NodeLatency is
+// never used here: target reachability is not node availability.
+func (s *Server) uptimesForNodes(ns []store.Node, now time.Time) (map[string]*nodeUptime, error) {
+	out := map[string]*nodeUptime{}
+	if len(ns) == 0 {
+		return out, nil
+	}
+	ids := make([]string, len(ns))
+	created := make(map[string]time.Time, len(ns))
+	for i := range ns {
+		ids[i] = ns[i].ID
+		created[ns[i].ID] = ns[i].CreatedAt
+	}
+	// Windows are half-open [start, slotNow): the current, still-open slot
+	// is in neither numerator nor denominator.
+	slotNow := now.UTC().Truncate(metricSlot)
+	type countRow struct {
+		NodeID string
+		C      int
+	}
+	countIn := func(from time.Time) (map[string]int, error) {
+		var rows []countRow
+		err := s.st.DB.Model(&store.NodeMetric{}).
+			Select("node_id, COUNT(*) AS c").
+			Where("node_id IN ? AND at >= ? AND at < ?", ids, from, slotNow).
+			Group("node_id").Scan(&rows).Error
+		m := map[string]int{}
+		for _, r := range rows {
+			m[r.NodeID] = r.C
+		}
+		return m, err
+	}
+	c7, err := countIn(slotNow.AddDate(0, 0, -7))
+	if err != nil {
+		return nil, err
+	}
+	c30, err := countIn(slotNow.AddDate(0, 0, -30))
+	if err != nil {
+		return nil, err
+	}
+	// Per-day bars over the last 30 UTC days (today last, partial so far).
+	dayExpr := "date(at)"
+	if s.st.DB.Dialector.Name() == "postgres" {
+		dayExpr = "to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
+	}
+	today := time.Date(slotNow.Year(), slotNow.Month(), slotNow.Day(), 0, 0, 0, 0, time.UTC)
+	firstDay := today.AddDate(0, 0, -29)
+	type dayRow struct {
+		NodeID string
+		Day    string
+		C      int
+	}
+	var drows []dayRow
+	if err := s.st.DB.Model(&store.NodeMetric{}).
+		Select("node_id, "+dayExpr+" AS day, COUNT(*) AS c").
+		Where("node_id IN ? AND at >= ? AND at < ?", ids, firstDay, slotNow).
+		Group("node_id, " + dayExpr).Scan(&drows).Error; err != nil {
+		return nil, err
+	}
+	perDay := map[string]map[string]int{}
+	for _, r := range drows {
+		if perDay[r.NodeID] == nil {
+			perDay[r.NodeID] = map[string]int{}
+		}
+		perDay[r.NodeID][r.Day] = r.C
+	}
+	slotsPerDay := int(24 * time.Hour / metricSlot)
+	for i := range ns {
+		id := ns[i].ID
+		u := &nodeUptime{days: make([]*float64, 30)}
+		// Rolling windows: a node younger than 24 hours gets no figure at
+		// all (design D6); older nodes are measured from their creation.
+		if now.Sub(created[id]) >= 24*time.Hour {
+			for _, w := range []struct {
+				days int
+				cnt  map[string]int
+				dst  **float64
+			}{{7, c7, &u.d7}, {30, c30, &u.d30}} {
+				start := slotNow.AddDate(0, 0, -w.days)
+				expected := w.days * slotsPerDay
+				if cs := ceilSlot(created[id]); cs.After(start) {
+					expected = int(slotNow.Sub(cs) / metricSlot)
+				}
+				*w.dst = uptimePct(w.cnt[id], expected)
+			}
+		}
+		for d := 0; d < 30; d++ {
+			ds := firstDay.AddDate(0, 0, d)
+			de := ds.AddDate(0, 0, 1)
+			if de.After(slotNow) {
+				de = slotNow
+			}
+			es := ds
+			if cs := ceilSlot(created[id]); cs.After(es) {
+				es = cs
+			}
+			expected := 0
+			if de.After(es) {
+				expected = int(de.Sub(es) / metricSlot)
+			}
+			u.days[d] = uptimePct(perDay[id][ds.Format("2006-01-02")], expected)
+		}
+		out[id] = u
 	}
 	return out, nil
 }
@@ -325,6 +491,12 @@ main.pv-monitor{padding:34px 24px 48px}
 .svc-lats{margin-left:auto;display:flex;gap:14px;flex-wrap:wrap}
 .svc-lat{display:inline-flex;gap:5px;align-items:baseline;font-size:12px}
 .svc-lat-name{color:var(--pv-mute)}
+.svc-carriers{margin-left:0}
+.svc-line{color:var(--pv-mute);font-size:11px;border:1px solid var(--pv-line);border-radius:4px;padding:0 4px}
+.svc-up{display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--pv-mute)}
+.svc-up b{color:var(--pv-ink)}
+.svc-days{display:inline-flex;gap:2px;align-items:flex-end;height:14px}
+.svc-days i{display:block;width:4px;border-radius:1px}
 @media(max-width:640px){.svc-lats{margin-left:0}}
 ` + statusCSS + `
 @media(prefers-color-scheme:dark){body.public-status:not([data-theme="light"]){background:#000;color-scheme:dark;background-image:none}.public-status:not([data-theme="light"]) .pv{--pv-card:#0A0A0A;--pv-card-2:#18181B;--pv-line:#2E2E2E;--pv-ink:#FAFAFA;--pv-mute:#A1A1AA;--pv-track:#1C1C1F;--pv-green:#63c78f;--pv-blue:#7aa5e8;--pv-yellow:#e0a93e;--pv-orange:#f08c4a;--pv-red:#f26d6d;--pv-cyan:#2DD4BF;--pv-purple:#a493e8;--pv-glow:0 0 0 1px rgba(255,255,255,.03),0 8px 24px -12px rgba(0,0,0,.8)}}
@@ -337,7 +509,7 @@ main.pv-monitor{padding:34px 24px 48px}
 <div id="svc-error" class="note" role="alert" hidden><span>暂时无法读取服务状态。</span><button type="button" id="svc-retry" class="pv-link">重试</button></div>
 <div id="svc-banner" class="svc-banner ok"><strong>正在读取服务状态…</strong><span></span></div>
 <div id="svc-groups"><div class="pv-loading" role="status">正在读取服务状态…</div></div>
-<footer class="pv-footnote">数据截至 <span id="svc-at">—</span> · 每 30 秒更新。延迟为节点到目标的 TCP 连接耗时，百分比为近 1 小时连接失败率，不是 ICMP 丢包率。</footer>
+<footer class="pv-footnote">数据截至 <span id="svc-at">—</span> · 每 30 秒更新。延迟为节点到目标的 TCP 连接耗时，百分比为近 1 小时连接失败率，不是 ICMP 丢包率。可用率按面板观测到的 Agent 心跳计算（5 分钟粒度）；面板自身停机期间全站计为不可用；短于 5 分钟的中断可能不体现。</footer>
 </div>
 {{if not .ServiceOnly}}<div id="view-monitor" hidden>
 <div class="pv-subtitle">资源状态与网络质量 <span class="pv-live"><i></i><span id="at">等待更新</span></span></div>

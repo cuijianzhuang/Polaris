@@ -83,6 +83,34 @@
     const ms = l.ms == null ? '—' : l.ms.toFixed(l.ms < 1 ? 1 : 0) + ' ms';
     return '<span class="svc-lat"><span class="svc-lat-name">' + esc(l.name) + '</span><b style="color:' + pc(l.ms) + '">' + ms + '</b><span style="color:' + lc(l.loss || 0) + '">' + (l.loss || 0).toFixed(1) + '%</span></span>';
   }
+  // Carriers segment (present only when the snapshot carries it): one
+  // chip per carrier that has a figure or a line label; an all-null
+  // carrier renders nothing, and no carriers object renders no segment.
+  const carrierName = { ct: '电信', cu: '联通', cm: '移动' };
+  function carrierCell(k, c) {
+    if (!c || (c.ms == null && !c.line)) return '';
+    const ms = c.ms == null ? '—' : c.ms.toFixed(c.ms < 1 ? 1 : 0) + ' ms';
+    return '<span class="svc-lat"><span class="svc-lat-name">' + carrierName[k] + '</span><b style="color:' + pc(c.ms) + '">' + ms + '</b>' +
+      (c.loss != null ? '<span style="color:' + lc(c.loss) + '">' + c.loss.toFixed(1) + '%</span>' : '') +
+      (c.line ? '<span class="svc-line">' + esc(String(c.line).toUpperCase()) + '</span>' : '') + '</span>';
+  }
+  function carriersHTML(n) {
+    if (!n.carriers) return '';
+    const h = ['ct', 'cu', 'cm'].map((k) => carrierCell(k, n.carriers[k])).join('');
+    return h ? '<span class="svc-lats svc-carriers">' + h + '</span>' : '';
+  }
+  function uptimeHTML(n) {
+    const f = (v) => v == null ? '数据不足' : v.toFixed(1) + '%';
+    let h = '<span class="svc-up"><span>可用率 7 日 <b>' + f(n.uptime7d) + '</b> · 30 日 <b>' + f(n.uptime30d) + '</b></span>';
+    if (Array.isArray(n.uptimeDays) && n.uptimeDays.length) {
+      h += '<span class="svc-days">' + n.uptimeDays.map((v) => {
+        if (v == null) return '<i style="height:15%;background:var(--pv-track)"></i>';
+        const col = v >= 99 ? 'var(--pv-green)' : v >= 95 ? 'var(--pv-yellow)' : v >= 90 ? 'var(--pv-orange)' : 'var(--pv-red)';
+        return '<i title="' + v.toFixed(1) + '%" style="height:' + Math.max(15, v) + '%;background:' + col + '"></i>';
+      }).join('') + '</span>';
+    }
+    return h + '</span>';
+  }
   function draw() {
     if (!last) return;
     const s = last.summary || { total: 0, online: 0, state: 'ok' };
@@ -101,7 +129,7 @@
     for (const [region, ns] of groups) {
       const on = ns.filter((n) => n.state === 'online').length;
       h += '<section class="svc-group"><h2><span>' + esc(region || '未分组') + '</span><small>' + on + '/' + ns.length + ' 在线</small></h2>' + ns.map((n) =>
-        '<div class="svc-row"><span class="svc-dot ' + n.state + '"></span><span class="svc-flag">' + flag(n.flag) + '</span><span class="svc-name">' + flagText(n.name) + '</span><span class="svc-state">' + (stateText[n.state] || n.state) + '</span><span class="svc-lats">' + (n.latency || []).map(latencyCell).join('') + '</span></div>'
+        '<div class="svc-row"><span class="svc-dot ' + n.state + '"></span><span class="svc-flag">' + flag(n.flag) + '</span><span class="svc-name">' + flagText(n.name) + '</span><span class="svc-state">' + (stateText[n.state] || n.state) + '</span><span class="svc-lats">' + (n.latency || []).map(latencyCell).join('') + '</span>' + carriersHTML(n) + uptimeHTML(n) + '</div>'
       ).join('') + '</section>';
     }
     $('svc-groups').innerHTML = h || '<div class="pv-empty">暂无公开节点</div>';

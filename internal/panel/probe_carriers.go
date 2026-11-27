@@ -252,3 +252,68 @@ func (s *Server) nodeCarriers(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, s.carrierSummary(&n, time.Now()))
 }
+
+// --- public projection (backhaul design D10) ---
+//
+// The shape is fixed by docs/design/backhaul-monitor.md D10 and shared by
+// every public surface: the service snapshot below and the monitor
+// snapshot when backhaul batch 3 wires it in. One projection, so the two
+// can never drift apart. Only aggregate numbers and the line label leave
+// the panel — never a target address, route or evidence detail.
+
+// serviceCarrier is one carrier's public figures. A carrier without data
+// stays present but all-null, keeping the {ct, cu, cm} shape fixed.
+type serviceCarrier struct {
+	Ms   *float64 `json:"ms"`   // last probe; nil = no live sample
+	Loss *float64 `json:"loss"` // last hour, percent
+	Line *string  `json:"line"` // classification label; nil until backhaul batch 2 lands
+}
+
+type serviceCarriers struct {
+	CT serviceCarrier `json:"ct"`
+	CU serviceCarrier `json:"cu"`
+	CM serviceCarrier `json:"cm"`
+}
+
+// publicCarriers projects the node's carrierSummary into the public
+// shape. It returns nil when no carrier has any figure to show (no
+// targets, probing off, no samples yet), so callers omit the field
+// entirely instead of publishing an empty shell.
+func (s *Server) publicCarriers(n *store.Node, now time.Time) *serviceCarriers {
+	sum, ok := s.carrierSummary(n, now)["carriers"].(gin.H)
+	if !ok {
+		return nil
+	}
+	proj := func(v carrierView) serviceCarrier {
+		c := serviceCarrier{Loss: v.Loss1h, Line: v.Line}
+		if v.Current != nil && v.Current.Ms > 0 {
+			ms := v.Current.Ms
+			c.Ms = &ms
+		}
+		return c
+	}
+	out := &serviceCarriers{}
+	any := false
+	for _, ck := range carrierKeys {
+		v, ok := sum[ck].(carrierView)
+		if !ok {
+			continue
+		}
+		c := proj(v)
+		if c.Ms != nil || c.Loss != nil || c.Line != nil {
+			any = true
+		}
+		switch ck {
+		case "ct":
+			out.CT = c
+		case "cu":
+			out.CU = c
+		case "cm":
+			out.CM = c
+		}
+	}
+	if !any {
+		return nil
+	}
+	return out
+}
