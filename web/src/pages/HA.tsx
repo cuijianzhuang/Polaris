@@ -82,6 +82,14 @@ function pgRoleText(inRecovery: boolean | null): string {
   return t('未知')
 }
 
+// Replay lag under synchronous replication is normally sub-second, where
+// "0.0 秒" would read as zero; show milliseconds below one second.
+function lagText(seconds: number | null): string {
+  if (seconds === null) return t('未知')
+  if (seconds < 1) return t('{n} 毫秒', { n: Math.round(seconds * 1000) })
+  return t('{n} 秒', { n: seconds.toFixed(1) })
+}
+
 // Per-instance delivery states of a sync upgrade: pending waits for the
 // instance to pick the request up, accepted means its local updater is
 // working on it, done/failed are the outcome the instance reported back.
@@ -273,7 +281,7 @@ export default function HA() {
               <dt>{t('角色')}</dt><dd><span className={'tag ' + meta.cls}>{meta.label}</span></dd>
               <dt>{t('当前 Leader')}</dt><dd>{leaderMember ? leaderMember.host : t('未知')}</dd>
               <dt>{t('数据库角色')}</dt><dd>{pgRoleText(st.inRecovery)}{st.inRecovery === null && <span className="mute"> · {t('SQLite 下不可用，需 PostgreSQL')}</span>}</dd>
-              <dt>{t('回放延迟')}</dt><dd>{st.replayLagSeconds === null ? t('未知') : t('{n} 秒', { n: st.replayLagSeconds.toFixed(1) })}</dd>
+              <dt>{t('回放延迟')}</dt><dd>{lagText(st.replayLagSeconds)}</dd>
               <dt>{t('Redis')}</dt><dd>{st.redisConfigured ? t('已配置') : t('未配置')}</dd>
               <dt>{t('面板版本')}</dt><dd><span className="mono">{st.version || t('未知')}</span>{st.edition ? <span className="mute"> · {st.edition}</span> : null}</dd>
               <dt>{t('实例间共享')}</dt><dd>{st.shared ? t('已启用') : t('未启用')}</dd>
@@ -481,7 +489,7 @@ export default function HA() {
               <dl className="kv">
                 <dt>{t('检查结果')}</dt><dd><span className={'tag ' + (check.healthy ? 'ok' : 'bad')}>{check.healthy ? t('检查通过') : t('检查异常')}</span></dd>
                 <dt>{t('主站可达')}</dt><dd>{check.primaryReachable === null ? t('未知') : check.primaryReachable ? t('可达') : t('不可达')}{check.primaryStatus !== null && <span className="mute"> · HTTP {check.primaryStatus}</span>}</dd>
-                <dt>{t('回放延迟')}</dt><dd>{check.replayLagSeconds === null ? t('未知') : t('{n} 秒', { n: check.replayLagSeconds.toFixed(1) })}</dd>
+                <dt>{t('回放延迟')}</dt><dd>{lagText(check.replayLagSeconds)}</dd>
                 <dt>{t('DNS 当前指向')}</dt><dd><span className="mono" style={{ overflowWrap: 'anywhere' }}>{check.dnsHost || t('未知')}</span>{check.dnsAddresses && check.dnsAddresses.length > 0 && <div className="mono small" style={{ overflowWrap: 'anywhere' }}>{check.dnsAddresses.join(', ')}</div>}</dd>
                 <dt>{t('数据库角色')}</dt><dd>{pgRoleText(check.inRecovery)}</dd>
               </dl>

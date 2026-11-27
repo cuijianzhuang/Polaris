@@ -151,6 +151,17 @@ func (s *Server) haSyncReplicationEnabled() (names string, waiting bool) {
 // haReplayState reports whether this database is in recovery (a standby)
 // and how far behind replay is, in seconds. Both are nil when the query
 // cannot run (SQLite) or fails.
+//
+// The two roles need different sources. On a standby the lag is the age
+// of the last replayed transaction. On the primary
+// pg_last_xact_replay_timestamp() is NULL, so that formula can never
+// produce a value there — the HA page showed "unknown" on the primary
+// forever. The primary's view of the same quantity is the worst
+// replay_lag across its connected standbys in pg_stat_replication
+// (MAX over zero rows is one NULL row, so no standby still yields nil).
+// Reading that view needs the panel's DB role to see other sessions'
+// replication rows (pg_monitor or superuser); without it the primary
+// honestly reports nil.
 func (s *Server) haReplayState() (inRecovery *bool, lagSeconds *float64) {
 	if !s.haIsPostgres() {
 		return nil, nil
@@ -161,7 +172,11 @@ func (s *Server) haReplayState() (inRecovery *bool, lagSeconds *float64) {
 	}
 	inRecovery = &rec
 	var lag *float64
-	if err := s.st.DB.Raw("SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))").Scan(&lag).Error; err != nil {
+	q := "SELECT EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))"
+	if !rec {
+		q = "SELECT EXTRACT(EPOCH FROM MAX(replay_lag)) FROM pg_stat_replication"
+	}
+	if err := s.st.DB.Raw(q).Scan(&lag).Error; err != nil {
 		return inRecovery, nil
 	}
 	return inRecovery, lag

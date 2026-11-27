@@ -57,6 +57,7 @@ export default {
   '开启同步复制': 'Enable synchronous replication',
   '恢复异步': 'Switch back to asynchronous',
   '当前：{n}': 'Currently: {n}',
+  '{n} 毫秒': '{n} ms',
   '异步复制：故障瞬间可能丢几秒写入；同步复制要付出每次写库多一次往返的代价。':
     'Asynchronous replication may lose a few seconds of writes during a failure; synchronous replication costs one extra round trip per write.',
   '开启后每次写库都要等备机确认：延迟增加，但故障时不丢已提交的写入。确认开启？':
