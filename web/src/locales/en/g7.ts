@@ -196,6 +196,8 @@ const m: Record<string, string> = {
   '许可证已安装': 'License installed',
   '试用': 'Trial',
   '需要专业版许可证（许可证页面）': 'Needs a Pro license (License page)',
+  '自带节点免审批': 'User nodes without review',
+  '注册用户接入自己的节点免管理员审批': 'Registered users can enrol their own nodes without admin review',
   '高级功能': 'Paid features',
   '高级功能试用中，还剩 {n} 天；到期后已生效的配置保持不变，只是不能再修改。': 'Paid features trial: {n} days left. Afterwards what is configured keeps working but can no longer be changed.',
   '导入许可证文件': 'Import license file',
