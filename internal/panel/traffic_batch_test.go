@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -133,4 +134,33 @@ func TestTakeInboxRefusesPartlyTakenBatch(t *testing.T) {
 			t.Fatalf("inbox after refused take = %s", got)
 		}
 	})
+}
+
+// TestMergeHourlyDailyDedupesKeys pins the PostgreSQL settle fix: after
+// share identities strip to the main account, one settle batch can hold
+// two rows for the same conflict key, and a multi-row ON CONFLICT DO
+// UPDATE must never see a key twice (SQLSTATE 21000). The merge sums the
+// additive counters and widens the rate range.
+func TestMergeHourlyDailyDedupesKeys(t *testing.T) {
+	hour := time.Date(2026, 11, 27, 9, 0, 0, 0, time.UTC)
+	merged := mergeHourly([]store.TrafficHourly{
+		{UserID: "u1", NodeID: "n1", Hour: hour, Up: 100, Down: 40, RawRecorded: true, RawUp: 100, RawDown: 40, RecordedUp: 100, RecordedDown: 40, AccountUp: 100, AccountDown: 40, RateMin: 1, RateMax: 1},
+		{UserID: "u1", NodeID: "n1", Hour: hour, Up: 10, Down: 5, RawRecorded: true, RawUp: 10, RawDown: 5, RecordedUp: 10, RecordedDown: 5, AccountUp: 10, AccountDown: 5, RateMin: 0.5, RateMax: 2},
+		{UserID: "u1", NodeID: "n2", Hour: hour, Up: 7, Down: 3, RateMin: 1, RateMax: 1},
+	})
+	if len(merged) != 2 {
+		t.Fatalf("merged hourlies: %d rows, want 2", len(merged))
+	}
+	m := merged[0]
+	if m.Up != 110 || m.Down != 45 || m.RawUp != 110 || m.AccountDown != 45 || m.RateMin != 0.5 || m.RateMax != 2 {
+		t.Fatalf("merged hourly row wrong: %+v", m)
+	}
+	d := mergeDaily([]store.TrafficDaily{
+		{UserID: "u1", NodeID: "n1", Day: "2026-11-27", Up: 100, Down: 40},
+		{UserID: "u1", NodeID: "n1", Day: "2026-11-27", Up: 10, Down: 5},
+		{UserID: "u1", NodeID: "n1", Day: "2026-11-28", Up: 1, Down: 1},
+	})
+	if len(d) != 2 || d[0].Up != 110 || d[0].Down != 45 {
+		t.Fatalf("merged dailies wrong: %+v", d)
+	}
 }
