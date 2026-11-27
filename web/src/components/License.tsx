@@ -27,14 +27,15 @@ const featureInfo = (): Record<string, [string, string]> => ({
   plan_addons: [t('套餐增值'), t('流量包加购、套餐专属节点倍率、端口转发')],
   shop_payments: [t('在线收款'), t('机器人商店支持 Telegram Stars、易支付、USDT 自动收款')],
   multi_panel: [t('多机管理'), t('在一个控制台里查看和操作多个独立的面板实例')],
+  user_nodes_open: [t('自带节点免审批'), t('注册用户接入自己的节点免管理员审批')],
 })
-const knownFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns', 'branding', 'themes', 'plan_addons', 'shop_payments', 'multi_panel']
+const knownFeatures = ['speed_limit', 'tg_menu', 'backup_push', 'sub_convert', 'ddns', 'branding', 'themes', 'plan_addons', 'shop_payments', 'multi_panel', 'user_nodes_open']
 
 const featureIcon = (f: string): JSX.Element => ({
   speed_limit: <Icon.Pulse />, tg_menu: <Icon.Telegram />, backup_push: <Icon.Upload />,
   sub_convert: <Icon.Convert />, ddns: <Icon.Globe />, branding: <Icon.Logo />,
   themes: <Icon.Sun />, plan_addons: <Icon.Package />, shop_payments: <Icon.Wallet />,
-  multi_panel: <Icon.Panels />,
+  multi_panel: <Icon.Panels />, user_nodes_open: <Icon.Server />,
 } as Record<string, JSX.Element>)[f] ?? <Icon.Extension />
 
 const daysUntil = (d?: string) => d ? Math.ceil((new Date(d + 'T23:59:59').getTime() - Date.now()) / 864e5) : null
