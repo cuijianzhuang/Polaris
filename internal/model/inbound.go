@@ -214,6 +214,10 @@ type Inbound struct {
 	Extra              json.RawMessage    `json:"extra,omitempty"` // escape hatch: merged verbatim into the native config
 	OutboundIPStrategy OutboundIPStrategy `json:"outboundIPStrategy,omitempty"`
 	Enabled            bool               `json:"enabled"`
+	// MuxGroupID places the inbound behind the node's SNI mux group of
+	// that id: the group owns the public port (which equals Port), the
+	// spec builder moves the inbound itself to a loopback port.
+	MuxGroupID string `json:"muxGroupId,omitempty"`
 
 	// Users is populated only inside a NodeSpec: the users authorised on this
 	// inbound at this revision.

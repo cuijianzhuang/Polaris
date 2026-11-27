@@ -13,7 +13,7 @@ import InboundFields, { normalizeDraft, type InboundDraft } from '../components/
 import { Drawer, Empty, Field, Modal, Switch, useAction, useConfirm, useLoad, useToast, Section, useUndo } from '../components/ui'
 import { bytes, coreLabel, coreShort, coreTagClass, errMsg, inboundSummary, portLabel } from '../format'
 import type { TagTrafficRow } from '../components/TagTraffic'
-import type { CapSet, CDNCheck, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, Node, Outbound } from '../types'
+import type { CapSet, CDNCheck, CDNProfile, Certificate, Chain, CoreType, Endpoint, Fallback, Group, Inbound, InboundHealth, MuxGroup, Node, Outbound } from '../types'
 import { t, tr } from '../i18n'
 import { cdnClientPort, cdnOriginTLSAt, cdnOriginPort, cdnPorts, cdnScheme } from '../cdn'
 
@@ -325,11 +325,13 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   const caps = useLoad((signal) => (nodeId ? get<CapSet[]>('/capabilities?node=' + nodeId, signal) : Promise.resolve([])), [nodeId])
   const certs = useLoad((signal) => get<Certificate[]>('/certificates', signal))
   const groups = useLoad((signal) => get<Group[]>('/groups', signal))
+  const muxGroups = useLoad((signal) => (nodeId ? get<MuxGroup[]>('/mux-groups?node=' + nodeId, signal) : Promise.resolve([])), [nodeId])
   const nodeInbounds = useLoad((signal) => (nodeId ? get<Inbound[]>('/inbounds?node=' + nodeId, signal) : Promise.resolve([])), [nodeId])
   const [draft, setDraft] = useState<InboundDraft>(() => editing ? {
     core: editing.core, protocol: editing.protocol, transport: editing.transport, security: editing.security, sniffing: editing.sniffing,
   } : snellNode ? { ...emptyDraft(),core: 'singbox', protocol: {type:'snell',snellVersion:5,snellAuth:'psk'},transport:{type:'tcp'},security:{type:'none'} } : emptyDraft())
   const [tag, setTag] = useState(editing?.tag ?? '')
+  const [muxGroupId, setMuxGroupId] = useState(editing?.muxGroupId ?? '')
   const [port, setPort] = useState(String(editing?.port ?? 443))
   const [listen, setListen] = useState(editing?.listen && editing.listen !== '::' ? editing.listen : '')
   const [groupIds, setGroupIds] = useState<string[]>(editing?.groupIds ?? [])
@@ -381,13 +383,14 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   }, [draft.protocol.type])
 
   const net = draft.protocol.type === 'hysteria2' || draft.protocol.type === 'tuic' || draft.transport.type === 'kcp' ? 'udp' : draft.protocol.type === 'shadowsocks' ? 'tcp,udp' : 'tcp'
-  const conflict = (nodeInbounds.data ?? []).find((i) => i.id !== editing?.id && i.port === Number(port) && (i.network.split(',').some((n) => net.includes(n))))
+  const muxEligibleDraft = draft.transport.type === 'tcp' && (draft.security.type === 'tls' || draft.security.type === 'reality')
+  const conflict = (nodeInbounds.data ?? []).find((i) => i.id !== editing?.id && i.port === Number(port) && !(muxGroupId && i.muxGroupId === muxGroupId) && (i.network.split(',').some((n) => net.includes(n))))
   const coreHot = coreCaps[0]?.hotUsers
   const body = () => {
     let ex: any = undefined
     if (extra.trim()) ex = JSON.parse(extra)
     return { nodeId, core: draft.core, tag, port: Number(port), listen: listen || undefined, protocol: draft.protocol, transport: draft.transport,
-      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly,
+      security: draft.security, sniffing: draft.sniffing, extra: ex, enabled, remark, groupIds, outboundTag, outboundIPStrategy: ipStrategy, relayOnly, muxGroupId,
       ...(!editing ? { relayAccess: normalizeRelayAccess(relayAccess) } : {}), speedLimitMbps: Math.max(0, Math.round(Number(speedLimit) || 0)),
       ...(!editing && draftCDNCapable && newCDN.profileId ? { cdnProfileId: newCDN.profileId, cdnOnly: newCDN.only } : {}) }
   }
@@ -492,6 +495,20 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
           <Field label={t('监听地址')} htmlFor="ib-listen"><input id="ib-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder={t(':: (全部)')} /></Field>
           <Field label={t('备注')} htmlFor="ib-remark"><input id="ib-remark" className="input" value={remark} onChange={(e) => setRemark(e.target.value)} /></Field>
         </div>
+        {muxEligibleDraft && (
+          <Field label={t('SNI 复用组')} htmlFor="ib-mux" hint={t('加入后与同组入站共用组端口，节点按 ClientHello 的 SNI 分流（不解密）；端口自动与组一致。仅 TCP + TLS / REALITY 可加入')}>
+            <select id="ib-mux" className="input" value={muxGroupId} onChange={(e) => {
+              setMuxGroupId(e.target.value)
+              const g = (muxGroups.data ?? []).find((x) => x.id === e.target.value)
+              if (g) setPort(String(g.port))
+            }}>
+              <option value="">{t('不加入（独占端口）')}</option>
+              {(muxGroups.data ?? []).filter((g) => g.enabled || g.id === editing?.muxGroupId).map((g) => (
+                <option key={g.id} value={g.id}>{g.name} · :{g.port}{g.enabled ? '' : t('（已停用）')}</option>
+              ))}
+            </select>
+          </Field>
+        )}
         <div className="toggle"><span>{t('启用')}</span><Switch label={t('启用')} on={enabled} onChange={setEnabled} /></div>
       </Section>
       <Section step={2} title={t('协议与传输')} summary={[draft.protocol.type, draft.transport.type, draft.security.type].filter((x) => x && x !== 'none').join(' · ')}>
@@ -565,11 +582,132 @@ function InboundDrawer({ nodes, editing, snellNode, onClose, onSaved, onDelete }
   )
 }
 
+// MuxGroupModal: create / edit one SNI mux group.
+function MuxGroupModal({ nodes, inbounds, editing, presetNode, onClose, onDone }: { nodes: Node[]; inbounds: Inbound[]; editing?: MuxGroup; presetNode?: string; onClose: () => void; onDone: () => void }) {
+  const [nodeId, setNodeId] = useState(editing?.nodeId ?? presetNode ?? nodes[0]?.id ?? '')
+  const [name, setName] = useState(editing?.name ?? '')
+  const [listen, setListen] = useState(editing?.listen ?? '')
+  const [port, setPort] = useState(String(editing?.port ?? 443))
+  const [enabled, setEnabled] = useState(editing?.enabled ?? true)
+  const [kind, setKind] = useState<string>(editing?.fallbackKind ?? 'external')
+  const [fbInbound, setFbInbound] = useState(editing?.fallbackInboundId ?? '')
+  const [fbTarget, setFbTarget] = useState(editing?.fallbackTarget ?? '')
+  const { busy, run } = useAction()
+  const hasMembers = (editing?.memberCount ?? 0) > 0
+  const memberCandidates = inbounds.filter((i) => i.nodeId === nodeId && (!i.muxGroupId || i.muxGroupId === editing?.id))
+  const save = () => run(async () => {
+    const body = { nodeId, name, listen, port: Number(port), enabled,
+      fallbackKind: kind, fallbackInboundId: kind === 'member' ? fbInbound : '', fallbackTarget: kind === 'external' ? fbTarget.trim() : '' }
+    if (editing) await put('/mux-groups/' + editing.id, body)
+    else await post('/mux-groups', body)
+    onDone()
+  }, editing ? t('复用组已保存，正在下发') : t('复用组已创建'))
+  return (
+    <Modal title={editing ? t('编辑复用组 · {name}', { name: editing.name }) : t('新建 SNI 复用组')} onClose={onClose} footer={<>
+      <button className="btn pri" type="button" disabled={busy || !name.trim() || !nodeId} onClick={save}>{t('保存并下发')}</button>
+    </>}>
+      <div className="form-grid">
+        <Field label={t('节点')} htmlFor="mx-node">
+          <select id="mx-node" className="input" value={nodeId} disabled={!!editing} onChange={(e) => setNodeId(e.target.value)}>
+            {nodes.filter((n) => !n.ownerId).map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+          </select>
+        </Field>
+        <Field label={t('名称')} htmlFor="mx-name"><input id="mx-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="443-main" /></Field>
+        <Field label={t('端口')} htmlFor="mx-port" hint={hasMembers ? t('已有成员，不能改端口') : t('任意端口，默认 443；同节点同端口至多一组')}>
+          <input id="mx-port" className="input mono" value={port} disabled={hasMembers} onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, ''))} inputMode="numeric" />
+        </Field>
+        <Field label={t('监听地址')} htmlFor="mx-listen"><input id="mx-listen" className="input mono" value={listen} onChange={(e) => setListen(e.target.value)} placeholder={t(':: (全部)')} /></Field>
+      </div>
+      <Field label={t('未命中回落')} hint={t('SNI 对不上任何成员（或没有 SNI、不是 TLS）时的去向；透传到外部真站时对方看到的是探测流量，风险见手册')}>
+        <select className="input" value={kind} onChange={(e) => setKind(e.target.value)}>
+          <option value="external">{t('外部真站透传')}</option>
+          <option value="member">{t('组内成员兜底')}</option>
+          <option value="">{t('不回落（直接断开）')}</option>
+        </select>
+      </Field>
+      {kind === 'external' && (
+        <Field label={t('真站目标')} htmlFor="mx-target" hint={t('host:port，例如 www.example.com:443')}>
+          <input id="mx-target" className="input mono" value={fbTarget} onChange={(e) => setFbTarget(e.target.value)} placeholder="www.example.com:443" />
+        </Field>
+      )}
+      {kind === 'member' && (
+        <Field label={t('兜底成员')} htmlFor="mx-member" hint={memberCandidates.length === 0 ? t('先把入站加入本组，再回来选兜底成员') : undefined}>
+          <select id="mx-member" className="input" value={fbInbound} onChange={(e) => setFbInbound(e.target.value)}>
+            <option value="">{t('请选择')}</option>
+            {memberCandidates.map((i) => <option key={i.id} value={i.id}>{i.tag}</option>)}
+          </select>
+        </Field>
+      )}
+      <div className="toggle"><span>{t('启用')}</span><Switch label={t('启用')} on={enabled} onChange={setEnabled} /></div>
+      {hasMembers && !enabled && <div className="hint">{t('已有成员时不能停用，请先把成员移出组')}</div>}
+    </Modal>
+  )
+}
+
+// MuxGroupsPanel: the node's SNI mux groups, under the inbound list.
+function MuxGroupsPanel({ nodes, inbounds, groups, presetNode, onChanged }: { nodes: Node[]; inbounds: Inbound[]; groups: MuxGroup[]; presetNode?: string; onChanged: () => void }) {
+  const [nodeId, setNodeId] = useState(presetNode ?? '')
+  const [modal, setModal] = useState<MuxGroup | 'new' | null>(null)
+  const confirm = useConfirm()
+  const { run } = useAction()
+  const adminNodes = nodes.filter((n) => !n.ownerId)
+  const effNode = nodeId || presetNode || adminNodes[0]?.id || ''
+  const rows = groups.filter((g) => g.nodeId === effNode)
+  const fbLabel = (g: MuxGroup) => g.fallbackKind === 'external' ? g.fallbackTarget
+    : g.fallbackKind === 'member' ? (inbounds.find((i) => i.id === g.fallbackInboundId)?.tag ?? '—') : t('不回落')
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <b>{t('SNI 复用组（端口复用）')}</b>
+          <div className="hint">{t('同组入站共用一个公网端口，节点 Agent 按 SNI 透传分流、不解密；成员各自使用自己的证书。')}</div>
+        </div>
+        <div className="row">
+          <select className="input" style={{ width: 'auto' }} value={effNode} onChange={(e) => setNodeId(e.target.value)} aria-label={t('节点')}>
+            {adminNodes.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
+          </select>
+          <button className="btn sm pri" type="button" disabled={!adminNodes.length} onClick={() => setModal('new')}>{t('+ 新建复用组')}</button>
+        </div>
+      </div>
+      {rows.length === 0 ? <Empty>{t('该节点还没有复用组')}</Empty> : (
+        <table className="rtable">
+          <thead><tr><th>{t('名称')}</th><th>{t('端口')}</th><th>{t('成员')}</th><th>{t('未命中回落')}</th><th>{t('状态')}</th><th /></tr></thead>
+          <tbody>
+            {rows.map((g) => (
+              <tr key={g.id}>
+                <td style={{ fontWeight: 500 }}>{g.name}</td>
+                <td className="mono">{g.listen ? `${g.listen}:` : ''}{g.port}</td>
+                <td>{inbounds.filter((i) => i.muxGroupId === g.id).map((i) => i.tag).join('、') || <span className="mute">{t('暂无成员（在入站编辑里加入）')}</span>}</td>
+                <td className="mono small">{fbLabel(g)}</td>
+                <td>{g.enabled ? t('启用') : t('已停用')}</td>
+                <td className="rt-actions">
+                  <div className="row" style={{ gap: 2 }}>
+                    <button className="btn sm" type="button" onClick={() => setModal(g)}>{t('编辑')}</button>
+                    <button className="btn sm danger" type="button" onClick={() => run(async () => {
+                      if (!(await confirm(t('删除复用组「{name}」？', { name: g.name }), { danger: true, ok: t('删除') }))) return
+                      await del('/mux-groups/' + g.id)
+                      onChanged()
+                    }, t('已删除'))}>{t('删除')}</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {modal && <MuxGroupModal nodes={nodes} inbounds={inbounds} editing={modal === 'new' ? undefined : modal} presetNode={effNode}
+        onClose={() => setModal(null)} onDone={() => { setModal(null); onChanged() }} />}
+    </div>
+  )
+}
+
 export default function Inbounds() {
   const { nodes } = useNodes()
   const [params] = useSearchParams()
   const [filter, setFilter] = useState<{ core?: CoreType; node?: string }>(params.get('node') ? { node: params.get('node')! } : {})
   const list = useLoad((signal) => get<Inbound[]>('/inbounds', signal))
+  const muxList = useLoad((signal) => get<MuxGroup[]>('/mux-groups', signal))
+  const muxNameOf = useMemo(() => { const m = new Map<string, string>(); for (const g of muxList.data ?? []) m.set(g.id, g.name); return m }, [muxList.data])
   const [hidden, setHidden] = useState<string[]>([])
   const undo = useUndo()
   const removeInbound = (i: Inbound) => {
@@ -689,6 +827,7 @@ export default function Inbounds() {
                     onChange={(e) => setSel((x) => { const n = new Set(x); if (e.target.checked) n.add(i.id); else n.delete(i.id); return n })} /></td>
                   <td className="rt-head" style={{ fontWeight: 500 }}>{i.tag}{i.templateId && <span className="tag" style={{ marginLeft: 6 }}>{t('模板')}</span>}
                     {(i.protocol.fallbacks?.length ?? 0) > 0 && <span className="tag xray" style={{ marginLeft: 6 }}>{t('{n} 个回落', { n: i.protocol.fallbacks!.length })}</span>}
+                    {i.muxGroupId && <span className="tag" style={{ marginLeft: 6 }}>{t('复用组 {name}', { name: muxNameOf.get(i.muxGroupId) ?? '' })}</span>}
                     {masterOf[i.id] && <span className="tag" style={{ marginLeft: 6 }}>{t('经 {tag} 回落', { tag: masterOf[i.id] })}</span>}
                     {i.speedLimitMbps > 0 && <span className="tag" style={{ marginLeft: 6 }}>{t('限速 {n}M', { n: i.speedLimitMbps })}</span>}</td>
                   <td data-label={t('节点')}><div>{i.nodeName} <span className={coreTagClass(i.core)}>{coreShort[i.core]}</span></div></td>
@@ -712,12 +851,13 @@ export default function Inbounds() {
           </table>
         )}
       </div>
+      <MuxGroupsPanel nodes={nodes} inbounds={list.data ?? []} groups={muxList.data ?? []} presetNode={filter.node} onChanged={() => { muxList.reload(); list.reload() }} />
       {relayInbound && <RelayManager inbound={relayInbound} nodes={nodes} onClose={() => setRelayInbound(undefined)} onChanged={list.reload} />}
       {bulk && <BulkModal kind={bulk} ids={[...sel]} onClose={() => setBulk(null)} onDone={() => list.reload()} />}
       {cloning && <CloneModal inbound={cloning} nodes={nodes} onClose={() => setCloning(null)} onDone={() => { setCloning(null); list.reload() }} />}
       {importing && <ImportInboundModal nodes={nodes} onClose={() => setImporting(false)} onDone={() => { setImporting(false); list.reload() }} />}
       {snellSetup && <SnellSetup nodes={nodes} initialNode={filter.node} onClose={() => setSnellSetup(false)} onCreate={(id) => {setSnellNode(id);setSnellSetup(false);setDrawer('new')}} />}
-      {drawer && <InboundDrawer nodes={nodes} snellNode={drawer === 'new' ? snellNode : undefined} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); if (drawer === 'new') setDrawer(null) }} onDelete={removeInbound} />}
+      {drawer && <InboundDrawer nodes={nodes} snellNode={drawer === 'new' ? snellNode : undefined} editing={drawer === 'new' ? undefined : drawer} onClose={() => setDrawer(null)} onSaved={() => { list.reload(); muxList.reload(); if (drawer === 'new') setDrawer(null) }} onDelete={removeInbound} />}
     </>
   )
 }

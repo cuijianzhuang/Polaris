@@ -147,6 +147,13 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	if err := a.prepareAccess(ctx, spec); err != nil {
 		return applyResult{err: fmt.Errorf("中转访问保护：%w", err)}
 	}
+	// Free mux ports the new spec gives back (group removed or moved)
+	// before cores try to bind them; surviving listeners keep serving
+	// with their old table until syncMuxes swaps it after the cores are
+	// up, so members are reachable throughout.
+	if a.mux != nil {
+		a.mux.closeStale(spec)
+	}
 	method := "hot"
 	retryable := false
 	wanted := map[model.CoreType]model.CoreSpec{}
@@ -286,6 +293,13 @@ func (a *Agent) Apply(ctx context.Context, spec *model.NodeSpec) applyResult {
 	if a.fw != nil {
 		if err := a.fw.syncAccess(ctx, spec.AccessRules); err != nil {
 			return applyResult{method: method, err: fmt.Errorf("中转访问保护：%w", err)}
+		}
+	}
+	// Mux listeners come up last: member cores must already hold their
+	// loopback ports before the splitter routes to them.
+	if a.mux != nil {
+		if err := a.mux.sync(spec); err != nil {
+			return applyResult{method: method, err: err}
 		}
 	}
 	if err := a.pruneTunnelCredentials(spec.Tunnels); err != nil {

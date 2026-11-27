@@ -218,12 +218,16 @@ func (a *agentService) GetSpec(ctx context.Context, req *connect.Request[polaris
 		Inbounds    []model.Inbound     `json:"inbounds"`
 		Tunnels     []model.TunnelSpec  `json:"tunnels"`
 		Cores       []model.CoreSpec    `json:"cores"`
+		Muxes       []model.MuxSpec     `json:"muxes"`
 	}
 	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if len(spec.Websites) > 0 && !contains(features, model.WebsiteFeature) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持统一网站入口的新版 Agent"))
+	}
+	if len(spec.Muxes) > 0 && !contains(features, model.MuxFeature) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持 SNI 端口复用的新版 Agent"))
 	}
 	if len(spec.AccessRules) > 0 && !contains(features, model.RelayAccessFeature) {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("此配置需要支持中转访问保护的新版 Agent"))

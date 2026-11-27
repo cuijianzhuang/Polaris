@@ -16,6 +16,7 @@ var AgentFeatures = []string{
 	RouteTraceToolFeature,
 	ManagedTunnelFeature,
 	RemoteTunnelFeature,
+	MuxFeature,
 	RelayBusinessFeature,
 	SingboxRelayBusinessFeature,
 	ExtendedRelayBusinessFeature,

@@ -152,6 +152,7 @@ type NodeSpec struct {
 	Forwards    []ForwardRule `json:"forwards,omitempty"`
 	Websites    []WebsiteSpec `json:"websites,omitempty"`
 	Fronts      []FrontRule   `json:"fronts,omitempty"`
+	Muxes       []MuxSpec     `json:"muxes,omitempty"`
 	Tunnels     []TunnelSpec  `json:"tunnels,omitempty"`
 	// Supplied only over the authenticated node channel, never serialized.
 	TunnelCredentials map[string]json.RawMessage `json:"-"`

@@ -64,12 +64,15 @@ type portalInboundReq struct {
 //   - CertPEM/KeyPEM are build-time resolutions, never stored input.
 //   - Protocol.Fallbacks reference other inbounds by ID (a relay-shaped
 //     reference); SnellUserID dedicates the inbound to one chosen user.
+//   - MuxGroupID would put the listener behind a node-level SNI mux
+//     group, a shared resource across the node's tenants.
 //   - PROXY-protocol acceptance and forwarded-for trust belong to relay
 //     landings, not to a user's own listener.
 func sanitizePortalInbound(m *model.Inbound) {
 	m.Security.CertificateID = ""
 	m.Security.CertPEM, m.Security.KeyPEM = "", ""
 	m.Protocol.Fallbacks = nil
+	m.MuxGroupID = "" // SNI mux groups are an admin-node feature (v1)
 	m.Protocol.SnellUserID = ""
 	m.Transport.AcceptProxyProtocol = false
 	m.Transport.TrustedForwardedFor = nil

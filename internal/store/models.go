@@ -162,8 +162,31 @@ type Inbound struct {
 	OutboundTag        string                    `gorm:"size:64" json:"outboundTag"` // route all traffic of this inbound to an outbound
 	SpeedLimitMbps     int                       `json:"speedLimitMbps"`             // port bandwidth cap on the node (tc), 0 = none
 	Remark             string                    `gorm:"size:255" json:"remark"`
-	CreatedAt          time.Time                 `json:"createdAt"`
-	UpdatedAt          time.Time                 `json:"updatedAt"`
+	// MuxGroupID: the SNI mux group this inbound belongs to ("" = it owns
+	// its port itself). Members share the group's public port.
+	MuxGroupID string    `gorm:"size:32;index" json:"muxGroupId,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+// MuxGroup is one SNI mux group on a node: the agent listens on Port and
+// passes TLS connections through to member inbounds (Inbound.MuxGroupID)
+// by ClientHello SNI. Unmatched traffic follows the fallback: a member
+// inbound (FallbackKind "member", FallbackInboundID) or an external
+// host:port (FallbackKind "external", FallbackTarget).
+type MuxGroup struct {
+	ID     string `gorm:"primaryKey;size:32" json:"id"`
+	NodeID string `gorm:"size:32;index;uniqueIndex:idx_muxgroup_node_port" json:"nodeId"`
+	Name   string `gorm:"size:64" json:"name"`
+	Listen string `gorm:"size:64" json:"listen"` // "" = all interfaces
+	Port   int    `gorm:"uniqueIndex:idx_muxgroup_node_port" json:"port"`
+	// FallbackKind: "" (drop) / "member" / "external".
+	FallbackKind      string    `gorm:"size:16" json:"fallbackKind"`
+	FallbackInboundID string    `gorm:"size:32" json:"fallbackInboundId,omitempty"`
+	FallbackTarget    string    `gorm:"size:255" json:"fallbackTarget,omitempty"` // host:port
+	Enabled           bool      `json:"enabled"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type RelayAccessPolicy struct {
@@ -1103,7 +1126,7 @@ type TGAdmin struct {
 // AllModels lists every table for migration.
 func AllModels() []any {
 	return []any{
-		&Website{}, &RestoreDrill{}, &Node{}, &Core{}, &Inbound{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
+		&Website{}, &RestoreDrill{}, &Node{}, &Core{}, &Inbound{}, &MuxGroup{}, &User{}, &Group{}, &GroupInbound{}, &UserGroup{}, &UserAccess{},
 		&TrafficHourly{}, &Certificate{}, &ConfigRevision{}, &Admin{}, &Passkey{}, &UserPasskey{}, &AccountRecoveryCode{}, &AuditLog{},
 		&Endpoint{}, &CDNProfile{}, &Outbound{}, &Chain{}, &RoutingRule{}, &InboundTemplate{}, &TemplateRun{},
 		&SubProcessingGroup{}, &SubProcessingGroupVersion{}, &SubViewGroup{}, &Setting{}, &AIKnowledgeDocument{}, &SubTemplate{}, &DNSProvider{}, &DomainBinding{}, &SubSource{}, &SubSourceNode{}, &SubSourceRefresh{}, &SubProfile{}, &TGAdmin{},
