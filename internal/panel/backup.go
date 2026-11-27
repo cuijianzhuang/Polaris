@@ -364,7 +364,8 @@ func (s *Server) backupInfo(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"supported": true, "db": s.st.DB.Dialector.Name(), "dbSize": size, "files": files,
 		"dir": where, "store": s.st.GetSetting("backup_store", "local"), "storeError": storeErr,
-		"encrypted": s.backupPassphrase() != "", "targets": s.pushTargets()})
+		"encrypted": s.backupPassphrase() != "", "targets": s.pushTargets(),
+		"gistId": s.st.GetSetting("backup_gist_id", "")})
 }
 
 // backupCreate: POST /backup[?push=1].
