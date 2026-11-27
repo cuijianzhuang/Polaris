@@ -315,6 +315,7 @@ func (s *Server) Router() http.Handler {
 	p.DELETE("/probe/targets/:id", s.deleteProbeTarget)
 	p.PUT("/probe/nodes/:id", s.setNodeStatusHidden)
 	p.GET("/nodes/:id/latency", s.nodeLatency)
+	p.GET("/nodes/:id/carriers", s.nodeCarriers)
 	s.registerRouteToolRoutes(p)
 	p.GET("/nodes/:id/probe-policy", s.getNodeProbePolicy)
 	p.PUT("/nodes/:id/probe-policy", s.putNodeProbePolicy)
