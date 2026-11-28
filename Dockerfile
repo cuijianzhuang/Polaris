@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build stages run natively on the build host and cross-compile, so multi-arch
 # images do not build Node/Go under QEMU emulation.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+FROM --platform=$BUILDPLATFORM node:22.23.4-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
