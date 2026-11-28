@@ -218,6 +218,16 @@ func (s *Server) putSettings(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "授权服务器不支持通过面板修改"})
 		return
 	}
+	// Clearing the backup passphrase is explicit: an empty secret value in
+	// this API means "unchanged", so the UI sends backup_passphrase_clear
+	// instead. It needs a recent re-verification, like setting a new one,
+	// and a new value in the same request wins over the clear.
+	clearBackupPass := req["backup_passphrase_clear"] == "true" && req["backup_passphrase"] == ""
+	delete(req, "backup_passphrase_clear")
+	if clearBackupPass && !s.sudoOK(c) {
+		sudoRequired(c)
+		return
+	}
 	for k, v := range req {
 		if editableSettings[k] && (sudoSettings[k] || secretSettings[k] && v != "") && !s.sudoOK(c) {
 			if cur := s.st.GetSetting(k, ""); sudoSettings[k] && cur == v {
@@ -337,6 +347,10 @@ func (s *Server) putSettings(c *gin.Context) {
 		}
 		changes[k] = v
 		keys = append(keys, k)
+	}
+	if clearBackupPass {
+		changes["backup_passphrase"] = ""
+		keys = append(keys, "backup_passphrase")
 	}
 	if err := s.st.SetSettings(changes); err != nil {
 		serverError(c, err)

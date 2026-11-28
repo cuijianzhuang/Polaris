@@ -90,6 +90,47 @@ func TestSettingsInvalidBatchDoesNotChangeSwitches(t *testing.T) {
 	}
 }
 
+func TestSettingsClearBackupPassphrase(t *testing.T) {
+	s, srv, client := newAdminClient(t)
+	if code, _ := client.do("PUT", "/settings", map[string]string{"backup_passphrase": "pw-one"}); code != http.StatusOK {
+		t.Fatalf("set passphrase: %d", code)
+	}
+	if s.backupPassphrase() != "pw-one" {
+		t.Fatal("passphrase not stored")
+	}
+	// An empty secret value alone means "unchanged" and must not clear it.
+	if code, _ := client.do("PUT", "/settings", map[string]string{"backup_passphrase": ""}); code != http.StatusOK {
+		t.Fatalf("empty passphrase save: %d", code)
+	}
+	if s.backupPassphrase() != "pw-one" {
+		t.Fatal("empty value cleared the passphrase")
+	}
+	// Without a recent re-verification the explicit clear is refused.
+	raw := &apiClient{t: t, base: srv.URL + s.cfg.APIBase()}
+	code, out := raw.do("POST", "/auth/login", map[string]string{"username": "root", "password": "old-password"})
+	if code != http.StatusOK {
+		t.Fatalf("login: %d %v", code, out)
+	}
+	raw.tok = out["token"].(string)
+	if code, _ := raw.do("PUT", "/settings", map[string]string{"backup_passphrase_clear": "true"}); code != http.StatusForbidden {
+		t.Fatalf("clear without sudo: %d", code)
+	}
+	if s.backupPassphrase() != "pw-one" {
+		t.Fatal("refused clear changed the passphrase")
+	}
+	// The explicit clear empties it and flips the reported _set flag.
+	code, out = client.do("PUT", "/settings", map[string]string{"backup_passphrase_clear": "true"})
+	if code != http.StatusOK {
+		t.Fatalf("clear passphrase: %d", code)
+	}
+	if s.backupPassphrase() != "" {
+		t.Fatal("passphrase still set after clear")
+	}
+	if out["backup_passphrase_set"] != false {
+		t.Fatalf("backup_passphrase_set after clear: %v", out["backup_passphrase_set"])
+	}
+}
+
 func TestSettingsStorageFailureRollsBackAllSwitches(t *testing.T) {
 	s, _, client := newAdminClient(t)
 	s.st.SetSetting("probe_enabled", "true")

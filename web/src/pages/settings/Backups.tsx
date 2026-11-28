@@ -93,6 +93,15 @@ export function Backups() {
     }, t('备份设置已保存'))
   }
   useSettingsDraft({ label: t('备份与恢复'), dirty, busy, save, discard: () => { setF(JSON.parse(baseline || '{}')); setSec({}) } })
+  // Clearing is its own request: an empty secret field means "unchanged",
+  // so the backend takes the explicit backup_passphrase_clear flag instead.
+  const clearPassphrase = async () => {
+    if (!await confirm(t('清除备份口令？清除后新的备份不再加密；已加密的旧备份恢复时仍需要旧口令。') + '\n' + t('如果开启了 Gist 推送，它也会随之停用。'), { danger: true })) return
+    await run(async () => {
+      await put('/settings', { backup_passphrase_clear: 'true' })
+      s.reload(); info.reload()
+    }, t('备份口令已清除'))
+  }
   const isSet = (k: string) => !!s.data?.[k + '_set']
   const d = info.data
   const inS3 = f.backup_store === 's3'
@@ -153,7 +162,10 @@ export function Backups() {
         <Field label={t('备份时间（点）')} hint={t('服务器本地时间 0–23')}><input className="input mono" inputMode="numeric" value={f.backup_hour || ''} placeholder="4" onChange={(e) => set('backup_hour', e.target.value)} /></Field>
         <Field label={t('保留份数')} hint={t('超出后删除最旧的；恢复前快照不会被删除')}><input className="input mono" inputMode="numeric" value={f.backup_keep || ''} placeholder="7" onChange={(e) => set('backup_keep', e.target.value)} /></Field>
         <Field label={t('备份口令')} hint={isSet('backup_passphrase') ? t('已设置：备份已加密（留空不修改）') : t('设置后备份用口令加密（scrypt + AES-GCM）并附带密钥，可恢复到任何服务器；口令丢失无法找回')}>
-          <input className="input mono" type="password" autoComplete="new-password" value={sec.backup_passphrase ?? ''} placeholder={isSet('backup_passphrase') ? '••••••••' : t('不加密')} onChange={(e) => setSec({ ...sec, backup_passphrase: e.target.value })} />
+          <div style={{ display: 'grid', gap: 6 }}>
+            <input className="input mono" type="password" autoComplete="new-password" value={sec.backup_passphrase ?? ''} placeholder={isSet('backup_passphrase') ? '••••••••' : t('不加密')} onChange={(e) => setSec({ ...sec, backup_passphrase: e.target.value })} />
+            {isSet('backup_passphrase') && !sec.backup_passphrase && <div><button className="btn sm danger" type="button" onClick={clearPassphrase}>{t('清除口令')}</button></div>}
+          </div>
         </Field>
       </div>
       <div style={{ display: 'grid', gap: 12 }}>
