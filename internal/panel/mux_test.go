@@ -193,6 +193,35 @@ func TestMuxValidation(t *testing.T) {
 	_ = node
 }
 
+// The external fallback receives unauthenticated internet traffic, so
+// it must point at a public site — never at the node itself or a LAN
+// address (design D6). Names pass here and are re-checked by the agent
+// against the resolved addresses at dial time.
+func TestMuxFallbackTargetMustBePublic(t *testing.T) {
+	s := muxFixture(t)
+	bad := []string{
+		"127.0.0.1:443", "localhost:443", "LOCALHOST.:443",
+		"10.0.0.8:443", "172.16.5.4:443", "192.168.1.1:8443",
+		"169.254.169.254:80", "100.64.3.2:443", "[::1]:443", "[fe80::1]:443",
+	}
+	for i, target := range bad {
+		g := store.MuxGroup{ID: "gx", NodeID: "n1", Name: "x", Port: 11443 + i, Enabled: true,
+			FallbackKind: model.MuxFallbackExternal, FallbackTarget: target}
+		err := s.validateMuxGroup(&g, "gx")
+		if err == nil || !strings.Contains(err.Error(), "公网") {
+			t.Fatalf("target %s: err = %v, want public-only refusal", target, err)
+		}
+	}
+	good := []string{"www.example.com:443", "1.1.1.1:443", "[2606:4700:4700::1111]:443"}
+	for i, target := range good {
+		g := store.MuxGroup{ID: "gy", NodeID: "n1", Name: "y", Port: 12443 + i, Enabled: true,
+			FallbackKind: model.MuxFallbackExternal, FallbackTarget: target}
+		if err := s.validateMuxGroup(&g, "gy"); err != nil {
+			t.Fatalf("target %s: err = %v, want accepted", target, err)
+		}
+	}
+}
+
 func TestMuxFallbackChildCannotJoin(t *testing.T) {
 	s := muxFixture(t)
 	db := s.st.DB
