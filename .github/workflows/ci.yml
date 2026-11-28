@@ -43,6 +43,12 @@ on:
         description: Release verified a successful PR browser/PostgreSQL run for this exact Git tree
         type: boolean
         default: false
+    # Callers passing secrets explicitly must find them declared here:
+    # an undeclared secret fails the calling workflow at startup.
+    secrets:
+      PRO_TOKEN:
+        description: Optional token for cloning polaris-pro in browser tests
+        required: false
 
 # A new push to a pull request cancels the run for the previous commit.
 concurrency:
