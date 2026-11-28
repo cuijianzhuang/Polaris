@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -8,12 +9,14 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"io"
 	"log/slog"
 	"math/big"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,7 +140,11 @@ func TestMuxRoutesBySNI(t *testing.T) {
 	mgr := newMuxManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	spec := &model.NodeSpec{Muxes: []model.MuxSpec{{
 		Name: "g", Listen: "127.0.0.1", Port: port,
-		Routes:   []model.MuxRoute{{SNI: "a.test", Upstream: a, Inbound: "a"}, {SNI: "b.test", Upstream: b, Inbound: "b"}},
+		Routes: []model.MuxRoute{{SNI: "a.test", Upstream: a, Inbound: "a"}, {SNI: "b.test", Upstream: b, Inbound: "b"},
+			{SNI: "fb.test", Upstream: fb, Inbound: "fb"}},
+		// The fallback here is a member (its upstream is one of the
+		// routes), the batch-1 "member fallback" shape; a non-member
+		// loopback fallback is refused by the public dial guard.
 		Fallback: fb,
 	}}}
 	if err := mgr.sync(spec); err != nil {
@@ -284,6 +291,238 @@ func TestParseClientHelloSNI(t *testing.T) {
 	if err != nil || isTLS || len(prefix) != 5 {
 		t.Fatalf("non-tls: prefix=%d isTLS=%v err=%v", len(prefix), isTLS, err)
 	}
+}
+
+// --- hardening tests (SNI mux audit) ---
+
+// A fallback that is not a member must never receive traffic at a
+// loopback address: the guarded public dial refuses it and the
+// connection drops, so the splitter cannot be used as an unauthenticated
+// relay to services on the node itself.
+func TestMuxExternalLoopbackFallbackRefused(t *testing.T) {
+	a := tlsBackend(t, "BACKEND-A", "a.test")
+	fb := echoBackend(t) // loopback, but NOT one of the routes
+	port := freePort(t)
+	mgr := newMuxManager(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	spec := &model.NodeSpec{Muxes: []model.MuxSpec{{
+		Name: "g", Listen: "127.0.0.1", Port: port,
+		Routes:   []model.MuxRoute{{SNI: "a.test", Upstream: a, Inbound: "a"}},
+		Fallback: fb,
+	}}}
+	if err := mgr.sync(spec); err != nil {
+		t.Fatal(err)
+	}
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	if got := dialTLS(t, addr, "a.test"); got != "BACKEND-A" {
+		t.Fatalf("member traffic broken: %q", got)
+	}
+	// Unknown SNI: dropped, not relayed to the loopback fallback.
+	c, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+	hello, _ := tlsClientHello(t, "unknown.test")
+	if _, err := c.Write(hello); err != nil {
+		t.Fatal(err)
+	}
+	n, err := c.Read(make([]byte, 64))
+	if err == nil || n != 0 {
+		t.Fatalf("unknown SNI reached loopback fallback: n=%d err=%v", n, err)
+	}
+	// Non-TLS traffic: same refusal.
+	c2, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c2.Close()
+	_ = c2.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := io.WriteString(c2, "hello mux world"); err != nil {
+		t.Fatal(err)
+	}
+	n, err = c2.Read(make([]byte, 64))
+	if err == nil || n != 0 {
+		t.Fatalf("non-TLS traffic reached loopback fallback: n=%d err=%v", n, err)
+	}
+}
+
+func TestPublicIP(t *testing.T) {
+	for _, s := range []string{"1.1.1.1", "8.8.8.8", "9.9.9.9", "172.32.0.1", "100.128.0.1",
+		"2606:4700:4700::1111", "2001:4860:4860::8888"} {
+		if !publicIP(net.ParseIP(s)) {
+			t.Fatalf("%s must count as public", s)
+		}
+	}
+	for _, s := range []string{"127.0.0.1", "127.1.2.3", "0.0.0.0", "10.0.0.1", "172.16.0.1",
+		"172.31.255.255", "192.168.0.1", "169.254.169.254", "100.64.0.1", "100.127.255.255",
+		"224.0.0.1", "::1", "::", "fe80::1", "fd00::1", "ff02::1"} {
+		if publicIP(net.ParseIP(s)) {
+			t.Fatalf("%s must not count as public", s)
+		}
+	}
+	if !isLocalAddr(net.ParseIP("127.0.0.1")) || isLocalAddr(net.ParseIP("8.8.8.8")) {
+		t.Fatal("isLocalAddr misclassifies")
+	}
+}
+
+func TestDialPublicFallbackRefusesNonPublic(t *testing.T) {
+	for _, target := range []string{
+		"127.0.0.1:443", "localhost:443", "10.0.0.8:443", "192.168.1.1:443",
+		"169.254.169.254:80", "100.64.3.2:443", "[::1]:443", "[fe80::1]:443",
+		"missing-port", "host:notaport",
+	} {
+		if _, err := dialPublicFallback(target, 443, 500*time.Millisecond); err == nil {
+			t.Fatalf("target %s dialed, want refusal", target)
+		}
+	}
+}
+
+// buildHelloMsg assembles a ClientHello handshake message (type+length
+// header included). extLen < 0 means "use len(exts)".
+func buildHelloMsg(exts []byte, extLen int, withExts bool) []byte {
+	body := []byte{0x03, 0x03}
+	body = append(body, make([]byte, 32)...)
+	body = append(body, 0)                // session id
+	body = append(body, 0, 2, 0x13, 0x01) // cipher suites
+	body = append(body, 1, 0)             // compression methods
+	if withExts {
+		if extLen < 0 {
+			extLen = len(exts)
+		}
+		body = append(body, byte(extLen>>8), byte(extLen))
+		body = append(body, exts...)
+	}
+	msg := []byte{0x01, byte(len(body) >> 16), byte(len(body) >> 8), byte(len(body))}
+	return append(msg, body...)
+}
+
+func sniExtension(name string) []byte {
+	entry := []byte{0, byte(len(name) >> 8), byte(len(name))}
+	entry = append(entry, name...)
+	data := append([]byte{byte(len(entry) >> 8), byte(len(entry))}, entry...)
+	ext := []byte{0, 0, byte(len(data) >> 8), byte(len(data))}
+	return append(ext, data...)
+}
+
+// Malformed hellos must be parse errors (design D6: drop), not "no SNI"
+// — otherwise a crafted hello is handed to the fallback as if it were a
+// legitimate SNI-less client.
+func TestParseClientHelloMalformed(t *testing.T) {
+	if sni, err := parseClientHelloSNI(buildHelloMsg(sniExtension("Example.ORG"), -1, true)); err != nil || sni != "example.org" {
+		t.Fatalf("valid hello: sni=%q err=%v", sni, err)
+	}
+	// No extensions field at all: no SNI, no error.
+	if sni, err := parseClientHelloSNI(buildHelloMsg(nil, -1, false)); err != nil || sni != "" {
+		t.Fatalf("no extensions: sni=%q err=%v", sni, err)
+	}
+	// Extensions length overruns the body.
+	if _, err := parseClientHelloSNI(buildHelloMsg(sniExtension("a.test"), 999, true)); err == nil {
+		t.Fatal("extensions overrun must error")
+	}
+	// Trailing junk shorter than an extension header.
+	if _, err := parseClientHelloSNI(buildHelloMsg([]byte{0xAA, 0xBB}, -1, true)); err == nil {
+		t.Fatal("extension stub must error")
+	}
+	// server_name list entry truncated to a single dangling byte.
+	trunc := []byte{0, 0, 0, 3, 0, 1, 0}
+	if _, err := parseClientHelloSNI(buildHelloMsg(trunc, -1, true)); err == nil {
+		t.Fatal("server_name stub must error")
+	}
+	// server_name holding only a non-host_name entry: no SNI, no error.
+	entry := []byte{1, 0, 3, 'a', 'b', 'c'}
+	data := append([]byte{byte(len(entry) >> 8), byte(len(entry))}, entry...)
+	other := append([]byte{0, 0, byte(len(data) >> 8), byte(len(data))}, data...)
+	if sni, err := parseClientHelloSNI(buildHelloMsg(other, -1, true)); err != nil || sni != "" {
+		t.Fatalf("non-host_name entry: sni=%q err=%v", sni, err)
+	}
+}
+
+func TestReadClientHelloOversizeDeclared(t *testing.T) {
+	record := func(payload []byte) []byte {
+		return append([]byte{0x16, 0x03, 0x01, byte(len(payload) >> 8), byte(len(payload))}, payload...)
+	}
+	// Declared handshake length far beyond the cap: refused from the
+	// header alone, without streaming the body first.
+	p := make([]byte, 104)
+	copy(p, []byte{0x01, 0x01, 0x86, 0xA0}) // msgLen = 100000
+	if _, _, _, err := readClientHelloSNI(bytes.NewReader(record(p))); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("declared oversize: err=%v", err)
+	}
+	// Cumulative records beyond the cap: refused before the crossing
+	// record's payload is read (the stream ends after its header).
+	chunk := make([]byte, 18432)
+	copy(chunk, []byte{0x01, 0x00, 0xEA, 0x60}) // msgLen = 60000, under the cap
+	var stream []byte
+	for i := 0; i < 3; i++ {
+		stream = append(stream, record(chunk)...)
+	}
+	stream = append(stream, 0x16, 0x03, 0x01, 0x48, 0x00) // 4th record header only
+	if _, _, _, err := readClientHelloSNI(bytes.NewReader(stream)); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("cumulative oversize: err=%v", err)
+	}
+}
+
+// flakyListener fails Accept a fixed number of times (the EMFILE shape),
+// then serves connections handed over ch.
+type flakyListener struct {
+	mu     sync.Mutex
+	fails  int
+	ch     chan net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func (f *flakyListener) Accept() (net.Conn, error) {
+	f.mu.Lock()
+	if f.fails > 0 {
+		f.fails--
+		f.mu.Unlock()
+		return nil, errors.New("too many open files")
+	}
+	f.mu.Unlock()
+	select {
+	case c := <-f.ch:
+		return c, nil
+	case <-f.closed:
+		return nil, errors.New("listener closed")
+	}
+}
+
+func (f *flakyListener) Close() error {
+	f.once.Do(func() { close(f.closed) })
+	return nil
+}
+
+func (f *flakyListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 443}
+}
+
+// A transient accept failure must not silently kill the listener: the
+// manager keeps it registered and would never rebind it.
+func TestMuxAcceptTransientErrorSurvives(t *testing.T) {
+	old := muxAcceptRetry
+	muxAcceptRetry = time.Millisecond
+	defer func() { muxAcceptRetry = old }()
+	backend := tlsBackend(t, "BACKEND-A", "a.test")
+	fl := &flakyListener{fails: 5, ch: make(chan net.Conn, 1), closed: make(chan struct{})}
+	l := &muxListener{port: 443, ln: fl, sem: make(chan struct{}, 4), conns: map[net.Conn]struct{}{}}
+	l.table.Store(muxTable{routes: map[string]string{"a.test": backend}})
+	go l.serve(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	defer l.close()
+
+	clientEnd, serverEnd := net.Pipe()
+	fl.ch <- serverEnd
+	tc := tls.Client(clientEnd, &tls.Config{ServerName: "a.test", InsecureSkipVerify: true})
+	_ = clientEnd.SetDeadline(time.Now().Add(3 * time.Second))
+	if err := tc.Handshake(); err != nil {
+		t.Fatalf("handshake through recovered listener: %v", err)
+	}
+	b, err := io.ReadAll(tc)
+	if err != nil || string(b) != "BACKEND-A" {
+		t.Fatalf("got %q err %v", b, err)
+	}
+	tc.Close()
 }
 
 func TestPortsOfIncludesMux(t *testing.T) {

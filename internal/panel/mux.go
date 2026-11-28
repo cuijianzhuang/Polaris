@@ -224,10 +224,31 @@ func (s *Server) validateMuxGroup(g *store.MuxGroup, selfID string) error {
 		if p, err := strconv.Atoi(port); err != nil || p <= 0 || p > 65535 {
 			return fmt.Errorf("回落目标端口无效")
 		}
+		// The splitter relays unauthenticated internet traffic to this
+		// target, so it must be a public site (design D6) — never the
+		// node itself or a service on its LAN, which would turn the mux
+		// into an unauthenticated relay inward. Literal addresses are
+		// refused here; names are re-checked by the agent against the
+		// resolved addresses at dial time.
+		if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+			return fmt.Errorf("回落目标不能指向本机（localhost）：外部回落只允许公网真实站点")
+		}
+		if ip := net.ParseIP(host); ip != nil && !publicFallbackIP(ip) {
+			return fmt.Errorf("回落目标不能指向本机或内网地址（%s）：外部回落只允许公网真实站点", host)
+		}
 	default:
 		return fmt.Errorf("未知回落方式 %q", g.FallbackKind)
 	}
 	return nil
+}
+
+// publicFallbackIP reports whether a literal fallback address is a
+// routable public address. It mirrors the agent's dial-time guard so a
+// bad target is already refused at save time.
+func publicFallbackIP(ip net.IP) bool {
+	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLoopback() &&
+		!ip.IsUnspecified() && !ip.IsMulticast() && !ip.IsLinkLocalUnicast() &&
+		!ip.IsLinkLocalMulticast() && !cgnat.Contains(ip)
 }
 
 // muxMemberCount counts a group's member inbounds.

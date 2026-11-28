@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +31,7 @@ var (
 	muxHelloTimeout = 10 * time.Second // tests shrink this
 	muxDialTimeout  = 5 * time.Second
 	muxMaxConns     = 2048 // per listener
+	muxAcceptRetry  = 100 * time.Millisecond
 )
 
 // maxClientHello caps the buffered handshake bytes: a ClientHello is a
@@ -39,6 +41,122 @@ const maxClientHello = 64 << 10
 type muxTable struct {
 	routes   map[string]string // lower-case SNI -> upstream host:port
 	fallback string            // upstream for unmatched traffic, "" = drop
+}
+
+// isMember reports whether upstream is one of the member loopback
+// addresses in this table (a matched route, or the fallback when the
+// fallback is a member). Anything else is the external fallback target.
+func (t muxTable) isMember(upstream string) bool {
+	for _, up := range t.routes {
+		if up == upstream {
+			return true
+		}
+	}
+	return false
+}
+
+// dialUpstream dials a routing target. Member upstreams are loopback
+// ports the panel allocated and are dialed directly; the external
+// fallback goes through the guarded public dial so unauthenticated
+// internet traffic can never be relayed to a loopback or LAN service
+// on or behind the node.
+func (l *muxListener) dialUpstream(tbl muxTable, upstream string) (net.Conn, error) {
+	if tbl.isMember(upstream) {
+		return net.DialTimeout("tcp", upstream, muxDialTimeout)
+	}
+	return dialPublicFallback(upstream, l.port, muxDialTimeout)
+}
+
+var _, muxCGNAT, _ = net.ParseCIDR("100.64.0.0/10") // carrier-grade NAT (RFC 6598)
+
+// publicIP reports whether ip is a routable public address — the only
+// kind an external mux fallback may point at.
+func publicIP(ip net.IP) bool {
+	return ip != nil && ip.IsGlobalUnicast() && !ip.IsPrivate() &&
+		!ip.IsLoopback() && !ip.IsUnspecified() && !ip.IsMulticast() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() &&
+		!muxCGNAT.Contains(ip)
+}
+
+// dialPublicFallback resolves target and dials one of its public
+// addresses directly, so the addresses checked are the addresses
+// dialed (no second resolution whose answer could differ). It also
+// refuses the listener's own address on the listener's own port: a
+// fallback pointing back at the mux would loop a single inbound
+// connection into a full listener of chained connections.
+func dialPublicFallback(target string, selfPort int, timeout time.Duration) (net.Conn, error) {
+	host, portStr, err := net.SplitHostPort(target)
+	if err != nil {
+		return nil, err
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port <= 0 || port > 65535 {
+		return nil, fmt.Errorf("mux fallback port %q invalid", portStr)
+	}
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range addrs {
+			ips = append(ips, a.IP)
+		}
+	}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for _, ip := range ips {
+		if !publicIP(ip) {
+			continue
+		}
+		if port == selfPort && isLocalAddr(ip) {
+			continue // never dial back into this very listener
+		}
+		remain := time.Until(deadline)
+		if remain <= 0 {
+			break
+		}
+		c, err := net.DialTimeout("tcp", net.JoinHostPort(ip.String(), portStr), remain)
+		if err == nil {
+			return c, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, errors.New("mux fallback target has no public address")
+}
+
+// isLocalAddr reports whether ip is assigned to one of this host's
+// interfaces.
+func isLocalAddr(ip net.IP) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// loopbackUpstream reports whether up is a loopback IP:port — the only
+// shape a member route may take (design D2: members terminate TLS on
+// loopback ports the panel allocated).
+func loopbackUpstream(up string) bool {
+	host, _, err := net.SplitHostPort(up)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 type muxListener struct {
@@ -86,10 +204,28 @@ func (l *muxListener) untrack(c net.Conn) {
 }
 
 func (l *muxListener) serve(log *slog.Logger) {
+	var lastErrLog time.Time
 	for {
 		c, err := l.ln.Accept()
 		if err != nil {
-			return // listener closed
+			l.mu.Lock()
+			closed := l.closed
+			l.mu.Unlock()
+			if closed {
+				return // listener closed on purpose
+			}
+			// A transient accept failure (EMFILE under a connection
+			// flood is the realistic one) must not kill the listener
+			// for good: the manager keeps it registered and would only
+			// swap its table, never rebind. Back off and retry; warn at
+			// most once per 10s so a persistent failure cannot flood
+			// the log either.
+			if time.Since(lastErrLog) >= 10*time.Second {
+				log.Warn("mux accept failed, retrying", "group", l.name, "port", l.port, "err", err)
+				lastErrLog = time.Now()
+			}
+			time.Sleep(muxAcceptRetry)
+			continue
 		}
 		select {
 		case l.sem <- struct{}{}:
@@ -133,7 +269,7 @@ func (l *muxListener) handle(client net.Conn, log *slog.Logger) {
 	if upstream == "" {
 		return
 	}
-	srv, err := net.DialTimeout("tcp", upstream, muxDialTimeout)
+	srv, err := l.dialUpstream(tbl, upstream)
 	if err != nil {
 		log.Debug("mux dial failed", "group", l.name, "upstream", upstream, "err", err)
 		return
@@ -144,7 +280,13 @@ func (l *muxListener) handle(client net.Conn, log *slog.Logger) {
 	l.mu.Unlock()
 	defer l.untrack(srv)
 	if len(prefix) > 0 {
-		if _, err := srv.Write(prefix); err != nil {
+		// The read deadline is gone by now; bound the replay write so a
+		// peer that accepts but never reads cannot pin this goroutine
+		// (and its connection slot) forever.
+		_ = srv.SetWriteDeadline(time.Now().Add(muxDialTimeout))
+		_, werr := srv.Write(prefix)
+		_ = srv.SetWriteDeadline(time.Time{})
+		if werr != nil {
 			return
 		}
 	}
@@ -224,6 +366,16 @@ func (m *muxManager) sync(spec *model.NodeSpec) error {
 	for _, port := range ports {
 		w := want[port]
 		tbl := muxTableOf(w)
+		// Defense in depth: member upstreams are loopback ports the
+		// panel allocated. Drop any route that is not, so a malformed
+		// or hostile spec cannot turn the splitter into a relay to
+		// arbitrary addresses for SNI-matched traffic either.
+		for sni, up := range tbl.routes {
+			if !loopbackUpstream(up) {
+				m.log.Warn("mux route dropped: upstream is not loopback", "group", w.Name, "sni", sni, "upstream", up)
+				delete(tbl.routes, sni)
+			}
+		}
 		if l, ok := m.listeners[port]; ok {
 			l.table.Store(tbl)
 			l.name = w.Name
@@ -268,17 +420,24 @@ func readClientHelloSNI(r io.Reader) (sni string, prefix []byte, isTLS bool, err
 		if recLen <= 0 || recLen > 18432 { // RFC 8446: 2^14 + 2048 max
 			return "", nil, true, errors.New("tls record too large")
 		}
+		// Enforce the cap before reading the payload: a peer must not be
+		// able to make the splitter buffer more than maxClientHello, and
+		// a hello that declares an oversized message is refused as soon
+		// as its header is in, not after streaming the whole body.
+		if len(handshake)+recLen > maxClientHello {
+			return "", nil, true, errors.New("client hello too large")
+		}
 		payload := make([]byte, recLen)
 		if _, err := io.ReadFull(r, payload); err != nil {
 			return "", nil, true, err
 		}
 		prefix = append(prefix, payload...)
 		handshake = append(handshake, payload...)
-		if len(handshake) > maxClientHello {
-			return "", nil, true, errors.New("client hello too large")
-		}
 		if len(handshake) >= 4 {
 			msgLen := int(handshake[1])<<16 | int(handshake[2])<<8 | int(handshake[3])
+			if 4+msgLen > maxClientHello {
+				return "", nil, true, errors.New("client hello too large")
+			}
 			if len(handshake) >= 4+msgLen {
 				break // full handshake message buffered
 			}
@@ -318,15 +477,22 @@ func parseClientHelloSNI(b []byte) (string, error) {
 	if rd.err != nil {
 		return "", rd.err
 	}
+	// A hello that ends exactly here has no extensions field and carries
+	// no SNI. Anything shorter than a full extensions block is a
+	// truncated structure: design D6 drops malformed hellos instead of
+	// treating them as "no SNI" and handing them to the fallback.
+	if len(rd.b) == 0 {
+		return "", nil
+	}
 	exts := rd.takeLen16() // extensions block
 	if rd.err != nil {
-		return "", nil // a hello without extensions carries no SNI
+		return "", errors.New("client hello extensions truncated")
 	}
 	er := &byteReader{b: exts}
-	for {
+	for len(er.b) > 0 {
 		hdr := er.take(4)
 		if er.err != nil {
-			return "", nil // walked everything: no server_name found
+			return "", errors.New("client hello extension truncated")
 		}
 		typ := int(hdr[0])<<8 | int(hdr[1])
 		ln := int(hdr[2])<<8 | int(hdr[3])
@@ -343,10 +509,10 @@ func parseClientHelloSNI(b []byte) (string, error) {
 			return "", sr.err
 		}
 		lr := &byteReader{b: list}
-		for {
+		for len(lr.b) > 0 {
 			e := lr.take(3)
 			if lr.err != nil {
-				return "", nil
+				return "", errors.New("client hello server_name truncated")
 			}
 			nameLen := int(e[1])<<8 | int(e[2])
 			name := lr.take(nameLen)
@@ -357,7 +523,9 @@ func parseClientHelloSNI(b []byte) (string, error) {
 				return strings.ToLower(string(name)), nil
 			}
 		}
+		return "", nil // server_name present but holds no host_name entry
 	}
+	return "", nil // walked everything: no server_name found
 }
 
 // byteReader is a bounds-checked cursor over a byte slice.
