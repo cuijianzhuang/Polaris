@@ -52,7 +52,7 @@ func (s *Server) githubAnyLoginURL(c *gin.Context) {
 // githubUserLoginCallback, unchanged (bound user → member session,
 // unbound → registration when open, refusal otherwise).
 func (s *Server) githubAnyCallback(c *gin.Context, st oauthState) {
-	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(c.Request, "", fragment)) }
+	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(nil, "", fragment)) }
 	fail := func(msg string) { back("gh_error=" + url.QueryEscape(msg)) }
 	if e := c.Query("error"); e != "" {
 		fail("已取消 GitHub 授权")
@@ -117,7 +117,7 @@ func (s *Server) ssoAnyLoginURL(c *gin.Context) {
 // off the entry keeps pure admin semantics: an identity bound only
 // on the user side is refused exactly like an unbound one.
 func (s *Server) ssoAnyCallback(c *gin.Context, st oauthState) {
-	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(c.Request, "", fragment)) }
+	back := func(fragment string) { c.Redirect(http.StatusFound, s.adminPageURL(nil, "", fragment)) }
 	fail := func(msg string) { back("gh_error=" + url.QueryEscape(msg)) }
 	if e := c.Query("error"); e != "" {
 		fail("已取消授权：" + orDefault(c.Query("error_description"), e))
