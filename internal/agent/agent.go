@@ -80,6 +80,9 @@ type Agent struct {
 
 	collectWarnMu sync.Mutex
 	collectWarned map[string]time.Time // last warning per core type
+
+	confirmNoteMu sync.Mutex
+	confirmNote   string // last reported upgrade-confirmation blocker
 	client        polarisv1connect.AgentServiceClient
 	installer     *Installer
 	sys           sysSampler

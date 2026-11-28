@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 )
@@ -108,7 +109,16 @@ func (a *Agent) selfUpdate(ctx context.Context, args map[string]string) (_ strin
 	if err := syncDir(filepath.Dir(exe)); err != nil {
 		return "", err
 	}
-	if err := stageUpgrade(a.cfg.DataDir, exe, tmp.Name(), want, newVersion); err != nil {
+	// Record which cores are running now; the candidate only has to bring
+	// those back to confirm (see upgradeTrial.Baseline).
+	var wasRunning []string
+	for typ, m := range a.coreSnapshot() {
+		if m.adapter.Health(ctx).Running {
+			wasRunning = append(wasRunning, string(typ))
+		}
+	}
+	sort.Strings(wasRunning)
+	if err := stageUpgrade(a.cfg.DataDir, exe, tmp.Name(), want, newVersion, wasRunning); err != nil {
 		return "", err
 	}
 	staged = true

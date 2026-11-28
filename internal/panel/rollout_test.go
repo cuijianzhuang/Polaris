@@ -307,3 +307,24 @@ func TestRolloutRejectsUnconfirmedAgentTrial(t *testing.T) {
 		t.Fatal("confirmed version rejected", reason)
 	}
 }
+
+// A node running an unconfirmed trial build reports version+"-trial";
+// the health reason must say the trial is unconfirmed, not read as a
+// plain version mismatch.
+func TestRolloutAgentTrialVersionReason(t *testing.T) {
+	s := newTestServer(t)
+	fleet := &fakeFleet{}
+	fleet.install(t, s)
+	ids := rolloutNodesFixture(t, s, 1)
+	r := &store.UpgradeRollout{Kind: "agent", Version: "2.0.0"}
+	s.st.DB.Model(&store.Node{}).Where("id = ?", ids[0]).Update("agent_version", "2.0.0-trial")
+	ok, reason, fatal := s.rolloutNodeHealthy(r, ids[0])
+	if ok || fatal || reason != "新版试运行尚未确认" {
+		t.Fatalf("trial node: ok=%v fatal=%v reason=%q", ok, fatal, reason)
+	}
+	s.st.DB.Model(&store.Node{}).Where("id = ?", ids[0]).Update("agent_version", "1.0.0")
+	_, reason, _ = s.rolloutNodeHealthy(r, ids[0])
+	if !strings.Contains(reason, "Agent 仍是") {
+		t.Fatalf("old version reason: %q", reason)
+	}
+}
