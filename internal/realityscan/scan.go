@@ -18,11 +18,21 @@ import (
 	"time"
 )
 
-// Candidates are probed when no target is given.
+// Candidates are probed when no target is given. The pool deliberately
+// avoids the big-tech template sites everyone reuses (Microsoft, Apple,
+// Amazon, Cloudflare, …) and anything CDN-fronted: every entry was verified
+// on 2026-11-28 (DNS structure via public resolvers, TLS behaviour via
+// Qualys SSL Labs assessments) to be a direct origin — no CDN CNAME, no
+// CDN address space — negotiating TLS 1.3 with ALPN h2. Regional spread
+// comes from universities, nonprofits and project infrastructure with
+// their own networks; the scan sorts by the probing side's measured
+// latency, so the nearest suitable target wins per node.
 var Candidates = []string{
-	"www.microsoft.com", "www.apple.com", "www.amazon.com", "aws.amazon.com", "www.cloudflare.com",
-	"www.samsung.com", "www.amd.com", "www.nvidia.com", "www.sony.com", "www.oracle.com",
-	"www.cisco.com", "www.intel.com", "www.lovelive-anime.jp", "dl.google.com", "www.yahoo.com",
+	"www.wikipedia.org",                    // Wikimedia (global, own cache layer)
+	"www.debian.org", "www.postgresql.org", // project mirror networks (NA/EU)
+	"www.ethz.ch", "www.tu-berlin.de", "www.univie.ac.at", "www.inria.fr", // EU universities/research
+	"www.heise.de", "www.videolan.org", "www.kde.org", "www.libreoffice.org", "www.ubuntu.com", // EU publishers/projects
+	"www.hkust.edu.hk", "www.smu.edu.sg", "www.iitb.ac.in", "www.iitd.ac.in", "www.iisc.ac.in", // APAC universities
 }
 
 // Result describes one probed target.
@@ -43,8 +53,9 @@ type Result struct {
 	ASN        string   `json:"asn,omitempty"`
 	Org        string   `json:"org,omitempty"`
 	Country    string   `json:"country,omitempty"`
-	Target     string   `json:"target"` // dial host:port to use as REALITY "target"
-	OK         bool     `json:"ok"`     // usable: TLS 1.3 + h2 + valid certificate
+	Target     string   `json:"target"`        // dial host:port to use as REALITY "target"
+	OK         bool     `json:"ok"`            // usable: TLS 1.3 + h2 + valid certificate + not CDN-fronted
+	CDN        string   `json:"cdn,omitempty"` // CDN in front of the target, if any
 	TLS        string   `json:"tls,omitempty"`
 	ALPN       string   `json:"alpn,omitempty"`
 	KeyShare   string   `json:"keyShare,omitempty"`
@@ -325,11 +336,16 @@ func ProbeCandidate(ctx context.Context, c Candidate) Result {
 		r.Problem = "证书对该域名无效"
 		return r
 	}
+	if peer, err := netip.ParseAddrPort(r.Address); err == nil {
+		r.CDN = cdnCheck(ctx, host, peer.Addr())
+	}
 	switch {
 	case st.Version != tls.VersionTLS13:
 		r.Problem = "不支持 TLS 1.3"
 	case r.ALPN != "h2":
 		r.Problem = "不支持 HTTP/2"
+	case r.CDN != "":
+		r.Problem = "CDN 前置（" + r.CDN + "），不适合做 REALITY 目标"
 	default:
 		r.OK = true
 		r.Names = []string{sni}
