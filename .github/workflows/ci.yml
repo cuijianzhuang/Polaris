@@ -376,7 +376,9 @@ jobs:
   passkeys:
     needs: changes
     if: needs.changes.outputs.portal == 'true' && inputs.reuse_validated_checks != true
-    container: mcr.microsoft.com/playwright/python:v1.56.0-noble
+    # Keep this image tag in sync with web/scripts/browser-requirements.txt:
+    # the image bakes the browser binaries the pinned package launches.
+    container: mcr.microsoft.com/playwright/python:v1.64.1-noble
     defaults:
       run:
         shell: bash
