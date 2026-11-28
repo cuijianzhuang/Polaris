@@ -174,7 +174,8 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       reuse_validated_checks: ${{ needs.verified-checks.outputs.reuse == 'true' }}
-    secrets: inherit
+    secrets:
+      PRO_TOKEN: ${{ secrets.PRO_TOKEN }}
 
   # Both editions in one release:
   #   community  polaris-panel-<v>-linux-<arch>.tar.gz      polaris-agent-linux-<arch>
