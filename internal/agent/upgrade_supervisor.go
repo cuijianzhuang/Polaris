@@ -18,6 +18,7 @@ import (
 
 	polarisv1 "github.com/cuijianzhuang/polaris/api/gen/polaris/v1"
 	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/model"
 	"github.com/cuijianzhuang/polaris/internal/pki"
 )
 
@@ -33,6 +34,14 @@ type upgradeTrial struct {
 	SHA256     string `json:"sha256"`
 	Version    string `json:"version"`
 	Nonce      string `json:"nonce"`
+	// Baseline records which cores were running when the upgrade was
+	// staged. Confirmation then only requires those cores to be running
+	// again: a core that was already stopped before the upgrade is a
+	// pre-existing condition the new binary did not cause and cannot fix.
+	// Journals written by older agents have no baseline; confirmation for
+	// them keeps the legacy rule (every managed core must run).
+	Baseline   bool     `json:"baseline,omitempty"`
+	WasRunning []string `json:"wasRunning,omitempty"`
 }
 
 func trialPath(data string) string { return filepath.Join(data, "agent", "upgrade-trial.json") }
@@ -153,11 +162,11 @@ func RecoverUpgrade(data, executable string) error {
 	return clearTrial(data, t)
 }
 
-func stageUpgrade(data, executable, candidate, digest, version string) error {
+func stageUpgrade(data, executable, candidate, digest, version string, wasRunning []string) error {
 	if _, err := os.Stat(trialPath(data)); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("another agent upgrade is pending")
 	}
-	t := upgradeTrial{Format: 1, Executable: executable, Candidate: candidate, SHA256: digest, Version: version, Nonce: pki.Token(32)}
+	t := upgradeTrial{Format: 1, Executable: executable, Candidate: candidate, SHA256: digest, Version: version, Nonce: pki.Token(32), Baseline: true, WasRunning: wasRunning}
 	b, err := json.Marshal(t)
 	if err != nil {
 		return err
@@ -284,10 +293,65 @@ func supervise(ctx context.Context, executable, data string, args []string, log 
 	return nil
 }
 
-func (a *Agent) confirmUpgrade() {
-	if !a.cfg.Supervised || a.appliedRev() == 0 {
+// upgradeBlocker reports why this process cannot yet confirm a staged
+// upgrade, or "" when it can. With a baseline journal only the cores that
+// were running at stage time must be running again (a baseline core that
+// left the applied spec no longer counts); without one, every managed
+// core must run, as before.
+func (a *Agent) upgradeBlocker(t *upgradeTrial) string {
+	if !a.cfg.Supervised {
+		return "未以监督模式运行"
+	}
+	if a.appliedRev() == 0 {
+		return "尚未应用面板配置"
+	}
+	snap := a.coreSnapshot()
+	if t.Baseline {
+		for _, name := range t.WasRunning {
+			m, ok := snap[model.CoreType(name)]
+			if !ok {
+				continue
+			}
+			if !m.adapter.Health(context.Background()).Running {
+				return "内核 " + name + " 未运行"
+			}
+		}
+	} else {
+		for typ, m := range snap {
+			if !m.adapter.Health(context.Background()).Running {
+				return "内核 " + string(typ) + " 未运行"
+			}
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil || exe != t.Candidate || t.Version != Version {
+		return "当前进程不是待确认的候选版本"
+	}
+	if err := a.sendHeartbeat(); err != nil {
+		return "心跳失败：" + err.Error()
+	}
+	return ""
+}
+
+// noteUpgradeBlocker surfaces the current confirmation blocker once per
+// change: in the journal and as node progress, so a stuck trial says why
+// instead of timing out silently.
+func (a *Agent) noteUpgradeBlocker(blocker string) {
+	a.confirmNoteMu.Lock()
+	changed := a.confirmNote != blocker
+	a.confirmNote = blocker
+	a.confirmNoteMu.Unlock()
+	if !changed {
 		return
 	}
+	if blocker == "" {
+		return
+	}
+	a.log.Warn("agent upgrade confirmation waiting", "reason", blocker)
+	a.progress.emit(&polarisv1.Progress{Stage: "Agent 升级确认等待：" + blocker, StartedAt: time.Now().Unix()})
+}
+
+func (a *Agent) confirmUpgrade() {
 	t, err := readTrial(a.cfg.DataDir, a.cfg.UpdateExecutable)
 	if errors.Is(err, os.ErrNotExist) {
 		return
@@ -296,18 +360,11 @@ func (a *Agent) confirmUpgrade() {
 		a.log.Error("read upgrade confirmation", "err", err)
 		return
 	}
-	exe, err := os.Executable()
-	if err != nil || exe != t.Candidate || t.Version != Version {
+	if blocker := a.upgradeBlocker(t); blocker != "" {
+		a.noteUpgradeBlocker(blocker)
 		return
 	}
-	for _, m := range a.coreSnapshot() {
-		if !m.adapter.Health(context.Background()).Running {
-			return
-		}
-	}
-	if err := a.sendHeartbeat(); err != nil {
-		return
-	}
+	a.noteUpgradeBlocker("")
 	if !t.ready(a.cfg.DataDir) {
 		if err := durableWrite(readyPath(a.cfg.DataDir), []byte(t.Nonce), 0o600); err != nil {
 			a.log.Error("confirm agent upgrade", "err", err)

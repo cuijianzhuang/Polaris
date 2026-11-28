@@ -434,6 +434,12 @@ func (s *Server) rolloutNodeHealthy(r *store.UpgradeRollout, nodeID string) (ok 
 	}
 	switch r.Kind {
 	case "agent":
+		if n.AgentVersion == r.Version+"-trial" {
+			// The candidate is up but has not confirmed locally, so the
+			// supervisor has not promoted it yet; say that instead of
+			// reporting a plain version mismatch.
+			return false, "新版试运行尚未确认", false
+		}
 		if n.AgentVersion != r.Version {
 			return false, "Agent 仍是 " + orDefault(n.AgentVersion, "旧版本"), false
 		}

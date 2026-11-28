@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cuijianzhuang/polaris/internal/core"
+	"github.com/cuijianzhuang/polaris/internal/model"
 )
 
 // Real child processes exercise the worker protocol, including crashes and a
@@ -32,7 +35,7 @@ func TestUpgradeWorkerHelper(t *testing.T) {
 			if os.Getenv("UPGRADE_CASE") == "tampered" {
 				digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			}
-			if stageUpgrade(data, entry, candidate, digest, "test-new") != nil {
+			if stageUpgrade(data, entry, candidate, digest, "test-new", nil) != nil {
 				os.Exit(3)
 			}
 			_ = os.WriteFile(filepath.Join(data, "attempted"), nil, 0o600)
@@ -173,7 +176,7 @@ func TestUpgradeRecoveryAfterRestart(t *testing.T) {
 			_ = os.WriteFile(entry, []byte("previous"), 0o755)
 			_ = os.WriteFile(candidate, []byte("new"), 0o755)
 			digest, _ := fileDigest(candidate)
-			if err := stageUpgrade(data, entry, candidate, digest, "new"); err != nil {
+			if err := stageUpgrade(data, entry, candidate, digest, "new", nil); err != nil {
 				t.Fatal(err)
 			}
 			trial, err := readTrial(data, entry)
@@ -217,5 +220,55 @@ func TestUpgradeRejectsInvalidJournalAndUnsupervisedUpdate(t *testing.T) {
 	a := &Agent{}
 	if _, err := a.selfUpdate(context.Background(), map[string]string{"sha256_" + runtime.GOARCH: "abc", "version": "new"}); err == nil {
 		t.Fatal("allowed upgrade without rollback supervisor")
+	}
+}
+
+type stubCoreAdapter struct {
+	core.CoreAdapter
+	running bool
+}
+
+func (s stubCoreAdapter) Health(context.Context) model.CoreStatus {
+	return model.CoreStatus{Running: s.running}
+}
+
+// The confirmation gate: with a baseline journal, a core that was already
+// stopped when the upgrade was staged must not block promotion (the old
+// all-cores rule made such nodes roll back every upgrade); a core that
+// was running and is now down still blocks. Legacy journals without a
+// baseline keep the strict rule.
+func TestUpgradeBlockerBaseline(t *testing.T) {
+	newAgent := func(cores map[model.CoreType]*managed) *Agent {
+		a := &Agent{
+			cfg:   Config{Supervised: true, DataDir: t.TempDir(), UpdateExecutable: filepath.Join(t.TempDir(), "polaris-agent")},
+			log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+			cores: cores,
+		}
+		a.rev.Store(1)
+		return a
+	}
+	mk := func(running bool) *managed { return &managed{adapter: stubCoreAdapter{running: running}} }
+	// Past the core gate, the test binary is not the staged candidate, so
+	// the identity check is the expected next blocker.
+	const pastCores = "当前进程不是待确认的候选版本"
+
+	a := newAgent(map[model.CoreType]*managed{model.CoreXray: mk(true), model.CoreSingbox: mk(false)})
+	base := &upgradeTrial{Baseline: true, WasRunning: []string{string(model.CoreXray)}, Version: Version, Candidate: "candidate"}
+	if got := a.upgradeBlocker(base); got != pastCores {
+		t.Fatalf("pre-stopped non-baseline core blocked confirmation: %q", got)
+	}
+	down := &upgradeTrial{Baseline: true, WasRunning: []string{string(model.CoreXray), string(model.CoreSingbox)}, Version: Version, Candidate: "candidate"}
+	if got := a.upgradeBlocker(down); got != "内核 singbox 未运行" {
+		t.Fatalf("baseline core down should block: %q", got)
+	}
+	legacy := &upgradeTrial{Version: Version, Candidate: "candidate"}
+	if got := a.upgradeBlocker(legacy); got != "内核 singbox 未运行" {
+		t.Fatalf("legacy journal should require every core: %q", got)
+	}
+	// A baseline core that left the applied spec no longer blocks.
+	a2 := newAgent(map[model.CoreType]*managed{model.CoreSingbox: mk(true)})
+	gone := &upgradeTrial{Baseline: true, WasRunning: []string{string(model.CoreXray)}, Version: Version, Candidate: "candidate"}
+	if got := a2.upgradeBlocker(gone); got != pastCores {
+		t.Fatalf("removed baseline core blocked confirmation: %q", got)
 	}
 }
