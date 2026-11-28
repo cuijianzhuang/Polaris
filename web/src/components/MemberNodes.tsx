@@ -79,7 +79,7 @@ const emptyDraft = (): InboundDraft => ({
   core: 'xray',
   protocol: { type: 'vless', flow: 'xtls-rprx-vision' },
   transport: { type: 'tcp' },
-  security: { type: 'reality', realityDest: 'www.microsoft.com:443' },
+  security: { type: 'reality', realityDest: 'www.wikipedia.org:443' },
   sniffing: { enabled: true },
 })
 

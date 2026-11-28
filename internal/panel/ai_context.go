@@ -293,7 +293,7 @@ func (s *Server) aiRespond(c *gin.Context, cfg aiConfig, r aiRequest, data gin.H
 		system += "\n你是用户客服，仅讨论本人的套餐、客户端和授权节点。付款、退款、套餐变更与账号解封须由人工按面板实际流程处理。"
 	}
 	if r.Mode == "draft" {
-		system += `\n仅输出一个 JSON 对象，不要代码围栏或说明。格式：{"core":"xray","protocol":"vless","transport":"tcp","security":"reality","port":443,"serverName":"www.microsoft.com"}。只从当前节点 capabilities 选择组合。避开已有端口，禁止提供密钥、Extra、命令或未知字段。TLS 仅在 nodeTLSIdentityAvailable 为 true 时建议，TLS 的 serverName 留空，由面板填入本机证书身份。REALITY 的 serverName 为公开伪装站域名。不确定时优先建议已支持的 REALITY。`
+		system += `\n仅输出一个 JSON 对象，不要代码围栏或说明。格式：{"core":"xray","protocol":"vless","transport":"tcp","security":"reality","port":443,"serverName":"www.wikipedia.org"}。只从当前节点 capabilities 选择组合。避开已有端口，禁止提供密钥、Extra、命令或未知字段。TLS 仅在 nodeTLSIdentityAvailable 为 true 时建议，TLS 的 serverName 留空，由面板填入本机证书身份。REALITY 的 serverName 为公开伪装站域名。不确定时优先建议已支持的 REALITY。`
 	}
 	contextText := aiRedact(string(encoded))
 	if len(contextText) > 28000 {

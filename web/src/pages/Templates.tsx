@@ -41,7 +41,7 @@ const certText: Record<string, string> = { acme: t('ACME 签 {node.domain}'), re
 function newItem(): TemplateItem {
   return {
     key: itemKey(), core: 'auto', protocol: { type: 'vless', flow: 'xtls-rprx-vision' }, transport: { type: 'tcp' },
-    security: { type: 'reality', realityDest: 'www.microsoft.com:443' }, sniffing: { enabled: true }, port: { mode: 'fixed', fixed: 443 },
+    security: { type: 'reality', realityDest: 'www.wikipedia.org:443' }, sniffing: { enabled: true }, port: { mode: 'fixed', fixed: 443 },
     tagPattern: '{node.name}-{protocol}', cert: 'reality', endpoints: [{ kind: 'direct' }],
   }
 }

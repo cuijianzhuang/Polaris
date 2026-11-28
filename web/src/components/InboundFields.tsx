@@ -235,14 +235,14 @@ export default function InboundFields({ draft, onChange, caps, allCaps, coreChoi
         <>
           <Field label={t('REALITY 目标站点')} htmlFor="f-dest" hint={t('私钥 / 公钥 / shortId 自动生成，私钥加密存储。目标需支持 TLS 1.3 + h2，最好支持 X25519MLKEM768')}>
             <div className="row" style={{ flexWrap: 'nowrap' }}>
-              <input id="f-dest" className="input mono" style={{ flex: 1 }} value={s.realityDest ?? ''} onChange={(e) => setDest(e.target.value)} placeholder="www.microsoft.com:443" />
+              <input id="f-dest" className="input mono" style={{ flex: 1 }} value={s.realityDest ?? ''} onChange={(e) => setDest(e.target.value)} placeholder="www.wikipedia.org:443" />
               <button className="btn" type="button" onClick={() => setScanning(true)}>{t('扫描')}</button>
             </div>
           </Field>
           {scanning && <RealityScanner nodeId={nodeId} onClose={() => setScanning(false)}
             onPick={(target, names) => setS({ realityDest: target, realityServerNames: names.length ? names : undefined })} />}
           <Field label="SNI（Server Names）" htmlFor="f-sn" hint={t('必须是目标站点证书里的域名；回车或逗号添加。扫描结果点「使用」会自动填入证书中的全部域名，订阅给客户端用第一个')}>
-            <TagInput id="f-sn" value={s.realityServerNames ?? []} onChange={(v) => setS({ realityServerNames: v.length ? v : undefined })} placeholder={destHost || 'www.microsoft.com'} />
+            <TagInput id="f-sn" value={s.realityServerNames ?? []} onChange={(v) => setS({ realityServerNames: v.length ? v : undefined })} placeholder={destHost || 'www.wikipedia.org'} />
           </Field>
           {snMismatch && (
             <div className="note warn">{t('SNI 与目标站点 {host} 不一致：客户端用 {sni} 握手时，目标站点会拒绝或返回别的证书，节点将连不上。', { host: destHost, sni: first })}
